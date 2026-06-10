@@ -1,0 +1,50 @@
+{
+  "swarm": {
+    "genome_stamping": true,
+    "default_register": "panspermia",
+    "exempt_subagent_types": [
+      "explore",
+      "plan",
+      "claude-code-guide",
+      "statusline-setup"
+    ]
+  },
+  "models": {
+    "researcher": "sonnet",
+    "explore": null,
+    "plan": null,
+    "default_subagent": null
+  },
+  "hooks": {
+    "guard_destructive": {
+      "enabled": true
+    },
+    "genome_guard": {
+      "enabled": true
+    },
+    "sources_capture": {
+      "enabled": true
+    },
+    "research_prime": {
+      "enabled": true
+    },
+    "post_edit_check": {
+      "enabled": true
+    },
+    "session_wrap": {
+      "enabled": true,
+      "trivial_files": 2,
+      "trivial_lines": 30,
+      "heavy_lines": 200
+    },
+    "stop_investigate": {
+      "enabled": true
+    },
+    "session_start": {
+      "enabled": true
+    },
+    "pre_compact": {
+      "enabled": true
+    }
+  }
+}

@@ -1,0 +1,11 @@
+# Transient hook state — regenerated at runtime, never committed.
+.agents/.genome-ledger
+.agents/.mutagen-ledger
+.agents/.sources-ledger
+.agents/.compaction-pending
+.agents/.wrap-prompted
+
+# Per-operator local config and secrets (carry the framework, not the keys).
+**/settings.local.json
+.env
+.env.*
