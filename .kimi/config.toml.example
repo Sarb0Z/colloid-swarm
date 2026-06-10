@@ -1,0 +1,50 @@
+# Merge these hooks into ~/.kimi/config.toml when using Kimi CLI in this repo.
+#
+# Hook policy lives in .agents/hooks/policy/ (engine-agnostic).
+# .kimi/hooks/adapter.sh normalizes Kimi's stdin into the policy contract.
+#
+# The transcript-based stop-investigate hook is omitted: current Kimi
+# hook docs expose stop_hook_active but not a transcript path or
+# last-message field, so a faithful port is not possible today.
+#
+# The genome-guard hook is omitted too — but for a different reason. The
+# emitter (.agents/genome.sh) is engine-neutral, so the orchestrator protocol
+# (stamp a genome onto each dispatched subagent) works under Kimi natively.
+# Only the *enforcement* guard is Claude-wired, because Kimi's subagent-dispatch
+# tool name and PreToolUse payload shape aren't pinned here. If your Kimi build
+# fires PreToolUse on its dispatch tool, add a [[hooks]] block with the right
+# matcher pointing at `.kimi/hooks/adapter.sh genome-guard.sh` and extend the
+# Kimi adapter normalizer to map {prompt, subagent_type}.
+#
+# The search scaffold degrades the same way. The researcher cell
+# (.agents/researcher.md) and the search-and-cite skill are engine-neutral and
+# work natively. But the two mechanical halves are Claude-wired: sources-capture
+# needs Kimi's web-tool names (a PostToolUse matcher + a Kimi adapter branch that
+# maps {tool_name -> kind, value}), and research-prime needs a UserPromptSubmit
+# event Kimi does not expose. So under Kimi today you get the researcher and the
+# discipline, but no automatic evidence trail and no prime — the citation
+# honesty is entirely the agent's.
+
+# MCP servers: this repo's servers (context7, playwright) live in
+# .agents/mcp.json — the same `mcpServers` JSON Claude loads via .mcp.json.
+# Kimi has no repo-level MCP auto-discovery, so launch it with that file:
+#     kimi --mcp-config-file .agents/mcp.json
+# The flag is CLI-only (not a config.toml key) — nothing to merge here.
+# (AGENTS.md and .agents/skills/ are already read natively by Kimi.)
+
+[[hooks]]
+event = "PreToolUse"
+matcher = "Shell"
+command = ".kimi/hooks/adapter.sh guard-destructive.sh"
+timeout = 10
+
+[[hooks]]
+event = "PostToolUse"
+matcher = "WriteFile|StrReplaceFile"
+command = ".kimi/hooks/adapter.sh post-edit-check.sh"
+timeout = 30
+
+[[hooks]]
+event = "Stop"
+command = ".kimi/hooks/adapter.sh session-wrap.sh"
+timeout = 10
