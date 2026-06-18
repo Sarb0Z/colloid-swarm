@@ -46,7 +46,7 @@ atype  = d.get("subagent_type")
 atype  = (atype if isinstance(atype, str) else "").strip().lower()
 
 # Read-only / utility subagent types — no genome expected.
-exempt = set(cfg.get("swarm", {}).get("exempt_subagent_types", ["explore", "plan", "claude-code-guide", "statusline-setup"]))
+exempt = set(cfg.get("swarm", {}).get("exempt_subagent_types", ["explore", "plan", "claude-code-guide", "statusline-setup", "learning-reporter"]))
 SENTINEL = "⊰ COLLOID GENOME · THE "   # genome.sh emits this as a stamp's first line
 
 if atype in exempt or not prompt.strip():
