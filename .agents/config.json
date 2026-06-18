@@ -6,11 +6,13 @@
       "explore",
       "plan",
       "claude-code-guide",
-      "statusline-setup"
+      "statusline-setup",
+      "learning-reporter"
     ]
   },
   "models": {
     "researcher": "sonnet",
+    "learning_reporter": null,
     "explore": null,
     "plan": null,
     "default_subagent": null
@@ -39,6 +41,9 @@
     },
     "stop_investigate": {
       "enabled": true
+    },
+    "learning_report": {
+      "enabled": false
     },
     "session_start": {
       "enabled": true

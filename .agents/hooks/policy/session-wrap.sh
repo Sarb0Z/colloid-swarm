@@ -18,6 +18,13 @@
 # session isn't asked every turn.
 #
 # Tunable: WRAP_TRIVIAL_FILES (2), WRAP_TRIVIAL_LINES (30), WRAP_HEAVY_LINES (200).
+#
+# Pairing mode (opt-in, OFF by default): when hooks.learning_report.enabled is
+# true in .agents/config.json, the substantial-diff branch additionally asks the
+# agent to dispatch the learning-reporter subagent — a code-paired session report
+# for a junior who learns by reviewing. Folded into this hook (one Stop hook, one
+# exit 2) rather than a second Stop hook, whose competing stderr the engine
+# merges unpredictably. Throttled once per session (.agents/.learning-prompted).
 
 set -euo pipefail
 
@@ -73,8 +80,10 @@ cfg_trivial_lines="$(printf '%s\n' "$thresholds" | sed -n '2p')"
 cfg_heavy_lines="$(printf '%s\n' "$thresholds" | sed -n '3p')"
 
 # The kit's own transient state files are not session work — exclude them by name
-# (precise, so a real file that merely sits in .agents/ is never hidden).
-markers='\.agents/\.(genome-ledger|mutagen-ledger|sources-ledger|compaction-pending|wrap-prompted)$'
+# (precise, so a real file that merely sits in .agents/ is never hidden). Generated
+# learning reports under docs/learning/ are tooling output too, not the user's
+# diff, so they never inflate the next magnitude check that triggers them.
+markers='(\.agents/\.(genome-ledger|mutagen-ledger|sources-ledger|compaction-pending|wrap-prompted|learning-prompted)$|^docs/learning/)'
 
 changed=""
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -155,6 +164,54 @@ actually touched; do not sweep files you did not edit.
 
 5. Provide a commit message draft for the session's work in conventional style.
 EOF
+
+  # Pairing mode: append a learning-report dispatch to the SAME stderr (one hook,
+  # one exit 2). The toggle is the one OPT-IN here, so it reads .get("enabled",
+  # False) — a missing/broken config leaves pairing mode OFF, never silently on
+  # (every other hook fails toward enabled; this one must not). Read here, inside
+  # the substantial branch, so trivial/no-diff sessions never spawn the check.
+  # Throttled once per session (keyed by transcript path, like the no-diff ask):
+  # the junior gets one consolidated report, not one per turn. No transcript
+  # (non-Claude engine) means no throttle key, so skip the section, keep the wrap.
+  learning_enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
+import json, os
+cfg = {}
+try:
+    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
+except Exception: pass
+print("yes" if cfg.get("hooks", {}).get("learning_report", {}).get("enabled", False) else "no")
+PY
+)"
+  if [[ "$learning_enabled" == "yes" && -n "${transcript:-}" ]]; then
+    lmarker="$proj/.agents/.learning-prompted"
+    lprev=""
+    [[ -f "$lmarker" ]] && lprev="$(head -n1 "$lmarker" 2>/dev/null || true)"
+    if [[ "$lprev" != "$transcript" ]]; then
+      mkdir -p "$proj/.agents" 2>/dev/null || true
+      { printf '%s\n' "$transcript" > "$lmarker"; } 2>/dev/null || true
+      cat >&2 <<'EOF'
+
+── Pairing mode: a learning report for the junior ────────────────────────
+You are pair-coding with a junior who learns by reviewing, and you turned this
+mode on deliberately. The junior's learning report is a SEPARATE deliverable
+from the wrap above — the "full wrap, or skip?" choice does NOT govern it. Even
+if the user skips the wrap, produce the report this turn (only a direct "skip
+the report too" cancels it). DELEGATE it; do not write it inline:
+
+1. Distill this session's engineering decisions into a brief. For each: what was
+   chosen, the tradeoff, and the alternative(s) you rejected — the *why* you hold
+   in context that a cold reader could not recover from the diff alone.
+2. Dispatch the reporter (exempt from genome stamping — prepend NO stamp):
+     Task(subagent_type='learning-reporter',
+          prompt=<the decision-brief> + <the changed-file list above>)
+   It pairs each decision with the actual code (file:line) and writes the report
+   to docs/learning/. Pass the brief in full — it cannot see this conversation.
+3. Surface the path it returns to the user.
+
+Fires once per session. To regenerate, delete .agents/.learning-prompted.
+EOF
+    fi
+  fi
   exit 2
 fi
 
