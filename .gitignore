@@ -10,3 +10,8 @@
 **/settings.local.json
 .env
 .env.*
+
+# Server-audit run artifacts — infra telemetry + credentials never get committed.
+audit-results/
+**/*.creds
+__pycache__/
