@@ -149,11 +149,30 @@ actually touched; do not sweep files you did not edit.
 
 2. Behavior-impact review on these files
    - Compare the new behavior to the prior behavior.
+   - Flag any regressions or unintended consequences you find.
    - Update every downstream caller, test, and doc/instruction file in the touched domain that the change affects.
    - Stale behavior left in old code paths or docs is a regression.
 
 3. Hostile review
    - Spawn a subagent to review the diff against the surrounding architecture.
+     THE main question, before anything else: does the code actually do what it
+     is supposed to do? Trace the change against its intent and the inputs and
+     edge cases it must handle, and prove it correct — or pinpoint exactly where
+     it does the wrong thing. A clean-looking diff that doesn't do its job is the
+     worst defect. Only then hunt for these, each reported with file:line, why it
+     bites, and the fix:
+     - Dangerous patterns — data loss, unsafe deletes, auth/permission gaps,
+       unvalidated input, injection, secrets in code, swallowed errors.
+     - Scalability issues — unbounded growth, missing pagination, work that
+       won't survive 100x load, per-request cost that should be amortized.
+     - Race conditions — unguarded shared state, check-then-act, missing
+       locks/transactions, non-atomic read-modify-write, ordering assumptions.
+     - Suboptimal queries — N+1, full-table scans, missing indexes, SELECT *,
+       queries inside loops, fetching far more rows than used.
+     - Hard-to-debug code — silent failures, no logging at failure points,
+       magic control flow, deep nesting, side effects hidden behind innocent names.
+     - Weak architecture — leaky layer boundaries, tight coupling, duplicated
+       sources of truth, logic in the wrong layer, abstractions that lie.
    - Fold valid objections; escalate genuine disagreements to the user.
 
 4. Session report
@@ -206,6 +225,7 @@ the report too" cancels it). DELEGATE it; do not write it inline:
           prompt=<the decision-brief> + <the changed-file list above>)
    It pairs each decision with the actual code (file:line) and writes the report
    to docs/learning/. Pass the brief in full — it cannot see this conversation.
+   Explain any interesting or non-obvious code.
 3. Surface the path it returns to the user.
 
 Fires once per session. To regenerate, delete .agents/.learning-prompted.
