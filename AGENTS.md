@@ -80,6 +80,29 @@ decorative.
 Remove stubs and dead code completely. Don't preserve backwards compatibility
 for its own sake—if something is unused or being replaced, delete it outright.
 
+### Latest stable by default
+New technology enters at the latest stable version the project's existing
+constraints admit (runtime, peer deps). When a constraint forces an older
+version, say which one and why. Never write a version number from memory —
+if you don't know the current stable, search for it.
+
+## Communication
+
+Applies to every reply, to the user or a dispatching agent. Candor outranks
+brevity; dense is not minimal.
+
+1. **Lead with the answer.** Answer the question asked, directly; supporting
+   detail follows only where it changes what the reader does next.
+2. **Short over long.** If a short answer suffices, give the short answer.
+   Trade-offs, risks, and viable alternatives are signal, not padding;
+   everything else beyond the ask is spam.
+3. **Candid always.** Report failures, risks, and partial results plainly;
+   never dress them up as done.
+4. **Sources are the deliverable.** When asked to find or collect sources,
+   deliver sources: high-quality references, one-line notes on what each
+   covers, no essay. A question asked with "include sources" is still a
+   question — answer it and cite.
+
 ## Subagent Delegation
 
 Hand off cross-domain or parallelizable work (architecture, bug 
