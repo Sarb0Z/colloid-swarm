@@ -21,10 +21,13 @@
 #
 # Pairing mode (opt-in, OFF by default): when hooks.learning_report.enabled is
 # true in .agents/config.json, the substantial-diff branch additionally asks the
-# agent to dispatch the learning-reporter subagent — a code-paired session report
-# for a junior who learns by reviewing. Folded into this hook (one Stop hook, one
-# exit 2) rather than a second Stop hook, whose competing stderr the engine
-# merges unpredictably. Throttled once per session (.agents/.learning-prompted).
+# agent for a code-paired learning report — each decision paired with the real
+# file:line that embodies it — for a junior who learns by reviewing. Produced
+# INLINE by default; persisted to docs/learning/ via the learning-reporter
+# subagent only when the user asks. Folded into this hook (one Stop hook, one exit
+# 2) rather than a second Stop hook, whose competing stderr the engine merges
+# unpredictably. Fires every substantial-diff turn; hooks.learning_report
+# .cadence_turns=N throttles to every Nth (.agents/.learning-prompted counts).
 
 set -euo pipefail
 
@@ -142,7 +145,9 @@ here. If they want the wrap, walk this checklist against the files this session
 actually touched; do not sweep files you did not edit.
 
 1. Clean-up on these files
-   - Remove unused imports, dead branches, and variables you introduced.
+   - Remove unused imports, dead branches, and unused variables anywhere in these
+     files — pre-existing or introduced this session. The touched files are in
+     scope as a whole; only files you did not edit are off-limits (see the header).
    - Delete comments that describe behavior you removed or replaced.
    - Delete TODO markers you wrote.
    - Delete temporary scripts, fixtures, or scratch files created for iteration.
@@ -172,7 +177,10 @@ actually touched; do not sweep files you did not edit.
      - Hard-to-debug code — silent failures, no logging at failure points,
        magic control flow, deep nesting, side effects hidden behind innocent names.
      - Weak architecture — leaky layer boundaries, tight coupling, duplicated
-       sources of truth, logic in the wrong layer, abstractions that lie.
+       sources of truth, logic in the wrong layer, abstractions that lie. For
+       structural depth on this axis — abstraction quality, dramatic
+       simplification, spaghetti growth, file-size smells — hand off to the
+       thermo-nuclear-code-quality-review skill instead of duplicating it here.
    - Fold valid objections; escalate genuine disagreements to the user.
 
 4. Session report
@@ -184,51 +192,86 @@ actually touched; do not sweep files you did not edit.
 5. Provide a commit message draft for the session's work in conventional style.
 EOF
 
-  # Pairing mode: append a learning-report dispatch to the SAME stderr (one hook,
+  # Pairing mode: append a learning-report request to the SAME stderr (one hook,
   # one exit 2). The toggle is the one OPT-IN here, so it reads .get("enabled",
   # False) — a missing/broken config leaves pairing mode OFF, never silently on
   # (every other hook fails toward enabled; this one must not). Read here, inside
   # the substantial branch, so trivial/no-diff sessions never spawn the check.
-  # Throttled once per session (keyed by transcript path, like the no-diff ask):
-  # the junior gets one consolidated report, not one per turn. No transcript
-  # (non-Claude engine) means no throttle key, so skip the section, keep the wrap.
-  learning_enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
+  #
+  # Cadence: fires every substantial-diff turn by default (cadence_turns=1),
+  # matching the wrap above. Set cadence_turns=N to fire on the first such turn,
+  # then every Nth. Counting turns needs session identity (the transcript path) to
+  # know when the count resets; with no transcript (non-Claude engine) we can't
+  # count, so N>1 degrades to every turn. The report is produced INLINE by default
+  # — no file, no subagent — and persisted only when the user asks.
+  learning_cfg="$(CFG_PATH="$cfg_path" python3 <<'PY'
 import json, os
 cfg = {}
 try:
     with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
 except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("learning_report", {}).get("enabled", False) else "no")
+lr = cfg.get("hooks", {}).get("learning_report", {})
+print("yes" if lr.get("enabled", False) else "no")
+try:
+    n = int(lr.get("cadence_turns", 1))
+except (TypeError, ValueError):
+    n = 1
+print(n if n >= 1 else 1)
 PY
 )"
-  if [[ "$learning_enabled" == "yes" && -n "${transcript:-}" ]]; then
-    lmarker="$proj/.agents/.learning-prompted"
-    lprev=""
-    [[ -f "$lmarker" ]] && lprev="$(head -n1 "$lmarker" 2>/dev/null || true)"
-    if [[ "$lprev" != "$transcript" ]]; then
+  learning_enabled="$(printf '%s\n' "$learning_cfg" | sed -n '1p')"
+  cadence="$(printf '%s\n' "$learning_cfg" | sed -n '2p')"
+
+  if [[ "$learning_enabled" == "yes" ]]; then
+    emit_learning="yes"
+    # N>1: count this session's substantial-diff turns, fire on 1, 1+N, 1+2N…
+    # The marker holds the transcript path (session identity) + the count; a new
+    # session, or an unreadable/old-format count, resets to 0.
+    if [[ -n "${transcript:-}" ]] && (( cadence > 1 )); then
+      lmarker="$proj/.agents/.learning-prompted"
+      lprev_path=""; lprev_count=0
+      if [[ -f "$lmarker" ]]; then
+        lprev_path="$(sed -n '1p' "$lmarker" 2>/dev/null || true)"
+        lprev_count="$(sed -n '2p' "$lmarker" 2>/dev/null || true)"
+      fi
+      [[ "$lprev_path" == "$transcript" ]] || lprev_count=0
+      [[ "$lprev_count" =~ ^[0-9]+$ ]] || lprev_count=0
+      lcount=$(( lprev_count + 1 ))
       mkdir -p "$proj/.agents" 2>/dev/null || true
-      { printf '%s\n' "$transcript" > "$lmarker"; } 2>/dev/null || true
+      { printf '%s\n%s\n' "$transcript" "$lcount" > "$lmarker"; } 2>/dev/null || true
+      (( (lcount - 1) % cadence == 0 )) || emit_learning="no"
+    fi
+    if [[ "$emit_learning" == "yes" ]]; then
       cat >&2 <<'EOF'
 
 ── Pairing mode: a learning report for the junior ────────────────────────
 You are pair-coding with a junior who learns by reviewing, and you turned this
-mode on deliberately. The junior's learning report is a SEPARATE deliverable
-from the wrap above — the "full wrap, or skip?" choice does NOT govern it. Even
-if the user skips the wrap, produce the report this turn (only a direct "skip
-the report too" cancels it). DELEGATE it; do not write it inline:
+mode on deliberately. Produce the learning report INLINE this turn — it is a
+SEPARATE deliverable from the wrap above, and the "full wrap, or skip?" choice
+does NOT govern it. Even if the user skips the wrap, produce the report (only a
+direct "skip the report too" cancels it).
 
-1. Distill this session's engineering decisions into a brief. For each: what was
-   chosen, the tradeoff, and the alternative(s) you rejected — the *why* you hold
-   in context that a cold reader could not recover from the diff alone.
-2. Dispatch the reporter (exempt from genome stamping — prepend NO stamp):
-     Task(subagent_type='learning-reporter',
-          prompt=<the decision-brief> + <the changed-file list above>)
-   It pairs each decision with the actual code (file:line) and writes the report
-   to docs/learning/. Pass the brief in full — it cannot see this conversation.
-   Explain any interesting or non-obvious code.
-3. Surface the path it returns to the user.
+Distill this session's engineering decisions, and pair EACH with the real code
+that embodies it — the reasoning made legible against the lines that prove it:
 
-Fires once per session. To regenerate, delete .agents/.learning-prompted.
+- Decision — one line: what was chosen.
+- Why — the tradeoff and the alternative you rejected; the *why* a cold reader
+  could not recover from the diff alone.
+- The code — a fenced excerpt of the REAL lines, headed with file:line. Lift it
+  from the diff or a tracked file; never an excerpt you wish were there.
+- How it works — the load-bearing mechanics, tied to lines in the excerpt.
+- Pattern — name the reusable pattern ("fail-open guard", "throttle keyed by
+  session"). Naming it is what makes it recognizable next time.
+- Recognition cue — one line: "When you next see X, reach for Y."
+
+Keep it scannable; lead each section with the decision in bold. A decision you
+cannot tie to real code goes under a short "Open for discussion" trailer — never
+fabricate an excerpt to fill the template.
+
+Do NOT write a file. To persist this to docs/learning/ instead, the user only
+has to ask — then delegate it (exempt from genome stamping — prepend NO stamp):
+  Task(subagent_type='learning-reporter',
+       prompt=<the decision-brief> + <the changed-file list above>)
 EOF
     fi
   fi
