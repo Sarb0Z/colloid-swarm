@@ -11,7 +11,5 @@
 .env
 .env.*
 
-# Server-audit run artifacts — infra telemetry + credentials never get committed.
-audit-results/
-**/*.creds
+# Python bytecode.
 __pycache__/
