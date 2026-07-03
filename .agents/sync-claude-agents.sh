@@ -39,7 +39,7 @@ AGENTS = [
         "name": "learning-reporter",
         "model_key": "learning_reporter",
         "source": "learning-reporter.md",
-        "description": "Generate a learning-focused session report for a junior reviewing the work — pairs each engineering decision and tradeoff with the actual code (file:line) that embodies it. Dispatched at the end of a pairing session by session-wrap.sh; invoked via Task(subagent_type='learning-reporter', prompt='[decision-brief] + [changed files]'). Exempt from genome stamping — prepend no stamp.",
+        "description": "Generate a learning-focused session report for a junior reviewing the work — pairs each engineering decision and tradeoff with the actual code (file:line) that embodies it, written to docs/learning/. In pairing mode the report is produced inline by default; dispatch this subagent when the user asks to persist it to a file. Invoked via Task(subagent_type='learning-reporter', prompt='[decision-brief] + [changed files]'). Exempt from genome stamping — prepend no stamp.",
     },
 ]
 
@@ -75,7 +75,10 @@ for agent in AGENTS:
     frontmatter_parts.append("---")
     frontmatter = "\n".join(frontmatter_parts)
 
-    output = header + frontmatter + "\n\n" + body + "\n"
+    # Frontmatter MUST start on line 1 — Claude Code only registers an agent
+    # whose `---` is the first byte of the file. The GENERATED banner therefore
+    # sits just below the closing `---`, inside the markdown body.
+    output = frontmatter + "\n" + header + "\n" + body + "\n"
 
     out_path = os.path.join(agents_dir, agent["name"] + ".md")
     with open(out_path, "w", encoding="utf-8") as f:
