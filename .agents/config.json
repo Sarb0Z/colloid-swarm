@@ -43,7 +43,8 @@
       "enabled": true
     },
     "learning_report": {
-      "enabled": false
+      "enabled": false,
+      "cadence_turns": 1
     },
     "session_start": {
       "enabled": true
