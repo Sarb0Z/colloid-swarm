@@ -1,0 +1,140 @@
+Building a Sound RL Environment
+An engineering checklist for environments used to train or evaluate models
+
+USE
+SCOPE
+Builder reference — tick each item before you call an environment done.
+Any RL environment with an automated reward (code, math, tools, agents).
+
+1. Introduction — what an RL environment is
+An RL environment is a task plus the machinery that scores attempts at it, packaged so a lab can install it and either evaluate a model or train against it. In the format the field has settled on — the open-source verifiers package — that package is a self-contained Python module that runs with no adaptation: the same unit serves both evaluation and training. This section sets out what the thing physically is. The sections after it set the quality bar.
+Two properties decide whether an environment is worth anything. The reward must measure the real work, not something that can be satisfied without doing it. And any gain it reports must be real, rather than an artefact of sampling noise. The first is soundness; the second is statistics; together they are the rest of this document.
+Anatomy of an environment
+Every environment is built from the same parts, whatever the task:
+	•	Task instruction and dataset. What the model is asked to do, and the set of instances it is scored on. The instruction is unambiguous enough that a competent human could solve it from the instruction alone, and states which files or surface the agent may touch and what is off-limits. The dataset has clean train and eval splits with no leakage, carries the ground-truth answer for each row, and is large enough to support the statistics in the later sections.
+	•	Environment package. A self-contained module that exposes a load_environment function and installs as a wheel — the de-facto verifiers format. It wires in the harness (single- or multi-turn, with a turn cap and a per-rollout timeout) and the rubric, or reward function, which scores the outcome and never the model’s own report of success.
+	•	Reference oracle and held-back test assets. The answer key and the grader that runs against it, plus a gold solution and a one-command script that produces it. These ship with the environment but must never be visible to the agent at solve time, and a test should prove the agent cannot import or read them. A leaked oracle is the most common silent soundness failure.
+	•	Sandbox. Untrusted model-generated code runs under a timeout and resource limits. The verifier returns a pass only when the sandbox’s own exit condition is met — never on anything the model claims about itself — and the network-isolation status is declared rather than left implicit.
+	•	Packaging and handoff. A built wheel that installs cleanly in a fresh environment, plus a reproducibility bundle — seeds, the model and version used for the reference run, and the result files — from which every headline number regenerates identically.
+The two layers
+Baseline layer. Everything above makes the environment a valid, installable package a lab can run with zero adaptation. It is necessary but not sufficient: a package that runs but whose reward cannot be trusted is worthless.
+Soundness and statistics layer. The rest of this document. It proves the verifier is hard to reward-hack and that the reward signal demonstrably climbs with capability. This is the quality bar, and the reason a lab should buy an environment rather than build its own. Where it is stricter than the baseline — for example, requiring a multi-model leaderboard rather than a single reference-model eval pass — the quality bar takes precedence.
+Two ways an environment fails silently
+Reward hacking is when a model earns high reward without doing the work — by memorising a visible answer, forging the shape of an output, exploiting the grader, or reaching the oracle. A noisy signal is when a reported gain sits inside the noise of a sampled estimate and does not reflect a better model at all. Soundness defends against the first; statistics against the second.
+2. Purpose
+This document lists the properties an RL environment must have before it can be trusted to train or evaluate a model, and the evidence you produce to show each one holds. It is written so an engineer can work through it top to bottom and tick items off.
+Two questions sit underneath everything here. Does the reward measure the actual work, or can it be satisfied without doing the work? And is any reported gain real, or is it inside the noise of a sampled estimate? Soundness answers the first. Statistics answers the second. An environment is only finished when both are demonstrated, not asserted.
+These two are best kept as distinct layers, because they are produced by different means. Soundness — that the reward cannot be earned without doing the work — is provable by the builder alone, with adversarial cheats and hidden tests, and needs no model runs. Statistics — that a reported gain is real and that the environment separates models — requires repeated runs against models and the data they produce, and so extends verification beyond design logic. A finished environment demonstrates both, but the soundness layer is contained in the design while the statistics layer depends on measurement.
+3. What the environment must demonstrate
+The thing you are ultimately after is that training on the environment improves a held-out, uncontaminated capability metric, without saturating, and that the improvement transfers beyond the training distribution.
+You usually cannot prove that end-to-end yourself, because you do not control the training loop that will consume the environment. So instead you ship evidence that predicts that outcome and that a third party can reproduce: a verifier, a harness, baseline runs, adversarial checks, and a short report stating what the reward does and does not prove.
+Core idea: a score with no characterisation is not a deliverable; an environment ships with the evidence that backs the reward, not just the reward itself.
+4. Environment proposal — what you are building and why
+Before significant build effort begins, write a short proposal — roughly half a page — for the environment you intend to build, and have it signed off. This step exists to enforce taste: a technically perfect verifier aimed at a capability no lab cares about, or a task with no checkable ground truth, is wasted effort. The choice of what to build is where most of an environment's value is won or lost, so the why comes before the how. The proposal must answer the following.
+Capability target. Which specific capability does the environment exercise, and why is it a genuine frontier weakness — something strong models do inconsistently — rather than merely hard? Name the failure mode you expect to provoke.
+Why a lab would care. What outcome would training on this environment produce, and why does that capability matter to a frontier lab? State plainly what you would be able to prove to them.
+Why this task, codebase, or domain. Why is this the right substrate: real captured workflow rather than contrived, realistic and actively maintained, contamination-resistant, and carrying a ground truth you can actually compute? What makes it sourceable and sound, and what red flags did you rule out?
+Why it will not saturate or break trivially. Why is there real headroom — the strongest available models do not already solve it — and why can the task not be satisfied by a shallow shortcut that skips the intended capability?
+Verifier sketch. At a high level, how will correctness be checked from ground truth, so the reward is sound by construction rather than an afterthought? If you cannot yet describe a sound check, the task is not ready to build.
+The proposal is reviewed against this document and signed off before the build proceeds. An environment whose proposal cannot answer these questions clearly is not yet ready to build — and a strong proposal is itself a signal of the data and research taste that separates a high-quality environment from a merely competent one.
+5. Long-horizon task definition
+This section applies only to long-horizon environments. Many sound environments are single-turn, and they never need it — they are governed by the rest of this document and nothing here. But if an environment is meant to be long-horizon, it must satisfy every condition below. The label is a commitment, not a description: a task that claims it without meeting these rules is mislabeled, and should be either fixed or reclassified as a single-turn task.
+A task qualifies as long-horizon only if all four conditions hold. If any condition is missing, the task may still be complex and worth shipping — but it is not long-horizon in the RL sense the lab cares about, and must not be sold as such. Where the label does apply, the learning signal must be distributed, not concentrated: break the task into explicit subobjectives, each with its own validation gate. A model that reaches the correct final answer while skipping the intermediate steps should not score well.
+FOUR REQUIRED CONDITIONS — ALL MUST HOLD
+	•	Minimum step depth is enforced. Steps are causally linked, not cosmetic. Formatting and paraphrasing do not count.
+	•	Multiple tool calls are required and non-interchangeable. Tool use spans query, analysis, and validation — not duplicate calls to a single tool.
+	•	State transitions meaningfully constrain future actions. Each action modifies an explicit state variable and restricts what actions remain valid.
+	•	Failure recovery is necessary to reach completion. At least one tool failure, ambiguous result, or incorrect assumption must be detected and corrected.
+CONCRETE CONSTRAINTS THE TASK MUST MEET
+Step count
+Tool calls
+State design
+15–30 minimum discrete actions; 25–60 target range, causally linked throughout.
+Required: reasoning → action → observation → next action.
+Avoid: one large reasoning block ending in a final answer.
+5–10 per task minimum, heterogeneous across call types.
+Required: calls change environment state, affect downstream decisions, and introduce uncertainty to reason over.
+Avoid: calls used only to fetch a known answer.
+Each action modifies an explicit state variable — files, environment config, experiment parameters, dataset slices.
+Required: state persists across the full task; certain actions become invalid or higher-cost as it evolves.
+Avoid: stateless chains do not qualify.
+
+6. Tier 1 — Core requirements
+Cheapest to produce, highest signal. Do not ship without these.
+1. Soundness receipt
+Definition. Per environment, the false-accept rate and false-reject rate, each with a 95% confidence interval. A false accept is an invalid or cheating solution scored as passing; a false reject is a correct solution scored as failing.
+How to compute. Run a battery of adversarial cheats and honest-solution controls through the verifier. Count incorrect passes and incorrect failures. Report a Wilson (or equivalent) confidence interval on each rate. Never report a bare 0% — with no failures observed, report the interval (for example, the upper bound from n trials).
+Done when. The cheat battery has at least four distinct classes (memorised or hardcoded answer, constant output, output-shape forgery, and reading or importing the reference); every class that still passes is named explicitly; the false-reject interval is reported rather than hidden.
+How to verify. Confirm the verifier computes its verdict from ground truth and does not trust any metric or stdout the agent reports about itself. This is the whole game: anything the grader takes on the agent’s word is exactly what a trained model will learn to lie about.
+
+2. Capability-only leaderboard
+Definition. A panel of models scored on the environment, reported as mean reward with confidence intervals and ranked by the lower bound rather than the observed mean. This shows the environment carries a trainable signal and separates models in a statistically meaningful way — without you running any training.
+How to compute. Use repeated rollouts per problem per model, with the rollout count chosen large enough for useful intervals (see requirement 5). Apply sound verification, compute Wilson or bootstrap intervals, and test pairwise significance on the differences that matter.
+Done when. The ranking shows clear, statistically significant separation across the panel, the ordering is sane, and any scaffold, provider-route, or harness effect that could move the ranking is disclosed rather than folded into the model score.
+How to verify. Results reproduce from a fixed seed and the sandbox manifest. “Capability-only” means harness and route effects are separated out and shown to be separated, not merely asserted.
+
+7. Tier 2 — Rigor
+This is the difference between a measured environment and a pile of tasks.
+3. Reward-hack resistance under search
+Definition. How the reward behaves as search budget grows. Under best-of-N the reward should track real quality, not reward the model’s ability to find exploits.
+How to compute. Run best-of-N at increasing N with a capable model and compare the verifier reward against a held-out, independent quality measure.
+Done when. Over the search sweep, verifier reward does not climb while held-out quality stays flat. If it does, the verifier is exploitable — fix it before shipping, do not ship it with a caveat.
+How to verify. Report the curve and name any exploit pattern that emerged under search pressure, even if you then closed it.
+
+4. Reward density and non-saturation
+Definition. The reward is graded rather than only binary where the task allows, and it supports a capability ladder from weak to strong solutions. A flat reward gives no learning signal; an already-saturated reward teaches nothing.
+How to compute. Provide the reward distribution and a ladder of progressively more complete solutions with the reward each earns.
+Done when. Reward increases monotonically across the ladder with enough resolution that each step is statistically separated, the environment is not saturated by the strongest available models, and it is not impossible for all models.
+How to verify. Show the reward histogram and the solution ladder side by side and confirm the gradient is real, not an artifact of one or two problems.
+
+5. Stability and variance
+Definition. A per-problem classification into stable versus high-variance, and an attribution of which problems drive score movement and how many rollouts a tight estimate needs.
+How to compute. Estimate variance by model, by problem, and by scaffold. Concentrate the rerun budget on the high-variance subset rather than spreading it evenly.
+Done when. Every high-variance problem is either explained or treated as a task or verifier defect until shown otherwise (a flaky test is your bug, not the model’s), and the rollout count needed for a tight estimate is stated.
+How to verify. Report the rollout count behind each interval and name the specific tasks that dominate the uncertainty.
+
+8. Tier 3 — Measurement hygiene and judgment
+The part that lets someone else trust and reproduce your numbers.
+6. Measurement hygiene
+Ship the measurement context a reader needs to reproduce and interpret the score. Models are post-trained against specific scaffolds, so harness choice is now a dominant noise source, not a detail.
+	•	Scaffolds: at least two per model where possible, including one production harness (for example Claude Code, Codex CLI, or Gemini CLI). Flag any cell whose spread across scaffolds exceeds a few points and state which scaffold the headline number is calibrated against.
+	•	Provider-route disclosure: which endpoint served each model (direct, Bedrock, Vertex, OpenRouter, or other) — different surfaces give different results.
+	•	Sandbox manifest: image digest, network-egress policy, tool-approval policy, isolation granularity, max turns per rollout, and observation-truncation policy. Without this, no one can re-run you.
+	•	Contamination: n-gram or canary contamination results for the task set, and against which corpora they were checked.
+
+7. Failure taxonomy
+For each model, break failures down by class instead of reporting only a number. Useful classes: genuine capability limit, prompt subclass, scaffolding defect, rubric or verifier defect, training-data defect, orchestration defect, triangulation failure, and ambiguous (needs human review).
+This is the post-review judgment step, and it is the one that separates a serious environment from a task sink. A rollout failure is not automatically a model failure. Before any “the model failed here” claim ships, it is back-tested against this taxonomy to decide whether the failure is a real limitation or an artifact of the harness, verifier, task spec, or execution setup.
+
+9. Decisions to make before you ship
+These are not optional extras; they are choices the checklist forces and that an environment cannot be finished without answering.
+	•	Sandboxing: what isolation technology and egress policy run untrusted model-generated code at scale (Docker plus seccomp, gVisor, Firecracker microVMs, or other)?
+	•	Scaffolds: which production harnesses do you support, and how do you run one model against two or more of them cleanly?
+	•	Rollout count and cost: what rollout count gives tight enough intervals at acceptable cost, and what is the per-environment compute budget?
+	•	Cheat battery: how do you source and maintain the adversarial cheats — by hand, or with an attacker model — and how does the battery keep growing?
+	•	Contamination: what n-gram or canary methodology, and against which corpora?
+	•	Failure taxonomy: can classification be partly automated, or is it human-in-the-loop, and who performs the post-review judgment?
+	•	Reproducibility: can the whole report be regenerated from the manifest and a fixed seed; if not, what is missing?
+10. Checklist summary
+One row per requirement. Treat the right column as the artifact you must be able to hand over and reproduce.
+Requirement
+What you must produce
+Environment proposal
+A signed-off proposal: the capability target, why a lab would care, why this task or domain, why it will not saturate or break trivially, and a verifier sketch.
+0. Long-horizon qualification
+All four conditions met, with the step, tool-call, and state constraints satisfied.
+1. Soundness receipt
+False-accept and false-reject rates with confidence intervals, plus adversarial and honest controls; every surviving cheat class named.
+2. Capability-only leaderboard
+A model panel with confidence intervals and statistically significant separation, with harness and route effects disclosed.
+3. Reward-hack resistance
+A best-of-N search-pressure curve compared against a held-out quality measure.
+4. Reward density / non-saturation
+A graded reward distribution and a monotonic capability ladder with separated steps.
+5. Stability and variance
+Per-problem variance classification, attribution, and the rollout count behind each estimate.
+6. Measurement hygiene
+Scaffolds, provider routes, sandbox manifest, and contamination checks.
+7. Failure taxonomy
+Per-class failure breakdown that separates genuine model failures from harness and verifier defects.
+

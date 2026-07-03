@@ -1,0 +1,25 @@
+# Soundness receipt — shifted_dialect
+
+- instances: **45**, scored programs/instance: **80**, acceptance threshold tau = **0.95**
+- cheat trials: **540**, honest trials: **90**
+
+## Headline rates (95% Wilson CI)
+
+- **False-accept rate**: 0/540 = 0.0000 (CI 0.0000–0.0071)
+- **False-reject rate**: 0/90 = 0.0000 (CI 0.0000–0.0409)
+- **False-reject under tight (50ms) timeout**: 0/45 = 0.0000 (CI 0.0000–0.0787)
+- honest mean reward: 1.0000 (min 1.0000)
+
+- **Surviving cheat classes (max reward >= tau)**: none
+
+## Exploit value by cheat class
+
+| class | n | mean reward | 95% CI | max reward | accepted |
+|---|---|---|---|---|---|
+| constant_output | 180 | 0.1424 | 0.1216–0.1627 | 0.3000 | 0 |
+| grader_probe | 45 | 0.0000 | 0.0000–0.0000 | 0.0000 | 0 |
+| hardcoded_answer | 45 | 0.2442 | 0.2172–0.2697 | 0.3000 | 0 |
+| output_shape_forgery | 90 | 0.0589 | 0.0394–0.0804 | 0.3000 | 0 |
+| prior_default | 45 | 0.0756 | 0.0350–0.1222 | 0.6250 | 0 |
+| read_reference | 135 | 0.0814 | 0.0603–0.1030 | 0.3000 | 0 |
+

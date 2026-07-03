@@ -1,0 +1,256 @@
+{
+  "config": {
+    "models": [
+      "llama-3.1-8b-instant",
+      "llama-3.3-70b-versatile",
+      "qwen/qwen3-32b",
+      "openai/gpt-oss-120b"
+    ],
+    "solve_tau": 0.95
+  },
+  "model_stats": {
+    "llama-3.1-8b-instant": {
+      "n_problems": 9,
+      "n_valid_rollouts": 27,
+      "counts": {
+        "total": 27,
+        "errors": 0,
+        "truncated": 2,
+        "no_code": 0
+      },
+      "mean_reward": 0.1578,
+      "mean_ci95": [
+        0.1074,
+        0.2037
+      ],
+      "solve_rate": {
+        "k": 0,
+        "n": 27,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.1246
+        ]
+      },
+      "per_difficulty": {
+        "easy": 0.1333,
+        "hard": 0.18,
+        "medium": 0.16
+      }
+    },
+    "llama-3.3-70b-versatile": {
+      "n_problems": 9,
+      "n_valid_rollouts": 9,
+      "counts": {
+        "total": 27,
+        "errors": 18,
+        "truncated": 0,
+        "no_code": 0
+      },
+      "mean_reward": 0.1733,
+      "mean_ci95": [
+        0.0778,
+        0.2644
+      ],
+      "solve_rate": {
+        "k": 0,
+        "n": 9,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.2991
+        ]
+      },
+      "per_difficulty": {
+        "easy": 0.1667,
+        "hard": 0.18,
+        "medium": 0.1733
+      }
+    },
+    "qwen/qwen3-32b": {
+      "n_problems": 0,
+      "n_valid_rollouts": 0,
+      "counts": {
+        "total": 27,
+        "errors": 27,
+        "truncated": 0,
+        "no_code": 0
+      },
+      "mean_reward": 0.0,
+      "mean_ci95": [
+        0.0,
+        0.0
+      ],
+      "solve_rate": {
+        "k": 0,
+        "n": 0,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          1.0
+        ]
+      },
+      "per_difficulty": {}
+    },
+    "openai/gpt-oss-120b": {
+      "n_problems": 9,
+      "n_valid_rollouts": 27,
+      "counts": {
+        "total": 27,
+        "errors": 0,
+        "truncated": 8,
+        "no_code": 2
+      },
+      "mean_reward": 0.5015,
+      "mean_ci95": [
+        0.3978,
+        0.6052
+      ],
+      "solve_rate": {
+        "k": 1,
+        "n": 27,
+        "rate": 0.037037037037037035,
+        "ci95": [
+          0.0066,
+          0.1828
+        ]
+      },
+      "per_difficulty": {
+        "easy": 0.4222,
+        "hard": 0.5133,
+        "medium": 0.5689
+      }
+    }
+  },
+  "ranking_by_ci_lower": [
+    "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile"
+  ],
+  "excluded_models": {
+    "qwen/qwen3-32b": {
+      "reason": "APIStatusError: Error code: 413 - {'error': {'message': 'Request too large for model `qwen/qwen3-32b` in organization `org_01k596gap4eqp",
+      "errors": 27,
+      "total": 27
+    }
+  },
+  "pairwise_significance": [
+    {
+      "higher": "openai/gpt-oss-120b",
+      "lower": "llama-3.1-8b-instant",
+      "n_shared_problems": 9,
+      "mean_diff": 0.3437,
+      "diff_ci95": [
+        0.22,
+        0.4578
+      ],
+      "significant": true
+    },
+    {
+      "higher": "llama-3.1-8b-instant",
+      "lower": "llama-3.3-70b-versatile",
+      "n_shared_problems": 9,
+      "mean_diff": -0.0156,
+      "diff_ci95": [
+        -0.0741,
+        0.0526
+      ],
+      "significant": false
+    }
+  ],
+  "best_of_n": {
+    "llama-3.1-8b-instant": {
+      "n": [
+        1,
+        2,
+        3
+      ],
+      "reward_S": [
+        0.1578,
+        0.2481,
+        0.2911
+      ],
+      "reward_V": [
+        0.1309,
+        0.2111,
+        0.2444
+      ],
+      "S_minus_V": [
+        0.0269,
+        0.037,
+        0.0467
+      ]
+    },
+    "openai/gpt-oss-120b": {
+      "n": [
+        1,
+        2,
+        3
+      ],
+      "reward_S": [
+        0.5015,
+        0.7096,
+        0.7667
+      ],
+      "reward_V": [
+        0.5185,
+        0.7407,
+        0.7815
+      ],
+      "S_minus_V": [
+        -0.017,
+        -0.0311,
+        -0.0148
+      ]
+    }
+  },
+  "variance_top_model": {
+    "model": "openai/gpt-oss-120b",
+    "median_std": 0.3811,
+    "n_high_variance_problems": 7,
+    "high_variance": [
+      {
+        "problem": "medium-1000002",
+        "n": 3,
+        "mean": 0.5733,
+        "std": 0.5159
+      },
+      {
+        "problem": "easy-1000001",
+        "n": 3,
+        "mean": 0.5733,
+        "std": 0.4965
+      },
+      {
+        "problem": "easy-1000000",
+        "n": 3,
+        "mean": 0.2533,
+        "std": 0.4388
+      },
+      {
+        "problem": "medium-1000001",
+        "n": 3,
+        "mean": 0.4867,
+        "std": 0.431
+      },
+      {
+        "problem": "easy-1000002",
+        "n": 3,
+        "mean": 0.44,
+        "std": 0.3811
+      },
+      {
+        "problem": "hard-1000001",
+        "n": 3,
+        "mean": 0.42,
+        "std": 0.365
+      },
+      {
+        "problem": "hard-1000002",
+        "n": 3,
+        "mean": 0.3267,
+        "std": 0.2845
+      }
+    ]
+  }
+}

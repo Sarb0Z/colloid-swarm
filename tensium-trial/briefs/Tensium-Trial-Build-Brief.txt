@@ -1,0 +1,66 @@
+The Trial Build
+What we are asking you to produce, why, and how we will judge it.
+Who this is for: anyone we are talking to about building RL environments with us.
+What it decides: whether we work together, and in which role — building environments, or leading the build.
+You have already had a conversation with us and seen the build template — the engineering checklist for a sound environment. This document is the next step. The trial is the job in miniature. What we actually do is read the frontier research, find a capability gap in current models that users and researchers care about, propose an environment that targets it, and build it soundly. So that is what we are asking you to do here — not “send a sample,” but run that whole loop once, at depth.
+Read the whole thing before you start. The bar at the end is the part that matters most.
+
+1. What we are actually testing
+Research taste and quality of thought — not volume. We want to see that you can look at where frontier models are actually weak today, reason your way to an environment that targets that weakness, and defend every choice. One thing built with real judgment tells us far more than a stack of quick ones.
+The two halves we are reading for:
+	•	Did you find a gap worth building? Can you read the literature, point to a real frontier-model weakness that both users and researchers care about, and show it is a genuine gap rather than a guess?
+	•	Did you build it soundly? Can you turn that into a task, a verifier, or a full environment whose soundness you have proven rather than asserted?
+The engineering layer — packaging, wheels, CI, sandboxing — matters and you should show it if you can, but it is not the gate. If you are strong on the research and reward thinking and lighter on engineering, that is fine; tell us, and show the depth where you have it.
+2. The task — run the loop once
+Step 1 — Find the gap (read the research)
+Read recent work on frontier models — papers, model cards, eval results, benchmarks — and identify one specific capability gap in current frontier coding/agent models. It must be:
+	•	Real and current — grounded in what you read, with the papers/sources cited, not a hunch.
+	•	Cared about by users and researchers — something a lab is actively trying to improve and that matters in real use. Say who would care and why.
+	•	Not already covered — make the argument that existing benchmarks/environments (SWE-bench, tau-bench, Terminal-Bench, and the like) do not already measure it. “Another hard coding task” is not a gap.
+Step 2 — Propose the environment
+Specify the environment that targets the gap:
+	•	The task, and why doing it well requires the capability you identified.
+	•	The verifier sketch — how correctness is checked from ground truth, so the reward is sound by construction. If you cannot describe a sound check, the idea is not ready to build.
+	•	Why it will be hard for the right reason (the model's genuine weakness), and why it is not contaminated.
+Step 3 — Build it
+Build as much of that environment as your expertise covers — the deeper the better. Whatever you send must be real: it should run, and anything you claim it does, we should be able to see it do. A README with the exact commands is enough.
+	•	Can build the whole thing (task, verifier, packaging)? Send that.
+	•	Strength is task design? Send the tasks and go deep on the reasoning and the verifier sketch.
+	•	Strength is verifiers/reward? Send a verifier you have genuinely tried to break, with the evidence.
+	•	Strength is the engineering layer? Show the packaging, sandboxing, reproducibility.
+3. What to send
+Two artifacts, to suleiman@tensium.co.uk and archie@tensium.co.uk.
+A. The build — the strongest, real, runnable thing you can produce for the environment you proposed.
+B. A short document (a few pages, not a thesis) that shows your judgment — it carries as much weight as the build:
+	•	A short bio — what you have built, what you can do now, and what you would need to learn. Naming a gap honestly is a positive signal.
+	•	Which role suits you — we hire two: people who build environments, and people who lead the build (set the bar, review others' work, own quality across a set). Tell us which, or both, and why.
+	•	The gap — the capability you targeted, the papers/sources behind it, who cares (users and researchers), and your argument that existing benchmarks don't already cover it.
+	•	Why it isn't contaminated — where the material came from, and the argument to a sceptic that the model hasn't already seen it.
+	•	How you tried to break it — the cheats you threw at the verifier, which it caught, which (if any) it still lets through and why you're comfortable. If you sent tasks, how you stress-tested that they measure what you intend.
+	•	One thing you got wrong — where your first design was wrong and how you caught it. It is rare to build something sound without being wrong once.
+	•	Comments on our template — if you find it wrong, incomplete, or improvable while working, say so, with the reason.
+4. The source material — read this carefully
+Build from your own original work, or from a public source you can point to. Do not send anything you produced for a previous client (Mercor, Surge, Scale, or anyone else). We will not accept it:
+	•	It is theirs, not yours — a contract and IP problem for you, and for us.
+	•	It may already be contaminated — work that went through a large data vendor may already sit in a lab's training set, making it worthless as a fresh environment.
+If you want your submission to count, it has to be provably yours and provably fresh. That constraint is not an obstacle to the test — it is the test.
+5. The bar — how we will read what you send
+We are looking for
+Which in practice means
+A real, named gap
+You hit a specific weakness of a real frontier model, grounded in the literature you cite — something users and researchers care about — not just something hard or novel.
+Not already covered
+You can argue existing benchmarks/environments don't already measure it.
+Depth of thought
+You thought hard and can defend your choices. One decision reasoned through beats ten made on instinct.
+Soundness, proven
+You attacked the verifier and show what happened — hardcoded answer, constant output, output-shape forgery, reading the reference. A verifier nobody attacked is untested, not sound.
+A real contamination argument
+Named source and a reason it is not in public corpora. “It feels novel” is not an argument.
+Receipts, not assertions
+Numbers, however rough, beat adjectives — base-model pass rate, a competent human's, false-accept / false-reject on a labelled set.
+Honest self-assessment
+You name what you don't know and what you got wrong. We trust people who own a gap far more than people who claim there isn't one.
+What does not move us: volume, polish for its own sake, or restating the template back to us. One sound piece of work that targets a real gap, with honest receipts, beats a stack of impressive-looking ones we cannot trust.
+
+In one line: read the frontier research, find a real capability gap that users and researchers care about, propose an environment that targets it, and build as much of it as you can — soundly, from a source that is provably yours, with a short document that shows your reasoning and the evidence. That is the whole test.

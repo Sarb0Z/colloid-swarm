@@ -1,0 +1,8 @@
+4 models x 9 problems x 3 rollouts = 108 calls
+  20/108 (133s)
+  40/108 (360s)
+  60/108 (581s)
+  80/108 (953s)
+  100/108 (1269s)
+  108/108 (1373s)
+wrote /Users/hassaan/Desktop/RL Task/shifted_dialect/analysis/out/rollouts.jsonl in 1373s

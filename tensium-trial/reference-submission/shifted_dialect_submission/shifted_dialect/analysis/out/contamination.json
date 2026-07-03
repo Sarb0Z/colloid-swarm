@@ -1,0 +1,21 @@
+{
+  "config": {
+    "n_per_diff": 20,
+    "n_tests": 80,
+    "train_instances": 60,
+    "eval_instances": 60
+  },
+  "fingerprint_overlap_train_eval": 0,
+  "spec_exact_duplicates_eval_in_train": 0,
+  "dialect_space_lower_bound": "5.244e+12",
+  "leakage_probe": {
+    "eval_test_pairs": 4800,
+    "eval_programs_also_in_train": 332,
+    "memorizer_correct_among_shared": 253,
+    "memorizer_accuracy_on_shared": 0.762,
+    "overall_memorizer_accuracy_on_eval": 0.0527,
+    "avg_distinct_train_outputs_per_shared_program": 1.455,
+    "note": "A program seen in training maps to ~this many different outputs across dialects, so its identity does not reveal its label in a new dialect."
+  },
+  "avg_spec_ngram_jaccard_train_eval": 0.7475
+}

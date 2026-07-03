@@ -1,0 +1,105 @@
+{
+  "config": {
+    "n_instances": 20,
+    "n_tests": 80,
+    "tau_accept": 0.95
+  },
+  "false_accept": {
+    "k": 0,
+    "n": 240,
+    "rate": 0.0,
+    "ci95": [
+      0.0,
+      0.0158
+    ]
+  },
+  "false_reject": {
+    "k": 0,
+    "n": 40,
+    "rate": 0.0,
+    "ci95": [
+      0.0,
+      0.0876
+    ]
+  },
+  "false_reject_tight_timeout": {
+    "k": 0,
+    "n": 20,
+    "rate": 0.0,
+    "ci95": [
+      0.0,
+      0.1611
+    ]
+  },
+  "honest_mean_reward": {
+    "mean": 1.0,
+    "ci95": [
+      1.0,
+      1.0
+    ],
+    "min": 1.0
+  },
+  "surviving_cheat_classes": [],
+  "per_class": {
+    "constant_output": {
+      "n": 80,
+      "mean_reward": 0.14,
+      "mean_ci95": [
+        0.1113,
+        0.1691
+      ],
+      "max_reward": 0.3,
+      "n_accepted": 0
+    },
+    "grader_probe": {
+      "n": 20,
+      "mean_reward": 0.0,
+      "mean_ci95": [
+        0.0,
+        0.0
+      ],
+      "max_reward": 0.0,
+      "n_accepted": 0
+    },
+    "hardcoded_answer": {
+      "n": 20,
+      "mean_reward": 0.2256,
+      "mean_ci95": [
+        0.1806,
+        0.2656
+      ],
+      "max_reward": 0.3,
+      "n_accepted": 0
+    },
+    "output_shape_forgery": {
+      "n": 40,
+      "mean_reward": 0.0684,
+      "mean_ci95": [
+        0.0366,
+        0.1022
+      ],
+      "max_reward": 0.3,
+      "n_accepted": 0
+    },
+    "prior_default": {
+      "n": 20,
+      "mean_reward": 0.1125,
+      "mean_ci95": [
+        0.0512,
+        0.1844
+      ],
+      "max_reward": 0.4875,
+      "n_accepted": 0
+    },
+    "read_reference": {
+      "n": 60,
+      "mean_reward": 0.0752,
+      "mean_ci95": [
+        0.045,
+        0.1058
+      ],
+      "max_reward": 0.3,
+      "n_accepted": 0
+    }
+  }
+}
