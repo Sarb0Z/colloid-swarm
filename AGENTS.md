@@ -80,6 +80,28 @@ decorative.
 Remove stubs and dead code completely. Don't preserve backwards compatibility
 for its own sake—if something is unused or being replaced, delete it outright.
 
+### Tracking, not tombstones
+Comments and docs describe the code **as it is now**, never its history. The
+diff is the history — don't narrate it. Never write "previously", "used to",
+"was refactored", "changed from", dates, or changelog notes in code or docs.
+
+What doesn't belong inline has two homes, split by lifecycle:
+- **`.agents/breadcrumbs.md`** — deferred *work*: a queue. One line each; the
+  SessionStart hook re-surfaces unaddressed items. Act on it, or delete the line.
+- **`.agents/debt-log.md`** — standing tradeoffs and deferred *decisions*: the
+  "naive O(n³) here, fine until N>10k, rework needs a spatial index" record.
+  Committed. Each entry is a `### <id>` heading (a kebab slug like
+  `colloid-07-naive-scan`) with one line each for the condition, the trigger that
+  would justify fixing it, and the rework cost. Reference it from code as
+  `debt: <id>` — the pointer goes inline, never the reasoning. Not auto-surfaced;
+  pulled on demand when you touch that code.
+
+When a subproject surfaces mid-task, classify before acting: **blocking** (A
+can't complete without it) → checkpoint A and re-scope to it; **non-blocking**
+(optimization, cleanup, future work) → file one line (work → breadcrumbs,
+standing tradeoff → debt-log) and return to A; **trivial** (<15 min, file
+already open) → inline. The full policy is re-stated after a compaction.
+
 ### Latest stable by default
 New technology enters at the latest stable version the project's existing
 constraints admit (runtime, peer deps). When a constraint forces an older

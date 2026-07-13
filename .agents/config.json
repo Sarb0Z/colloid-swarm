@@ -31,7 +31,8 @@
       "enabled": true
     },
     "post_edit_check": {
-      "enabled": true
+      "enabled": true,
+      "tombstone_check": true
     },
     "session_wrap": {
       "enabled": true,

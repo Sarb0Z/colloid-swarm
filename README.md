@@ -46,6 +46,6 @@ hand-back. `guard-destructive.sh` is the mechanical floor; the rest is
 judgment. It rides with the kit — the spore coat, not optional ballast.
 
 ## Left behind on purpose (project-specific / sensitive)
-Project memories, `breadcrumbs.md`, `settings.local.json`, the prod-access
-specifics of `AGENTS.md`, and all secrets (`.env*`, `ssh_config`). A portable
-kit carries the framework — never the operator's keys or knowledge.
+Project memories, `breadcrumbs.md`, `debt-log.md`, `settings.local.json`, the
+prod-access specifics of `AGENTS.md`, and all secrets (`.env*`, `ssh_config`). A
+portable kit carries the framework — never the operator's keys or knowledge.
