@@ -151,6 +151,17 @@ edits don't turn into repo-wide cleanup missions.
 Tools that aren't installed are silently skipped. Install a tool to opt
 in; drop the config to tune rules.
 
+It also runs an **advisory tombstone check** (`hooks.post_edit_check.tombstone_check`,
+default on): the added lines of the edit (vs `HEAD` — no mid-session commits, by
+policy) are scanned for diary/changelog narration ("previously", "used to", "was
+refactored", dated `TODO`s). A banned phrase inside quotes or backticks is treated
+as a citation and skipped, so the rule's own docs don't self-trip. Matches surface
+on stderr as a nudge to move the rationale into `.agents/debt-log.md` and reference
+it inline as `debt: <id>`. It shares `post-edit-check`'s exit-2 channel (that's how
+PostToolUse feeds the model — the edit already applied, so this informs rather than
+reverts); the message states plainly that it does not block. Unlike the lint/tsc
+findings, a flagged line is a judgment call, not a defect.
+
 ### `session-wrap.sh` — Stop (`--agent main`)
 Main agent only — the wrap-up never fires inside a subagent's turn, only
 when the agent the user is waiting on stops.
@@ -229,8 +240,11 @@ A *context* policy, not a gate: always exits 0, never blocks. Surfaces
 deferred work so it isn't lost across sessions:
 
 - **Breadcrumbs** — every markdown `- ` bullet in `.agents/breadcrumbs.md`
-  (deferred non-blocking subprojects) is re-shown at session start. Silent
-  when there are none.
+  (deferred non-blocking *work* — a queue) is re-shown at session start. Silent
+  when there are none. Its sibling `.agents/debt-log.md` (standing tradeoffs and
+  deferred *decisions*) is deliberately **not** surfaced here: it's a durable
+  reference pulled just-in-time when code carrying a `debt: <id>` ref is touched,
+  not an actionable queue — re-injecting it every session would be context rot.
 - **Post-compaction nudge + Discovered Subprojects policy** — when `source`
   is `compact`, it emits a checkpoint reminder tailored to the trigger
   (recovered from the `.compaction-pending` marker `pre-compact.sh` left, and
@@ -284,6 +298,7 @@ what's active and how it behaves.
 | `hooks.sources_capture` | `sources-capture.sh` | No `.sources-ledger` writes |
 | `hooks.research_prime` | `research-prime.sh` | No research nudge on UserPromptSubmit |
 | `hooks.post_edit_check` | `post-edit-check.sh` | No lint/format/typecheck on edits |
+| `hooks.post_edit_check.tombstone_check` | `post-edit-check.sh` | No tombstone-comment advisory (lint still runs) |
 | `hooks.session_wrap` | `session-wrap.sh` | No end-of-session wrap prompt |
 | `hooks.learning_report` | `session-wrap.sh` (pairing mode) | No junior learning-report dispatch — **the default**; this toggle is opt-in |
 | `hooks.stop_investigate` | `stop-investigate.sh` | No hedge/give-up blocking |

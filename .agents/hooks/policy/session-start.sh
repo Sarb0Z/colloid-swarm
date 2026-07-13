@@ -92,9 +92,12 @@ Blocking — A cannot complete correctly without B. Before pivoting:
    session to continue it, rather than working from the compacted summary.
 
 Non-blocking — B is optimization, cleanup, or future work. Do not explore it,
-read files for it, or plan it. Append one line to .agents/breadcrumbs.md and
-return to A immediately. If B must be investigated before it can even be
-classified, delegate that to a subagent so it runs in an isolated context.
+read files for it, or plan it. File one line and return to A immediately:
+deferred *work* → .agents/breadcrumbs.md; a standing tradeoff or deferred
+*decision* (e.g. "naive here, fine until N>10k") → .agents/debt-log.md under a
+stable id, referenced from code as \`debt: <id>\` rather than narrated inline.
+If B must be investigated before it can even be classified, delegate that to a
+subagent so it runs in an isolated context.
 
 Trivial exception — a fix under ~15 minutes in a file A already touches may be
 done inline. Everything else goes through this gate.
