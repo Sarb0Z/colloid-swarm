@@ -126,21 +126,34 @@ PY
 prose="${both%%<<<RATCHET-SPLIT>>>*}"
 ledger="${both##*<<<RATCHET-SPLIT>>>}"
 
-# Two-key gate. Provenance alone is a *fact* ("no, that test failed before I
-# touched it") and must pass — it only reads as a punt when the message also
-# declines to act, AND the two sit next to each other. A punt is one claim in one
-# sentence; two unrelated statements paragraphs apart are not one. Without the
-# proximity bound this fired on a report that said "a pre-existing failure was
-# correctly suppressed" in one paragraph and "Left alone, every edit would drop a
-# file" — a conditional, not a declination — in the next, 233 chars away. Real
-# punts measure ~40. A sanctioned disposition (breadcrumb, debt-log entry) clears
-# it regardless: that is the policy working, not a dodge.
+# Two-key gate, deliberately AGGRESSIVE. Provenance must sit within NEAR chars of
+# a second key — either an explicit declination ("so I left it alone") or a plain
+# DEFECT noun ("those lint errors are pre-existing"). The defect key exists because
+# the natural punt never announces itself: it states provenance about a failure it
+# just surfaced and moves on, and an announced-punts-only gate misses it entirely.
+#
+# The cost is knowingly accepted: "those tests are pre-existing" is word-identical
+# whether it dodges work or answers "did you break this?" — only intent separates
+# them, and intent is not in the text. So the gate fires on the claim and the
+# REASON tells the model to say so in one line and stop when it misread. The model
+# has the context the regex cannot: it knows whether the user asked.
+#
+# Proximity still bounds it — a punt is one claim in one sentence (~40 chars
+# between keys). Without it this fired on a report saying "a pre-existing failure
+# was correctly suppressed" in one paragraph and "Left alone, every edit would drop
+# a file" (a conditional, not a declination) 233 chars later. A sanctioned
+# disposition (breadcrumb, debt-log entry) still clears it: that is the policy
+# working, not a dodge.
 #
 # The triggers read `prose`; the disarm reads `ledger` (see above). The disarm
 # must not out-permission the triggers: matched against the raw message, naming a
 # ledger inside a fenced block would void the whole check.
 provenance='(\b(pre-?existing|long-?standing)\b|\bnot (introduced|caused|added) by (this|my|the current) (change|edit|diff|pr|patch|work)\b|\b(was|were|is|are) already (broken|failing|wrong)\b|\bnot (my|mine|this change.?s) (code|work|bug|problem|mess)\b|\bI (didn.?t|did not) (write|introduce|add|author) (this|that|it|the)\b|\bunrelated to (this|my|the current) (change|diff|edit|pr|patch|work|task)\b|\bnot part of (this|my) (change|diff|edit|pr|patch|task)\b|\b(an|a) (existing|upstream|legacy) (issue|bug|problem|failure)\b|\b(existed|was there) (before|prior to)\b|\bpre-?dates\b)'
-declines='(\bleav(e|ing) (it |that |them |those |this )?(alone|as.?is|be|for now|untouched)\b|\bleft (it |that |them |those |this )?(alone|as.?is|untouched|for now)\b|\b(not|won.?t|will not|do not|don.?t) (fix|fixing|address|addressing|touch|touching|change|changing) (it|that|them|those|this)\b|\b(didn.?t|did not) (fix|address|touch) (it|that|them|those|this)\b|\bout of scope\b|\bnot in scope\b|\bnot worth fixing\b|\b(so|and) I (skipped|ignored) (it|that|them|those)\b|\bskipping (it|that|them|those)\b)'
+declines='(\bleav(e|ing) (it |that |them |those |this )?(alone|as.?is|be|for now|untouched)\b|\bleft (it |that |them |those |this )?(alone|as.?is|untouched|for now)\b|\b(not|won.?t|will not|do not|don.?t) (fix|fixing|address|addressing|touch|touching|change|changing) (it|that|them|those|this)\b|\b(didn.?t|did not) (fix|address|touch) (it|that|them|those|this)\b|\bout of scope\b|\bnot in scope\b|\bnot worth fixing\b|\b(so|and) I (skipped|ignored) (it|that|them|those)\b|\bskipping (it|that|them|those)\b|\b(untouched|unaffected|not touched) by (my|this|the|these) (change|changes|diff|edit|edits|work|pr|patch)\b)'
+# A defect the message is reporting. Provenance next to one is the silent punt —
+# "those 4 lint errors are pre-existing" declines nothing out loud but fixes
+# nothing either. Deliberately catches some honest answers; the reason handles it.
+defects='\b(error|errors|failure|failures|failing|warning|warnings|bug|bugs|breakage|regression|violation|violations|lint|typecheck|type-check)\b'
 # The disarm needs an affirmative filing VERB next to the ledger, not a bare
 # mention: a turn that merely cites breadcrumbs.md while punting elsewhere must
 # still block. `unfiled` then takes back the negated form ("not filing it to
@@ -169,19 +182,29 @@ fi
 prose_flat="$(printf '%s' "$prose" | tr '\n' ' ')"
 NEAR=140   # generous for one sentence, well under the 233 that misfired
 
-if printf '%s' "$prose_flat" | grep -Eqi "$provenance.{0,$NEAR}$declines|$declines.{0,$NEAR}$provenance" \
+key2="($declines|$defects)"
+if printf '%s' "$prose_flat" | grep -Eqi "$provenance.{0,$NEAR}$key2|$key2.{0,$NEAR}$provenance" \
    && [[ "$disarmed" == "no" ]]; then
   cat >&2 <<'EOF'
-Your last message paired a provenance claim (pre-existing, not yours, not
-introduced by this change) with a decision to leave the code alone. The
-quality gate rises over time: a file you touch comes up to today's bar,
-whoever wrote it and whenever. Provenance is not an exemption.
+Your last message tied a provenance claim — pre-existing, not yours, not
+introduced by this change — to code you are not fixing. The quality gate rises
+over time: a file you touch comes up to today's bar, whoever wrote it and
+whenever. Provenance is not an exemption, and "I only ran the linter" does not
+make the errors someone else's problem.
 
-Go back and pick one deliberately: fix it now if it sits in a file this
-change already touches and the fix is bounded, or — if it is genuinely
-separate work — file it (.agents/breadcrumbs.md for work, .agents/debt-log.md
-for a standing tradeoff) and name where you filed it. Do not narrate the
-reasoning in a code comment.
+Pick one, deliberately:
+  - It sits in a file this change already touches and the fix is bounded ->
+    fix it now, in this change.
+  - It is genuinely separate work -> file it (.agents/breadcrumbs.md for work,
+    .agents/debt-log.md for a standing tradeoff) and name where you filed it.
+Do not narrate the reasoning in a code comment.
+
+This check is deliberately aggressive. It fires on the claim, because a silent
+punt is word-identical to an honest answer — "those tests are pre-existing"
+reads the same whether it dodges work or answers a question you were asked. The
+regex cannot see which; you can. If it misread you — you were answering a direct
+question about blame, or the code genuinely is not yours to touch — say so in
+one line and stop. That is expected and cheap, not a failure.
 EOF
   exit 2
 fi
