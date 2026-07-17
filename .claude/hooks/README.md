@@ -301,25 +301,36 @@ over time, so provenance is not an exemption — a file this change touches
 comes up to today's bar whoever wrote it, and "pre-existing" is an
 observation about history, not a reason to leave it.
 
-It is a **two-key gate with a proximity bound**, and that is the whole design.
-A provenance phrase alone never fires: "Both tests were already failing before
-my change" is a *fact* — often the exact answer the user asked for — so the
-message must *also* decline to act ("so I left it alone", "out of scope", "so
-I skipped them"). And the two keys must sit **within `NEAR` (140) characters of
-each other**, because a punt is one claim in one sentence. Real punts measure
-~40 characters between keys; two unrelated statements in a long report do not.
-A third key disarms it: a message naming a sanctioned disposition
-(`breadcrumbs.md`, `debt-log.md`, a `debt: <id>` ref) passes even when it
-declines, because that is the Discovered Subprojects policy working as
-intended, not a dodge.
+It is a **two-key gate with a proximity bound**, and it is **deliberately
+aggressive**. Provenance alone never fires; it must sit within `NEAR` (140)
+characters of a second key — either an explicit declination (`declines=`: "so I
+left it alone", "out of scope") **or** a bare defect noun (`defects=`: error,
+failure, warning, bug, lint…).
 
-Tune via `provenance=` / `declines=` / `filed=` / `NEAR=` — but keep both the
-co-occurrence and the proximity. Every relaxation of them has drawn blood in
-practice: a single-key version blocked "unrelated to this change, so I filed it
-in `.agents/breadcrumbs.md`" — the very behavior its reason text asks for — and
-an unbounded two-key version blocked a report that said "a pre-existing failure
-was correctly suppressed" in one paragraph and "Left alone, every edit would
-drop a file" (a conditional, not a declination) 233 characters later.
+The defect key is the important half. The natural punt **never announces
+itself** — it states provenance about a failure it just surfaced and moves on:
+*"Those 4 lint errors are pre-existing in the edge function."* That declines
+nothing out loud and fixes nothing either, and an announced-punts-only gate
+misses it completely. A third key disarms: naming a sanctioned disposition
+(`breadcrumbs.md`, `debt-log.md`, a `debt: <id>` ref) passes even when
+declining, because that is the Discovered Subprojects policy working.
+
+**The aggression is a knowing trade, not an oversight.** "Those tests are
+pre-existing" is word-identical whether it dodges work or answers "did you break
+this?" — only intent separates them, and intent is not in the text. So the gate
+fires on the claim and the *reason* carries the resolution: it tells the agent
+the check is aggressive by design and to say so in one line and stop if it
+misread. The agent has the context the regex cannot — it knows whether the user
+asked. One extra turn, then `stop_hook_active` lets it through. Expect honest
+reports about suppressed pre-existing failures to trip it; that is the cost.
+
+Tune `provenance=` / `declines=` / `defects=` / `filed=` / `NEAR=`, but keep the
+co-occurrence and the proximity. Every relaxation has drawn blood: a single-key
+version blocked "unrelated to this change, so I filed it in
+`.agents/breadcrumbs.md`" — the very behavior its reason text asks for — and an
+unbounded two-key version blocked a report that said "a pre-existing failure was
+correctly suppressed" in one paragraph and "Left alone, every edit would drop a
+file" (a conditional, not a declination) 233 characters later.
 
 The two classes share this one hook because parallel `Stop` hooks merge their
 `exit 2` stderr unpredictably — the same constraint that folds pairing mode
