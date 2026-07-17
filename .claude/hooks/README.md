@@ -332,11 +332,12 @@ unbounded two-key version blocked a report that said "a pre-existing failure was
 correctly suppressed" in one paragraph and "Left alone, every edit would drop a
 file" (a conditional, not a declination) 233 characters later.
 
-The two classes share this one hook because parallel `Stop` hooks merge their
-`exit 2` stderr unpredictably — the same constraint that folds pairing mode
-into `session-wrap.sh`. Hedges are checked first (a give-up is the harder
-failure), so a message that both hedges *and* disclaims shows only the hedge
-reason. Unlike the hedge class, the ratchet class matches stripped text, and it
+The two classes share this one hook because a second `Stop` hook would race this
+one's stderr: matching hooks run in parallel, and no rule is documented for how
+two of them exiting 2 with different stderr combine. Same constraint that folds
+pairing mode into `session-wrap.sh`. Hedges are checked first (a give-up is the
+harder failure), so a message that both hedges *and* disclaims shows only the
+hedge reason. Unlike the hedge class, the ratchet class matches stripped text, and it
 strips **two ways**. The triggers read `prose` (fences, blockquotes, inline code,
 and quoted spans blanked) so citing a banned phrase is not making the claim. The
 disarm reads `ledger` (fences and blockquotes dropped; inline code and quotes
