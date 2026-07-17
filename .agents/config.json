@@ -38,14 +38,17 @@
       "enabled": true,
       "trivial_files": 2,
       "trivial_lines": 30,
-      "heavy_lines": 200
+      "review_files": 5,
+      "review_lines": 150,
+      "heavy_lines": 200,
+      "report_every_turn": false
     },
     "stop_investigate": {
-      "enabled": true
+      "enabled": true,
+      "ratchet_check": true
     },
     "learning_report": {
-      "enabled": false,
-      "cadence_turns": 1
+      "enabled": false
     },
     "session_start": {
       "enabled": true

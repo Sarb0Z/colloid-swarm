@@ -1,51 +1,75 @@
 #!/usr/bin/env bash
-# Engine-agnostic policy: end-of-session wrap-up, gated by magnitude.
+# Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
 # Input  (stdin JSON): {"project_dir": "...", "stop_hook_active": bool, "transcript_path": "..."}
-# Output: exit 2 + stderr on a substantial session (the reason asks the agent to
-#         check with the user before wrapping); exit 0 otherwise.
+# Output: exit 2 + stderr on escalation; exit 0 otherwise.
 #
-# Three outcomes on the first end-of-turn, so a one-line tweak or a quick
-# question never triggers a hostile-review subagent, but a heavy session is
-# never lost:
-#   - code changes, trivial (few files + few lines)   -> skip silently
-#   - code changes, substantial                       -> ask: full wrap or skip?
-#   - no code changes but a long session              -> ask: want a report?
-# "Long" is the transcript's line count — one line per exchange/event. It is
-# schema-agnostic (no field parsing), so it works on any engine that passes a
-# transcript path, and it can't crash on a malformed transcript. The no-diff ask
-# is throttled to once per session (keyed by transcript path) so an active
-# session isn't asked every turn.
+# The checklist prose lives in .agents/hooks/wrap/*.md — this script owns only
+# the gate. It emits a short trigger naming the sections and their files; the
+# model reads a file only if the user opts into the wrap. A skipped wrap
+# therefore costs the model nothing, where an inline checklist costs it the
+# whole wall whether or not it is used.
 #
-# Tunable: WRAP_TRIVIAL_FILES (2), WRAP_TRIVIAL_LINES (30), WRAP_HEAVY_LINES (200).
+# THE GATE: fire on tier ESCALATION, not on every turn in a tier.
+#   none -> trivial -> diff -> large
+# A session that reaches `diff` fires once; it does not re-fire on the next turn
+# still sitting at `diff`. Reaching `large` fires again. Committing drops the
+# tier back to `none` and re-arms the ladder, so atomic commits give one wrap per
+# unit of work rather than one per turn. State lives in
+# .agents/.wrap-state-<hash of transcript path> — one file per session, so a new
+# session starts the ladder fresh and concurrent sessions never clobber.
 #
-# Pairing mode (opt-in, OFF by default): when hooks.learning_report.enabled is
-# true in .agents/config.json, the substantial-diff branch additionally asks the
-# agent for a code-paired learning report — each decision paired with the real
-# file:line that embodies it — for a junior who learns by reviewing. Produced
-# INLINE by default; persisted to docs/learning/ via the learning-reporter
-# subagent only when the user asks. Folded into this hook (one Stop hook, one exit
-# 2) rather than a second Stop hook, whose competing stderr the engine merges
-# unpredictably. Fires every substantial-diff turn; hooks.learning_report
-# .cadence_turns=N throttles to every Nth (.agents/.learning-prompted counts).
+# Why escalation and not every turn: firing every turn makes each turn cost two
+# assistant messages and forces the model to triage a wall it will mostly ignore.
+# It is also self-defeating — Claude Code overrides a Stop hook after it blocks
+# eight times in a row without progress (code.claude.com/docs/en/hooks-guide), so
+# a hook that always blocks trains its own ceiling and then stops being heard.
+# The reference community hook (disler/claude-code-hooks-mastery stop.py) never
+# blocks at all. Set hooks.session_wrap.report_every_turn=true to opt into a
+# report on every turn regardless of escalation.
+#
+# Tunable via .agents/config.json (env vars still override):
+#   trivial_files (2), trivial_lines (30)   -> the trivial floor
+#   review_files (5),  review_lines (150)   -> the `large` threshold
+#   heavy_lines (200)                       -> no-diff session worth reporting
 
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cfg_path="$repo/.agents/config.json"
-enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
+wrap_dir=".agents/hooks/wrap"
+
+cfg="$(CFG_PATH="$cfg_path" python3 <<'PY'
 import json, os
 cfg = {}
 try:
     with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
 except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("session_wrap", {}).get("enabled", True) else "no")
+sw = cfg.get("hooks", {}).get("session_wrap", {})
+print("yes" if sw.get("enabled", True) else "no")
+print(sw.get("trivial_files", 2))
+print(sw.get("trivial_lines", 30))
+print(sw.get("review_files", 5))
+print(sw.get("review_lines", 150))
+print(sw.get("heavy_lines", 200))
+print("yes" if sw.get("report_every_turn", False) else "no")
+# Pairing mode is the one OPT-IN toggle: a missing or broken config must leave
+# it OFF, never silently on.
+lr = cfg.get("hooks", {}).get("learning_report", {})
+print("yes" if lr.get("enabled", False) else "no")
 PY
 )"
+enabled="$(printf '%s\n' "$cfg" | sed -n '1p')"
 [[ "$enabled" == "no" ]] && exit 0
+cfg_trivial_files="$(printf '%s\n' "$cfg" | sed -n '2p')"
+cfg_trivial_lines="$(printf '%s\n' "$cfg" | sed -n '3p')"
+cfg_review_files="$(printf '%s\n' "$cfg" | sed -n '4p')"
+cfg_review_lines="$(printf '%s\n' "$cfg" | sed -n '5p')"
+cfg_heavy_lines="$(printf '%s\n' "$cfg" | sed -n '6p')"
+report_every_turn="$(printf '%s\n' "$cfg" | sed -n '7p')"
+learning_enabled="$(printf '%s\n' "$cfg" | sed -n '8p')"
 
 input="$(cat)"
-
 parsed="$(HOOK_INPUT="$input" python3 <<'PY'
 import json, os
 d = json.loads(os.environ["HOOK_INPUT"] or "{}")
@@ -58,35 +82,20 @@ stop_active="$(printf '%s\n' "$parsed" | sed -n '1p')"
 proj="$(printf '%s\n' "$parsed" | sed -n '2p')"
 transcript="$(printf '%s\n' "$parsed" | sed -n '3p')"
 
-if [[ "${stop_active:-false}" == "true" ]]; then
-  exit 0
-fi
-
+[[ "${stop_active:-false}" == "true" ]] && exit 0
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
 
-# Load config thresholds (env vars still override).
-thresholds="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-sw = cfg.get("hooks", {}).get("session_wrap", {})
-print(sw.get("trivial_files", 2))
-print(sw.get("trivial_lines", 30))
-print(sw.get("heavy_lines", 200))
-PY
-)"
-cfg_trivial_files="$(printf '%s\n' "$thresholds" | sed -n '1p')"
-cfg_trivial_lines="$(printf '%s\n' "$thresholds" | sed -n '2p')"
-cfg_heavy_lines="$(printf '%s\n' "$thresholds" | sed -n '3p')"
+TRIVIAL_FILES="${WRAP_TRIVIAL_FILES:-$cfg_trivial_files}"
+TRIVIAL_LINES="${WRAP_TRIVIAL_LINES:-$cfg_trivial_lines}"
+REVIEW_FILES="${WRAP_REVIEW_FILES:-$cfg_review_files}"
+REVIEW_LINES="${WRAP_REVIEW_LINES:-$cfg_review_lines}"
+HEAVY="${WRAP_HEAVY_LINES:-$cfg_heavy_lines}"
 
-# The kit's own transient state files are not session work — exclude them by name
-# (precise, so a real file that merely sits in .agents/ is never hidden). Generated
-# learning reports under docs/learning/ are tooling output too, not the user's
-# diff, so they never inflate the next magnitude check that triggers them.
-markers='(\.agents/\.(genome-ledger|mutagen-ledger|sources-ledger|compaction-pending|wrap-prompted|learning-prompted)$|^docs/learning/)'
+# The kit's own transient state is not session work — exclude by name (precise,
+# so a real file that merely sits in .agents/ is never hidden). Generated
+# learning reports are tooling output, not the user's diff.
+markers='(\.agents/\.(genome-ledger|mutagen-ledger|sources-ledger|compaction-pending)$|\.agents/\.wrap-state-|^docs/learning/)'
 
 changed=""
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -97,17 +106,12 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     | grep -Ev "$markers" || true)"
 fi
 
-# ───────────────────────── code changes present ─────────────────────────
+# ───────────────────────────── classify the tier ─────────────────────────────
+count=0
+lines=""
+binary=""
 if [[ -n "$changed" ]]; then
   count="$(printf '%s\n' "$changed" | wc -l | tr -d ' ')"
-
-  TRIVIAL_FILES="${WRAP_TRIVIAL_FILES:-$cfg_trivial_files}"
-  TRIVIAL_LINES="${WRAP_TRIVIAL_LINES:-$cfg_trivial_lines}"
-
-  # Churn = tracked diff lines (vs HEAD) + untracked file lines. A binary change
-  # reports no line count, so its presence alone forces "substantial".
-  lines=""
-  binary=""
   if git rev-parse --verify -q HEAD >/dev/null 2>&1; then
     binary="$(git diff HEAD --numstat 2>/dev/null \
       | awk '$1 == "-" && $2 == "-" { print 1; exit }' || true)"
@@ -119,201 +123,147 @@ if [[ -n "$changed" ]]; then
       | awk '{ s += $1 } END { print s + 0 }' || true)"
     lines=$(( ${tracked:-0} + ${untracked:-0} ))
   fi
+fi
 
-  # Trivial -> skip silently. A binary change, or churn we cannot measure (no
-  # commit yet), counts as substantial: a safety wrap fails toward more review.
-  if [[ -z "$binary" && -n "$lines" ]] && (( count <= TRIVIAL_FILES && lines <= TRIVIAL_LINES )); then
-    exit 0
+# A binary change, or churn we cannot measure (no commit yet), is never trivial:
+# a safety wrap fails toward more review.
+tier="none"
+if [[ -n "$changed" ]]; then
+  if [[ -n "$binary" || -z "$lines" ]]; then
+    tier="diff"
+  elif (( count <= TRIVIAL_FILES && lines <= TRIVIAL_LINES )); then
+    tier="trivial"
+  else
+    tier="diff"
   fi
-
-  shown="$(printf '%s\n' "$changed" | head -30 | sed 's/^/  - /')"
-  more=""
-  if (( count > 30 )); then
-    more=$'\n  - … '"$((count - 30))"" more"
+  if [[ "$tier" == "diff" ]] && { [[ -z "$lines" ]] || (( count >= REVIEW_FILES || lines >= REVIEW_LINES )); }; then
+    tier="large"
   fi
-  size="$count file(s)"
-  [[ -n "$lines" ]] && size="$size, ~$lines changed lines"
-  [[ -n "$binary" ]] && size="$size, binary"
+fi
 
-  cat >&2 <<EOF
-Uncommitted changes this session ($size):
-$shown$more
+rank() { case "$1" in none) echo 0;; trivial) echo 1;; diff) echo 2;; large) echo 3;; *) echo 0;; esac; }
 
-This is more than a trivial edit. Ask the user — full session wrap, or skip it?
-— and honor the answer (Claude: use the AskUserQuestion tool). If they skip, stop
-here. If they want the wrap, walk this checklist against the files this session
-actually touched; do not sweep files you did not edit.
+# ────────────────────────── escalation gate (the throttle) ──────────────────────────
+# State file, one per session — the transcript path is hashed into the NAME, not
+# compared inside a shared file. Two Claude sessions in one repo would otherwise
+# share `.wrap-state`, each read the other's identity, reset the ladder, and fire
+# every turn — the exact behavior this gate exists to prevent.
+#   line 1  highest tier already fired (the diff ladder)
+#   line 2  "1" once the no-diff investigation report has fired this session
+#   line 3  commit count at the last write — a rise means a commit landed
+# The diff ladder cannot throttle the no-diff branch — `none` and `trivial` never
+# out-rank a fresh `none` — so that branch carries its own flag.
+#
+# The commit count is tracked because a tier drop is not the only way work
+# completes: a turn that commits AND opens the next unit never dips to `none`, so
+# the ladder would stay latched and swallow the next wrap. The count catches the
+# commit the tier never shows. It is a COUNT and not a sha because a sha merely
+# *moves* on `--amend`, `rebase`, or `checkout` — none of which close a unit of
+# work — and would re-fire the wrap on an unchanged tree.
+#
+# No transcript path (Kimi exposes none) = no session identity = no throttle:
+# read and write nothing, and let every escalation fire. Keying a shared file on
+# an empty identity would make one repo-wide ladder that every future session
+# inherits, silently suppressing wraps forever. A safety wrap fails toward review.
+state=""
+if [[ -n "$transcript" ]]; then
+  state="$proj/.agents/.wrap-state-$(printf '%s' "$transcript" | cksum | tr -d ' ')"
+fi
 
-1. Clean-up on these files
-   - Remove unused imports, dead branches, and unused variables anywhere in these
-     files — pre-existing or introduced this session. The touched files are in
-     scope as a whole; only files you did not edit are off-limits (see the header).
-   - Delete comments that describe behavior you removed or replaced.
-   - Delete TODO markers you wrote.
-   - Delete temporary scripts, fixtures, or scratch files created for iteration.
+# Empty in a repo with no commits — which correctly makes the count signal inert
+# rather than writing a bogus marker.
+commits="$(git rev-list --count HEAD 2>/dev/null || true)"
+[[ "$commits" =~ ^[0-9]+$ ]] || commits=""
 
-2. Behavior-impact review on these files
-   - Compare the new behavior to the prior behavior.
-   - Flag any regressions or unintended consequences you find.
-   - Update every downstream caller, test, and doc/instruction file in the touched domain that the change affects.
-   - Stale behavior left in old code paths or docs is a regression.
+fired="none"
+investigated=""
+prev_commits=""
+if [[ -n "$state" && -f "$state" ]]; then
+  fired="$(sed -n '1p' "$state" 2>/dev/null || true)"
+  investigated="$(sed -n '2p' "$state" 2>/dev/null || true)"
+  prev_commits="$(sed -n '3p' "$state" 2>/dev/null || true)"
+fi
+case "$fired" in none|trivial|diff|large) ;; *) fired="none";; esac
+[[ "$investigated" == "1" ]] || investigated=""
+[[ "$prev_commits" =~ ^[0-9]+$ ]] || prev_commits=""
 
-3. Hostile review
-   - Spawn a subagent to review the diff against the surrounding architecture.
-     THE main question, before anything else: does the code actually do what it
-     is supposed to do? Trace the change against its intent and the inputs and
-     edge cases it must handle, and prove it correct — or pinpoint exactly where
-     it does the wrong thing. A clean-looking diff that doesn't do its job is the
-     worst defect. Only then hunt for these, each reported with file:line, why it
-     bites, and the fix:
-     - Dangerous patterns — data loss, unsafe deletes, auth/permission gaps,
-       unvalidated input, injection, secrets in code, swallowed errors.
-     - Scalability issues — unbounded growth, missing pagination, work that
-       won't survive 100x load, per-request cost that should be amortized.
-     - Race conditions — unguarded shared state, check-then-act, missing
-       locks/transactions, non-atomic read-modify-write, ordering assumptions.
-     - Suboptimal queries — N+1, full-table scans, missing indexes, SELECT *,
-       queries inside loops, fetching far more rows than used.
-     - Hard-to-debug code — silent failures, no logging at failure points,
-       magic control flow, deep nesting, side effects hidden behind innocent names.
-     - Weak architecture — leaky layer boundaries, tight coupling, duplicated
-       sources of truth, logic in the wrong layer, abstractions that lie. For
-       structural depth on this axis — abstraction quality, dramatic
-       simplification, spaghetti growth, file-size smells — hand off to the
-       thermo-nuclear-code-quality-review skill instead of duplicating it here.
-   - Fold valid objections; escalate genuine disagreements to the user.
+# Re-arm the ladder when the unit of work closed. Two independent signals:
+#   - the tier dropped (work committed away, or reverted)
+#   - the commit count ROSE (a commit landed even though the tier never dipped)
+if (( $(rank "$tier") < $(rank "$fired") )); then
+  fired="none"
+elif [[ -n "$prev_commits" && -n "$commits" ]] && (( commits > prev_commits )); then
+  fired="none"
+fi
 
-4. Session report
-   - Root cause (for bugs): proximate and underlying.
-   - What was done and why.
-   - What changed or was verified.
-   - Remaining blockers, risks, or next steps, if any.
+escalated="no"
+(( $(rank "$tier") > $(rank "$fired") )) && escalated="yes"
 
-5. Provide a commit message draft for the session's work in conventional style.
-EOF
+# Persist unconditionally, at every invocation — NOT only when emitting. A commit
+# turn emits nothing; if the re-armed `fired` were written only from an emit
+# branch, the re-arm would live in memory and die there, and the next unit of work
+# reaching the same tier would be silently swallowed.
+record_state() {
+  [[ -z "$state" ]] && return 0
+  mkdir -p "$proj/.agents" 2>/dev/null || true
+  { printf '%s\n%s\n%s\n' "$1" "$2" "$commits" > "$state"; } 2>/dev/null || true
+}
 
-  # Pairing mode: append a learning-report request to the SAME stderr (one hook,
-  # one exit 2). The toggle is the one OPT-IN here, so it reads .get("enabled",
-  # False) — a missing/broken config leaves pairing mode OFF, never silently on
-  # (every other hook fails toward enabled; this one must not). Read here, inside
-  # the substantial branch, so trivial/no-diff sessions never spawn the check.
-  #
-  # Cadence: fires every substantial-diff turn by default (cadence_turns=1),
-  # matching the wrap above. Set cadence_turns=N to fire on the first such turn,
-  # then every Nth. Counting turns needs session identity (the transcript path) to
-  # know when the count resets; with no transcript (non-Claude engine) we can't
-  # count, so N>1 degrades to every turn. The report is produced INLINE by default
-  # — no file, no subagent — and persisted only when the user asks.
-  learning_cfg="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-lr = cfg.get("hooks", {}).get("learning_report", {})
-print("yes" if lr.get("enabled", False) else "no")
-try:
-    n = int(lr.get("cadence_turns", 1))
-except (TypeError, ValueError):
-    n = 1
-print(n if n >= 1 else 1)
-PY
-)"
-  learning_enabled="$(printf '%s\n' "$learning_cfg" | sed -n '1p')"
-  cadence="$(printf '%s\n' "$learning_cfg" | sed -n '2p')"
+# ───────────────────────────── build the sections ─────────────────────────────
+sections=""
+add() { sections="${sections}${1}"$'\n'; }
 
-  if [[ "$learning_enabled" == "yes" ]]; then
-    emit_learning="yes"
-    # N>1: count this session's substantial-diff turns, fire on 1, 1+N, 1+2N…
-    # The marker holds the transcript path (session identity) + the count; a new
-    # session, or an unreadable/old-format count, resets to 0.
-    if [[ -n "${transcript:-}" ]] && (( cadence > 1 )); then
-      lmarker="$proj/.agents/.learning-prompted"
-      lprev_path=""; lprev_count=0
-      if [[ -f "$lmarker" ]]; then
-        lprev_path="$(sed -n '1p' "$lmarker" 2>/dev/null || true)"
-        lprev_count="$(sed -n '2p' "$lmarker" 2>/dev/null || true)"
-      fi
-      [[ "$lprev_path" == "$transcript" ]] || lprev_count=0
-      [[ "$lprev_count" =~ ^[0-9]+$ ]] || lprev_count=0
-      lcount=$(( lprev_count + 1 ))
-      mkdir -p "$proj/.agents" 2>/dev/null || true
-      { printf '%s\n%s\n' "$transcript" "$lcount" > "$lmarker"; } 2>/dev/null || true
-      (( (lcount - 1) % cadence == 0 )) || emit_learning="no"
-    fi
-    if [[ "$emit_learning" == "yes" ]]; then
-      cat >&2 <<'EOF'
+# What to persist this turn. Defaults to the re-armed ladder so a commit turn —
+# which emits nothing — still writes the reset.
+next_fired="$fired"
+next_investigated="$investigated"
 
-── Pairing mode: a learning report for the junior ────────────────────────
-You are pair-coding with a junior who learns by reviewing, and you turned this
-mode on deliberately. Produce the learning report INLINE this turn — it is a
-SEPARATE deliverable from the wrap above, and the "full wrap, or skip?" choice
-does NOT govern it. Even if the user skips the wrap, produce the report (only a
-direct "skip the report too" cancels it).
+if [[ "$tier" == "diff" || "$tier" == "large" ]]; then
+  if [[ "$escalated" == "yes" || "$report_every_turn" == "yes" ]]; then
+    size="$count file(s)"
+    [[ -n "$lines" ]] && size="$size, ~$lines changed lines"
+    [[ -n "$binary" ]] && size="$size, binary"
+    shown="$(printf '%s\n' "$changed" | head -20 | sed 's/^/  - /')"
+    (( count > 20 )) && shown="$shown"$'\n'"  - … $((count - 20)) more"
 
-Distill this session's engineering decisions, and pair EACH with the real code
-that embodies it — the reasoning made legible against the lines that prove it:
-
-- Decision — one line: what was chosen.
-- Why — the tradeoff and the alternative you rejected; the *why* a cold reader
-  could not recover from the diff alone.
-- The code — a fenced excerpt of the REAL lines, headed with file:line. Lift it
-  from the diff or a tracked file; never an excerpt you wish were there.
-- How it works — the load-bearing mechanics, tied to lines in the excerpt.
-- Pattern — name the reusable pattern ("fail-open guard", "throttle keyed by
-  session"). Naming it is what makes it recognizable next time.
-- Recognition cue — one line: "When you next see X, reach for Y."
-
-Keep it scannable; lead each section with the decision in bold. A decision you
-cannot tie to real code goes under a short "Open for discussion" trailer — never
-fabricate an excerpt to fill the template.
-
-Do NOT write a file. To persist this to docs/learning/ instead, the user only
-has to ask — then delegate it (exempt from genome stamping — prepend NO stamp):
-  Task(subagent_type='learning-reporter',
-       prompt=<the decision-brief> + <the changed-file list above>)
-EOF
-    fi
+    add "Uncommitted changes this session ($size):"
+    add "$shown"
+    add ""
+    add "This crossed the '$tier' threshold. Ask the user — full session wrap, or skip?"
+    add "(Claude: use AskUserQuestion.) Honor the answer; if they skip, stop here."
+    add "If they want it, read the file for each section below and work it against"
+    add "the files this session touched — do not sweep files you did not edit."
+    add ""
+    add "  - Clean-up + behavior impact  -> $wrap_dir/diff-wrap.md"
+    [[ "$tier" == "large" ]] && \
+    add "  - Hostile review (subagent)   -> $wrap_dir/hostile-review.md"
+    add "  - Session report + commit msg -> $wrap_dir/report-implementation.md"
+    [[ "$learning_enabled" == "yes" ]] && \
+    add "  - Pairing: learning report    -> $wrap_dir/learning-report.md  (NOT governed by the skip)"
   fi
-  exit 2
+  next_fired="$tier"
+else
+  # ──────────── no diff (or trivial): capture a long investigation ────────────
+  # Length ≈ transcript line count (one line per exchange); schema-agnostic, so
+  # any engine that hands us a transcript path works. Throttled by the
+  # `investigated` flag: once per session, not once per turn.
+  events=""
+  [[ -n "$transcript" && -f "$transcript" ]] && \
+    events="$(wc -l <"$transcript" 2>/dev/null | tr -d ' ' || true)"
+
+  if [[ -n "$events" ]] && (( events >= HEAVY )) \
+     && { [[ -z "$investigated" ]] || [[ "$report_every_turn" == "yes" ]]; }; then
+    add "A long session (~$events exchanges) with no substantial diff — a debugging"
+    add "or research session whose findings die with the context window."
+    add ""
+    add "Ask the user whether they want a session report (Claude: use AskUserQuestion)."
+    add "If they want it: $wrap_dir/report-investigation.md"
+    next_investigated="1"
+  fi
 fi
 
-# ─────────────── no code changes: capture a long session ───────────────
-# A debugging or research session leaves no diff but is still worth a report.
-# Length ≈ transcript line count (one line per exchange/event); schema-agnostic,
-# so any engine that hands us a transcript path works.
-HEAVY="${WRAP_HEAVY_LINES:-$cfg_heavy_lines}"
+record_state "$next_fired" "$next_investigated"
 
-events=""
-if [[ -n "$transcript" && -f "$transcript" ]]; then
-  events="$(wc -l <"$transcript" 2>/dev/null | tr -d ' ' || true)"
-fi
-
-# No transcript exposed (e.g. Kimi) or a short session -> stay silent.
-if [[ -z "$events" ]] || (( events < HEAVY )); then
-  exit 0
-fi
-
-# Throttle: ask once per session, keyed by transcript path.
-marker="$proj/.agents/.wrap-prompted"
-prev=""
-[[ -f "$marker" ]] && prev="$(head -n1 "$marker" 2>/dev/null || true)"
-if [[ -n "$transcript" && "$prev" == "$transcript" ]]; then
-  exit 0
-fi
-mkdir -p "$proj/.agents" 2>/dev/null || true
-{ printf '%s\n' "$transcript" > "$marker"; } 2>/dev/null || true
-
-cat >&2 <<EOF
-This was a long session (~$events exchanges) with no code changes — a debugging or
-research session worth capturing. Ask the user whether they want a session report
-(Claude: use the AskUserQuestion tool). If they skip, stop. If they want it, write
-one:
-
-1. The question — what was being investigated, and why.
-2. Findings — the answer, root cause, or conclusion reached, each tied to the
-   evidence (the files, commands, or sources that establish it).
-3. Ruled out — dead ends and why, so the next investigator skips them.
-4. Open questions, risks, and the recommended next step.
-EOF
+[[ -z "$sections" ]] && exit 0
+printf '%s' "$sections" >&2
 exit 2

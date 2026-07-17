@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Engine-agnostic policy: block end-of-turn when the last assistant
-# message hedges or declares the task out of scope.
+# message hedges, declares the task out of scope, or disclaims ownership
+# of code it touched.
 #
 # Input  (stdin JSON): {"transcript_path": "...", "stop_hook_active": bool}
-# Output: exit 2 + stderr reason on hedge; exit 0 otherwise.
+# Output: exit 2 + stderr reason on a match; exit 0 otherwise.
+#
+# Two pattern classes share one hook because a second Stop hook would race
+# this one's stderr. They are otherwise distinct: hedging is about capability
+# ("I can't"), disclaiming is about ownership ("not mine"). Hedges are checked
+# first — a give-up is the harder failure — so a message doing both shows only
+# the hedge reason.
 #
 # Only wired where the host engine exposes a transcript path (Claude
 # Code today). Silent no-op if transcript_path is missing.
@@ -12,15 +19,19 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cfg_path="$repo/.agents/config.json"
-enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
+toggles="$(CFG_PATH="$cfg_path" python3 <<'PY'
 import json, os
 cfg = {}
 try:
     with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
 except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("stop_investigate", {}).get("enabled", True) else "no")
+h = cfg.get("hooks", {}).get("stop_investigate", {})
+print("yes" if h.get("enabled", True) else "no")
+print("yes" if h.get("ratchet_check", True) else "no")
 PY
 )"
+enabled="$(printf '%s\n' "$toggles" | sed -n '1p')"
+ratchet="$(printf '%s\n' "$toggles" | sed -n '2p')"
 [[ "$enabled" == "no" ]] && exit 0
 
 input="$(cat)"
@@ -78,6 +89,99 @@ referenced files, trace the code path, run the read-only commands you
 have access to, and reach a defensible conclusion. Escalate to the user
 only when a decision genuinely requires information or authority they
 alone hold. Continue the work now.
+EOF
+  exit 2
+fi
+
+[[ "$ratchet" == "no" ]] && exit 0
+
+# Two substrates, because the triggers and the disarm want opposite treatment of
+# markdown quoting. Both drop fenced blocks and blockquotes — bulk citation is
+# never a claim either way.
+#
+#   prose  (triggers) — inline code and quoted spans BLANKED. Quoting a banned
+#           phrase must not read as making it.
+#   ledger (disarm)   — the same spans UNWRAPPED, and whitespace flattened. A
+#           path is conventionally written `.agents/debt-log.md`; blanking inline
+#           code would delete the very evidence the disarm looks for, so a correct
+#           filing would block — and the block message asks the agent to name
+#           where it filed, so it would comply, backtick the path, and block
+#           again. Flattening lets the proximity check span a bulleted filing.
+#
+# Single quotes are deliberately NOT delimiters in either: apostrophes would make
+# the check contraction-dependent, eating the span between "it's" and "I've".
+both="$(LAST_MSG="$last_msg" python3 <<'PY'
+import os, re
+t = os.environ["LAST_MSG"]
+t = re.sub(r"```.*?```", " ", t, flags=re.S)
+t = re.sub(r"(?m)^\s*>.*$", " ", t)
+prose = re.sub(r"`[^`\n]*`", " ", t)
+prose = re.sub(r"\"[^\"\n]*\"|“[^”\n]*”", " ", prose)
+ledger = re.sub(r"\s+", " ", re.sub(r"[`\"“”]", " ", t))
+print(prose)
+print("<<<RATCHET-SPLIT>>>")
+print(ledger)
+PY
+)"
+prose="${both%%<<<RATCHET-SPLIT>>>*}"
+ledger="${both##*<<<RATCHET-SPLIT>>>}"
+
+# Two-key gate. Provenance alone is a *fact* ("no, that test failed before I
+# touched it") and must pass — it only reads as a punt when the message also
+# declines to act, AND the two sit next to each other. A punt is one claim in one
+# sentence; two unrelated statements paragraphs apart are not one. Without the
+# proximity bound this fired on a report that said "a pre-existing failure was
+# correctly suppressed" in one paragraph and "Left alone, every edit would drop a
+# file" — a conditional, not a declination — in the next, 233 chars away. Real
+# punts measure ~40. A sanctioned disposition (breadcrumb, debt-log entry) clears
+# it regardless: that is the policy working, not a dodge.
+#
+# The triggers read `prose`; the disarm reads `ledger` (see above). The disarm
+# must not out-permission the triggers: matched against the raw message, naming a
+# ledger inside a fenced block would void the whole check.
+provenance='(\b(pre-?existing|long-?standing)\b|\bnot (introduced|caused|added) by (this|my|the current) (change|edit|diff|pr|patch|work)\b|\b(was|were|is|are) already (broken|failing|wrong)\b|\bnot (my|mine|this change.?s) (code|work|bug|problem|mess)\b|\bI (didn.?t|did not) (write|introduce|add|author) (this|that|it|the)\b|\bunrelated to (this|my|the current) (change|diff|edit|pr|patch|work|task)\b|\bnot part of (this|my) (change|diff|edit|pr|patch|task)\b|\b(an|a) (existing|upstream|legacy) (issue|bug|problem|failure)\b|\b(existed|was there) (before|prior to)\b|\bpre-?dates\b)'
+declines='(\bleav(e|ing) (it |that |them |those |this )?(alone|as.?is|be|for now|untouched)\b|\bleft (it |that |them |those |this )?(alone|as.?is|untouched|for now)\b|\b(not|won.?t|will not|do not|don.?t) (fix|fixing|address|addressing|touch|touching|change|changing) (it|that|them|those|this)\b|\b(didn.?t|did not) (fix|address|touch) (it|that|them|those|this)\b|\bout of scope\b|\bnot in scope\b|\bnot worth fixing\b|\b(so|and) I (skipped|ignored) (it|that|them|those)\b|\bskipping (it|that|them|those)\b)'
+# The disarm needs an affirmative filing VERB next to the ledger, not a bare
+# mention: a turn that merely cites breadcrumbs.md while punting elsewhere must
+# still block. `unfiled` then takes back the negated form ("not filing it to
+# debt-log.md"), which otherwise disarms by naming the thing it refuses to do.
+# The gap is `.{0,120}`, not a bracket class: POSIX ERE does not read `\n` inside
+# brackets, so `[^\n]` means "not a backslash and not the letter n" and silently
+# never matches an ordinary sentence. `ledger` is already newline-flattened, so
+# `.` reaches across a bulleted filing.
+#
+# `unfiled` carries the SAME ledger proximity as `filed`. Unscoped, any negation
+# anywhere in the message re-armed the block — "there's no need to file a
+# changelog entry" three sentences away from a genuine filing blocked correct
+# work. The negation only counts when it is negating THIS filing.
+ledger_f='(breadcrumbs\.md|debt-log\.md)'
+filed="(\\b(filed|filing|recorded|recording|logged|logging|noted|noting|tracked|tracking|captured|added)\\b.{0,120}$ledger_f|\\bdebt: ?[a-z0-9-]+)"
+unfiled="\\b(not|never|without|no need to)\\s+(going to\\s+|gonna\\s+)?(fil(e|ing)|record(ing)?|logg?(ing)?|track(ing)?|not(e|ing))\\b.{0,120}$ledger_f"
+
+disarmed="no"
+if printf '%s' "$ledger" | grep -Eqi "$filed" \
+   && ! printf '%s' "$ledger" | grep -Eqi "$unfiled"; then
+  disarmed="yes"
+fi
+
+# Flattened so the proximity window can span a line break inside one sentence;
+# grep is line-based, so `.` cannot cross a newline otherwise.
+prose_flat="$(printf '%s' "$prose" | tr '\n' ' ')"
+NEAR=140   # generous for one sentence, well under the 233 that misfired
+
+if printf '%s' "$prose_flat" | grep -Eqi "$provenance.{0,$NEAR}$declines|$declines.{0,$NEAR}$provenance" \
+   && [[ "$disarmed" == "no" ]]; then
+  cat >&2 <<'EOF'
+Your last message paired a provenance claim (pre-existing, not yours, not
+introduced by this change) with a decision to leave the code alone. The
+quality gate rises over time: a file you touch comes up to today's bar,
+whoever wrote it and whenever. Provenance is not an exemption.
+
+Go back and pick one deliberately: fix it now if it sits in a file this
+change already touches and the fix is bounded, or — if it is genuinely
+separate work — file it (.agents/breadcrumbs.md for work, .agents/debt-log.md
+for a standing tradeoff) and name where you filed it. Do not narrate the
+reasoning in a code comment.
 EOF
   exit 2
 fi
