@@ -11,6 +11,7 @@ Two layers, strict separation:
 
 ```
 .agents/hooks/policy/   engine-agnostic policy (the actual checks)
+.agents/hooks/wrap/     session-wrap checklist prose (markdown, not scripts)
 .claude/hooks/          Claude Code adapter (stdin normalization)
 .kimi/hooks/            Kimi CLI adapter (stdin normalization)
 ```
@@ -128,8 +129,12 @@ how `WebSearch|WebFetch` is read; keep it exact unless you mean to.
 
 ### `research-prime.sh` — UserPromptSubmit (`--agent main`, Claude-only)
 The search scaffold's nudge — a *context* policy, not a gate (always exits 0).
-A Stop hook can't remind the model without blocking the turn, so the reminder
-lands here, *before* the answer: when the user's prompt matches high-signal
+The reminder lands here, *before* the answer, because a reminder after the answer
+is too late to change it — a Stop hook fires once the claim is already written.
+(`Stop` *can* speak without an error: it accepts
+`hookSpecificOutput.additionalContext` for "non-error feedback that continues the
+conversation" — so the constraint is timing, not capability.) When the prompt
+matches high-signal
 research patterns (`latest`, `compatible with`, `current best practice`, version
 questions…), it injects `hookSpecificOutput.additionalContext` nudging the agent
 to search and cite (or delegate a researcher) rather than answer from memory.
@@ -166,51 +171,98 @@ findings, a flagged line is a judgment call, not a defect.
 Main agent only — the wrap-up never fires inside a subagent's turn, only
 when the agent the user is waiting on stops.
 
-Gated by magnitude, so a one-line tweak or a quick question never triggers a
-hostile-review subagent, but a heavy session is never lost. Three outcomes on
-the first end-of-turn:
+**The script owns the gate; the prose lives in `.agents/hooks/wrap/*.md`.** The
+hook emits a short trigger (~12 lines) naming each section and its file; the
+agent reads a file only if the user opts into the wrap. A skipped wrap therefore
+costs the model nothing, where an inlined checklist costs the whole wall whether
+or not it is used. Edit the checklists as markdown; the bash never changes.
 
-| Session | Outcome |
-|---------|---------|
-| Trivial diff (`≤ WRAP_TRIVIAL_FILES` files **and** `≤ WRAP_TRIVIAL_LINES` lines, default 2 / 30) | skip silently |
-| Substantial diff | block — reason asks the agent to ask the user *"full wrap, or skip?"* before walking the checklist (clean-up, behavior-impact, hostile review, report, commit draft), **scoped to the changed files only** |
-| No diff but a long session (`≥ WRAP_HEAVY_LINES` transcript events, default 200) — a debugging/research session | block — reason asks the user *"want a session report?"* with a findings/evidence template |
+**Magnitude tiers**, computed once from git plumbing (free — no tokens):
+
+| Tier | Condition |
+|------|-----------|
+| `none` | no changed files |
+| `trivial` | `≤ trivial_files` (2) **and** `≤ trivial_lines` (30) |
+| `diff` | beyond trivial |
+| `large` | `≥ review_files` (5) **or** `≥ review_lines` (150) |
+
+**The gate is tier *escalation*, not "is there a diff".** A session that reaches
+`diff` fires once; it does not re-fire next turn still sitting at `diff`.
+Reaching `large` fires again (and adds the hostile-review section). A closed unit
+of work re-arms the ladder, so **atomic commits give one wrap per unit of work
+rather than one per turn**.
+
+Measured on one 20-turn feature session with atomic commits (same session driven
+through both versions):
+
+| | Blocks | Total stderr |
+|---|---|---|
+| Before (every substantial turn, inline checklist) | 12 / 20 | 646 lines |
+| After (escalation + pointers) | 5 / 20 | ~62 lines |
+
+Re-arming watches **two** signals, because a tier drop is not the only way work
+closes: a turn that commits *and* opens the next unit never dips to `none`, so
+the ladder would stay latched and swallow the next wrap. The gate therefore
+re-arms on a tier drop **or** on the commit count rising. It counts commits
+rather than comparing `HEAD`, because a sha merely *moves* on `--amend`,
+`rebase`, or `checkout` — none of which close a unit of work — and would re-fire
+the wrap on an unchanged tree.
+
+Escalation, not every-turn, because every-turn blocking makes each turn cost two
+assistant messages and forces the agent to triage a wall it will mostly ignore.
+It is also self-defeating: [Claude Code overrides a Stop hook after it blocks
+eight times in a row without progress](https://code.claude.com/docs/en/hooks-guide),
+so a hook that always blocks spends its own budget on noise and is then ignored
+exactly when it has something worth saying. The community reference hook
+([disler/claude-code-hooks-mastery `stop.py`](https://github.com/disler/claude-code-hooks-mastery))
+never blocks at all. The gate idiom — cheap git plumbing plus a persisted marker,
+silent when nothing changed — follows
+[OpenRouter's documented Stop-hook review pattern](https://openrouter.ai/docs/guides/coding-agents/automatic-code-review).
+`hooks.session_wrap.report_every_turn=true` opts into the every-turn behavior.
 
 Churn = tracked diff lines (vs `HEAD`) + untracked file lines; a binary change,
-or churn we can't measure (no commit yet), counts as substantial — a safety wrap
-fails toward more review. The changed-file list (`git status --porcelain=v1
---untracked-files=all`) excludes the kit's own transient state by name (the five
-`.agents/.*-ledger` / marker files), so a ledger write never reads as session
-work, and a real file in `.agents/` is never hidden. The no-diff prompt is
-throttled to once per session (keyed by `transcript_path`, marker
-`.agents/.wrap-prompted`) so an active session isn't asked every turn. Re-entry
-guarded by `stop_hook_active`.
+or churn we can't measure (no commit yet), is never trivial — a safety wrap fails
+toward more review. The changed-file list (`git status --porcelain=v1
+--untracked-files=all`) excludes the kit's own transient state by name, so a
+ledger write never reads as session work and a real file in `.agents/` is never
+hidden. Re-entry guarded by `stop_hook_active`.
+
+State lives in `.agents/.wrap-state-<hash of transcript_path>` — **one file per
+session**, so a new session starts fresh and two concurrent sessions in one repo
+never clobber each other (a single shared file keyed by a line-1 identity makes
+each session reset the other's ladder and fire every turn). Line 1 is the highest
+tier fired, line 2 a flag for the no-diff report, line 3 the commit count at last
+write. The no-diff branch needs its own flag because the tier ladder cannot
+throttle it — `none` never out-ranks a fresh `none`. State is written on **every**
+invocation, not only when the hook speaks: a commit turn emits nothing, so a
+re-arm persisted only from an emit branch would live in memory and die there.
+
+With **no transcript path** (Kimi exposes none) there is no session identity, so
+the hook reads and writes no state and every escalation fires. Keying a shared
+file on an empty identity would build one repo-wide ladder that every future
+session inherits, silently suppressing wraps forever — a wrap must fail toward
+review, never away from it.
+
+`hostile-review` fires only at `large`, so a 4-file/140-line change gets clean-up
+and a report but no adversarial subagent. That is a deliberate cost of keeping
+the subagent spawn off routine work; drop `review_files`/`review_lines` if you
+want it back earlier.
 
 **Pairing mode (`hooks.learning_report`, opt-in, OFF by default).** When
-pair-coding with a junior who learns by reviewing, the *substantial-diff* branch
-additionally asks the agent to produce a **learning report**: distill the
-session's decisions (the *why*, tradeoffs, alternatives rejected) into a brief,
-then dispatch the `learning-reporter` subagent (see *Native agents*), which pairs
-each decision with the actual code (`file:line`) and writes it to `docs/learning/`.
-It is **folded into this hook** — one `Stop` hook, one `exit 2`, the learning
-section appended to the same stderr — rather than a second `Stop` hook, because
-parallel `Stop` hooks merge their `exit 2` stderr unpredictably; a second
-competing checklist is the bug, not the feature. To avoid reintroducing that
-conflict *inside* the one hook, the appended learning instruction is explicitly
-**decoupled from the wrap's "full wrap, or skip?" choice** — the report is its
-own deliverable, produced even when the user skips the cleanup wrap, so a
-wrap-skip can't silently swallow the very report the mode exists to produce. The
-brief is the data flow: the
-orchestrator holds the discussion in context and the subagent does not, so the
-subagent is *seeded*, never pointed at the raw transcript. Unlike every other
-toggle here, this one reads `.get("enabled", False)` — a missing or broken config
-must leave pairing mode OFF, never silently on. Throttled once per session (marker
-`.agents/.learning-prompted`, keyed by `transcript_path`) so the junior gets one
-consolidated report, not one per turn; delete the marker to regenerate. Generated
-reports under `docs/learning/` are excluded from the change-magnitude scan (like
-the kit's transient markers), so a report never re-inflates the session that
-produced it. Requires `session_wrap` enabled (it rides this hook) and a transcript
-path (Claude); silent on engines without one.
+pair-coding with a junior who learns by reviewing, the diff branch adds one more
+pointer — `wrap/learning-report.md` — asking the agent to pair each of the
+session's decisions (the *why*, tradeoffs, alternatives rejected) with the real
+code (`file:line`) that embodies it. The instruction is explicitly **decoupled
+from the "full wrap, or skip?" choice**: the report is its own deliverable,
+produced even when the user skips the wrap, so a wrap-skip can't silently swallow
+the very report the mode exists to produce. Produced INLINE by default; persisted
+to `docs/learning/` via the `learning-reporter` subagent only when the user asks
+— seeded with a decision-brief the orchestrator holds in live context, never
+pointed at the raw transcript. Unlike every other toggle here, this one reads
+`.get("enabled", False)` — a missing or broken config must leave pairing mode
+OFF, never silently on. Generated reports under `docs/learning/` are excluded
+from the magnitude scan, so a report never re-inflates the session that produced
+it. Requires `session_wrap` enabled (it rides this hook).
 
 The no-diff path measures *length* as the transcript's **line count** (one line
 per exchange) — schema-agnostic, so it works on any engine that passes a
@@ -219,6 +271,17 @@ malformed transcript. It still needs *a* transcript path: Kimi exposes none, so
 a no-diff session is silent there; the diff tiering is fully engine-agnostic
 (git only). The `--agent main`-gated ask routes through the agent because a Stop
 hook cannot call `AskUserQuestion` itself.
+
+**Note on the sibling Stop hook.** `stop-investigate.sh` is also wired on `Stop`,
+so two hooks can both `exit 2` on one turn. The docs cover neighbouring cases but
+not this one: matching hooks run in parallel and are deduplicated by command;
+`PreToolUse` decisions resolve most-restrictive-first; `additionalContext` text is
+"kept from every hook and passed to Claude together". For **two Stop hooks exiting
+2 with different stderr**, no combination rule is documented. The escalation gate
+keeps the collision rare by construction — the wrap speaks only on a tier change,
+not every turn. Do not add an every-turn Stop blocker without resolving this
+first, and note the eight-block override above: competing blockers burn that
+budget together.
 
 ### `stop-investigate.sh` — Stop (Claude only, `--agent main`)
 Main agent only — a subagent that hits a dead end should report it back to
@@ -230,6 +293,49 @@ precision hedging or give-up patterns ("unable to determine without",
 "please clarify which", "out of scope", etc.). Re-states the
 investigate-then-act principle. `stop_hook_active` re-entry guard.
 Tune by editing `hedges=` in the script.
+
+It also runs a **ratchet check** (`hooks.stop_investigate.ratchet_check`,
+default on): a second pattern class over the same message, catching
+disclaimers of *ownership* rather than of capability. The quality gate rises
+over time, so provenance is not an exemption — a file this change touches
+comes up to today's bar whoever wrote it, and "pre-existing" is an
+observation about history, not a reason to leave it.
+
+It is a **two-key gate with a proximity bound**, and that is the whole design.
+A provenance phrase alone never fires: "Both tests were already failing before
+my change" is a *fact* — often the exact answer the user asked for — so the
+message must *also* decline to act ("so I left it alone", "out of scope", "so
+I skipped them"). And the two keys must sit **within `NEAR` (140) characters of
+each other**, because a punt is one claim in one sentence. Real punts measure
+~40 characters between keys; two unrelated statements in a long report do not.
+A third key disarms it: a message naming a sanctioned disposition
+(`breadcrumbs.md`, `debt-log.md`, a `debt: <id>` ref) passes even when it
+declines, because that is the Discovered Subprojects policy working as
+intended, not a dodge.
+
+Tune via `provenance=` / `declines=` / `filed=` / `NEAR=` — but keep both the
+co-occurrence and the proximity. Every relaxation of them has drawn blood in
+practice: a single-key version blocked "unrelated to this change, so I filed it
+in `.agents/breadcrumbs.md`" — the very behavior its reason text asks for — and
+an unbounded two-key version blocked a report that said "a pre-existing failure
+was correctly suppressed" in one paragraph and "Left alone, every edit would
+drop a file" (a conditional, not a declination) 233 characters later.
+
+The two classes share this one hook because parallel `Stop` hooks merge their
+`exit 2` stderr unpredictably — the same constraint that folds pairing mode
+into `session-wrap.sh`. Hedges are checked first (a give-up is the harder
+failure), so a message that both hedges *and* disclaims shows only the hedge
+reason. Unlike the hedge class, the ratchet class matches stripped text, and it
+strips **two ways**. The triggers read `prose` (fences, blockquotes, inline code,
+and quoted spans blanked) so citing a banned phrase is not making the claim. The
+disarm reads `ledger` (fences and blockquotes dropped; inline code and quotes
+*unwrapped*, whitespace flattened) because a path is conventionally written
+`` `.agents/debt-log.md` `` — blanking inline code there would delete the very
+evidence the disarm looks for and block a correct filing, whose reason text then
+asks the agent to name where it filed, so it complies, backticks the path, and
+blocks again. Apostrophes are deliberately not delimiters in either: single-quote
+stripping would make the check contraction-dependent, passing "it's … so I've
+left it" while blocking the identical "it is … so I have left it".
 
 Not wired in Kimi: depends on transcript access. Current Kimi hook
 docs expose `stop_hook_active` but not a transcript path or last-
@@ -300,8 +406,10 @@ what's active and how it behaves.
 | `hooks.post_edit_check` | `post-edit-check.sh` | No lint/format/typecheck on edits |
 | `hooks.post_edit_check.tombstone_check` | `post-edit-check.sh` | No tombstone-comment advisory (lint still runs) |
 | `hooks.session_wrap` | `session-wrap.sh` | No end-of-session wrap prompt |
+| `hooks.session_wrap.report_every_turn` | `session-wrap.sh` | *(default)* wrap fires only on tier escalation; `true` fires it every turn |
 | `hooks.learning_report` | `session-wrap.sh` (pairing mode) | No junior learning-report dispatch — **the default**; this toggle is opt-in |
 | `hooks.stop_investigate` | `stop-investigate.sh` | No hedge/give-up blocking |
+| `hooks.stop_investigate.ratchet_check` | `stop-investigate.sh` | No ownership-disclaimer blocking (hedge check still runs) |
 | `hooks.session_start` | `session-start.sh` | No breadcrumbs / compaction nudge |
 | `hooks.pre_compact` | `pre-compact.sh` | No `.compaction-pending` marker |
 
