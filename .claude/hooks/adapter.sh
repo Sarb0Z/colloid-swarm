@@ -100,6 +100,7 @@ elif policy == "post-edit-check.sh":
 elif policy == "session-wrap.sh":
     out["stop_hook_active"] = bool(src.get("stop_hook_active", False))
     out["transcript_path"] = src.get("transcript_path", "")
+    out["session_id"] = src.get("session_id", "")
 elif policy == "stop-investigate.sh":
     out["stop_hook_active"] = bool(src.get("stop_hook_active", False))
     out["transcript_path"] = src.get("transcript_path", "")

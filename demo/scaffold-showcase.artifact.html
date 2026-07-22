@@ -1552,10 +1552,14 @@ exit 0
               <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
               <p class="what">On magnitude escalation (none → trivial → diff → large) offers a clean-up + report wrap, and asks the user — full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 trigger | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 269 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 280 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
-# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool, &quot;transcript_path&quot;: &quot;...&quot;}
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool,
+#                        &quot;transcript_path&quot;: &quot;...&quot;, &quot;session_id&quot;: &quot;...&quot;}
+# transcript_path (Claude) doubles as session identity and exchange counter;
+# session_id (Kimi) supplies identity alone — the no-diff investigation branch
+# needs a transcript and stays engine-limited.
 # Output: exit 2 + stderr on escalation; exit 0 otherwise.
 #
 # The checklist prose lives in .agents/hooks/wrap/*.md — this script owns only
@@ -1570,8 +1574,8 @@ exit 0
 # still sitting at `diff`. Reaching `large` fires again. Committing drops the
 # tier back to `none` and re-arms the ladder, so atomic commits give one wrap per
 # unit of work rather than one per turn. State lives in
-# .agents/.wrap-state-&lt;hash of transcript path&gt; — one file per session, so a new
-# session starts the ladder fresh and concurrent sessions never clobber.
+# .agents/.wrap-state-&lt;hash of session identity&gt; — one file per session, so a
+# new session starts the ladder fresh and concurrent sessions never clobber.
 #
 # Why escalation and not every turn: firing every turn makes each turn cost two
 # assistant messages and forces the model to triage a wall it will mostly ignore.
@@ -1630,11 +1634,13 @@ d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
 print(str(d.get(&quot;stop_hook_active&quot;, False)).lower())
 print(d.get(&quot;project_dir&quot;, &quot;&quot;))
 print(d.get(&quot;transcript_path&quot;, &quot;&quot;))
+print(d.get(&quot;session_id&quot;, &quot;&quot;))
 PY
 )&quot;
 stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
 transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+session_id=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
 
 [[ &quot;${stop_active:-false}&quot; == &quot;true&quot; ]] &amp;&amp; exit 0
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
@@ -1715,13 +1721,15 @@ rank() { case &quot;$1&quot; in none) echo 0;; trivial) echo 1;; diff) echo 2;; 
 # *moves* on `--amend`, `rebase`, or `checkout` — none of which close a unit of
 # work — and would re-fire the wrap on an unchanged tree.
 #
-# No transcript path (Kimi exposes none) = no session identity = no throttle:
+# Session identity: the transcript path (Claude) or session_id (Kimi) — either
+# names this session&#x27;s state file. Neither present = no identity = no throttle:
 # read and write nothing, and let every escalation fire. Keying a shared file on
 # an empty identity would make one repo-wide ladder that every future session
 # inherits, silently suppressing wraps forever. A safety wrap fails toward review.
+ident=&quot;${transcript:-$session_id}&quot;
 state=&quot;&quot;
-if [[ -n &quot;$transcript&quot; ]]; then
-  state=&quot;$proj/.agents/.wrap-state-$(printf &#x27;%s&#x27; &quot;$transcript&quot; | cksum | tr -d &#x27; &#x27;)&quot;
+if [[ -n &quot;$ident&quot; ]]; then
+  state=&quot;$proj/.agents/.wrap-state-$(printf &#x27;%s&#x27; &quot;$ident&quot; | cksum | tr -d &#x27; &#x27;)&quot;
 fi
 
 # Empty in a repo with no commits — which correctly makes the count signal inert
@@ -1761,6 +1769,9 @@ record_state() {
   [[ -z &quot;$state&quot; ]] &amp;&amp; return 0
   mkdir -p &quot;$proj/.agents&quot; 2&gt;/dev/null || true
   { printf &#x27;%s\n%s\n%s\n&#x27; &quot;$1&quot; &quot;$2&quot; &quot;$commits&quot; &gt; &quot;$state&quot;; } 2&gt;/dev/null || true
+  # Reap state from long-dead sessions; today&#x27;s file was just written, so a
+  # week-old mtime can only mean an abandoned session.
+  find &quot;$proj/.agents&quot; -maxdepth 1 -name &#x27;.wrap-state-*&#x27; -mtime +7 -delete 2&gt;/dev/null || true
 }
 
 # ───────────────────────────── build the sections ─────────────────────────────
@@ -3591,15 +3602,13 @@ Task(subagent_type=&#x27;learning-reporter&#x27;,
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 11 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 9 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
 
 - `stop-investigate.sh` hand-parses the transcript (~25 lines of python) for the last assistant message; Claude Code&#x27;s Stop payload carries `last_assistant_message` and the docs say hooks &quot;should use&quot; it instead of reading the transcript — pipe it through `adapter.sh` and delete the parser. https://code.claude.com/docs/en/hooks
-- Nothing reaps `.agents/.wrap-state-*`; one 3-line file accrues per session, forever. Prune entries older than N days inside `record_state` in `session-wrap.sh`.
-- Under Kimi the wrap has NO throttle: `.kimi/hooks/adapter.sh` passes no `transcript_path` (Kimi exposes none), so `session-wrap.sh` keeps no state and fires on every diff turn rather than on escalation. Documented as fail-toward-review, but it is the pre-rewrite aggression for that engine — Kimi &gt;= 0.29 hook payloads carry `session_id` (docs: base stdin structure), so the adapter can key wrap state off that instead of transcript_path; wire it through and the throttle works under Kimi.
-- Kimi &gt;= 0.29 exposes SessionStart, UserPromptSubmit, PreCompact, and SubagentStart hook events — session-start, research-prime, pre-compact (and possibly genome-guard via SubagentStart) are now portable; needs adapter branches + [[hooks]] blocks + payload-shape verification. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+- Kimi &gt;= 0.29 exposes SubagentStart — genome-guard could ride it instead of PreToolUse Agent/AgentSwarm matching; needs payload-shape verification. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
 - Persona-layer decision (user call, not unilateral): Wharton &quot;Playing Pretend&quot; (arxiv.org/abs/2512.05858) — expert personas don&#x27;t improve factual accuracy and domain-mismatched ones degrade it; personas DO still shape tone/behavior. Genome personas are diversity-for-selection (defensible), but &quot;You are a senior red-team engineer&quot; (pentesting SKILL) and Carmack/Jobs/Linus anchors (AGENTS.md) are the expert-persona pattern. Keep for tone, drop for accuracy claims, or trim?
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
 </code></pre></details>

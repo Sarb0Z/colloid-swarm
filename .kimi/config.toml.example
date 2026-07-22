@@ -1,42 +1,31 @@
 # Merge these hooks into ~/.kimi-code/config.toml when using Kimi CLI in this
 # repo. The hook commands are RELATIVE paths — Kimi resolves them against the
-# project cwd, so the global registration works across repos, but ONLY in
-# repos that vendor .kimi/hooks/adapter.sh; anywhere else the hooks silently
-# do nothing.
-#
-# Hook policy lives in .agents/hooks/policy/ (engine-agnostic).
-# .kimi/hooks/adapter.sh normalizes Kimi's stdin into the policy contract.
+# project cwd, so the global registration works across repos. Repos that don't
+# vendor .kimi/hooks/adapter.sh get silent no-ops; repos that vendor the
+# adapter but lack a given policy get a silent exit 0 from the adapter's
+# missing-policy guard. One global registration serves the whole fleet.
 #
 # Matchers are regexes over Kimi's tool names (Kimi >= 0.29: Bash, Write,
-# Edit — the pre-0.29 names Shell/WriteFile/StrReplaceFile match nothing).
+# Edit, Agent, AgentSwarm, WebSearch, FetchURL — the pre-0.29 names
+# Shell/WriteFile/StrReplaceFile match nothing).
 #
-# PostToolUse is pure observation in Kimi — exit 2 and stdout are both
-# discarded (verified against 0.29) — so post-edit-check findings cannot
-# surface at edit time. The adapter buffers them in a per-session
-# .agents/.kimi-pending-findings-* file (gitignored) and relays them
-# through the next Stop, which is blockable: the model sees them at end
-# of turn instead of per edit.
+# Hook policy lives in .agents/hooks/policy/ (engine-agnostic).
+# .kimi/hooks/adapter.sh normalizes Kimi's stdin into the policy contract —
+# see the seam list in its header (verified against Kimi 0.29): PostToolUse
+# findings relay through Stop, additionalContext envelopes unwrap to plain
+# stdout, UserPromptSubmit's prompt array joins to a string, PostCompact
+# maps to session-start.sh with source=compact, and session_id keys the
+# wrap throttle (state in .agents/.wrap-state-*, same as Claude).
 #
-# The transcript-based stop-investigate hook is omitted: Kimi's Stop payload
-# exposes no transcript path or last-message field, so a faithful port is
-# not possible today.
+# Still not portable: stop-investigate (Kimi's Stop payload has no
+# transcript path or last-message field). The no-diff investigation report
+# inside session-wrap also stays Claude-only (needs a transcript to size
+# the session); the wrap's diff ladder works fully under Kimi.
 #
-# The genome-guard hook is omitted too — but for a different reason. The
-# emitter (.agents/genome.sh) is engine-neutral, so the orchestrator protocol
-# (stamp a genome onto each dispatched subagent) works under Kimi natively.
-# Only the *enforcement* guard is Claude-wired. Kimi >= 0.29 fires
-# SubagentStart (and its dispatch tools are Agent/AgentSwarm, matchable on
-# PreToolUse); porting the guard needs a [[hooks]] block pointing at
-# `.kimi/hooks/adapter.sh genome-guard.sh` plus an adapter branch mapping
-# {prompt, subagent_type} — unwritten, see breadcrumbs.
-#
-# The search scaffold degrades partway. The researcher cell
-# (.agents/researcher.md) and the search-and-cite skill are engine-neutral and
-# work natively. sources-capture needs Kimi's web-tool names mapped (a
-# PostToolUse matcher on WebSearch/FetchURL + an adapter branch for
-# {tool_name -> kind, value}); research-prime needs a UserPromptSubmit block —
-# Kimi >= 0.29 exposes both events, but the ports are unwritten (see
-# breadcrumbs). Until then the evidence trail and the prime are Claude-only.
+# PreCompact/PostCompact payload shapes are unverified (compaction can't be
+# forced in a short probe); both hooks fail open and the marker protocol
+# defaults trigger=auto. SubagentStart is unused — genome-guard rides
+# PreToolUse on Agent|AgentSwarm, which is blockable and schema-verified.
 
 # MCP servers: this repo's servers (context7, playwright) live in
 # .agents/mcp.json — the same `mcpServers` JSON Claude loads via .mcp.json.
@@ -52,10 +41,42 @@ command = ".kimi/hooks/adapter.sh guard-destructive.sh"
 timeout = 10
 
 [[hooks]]
+event = "PreToolUse"
+matcher = "Agent|AgentSwarm"
+command = ".kimi/hooks/adapter.sh genome-guard.sh"
+timeout = 10
+
+[[hooks]]
 event = "PostToolUse"
 matcher = "Write|Edit"
 command = ".kimi/hooks/adapter.sh post-edit-check.sh"
 timeout = 30
+
+[[hooks]]
+event = "PostToolUse"
+matcher = "WebSearch|FetchURL"
+command = ".kimi/hooks/adapter.sh sources-capture.sh"
+timeout = 10
+
+[[hooks]]
+event = "SessionStart"
+command = ".kimi/hooks/adapter.sh session-start.sh"
+timeout = 10
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = ".kimi/hooks/adapter.sh research-prime.sh"
+timeout = 10
+
+[[hooks]]
+event = "PreCompact"
+command = ".kimi/hooks/adapter.sh pre-compact.sh"
+timeout = 10
+
+[[hooks]]
+event = "PostCompact"
+command = ".kimi/hooks/adapter.sh session-start.sh"
+timeout = 10
 
 [[hooks]]
 event = "Stop"
