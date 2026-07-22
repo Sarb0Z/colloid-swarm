@@ -344,8 +344,8 @@
           <ul>
             <li><b>Cross-domain or parallelizable</b> work — handed off as soon as it's identifiable.</li>
             <li><b>Hostile review</b> — the plan and the diff each get a fresh attacker (workflow steps 3 and 5).</li>
-            <li><b>Mundane work</b> — trivia the orchestrator is too smart for goes to a smaller minion.</li>
-            <li><b>Dense handoffs</b> — decisions, affected paths, single next step; rich-context reports back.</li>
+            <li><b>Mundane work</b> — trivia the orchestrator is too smart for goes to a smaller minion. The floor: a single tool call is never a delegation.</li>
+            <li><b>Dense handoffs</b> — decisions, affected paths, single next step; dense, distilled reports back, not transcripts.</li>
           </ul>
         </div>
         <div class="panel">
@@ -365,12 +365,12 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 135 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 154 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production and must withstand hostile
 technical review — reviewer (Linus) rejects placeholder types, mock
 fallbacks, suppression comments, MVP shortcuts, and temporary hacks on
-sight. &quot;Good enough&quot; is a death sentence.
+sight. Ship at the bar that survives that review, first time.
 
 ## Principles
 
@@ -411,9 +411,9 @@ Listed in priority order. Resolve conflicts top-down.
 ## Behavior
 
 ### Investigate assumptions
-Never speculate. Read the referenced files, trace the code path, and reach
-a defensible conclusion before proposing changes. External code is not at
-fault until the investigation proves it. Use web search or documentation
+Read the referenced files, trace the code path, and reach a defensible
+conclusion before proposing changes — investigate, don&#x27;t speculate.
+External code is not at fault until the investigation proves it. Use web search or documentation
 tools to validate assumptions or get latest information and practices.
 
 ### Verify with user
@@ -492,14 +492,33 @@ brevity; dense is not minimal.
    covers, no essay. A question asked with &quot;include sources&quot; is still a
    question — answer it and cite.
 
+## Documentation
+
+Write all documentation in ASD-STE100 Simplified Technical English.
+
+1. **Approved vocabulary.** Use one approved term per concept; no synonym
+   drift. Introduce project-specific technical names once, then reuse them
+   verbatim.
+2. **Short sentences.** Instructions: 20 words maximum. Descriptions: 25 words
+   maximum. One instruction per sentence.
+3. **Active, imperative, present.** Procedures use the imperative mood and
+   active voice. State facts in the present tense.
+4. **Explicit modals.** &quot;Must&quot; for requirements, &quot;should&quot; for recommendations,
+   &quot;may&quot; for permissions. Never blend them.
+5. **Safety messages first.** Put WARNING, CAUTION, and NOTE blocks before the
+   step or statement they apply to, never after.
+
 ## Subagent Delegation
 
 Hand off cross-domain or parallelizable work (architecture, bug 
 investigation, research/discovery) as soon as it&#x27;s identifiable. Handoffs
 are dense: decisions, affected paths, single next step. No raw logs or
-quoted issue bodies. Subagents should also be spawned for mundane and
-trivial work you&#x27;re too smart for. Give it to a smaller minion!
-Subagents should also return to you with rich in context reports.</code></pre></details>
+quoted issue bodies. Spawn subagents for mundane and trivial work you&#x27;re
+too smart for — give it to a smaller minion. The floor: a single tool
+call is not a delegation; when one grep or file read answers it, run it
+yourself rather than spinning up a context around it. Subagents return
+dense, distilled reports: conclusions, decisions, and evidence pointers,
+not transcripts.</code></pre></details>
             </article>
       </div>
     </div>
@@ -837,13 +856,17 @@ exit 0
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 216 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 415 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
 # Output: exit 2 + stderr findings on issues; exit 0 otherwise.
 #
-# Scoped strictly to the provided file list — never sweeps the repo.
+# Scoped strictly to the provided file list — never sweeps the repo. Per
+# language: Python -&gt; ruff (lint+format) + pyright (types); TS/JS -&gt; eslint
+# (lint, autofix) + prettier (format) + tsc --noEmit (types, per workspace).
+# Plus advisory scans on the added lines: tombstone narration + null-safety.
+# Every external tool is optional: a missing binary is skipped silently.
 
 set -euo pipefail
 
@@ -858,10 +881,12 @@ except Exception: pass
 pe = cfg.get(&quot;hooks&quot;, {}).get(&quot;post_edit_check&quot;, {})
 print(&quot;yes&quot; if pe.get(&quot;enabled&quot;, True) else &quot;no&quot;)
 print(&quot;yes&quot; if pe.get(&quot;tombstone_check&quot;, True) else &quot;no&quot;)
+print(&quot;yes&quot; if pe.get(&quot;nullsafety_check&quot;, True) else &quot;no&quot;)
 PY
 )&quot;
 enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;1p&#x27;)&quot;
 tombstone_check=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;2p&#x27;)&quot;
+nullsafety_check=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;3p&#x27;)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
 input=&quot;$(cat)&quot;
@@ -887,10 +912,12 @@ PY
 [[ -z &quot;$files&quot; ]] &amp;&amp; exit 0
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
 cd &quot;$proj&quot;
+proj=&quot;$(pwd -P)&quot;
 
 issues=&quot;&quot;
-ran_tsc=false
-ts_edited=&quot;&quot;
+ts_edited=&quot;&quot;      # .ts/.tsx — typechecked by tsc, per workspace
+js_ts_edited=&quot;&quot;   # all JS/TS — linted by eslint, formatted by prettier
+py_edited=&quot;&quot;      # .py — type-checked by pyright (ruff runs inline below)
 
 while IFS= read -r f; do
   [[ -z &quot;$f&quot; || ! -f &quot;$f&quot; ]] &amp;&amp; continue
@@ -905,39 +932,146 @@ while IFS= read -r f; do
           issues+=$&#x27;\n&#x27;&quot;[ruff] $rel&quot;$&#x27;\n&#x27;&quot;$check_out&quot;$&#x27;\n&#x27;
         fi
       fi
+      py_edited+=$&#x27;\n&#x27;&quot;$f&quot;
       ;;
     *.ts|*.tsx)
       ts_edited+=$&#x27;\n&#x27;&quot;$f&quot;
-      if [[ &quot;$ran_tsc&quot; == &quot;false&quot; &amp;&amp; -x &quot;frontend/node_modules/.bin/tsc&quot; ]]; then
-        ran_tsc=true
-        tsc_raw=&quot;$(cd frontend &amp;&amp; ./node_modules/.bin/tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo-claude 2&gt;&amp;1 || true)&quot;
-        if [[ -n &quot;$tsc_raw&quot; ]]; then
-          scoped=&quot;$(HOOK_INPUT=&quot;$tsc_raw&quot; TS_FILES=&quot;$ts_edited&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import os
-raw = os.environ[&quot;HOOK_INPUT&quot;]
-edited = [p.strip() for p in os.environ[&quot;TS_FILES&quot;].splitlines() if p.strip()]
-rels = []
-for p in edited:
-    p = p.replace(&quot;\\&quot;, &quot;/&quot;)
-    i = p.find(&quot;/frontend/&quot;)
-    if i &gt;= 0:
-        rels.append(p[i + len(&quot;/frontend/&quot;):])
-    elif p.startswith(&quot;frontend/&quot;):
-        rels.append(p[len(&quot;frontend/&quot;):])
-    else:
-        rels.append(p.split(&quot;/&quot;)[-1])
-keep = [line for line in raw.splitlines() if any(r and r in line for r in rels)]
-print(&quot;\n&quot;.join(keep))
-PY
-)&quot;
-          if [[ -n &quot;$scoped&quot; ]]; then
-            issues+=$&#x27;\n&#x27;&quot;[tsc --noEmit] (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
-          fi
-        fi
-      fi
+      js_ts_edited+=$&#x27;\n&#x27;&quot;$f&quot;
+      ;;
+    *.js|*.jsx|*.mjs|*.cjs)
+      js_ts_edited+=$&#x27;\n&#x27;&quot;$f&quot;
       ;;
   esac
 done &lt;&lt;&lt; &quot;$files&quot;
+
+# TypeScript: each edited file is typechecked by its OWN workspace — the nearest
+# ancestor holding a tsconfig.json (apps/*, packages/*), never a single hardcoded
+# one. One tsc run per distinct workspace, errors scoped to the edited files.
+# A workspace without a resolvable tsc is skipped silently.
+if [[ -n &quot;$ts_edited&quot; ]]; then
+  workspaces=&quot;$(TS_FILES=&quot;$ts_edited&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import os
+
+proj = os.path.realpath(os.environ[&quot;PROJ&quot;])
+groups = {}
+for p in os.environ[&quot;TS_FILES&quot;].splitlines():
+    p = p.strip()
+    if not p:
+        continue
+    ap = os.path.realpath(p if os.path.isabs(p) else os.path.join(proj, p))
+    if not (ap == proj or ap.startswith(proj + os.sep)):
+        continue                       # outside the repo: not ours to check
+    d = os.path.dirname(ap)
+    while True:
+        if os.path.isfile(os.path.join(d, &quot;tsconfig.json&quot;)):
+            groups.setdefault(d, []).append(os.path.relpath(ap, d))
+            break
+        if d == proj:
+            break                      # no tsconfig anywhere above: skip
+        d = os.path.dirname(d)
+
+for ws, rels in groups.items():
+    print(&quot;\t&quot;.join([ws] + rels))
+PY
+)&quot;
+
+  while IFS= read -r line; do
+    [[ -z &quot;$line&quot; ]] &amp;&amp; continue
+    ws=&quot;${line%%$&#x27;\t&#x27;*}&quot;
+    ws_rels=&quot;${line#*$&#x27;\t&#x27;}&quot;
+
+    if [[ -x &quot;$ws/node_modules/.bin/tsc&quot; ]]; then
+      tsc_bin=&quot;$ws/node_modules/.bin/tsc&quot;
+    elif [[ -x &quot;$proj/node_modules/.bin/tsc&quot; ]]; then
+      tsc_bin=&quot;$proj/node_modules/.bin/tsc&quot;
+    else
+      continue                         # no typechecker installed: silent skip
+    fi
+
+    tsc_raw=&quot;$(cd &quot;$ws&quot; &amp;&amp; &quot;$tsc_bin&quot; --noEmit --incremental --tsBuildInfoFile .tsbuildinfo-claude 2&gt;&amp;1 || true)&quot;
+    [[ -z &quot;$tsc_raw&quot; ]] &amp;&amp; continue
+
+    scoped=&quot;$(HOOK_INPUT=&quot;$tsc_raw&quot; TS_RELS=&quot;$ws_rels&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import os
+raw = os.environ[&quot;HOOK_INPUT&quot;]
+rels = [r for r in os.environ[&quot;TS_RELS&quot;].split(&quot;\t&quot;) if r]
+# tsc reports paths relative to the tsconfig dir, which is also its cwd here.
+keep = [line for line in raw.splitlines() if any(r in line for r in rels)]
+print(&quot;\n&quot;.join(keep))
+PY
+)&quot;
+
+    if [[ -n &quot;$scoped&quot; ]]; then
+      ws_label=&quot;${ws#$proj/}&quot;
+      issues+=$&#x27;\n&#x27;&quot;[tsc --noEmit] $ws_label (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
+    fi
+  done &lt;&lt;&lt; &quot;$workspaces&quot;
+fi
+
+# Prettier + ESLint: the JS/TS analogue of the ruff pass above. Prettier --write
+# formats (like ruff format — deterministic, safe to apply). ESLint is
+# report-only: unlike ruff, its --fix reaches past formatting (import pruning,
+# let-&gt;const, plugin rewrites) and could rewrite the file under the agent
+# mid-edit, so we surface errors and let the agent fix them. Config resolution is
+# eslint/prettier&#x27;s own job; a root-hoisted binary is used (skipped if absent).
+if [[ -n &quot;$js_ts_edited&quot; ]]; then
+  jsfiles=()
+  while IFS= read -r jf; do [[ -n &quot;$jf&quot; ]] &amp;&amp; jsfiles+=(&quot;$jf&quot;); done &lt;&lt;&lt; &quot;$js_ts_edited&quot;
+
+  if [[ -x &quot;$proj/node_modules/.bin/prettier&quot; ]]; then
+    &quot;$proj/node_modules/.bin/prettier&quot; --write --log-level silent &quot;${jsfiles[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
+  fi
+
+  if [[ -x &quot;$proj/node_modules/.bin/eslint&quot; ]]; then
+    eslint_out=&quot;$(&quot;$proj/node_modules/.bin/eslint&quot; --format unix &quot;${jsfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
+    # unix format tags each line `[Error/rule]` or `[Warning/rule]`. Match the
+    # severity token, not free text, so a message or path containing &quot;error&quot;
+    # (no-console-error, errorHandler.ts) can&#x27;t spuriously block the edit.
+    eslint_errs=&quot;$(printf &#x27;%s\n&#x27; &quot;$eslint_out&quot; | grep -E &#x27;\[Error/&#x27; || true)&quot;
+    if [[ -n &quot;$eslint_errs&quot; ]]; then
+      issues+=$&#x27;\n&#x27;&quot;[eslint] (scoped to edited files; errors only)&quot;$&#x27;\n&#x27;&quot;$eslint_errs&quot;$&#x27;\n&#x27;
+    fi
+  fi
+fi
+
+# Python type gate: ruff is lint/format only — it does no type inference, so
+# None-flow, wrong-arg-type, and missing-return bugs pass it. Pyright fills that.
+if [[ -n &quot;$py_edited&quot; ]]; then
+  pyfiles=()
+  while IFS= read -r pf; do [[ -n &quot;$pf&quot; ]] &amp;&amp; pyfiles+=(&quot;$pf&quot;); done &lt;&lt;&lt; &quot;$py_edited&quot;
+
+  pyright_bin=&quot;&quot;
+  if [[ -x &quot;$proj/node_modules/.bin/pyright&quot; ]]; then
+    pyright_bin=&quot;$proj/node_modules/.bin/pyright&quot;
+  elif command -v pyright &gt;/dev/null 2&gt;&amp;1; then
+    pyright_bin=&quot;pyright&quot;
+  fi
+
+  if [[ -n &quot;$pyright_bin&quot; ]]; then
+    pyright_raw=&quot;$(&quot;$pyright_bin&quot; --outputjson &quot;${pyfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
+    if [[ -n &quot;$pyright_raw&quot; ]]; then
+      scoped=&quot;$(HOOK_INPUT=&quot;$pyright_raw&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+try:
+    d = json.loads(os.environ[&quot;HOOK_INPUT&quot;])
+except Exception:
+    raise SystemExit(0)
+proj = os.environ[&quot;PROJ&quot;]
+for diag in d.get(&quot;generalDiagnostics&quot;, []):
+    if diag.get(&quot;severity&quot;) != &quot;error&quot;:
+        continue
+    f = diag.get(&quot;file&quot;, &quot;&quot;)
+    if f.startswith(proj + os.sep):
+        f = f[len(proj) + 1:]
+    line = diag.get(&quot;range&quot;, {}).get(&quot;start&quot;, {}).get(&quot;line&quot;, 0) + 1
+    msg = (diag.get(&quot;message&quot;, &quot;&quot;) or &quot;&quot;).splitlines()[0]
+    print(f&quot;{f}:{line}: {msg}&quot;)
+PY
+)&quot;
+      [[ -n &quot;$scoped&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;[pyright] (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
+    fi
+  fi
+fi
 
 # Tombstones: diary/changelog narration added in this edit. Advisory only —
 # the standing rationale belongs in .agents/debt-log.md, not inline. Scans the
@@ -1029,6 +1163,79 @@ PY
 )&quot;
 fi
 
+# Null-safety: high-signal patterns tsc is blind to by construction — a cast
+# silences strictNullChecks, and parsed JSON is typed `any`. Advisory, scoped to
+# the lines this edit added (like tombstones), so legit pre-existing casts don&#x27;t
+# nag. Deliberately narrow: false misses beat crying wolf on every `!`.
+nullsafety=&quot;&quot;
+if [[ &quot;$nullsafety_check&quot; == &quot;yes&quot; &amp;&amp; -n &quot;$js_ts_edited&quot; ]]; then
+  nullsafety=&quot;$(FILES=&quot;$js_ts_edited&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27; || true
+import os, re, subprocess
+
+proj = os.environ[&quot;PROJ&quot;]
+files = [f for f in os.environ[&quot;FILES&quot;].splitlines() if f.strip()]
+
+PATS = [
+    (re.compile(r&#x27;\bas\s+(any|unknown)\b&#x27;),
+     &quot;cast to any/unknown launders the type — tsc can&#x27;t see past it&quot;),
+    (re.compile(r&#x27;[\w\)\]]\!(?=[.\[(])&#x27;),
+     &quot;non-null `!` assertion proves nothing at runtime — guard instead&quot;),
+    (re.compile(r&#x27;\b(JSON\.parse|await\s+[\w.]+\.json)\s*\(&#x27;),
+     &quot;parsed data is `any` — validate its shape before use&quot;),
+]
+
+# Strip quoted spans (double, single, backtick) before matching so a string
+# literal that merely mentions &quot;as any&quot; or &quot;JSON.parse(...)&quot; isn&#x27;t flagged as
+# real code — prettier may have rewritten &quot;…&quot; to &#x27;…&#x27;, so single quotes count too.
+# Safe here because comment-leading lines are already skipped above.
+QUOTED = re.compile(r&#x27;&quot;[^&quot;]*&quot;|`[^`]*`&#x27; + r&quot;|&#x27;[^&#x27;]*&#x27;&quot;)
+
+def rel_of(f):
+    return f[len(proj) + 1:] if f.startswith(proj + &quot;/&quot;) else f
+
+def added_lines(f):
+    rel = rel_of(f)
+    try:
+        d = subprocess.run([&quot;git&quot;, &quot;-C&quot;, proj, &quot;diff&quot;, &quot;HEAD&quot;, &quot;-U0&quot;, &quot;--&quot;, rel],
+                           capture_output=True, text=True, timeout=10)
+        if d.returncode == 0 and d.stdout.strip():
+            return [ln[1:] for ln in d.stdout.splitlines()
+                    if ln.startswith(&quot;+&quot;) and not ln.startswith(&quot;+++&quot;)]
+        if d.returncode == 0:
+            tracked = subprocess.run(
+                [&quot;git&quot;, &quot;-C&quot;, proj, &quot;ls-files&quot;, &quot;--error-unmatch&quot;, &quot;--&quot;, rel],
+                capture_output=True, text=True, timeout=10)
+            if tracked.returncode != 0:
+                with open(f, encoding=&quot;utf-8&quot;, errors=&quot;replace&quot;) as fh:
+                    return fh.read().splitlines()
+    except Exception:
+        pass
+    return []
+
+hits, seen = [], set()
+for f in files:
+    if not os.path.isfile(f):
+        continue
+    rel = rel_of(f)
+    for ln in added_lines(f):
+        s = ln.strip()
+        if s.startswith((&quot;//&quot;, &quot;*&quot;, &quot;/*&quot;)):
+            continue
+        probe = QUOTED.sub(&quot; &quot;, ln)
+        for pat, msg in PATS:
+            if pat.search(probe):
+                key = f&quot;{rel}: {msg}&quot;
+                if key not in seen:
+                    seen.add(key)
+                    hits.append((key, s[:100]))
+                break
+
+for key, src in hits[:10]:
+    print(f&quot;{key}\n    {src}&quot;)
+PY
+)&quot;
+fi
+
 if [[ -n &quot;$issues&quot; ]]; then
   cat &gt;&amp;2 &lt;&lt;EOF
 Post-edit checks found issues — fix them before moving on. These are
@@ -1051,7 +1258,18 @@ $tombstones
 EOF
 fi
 
-[[ -n &quot;$issues&quot; || -n &quot;$tombstones&quot; ]] &amp;&amp; exit 2
+if [[ -n &quot;$nullsafety&quot; ]]; then
+  cat &gt;&amp;2 &lt;&lt;EOF
+
+Advisory (not a correctness gate) — possible null-safety gaps in your additions.
+tsc is blind to these (a cast silences it; parsed JSON is \`any\`). Prefer
+validating the shape or narrowing the type over asserting it. If a flagged line
+is a deliberate, proven-safe assertion, leave it and continue — this does not block.
+$nullsafety
+EOF
+fi
+
+[[ -n &quot;$issues&quot; || -n &quot;$tombstones&quot; || -n &quot;$nullsafety&quot; ]] &amp;&amp; exit 2
 exit 0
 </code></pre></details>
             </article>
@@ -1125,7 +1343,7 @@ exit 0
               <div class="top"><span class="id">stop-investigate</span><span class="badge gate">gate</span></div>
               <p class="what">Blocks the hand-back when the last message hedges ("I can't"), declares work out of scope, or disclaims ownership of code it touched.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 212 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 211 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: block end-of-turn when the last assistant
 # message hedges, declares the task out of scope, or disclaims ownership
 # of code it touched.
@@ -1210,12 +1428,11 @@ hedges=&#x27;(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\
 if printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$hedges&quot;; then
   cat &gt;&amp;2 &lt;&lt;&#x27;EOF&#x27;
 Your last message hedged, asked the user to do investigation, or declared
-the task out of scope. Re-read the principles: investigate, then act —
-never speculate, never give up before using the tools. Read the
-referenced files, trace the code path, run the read-only commands you
-have access to, and reach a defensible conclusion. Escalate to the user
-only when a decision genuinely requires information or authority they
-alone hold. Continue the work now.
+the task out of scope. Re-read the principles: investigate, then act.
+Read the referenced files, trace the code path, run the read-only
+commands you have access to, and reach a defensible conclusion. Escalate
+to the user only when a decision genuinely requires information or
+authority they alone hold. Continue the work now.
 EOF
   exit 2
 fi
@@ -1734,7 +1951,7 @@ exit 0
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Orchestration</div><h3>dispatching-parallel-agents</h3><p>Fan out two or more independent tasks that share no state and have no ordering between them.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 197 lines</span></summary><div class="srcpath">.agents/skills/dispatching-parallel-agents/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 195 lines</span></summary><div class="srcpath">.agents/skills/dispatching-parallel-agents/SKILL.md</div><pre><code>---
 name: dispatching-parallel-agents
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
 ---
@@ -1838,6 +2055,10 @@ Good agent prompts are:
 1. **Focused** - One clear problem domain
 2. **Self-contained** - All context needed to understand the problem
 3. **Specific about output** - What should the agent return?
+4. **Goal-shaped, not step-scripted** - State the outcome, the constraints, and
+   the success criteria; let the agent plan its own route. Frontier models
+   reason past a hand-written step list — prescribing one caps them at your
+   plan and burns thinking tokens reconciling it with their own.
 
 ```markdown
 Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
@@ -1846,18 +2067,12 @@ Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
 2. &quot;should handle mixed completed and aborted tools&quot; - fast tool aborted instead of completed
 3. &quot;should properly track pendingToolCount&quot; - expects 3 results but gets 0
 
-These are timing/race condition issues. Your task:
+These look like timing/race issues — diagnose whether the bug is in the abort
+implementation or in the tests before fixing either. Prefer event-based
+waiting over arbitrary timeouts; a bigger timeout is a symptom patch, not a
+fix.
 
-1. Read the test file and understand what each test verifies
-2. Identify root cause - timing issues or actual bugs?
-3. Fix by:
-   - Replacing arbitrary timeouts with event-based waiting
-   - Fixing bugs in abort implementation if found
-   - Adjusting test expectations if testing changed behavior
-
-Do NOT just increase timeouts - find the real issue.
-
-Return: Summary of what you found and what you fixed.
+Return: Summary of root cause and what you fixed.
 ```
 
 ## Common Mistakes
@@ -1980,7 +2195,7 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## Plan Document Header
 
-**Every plan MUST start with this header:**
+**Every plan must start with this header:**
 
 ```markdown
 # [Feature Name] Implementation Plan
@@ -2943,13 +3158,13 @@ The user provides frontend requirements: a component, page, application, or inte
 
 ## Design Thinking
 
-Before coding, understand the context and commit to a BOLD aesthetic direction:
+Before coding, understand the context and commit to a bold aesthetic direction:
 - **Purpose**: What problem does this interface solve? Who uses it?
 - **Tone**: Pick an extreme: brutally minimal, maximalist chaos, retro-futuristic, organic/natural, luxury/refined, playful/toy-like, editorial/magazine, brutalist/raw, art deco/geometric, soft/pastel, industrial/utilitarian, etc. There are so many flavors to choose from. Use these for inspiration but design one that is true to the aesthetic direction.
 - **Constraints**: Technical requirements (framework, performance, accessibility).
-- **Differentiation**: What makes this UNFORGETTABLE? What&#x27;s the one thing someone will remember?
+- **Differentiation**: What makes this unforgettable? What&#x27;s the one thing someone will remember?
 
-**CRITICAL**: Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work - the key is intentionality, not intensity.
+Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work - the key is intentionality, not intensity.
 
 Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
 - Production-grade and functional
@@ -2966,13 +3181,13 @@ Focus on:
 - **Spatial Composition**: Unexpected layouts. Asymmetry. Overlap. Diagonal flow. Grid-breaking elements. Generous negative space OR controlled density.
 - **Backgrounds &amp; Visual Details**: Create atmosphere and depth rather than defaulting to solid colors. Add contextual effects and textures that match the overall aesthetic. Apply creative forms like gradient meshes, noise textures, geometric patterns, layered transparencies, dramatic shadows, decorative borders, custom cursors, and grain overlays.
 
-NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character.
+Treat the generic-AI-aesthetic set as off the palette: overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character.
 
-Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
+Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics — fresh choices each generation rather than converging on a house favorite (Space Grotesk, for example).
 
-**IMPORTANT**: Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
+Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
 
-Remember: Claude is capable of extraordinary creative work. Don&#x27;t hold back, show what can truly be created when thinking outside the box and committing fully to a distinctive vision.
+Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
       </div>
@@ -2991,7 +3206,7 @@ Remember: Claude is capable of extraordinary creative work. Don&#x27;t hold back
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> on Claude Code</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 90 lines</span></summary><div class="srcpath">.agents/researcher.md</div><pre><code># Researcher contract
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 107 lines</span></summary><div class="srcpath">.agents/researcher.md</div><pre><code># Researcher contract
 
 &gt; **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
 &gt; (the native agent definition that pins `model: sonnet`). Dispatch research via
@@ -3014,10 +3229,12 @@ question.
 ## The escalation ladder — climb it, don&#x27;t stall on a rung
 
 1. **WebSearch** — one query rarely suffices. If results are weak or empty,
-   *reformulate* before giving up: synonyms, narrower then broader, the exact
-   error string, a `site:` hint for a known authority, a different framing. Fan
-   out across the angles. A failed first search is a cue to re-query, never a
-   dead end.
+   *reformulate* before giving up: shift the **angle or subtopic**, narrower then
+   broader, the exact error string, a `site:` hint for a known authority, a
+   different framing. A synonym swap is not a reformulation — &quot;overrated&quot; vs
+   &quot;overhyped&quot; lands in the same embedding region and burns a query for nothing;
+   change what you&#x27;re asking about, not just the word for it. Fan out across the
+   angles. A failed first search is a cue to re-query, never a dead end.
 2. **WebFetch the primary source** — read the actual page, not the search
    snippet. Two WebFetch behaviours are guaranteed and you must handle them:
    - **Cross-host redirect** comes back as a URL instead of content — that is
@@ -3036,6 +3253,15 @@ question.
 
 - **Load-bearing claims need ≥2 *independent* sources** — two pages tracing to
   the same origin is one source. A single source caps the claim at medium.
+  Convergence is not corroboration on its own: three low-quality sources agreeing
+  is shared noise, not confirmation. Weight what each source *is* —
+  **practitioners** (shipped the thing, skin in the game) over **commentators**
+  (roundups, &quot;top 10&quot; lists, writing about others&#x27; work).
+- **Exclude before you count — via negativa.** Drop sources with misaligned
+  incentives (paid to sell, vendor blogs, affiliate-heavy), no skin in the game
+  (theorists with nothing shipped), or unfalsifiable / tradeoff-free &quot;just do X&quot;
+  claims. A discarded low-signal source is worth more than a cited one; filtering
+  noise beats chasing volume.
 - **Date every source.** Flag a claim **stale** when the freshest source you
   found predates the claim&#x27;s volatility window (a fast-moving library&#x27;s &quot;latest&quot;
   from a year-old page is stale; a stable algorithm&#x27;s isn&#x27;t).
@@ -3066,11 +3292,17 @@ SOURCES
 - &lt;url&gt;   &lt;one-line what it is&gt;
 - ...     (deduped; only sources you actually read)
 
+sources_reviewed: &lt;N&gt;
+
 GAPS
 - &lt;what you could not verify, and the ladder you exhausted trying&gt;
 ```
 
-No preamble, no narration of your search process beyond what a GAP needs. The
+`sources_reviewed: N` is the count you actually opened and read this run — not
+the number of results a search returned, and not the deduped SOURCES count
+(which drops the ones you discarded). It makes coverage auditable: &quot;reviewed 14,
+kept 5&quot; is a receipt; a bare claim is a vibe. No preamble, no narration of your
+search process beyond what a GAP needs. The
 orchestrator will carry your SOURCES into its own answer — so every load-bearing
 claim it will repeat must trace to a url in your list. **A claim with no `src:`
 is not a claim — move it to GAPS.** If you didn&#x27;t read it in a source this run,
@@ -3284,7 +3516,7 @@ Then, either way:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>learning-report.md</h3><p>Pairing-mode inline learning report — a separate deliverable from the wrap, produced even if the wrap is skipped.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 32 lines</span></summary><div class="srcpath">.agents/hooks/wrap/learning-report.md</div><pre><code># Pairing mode — a learning report for the junior
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 63 lines</span></summary><div class="srcpath">.agents/hooks/wrap/learning-report.md</div><pre><code># Pairing mode — a learning report for the junior
 
 You are pair-coding with a junior who learns by reviewing, and you turned this
 mode on deliberately. Produce the report INLINE this turn. It is a SEPARATE
@@ -3308,6 +3540,37 @@ that embodies it — the reasoning made legible against the lines that prove it:
 Keep it scannable; lead each section with the decision in bold. A decision you
 cannot tie to real code goes under a short &quot;Open for discussion&quot; trailer — never
 fabricate an excerpt to fill the template.
+
+## Interactive mode (optional) — when pairing to teach, not just to report
+
+The report above is post-hoc: you write the code, then explain it. Opt into this
+mode instead when the point is to teach *live*, at the moment the choice is made.
+It does not override the default — reach for it only when the junior is present
+and learning-by-doing beats reading a summary after the fact.
+
+- **Teach at the write-point.** When a line carries a non-obvious choice, surface
+  it the instant you write it with an inline callout — 2-3 points, no more:
+
+  ```
+  ★ Insight ─────────────────────────────────────
+  [2-3 points tied to THIS code, not general programming]
+  ─────────────────────────────────────────────────
+  ```
+
+  Keep it in the conversation, never in the codebase.
+
+- **Hand off the meaningful lines.** At a genuine decision point — business logic,
+  error-handling strategy, the core of an algorithm, a UX call — don&#x27;t write it
+  yourself. Prepare the ground and let the junior write the 5-10 lines that
+  matter:
+  1. Create the file with the surrounding context in place.
+  2. Add the function signature — clear params, clear return type.
+  3. Mark the spot with a `TODO` and a one-line note on what it decides.
+  4. State the tradeoff and the alternatives, then invite them to fill it in.
+
+  You keep the boilerplate; they keep the decision. Hand off only where a choice
+  genuinely exists — never boilerplate, config, or a CRUD stub with one obvious
+  shape.
 
 Do NOT write a file. To persist this to `docs/learning/` instead, the user only
 has to ask — then delegate it (exempt from genome stamping — prepend NO stamp):
@@ -3336,14 +3599,17 @@ Task(subagent_type=&#x27;learning-reporter&#x27;,
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 8 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 11 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
 
 - `stop-investigate.sh` hand-parses the transcript (~25 lines of python) for the last assistant message; Claude Code&#x27;s Stop payload carries `last_assistant_message` and the docs say hooks &quot;should use&quot; it instead of reading the transcript — pipe it through `adapter.sh` and delete the parser. https://code.claude.com/docs/en/hooks
 - Nothing reaps `.agents/.wrap-state-*`; one 3-line file accrues per session, forever. Prune entries older than N days inside `record_state` in `session-wrap.sh`.
-- Under Kimi the wrap has NO throttle: `.kimi/hooks/adapter.sh` passes no `transcript_path` (Kimi exposes none), so `session-wrap.sh` keeps no state and fires on every diff turn rather than on escalation. Documented as fail-toward-review, but it is the pre-rewrite aggression for that engine — needs a session identity Kimi can supply before it can throttle.
+- Under Kimi the wrap has NO throttle: `.kimi/hooks/adapter.sh` passes no `transcript_path` (Kimi exposes none), so `session-wrap.sh` keeps no state and fires on every diff turn rather than on escalation. Documented as fail-toward-review, but it is the pre-rewrite aggression for that engine — Kimi &gt;= 0.29 hook payloads carry `session_id` (docs: base stdin structure), so the adapter can key wrap state off that instead of transcript_path; wire it through and the throttle works under Kimi.
+- Kimi &gt;= 0.29 exposes SessionStart, UserPromptSubmit, PreCompact, and SubagentStart hook events — session-start, research-prime, pre-compact (and possibly genome-guard via SubagentStart) are now portable; needs adapter branches + [[hooks]] blocks + payload-shape verification. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+- Persona-layer decision (user call, not unilateral): Wharton &quot;Playing Pretend&quot; (arxiv.org/abs/2512.05858) — expert personas don&#x27;t improve factual accuracy and domain-mismatched ones degrade it; personas DO still shape tone/behavior. Genome personas are diversity-for-selection (defensible), but &quot;You are a senior red-team engineer&quot; (pentesting SKILL) and Carmack/Jobs/Linus anchors (AGENTS.md) are the expert-persona pattern. Keep for tone, drop for accuracy claims, or trim?
+- No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
 </code></pre></details>
             </article>
         <article class="card">
@@ -3413,7 +3679,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 60 lines</span></summary><div class="srcpath">.agents/config.json</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 61 lines</span></summary><div class="srcpath">.agents/config.json</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -3447,7 +3713,8 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
     },
     &quot;post_edit_check&quot;: {
       &quot;enabled&quot;: true,
-      &quot;tombstone_check&quot;: true
+      &quot;tombstone_check&quot;: true,
+      &quot;nullsafety_check&quot;: true
     },
     &quot;session_wrap&quot;: {
       &quot;enabled&quot;: true,

@@ -3,7 +3,7 @@
 Every change ships to production and must withstand hostile
 technical review — reviewer (Linus) rejects placeholder types, mock
 fallbacks, suppression comments, MVP shortcuts, and temporary hacks on
-sight. "Good enough" is a death sentence.
+sight. Ship at the bar that survives that review, first time.
 
 ## Principles
 
@@ -44,9 +44,9 @@ Listed in priority order. Resolve conflicts top-down.
 ## Behavior
 
 ### Investigate assumptions
-Never speculate. Read the referenced files, trace the code path, and reach
-a defensible conclusion before proposing changes. External code is not at
-fault until the investigation proves it. Use web search or documentation
+Read the referenced files, trace the code path, and reach a defensible
+conclusion before proposing changes — investigate, don't speculate.
+External code is not at fault until the investigation proves it. Use web search or documentation
 tools to validate assumptions or get latest information and practices.
 
 ### Verify with user
@@ -146,6 +146,9 @@ Write all documentation in ASD-STE100 Simplified Technical English.
 Hand off cross-domain or parallelizable work (architecture, bug 
 investigation, research/discovery) as soon as it's identifiable. Handoffs
 are dense: decisions, affected paths, single next step. No raw logs or
-quoted issue bodies. Subagents should also be spawned for mundane and
-trivial work you're too smart for. Give it to a smaller minion!
-Subagents should also return to you with rich in context reports.
+quoted issue bodies. Spawn subagents for mundane and trivial work you're
+too smart for — give it to a smaller minion. The floor: a single tool
+call is not a delegation; when one grep or file read answers it, run it
+yourself rather than spinning up a context around it. Subagents return
+dense, distilled reports: conclusions, decisions, and evidence pointers,
+not transcripts.
