@@ -4,7 +4,11 @@
 # Input  (stdin JSON): {"project_dir": "...", "files": ["...", ...]}
 # Output: exit 2 + stderr findings on issues; exit 0 otherwise.
 #
-# Scoped strictly to the provided file list — never sweeps the repo.
+# Scoped strictly to the provided file list — never sweeps the repo. Per
+# language: Python -> ruff (lint+format) + pyright (types); TS/JS -> eslint
+# (lint, autofix) + prettier (format) + tsc --noEmit (types, per workspace).
+# Plus advisory scans on the added lines: tombstone narration + null-safety.
+# Every external tool is optional: a missing binary is skipped silently.
 
 set -euo pipefail
 
@@ -19,10 +23,12 @@ except Exception: pass
 pe = cfg.get("hooks", {}).get("post_edit_check", {})
 print("yes" if pe.get("enabled", True) else "no")
 print("yes" if pe.get("tombstone_check", True) else "no")
+print("yes" if pe.get("nullsafety_check", True) else "no")
 PY
 )"
 enabled="$(printf '%s\n' "$cfg" | sed -n '1p')"
 tombstone_check="$(printf '%s\n' "$cfg" | sed -n '2p')"
+nullsafety_check="$(printf '%s\n' "$cfg" | sed -n '3p')"
 [[ "$enabled" == "no" ]] && exit 0
 
 input="$(cat)"
@@ -48,10 +54,12 @@ PY
 [[ -z "$files" ]] && exit 0
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
+proj="$(pwd -P)"
 
 issues=""
-ran_tsc=false
-ts_edited=""
+ts_edited=""      # .ts/.tsx — typechecked by tsc, per workspace
+js_ts_edited=""   # all JS/TS — linted by eslint, formatted by prettier
+py_edited=""      # .py — type-checked by pyright (ruff runs inline below)
 
 while IFS= read -r f; do
   [[ -z "$f" || ! -f "$f" ]] && continue
@@ -66,39 +74,146 @@ while IFS= read -r f; do
           issues+=$'\n'"[ruff] $rel"$'\n'"$check_out"$'\n'
         fi
       fi
+      py_edited+=$'\n'"$f"
       ;;
     *.ts|*.tsx)
       ts_edited+=$'\n'"$f"
-      if [[ "$ran_tsc" == "false" && -x "frontend/node_modules/.bin/tsc" ]]; then
-        ran_tsc=true
-        tsc_raw="$(cd frontend && ./node_modules/.bin/tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo-claude 2>&1 || true)"
-        if [[ -n "$tsc_raw" ]]; then
-          scoped="$(HOOK_INPUT="$tsc_raw" TS_FILES="$ts_edited" python3 <<'PY'
-import os
-raw = os.environ["HOOK_INPUT"]
-edited = [p.strip() for p in os.environ["TS_FILES"].splitlines() if p.strip()]
-rels = []
-for p in edited:
-    p = p.replace("\\", "/")
-    i = p.find("/frontend/")
-    if i >= 0:
-        rels.append(p[i + len("/frontend/"):])
-    elif p.startswith("frontend/"):
-        rels.append(p[len("frontend/"):])
-    else:
-        rels.append(p.split("/")[-1])
-keep = [line for line in raw.splitlines() if any(r and r in line for r in rels)]
-print("\n".join(keep))
-PY
-)"
-          if [[ -n "$scoped" ]]; then
-            issues+=$'\n'"[tsc --noEmit] (scoped to edited files)"$'\n'"$scoped"$'\n'
-          fi
-        fi
-      fi
+      js_ts_edited+=$'\n'"$f"
+      ;;
+    *.js|*.jsx|*.mjs|*.cjs)
+      js_ts_edited+=$'\n'"$f"
       ;;
   esac
 done <<< "$files"
+
+# TypeScript: each edited file is typechecked by its OWN workspace — the nearest
+# ancestor holding a tsconfig.json (apps/*, packages/*), never a single hardcoded
+# one. One tsc run per distinct workspace, errors scoped to the edited files.
+# A workspace without a resolvable tsc is skipped silently.
+if [[ -n "$ts_edited" ]]; then
+  workspaces="$(TS_FILES="$ts_edited" PROJ="$proj" python3 <<'PY'
+import os
+
+proj = os.path.realpath(os.environ["PROJ"])
+groups = {}
+for p in os.environ["TS_FILES"].splitlines():
+    p = p.strip()
+    if not p:
+        continue
+    ap = os.path.realpath(p if os.path.isabs(p) else os.path.join(proj, p))
+    if not (ap == proj or ap.startswith(proj + os.sep)):
+        continue                       # outside the repo: not ours to check
+    d = os.path.dirname(ap)
+    while True:
+        if os.path.isfile(os.path.join(d, "tsconfig.json")):
+            groups.setdefault(d, []).append(os.path.relpath(ap, d))
+            break
+        if d == proj:
+            break                      # no tsconfig anywhere above: skip
+        d = os.path.dirname(d)
+
+for ws, rels in groups.items():
+    print("\t".join([ws] + rels))
+PY
+)"
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    ws="${line%%$'\t'*}"
+    ws_rels="${line#*$'\t'}"
+
+    if [[ -x "$ws/node_modules/.bin/tsc" ]]; then
+      tsc_bin="$ws/node_modules/.bin/tsc"
+    elif [[ -x "$proj/node_modules/.bin/tsc" ]]; then
+      tsc_bin="$proj/node_modules/.bin/tsc"
+    else
+      continue                         # no typechecker installed: silent skip
+    fi
+
+    tsc_raw="$(cd "$ws" && "$tsc_bin" --noEmit --incremental --tsBuildInfoFile .tsbuildinfo-claude 2>&1 || true)"
+    [[ -z "$tsc_raw" ]] && continue
+
+    scoped="$(HOOK_INPUT="$tsc_raw" TS_RELS="$ws_rels" python3 <<'PY'
+import os
+raw = os.environ["HOOK_INPUT"]
+rels = [r for r in os.environ["TS_RELS"].split("\t") if r]
+# tsc reports paths relative to the tsconfig dir, which is also its cwd here.
+keep = [line for line in raw.splitlines() if any(r in line for r in rels)]
+print("\n".join(keep))
+PY
+)"
+
+    if [[ -n "$scoped" ]]; then
+      ws_label="${ws#$proj/}"
+      issues+=$'\n'"[tsc --noEmit] $ws_label (scoped to edited files)"$'\n'"$scoped"$'\n'
+    fi
+  done <<< "$workspaces"
+fi
+
+# Prettier + ESLint: the JS/TS analogue of the ruff pass above. Prettier --write
+# formats (like ruff format — deterministic, safe to apply). ESLint is
+# report-only: unlike ruff, its --fix reaches past formatting (import pruning,
+# let->const, plugin rewrites) and could rewrite the file under the agent
+# mid-edit, so we surface errors and let the agent fix them. Config resolution is
+# eslint/prettier's own job; a root-hoisted binary is used (skipped if absent).
+if [[ -n "$js_ts_edited" ]]; then
+  jsfiles=()
+  while IFS= read -r jf; do [[ -n "$jf" ]] && jsfiles+=("$jf"); done <<< "$js_ts_edited"
+
+  if [[ -x "$proj/node_modules/.bin/prettier" ]]; then
+    "$proj/node_modules/.bin/prettier" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ -x "$proj/node_modules/.bin/eslint" ]]; then
+    eslint_out="$("$proj/node_modules/.bin/eslint" --format unix "${jsfiles[@]}" 2>/dev/null || true)"
+    # unix format tags each line `[Error/rule]` or `[Warning/rule]`. Match the
+    # severity token, not free text, so a message or path containing "error"
+    # (no-console-error, errorHandler.ts) can't spuriously block the edit.
+    eslint_errs="$(printf '%s\n' "$eslint_out" | grep -E '\[Error/' || true)"
+    if [[ -n "$eslint_errs" ]]; then
+      issues+=$'\n'"[eslint] (scoped to edited files; errors only)"$'\n'"$eslint_errs"$'\n'
+    fi
+  fi
+fi
+
+# Python type gate: ruff is lint/format only — it does no type inference, so
+# None-flow, wrong-arg-type, and missing-return bugs pass it. Pyright fills that.
+if [[ -n "$py_edited" ]]; then
+  pyfiles=()
+  while IFS= read -r pf; do [[ -n "$pf" ]] && pyfiles+=("$pf"); done <<< "$py_edited"
+
+  pyright_bin=""
+  if [[ -x "$proj/node_modules/.bin/pyright" ]]; then
+    pyright_bin="$proj/node_modules/.bin/pyright"
+  elif command -v pyright >/dev/null 2>&1; then
+    pyright_bin="pyright"
+  fi
+
+  if [[ -n "$pyright_bin" ]]; then
+    pyright_raw="$("$pyright_bin" --outputjson "${pyfiles[@]}" 2>/dev/null || true)"
+    if [[ -n "$pyright_raw" ]]; then
+      scoped="$(HOOK_INPUT="$pyright_raw" PROJ="$proj" python3 <<'PY'
+import json, os
+try:
+    d = json.loads(os.environ["HOOK_INPUT"])
+except Exception:
+    raise SystemExit(0)
+proj = os.environ["PROJ"]
+for diag in d.get("generalDiagnostics", []):
+    if diag.get("severity") != "error":
+        continue
+    f = diag.get("file", "")
+    if f.startswith(proj + os.sep):
+        f = f[len(proj) + 1:]
+    line = diag.get("range", {}).get("start", {}).get("line", 0) + 1
+    msg = (diag.get("message", "") or "").splitlines()[0]
+    print(f"{f}:{line}: {msg}")
+PY
+)"
+      [[ -n "$scoped" ]] && issues+=$'\n'"[pyright] (scoped to edited files)"$'\n'"$scoped"$'\n'
+    fi
+  fi
+fi
 
 # Tombstones: diary/changelog narration added in this edit. Advisory only —
 # the standing rationale belongs in .agents/debt-log.md, not inline. Scans the
@@ -190,6 +305,79 @@ PY
 )"
 fi
 
+# Null-safety: high-signal patterns tsc is blind to by construction — a cast
+# silences strictNullChecks, and parsed JSON is typed `any`. Advisory, scoped to
+# the lines this edit added (like tombstones), so legit pre-existing casts don't
+# nag. Deliberately narrow: false misses beat crying wolf on every `!`.
+nullsafety=""
+if [[ "$nullsafety_check" == "yes" && -n "$js_ts_edited" ]]; then
+  nullsafety="$(FILES="$js_ts_edited" PROJ="$proj" python3 <<'PY' || true
+import os, re, subprocess
+
+proj = os.environ["PROJ"]
+files = [f for f in os.environ["FILES"].splitlines() if f.strip()]
+
+PATS = [
+    (re.compile(r'\bas\s+(any|unknown)\b'),
+     "cast to any/unknown launders the type — tsc can't see past it"),
+    (re.compile(r'[\w\)\]]\!(?=[.\[(])'),
+     "non-null `!` assertion proves nothing at runtime — guard instead"),
+    (re.compile(r'\b(JSON\.parse|await\s+[\w.]+\.json)\s*\('),
+     "parsed data is `any` — validate its shape before use"),
+]
+
+# Strip quoted spans (double, single, backtick) before matching so a string
+# literal that merely mentions "as any" or "JSON.parse(...)" isn't flagged as
+# real code — prettier may have rewritten "…" to '…', so single quotes count too.
+# Safe here because comment-leading lines are already skipped above.
+QUOTED = re.compile(r'"[^"]*"|`[^`]*`' + r"|'[^']*'")
+
+def rel_of(f):
+    return f[len(proj) + 1:] if f.startswith(proj + "/") else f
+
+def added_lines(f):
+    rel = rel_of(f)
+    try:
+        d = subprocess.run(["git", "-C", proj, "diff", "HEAD", "-U0", "--", rel],
+                           capture_output=True, text=True, timeout=10)
+        if d.returncode == 0 and d.stdout.strip():
+            return [ln[1:] for ln in d.stdout.splitlines()
+                    if ln.startswith("+") and not ln.startswith("+++")]
+        if d.returncode == 0:
+            tracked = subprocess.run(
+                ["git", "-C", proj, "ls-files", "--error-unmatch", "--", rel],
+                capture_output=True, text=True, timeout=10)
+            if tracked.returncode != 0:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    return fh.read().splitlines()
+    except Exception:
+        pass
+    return []
+
+hits, seen = [], set()
+for f in files:
+    if not os.path.isfile(f):
+        continue
+    rel = rel_of(f)
+    for ln in added_lines(f):
+        s = ln.strip()
+        if s.startswith(("//", "*", "/*")):
+            continue
+        probe = QUOTED.sub(" ", ln)
+        for pat, msg in PATS:
+            if pat.search(probe):
+                key = f"{rel}: {msg}"
+                if key not in seen:
+                    seen.add(key)
+                    hits.append((key, s[:100]))
+                break
+
+for key, src in hits[:10]:
+    print(f"{key}\n    {src}")
+PY
+)"
+fi
+
 if [[ -n "$issues" ]]; then
   cat >&2 <<EOF
 Post-edit checks found issues — fix them before moving on. These are
@@ -212,5 +400,16 @@ $tombstones
 EOF
 fi
 
-[[ -n "$issues" || -n "$tombstones" ]] && exit 2
+if [[ -n "$nullsafety" ]]; then
+  cat >&2 <<EOF
+
+Advisory (not a correctness gate) — possible null-safety gaps in your additions.
+tsc is blind to these (a cast silences it; parsed JSON is \`any\`). Prefer
+validating the shape or narrowing the type over asserting it. If a flagged line
+is a deliberate, proven-safe assertion, leave it and continue — this does not block.
+$nullsafety
+EOF
+fi
+
+[[ -n "$issues" || -n "$tombstones" || -n "$nullsafety" ]] && exit 2
 exit 0

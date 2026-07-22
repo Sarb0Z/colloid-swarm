@@ -12,3 +12,9 @@
 
 # Python bytecode.
 __pycache__/
+
+# Local, per-repo tuned config — copy from config.json.example and tune
+.agents/config.json
+
+# per-workspace scratch typecheck cache written by post-edit-check.sh
+**/.tsbuildinfo-claude

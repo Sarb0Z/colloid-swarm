@@ -32,7 +32,8 @@
     },
     "post_edit_check": {
       "enabled": true,
-      "tombstone_check": true
+      "tombstone_check": true,
+      "nullsafety_check": true
     },
     "session_wrap": {
       "enabled": true,
@@ -48,7 +49,7 @@
       "ratchet_check": true
     },
     "learning_report": {
-      "enabled": false
+      "enabled": true
     },
     "session_start": {
       "enabled": true

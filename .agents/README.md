@@ -53,8 +53,15 @@ One file, `.agents/config.json`, controls the whole scaffold:
 - **Swarm behavior** — `swarm.genome_stamping`, `swarm.exempt_subagent_types`,
   `swarm.default_register`.
 
-Missing config = all defaults enabled (today's behavior). A broken config is
-never fatal — hooks fail open.
+`config.json.example` is the committed template — every knob present and on.
+The real `config.json` is **gitignored and per-repo**: copy the example, tune it
+to this repo, and keep the tuning local (no fleet-wide merge conflicts). Missing
+config = all defaults enabled, matching the example; a broken config is never
+fatal — hooks fail open.
+
+```sh
+cp .agents/config.json.example .agents/config.json   # then tune
+```
 
 ```sh
 # After editing config.json, regenerate Claude agent definitions

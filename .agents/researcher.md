@@ -21,10 +21,12 @@ question.
 ## The escalation ladder — climb it, don't stall on a rung
 
 1. **WebSearch** — one query rarely suffices. If results are weak or empty,
-   *reformulate* before giving up: synonyms, narrower then broader, the exact
-   error string, a `site:` hint for a known authority, a different framing. Fan
-   out across the angles. A failed first search is a cue to re-query, never a
-   dead end.
+   *reformulate* before giving up: shift the **angle or subtopic**, narrower then
+   broader, the exact error string, a `site:` hint for a known authority, a
+   different framing. A synonym swap is not a reformulation — "overrated" vs
+   "overhyped" lands in the same embedding region and burns a query for nothing;
+   change what you're asking about, not just the word for it. Fan out across the
+   angles. A failed first search is a cue to re-query, never a dead end.
 2. **WebFetch the primary source** — read the actual page, not the search
    snippet. Two WebFetch behaviours are guaranteed and you must handle them:
    - **Cross-host redirect** comes back as a URL instead of content — that is
@@ -43,6 +45,15 @@ question.
 
 - **Load-bearing claims need ≥2 *independent* sources** — two pages tracing to
   the same origin is one source. A single source caps the claim at medium.
+  Convergence is not corroboration on its own: three low-quality sources agreeing
+  is shared noise, not confirmation. Weight what each source *is* —
+  **practitioners** (shipped the thing, skin in the game) over **commentators**
+  (roundups, "top 10" lists, writing about others' work).
+- **Exclude before you count — via negativa.** Drop sources with misaligned
+  incentives (paid to sell, vendor blogs, affiliate-heavy), no skin in the game
+  (theorists with nothing shipped), or unfalsifiable / tradeoff-free "just do X"
+  claims. A discarded low-signal source is worth more than a cited one; filtering
+  noise beats chasing volume.
 - **Date every source.** Flag a claim **stale** when the freshest source you
   found predates the claim's volatility window (a fast-moving library's "latest"
   from a year-old page is stale; a stable algorithm's isn't).
@@ -73,11 +84,17 @@ SOURCES
 - <url>   <one-line what it is>
 - ...     (deduped; only sources you actually read)
 
+sources_reviewed: <N>
+
 GAPS
 - <what you could not verify, and the ladder you exhausted trying>
 ```
 
-No preamble, no narration of your search process beyond what a GAP needs. The
+`sources_reviewed: N` is the count you actually opened and read this run — not
+the number of results a search returned, and not the deduped SOURCES count
+(which drops the ones you discarded). It makes coverage auditable: "reviewed 14,
+kept 5" is a receipt; a bare claim is a vibe. No preamble, no narration of your
+search process beyond what a GAP needs. The
 orchestrator will carry your SOURCES into its own answer — so every load-bearing
 claim it will repeat must trace to a url in your list. **A claim with no `src:`
 is not a claim — move it to GAPS.** If you didn't read it in a source this run,

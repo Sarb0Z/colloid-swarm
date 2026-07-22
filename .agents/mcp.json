@@ -17,6 +17,15 @@
         "@playwright/mcp@latest"
       ],
       "env": {}
+    },
+    "appium-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "appium-mcp"
+      ],
+      "env": {}
     }
   }
 }
