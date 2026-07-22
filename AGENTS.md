@@ -125,6 +125,22 @@ brevity; dense is not minimal.
    covers, no essay. A question asked with "include sources" is still a
    question — answer it and cite.
 
+## Documentation
+
+Write all documentation in ASD-STE100 Simplified Technical English.
+
+1. **Approved vocabulary.** Use one approved term per concept; no synonym
+   drift. Introduce project-specific technical names once, then reuse them
+   verbatim.
+2. **Short sentences.** Instructions: 20 words maximum. Descriptions: 25 words
+   maximum. One instruction per sentence.
+3. **Active, imperative, present.** Procedures use the imperative mood and
+   active voice. State facts in the present tense.
+4. **Explicit modals.** "Must" for requirements, "should" for recommendations,
+   "may" for permissions. Never blend them.
+5. **Safety messages first.** Put WARNING, CAUTION, and NOTE blocks before the
+   step or statement they apply to, never after.
+
 ## Subagent Delegation
 
 Hand off cross-domain or parallelizable work (architecture, bug 
