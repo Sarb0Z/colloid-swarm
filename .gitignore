@@ -13,6 +13,9 @@
 # Python bytecode.
 __pycache__/
 
+# macOS Finder metadata.
+.DS_Store
+
 # Local, per-repo tuned config — copy from config.json.example and tune
 .agents/config.json
 
