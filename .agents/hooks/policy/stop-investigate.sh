@@ -83,12 +83,11 @@ hedges='(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\b|\bu
 if printf '%s' "$last_msg" | grep -Eqi "$hedges"; then
   cat >&2 <<'EOF'
 Your last message hedged, asked the user to do investigation, or declared
-the task out of scope. Re-read the principles: investigate, then act —
-never speculate, never give up before using the tools. Read the
-referenced files, trace the code path, run the read-only commands you
-have access to, and reach a defensible conclusion. Escalate to the user
-only when a decision genuinely requires information or authority they
-alone hold. Continue the work now.
+the task out of scope. Re-read the principles: investigate, then act.
+Read the referenced files, trace the code path, run the read-only
+commands you have access to, and reach a defensible conclusion. Escalate
+to the user only when a decision genuinely requires information or
+authority they alone hold. Continue the work now.
 EOF
   exit 2
 fi

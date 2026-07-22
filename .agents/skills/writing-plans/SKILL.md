@@ -44,7 +44,7 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## Plan Document Header
 
-**Every plan MUST start with this header:**
+**Every plan must start with this header:**
 
 ```markdown
 # [Feature Name] Implementation Plan
