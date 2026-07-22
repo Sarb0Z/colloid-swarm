@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
-# Input  (stdin JSON): {"project_dir": "...", "stop_hook_active": bool, "transcript_path": "..."}
+# Input  (stdin JSON): {"project_dir": "...", "stop_hook_active": bool,
+#                        "transcript_path": "...", "session_id": "..."}
+# transcript_path (Claude) doubles as session identity and exchange counter;
+# session_id (Kimi) supplies identity alone — the no-diff investigation branch
+# needs a transcript and stays engine-limited.
 # Output: exit 2 + stderr on escalation; exit 0 otherwise.
 #
 # The checklist prose lives in .agents/hooks/wrap/*.md — this script owns only
@@ -16,8 +20,8 @@
 # still sitting at `diff`. Reaching `large` fires again. Committing drops the
 # tier back to `none` and re-arms the ladder, so atomic commits give one wrap per
 # unit of work rather than one per turn. State lives in
-# .agents/.wrap-state-<hash of transcript path> — one file per session, so a new
-# session starts the ladder fresh and concurrent sessions never clobber.
+# .agents/.wrap-state-<hash of session identity> — one file per session, so a
+# new session starts the ladder fresh and concurrent sessions never clobber.
 #
 # Why escalation and not every turn: firing every turn makes each turn cost two
 # assistant messages and forces the model to triage a wall it will mostly ignore.
@@ -76,11 +80,13 @@ d = json.loads(os.environ["HOOK_INPUT"] or "{}")
 print(str(d.get("stop_hook_active", False)).lower())
 print(d.get("project_dir", ""))
 print(d.get("transcript_path", ""))
+print(d.get("session_id", ""))
 PY
 )"
 stop_active="$(printf '%s\n' "$parsed" | sed -n '1p')"
 proj="$(printf '%s\n' "$parsed" | sed -n '2p')"
 transcript="$(printf '%s\n' "$parsed" | sed -n '3p')"
+session_id="$(printf '%s\n' "$parsed" | sed -n '4p')"
 
 [[ "${stop_active:-false}" == "true" ]] && exit 0
 [[ -z "$proj" ]] && proj="$PWD"
@@ -161,13 +167,15 @@ rank() { case "$1" in none) echo 0;; trivial) echo 1;; diff) echo 2;; large) ech
 # *moves* on `--amend`, `rebase`, or `checkout` — none of which close a unit of
 # work — and would re-fire the wrap on an unchanged tree.
 #
-# No transcript path (Kimi exposes none) = no session identity = no throttle:
+# Session identity: the transcript path (Claude) or session_id (Kimi) — either
+# names this session's state file. Neither present = no identity = no throttle:
 # read and write nothing, and let every escalation fire. Keying a shared file on
 # an empty identity would make one repo-wide ladder that every future session
 # inherits, silently suppressing wraps forever. A safety wrap fails toward review.
+ident="${transcript:-$session_id}"
 state=""
-if [[ -n "$transcript" ]]; then
-  state="$proj/.agents/.wrap-state-$(printf '%s' "$transcript" | cksum | tr -d ' ')"
+if [[ -n "$ident" ]]; then
+  state="$proj/.agents/.wrap-state-$(printf '%s' "$ident" | cksum | tr -d ' ')"
 fi
 
 # Empty in a repo with no commits — which correctly makes the count signal inert
@@ -207,6 +215,9 @@ record_state() {
   [[ -z "$state" ]] && return 0
   mkdir -p "$proj/.agents" 2>/dev/null || true
   { printf '%s\n%s\n%s\n' "$1" "$2" "$commits" > "$state"; } 2>/dev/null || true
+  # Reap state from long-dead sessions; today's file was just written, so a
+  # week-old mtime can only mean an abandoned session.
+  find "$proj/.agents" -maxdepth 1 -name '.wrap-state-*' -mtime +7 -delete 2>/dev/null || true
 }
 
 # ───────────────────────────── build the sections ─────────────────────────────
