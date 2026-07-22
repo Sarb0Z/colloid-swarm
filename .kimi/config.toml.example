@@ -10,6 +10,13 @@
 # Matchers are regexes over Kimi's tool names (Kimi >= 0.29: Bash, Write,
 # Edit — the pre-0.29 names Shell/WriteFile/StrReplaceFile match nothing).
 #
+# PostToolUse is pure observation in Kimi — exit 2 and stdout are both
+# discarded (verified against 0.29) — so post-edit-check findings cannot
+# surface at edit time. The adapter buffers them in a per-session
+# .agents/.kimi-pending-findings-* file (gitignored) and relays them
+# through the next Stop, which is blockable: the model sees them at end
+# of turn instead of per edit.
+#
 # The transcript-based stop-investigate hook is omitted: Kimi's Stop payload
 # exposes no transcript path or last-message field, so a faithful port is
 # not possible today.

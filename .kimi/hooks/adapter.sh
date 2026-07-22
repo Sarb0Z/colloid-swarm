@@ -2,15 +2,26 @@
 # Kimi CLI → shared policy adapter.
 #
 # Normalizes Kimi hook stdin into the shape the policy scripts expect,
-# then execs the named policy. Exit code / stderr bubble up unchanged —
-# Kimi treats exit 2 + stderr as "block, feed reason to the model".
+# then runs the named policy. For blockable events (PreToolUse, Stop) the
+# exit code / stderr bubble up unchanged — Kimi treats exit 2 + stderr as
+# "block, feed reason to the model".
+#
+# PostToolUse is pure observation in Kimi: exit 2 AND stdout are both
+# discarded (verified against 0.29), so post-edit-check findings can never
+# reach the model at edit time. Instead they buffer in a per-session state
+# file and relay through the next Stop — which IS blockable — so the model
+# sees them at end of turn and can fix before the turn closes.
 
 set -euo pipefail
 
 policy="$1"; shift || true
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+input="$(cat)"
 
-HOOK_INPUT="$(cat)" POLICY="$policy" REPO="$repo" python3 <<'PY' | exec "$repo/.agents/hooks/policy/$(basename "$policy")"
+sid="$(HOOK_INPUT="$input" python3 -c 'import json,os,re; s=json.loads(os.environ["HOOK_INPUT"] or "{}").get("session_id","nosession"); print(re.sub(r"[^A-Za-z0-9_-]","",s))')"
+pending="$repo/.agents/.kimi-pending-findings-$sid"
+
+normalized="$(HOOK_INPUT="$input" POLICY="$policy" REPO="$repo" python3 <<'PY'
 import json, os, sys
 
 src = json.loads(os.environ["HOOK_INPUT"] or "{}")
@@ -34,3 +45,33 @@ elif policy == "session-wrap.sh":
 
 sys.stdout.write(json.dumps(out))
 PY
+)"
+
+run() { printf '%s' "$normalized" | "$repo/.agents/hooks/policy/$(basename "$policy")"; }
+
+case "$(basename "$policy")" in
+post-edit-check.sh)
+  set +e
+  findings="$(run 2>&1)"
+  rc=$?
+  set -e
+  if [[ $rc -eq 2 && -n "$findings" ]]; then
+    printf '%s\n' "$findings" >> "$pending"
+  fi
+  exit 0
+  ;;
+session-wrap.sh)
+  # Orphans from sessions that died between edit and stop; reap quietly.
+  find "$repo/.agents" -maxdepth 1 -name '.kimi-pending-findings-*' -mtime +1 -delete 2>/dev/null || true
+  if [[ -s "$pending" ]]; then
+    findings="$(cat "$pending")"
+    rm -f "$pending"
+    printf '%s\n' "$findings" >&2
+    exit 2
+  fi
+  run
+  ;;
+*)
+  run
+  ;;
+esac
