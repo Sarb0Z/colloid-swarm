@@ -1,0 +1,3506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colloid Swarm — an operating system for coding agents</title>
+<style>
+  /* ═══ Tokens ══════════════════════════════════════════════════════════ */
+  :root{
+    --serif:"Charter","Iowan Old Style","Georgia","Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Segoe UI",Roboto,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+
+    --bg:#f7f8fa; --surface:#ffffff; --surface-2:#f1f3f6;
+    --ink:#1a1f26; --strong:#0c0f13; --muted:#565f6b; --faint:#7b8593; --line:#e2e6ec; --line-2:#d2d8e0;
+    --accent:#0f766e; --accent-soft:#e3f1ef;
+    --gate:#b4342a;   --gate-soft:#f8ebe9;
+    --context:#2159c4; --context-soft:#e9effa;
+    --trail:#177a4a;  --trail-soft:#e6f3ec;
+    --check:#8a5d00;  --check-soft:#f6efdf;
+    --shadow:0 1px 1px rgba(16,24,40,.04), 0 6px 16px -8px rgba(16,24,40,.12);
+    --maxw:1040px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f1319; --surface:#161b23; --surface-2:#1c222c;
+      --ink:#e6eaf0; --strong:#f4f6f9; --muted:#9aa4b1; --faint:#6f7a88; --line:#242c37; --line-2:#303945;
+      --accent:#3fb8ab; --accent-soft:#12312e;
+      --gate:#f0837a;   --gate-soft:#2a1715;
+      --context:#82abff; --context-soft:#151d2e;
+      --trail:#5fc98d;  --trail-soft:#122519;
+      --check:#e2b155;  --check-soft:#241d10;
+      --shadow:0 1px 1px rgba(0,0,0,.3), 0 8px 22px -10px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f7f8fa; --surface:#ffffff; --surface-2:#f1f3f6;
+    --ink:#1a1f26; --strong:#0c0f13; --muted:#565f6b; --faint:#7b8593; --line:#e2e6ec; --line-2:#d2d8e0;
+    --accent:#0f766e; --accent-soft:#e3f1ef;
+    --gate:#b4342a; --gate-soft:#f8ebe9; --context:#2159c4; --context-soft:#e9effa;
+    --trail:#177a4a; --trail-soft:#e6f3ec; --check:#8a5d00; --check-soft:#f6efdf;
+    --shadow:0 1px 1px rgba(16,24,40,.04), 0 6px 16px -8px rgba(16,24,40,.12);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1319; --surface:#161b23; --surface-2:#1c222c;
+    --ink:#e6eaf0; --strong:#f4f6f9; --muted:#9aa4b1; --faint:#6f7a88; --line:#242c37; --line-2:#303945;
+    --accent:#3fb8ab; --accent-soft:#12312e;
+    --gate:#f0837a; --gate-soft:#2a1715; --context:#82abff; --context-soft:#151d2e;
+    --trail:#5fc98d; --trail-soft:#122519; --check:#e2b155; --check-soft:#241d10;
+    --shadow:0 1px 1px rgba(0,0,0,.3), 0 8px 22px -10px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-size:16.5px; line-height:1.58; -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  ::selection{background:var(--accent-soft); color:var(--strong)}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 clamp(1.2rem,4vw,2rem)}
+  .eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.13em; text-transform:uppercase; color:var(--accent); font-weight:600}
+  .eyebrow .n{color:var(--faint); margin-right:.7em; font-weight:400}
+
+  /* ═══ Topbar ══════════════════════════════════════════════════════════ */
+  .topbar{border-bottom:1px solid var(--line); background:var(--surface)}
+  .topbar .wrap{display:flex; align-items:center; justify-content:space-between; height:58px}
+  .brand{display:flex; align-items:center; gap:.6rem; font-weight:600; letter-spacing:-.01em; color:var(--strong)}
+  .brand .dot{width:12px; height:12px; border-radius:50%; background:var(--accent); flex:0 0 auto}
+  .brand small{font-family:var(--mono); font-weight:400; font-size:.74rem; color:var(--muted)}
+  .topbar nav{display:flex; gap:1.3rem; font-size:.88rem}
+  .topbar nav a{color:var(--muted)}
+  .topbar nav a:hover{color:var(--ink); text-decoration:none}
+
+  /* ═══ Hero — dense ════════════════════════════════════════════════════ */
+  .hero{padding:clamp(2.4rem,6vh,4rem) 0 clamp(2rem,4vh,2.8rem)}
+  .hero h1{
+    font-family:var(--serif); font-weight:600; color:var(--strong);
+    font-size:clamp(2rem,4.6vw,3rem); line-height:1.08; letter-spacing:-.02em;
+    margin:1rem 0 0; max-width:22ch; text-wrap:balance;
+  }
+  .hero h1 em{font-style:normal; color:var(--accent)}
+  .hero .lede{margin:1rem 0 0; max-width:68ch; font-size:1.1rem; line-height:1.55; color:var(--ink)}
+
+  .map{margin-top:1.8rem; border:1px solid var(--line); border-radius:12px; background:var(--surface); box-shadow:var(--shadow); overflow:hidden}
+  .map a{
+    display:grid; grid-template-columns:200px 1fr auto; gap:1rem; align-items:baseline;
+    padding:.68rem 1.1rem; border-bottom:1px solid var(--line); color:inherit;
+  }
+  .map a:last-child{border-bottom:0}
+  .map a:hover{background:var(--surface-2); text-decoration:none}
+  .map .m-name{font-family:var(--mono); font-weight:700; font-size:.86rem; color:var(--strong)}
+  .map .m-desc{font-size:.88rem; color:var(--muted)}
+  .map .m-n{font-family:var(--mono); font-size:.76rem; color:var(--accent); white-space:nowrap; font-weight:600}
+
+  .cta{display:flex; flex-wrap:wrap; gap:.8rem 1rem; align-items:center; margin-top:1.5rem}
+  .term{
+    font-family:var(--mono); font-size:.9rem; color:var(--strong); background:var(--surface);
+    border:1px solid var(--line-2); border-radius:8px; padding:.62rem .95rem; box-shadow:var(--shadow);
+    display:inline-flex; align-items:center; gap:.6rem;
+  }
+  .term .p{color:var(--accent); font-weight:600}
+  .cta .note{font-size:.86rem; color:var(--faint); max-width:52ch}
+  .cta .note b{color:var(--muted); font-weight:600}
+
+  /* ═══ Sections ════════════════════════════════════════════════════════ */
+  section.band{padding:clamp(2.6rem,6vh,4.2rem) 0; border-top:1px solid var(--line)}
+  .sec-head{margin-bottom:1.9rem; max-width:70ch}
+  .sec-head h2{
+    font-family:var(--serif); font-weight:600; color:var(--strong);
+    font-size:clamp(1.5rem,3.1vw,2.05rem); line-height:1.12; letter-spacing:-.015em; margin:.55rem 0 0;
+  }
+  .sec-head p{margin:.65rem 0 0; color:var(--muted); font-size:1rem; max-width:66ch}
+  .sec-head p code{font-family:var(--mono); font-size:.85em; color:var(--strong); background:var(--surface-2); padding:.06em .35em; border-radius:4px}
+
+  /* ═══ Workflow pipeline ═══════════════════════════════════════════════ */
+  .pipe{display:flex; flex-wrap:wrap; gap:.6rem; align-items:stretch}
+  .step{
+    flex:1 1 165px; background:var(--surface); border:1px solid var(--line); border-top:3px solid var(--accent);
+    border-radius:10px; padding:.78rem .9rem; box-shadow:var(--shadow);
+  }
+  .step.attack{border-top-color:var(--gate)}
+  .step .s-n{font-family:var(--mono); font-size:.64rem; color:var(--faint); letter-spacing:.12em; text-transform:uppercase}
+  .step.attack .s-n{color:var(--gate)}
+  .step .s-t{font-weight:700; font-size:.94rem; color:var(--strong); margin:.22rem 0 .3rem}
+  .step .s-d{font-size:.82rem; color:var(--muted); line-height:1.45}
+  .pipe-note{margin:.85rem 0 0; font-size:.86rem; color:var(--faint)}
+  .pipe-note b{color:var(--muted); font-weight:600}
+
+  /* ═══ Contract panels ═════════════════════════════════════════════════ */
+  .panelgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:.85rem; margin-top:1.6rem}
+  .panel{background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:1.05rem 1.15rem; box-shadow:var(--shadow)}
+  .panel h3{margin:0 0 .7rem; font-size:.72rem; font-family:var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:700}
+  .panel ul{margin:0; padding:0; list-style:none; display:grid; gap:.55rem}
+  .panel li{font-size:.89rem; color:var(--muted); line-height:1.5}
+  .panel li b{color:var(--strong); font-weight:600}
+  .panel li .ord{font-family:var(--mono); color:var(--faint); margin-right:.4em; font-size:.8em}
+  .panel .p-note{margin:.75rem 0 0; padding-top:.65rem; border-top:1px dashed var(--line-2); font-size:.8rem; color:var(--faint)}
+
+  /* ═══ Legend / lifecycle ══════════════════════════════════════════════ */
+  .legend{display:grid; grid-template-columns:repeat(auto-fit,minmax(225px,1fr)); gap:.8rem; margin-bottom:2rem}
+  .led-card{display:flex; gap:.7rem; align-items:flex-start; padding:.85rem 1rem; background:var(--surface); border:1px solid var(--line); border-radius:10px}
+  .dot{width:10px; height:10px; border-radius:50%; margin-top:.4rem; flex:0 0 auto}
+  .dot.gate{background:var(--gate)} .dot.context{background:var(--context)}
+  .dot.trail{background:var(--trail)} .dot.checkpoint{background:var(--check)}
+  .led-card b{font-family:var(--mono); font-size:.74rem; letter-spacing:.05em; text-transform:uppercase; display:block; margin-bottom:.2rem; color:var(--strong)}
+  .led-card small{color:var(--muted); font-size:.86rem; line-height:1.42}
+
+  .spine{position:relative; margin-left:.4rem; padding-left:2rem}
+  .spine::before{content:""; position:absolute; left:0; top:.4rem; bottom:.4rem; width:2px; background:var(--line-2)}
+  .event{position:relative; padding-bottom:1.9rem}
+  .event:last-child{padding-bottom:0}
+  .event::before{
+    content:""; position:absolute; left:calc(-2rem - 4px); top:.25rem; width:11px; height:11px; border-radius:50%;
+    background:var(--surface); border:2px solid var(--accent); box-shadow:0 0 0 4px var(--bg);
+  }
+  .ev-name{font-family:var(--mono); font-size:.94rem; font-weight:700; color:var(--strong)}
+  .ev-when{color:var(--muted); font-size:.88rem; margin:.1rem 0 .85rem}
+  .hooks{display:grid; gap:.75rem}
+
+  .hook{
+    background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:1rem 1.1rem;
+    border-left:3px solid var(--line-2); box-shadow:var(--shadow);
+  }
+  .hook[data-t="gate"]{border-left-color:var(--gate)}
+  .hook[data-t="context"]{border-left-color:var(--context)}
+  .hook[data-t="trail"]{border-left-color:var(--trail)}
+  .hook[data-t="checkpoint"]{border-left-color:var(--check)}
+  .hook .top{display:flex; align-items:center; justify-content:space-between; gap:.7rem}
+  .hook .id{font-family:var(--mono); font-weight:700; font-size:.94rem; color:var(--strong)}
+  .badge{font-family:var(--mono); font-size:.63rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:.22rem .5rem; border-radius:5px}
+  .badge.gate{color:var(--gate); background:var(--gate-soft)}
+  .badge.context{color:var(--context); background:var(--context-soft)}
+  .badge.trail{color:var(--trail); background:var(--trail-soft)}
+  .badge.checkpoint{color:var(--check); background:var(--check-soft)}
+  .hook .what{margin:.55rem 0 0; color:var(--ink); font-size:.93rem; line-height:1.5}
+  .hook .what code{font-family:var(--mono); font-size:.85em; color:var(--strong); background:var(--surface-2); padding:.04em .35em; border-radius:4px}
+  .hook .io{
+    margin-top:.7rem; font-family:var(--mono); font-size:.79rem; color:var(--muted);
+    background:var(--surface-2); border:1px solid var(--line); border-radius:7px; padding:.48rem .62rem;
+    overflow-x:auto; white-space:nowrap;
+  }
+  .hook .io b{color:var(--accent); font-weight:600}
+
+  /* ═══ Card grids ══════════════════════════════════════════════════════ */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(276px,1fr)); gap:.85rem}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:1.1rem 1.15rem; box-shadow:var(--shadow); display:flex; flex-direction:column}
+  .kicker{font-family:var(--mono); font-size:.62rem; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:600; margin-bottom:.6rem}
+  .card h3{margin:0; font-family:var(--mono); font-size:.94rem; font-weight:700; color:var(--strong); letter-spacing:-.01em}
+  .card p{margin:.55rem 0 0; font-size:.9rem; color:var(--muted); line-height:1.52}
+  .card p b{color:var(--strong); font-weight:600}
+  .card p code{font-family:var(--mono); font-size:.85em; color:var(--strong); background:var(--surface-2); padding:.04em .35em; border-radius:4px}
+  .card .foot{padding-top:.8rem; margin-top:.9rem; border-top:1px solid var(--line); font-size:.79rem; color:var(--faint)}
+  .card .foot code{font-family:var(--mono); color:var(--accent); font-size:.79rem}
+
+  /* idea cards — sans titles, for the hooks × model section */
+  .card.idea h3{font-family:var(--sans); font-size:.97rem; letter-spacing:0}
+  .card.idea .which{font-family:var(--mono); font-size:.74rem; color:var(--accent); margin-top:.55rem}
+
+  /* ═══ Wiring / config ═════════════════════════════════════════════════ */
+  .flow{display:flex; flex-wrap:wrap; align-items:stretch; gap:.7rem; margin-bottom:1.3rem}
+  .flow .node{flex:1 1 210px; background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:1rem 1.1rem; box-shadow:var(--shadow)}
+  .flow .node .n-k{font-family:var(--mono); font-size:.64rem; letter-spacing:.13em; text-transform:uppercase; color:var(--accent); font-weight:600}
+  .flow .node .n-v{font-family:var(--mono); font-weight:700; margin-top:.32rem; font-size:.92rem; color:var(--strong)}
+  .flow .node .n-d{font-size:.86rem; color:var(--muted); margin-top:.45rem; line-height:1.48}
+  .flow .node .n-d code{font-family:var(--mono); color:var(--ink); font-size:.84em}
+  .flow .arrow{align-self:center; color:var(--faint); font-family:var(--mono); font-weight:700; font-size:1.1rem}
+
+  .tunables{font-family:var(--mono); font-size:.84rem; background:var(--surface); border:1px solid var(--line); border-radius:11px; overflow-x:auto; box-shadow:var(--shadow)}
+  .tunables table{border-collapse:collapse; width:100%; min-width:480px}
+  .tunables td{padding:.6rem 1.05rem; border-bottom:1px solid var(--line); white-space:nowrap; font-variant-numeric:tabular-nums}
+  .tunables tr:last-child td{border-bottom:0}
+  .tunables td:first-child{color:var(--strong)}
+  .tunables td:nth-child(2){color:var(--muted); font-family:var(--sans)}
+  .tunables td:last-child{color:var(--accent); text-align:right; font-weight:600}
+
+  /* ═══ Embedded source panels (generated) ═════════════════════════════ */
+  .src{margin-top:.9rem; border-top:1px solid var(--line); padding-top:.1rem}
+  .src summary{
+    cursor:pointer; font-family:var(--mono); font-size:.75rem; color:var(--accent);
+    padding:.5rem 0; list-style:none; display:flex; gap:.5rem; align-items:center;
+  }
+  .src summary::-webkit-details-marker{display:none}
+  .src summary::before{content:"›"; color:var(--faint); transition:transform .15s ease; display:inline-block}
+  .src[open] summary::before{transform:rotate(90deg)}
+  .src summary:hover{text-decoration:underline}
+  .src summary .lines{color:var(--faint); text-decoration:none}
+  .srcpath{font-family:var(--mono); font-size:.72rem; color:var(--muted); padding:.05rem 0 .5rem; word-break:break-all}
+  .src pre{
+    margin:.15rem 0 .45rem; background:var(--surface-2); border:1px solid var(--line); border-radius:8px;
+    padding:.8rem .95rem; overflow:auto; max-height:440px; tab-size:2;
+    font-family:var(--mono); font-size:.78rem; line-height:1.55; color:var(--ink);
+  }
+  .src pre code{white-space:pre; display:block}
+
+  /* ═══ Callout + footer ════════════════════════════════════════════════ */
+  .callout{border:1px solid var(--line); border-left:3px solid var(--check); border-radius:12px; padding:clamp(1.4rem,3.5vw,2rem); background:var(--surface); box-shadow:var(--shadow)}
+  .callout .eyebrow{color:var(--check)}
+  .callout h2{font-family:var(--serif); font-weight:600; color:var(--strong); font-size:clamp(1.35rem,2.8vw,1.75rem); letter-spacing:-.01em; margin:.55rem 0 0; line-height:1.15}
+  .callout p{margin:.8rem 0 0; color:var(--ink); font-size:.99rem; max-width:68ch; line-height:1.58}
+  .callout code{font-family:var(--mono); font-size:.84rem; color:var(--accent); background:var(--surface-2); padding:.1rem .4rem; border-radius:5px}
+
+  footer{padding:2.2rem 0 3.2rem; border-top:1px solid var(--line); color:var(--faint); font-size:.85rem}
+  footer .fbrand{display:flex; align-items:center; gap:.5rem; color:var(--muted); font-weight:600; margin-bottom:.65rem}
+  footer .fbrand .dot{width:10px; height:10px; border-radius:50%; background:var(--accent)}
+  footer .mono{font-family:var(--mono); color:var(--ink)}
+
+  @media (max-width:640px){
+    .map a{grid-template-columns:1fr auto}
+    .map .m-desc{display:none}
+    .flow .arrow{display:none}
+    .topbar nav{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> Colloid Swarm <small>· mechanical layer</small></div>
+    <nav>
+      <a href="#contract">Contract</a>
+      <a href="#hooks">Hooks</a>
+      <a href="#skills">Skills</a>
+      <a href="#prompts">Prompts</a>
+      <a href="#tracking">Tracking</a>
+      <a href="#config">Config</a>
+    </nav>
+  </div>
+</div>
+
+<main>
+  <!-- ═══ HERO ═══════════════════════════════════════════════════════ -->
+  <header class="hero wrap">
+    <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
+    <h1>An operating system for <em>coding agents</em>.</h1>
+    <p class="lede">
+      A hostile-review workflow, eight enforcement hooks, eight skills, and an evidence trail —
+      wrapped around every model turn, running unmodified under Claude and Kimi.
+    </p>
+
+    <div class="map">
+      <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">Research → plan → attack → implement → attack. Principles, communication, delegation.</span><span class="m-n">AGENTS.md</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">4 gates · 2 context injectors · 1 evidence trail · 1 checkpoint, on the session lifecycle.</span><span class="m-n">8 policies</span></a>
+      <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
+      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Plans, parallel dispatch, citations, security audit, code-quality review, SEO, UI.</span><span class="m-n">8 playbooks</span></a>
+      <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Researcher and reporter contracts, wrap checklists, the hostile-review dispatch.</span><span class="m-n">8 files</span></a>
+      <a href="#tracking"><span class="m-name">tracking</span><span class="m-desc">No tombstone comments — deferred work and standing tradeoffs get typed ledgers.</span><span class="m-n">2 ledgers</span></a>
+      <a href="#config"><span class="m-name">config</span><span class="m-desc">Every hook, threshold, and behavior is a switch in one committed file.</span><span class="m-n">config.json</span></a>
+    </div>
+
+    <div class="cta">
+      <span class="term"><span class="p">$</span> bash demo/demo.sh</span>
+      <span class="note"><b>No mocks anywhere:</b> the demo runs the live cores, and every card below embeds its real source — expand <em>View source</em> to read the actual file.</span>
+    </div>
+  </header>
+
+  <!-- ═══ 01 CONTRACT ════════════════════════════════════════════════ -->
+  <section class="band" id="contract">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">01</span>The operating contract</div>
+        <h2>Every change ships to production and must survive hostile review.</h2>
+        <p>One file — <code>AGENTS.md</code> — governs how the agent works: the workflow loop, the principles that
+          resolve conflicts, the communication bar, and when work gets handed to subagents.</p>
+      </div>
+
+      <div class="pipe">
+        <div class="step"><div class="s-n">1 · Research</div><div class="s-t">Don't reinvent</div><div class="s-d">Web search for best practices, live docs for APIs, competitor gaps, power-user forums.</div></div>
+        <div class="step"><div class="s-n">2 · Plan</div><div class="s-t">Outline first</div><div class="s-d">Affected modules, constraints, the one or two options worth considering. Plan mode for anything non-trivial.</div></div>
+        <div class="step attack"><div class="s-n">3 · Attack</div><div class="s-t">Hostile-review the plan</div><div class="s-d">A subagent attacks it: architecture fit, failure modes, edge cases, missing steps. No justifying.</div></div>
+        <div class="step"><div class="s-n">4 · Implement</div><div class="s-t">Build, then test</div><div class="s-d">Diagnose and fix failures. If the fix forces a redesign — back to step 1.</div></div>
+        <div class="step attack"><div class="s-n">5 · Attack</div><div class="s-t">Hostile-review the diff</div><div class="s-d">A second subagent reviews the diff against the plan and surrounding architecture. Findings fold in.</div></div>
+      </div>
+      <p class="pipe-note"><b>The plan is attacked before code exists; the diff is attacked after.</b> Both reviews run under one rule: find what's wrong, never defend the work.</p>
+
+      <div class="panelgrid">
+        <div class="panel">
+          <h3>Principles — priority order</h3>
+          <ul>
+            <li><span class="ord">1</span><b>Gall's Law.</b> One working thing at a time — "complete" means works end-to-end, not scaffolded.</li>
+            <li><span class="ord">2</span><b>YAGNI.</b> Only what's needed now. Scopes <em>what</em> is built; the production bar governs <em>how well</em>.</li>
+            <li><span class="ord">3</span><b>Unix philosophy.</b> Small, focused modules. One responsibility each.</li>
+            <li><span class="ord">4</span><b>DRY, after YAGNI.</b> Never extract a single-caller helper on speculation.</li>
+          </ul>
+          <div class="p-note">Conflicts resolve top-down.</div>
+        </div>
+        <div class="panel">
+          <h3>Communication standards</h3>
+          <ul>
+            <li><b>Lead with the answer.</b> Detail follows only where it changes what the reader does next.</li>
+            <li><b>Short over long.</b> Trade-offs and risks are signal; everything else beyond the ask is spam.</li>
+            <li><b>Candid always.</b> Failures and partial results reported plainly — never dressed up as done.</li>
+            <li><b>Sources are the deliverable.</b> Asked for sources? Deliver references with one-line notes, no essay.</li>
+          </ul>
+          <div class="p-note">Candor outranks brevity.</div>
+        </div>
+        <div class="panel">
+          <h3>When subagents fire</h3>
+          <ul>
+            <li><b>Cross-domain or parallelizable</b> work — handed off as soon as it's identifiable.</li>
+            <li><b>Hostile review</b> — the plan and the diff each get a fresh attacker (workflow steps 3 and 5).</li>
+            <li><b>Mundane work</b> — trivia the orchestrator is too smart for goes to a smaller minion.</li>
+            <li><b>Dense handoffs</b> — decisions, affected paths, single next step; rich-context reports back.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Behavior standards</h3>
+          <ul>
+            <li><b>Investigate assumptions.</b> External code is innocent until the investigation proves otherwise.</li>
+            <li><b>Persist to completion.</b> Token pressure narrows remaining scope — it never stops work short.</li>
+            <li><b>Estimate in tokens,</b> never wall-clock: "~30k tokens", not "about an hour".</li>
+            <li><b>Carmack-grade code, Jobs-grade UI.</b> Fewest layers that solve it; typography is load-bearing.</li>
+            <li><b>No backwards compatibility.</b> Unused or replaced code is deleted outright.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:.85rem">
+        <article class="card" style="grid-column:1/-1">
+          <div class="kicker">The whole contract</div>
+          <h3>AGENTS.md</h3>
+          <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 135 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+
+Every change ships to production and must withstand hostile
+technical review — reviewer (Linus) rejects placeholder types, mock
+fallbacks, suppression comments, MVP shortcuts, and temporary hacks on
+sight. &quot;Good enough&quot; is a death sentence.
+
+## Principles
+
+Listed in priority order. Resolve conflicts top-down.
+
+1. **Gall&#x27;s Law.** Build one working thing at a time. &quot;Complete&quot; means the
+   current unit works end-to-end — not that future phases are scaffolded.
+2. **YAGNI.** Implement only what&#x27;s needed now. Resist the pull toward
+   building for hypothetical future callers. YAGNI scopes *what* is built;
+   the production-quality bar governs *how well*.
+3. **Unix Philosophy.** Small, focused modules. One responsibility each.
+4. **DRY, after YAGNI.** Shared operations belong somewhere broadly
+   accessible — but never extract a helper with a single caller on
+   speculation.
+
+## Workflow
+
+1. **Research.** Use web search tool to research best practices and 
+   principles for any pattern we implement. Use documentation tool to get
+   upto-date information on libraries and frameworks being used. Do market
+   research on what competitors are offering and what their customers find
+   lacking when building a new feature. Do not reinvent the wheel. Check
+   forums for what powerusers have said about any problem we face.
+2. **Plan.** For non-trivial work, use plan mode tool; outline the approach
+   before touching code: affected modules, constraints, and the one or two
+   options worth considering. Skip for trivial edits. Use the ask questions
+   tool to clarify ambiguities or zero in on multiple valid approaches.
+3. **Hostile-review the plan.** Dispatch a subagent to attack it — fit
+   against surrounding architecture, failure modes, edge cases, missing
+   steps. No justifying the plan; find what&#x27;s wrong. Fold findings in
+   before coding.
+4. **Implement, then test.** If anything fails, diagnose and fix. If the fix
+   forces a redesign, return to step 1.
+5. **Hostile-review the implementation.** Dispatch a subagent to review
+   the diff against the plan and the surrounding architecture. Same
+   ground rules: no justifying, find what&#x27;s wrong, fold it in.
+
+## Behavior
+
+### Investigate assumptions
+Never speculate. Read the referenced files, trace the code path, and reach
+a defensible conclusion before proposing changes. External code is not at
+fault until the investigation proves it. Use web search or documentation
+tools to validate assumptions or get latest information and practices.
+
+### Verify with user
+When genuinely blocked on a decision only the user can make, ask one
+focused question; otherwise keep investigating. Use the ask questions tool
+when stuck and need user input to zero in on the best path forward. Provide
+the user with context on trade-offs and alternatives.
+
+### Persist to completion
+Work until the task is end-to-end done. Iterate, test, and resolve follow-ups
+in the same session. Uncertainty, partial context, and token pressure are not
+reasons to stop short — they are reasons to narrow the remaining scope and
+finish it.
+
+### Estimate in tokens, not time
+Size work and effort in tokens (context/output budget), never wall-clock
+time. &quot;~30k tokens&quot; or &quot;a few hundred lines&quot;, not &quot;about an hour&quot;.
+
+### Carmack-grade engineering
+Build as John Carmack would: simple, fast, measurable, with the fewest layers
+that solve the problem. Every line must justify itself under scrutiny —
+naming, control flow, failure modes, performance. The code is the proof;
+comments do not rescue it.
+
+### Jobs-grade UI
+Design like Steve Jobs: Highly scannable, visually harmonious, frictionless
+Typography, spacing, hierarchy, and micro-interactions are load-bearing, not
+decorative.
+
+### No backwards compatibility 
+Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility
+for its own sake—if something is unused or being replaced, delete it outright.
+
+### Tracking, not tombstones
+Comments and docs describe the code **as it is now**, never its history. The
+diff is the history — don&#x27;t narrate it. Never write &quot;previously&quot;, &quot;used to&quot;,
+&quot;was refactored&quot;, &quot;changed from&quot;, dates, or changelog notes in code or docs.
+
+What doesn&#x27;t belong inline has two homes, split by lifecycle:
+- **`.agents/breadcrumbs.md`** — deferred *work*: a queue. One line each; the
+  SessionStart hook re-surfaces unaddressed items. Act on it, or delete the line.
+- **`.agents/debt-log.md`** — standing tradeoffs and deferred *decisions*: the
+  &quot;naive O(n³) here, fine until N&gt;10k, rework needs a spatial index&quot; record.
+  Committed. Each entry is a `### &lt;id&gt;` heading (a kebab slug like
+  `colloid-07-naive-scan`) with one line each for the condition, the trigger that
+  would justify fixing it, and the rework cost. Reference it from code as
+  `debt: &lt;id&gt;` — the pointer goes inline, never the reasoning. Not auto-surfaced;
+  pulled on demand when you touch that code.
+
+When a subproject surfaces mid-task, classify before acting: **blocking** (A
+can&#x27;t complete without it) → checkpoint A and re-scope to it; **non-blocking**
+(optimization, cleanup, future work) → file one line (work → breadcrumbs,
+standing tradeoff → debt-log) and return to A; **trivial** (&lt;15 min, file
+already open) → inline. The full policy is re-stated after a compaction.
+
+### Latest stable by default
+New technology enters at the latest stable version the project&#x27;s existing
+constraints admit (runtime, peer deps). When a constraint forces an older
+version, say which one and why. Never write a version number from memory —
+if you don&#x27;t know the current stable, search for it.
+
+## Communication
+
+Applies to every reply, to the user or a dispatching agent. Candor outranks
+brevity; dense is not minimal.
+
+1. **Lead with the answer.** Answer the question asked, directly; supporting
+   detail follows only where it changes what the reader does next.
+2. **Short over long.** If a short answer suffices, give the short answer.
+   Trade-offs, risks, and viable alternatives are signal, not padding;
+   everything else beyond the ask is spam.
+3. **Candid always.** Report failures, risks, and partial results plainly;
+   never dress them up as done.
+4. **Sources are the deliverable.** When asked to find or collect sources,
+   deliver sources: high-quality references, one-line notes on what each
+   covers, no essay. A question asked with &quot;include sources&quot; is still a
+   question — answer it and cite.
+
+## Subagent Delegation
+
+Hand off cross-domain or parallelizable work (architecture, bug 
+investigation, research/discovery) as soon as it&#x27;s identifiable. Handoffs
+are dense: decisions, affected paths, single next step. No raw logs or
+quoted issue bodies. Subagents should also be spawned for mundane and
+trivial work you&#x27;re too smart for. Give it to a smaller minion!
+Subagents should also return to you with rich in context reports.</code></pre></details>
+            </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 02 HOOKS ═══════════════════════════════════════════════════ -->
+  <section class="band" id="hooks">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">02</span>Enforcement hooks</div>
+        <h2>One membrane, wrapped around every turn.</h2>
+        <p>The host engine fires an event at each stage of a turn; the adapter routes it to a policy script.
+          Each hook's color marks what it is permitted to do.</p>
+      </div>
+
+      <div class="legend">
+        <div class="led-card"><span class="dot gate"></span><div><b>Gate</b><small>Can block the turn — exit 2, reason fed back to the model.</small></div></div>
+        <div class="led-card"><span class="dot context"></span><div><b>Context</b><small>Injects guidance before the model acts. Never blocks.</small></div></div>
+        <div class="led-card"><span class="dot trail"></span><div><b>Trail</b><small>Observes and logs a session event. Never blocks.</small></div></div>
+        <div class="led-card"><span class="dot checkpoint"></span><div><b>Checkpoint</b><small>Leaves a marker for a later hook to consume.</small></div></div>
+      </div>
+
+      <div class="spine">
+        <div class="event">
+          <div class="ev-name">SessionStart</div>
+          <div class="ev-when">A session begins, resumes, or restarts on compacted context.</div>
+          <div class="hooks">
+            <article class="hook" data-t="context">
+              <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
+              <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
+              <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 131 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: surface deferred work, and re-state the Discovered
+# Subprojects policy when a session resumes on compacted context.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;source&quot;: &quot;...&quot;}
+# Output (STDOUT): a single JSON object carrying
+#   hookSpecificOutput.additionalContext. SessionStart injects that field
+#   regardless of source; plain stdout is NOT injected for source=compact
+#   (anthropics/claude-code#15174), so the structured channel is the robust
+#   one. Silent (exit 0, no output) when there is nothing to surface. A
+#   context policy, never a gate (no exit 2).
+#
+#   - Unaddressed .agents/breadcrumbs.md items (markdown &quot;- &quot; bullets).
+#   - Compaction (source=compact): the full Discovered Subprojects policy
+#     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
+#     trigger word pre-compact.sh left in .agents/.compaction-pending. The
+#     marker is consumed (deleted) here; source=compact is the trigger, not
+#     the marker&#x27;s existence.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;session_start&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+input=&quot;$(cat)&quot;
+
+# The adapter feeds normalizer-built JSON, so this parse cannot fail in practice.
+parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+print(d.get(&quot;project_dir&quot;, &quot;&quot;))
+print(d.get(&quot;source&quot;, &quot;&quot;))
+PY
+)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+start_source=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
+
+items=&quot;&quot;
+crumbs=&quot;$proj/.agents/breadcrumbs.md&quot;
+[[ -f &quot;$crumbs&quot; ]] &amp;&amp; items=&quot;$(grep -E &#x27;^[[:space:]]*-[[:space:]]&#x27; &quot;$crumbs&quot; 2&gt;/dev/null || true)&quot;
+
+# source=compact is the trigger. Always consume the PreCompact marker as
+# cleanup, but only trust its trigger word on a genuine post-compaction start
+# — a marker left by an aborted compaction must not fire the policy on an
+# ordinary startup/resume.
+is_compact=&quot;false&quot;
+[[ &quot;$start_source&quot; == &quot;compact&quot; ]] &amp;&amp; is_compact=&quot;true&quot;
+
+marker=&quot;$proj/.agents/.compaction-pending&quot;
+trigger=&quot;auto&quot;
+if [[ -f &quot;$marker&quot; ]]; then
+  m=&quot;$(head -n1 &quot;$marker&quot; 2&gt;/dev/null || true)&quot;
+  rm -f &quot;$marker&quot;
+  [[ &quot;$m&quot; =~ ^(auto|manual)$ ]] &amp;&amp; trigger=&quot;$m&quot;
+fi
+
+# Nothing to surface.
+[[ -z &quot;$items&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; ]] &amp;&amp; exit 0
+
+body=&quot;$(
+  if [[ &quot;$is_compact&quot; == &quot;true&quot; ]]; then
+    cat &lt;&lt;EOF
+Context was just compacted (trigger: $trigger). If you were mid-pivot on a
+discovered subproject, checkpoint the current unit now — update the todo list,
+note the file/line — and consider recommending a fresh session rather than
+working from the compacted summary.
+
+Discovered Subprojects policy (relocated from AGENTS.md; re-stated here since
+it is no longer always-loaded):
+
+Mid-session, a new subproject (B) may surface while working on the current
+unit (A). Classify it immediately — never drift into B unscoped.
+
+Blocking — A cannot complete correctly without B. Before pivoting:
+1. Checkpoint A: update the todo list and note the current file/line. Do not
+   commit to checkpoint; commits happen only when the user asks.
+2. B becomes the new scoped unit — re-plan and hostile-review it.
+3. Finish B end-to-end.
+4. Return to A from the checkpoint. If B ran past ~20 turns or triggered a
+   context compaction, checkpoint A and recommend the user start a fresh
+   session to continue it, rather than working from the compacted summary.
+
+Non-blocking — B is optimization, cleanup, or future work. Do not explore it,
+read files for it, or plan it. File one line and return to A immediately:
+deferred *work* → .agents/breadcrumbs.md; a standing tradeoff or deferred
+*decision* (e.g. &quot;naive here, fine until N&gt;10k&quot;) → .agents/debt-log.md under a
+stable id, referenced from code as \`debt: &lt;id&gt;\` rather than narrated inline.
+If B must be investigated before it can even be classified, delegate that to a
+subagent so it runs in an isolated context.
+
+Trivial exception — a fix under ~15 minutes in a file A already touches may be
+done inline. Everything else goes through this gate.
+EOF
+  fi
+
+  if [[ -n &quot;$items&quot; ]]; then
+    [[ &quot;$is_compact&quot; == &quot;true&quot; ]] &amp;&amp; echo
+    count=&quot;$(printf &#x27;%s\n&#x27; &quot;$items&quot; | wc -l | tr -d &#x27; &#x27;)&quot;
+    echo &quot;Unaddressed breadcrumbs in .agents/breadcrumbs.md (deferred non-blocking work — act on each, or delete the line):&quot;
+    if (( count &gt; 10 )); then
+      echo &quot;  (10 most recent of $count — prune the file)&quot;
+      printf &#x27;%s\n&#x27; &quot;$items&quot; | tail -n 10
+    else
+      printf &#x27;%s\n&#x27; &quot;$items&quot;
+    fi
+  fi
+)&quot;
+
+[[ -z &quot;$body&quot; ]] &amp;&amp; exit 0
+
+HOOK_BODY=&quot;$body&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+print(json.dumps({
+    &quot;hookSpecificOutput&quot;: {
+        &quot;hookEventName&quot;: &quot;SessionStart&quot;,
+        &quot;additionalContext&quot;: os.environ[&quot;HOOK_BODY&quot;],
+    }
+}))
+PY
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">UserPromptSubmit</div>
+          <div class="ev-when">Before the model answers a submitted prompt.</div>
+          <div class="hooks">
+            <article class="hook" data-t="context">
+              <div class="top"><span class="id">research-prime</span><span class="badge context">context</span></div>
+              <p class="what">When the prompt turns on a current or external fact, injects a non-blocking reminder to search and cite. Silent otherwise.</p>
+              <div class="io"><b>in</b> {prompt} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 68 lines</span></summary><div class="srcpath">.agents/hooks/policy/research-prime.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: prime search-and-cite discipline on a research-shaped
+# prompt. A UserPromptSubmit *context* policy, never a gate — it fires before the
+# answer, when the user&#x27;s question looks like it turns on a current/external
+# fact, and injects a non-blocking reminder to search and cite. Silent otherwise.
+#
+# This is the honest realization of a &quot;nudge&quot;: a Stop hook cannot remind the
+# model without blocking the turn, so the reminder lands here instead — before
+# the model answers — where additionalContext is supported and non-blocking.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;prompt&quot;: &quot;&lt;user prompt&gt;&quot;}
+# Output (STDOUT): a JSON object carrying hookSpecificOutput.additionalContext,
+#   or nothing. Always exit 0; never blocks.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;research_prime&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+prompt=&quot;$(HOOK_INPUT=&quot;$(cat)&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+try:
+    d = json.loads(os.environ.get(&quot;HOOK_INPUT&quot;) or &quot;{}&quot;)
+except Exception:
+    d = {}
+p = d.get(&quot;prompt&quot;)
+print((p if isinstance(p, str) else &quot;&quot;).replace(&quot;\n&quot;, &quot; &quot;))
+PY
+)&quot;
+
+[[ -z &quot;$prompt&quot; ]] &amp;&amp; exit 0
+
+# High-signal patterns: the answer likely turns on a current or external fact.
+# Kept tight on purpose — a reminder that fires every turn is one nobody reads.
+# Scoped to currency/external-fact intent — bare &#x27;current&#x27;, &#x27;documentation&#x27;,
+# &#x27;support for&#x27;, &#x27;most recent&#x27;, &#x27;deprecat&#x27; were dropped: they fire on ordinary
+# in-repo work (&quot;current timestamp&quot;, &quot;write documentation&quot;, &quot;add support for…&quot;).
+signals=&#x27;(\blatest\b|\bnewest\b|\bcurrent(ly)? (version|release|stable|state|status|best)\b|\bas of\b|\bup[ -]?to[ -]?date\b|\bnowadays\b|\bthese days\b|\bcompatib|\bwhich version\b|\bwhat version\b|\baccording to\b|\bbest practice\b|\brecommended (way|approach)\b|\blook up\b|\bsearch (for|online|the web)\b|\bgoogle\b|\bchangelog\b|\brelease notes?\b|\bdocs? (for|say)\b)&#x27;
+
+printf &#x27;%s&#x27; &quot;$prompt&quot; | grep -Eqi &quot;$signals&quot; || exit 0
+
+read -r -d &#x27;&#x27; body &lt;&lt;&#x27;EOF&#x27; || true
+This question looks like it turns on a current or external fact. Don&#x27;t answer
+from memory — search and cite: a quick WebSearch + WebFetch of the primary
+source for a single known fact, or delegate a researcher cell (the
+`search-and-cite` skill) for anything load-bearing. End with a Sources list of
+the URLs you actually used.
+EOF
+
+HOOK_BODY=&quot;$body&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+print(json.dumps({
+    &quot;hookSpecificOutput&quot;: {
+        &quot;hookEventName&quot;: &quot;UserPromptSubmit&quot;,
+        &quot;additionalContext&quot;: os.environ[&quot;HOOK_BODY&quot;].strip(),
+    }
+}))
+PY
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">PreToolUse</div>
+          <div class="ev-when">Before any tool call runs.</div>
+          <div class="hooks">
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
+              <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
+              <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 71 lines</span></summary><div class="srcpath">.agents/hooks/policy/guard-destructive.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: block destructive shell commands.
+#
+# Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;}
+# Output: exit 2 + stderr reason on block; exit 0 otherwise.
+#
+# Both Claude Code and Kimi CLI treat exit 2 + stderr as &quot;block, feed
+# reason to the model&quot;, so no per-engine output adapter is needed.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;guard_destructive&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+cmd=&quot;$(HOOK_INPUT=&quot;$(cat)&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+print(d.get(&quot;command&quot;, &quot;&quot;))
+PY
+)&quot;
+
+[[ -z &quot;$cmd&quot; ]] &amp;&amp; exit 0
+
+block() { printf &#x27;%s\n&#x27; &quot;$1&quot; &gt;&amp;2; exit 2; }
+
+# rm -rf against broad / root / home / wildcard paths
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eq &#x27;rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-rf|-fr)[[:space:]]+(/|~|\$HOME|\*|\.\*)&#x27;; then
+  block &quot;Destructive rm on a broad path. This is irreversible — confirm with the user, or narrow the path.&quot;
+fi
+
+# git force-push
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eq &#x27;git[[:space:]]+push[^|;&amp;]*(--force([[:space:]]|=|$)|--force-with-lease|[[:space:]]-f([[:space:]]|$))&#x27;; then
+  block &quot;Force-push rewrites remote history. Confirm with the user before running.&quot;
+fi
+
+# git reset --hard
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eq &#x27;git[[:space:]]+reset[[:space:]]+--hard&#x27;; then
+  block &quot;git reset --hard discards work irreversibly. Confirm with the user, or use stash/branch.&quot;
+fi
+
+# git commit/push --no-verify (safety-check bypass)
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eq &#x27;git[[:space:]]+(commit|push)[^|;&amp;]*--no-verify&#x27;; then
+  block &quot;--no-verify bypasses pre-commit/push safety checks. Fix the underlying failure instead of bypassing.&quot;
+fi
+
+# Production SSH mutations.
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eq &#x27;ssh[[:space:]]&#x27;; then
+  if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eq &#x27;(systemctl[[:space:]]+(restart|stop|start|reload|enable|disable|daemon-reload)|postsuper|postqueue[[:space:]]+-[fd]|apt(-get)?[[:space:]]+(install|remove|purge|upgrade)|yum[[:space:]]+install|dnf[[:space:]]+install|pip[[:space:]]+install|npm[[:space:]]+install|crontab[[:space:]]+-[er]|[[:space:]]tee[[:space:]]|[[:space:]]&gt;[[:space:]]*/etc/|[[:space:]]sed[[:space:]]+-i|rm[[:space:]]+-[rf]|kill(all)?[[:space:]])&#x27;; then
+    block &quot;Production mutation via SSH is forbidden from local sessions. Ship the change through the repo and the approved deploy path; production access is read-only here.&quot;
+  fi
+fi
+
+# Destructive SQL (DROP / TRUNCATE / unrestricted DELETE or UPDATE)
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eqi &#x27;(psql|mysql)[^|;&amp;]*(DROP[[:space:]]+(TABLE|DATABASE|SCHEMA|INDEX)|TRUNCATE[[:space:]]+TABLE)&#x27;; then
+  block &quot;Destructive DDL detected. Confirm with the user and route the change through Alembic migrations.&quot;
+fi
+if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eqi &#x27;(psql|mysql)[^|;&amp;]*(DELETE[[:space:]]+FROM[[:space:]]+[A-Za-z_.]+[[:space:]]*;|UPDATE[[:space:]]+[A-Za-z_.]+[[:space:]]+SET[^;]*;)&#x27; &amp;&amp; ! printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eqi &#x27;WHERE&#x27;; then
+  block &quot;Unrestricted DELETE/UPDATE (no WHERE clause) detected. Confirm with the user before running.&quot;
+fi
+
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">PostToolUse</div>
+          <div class="ev-when">After a tool call completes.</div>
+          <div class="hooks">
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
+              <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
+              <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 216 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: lint / format / typecheck edited files.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
+# Output: exit 2 + stderr findings on issues; exit 0 otherwise.
+#
+# Scoped strictly to the provided file list — never sweeps the repo.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+cfg=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+pe = cfg.get(&quot;hooks&quot;, {}).get(&quot;post_edit_check&quot;, {})
+print(&quot;yes&quot; if pe.get(&quot;enabled&quot;, True) else &quot;no&quot;)
+print(&quot;yes&quot; if pe.get(&quot;tombstone_check&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;1p&#x27;)&quot;
+tombstone_check=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;2p&#x27;)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+input=&quot;$(cat)&quot;
+
+proj=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+print(d.get(&quot;project_dir&quot;, &quot;&quot;))
+PY
+)&quot;
+
+files=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+seen = set()
+for p in d.get(&quot;files&quot;) or []:
+    if isinstance(p, str) and p and p not in seen:
+        seen.add(p)
+        print(p)
+PY
+)&quot;
+
+[[ -z &quot;$files&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
+cd &quot;$proj&quot;
+
+issues=&quot;&quot;
+ran_tsc=false
+ts_edited=&quot;&quot;
+
+while IFS= read -r f; do
+  [[ -z &quot;$f&quot; || ! -f &quot;$f&quot; ]] &amp;&amp; continue
+  rel=&quot;${f#$proj/}&quot;
+
+  case &quot;$f&quot; in
+    *.py)
+      if command -v ruff &gt;/dev/null 2&gt;&amp;1; then
+        ruff check --fix --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
+        ruff format --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
+        if ! check_out=&quot;$(ruff check --force-exclude --quiet --output-format=concise &quot;$f&quot; 2&gt;&amp;1)&quot;; then
+          issues+=$&#x27;\n&#x27;&quot;[ruff] $rel&quot;$&#x27;\n&#x27;&quot;$check_out&quot;$&#x27;\n&#x27;
+        fi
+      fi
+      ;;
+    *.ts|*.tsx)
+      ts_edited+=$&#x27;\n&#x27;&quot;$f&quot;
+      if [[ &quot;$ran_tsc&quot; == &quot;false&quot; &amp;&amp; -x &quot;frontend/node_modules/.bin/tsc&quot; ]]; then
+        ran_tsc=true
+        tsc_raw=&quot;$(cd frontend &amp;&amp; ./node_modules/.bin/tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo-claude 2&gt;&amp;1 || true)&quot;
+        if [[ -n &quot;$tsc_raw&quot; ]]; then
+          scoped=&quot;$(HOOK_INPUT=&quot;$tsc_raw&quot; TS_FILES=&quot;$ts_edited&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import os
+raw = os.environ[&quot;HOOK_INPUT&quot;]
+edited = [p.strip() for p in os.environ[&quot;TS_FILES&quot;].splitlines() if p.strip()]
+rels = []
+for p in edited:
+    p = p.replace(&quot;\\&quot;, &quot;/&quot;)
+    i = p.find(&quot;/frontend/&quot;)
+    if i &gt;= 0:
+        rels.append(p[i + len(&quot;/frontend/&quot;):])
+    elif p.startswith(&quot;frontend/&quot;):
+        rels.append(p[len(&quot;frontend/&quot;):])
+    else:
+        rels.append(p.split(&quot;/&quot;)[-1])
+keep = [line for line in raw.splitlines() if any(r and r in line for r in rels)]
+print(&quot;\n&quot;.join(keep))
+PY
+)&quot;
+          if [[ -n &quot;$scoped&quot; ]]; then
+            issues+=$&#x27;\n&#x27;&quot;[tsc --noEmit] (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
+          fi
+        fi
+      fi
+      ;;
+  esac
+done &lt;&lt;&lt; &quot;$files&quot;
+
+# Tombstones: diary/changelog narration added in this edit. Advisory only —
+# the standing rationale belongs in .agents/debt-log.md, not inline. Scans the
+# additions vs HEAD (no mid-session commits, by policy) so pre-existing history
+# comments aren&#x27;t re-flagged.
+tombstones=&quot;&quot;
+if [[ &quot;$tombstone_check&quot; == &quot;yes&quot; ]]; then
+  tombstones=&quot;$(FILES=&quot;$files&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27; || true
+import os, re, subprocess
+
+proj = os.environ[&quot;PROJ&quot;]
+files = [f for f in os.environ[&quot;FILES&quot;].splitlines() if f.strip()]
+
+# High-precision: phrasings that narrate a change rather than describe present
+# behavior. Kept tight on purpose — a false miss beats nagging on legit prose.
+PHRASES = re.compile(r&#x27;&#x27;&#x27;(?ix)
+    \b(
+      previously | formerly | no\s+longer |
+      used\s+to(\s+be)? |
+      was\s+(previously\s+|formerly\s+)?(refactored|renamed|removed|replaced|changed|moved|deprecated) |
+      refactored\s+(this|the|from|to|out|into) |
+      changed\s+(this|the|it|these)?\s*from |
+      renamed\s+(this|the|it|from) |
+      moved\s+(this|the|it)\s+(from|to|out) |
+      replaced\s+(the\s+)?old |
+      instead\s+of\s+the\s+old |
+      prior\s+to\s+this\s+(change|refactor) |
+      as\s+part\s+of\s+(the\s+)?refactor |
+      legacy\s+(behaviou?r|version|impl|code|path)
+    )\b
+    | \bTODO\b[^\n]*\b(19|20)\d\d\b
+&#x27;&#x27;&#x27;)
+
+# Only flag lines that read as comments (any line, in prose docs).
+CODE_COMMENT = re.compile(r&#x27;(^\s*(//|\#|\*|/\*|&lt;!--|--|;))|(//|/\*|&lt;!--|\#\s)&#x27;)
+DOC_EXT = (&quot;.md&quot;, &quot;.mdx&quot;, &quot;.markdown&quot;, &quot;.rst&quot;, &quot;.txt&quot;)
+
+# Files whose whole job is to narrate history — exempt, or they nag on every edit.
+SKIP_NAMES = re.compile(r&#x27;^(CHANGELOG|CHANGES|HISTORY|RELEASES?|NEWS|MIGRATION|UPGRADING)(\.|$)&#x27;, re.I)
+
+# A banned phrase inside double-quotes/backticks is a citation (defining or
+# discussing the word), not narration — strip those spans before matching so this
+# rule and its own docs don&#x27;t trip it, while bare `// previously returned X`
+# still does. Apostrophes (it&#x27;s, user&#x27;s) are NOT treated as delimiters: prose
+# apostrophes far outnumber single-quoted comment strings, and a `&#x27;...&#x27;` pair
+# straddling a banned phrase would silently hide a real tombstone.
+QUOTED = re.compile(r&#x27;&quot;[^&quot;]*&quot;|`[^`]*`&#x27;)
+
+def rel_of(f):
+    return f[len(proj) + 1:] if f.startswith(proj + &quot;/&quot;) else f
+
+def added_lines(f):
+    rel = rel_of(f)
+    try:
+        d = subprocess.run([&quot;git&quot;, &quot;-C&quot;, proj, &quot;diff&quot;, &quot;HEAD&quot;, &quot;-U0&quot;, &quot;--&quot;, rel],
+                           capture_output=True, text=True, timeout=10)
+        if d.returncode == 0 and d.stdout.strip():
+            return [ln[1:] for ln in d.stdout.splitlines()
+                    if ln.startswith(&quot;+&quot;) and not ln.startswith(&quot;+++&quot;)]
+        if d.returncode == 0:
+            tracked = subprocess.run(
+                [&quot;git&quot;, &quot;-C&quot;, proj, &quot;ls-files&quot;, &quot;--error-unmatch&quot;, &quot;--&quot;, rel],
+                capture_output=True, text=True, timeout=10)
+            if tracked.returncode != 0:  # untracked new file: scan it whole
+                with open(f, encoding=&quot;utf-8&quot;, errors=&quot;replace&quot;) as fh:
+                    return fh.read().splitlines()
+    except Exception:
+        pass
+    return []
+
+hits, seen = [], set()
+for f in files:
+    if not os.path.isfile(f) or SKIP_NAMES.match(os.path.basename(f)):
+        continue
+    is_doc = f.lower().endswith(DOC_EXT)
+    for ln in added_lines(f):
+        if not (is_doc or CODE_COMMENT.search(ln)):
+            continue
+        if not PHRASES.search(QUOTED.sub(&quot; &quot;, ln)):
+            continue
+        entry = f&quot;{rel_of(f)}: {ln.strip()[:120]}&quot;
+        if entry not in seen:
+            seen.add(entry)
+            hits.append(entry)
+
+for h in hits[:12]:
+    print(h)
+PY
+)&quot;
+fi
+
+if [[ -n &quot;$issues&quot; ]]; then
+  cat &gt;&amp;2 &lt;&lt;EOF
+Post-edit checks found issues — fix them before moving on. These are
+scoped to the files you just edited; pre-existing issues elsewhere are
+suppressed.
+$issues
+EOF
+fi
+
+if [[ -n &quot;$tombstones&quot; ]]; then
+  cat &gt;&amp;2 &lt;&lt;EOF
+
+Advisory (not a correctness gate) — possible tombstone comment(s) in your
+additions. Comments and docs describe the code as it is now, not its history;
+the diff already records the change. Move any standing rationale to
+.agents/debt-log.md and reference it inline as \`debt: &lt;id&gt;\`, then delete the
+narration. If a flagged line is legitimate present-tense prose, leave it and
+continue — this does not block.
+$tombstones
+EOF
+fi
+
+[[ -n &quot;$issues&quot; || -n &quot;$tombstones&quot; ]] &amp;&amp; exit 2
+exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="trail">
+              <div class="top"><span class="id">sources-capture</span><span class="badge trail">trail</span></div>
+              <p class="what">Logs every web search, fetch, or browse — the main agent's and any researcher cell's — as one row in the sources evidence ledger.</p>
+              <div class="io"><b>in</b> {kind, value} &nbsp;→&nbsp; <b>out</b> ledger row &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 54 lines</span></summary><div class="srcpath">.agents/hooks/policy/sources-capture.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: log every web lookup to the sources evidence trail.
+#
+# A PostToolUse capture hook — it observes search/fetch/browse calls (the main
+# agent&#x27;s and any researcher cell&#x27;s, since subagents inherit hooks) and appends
+# one row to .agents/.sources-ledger. It is a *trail*, never a gate: it always
+# exits 0 and never blocks a tool.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;agent&quot;: &quot;...&quot;, &quot;kind&quot;: &quot;search|fetch|browse&quot;, &quot;value&quot;: &quot;&lt;query-or-url&gt;&quot;}
+# Output: none; side effect is the appended ledger row `ts \t agent \t kind \t value`.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;sources_capture&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+HOOK_INPUT=&quot;$(cat)&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os, time
+
+try:
+    d = json.loads(os.environ.get(&quot;HOOK_INPUT&quot;) or &quot;{}&quot;)
+except Exception:
+    raise SystemExit(0)                      # unreadable payload -&gt; nothing to log
+
+def s(x, default=&quot;&quot;):                        # coerce: a non-string field is not a crash
+    return x if isinstance(x, str) else default
+
+value = s(d.get(&quot;value&quot;)).strip()
+if not value:
+    raise SystemExit(0)                      # no source to record
+
+proj = s(d.get(&quot;project_dir&quot;)) or os.environ.get(&quot;CLAUDE_PROJECT_DIR&quot;) or &quot;.&quot;
+ledger = os.path.join(proj, &quot;.agents&quot;, &quot;.sources-ledger&quot;)
+agent = s(d.get(&quot;agent&quot;), &quot;main&quot;).strip() or &quot;main&quot;
+kind = s(d.get(&quot;kind&quot;), &quot;fetch&quot;).strip() or &quot;fetch&quot;
+value = value.replace(&quot;\t&quot;, &quot; &quot;).replace(&quot;\n&quot;, &quot; &quot;)[:500]   # one clean row
+ts = time.strftime(&quot;%Y-%m-%dT%H:%M:%SZ&quot;, time.gmtime())
+
+try:
+    with open(ledger, &quot;a&quot;, encoding=&quot;utf-8&quot;) as f:
+        f.write(&quot;%s\t%s\t%s\t%s\n&quot; % (ts, agent, kind, value))
+except OSError:
+    pass                                     # a trail that can&#x27;t be written is not fatal
+PY
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">Stop</div>
+          <div class="ev-when">The model is about to hand the turn back.</div>
+          <div class="hooks">
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">stop-investigate</span><span class="badge gate">gate</span></div>
+              <p class="what">Blocks the hand-back when the last message hedges ("I can't"), declares work out of scope, or disclaims ownership of code it touched.</p>
+              <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 212 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: block end-of-turn when the last assistant
+# message hedges, declares the task out of scope, or disclaims ownership
+# of code it touched.
+#
+# Input  (stdin JSON): {&quot;transcript_path&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
+# Output: exit 2 + stderr reason on a match; exit 0 otherwise.
+#
+# Two pattern classes share one hook because a second Stop hook would race
+# this one&#x27;s stderr. They are otherwise distinct: hedging is about capability
+# (&quot;I can&#x27;t&quot;), disclaiming is about ownership (&quot;not mine&quot;). Hedges are checked
+# first — a give-up is the harder failure — so a message doing both shows only
+# the hedge reason.
+#
+# Only wired where the host engine exposes a transcript path (Claude
+# Code today). Silent no-op if transcript_path is missing.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+toggles=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+h = cfg.get(&quot;hooks&quot;, {}).get(&quot;stop_investigate&quot;, {})
+print(&quot;yes&quot; if h.get(&quot;enabled&quot;, True) else &quot;no&quot;)
+print(&quot;yes&quot; if h.get(&quot;ratchet_check&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$toggles&quot; | sed -n &#x27;1p&#x27;)&quot;
+ratchet=&quot;$(printf &#x27;%s\n&#x27; &quot;$toggles&quot; | sed -n &#x27;2p&#x27;)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+input=&quot;$(cat)&quot;
+
+parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+print(str(d.get(&quot;stop_hook_active&quot;, False)).lower())
+print(d.get(&quot;transcript_path&quot;, &quot;&quot;))
+PY
+)&quot;
+stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+
+[[ &quot;${stop_active:-false}&quot; == &quot;true&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;${transcript:-}&quot; || ! -f &quot;$transcript&quot; ]] &amp;&amp; exit 0
+
+last_msg=&quot;$(python3 - &quot;$transcript&quot; &lt;&lt;&#x27;PY&#x27;
+import json, sys
+path = sys.argv[1]
+last = &quot;&quot;
+with open(path, &quot;r&quot;, encoding=&quot;utf-8&quot;) as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        msg = row.get(&quot;message&quot;) or {}
+        if msg.get(&quot;role&quot;) != &quot;assistant&quot;:
+            continue
+        content = msg.get(&quot;content&quot;)
+        if isinstance(content, str):
+            last = content
+        elif isinstance(content, list):
+            parts = [b.get(&quot;text&quot;, &quot;&quot;) for b in content
+                     if isinstance(b, dict) and b.get(&quot;type&quot;) == &quot;text&quot;]
+            last = &quot;\n&quot;.join(parts)
+print(last)
+PY
+)&quot;
+
+[[ -z &quot;$last_msg&quot; ]] &amp;&amp; exit 0
+
+hedges=&#x27;(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\b|\bunable to (verify|determine|confirm) without\b|\b(don.?t|do not) have (enough|sufficient) (context|information)\b|\bwould need (more )?(information|context|access) (to|from)\b|\bcould you (clarify|confirm|provide|specify|tell me)\b|\bplease (let me know|clarify|confirm|specify) (which|what|whether|if)\b|\bwithout more (information|context|details)\b|\b(I.?ll|I will) stop here\b|\bbeyond the scope of\b|\bout of scope for (this|the current)\b|\bleaving (this|that) (for|to) you\b|\byou.?ll need to (check|verify|investigate|determine|decide)\b)&#x27;
+
+if printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$hedges&quot;; then
+  cat &gt;&amp;2 &lt;&lt;&#x27;EOF&#x27;
+Your last message hedged, asked the user to do investigation, or declared
+the task out of scope. Re-read the principles: investigate, then act —
+never speculate, never give up before using the tools. Read the
+referenced files, trace the code path, run the read-only commands you
+have access to, and reach a defensible conclusion. Escalate to the user
+only when a decision genuinely requires information or authority they
+alone hold. Continue the work now.
+EOF
+  exit 2
+fi
+
+[[ &quot;$ratchet&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+# Two substrates, because the triggers and the disarm want opposite treatment of
+# markdown quoting. Both drop fenced blocks and blockquotes — bulk citation is
+# never a claim either way.
+#
+#   prose  (triggers) — inline code and quoted spans BLANKED. Quoting a banned
+#           phrase must not read as making it.
+#   ledger (disarm)   — the same spans UNWRAPPED, and whitespace flattened. A
+#           path is conventionally written `.agents/debt-log.md`; blanking inline
+#           code would delete the very evidence the disarm looks for, so a correct
+#           filing would block — and the block message asks the agent to name
+#           where it filed, so it would comply, backtick the path, and block
+#           again. Flattening lets the proximity check span a bulleted filing.
+#
+# Single quotes are deliberately NOT delimiters in either: apostrophes would make
+# the check contraction-dependent, eating the span between &quot;it&#x27;s&quot; and &quot;I&#x27;ve&quot;.
+both=&quot;$(LAST_MSG=&quot;$last_msg&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import os, re
+t = os.environ[&quot;LAST_MSG&quot;]
+t = re.sub(r&quot;```.*?```&quot;, &quot; &quot;, t, flags=re.S)
+t = re.sub(r&quot;(?m)^\s*&gt;.*$&quot;, &quot; &quot;, t)
+prose = re.sub(r&quot;`[^`\n]*`&quot;, &quot; &quot;, t)
+prose = re.sub(r&quot;\&quot;[^\&quot;\n]*\&quot;|“[^”\n]*”&quot;, &quot; &quot;, prose)
+ledger = re.sub(r&quot;\s+&quot;, &quot; &quot;, re.sub(r&quot;[`\&quot;“”]&quot;, &quot; &quot;, t))
+print(prose)
+print(&quot;&lt;&lt;&lt;RATCHET-SPLIT&gt;&gt;&gt;&quot;)
+print(ledger)
+PY
+)&quot;
+prose=&quot;${both%%&lt;&lt;&lt;RATCHET-SPLIT&gt;&gt;&gt;*}&quot;
+ledger=&quot;${both##*&lt;&lt;&lt;RATCHET-SPLIT&gt;&gt;&gt;}&quot;
+
+# Two-key gate, deliberately AGGRESSIVE. Provenance must sit within NEAR chars of
+# a second key — either an explicit declination (&quot;so I left it alone&quot;) or a plain
+# DEFECT noun (&quot;those lint errors are pre-existing&quot;). The defect key exists because
+# the natural punt never announces itself: it states provenance about a failure it
+# just surfaced and moves on, and an announced-punts-only gate misses it entirely.
+#
+# The cost is knowingly accepted: &quot;those tests are pre-existing&quot; is word-identical
+# whether it dodges work or answers &quot;did you break this?&quot; — only intent separates
+# them, and intent is not in the text. So the gate fires on the claim and the
+# REASON tells the model to say so in one line and stop when it misread. The model
+# has the context the regex cannot: it knows whether the user asked.
+#
+# Proximity still bounds it — a punt is one claim in one sentence (~40 chars
+# between keys). Without it this fired on a report saying &quot;a pre-existing failure
+# was correctly suppressed&quot; in one paragraph and &quot;Left alone, every edit would drop
+# a file&quot; (a conditional, not a declination) 233 chars later. A sanctioned
+# disposition (breadcrumb, debt-log entry) still clears it: that is the policy
+# working, not a dodge.
+#
+# The triggers read `prose`; the disarm reads `ledger` (see above). The disarm
+# must not out-permission the triggers: matched against the raw message, naming a
+# ledger inside a fenced block would void the whole check.
+provenance=&#x27;(\b(pre-?existing|long-?standing)\b|\bnot (introduced|caused|added) by (this|my|the current) (change|edit|diff|pr|patch|work)\b|\b(was|were|is|are) already (broken|failing|wrong)\b|\bnot (my|mine|this change.?s) (code|work|bug|problem|mess)\b|\bI (didn.?t|did not) (write|introduce|add|author) (this|that|it|the)\b|\bunrelated to (this|my|the current) (change|diff|edit|pr|patch|work|task)\b|\bnot part of (this|my) (change|diff|edit|pr|patch|task)\b|\b(an|a) (existing|upstream|legacy) (issue|bug|problem|failure)\b|\b(existed|was there) (before|prior to)\b|\bpre-?dates\b)&#x27;
+declines=&#x27;(\bleav(e|ing) (it |that |them |those |this )?(alone|as.?is|be|for now|untouched)\b|\bleft (it |that |them |those |this )?(alone|as.?is|untouched|for now)\b|\b(not|won.?t|will not|do not|don.?t) (fix|fixing|address|addressing|touch|touching|change|changing) (it|that|them|those|this)\b|\b(didn.?t|did not) (fix|address|touch) (it|that|them|those|this)\b|\bout of scope\b|\bnot in scope\b|\bnot worth fixing\b|\b(so|and) I (skipped|ignored) (it|that|them|those)\b|\bskipping (it|that|them|those)\b|\b(untouched|unaffected|not touched) by (my|this|the|these) (change|changes|diff|edit|edits|work|pr|patch)\b)&#x27;
+# A defect the message is reporting. Provenance next to one is the silent punt —
+# &quot;those 4 lint errors are pre-existing&quot; declines nothing out loud but fixes
+# nothing either. Deliberately catches some honest answers; the reason handles it.
+defects=&#x27;\b(error|errors|failure|failures|failing|warning|warnings|bug|bugs|breakage|regression|violation|violations|lint|typecheck|type-check)\b&#x27;
+# The disarm needs an affirmative filing VERB next to the ledger, not a bare
+# mention: a turn that merely cites breadcrumbs.md while punting elsewhere must
+# still block. `unfiled` then takes back the negated form (&quot;not filing it to
+# debt-log.md&quot;), which otherwise disarms by naming the thing it refuses to do.
+# The gap is `.{0,120}`, not a bracket class: POSIX ERE does not read `\n` inside
+# brackets, so `[^\n]` means &quot;not a backslash and not the letter n&quot; and silently
+# never matches an ordinary sentence. `ledger` is already newline-flattened, so
+# `.` reaches across a bulleted filing.
+#
+# `unfiled` carries the SAME ledger proximity as `filed`. Unscoped, any negation
+# anywhere in the message re-armed the block — &quot;there&#x27;s no need to file a
+# changelog entry&quot; three sentences away from a genuine filing blocked correct
+# work. The negation only counts when it is negating THIS filing.
+ledger_f=&#x27;(breadcrumbs\.md|debt-log\.md)&#x27;
+filed=&quot;(\\b(filed|filing|recorded|recording|logged|logging|noted|noting|tracked|tracking|captured|added)\\b.{0,120}$ledger_f|\\bdebt: ?[a-z0-9-]+)&quot;
+unfiled=&quot;\\b(not|never|without|no need to)\\s+(going to\\s+|gonna\\s+)?(fil(e|ing)|record(ing)?|logg?(ing)?|track(ing)?|not(e|ing))\\b.{0,120}$ledger_f&quot;
+
+disarmed=&quot;no&quot;
+if printf &#x27;%s&#x27; &quot;$ledger&quot; | grep -Eqi &quot;$filed&quot; \
+   &amp;&amp; ! printf &#x27;%s&#x27; &quot;$ledger&quot; | grep -Eqi &quot;$unfiled&quot;; then
+  disarmed=&quot;yes&quot;
+fi
+
+# Flattened so the proximity window can span a line break inside one sentence;
+# grep is line-based, so `.` cannot cross a newline otherwise.
+prose_flat=&quot;$(printf &#x27;%s&#x27; &quot;$prose&quot; | tr &#x27;\n&#x27; &#x27; &#x27;)&quot;
+NEAR=140   # generous for one sentence, well under the 233 that misfired
+
+key2=&quot;($declines|$defects)&quot;
+if printf &#x27;%s&#x27; &quot;$prose_flat&quot; | grep -Eqi &quot;$provenance.{0,$NEAR}$key2|$key2.{0,$NEAR}$provenance&quot; \
+   &amp;&amp; [[ &quot;$disarmed&quot; == &quot;no&quot; ]]; then
+  cat &gt;&amp;2 &lt;&lt;&#x27;EOF&#x27;
+Your last message tied a provenance claim — pre-existing, not yours, not
+introduced by this change — to code you are not fixing. The quality gate rises
+over time: a file you touch comes up to today&#x27;s bar, whoever wrote it and
+whenever. Provenance is not an exemption, and &quot;I only ran the linter&quot; does not
+make the errors someone else&#x27;s problem.
+
+Pick one, deliberately:
+  - It sits in a file this change already touches and the fix is bounded -&gt;
+    fix it now, in this change.
+  - It is genuinely separate work -&gt; file it (.agents/breadcrumbs.md for work,
+    .agents/debt-log.md for a standing tradeoff) and name where you filed it.
+Do not narrate the reasoning in a code comment.
+
+This check is deliberately aggressive. It fires on the claim, because a silent
+punt is word-identical to an honest answer — &quot;those tests are pre-existing&quot;
+reads the same whether it dodges work or answers a question you were asked. The
+regex cannot see which; you can. If it misread you — you were answering a direct
+question about blame, or the code genuinely is not yours to touch — say so in
+one line and stop. That is expected and cheap, not a failure.
+EOF
+  exit 2
+fi
+
+exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
+              <p class="what">On magnitude escalation (none → trivial → diff → large) offers a clean-up + report wrap, and asks the user — full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
+              <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 trigger | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 269 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool, &quot;transcript_path&quot;: &quot;...&quot;}
+# Output: exit 2 + stderr on escalation; exit 0 otherwise.
+#
+# The checklist prose lives in .agents/hooks/wrap/*.md — this script owns only
+# the gate. It emits a short trigger naming the sections and their files; the
+# model reads a file only if the user opts into the wrap. A skipped wrap
+# therefore costs the model nothing, where an inline checklist costs it the
+# whole wall whether or not it is used.
+#
+# THE GATE: fire on tier ESCALATION, not on every turn in a tier.
+#   none -&gt; trivial -&gt; diff -&gt; large
+# A session that reaches `diff` fires once; it does not re-fire on the next turn
+# still sitting at `diff`. Reaching `large` fires again. Committing drops the
+# tier back to `none` and re-arms the ladder, so atomic commits give one wrap per
+# unit of work rather than one per turn. State lives in
+# .agents/.wrap-state-&lt;hash of transcript path&gt; — one file per session, so a new
+# session starts the ladder fresh and concurrent sessions never clobber.
+#
+# Why escalation and not every turn: firing every turn makes each turn cost two
+# assistant messages and forces the model to triage a wall it will mostly ignore.
+# It is also self-defeating — Claude Code overrides a Stop hook after it blocks
+# eight times in a row without progress (code.claude.com/docs/en/hooks-guide), so
+# a hook that always blocks trains its own ceiling and then stops being heard.
+# The reference community hook (disler/claude-code-hooks-mastery stop.py) never
+# blocks at all. Set hooks.session_wrap.report_every_turn=true to opt into a
+# report on every turn regardless of escalation.
+#
+# Tunable via .agents/config.json (env vars still override):
+#   trivial_files (2), trivial_lines (30)   -&gt; the trivial floor
+#   review_files (5),  review_lines (150)   -&gt; the `large` threshold
+#   heavy_lines (200)                       -&gt; no-diff session worth reporting
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+wrap_dir=&quot;.agents/hooks/wrap&quot;
+
+cfg=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+sw = cfg.get(&quot;hooks&quot;, {}).get(&quot;session_wrap&quot;, {})
+print(&quot;yes&quot; if sw.get(&quot;enabled&quot;, True) else &quot;no&quot;)
+print(sw.get(&quot;trivial_files&quot;, 2))
+print(sw.get(&quot;trivial_lines&quot;, 30))
+print(sw.get(&quot;review_files&quot;, 5))
+print(sw.get(&quot;review_lines&quot;, 150))
+print(sw.get(&quot;heavy_lines&quot;, 200))
+print(&quot;yes&quot; if sw.get(&quot;report_every_turn&quot;, False) else &quot;no&quot;)
+# Pairing mode is the one OPT-IN toggle: a missing or broken config must leave
+# it OFF, never silently on.
+lr = cfg.get(&quot;hooks&quot;, {}).get(&quot;learning_report&quot;, {})
+print(&quot;yes&quot; if lr.get(&quot;enabled&quot;, False) else &quot;no&quot;)
+PY
+)&quot;
+enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;1p&#x27;)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+cfg_trivial_files=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;2p&#x27;)&quot;
+cfg_trivial_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;3p&#x27;)&quot;
+cfg_review_files=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;4p&#x27;)&quot;
+cfg_review_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;5p&#x27;)&quot;
+cfg_heavy_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;6p&#x27;)&quot;
+report_every_turn=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;7p&#x27;)&quot;
+learning_enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;8p&#x27;)&quot;
+
+input=&quot;$(cat)&quot;
+parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+print(str(d.get(&quot;stop_hook_active&quot;, False)).lower())
+print(d.get(&quot;project_dir&quot;, &quot;&quot;))
+print(d.get(&quot;transcript_path&quot;, &quot;&quot;))
+PY
+)&quot;
+stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+
+[[ &quot;${stop_active:-false}&quot; == &quot;true&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
+cd &quot;$proj&quot;
+
+TRIVIAL_FILES=&quot;${WRAP_TRIVIAL_FILES:-$cfg_trivial_files}&quot;
+TRIVIAL_LINES=&quot;${WRAP_TRIVIAL_LINES:-$cfg_trivial_lines}&quot;
+REVIEW_FILES=&quot;${WRAP_REVIEW_FILES:-$cfg_review_files}&quot;
+REVIEW_LINES=&quot;${WRAP_REVIEW_LINES:-$cfg_review_lines}&quot;
+HEAVY=&quot;${WRAP_HEAVY_LINES:-$cfg_heavy_lines}&quot;
+
+# The kit&#x27;s own transient state is not session work — exclude by name (precise,
+# so a real file that merely sits in .agents/ is never hidden). Generated
+# learning reports are tooling output, not the user&#x27;s diff.
+markers=&#x27;(\.agents/\.(genome-ledger|mutagen-ledger|sources-ledger|compaction-pending)$|\.agents/\.wrap-state-|^docs/learning/)&#x27;
+
+changed=&quot;&quot;
+if git rev-parse --is-inside-work-tree &gt;/dev/null 2&gt;&amp;1; then
+  changed=&quot;$(git status --porcelain=v1 --untracked-files=all 2&gt;/dev/null \
+    | awk &#x27;NF { sub(/^.. /, &quot;&quot;); print }&#x27; \
+    | sed &#x27;s/^&quot;//; s/&quot;$//&#x27; \
+    | grep -v &#x27;^$&#x27; \
+    | grep -Ev &quot;$markers&quot; || true)&quot;
+fi
+
+# ───────────────────────────── classify the tier ─────────────────────────────
+count=0
+lines=&quot;&quot;
+binary=&quot;&quot;
+if [[ -n &quot;$changed&quot; ]]; then
+  count=&quot;$(printf &#x27;%s\n&#x27; &quot;$changed&quot; | wc -l | tr -d &#x27; &#x27;)&quot;
+  if git rev-parse --verify -q HEAD &gt;/dev/null 2&gt;&amp;1; then
+    binary=&quot;$(git diff HEAD --numstat 2&gt;/dev/null \
+      | awk &#x27;$1 == &quot;-&quot; &amp;&amp; $2 == &quot;-&quot; { print 1; exit }&#x27; || true)&quot;
+    tracked=&quot;$(git diff HEAD --numstat 2&gt;/dev/null \
+      | awk &#x27;$1 ~ /^[0-9]+$/ &amp;&amp; $2 ~ /^[0-9]+$/ { s += $1 + $2 } END { print s + 0 }&#x27; || true)&quot;
+    untracked=&quot;$(git ls-files --others --exclude-standard 2&gt;/dev/null \
+      | grep -Ev &quot;$markers&quot; \
+      | while IFS= read -r f; do [[ -f &quot;$f&quot; ]] &amp;&amp; wc -l &lt;&quot;$f&quot; 2&gt;/dev/null || true; done \
+      | awk &#x27;{ s += $1 } END { print s + 0 }&#x27; || true)&quot;
+    lines=$(( ${tracked:-0} + ${untracked:-0} ))
+  fi
+fi
+
+# A binary change, or churn we cannot measure (no commit yet), is never trivial:
+# a safety wrap fails toward more review.
+tier=&quot;none&quot;
+if [[ -n &quot;$changed&quot; ]]; then
+  if [[ -n &quot;$binary&quot; || -z &quot;$lines&quot; ]]; then
+    tier=&quot;diff&quot;
+  elif (( count &lt;= TRIVIAL_FILES &amp;&amp; lines &lt;= TRIVIAL_LINES )); then
+    tier=&quot;trivial&quot;
+  else
+    tier=&quot;diff&quot;
+  fi
+  if [[ &quot;$tier&quot; == &quot;diff&quot; ]] &amp;&amp; { [[ -z &quot;$lines&quot; ]] || (( count &gt;= REVIEW_FILES || lines &gt;= REVIEW_LINES )); }; then
+    tier=&quot;large&quot;
+  fi
+fi
+
+rank() { case &quot;$1&quot; in none) echo 0;; trivial) echo 1;; diff) echo 2;; large) echo 3;; *) echo 0;; esac; }
+
+# ────────────────────────── escalation gate (the throttle) ──────────────────────────
+# State file, one per session — the transcript path is hashed into the NAME, not
+# compared inside a shared file. Two Claude sessions in one repo would otherwise
+# share `.wrap-state`, each read the other&#x27;s identity, reset the ladder, and fire
+# every turn — the exact behavior this gate exists to prevent.
+#   line 1  highest tier already fired (the diff ladder)
+#   line 2  &quot;1&quot; once the no-diff investigation report has fired this session
+#   line 3  commit count at the last write — a rise means a commit landed
+# The diff ladder cannot throttle the no-diff branch — `none` and `trivial` never
+# out-rank a fresh `none` — so that branch carries its own flag.
+#
+# The commit count is tracked because a tier drop is not the only way work
+# completes: a turn that commits AND opens the next unit never dips to `none`, so
+# the ladder would stay latched and swallow the next wrap. The count catches the
+# commit the tier never shows. It is a COUNT and not a sha because a sha merely
+# *moves* on `--amend`, `rebase`, or `checkout` — none of which close a unit of
+# work — and would re-fire the wrap on an unchanged tree.
+#
+# No transcript path (Kimi exposes none) = no session identity = no throttle:
+# read and write nothing, and let every escalation fire. Keying a shared file on
+# an empty identity would make one repo-wide ladder that every future session
+# inherits, silently suppressing wraps forever. A safety wrap fails toward review.
+state=&quot;&quot;
+if [[ -n &quot;$transcript&quot; ]]; then
+  state=&quot;$proj/.agents/.wrap-state-$(printf &#x27;%s&#x27; &quot;$transcript&quot; | cksum | tr -d &#x27; &#x27;)&quot;
+fi
+
+# Empty in a repo with no commits — which correctly makes the count signal inert
+# rather than writing a bogus marker.
+commits=&quot;$(git rev-list --count HEAD 2&gt;/dev/null || true)&quot;
+[[ &quot;$commits&quot; =~ ^[0-9]+$ ]] || commits=&quot;&quot;
+
+fired=&quot;none&quot;
+investigated=&quot;&quot;
+prev_commits=&quot;&quot;
+if [[ -n &quot;$state&quot; &amp;&amp; -f &quot;$state&quot; ]]; then
+  fired=&quot;$(sed -n &#x27;1p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
+  investigated=&quot;$(sed -n &#x27;2p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
+  prev_commits=&quot;$(sed -n &#x27;3p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
+fi
+case &quot;$fired&quot; in none|trivial|diff|large) ;; *) fired=&quot;none&quot;;; esac
+[[ &quot;$investigated&quot; == &quot;1&quot; ]] || investigated=&quot;&quot;
+[[ &quot;$prev_commits&quot; =~ ^[0-9]+$ ]] || prev_commits=&quot;&quot;
+
+# Re-arm the ladder when the unit of work closed. Two independent signals:
+#   - the tier dropped (work committed away, or reverted)
+#   - the commit count ROSE (a commit landed even though the tier never dipped)
+if (( $(rank &quot;$tier&quot;) &lt; $(rank &quot;$fired&quot;) )); then
+  fired=&quot;none&quot;
+elif [[ -n &quot;$prev_commits&quot; &amp;&amp; -n &quot;$commits&quot; ]] &amp;&amp; (( commits &gt; prev_commits )); then
+  fired=&quot;none&quot;
+fi
+
+escalated=&quot;no&quot;
+(( $(rank &quot;$tier&quot;) &gt; $(rank &quot;$fired&quot;) )) &amp;&amp; escalated=&quot;yes&quot;
+
+# Persist unconditionally, at every invocation — NOT only when emitting. A commit
+# turn emits nothing; if the re-armed `fired` were written only from an emit
+# branch, the re-arm would live in memory and die there, and the next unit of work
+# reaching the same tier would be silently swallowed.
+record_state() {
+  [[ -z &quot;$state&quot; ]] &amp;&amp; return 0
+  mkdir -p &quot;$proj/.agents&quot; 2&gt;/dev/null || true
+  { printf &#x27;%s\n%s\n%s\n&#x27; &quot;$1&quot; &quot;$2&quot; &quot;$commits&quot; &gt; &quot;$state&quot;; } 2&gt;/dev/null || true
+}
+
+# ───────────────────────────── build the sections ─────────────────────────────
+sections=&quot;&quot;
+add() { sections=&quot;${sections}${1}&quot;$&#x27;\n&#x27;; }
+
+# What to persist this turn. Defaults to the re-armed ladder so a commit turn —
+# which emits nothing — still writes the reset.
+next_fired=&quot;$fired&quot;
+next_investigated=&quot;$investigated&quot;
+
+if [[ &quot;$tier&quot; == &quot;diff&quot; || &quot;$tier&quot; == &quot;large&quot; ]]; then
+  if [[ &quot;$escalated&quot; == &quot;yes&quot; || &quot;$report_every_turn&quot; == &quot;yes&quot; ]]; then
+    size=&quot;$count file(s)&quot;
+    [[ -n &quot;$lines&quot; ]] &amp;&amp; size=&quot;$size, ~$lines changed lines&quot;
+    [[ -n &quot;$binary&quot; ]] &amp;&amp; size=&quot;$size, binary&quot;
+    shown=&quot;$(printf &#x27;%s\n&#x27; &quot;$changed&quot; | head -20 | sed &#x27;s/^/  - /&#x27;)&quot;
+    (( count &gt; 20 )) &amp;&amp; shown=&quot;$shown&quot;$&#x27;\n&#x27;&quot;  - … $((count - 20)) more&quot;
+
+    add &quot;Uncommitted changes this session ($size):&quot;
+    add &quot;$shown&quot;
+    add &quot;&quot;
+    add &quot;This crossed the &#x27;$tier&#x27; threshold. Ask the user — full session wrap, or skip?&quot;
+    add &quot;(Claude: use AskUserQuestion.) Honor the answer; if they skip, stop here.&quot;
+    add &quot;If they want it, read the file for each section below and work it against&quot;
+    add &quot;the files this session touched — do not sweep files you did not edit.&quot;
+    add &quot;&quot;
+    add &quot;  - Clean-up + behavior impact  -&gt; $wrap_dir/diff-wrap.md&quot;
+    [[ &quot;$tier&quot; == &quot;large&quot; ]] &amp;&amp; \
+    add &quot;  - Hostile review (subagent)   -&gt; $wrap_dir/hostile-review.md&quot;
+    add &quot;  - Session report + commit msg -&gt; $wrap_dir/report-implementation.md&quot;
+    [[ &quot;$learning_enabled&quot; == &quot;yes&quot; ]] &amp;&amp; \
+    add &quot;  - Pairing: learning report    -&gt; $wrap_dir/learning-report.md  (NOT governed by the skip)&quot;
+  fi
+  next_fired=&quot;$tier&quot;
+else
+  # ──────────── no diff (or trivial): capture a long investigation ────────────
+  # Length ≈ transcript line count (one line per exchange); schema-agnostic, so
+  # any engine that hands us a transcript path works. Throttled by the
+  # `investigated` flag: once per session, not once per turn.
+  events=&quot;&quot;
+  [[ -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]] &amp;&amp; \
+    events=&quot;$(wc -l &lt;&quot;$transcript&quot; 2&gt;/dev/null | tr -d &#x27; &#x27; || true)&quot;
+
+  if [[ -n &quot;$events&quot; ]] &amp;&amp; (( events &gt;= HEAVY )) \
+     &amp;&amp; { [[ -z &quot;$investigated&quot; ]] || [[ &quot;$report_every_turn&quot; == &quot;yes&quot; ]]; }; then
+    add &quot;A long session (~$events exchanges) with no substantial diff — a debugging&quot;
+    add &quot;or research session whose findings die with the context window.&quot;
+    add &quot;&quot;
+    add &quot;Ask the user whether they want a session report (Claude: use AskUserQuestion).&quot;
+    add &quot;If they want it: $wrap_dir/report-investigation.md&quot;
+    next_investigated=&quot;1&quot;
+  fi
+fi
+
+record_state &quot;$next_fired&quot; &quot;$next_investigated&quot;
+
+[[ -z &quot;$sections&quot; ]] &amp;&amp; exit 0
+printf &#x27;%s&#x27; &quot;$sections&quot; &gt;&amp;2
+exit 2
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">PreCompact</div>
+          <div class="ev-when">Just before the context window is compacted.</div>
+          <div class="hooks">
+            <article class="hook" data-t="checkpoint">
+              <div class="top"><span class="id">pre-compact</span><span class="badge checkpoint">checkpoint</span></div>
+              <p class="what">Records the compaction trigger to a marker file; session-start consumes it afterward to re-state policy. Control-only — never gates compaction.</p>
+              <div class="io"><b>in</b> {trigger} &nbsp;→&nbsp; <b>out</b> .compaction-pending &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/hooks/policy/pre-compact.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: record that a compaction is imminent.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;trigger&quot;: &quot;auto&quot;|&quot;manual&quot;}
+# Output: none on stdout. Writes the trigger word to
+#   .agents/.compaction-pending and always exits 0.
+#
+# PreCompact is control-only: its stdout is discarded by the host and it
+# cannot inject context (Claude Code docs; not in the stdout-as-context
+# exception list, no additionalContext support). So this hook does the one
+# useful pre-compaction thing — leave a marker the post-compaction context
+# policy (session-start.sh, source=compact) consumes to re-state the
+# Discovered Subprojects policy and tailor the nudge to the trigger.
+#
+# A checkpoint marker, never a gate — it does not block compaction.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+cfg = {}
+try:
+    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
+except Exception: pass
+print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;pre_compact&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
+PY
+)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+input=&quot;$(cat)&quot;
+
+parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
+print(d.get(&quot;project_dir&quot;, &quot;&quot;))
+print(d.get(&quot;trigger&quot;, &quot;&quot;))
+PY
+)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+trigger=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
+[[ -z &quot;$trigger&quot; ]] &amp;&amp; trigger=&quot;auto&quot;
+
+mkdir -p &quot;$proj/.agents&quot;
+printf &#x27;%s\n&#x27; &quot;$trigger&quot; &gt; &quot;$proj/.agents/.compaction-pending&quot;
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 03 HOOKS × MODEL ═══════════════════════════════════════════ -->
+  <section class="band" id="model">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">03</span>Hooks × model</div>
+        <h2>The hooks stay dumb. The model does the thinking.</h2>
+        <p>Shell hooks can't reason, and the harness constrains where they can even speak. Each limit below is
+          designed around by routing judgment to the model — the hook detects, the model decides.</p>
+      </div>
+      <div class="grid">
+        <article class="card idea">
+          <h3>The nudge fires where it can't block</h3>
+          <p>A Stop hook cannot remind the model without <b>blocking the whole turn</b>. So the search-and-cite nudge fires at prompt-submit instead — the one event where non-blocking context injection is supported. Same reminder, zero friction.</p>
+          <div class="which">research-prime</div>
+        </article>
+        <article class="card idea">
+          <h3>Triggers, not checklists</h3>
+          <p>The wrap gate emits <b>one line naming the checklist files</b>; the model reads them only if the user opts in. A skipped wrap costs nothing — an inline checklist would cost the full wall of text every turn, used or not.</p>
+          <div class="which">session-wrap → wrap/*.md</div>
+        </article>
+        <article class="card idea">
+          <h3>A gate that knows its ceiling</h3>
+          <p>Claude Code overrides a Stop hook after <b>8 consecutive blocks</b> — a hook that always blocks trains its own ceiling and stops being heard. So the gate fires on tier <b>escalation</b>, not every turn, and a commit re-arms the ladder.</p>
+          <div class="which">session-wrap</div>
+        </article>
+        <article class="card idea">
+          <h3>A relay across amnesia</h3>
+          <p>PreCompact's stdout is <b>discarded by the host</b> — it cannot inject context. So it leaves a marker file instead, and session-start consumes it after compaction to re-state the policy the model just lost.</p>
+          <div class="which">pre-compact → session-start</div>
+        </article>
+        <article class="card idea">
+          <h3>Regex catches, the model reasons</h3>
+          <p>The stop gate is pattern-matching — it detects the hedge or the disclaimed ownership. Deciding what "finish the investigation" actually means is left to the model the <b>block reason is fed back to</b>.</p>
+          <div class="which">stop-investigate</div>
+        </article>
+        <article class="card idea">
+          <h3>Reports routed by session shape</h3>
+          <p>A session with a diff gets the <b>implementation report</b> — what changed, evidence, commit message. A long session with <b>no diff</b> gets the investigation report, leading with root cause — because debugging findings die with the context window unless written down.</p>
+          <div class="which">report-implementation · report-investigation</div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 04 SKILLS ══════════════════════════════════════════════════ -->
+  <section class="band" id="skills">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">04</span>Skills</div>
+        <h2>Playbooks the agent reaches for.</h2>
+        <p>Model-invocable and portable across projects — each one a focused responsibility, no overlap.</p>
+      </div>
+      <div class="grid">
+        <article class="card"><div class="kicker">Orchestration</div><h3>dispatching-parallel-agents</h3><p>Fan out two or more independent tasks that share no state and have no ordering between them.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 197 lines</span></summary><div class="srcpath">.agents/skills/dispatching-parallel-agents/SKILL.md</div><pre><code>---
+name: dispatching-parallel-agents
+description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+---
+
+# Dispatching Parallel Agents
+
+## Overview
+
+You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session&#x27;s context or history — you construct exactly what they need. This also preserves your own context for coordination work.
+
+When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
+
+**Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
+
+## When to Use
+
+```dot
+digraph when_to_use {
+    &quot;Multiple failures?&quot; [shape=diamond];
+    &quot;Are they independent?&quot; [shape=diamond];
+    &quot;Single agent investigates all&quot; [shape=box];
+    &quot;One agent per problem domain&quot; [shape=box];
+    &quot;Can they work in parallel?&quot; [shape=diamond];
+    &quot;Sequential agents&quot; [shape=box];
+    &quot;Parallel dispatch&quot; [shape=box];
+
+    &quot;Multiple failures?&quot; -&gt; &quot;Are they independent?&quot; [label=&quot;yes&quot;];
+    &quot;Are they independent?&quot; -&gt; &quot;Single agent investigates all&quot; [label=&quot;no - related&quot;];
+    &quot;Are they independent?&quot; -&gt; &quot;Can they work in parallel?&quot; [label=&quot;yes&quot;];
+    &quot;Can they work in parallel?&quot; -&gt; &quot;Parallel dispatch&quot; [label=&quot;yes&quot;];
+    &quot;Can they work in parallel?&quot; -&gt; &quot;Sequential agents&quot; [label=&quot;no - shared state&quot;];
+}
+```
+
+**Use when:**
+- 3+ test files failing with different root causes
+- Multiple subsystems broken independently
+- Each problem can be understood without context from others
+- No shared state between investigations
+
+**Don&#x27;t use when:**
+- Failures are related (fix one might fix others)
+- Need to understand full system state
+- Agents would interfere with each other
+
+## The Pattern
+
+### 1. Identify Independent Domains
+
+Group failures by what&#x27;s broken:
+- File A tests: Tool approval flow
+- File B tests: Batch completion behavior
+- File C tests: Abort functionality
+
+Each domain is independent - fixing tool approval doesn&#x27;t affect abort tests.
+
+### 2. Create Focused Agent Tasks
+
+Each agent gets:
+- **Specific scope:** One test file or subsystem
+- **Clear goal:** Make these tests pass
+- **Constraints:** Don&#x27;t change other code
+- **Expected output:** Summary of what you found and fixed
+
+### 3. Stamp a Genome per Agent
+
+Each agent dissolves into the broth with its own personality. Draw the whole
+batch in one shot so the genomes are distinct and the swarm *fights* instead of
+echoing — a fan-out of yes-men explores nothing:
+
+```sh
+.agents/genome.sh --count 3                  # 3 distinct stamps
+.agents/genome.sh --count 12 --register none # wide fan-out: drop the register tax
+```
+
+Split the output on the `⊰ COLLOID GENOME` header line and prepend one stamp to
+each agent&#x27;s prompt. `genome-guard.sh` blocks any dispatch you forget to stamp.
+See `genomes.md` for the genomes and the selection rules.
+
+### 4. Dispatch in Parallel
+
+```typescript
+// In Claude Code / AI environment — each prompt carries its prepended genome
+Task(&quot;⊰ COLLOID GENOME · THE MYCELIUM …\n\nFix agent-tool-abort.test.ts failures&quot;)
+Task(&quot;⊰ COLLOID GENOME · THE TARDIGRADE …\n\nFix batch-completion-behavior.test.ts failures&quot;)
+Task(&quot;⊰ COLLOID GENOME · THE EXTREMOPHILE …\n\nFix tool-approval-race-conditions.test.ts failures&quot;)
+// All three run concurrently
+```
+
+### 5. Review and Integrate
+
+When agents return:
+- Read each summary
+- Verify fixes don&#x27;t conflict
+- Run full test suite
+- Integrate all changes
+
+## Agent Prompt Structure
+
+Good agent prompts are:
+1. **Focused** - One clear problem domain
+2. **Self-contained** - All context needed to understand the problem
+3. **Specific about output** - What should the agent return?
+
+```markdown
+Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
+
+1. &quot;should abort tool with partial output capture&quot; - expects &#x27;interrupted at&#x27; in message
+2. &quot;should handle mixed completed and aborted tools&quot; - fast tool aborted instead of completed
+3. &quot;should properly track pendingToolCount&quot; - expects 3 results but gets 0
+
+These are timing/race condition issues. Your task:
+
+1. Read the test file and understand what each test verifies
+2. Identify root cause - timing issues or actual bugs?
+3. Fix by:
+   - Replacing arbitrary timeouts with event-based waiting
+   - Fixing bugs in abort implementation if found
+   - Adjusting test expectations if testing changed behavior
+
+Do NOT just increase timeouts - find the real issue.
+
+Return: Summary of what you found and what you fixed.
+```
+
+## Common Mistakes
+
+**❌ Too broad:** &quot;Fix all the tests&quot; - agent gets lost
+**✅ Specific:** &quot;Fix agent-tool-abort.test.ts&quot; - focused scope
+
+**❌ No context:** &quot;Fix the race condition&quot; - agent doesn&#x27;t know where
+**✅ Context:** Paste the error messages and test names
+
+**❌ No constraints:** Agent might refactor everything
+**✅ Constraints:** &quot;Do NOT change production code&quot; or &quot;Fix tests only&quot;
+
+**❌ Vague output:** &quot;Fix it&quot; - you don&#x27;t know what changed
+**✅ Specific:** &quot;Return summary of root cause and changes&quot;
+
+## When NOT to Use
+
+**Related failures:** Fixing one might fix others - investigate together first
+**Need full context:** Understanding requires seeing entire system
+**Exploratory debugging:** You don&#x27;t know what&#x27;s broken yet
+**Shared state:** Agents would interfere (editing same files, using same resources)
+
+## Real Example from Session
+
+**Scenario:** 6 test failures across 3 files after major refactoring
+
+**Failures:**
+- agent-tool-abort.test.ts: 3 failures (timing issues)
+- batch-completion-behavior.test.ts: 2 failures (tools not executing)
+- tool-approval-race-conditions.test.ts: 1 failure (execution count = 0)
+
+**Decision:** Independent domains - abort logic separate from batch completion separate from race conditions
+
+**Dispatch:**
+```
+Agent 1 → Fix agent-tool-abort.test.ts
+Agent 2 → Fix batch-completion-behavior.test.ts
+Agent 3 → Fix tool-approval-race-conditions.test.ts
+```
+
+**Results:**
+- Agent 1: Replaced timeouts with event-based waiting
+- Agent 2: Fixed event structure bug (threadId in wrong place)
+- Agent 3: Added wait for async tool execution to complete
+
+**Integration:** All fixes independent, no conflicts, full suite green
+
+**Time saved:** 3 problems solved in parallel vs sequentially
+
+## Key Benefits
+
+1. **Parallelization** - Multiple investigations happen simultaneously
+2. **Focus** - Each agent has narrow scope, less context to track
+3. **Independence** - Agents don&#x27;t interfere with each other
+4. **Speed** - 3 problems solved in time of 1
+
+## Verification
+
+After agents return:
+1. **Review each summary** - Understand what changed
+2. **Check for conflicts** - Did agents edit same code?
+3. **Run full suite** - Verify all fixes work together
+4. **Spot check** - Agents can make systematic errors
+
+## Real-World Impact
+
+From debugging session (2025-10-03):
+- 6 failures across 3 files
+- 3 agents dispatched in parallel
+- All investigations completed concurrently
+- All fixes integrated successfully
+- Zero conflicts between agent changes
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Orchestration</div><h3>writing-plans</h3><p>Turn a spec into a reviewable implementation plan before touching code.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 152 lines</span></summary><div class="srcpath">.agents/skills/writing-plans/SKILL.md</div><pre><code>---
+name: writing-plans
+description: Use when you have a spec or requirements for a multi-step task, before touching code
+---
+
+# Writing Plans
+
+## Overview
+
+Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
+
+Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don&#x27;t know good test design very well.
+
+**Announce at start:** &quot;I&#x27;m using the writing-plans skill to create the implementation plan.&quot;
+
+**Context:** This should be run in a dedicated worktree (created by brainstorming skill).
+
+**Save plans to:** `docs/superpowers/plans/YYYY-MM-DD-&lt;feature-name&gt;.md`
+- (User preferences for plan location override this default)
+
+## Scope Check
+
+If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn&#x27;t, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
+
+## File Structure
+
+Before defining tasks, map out which files will be created or modified and what each one is responsible for. This is where decomposition decisions get locked in.
+
+- Design units with clear boundaries and well-defined interfaces. Each file should have one clear responsibility.
+- You reason best about code you can hold in context at once, and your edits are more reliable when files are focused. Prefer smaller, focused files over large ones that do too much.
+- Files that change together should live together. Split by responsibility, not by technical layer.
+- In existing codebases, follow established patterns. If the codebase uses large files, don&#x27;t unilaterally restructure - but if a file you&#x27;re modifying has grown unwieldy, including a split in the plan is reasonable.
+
+This structure informs the task decomposition. Each task should produce self-contained changes that make sense independently.
+
+## Bite-Sized Task Granularity
+
+**Each step is one action (2-5 minutes):**
+- &quot;Write the failing test&quot; - step
+- &quot;Run it to make sure it fails&quot; - step
+- &quot;Implement the minimal code to make the test pass&quot; - step
+- &quot;Run the tests and make sure they pass&quot; - step
+- &quot;Commit&quot; - step
+
+## Plan Document Header
+
+**Every plan MUST start with this header:**
+
+```markdown
+# [Feature Name] Implementation Plan
+
+&gt; **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** [One sentence describing what this builds]
+
+**Architecture:** [2-3 sentences about approach]
+
+**Tech Stack:** [Key technologies/libraries]
+
+---
+```
+
+## Task Structure
+
+````markdown
+### Task N: [Component Name]
+
+**Files:**
+- Create: `exact/path/to/file.py`
+- Modify: `exact/path/to/existing.py:123-145`
+- Test: `tests/exact/path/to/test.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+def test_specific_behavior():
+    result = function(input)
+    assert result == expected
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/path/test.py::test_name -v`
+Expected: FAIL with &quot;function not defined&quot;
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+def function(input):
+    return expected
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/path/test.py::test_name -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/path/test.py src/path/file.py
+git commit -m &quot;feat: add specific feature&quot;
+```
+````
+
+## No Placeholders
+
+Every step must contain the actual content an engineer needs. These are **plan failures** — never write them:
+- &quot;TBD&quot;, &quot;TODO&quot;, &quot;implement later&quot;, &quot;fill in details&quot;
+- &quot;Add appropriate error handling&quot; / &quot;add validation&quot; / &quot;handle edge cases&quot;
+- &quot;Write tests for the above&quot; (without actual test code)
+- &quot;Similar to Task N&quot; (repeat the code — the engineer may be reading tasks out of order)
+- Steps that describe what to do without showing how (code blocks required for code steps)
+- References to types, functions, or methods not defined in any task
+
+## Remember
+- Exact file paths always
+- Complete code in every step — if a step changes code, show the code
+- Exact commands with expected output
+- DRY, YAGNI, TDD, frequent commits
+
+## Self-Review
+
+After writing the complete plan, look at the spec with fresh eyes and check the plan against it. This is a checklist you run yourself — not a subagent dispatch.
+
+**1. Spec coverage:** Skim each section/requirement in the spec. Can you point to a task that implements it? List any gaps.
+
+**2. Placeholder scan:** Search your plan for red flags — any of the patterns from the &quot;No Placeholders&quot; section above. Fix them.
+
+**3. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
+
+If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
+
+## Execution Handoff
+
+After saving the plan, offer execution choice:
+
+**&quot;Plan complete and saved to `docs/superpowers/plans/&lt;filename&gt;.md`. Two execution options:**
+
+**1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
+
+**2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints
+
+**Which approach?&quot;**
+
+**If Subagent-Driven chosen:**
+- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
+- Fresh subagent per task + two-stage review
+
+**If Inline Execution chosen:**
+- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
+- Batch execution with checkpoints for review
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Orchestration</div><h3>executing-plans</h3><p>Execute a written plan in a fresh session with review checkpoints between steps.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 70 lines</span></summary><div class="srcpath">.agents/skills/executing-plans/SKILL.md</div><pre><code>---
+name: executing-plans
+description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+---
+
+# Executing Plans
+
+## Overview
+
+Load plan, review critically, execute all tasks, report when complete.
+
+**Announce at start:** &quot;I&#x27;m using the executing-plans skill to implement this plan.&quot;
+
+**Note:** Tell your human partner that Superpowers works much better with access to subagents. The quality of its work will be significantly higher if run on a platform with subagent support (such as Claude Code or Codex). If subagents are available, use superpowers:subagent-driven-development instead of this skill.
+
+## The Process
+
+### Step 1: Load and Review Plan
+1. Read plan file
+2. Review critically - identify any questions or concerns about the plan
+3. If concerns: Raise them with your human partner before starting
+4. If no concerns: Create TodoWrite and proceed
+
+### Step 2: Execute Tasks
+
+For each task:
+1. Mark as in_progress
+2. Follow each step exactly (plan has bite-sized steps)
+3. Run verifications as specified
+4. Mark as completed
+
+### Step 3: Complete Development
+
+After all tasks complete and verified:
+- Announce: &quot;I&#x27;m using the finishing-a-development-branch skill to complete this work.&quot;
+- **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
+- Follow that skill to verify tests, present options, execute choice
+
+## When to Stop and Ask for Help
+
+**STOP executing immediately when:**
+- Hit a blocker (missing dependency, test fails, instruction unclear)
+- Plan has critical gaps preventing starting
+- You don&#x27;t understand an instruction
+- Verification fails repeatedly
+
+**Ask for clarification rather than guessing.**
+
+## When to Revisit Earlier Steps
+
+**Return to Review (Step 1) when:**
+- Partner updates the plan based on your feedback
+- Fundamental approach needs rethinking
+
+**Don&#x27;t force through blockers** - stop and ask.
+
+## Remember
+- Review plan critically first
+- Follow plan steps exactly
+- Don&#x27;t skip verifications
+- Reference skills when plan says to
+- Stop when blocked, don&#x27;t guess
+- Never start implementation on main/master branch without explicit user consent
+
+## Integration
+
+**Required workflow skills:**
+- **superpowers:using-git-worktrees** - REQUIRED: Set up isolated workspace before starting
+- **superpowers:writing-plans** - Creates the plan this skill executes
+- **superpowers:finishing-a-development-branch** - Complete development after all tasks
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Research</div><h3>search-and-cite</h3><p>Draw the line between an inline lookup and a delegated researcher cell — and carry sources through to the answer.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 113 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
+name: search-and-cite
+description: Use when a turn rests on an external fact — a library API, a version, a &quot;current best practice&quot;, anything you&#x27;d otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
+---
+
+# Search and cite
+
+The failure this kills: asserting an external fact from memory, never searching,
+never citing — or searching once, failing, and giving up. Two moves fix it: a
+**cheap inline lookup** for a single known fact, or a **delegated researcher
+cell** for anything load-bearing. Either way, the claim ends up tied to a URL.
+
+Be honest about the ceiling: nothing here *forces* you to search — a from-memory
+claim makes no tool call, so no hook can catch it. This scaffold makes searching
+*easy and disciplined* and leaves an evidence trail; the decision to reach for
+it is yours. The `research-prime` hook reminds you when the user&#x27;s question
+looks research-shaped, but the membrane is your own honesty: *don&#x27;t state as
+fact what you didn&#x27;t verify.*
+
+## Inline, or delegate? Draw the line
+
+**Inline fast-path** — one `WebSearch`, read the top primary source with
+`WebFetch`, cite the URL. No subagent. Use it for a **single, well-known,
+low-stakes fact**:
+- &quot;What&#x27;s the current Node LTS?&quot; · &quot;Does `Array.prototype.at` exist in Node 18?&quot;
+- &quot;What&#x27;s the latest stable Postgres major?&quot;
+
+**Delegate a researcher cell** — when the answer is **multi-claim, contested,
+version-sensitive, or load-bearing** (a wrong answer changes the code you
+ship):
+- &quot;Is library X compatible with Y across our version range, and what&#x27;s the
+  migration path?&quot;
+- &quot;What&#x27;s the current best-practice for Z, and where do practitioners say it
+  breaks?&quot;
+- anything security- or data-integrity-sensitive, where one source isn&#x27;t enough.
+
+When in doubt and the cost of being wrong is real: delegate. The researcher
+cross-checks and isolates the search context from yours.
+
+## Delegating a researcher
+
+It&#x27;s a cell like any other — stamp it with a genome and dispatch it with the
+question. The **Mycelium** is its natural genome (trace every source, three hops
+out, impossible to surprise):
+
+```sh
+.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/researcher.md + the question
+```
+
+### Claude Code — use the native researcher agent (Sonnet)
+
+When running under Claude Code, delegate research via the dedicated
+`researcher` subagent so it runs on **Sonnet** instead of inheriting the parent
+model:
+
+```
+Task(
+    subagent_type=&#x27;researcher&#x27;,
+    prompt=&#x27;[genome stamp] + [your research question]&#x27;
+)
+```
+
+The `.claude/agents/researcher.md` definition is generated from `.agents/config.json`
+by `.agents/sync-claude-agents.sh`; the `model:` frontmatter pins whatever model
+you configured (`sonnet` by default). The agent loads the researcher contract as
+its system prompt, and your prompt carries the genome stamp + question. The
+`genome-guard` hook still applies (the stamp is in the prompt), and
+`sources-capture` still logs its web calls.
+
+### Other engines — generic dispatch
+
+Dispatch `[genome stamp] + [.agents/researcher.md] + [your research question]`.
+It climbs the escalation ladder (WebSearch → WebFetch primary sources →
+context7 for libs → playwright for hard pages), cross-checks load-bearing
+claims, and returns `CLAIMS / SOURCES / GAPS`. The genome stamp means it carries
+the membrane and the honesty clause — it returns what it found, not what it
+wishes it found.
+
+## Consume the evidence — carry the sources through
+
+The researcher&#x27;s `SOURCES` are now **your** sources. When you write the answer:
+- Every external fact you repeat must trace to a URL the researcher returned (or
+  one you fetched inline). If you can&#x27;t tie it to a source, don&#x27;t state it as
+  fact — downgrade it (&quot;likely, but unverified&quot;) or drop it.
+- End an answer that rests on external facts with a **Sources** list of the URLs
+  you actually used (`WebSearch`&#x27;s own contract asks for this; honour it).
+- **Relay a GAP as a conclusion, never a hedge.** Say *&quot;research found no
+  authoritative source for Z; best available is W, low confidence&quot;* — a finding.
+  Not *&quot;I&#x27;m unable to verify Z without more info&quot;* — that reads as a stalled
+  investigation and trips the session&#x27;s investigate-then-act guard. The
+  researcher hands you gaps already in conclusion shape; keep them that way, and
+  route around the guard&#x27;s trip-wires: *&quot;unable to determine&quot;*, *&quot;cannot
+  determine whether&quot;*, *&quot;without more context&quot;*, *&quot;you&#x27;ll need to check&quot;*. State
+  what the search found, not what you couldn&#x27;t do.
+
+## The evidence trail
+
+Every `WebSearch` / `WebFetch` / `browser_navigate` — yours and the
+researcher&#x27;s — is logged to `.agents/.sources-ledger` (`ts · agent · kind ·
+value`) by the `sources-capture` hook. It&#x27;s the operator&#x27;s audit trail and a
+backstop for the URLs you actually read (`fetch`/`browse` rows are real URLs;
+`search` rows hold the query, not the result link). Transient and gitignored;
+safe to delete.
+
+## On other engines
+
+`researcher.md` and this skill are engine-neutral — the researcher cell and the
+inline/delegate discipline work anywhere the engine has web tools. The
+mechanical pieces are Claude-wired: the `sources-capture` ledger needs the
+engine&#x27;s web-tool names, and the `research-prime` reminder needs a prompt-submit
+hook. Under an engine without those (e.g. Kimi today), you get the researcher
+and the discipline, but no automatic trail and no prime — the honesty is then
+entirely yours.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 309 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
+name: security-audit
+description: &gt;
+  Comprehensive adversarial security review of a full-stack codebase. Use this skill whenever 
+  the user wants to audit, test, or review the security of an application — frontend, backend, 
+  database, or all layers. Triggers include: &quot;security review&quot;, &quot;security audit&quot;, &quot;pentest&quot;, 
+  &quot;find vulnerabilities&quot;, &quot;check for issues&quot;, &quot;adversarial review&quot;, &quot;look for bugs&quot;, 
+  &quot;hardened?&quot;, &quot;is this secure&quot;, or any request to systematically check authentication, 
+  authorization, rate limiting, input validation, role-based access, session handling, 
+  or API security. Also trigger when the user pastes code and asks if it&#x27;s safe, or when 
+  they describe a feature and ask what could go wrong. Even if they just say &quot;review my app&quot;, 
+  &quot;check my codebase&quot;, or &quot;find problems&quot; — use this skill.
+---
+
+# Security Audit Skill
+
+A systematic, adversarial, full-stack security audit. The goal is to think like an attacker, 
+cover every layer, document everything found, and not stop until the entire codebase has been reviewed.
+
+---
+
+## Phase 0 — Orient Before You Act
+
+Before writing any audit output:
+1. `ls` / `tree` the project root to understand the stack (Next.js? Django? Express? Laravel?)
+2. Identify: auth framework, DB layer, ORM, session store, role model, and any external services
+3. Read `package.json`, `requirements.txt`, `Gemfile`, `go.mod`, or equivalent to spot dependency risks
+4. Note `.env.example` / config files — never print secrets, just flag patterns
+5. Build a **feature map**: list every route, controller, model, and role you can find before auditing
+
+Document your findings in `security-audit-report.md` from the very first step and **keep updating it continuously** throughout the audit. Never batch findings at the end.
+
+---
+
+## Phase 1 — Authentication &amp; Session Security
+
+### Checklist
+- [ ] Password hashing: bcrypt/argon2 with proper cost? Never MD5/SHA1/plaintext
+- [ ] Tokens (JWT/session): signed, short-lived, secret stored securely?
+- [ ] Sessions invalidated on logout AND on user disable/delete?
+- [ ] Sessions invalidated after password change?
+- [ ] Concurrent session limits respected?
+- [ ] &quot;Remember me&quot; tokens: stored hashed, expiry enforced?
+- [ ] OAuth / SSO: state param validated? redirect_uri whitelisted?
+- [ ] MFA: bypass possible? backup codes single-use?
+- [ ] Account lockout after N failed attempts?
+- [ ] User enumeration via login error messages?
+- [ ] Logged-in users auto-redirected away from `/login`, `/register`?
+
+### How to verify
+Search for session creation/destruction code and trace what happens when `is_active=false` or equivalent is set. Grep for logout handlers and confirm they call `session.destroy()` / `invalidateToken()` / equivalent.
+
+---
+
+## Phase 2 — Authorization &amp; Role-Based Access Control (RBAC)
+
+### Checklist
+- [ ] Every API endpoint has an explicit auth check — no implicit &quot;if logged in, allowed&quot;
+- [ ] Roles are assigned at login and attached to the session — not re-fetched from a client-supplied param
+- [ ] Privilege escalation: can a regular user create an admin user?
+- [ ] Horizontal privilege escalation: can User A access User B&#x27;s data by changing an ID in the URL/body?
+- [ ] Admin-only pages/APIs protected on both frontend (UI hidden) AND backend (API guard)?
+- [ ] Role checks done server-side, never trust `role` from client payload
+- [ ] Insecure Direct Object Reference (IDOR): `GET /api/invoice/:id` — does it check ownership?
+- [ ] Soft-deleted / disabled records: can they still be fetched via direct ID lookup?
+- [ ] Role hierarchy enforced: can a manager grant permissions above their own level?
+- [ ] UI: buttons/fields hidden for unauthorized roles AND the underlying API also blocks the action?
+
+### How to verify
+Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth middleware is applied, check that the ownership/role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user/org.
+
+---
+
+## Phase 3 — Password Reset &amp; Account Recovery
+
+### Checklist
+- [ ] Reset tokens: cryptographically random (not sequential IDs, not predictable hashes)?
+- [ ] Reset tokens: single-use — invalidated immediately after first use?
+- [ ] Reset tokens: short TTL (≤1 hour)?
+- [ ] Reset link: does it still work after the user has already reset their password?
+- [ ] No rate limit on `/forgot-password` → account enumeration / email bombing
+- [ ] Reset form: does accepting the token automatically log the user in (skipping password entry)?
+- [ ] Email oracle: does `/forgot-password` behave differently for registered vs unregistered emails?
+
+---
+
+## Phase 4 — Rate Limiting &amp; Abuse Prevention
+
+### Checklist
+- [ ] Login endpoint rate-limited (per IP, per username)?
+- [ ] Password reset rate-limited?
+- [ ] OTP / verification code rate-limited (no brute force)?
+- [ ] Expensive API operations (search, export, email send) rate-limited?
+- [ ] File upload size &amp; type limits enforced server-side?
+- [ ] No endpoint accepts unbounded list operations (always paginated)?
+- [ ] GraphQL: query depth / complexity limits?
+- [ ] Webhooks / callback URLs validated to prevent SSRF?
+
+---
+
+## Phase 5 — Input Validation &amp; Injection
+
+### Checklist
+- [ ] All user input validated and sanitized server-side (never trust client-only validation)
+- [ ] SQL injection: raw queries with string interpolation? ORM used everywhere? Parameterized queries?
+- [ ] NoSQL injection: `{ $where: userInput }` patterns?
+- [ ] XSS: user content rendered as raw HTML? `dangerouslySetInnerHTML`? `v-html`? `innerHTML`?
+- [ ] Command injection: `exec()`, `shell_exec()`, `subprocess` with user input?
+- [ ] Path traversal: `../` in file paths, user-controlled filenames?
+- [ ] SSRF: URLs constructed from user input and then fetched server-side?
+- [ ] XXE: XML parsing with external entities enabled?
+- [ ] Open redirect: `?next=`, `?redirect=` not validated against allowlist?
+- [ ] Mass assignment: `User.update(req.body)` without field allowlist?
+
+### Dates &amp; Time Fields
+- [ ] Date inputs validated to prevent nonsensical values (e.g. start &gt; end, dates far in future/past)?
+- [ ] Timezone handling consistent — all stored as UTC?
+- [ ] Date math handles edge cases (leap years, DST transitions)?
+
+---
+
+## Phase 6 — API Design &amp; Data Exposure
+
+### Checklist
+- [ ] Response objects scoped — no returning full DB row when only 3 fields are needed
+- [ ] Internal IDs, hashes, or system metadata not leaked in API responses
+- [ ] List endpoints paginated with max page size enforced?
+- [ ] Filtering parameters validated — no arbitrary column injection into queries?
+- [ ] Verbose error messages in production? Stack traces exposed?
+- [ ] HTTP methods restricted: `GET` routes not performing mutations?
+- [ ] CORS: `Access-Control-Allow-Origin: *` on authenticated endpoints?
+- [ ] Content-Type enforced on uploads?
+- [ ] API versioning — old/deprecated endpoints still active and unprotected?
+- [ ] Unnecessary data returned: audit the 5 most-used endpoints for over-fetching
+
+---
+
+## Phase 7 — Frontend Security
+
+### Checklist
+- [ ] Auth state only from server-verified token — not from `localStorage.role`?
+- [ ] Sensitive data (tokens, PII) in `localStorage`? (prefer `httpOnly` cookies)
+- [ ] React / Vue / Angular: no `dangerouslySetInnerHTML` / `v-html` with untrusted data?
+- [ ] CSP headers set?
+- [ ] CSRF protection on state-changing requests (especially form submissions)?
+- [ ] Secrets (API keys, service credentials) in frontend bundle? (`grep -r &quot;sk-&quot; src/`)
+- [ ] Hardcoded URLs, IDs, or credentials in source?
+- [ ] Route guards: protected routes redirect unauthenticated users?
+- [ ] Role-based UI: hidden elements for wrong role AND underlying actions blocked?
+- [ ] Field validation runs on both client AND server?
+- [ ] Invalid/disabled actions: buttons disabled appropriately (can&#x27;t submit a form in wrong state)?
+- [ ] Dead-end routes: pages with no back button / navigation?
+- [ ] Error states handled gracefully with meaningful user messages?
+
+---
+
+## Phase 8 — Database &amp; Data Layer
+
+### Checklist
+- [ ] DB credentials not hardcoded in source; loaded from environment
+- [ ] DB user has minimum required permissions (not root/superuser for app queries)?
+- [ ] No direct DB access from frontend/client?
+- [ ] Migrations run in transactions? Rollback possible?
+- [ ] Sensitive fields (passwords, SSNs, tokens) encrypted at rest?
+- [ ] Soft-deleted records inaccessible via app unless explicitly intended?
+- [ ] Indexes on foreign keys and frequently filtered columns?
+- [ ] No raw SQL strings built from user input in the ORM layer?
+- [ ] DB connection pooling configured to prevent resource exhaustion?
+
+---
+
+## Phase 9 — Infrastructure &amp; Configuration
+
+### Checklist
+- [ ] No secrets committed to git (scan with `git log --all -S &quot;password&quot;` style checks)
+- [ ] `.env` in `.gitignore`?
+- [ ] Debug mode / verbose logging disabled in production config?
+- [ ] Dependency vulnerabilities: run `npm audit`, `pip-audit`, `bundler-audit`, or equivalent
+- [ ] HTTPS enforced? HSTS headers set?
+- [ ] Security headers present: `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`?
+- [ ] Docker: running as root? Unnecessary ports exposed?
+- [ ] File permissions on config files appropriate?
+- [ ] Third-party integrations: API keys scoped to minimum permissions?
+
+---
+
+## Phase 10 — Business Logic &amp; User Flows
+
+This is where real-world bugs hide that automated scanners miss. Think like a user trying to abuse the system.
+
+### Key questions per feature
+- Can a user take an action they shouldn&#x27;t at this point in the workflow?
+- What happens if they submit a form twice (duplicate actions)?
+- What happens with edge cases: same email twice, same name twice, empty string, null, very long string?
+- Are there status transitions that should be one-way (e.g. &quot;cancelled&quot; → &quot;active&quot; should be blocked)?
+- Can a user interfere with another user&#x27;s in-progress action?
+- Are financial/quota calculations done server-side?
+
+### Specific flows to check every time
+1. **Registration** → duplicate email, SQL chars in name, very long inputs
+2. **Login** → lockout, enumeration, case sensitivity of email
+3. **Password reset** → full Phase 3 checklist
+4. **Role creation/assignment** → can a non-admin assign admin role?
+5. **Delete / archive** → are downstream references cleaned up? Can a deleted user still act?
+6. **Export / download** → scoped to current user&#x27;s data only?
+7. **Search** → injection, result scoping, exposure of other users&#x27; data?
+8. **Notifications / emails** → triggered by other users&#x27; actions inappropriately?
+
+---
+
+## Execution Strategy
+
+### Work feature by feature, not file by file
+
+For each feature:
+1. Identify the frontend components / pages
+2. Trace to the API endpoint(s)
+3. Trace to the controller / service
+4. Trace to the DB query
+5. Apply the relevant checklists from Phases 1–10
+6. Record every finding in `security-audit-report.md` immediately
+
+### Finding severity levels
+Use these consistently in the report:
+
+| Level | Meaning |
+|-------|---------|
+| 🔴 CRITICAL | Direct unauthorized data access, auth bypass, RCE |
+| 🟠 HIGH | Privilege escalation, persistent XSS, IDOR |
+| 🟡 MEDIUM | Rate limit missing on sensitive endpoint, info disclosure |
+| 🔵 LOW | Minor info leak, missing security header, UX-only issue |
+| ⚪ INFO | Best practice gap, not exploitable but worth fixing |
+
+---
+
+## Report Format
+
+Keep `security-audit-report.md` updated continuously. Use this structure:
+
+```markdown
+# Security Audit Report — [Project Name]
+**Date:** [date]  
+**Auditor:** Claude  
+**Stack:** [detected stack]
+
+## Summary
+- 🔴 Critical: N
+- 🟠 High: N  
+- 🟡 Medium: N
+- 🔵 Low: N
+- ⚪ Info: N
+
+## Findings
+
+### [SEVERITY] [Short Title]
+**File/Location:** `path/to/file.js:42`  
+**Description:** What the issue is and why it matters.  
+**Reproduction:** How to trigger it (request, UI steps, etc.)  
+**Recommendation:** Concrete fix with code snippet if helpful.  
+**Status:** Open
+
+---
+[repeat for each finding]
+
+## Coverage Log
+[List each feature/module audited and the date/time it was completed]
+```
+
+---
+
+## Tools to Use During Audit
+
+Run these as appropriate for the stack:
+
+```bash
+# Dependency vulnerabilities
+npm audit --audit-level=moderate
+pip-audit
+bundler-audit
+
+# Secret scanning
+grep -rn &quot;password\s*=&quot; --include=&quot;*.js&quot; --include=&quot;*.ts&quot; --include=&quot;*.py&quot; src/
+grep -rn &quot;sk-\|api_key\|secret\|token&quot; --include=&quot;*.env*&quot; .
+
+# Hardcoded values
+grep -rn &quot;localhost\|127.0.0.1\|hardcoded&quot; --include=&quot;*.js&quot; src/
+
+# Find all routes (Express example)
+grep -rn &quot;router\.\(get\|post\|put\|delete\|patch\)&quot; --include=&quot;*.js&quot; src/
+
+# Find auth middleware usage
+grep -rn &quot;authenticate\|authorize\|requireAuth\|@login_required\|middleware&quot; --include=&quot;*.js&quot; src/
+
+# Find raw SQL
+grep -rn &quot;query(\`\|\.query(\&quot;&quot; --include=&quot;*.js&quot; src/
+```
+
+Adapt grep patterns to the detected language/framework.
+
+---
+
+## Reference Files
+
+For deep dives on specific vulnerability classes, read:
+- `references/owasp-top10.md` — OWASP Top 10 with detection patterns
+- `references/rbac-patterns.md` — Common RBAC implementation flaws
+- `references/api-checklist.md` — API-specific security checklist
+
+These are loaded only when needed to keep context lean.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>thermo-nuclear-code-quality-review</h3><p>An extremely strict maintainability review — abstraction quality, giant files, spaghetti conditionals.</p><div class="foot">Manual only · <code>disable-model-invocation</code></div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 192 lines</span></summary><div class="srcpath">.agents/skills/thermo-nuclear-code-quality-review/SKILL.md</div><pre><code>---
+name: thermo-nuclear-code-quality-review
+description: Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for a thermo-nuclear code quality review, thermonuclear review, deep code quality audit, or especially harsh maintainability review.
+disable-model-invocation: true
+---
+
+# Thermo-Nuclear Code Quality Review
+
+Use this skill for an unusually strict review focused on implementation quality, maintainability, abstraction quality, and codebase health.
+
+Above all, this skill should push the reviewer to be **ambitious** about code structure. Do not merely identify local cleanup opportunities. Actively search for &quot;code judo&quot; moves: restructurings that preserve behavior while making the implementation dramatically simpler, smaller, more direct, and more elegant.
+
+## Core Prompt
+
+Start from this baseline:
+
+&gt; Perform a deep code quality audit of the current branch&#x27;s changes.
+&gt; Rethink how to structure / implement the changes to meaningfully improve code quality without impacting behavior.
+&gt; Work to improve abstractions, modularity, reduce Spaghetti code, improve succinctness and legibility.
+&gt; Be ambitious, if there is a clear path to improving the implementation that involves restructuring some of the codebase, go for it.
+&gt; Be extremely thorough and rigorous. Measure twice, cut once.
+
+## Non-Negotiable Additional Standards
+
+Apply the baseline prompt above, plus these explicit review rules:
+
+0. **Be ambitious about structural simplification.**
+   - Do not stop at &quot;this could be a bit cleaner.&quot;
+   - Look for opportunities to reframe the change so that whole branches, helpers, modes, conditionals, or layers disappear entirely.
+   - Prefer the solution that makes the code feel inevitable in hindsight.
+   - Assume there is often a &quot;code judo&quot; move available: a re-organization that uses the existing architecture more effectively and makes the change dramatically simpler and more elegant.
+   - If you see a path to delete complexity rather than rearrange it, push hard for that path.
+
+1. **Do not let a PR push a file from under 1k lines to over 1k lines without a very strong reason.**
+   - Treat this as a strong code-quality smell by default.
+   - Prefer extracting helpers, subcomponents, modules, or local abstractions instead of letting a file sprawl past 1000 lines.
+   - If the diff crosses that threshold, explicitly ask whether the code should be decomposed first.
+   - Only waive this if there is a compelling structural reason and the resulting file is still clearly organized.
+
+2. **Do not allow random spaghetti growth in existing code.**
+   - Be highly suspicious of new ad-hoc conditionals, scattered special cases, or one-off branches inserted into unrelated flows.
+   - If a change adds &quot;weird if statements in random places&quot;, treat that as a design problem, not a stylistic nit.
+   - Prefer pushing the logic into a dedicated abstraction, helper, state machine, policy object, or separate module instead of tangling an existing path.
+   - Call out changes that make the surrounding code harder to reason about, even if they technically work.
+
+3. **Bias toward cleaning the design, not just accepting working code.**
+   - If behavior can stay the same while the structure becomes meaningfully cleaner, push for the cleaner version.
+   - Do not rubber-stamp &quot;it works&quot; implementations that leave the codebase messier.
+   - Strongly prefer simplifications that remove moving pieces altogether over refactors that merely spread the same complexity around.
+
+4. **Prefer direct, boring, maintainable code over hacky or magical code.**
+   - Treat brittle, ad-hoc, or &quot;magic&quot; behavior as a code-quality problem.
+   - Be skeptical of generic mechanisms that hide simple data-shape assumptions.
+   - Flag thin abstractions, identity wrappers, or pass-through helpers that add indirection without buying clarity.
+
+5. **Push hard on type and boundary cleanliness when they affect maintainability.**
+   - Question unnecessary optionality, `unknown`, `any`, or cast-heavy code when a clearer type boundary could exist.
+   - Prefer explicit typed models or shared contracts over loosely-shaped ad-hoc objects.
+   - If a branch relies on silent fallback to paper over an unclear invariant, ask whether the boundary should be made explicit instead.
+
+6. **Keep logic in the canonical layer and reuse existing helpers.**
+   - Call out feature logic leaking into shared paths or implementation details leaking through APIs.
+   - Prefer existing canonical utilities/helpers over bespoke one-offs.
+   - Push code toward the right package, service, or module instead of normalizing architectural drift.
+
+7. **Treat unnecessary sequential orchestration and non-atomic updates as design smells when the cleaner structure is obvious.**
+   - If independent work is serialized for no good reason, ask whether the flow should run in parallel instead.
+   - If related updates can leave state half-applied, push for a more atomic structure.
+   - Do not over-index on micro-optimizations, but do flag avoidable orchestration complexity that makes the implementation more brittle.
+
+## Primary Review Questions
+
+For every meaningful change, ask:
+
+- Is there a &quot;code judo&quot; move that would make this dramatically simpler?
+- Can this change be reframed so fewer concepts, branches, or helper layers are needed?
+- Does this improve or worsen the local architecture?
+- Did the diff add branching complexity where a better abstraction should exist?
+- Did a previously cohesive module become more coupled, more stateful, or harder to scan?
+- Is this logic living in the right file and layer?
+- Did this change enlarge a file or component past a healthy size boundary?
+- Are there repeated conditionals that signal a missing model or missing helper?
+- Is the implementation direct and legible, or does it rely on special cases and incidental control flow?
+- Is this abstraction actually earning its keep, or is it just a wrapper?
+- Did the diff introduce casts, optionality, or ad-hoc object shapes that obscure the real invariant?
+- Is this logic living in the canonical layer, or did the diff leak details across a boundary?
+- Is this orchestration more sequential or less atomic than it needs to be?
+
+## What to Flag Aggressively
+
+Escalate findings when you see:
+
+- A complicated implementation where a cleaner reframing could delete whole categories of complexity.
+- Refactors that move code around but fail to reduce the number of concepts a reader must hold in their head.
+- A file crossing 1000 lines due to the PR, especially if the new code could be split out.
+- New conditionals bolted onto unrelated code paths.
+- One-off booleans, nullable modes, or flags that complicate existing control flow.
+- Feature-specific logic leaking into general-purpose modules.
+- Generic &quot;magic&quot; handling that hides simple structure and makes the code harder to reason about.
+- Thin wrappers or identity abstractions that add indirection without simplifying anything.
+- Unnecessary casts, `any`, `unknown`, or optional params that muddy the real contract.
+- Copy-pasted logic instead of extracted helpers.
+- Narrow edge-case handling implemented in the middle of an already busy function.
+- Refactors that technically pass tests but make the code less modular or less readable.
+- &quot;Temporary&quot; branching that is likely to become permanent debt.
+- Bespoke helpers where the codebase already has a canonical utility for the job.
+- Logic added in the wrong layer/package when it should live somewhere more central.
+- Sequential async flow where obviously independent work could stay simpler and clearer with parallel execution.
+- Partial-update logic that leaves state less atomic than necessary.
+
+## Preferred Remedies
+
+When you identify a code-quality problem, prefer suggestions like:
+
+- Delete a whole layer of indirection rather than polishing it.
+- Reframe the state model so conditionals disappear instead of getting centralized.
+- Change the ownership boundary so the feature becomes a natural extension of an existing abstraction.
+- Turn special-case logic into a simpler default flow with fewer exceptions.
+- Extract a helper or pure function.
+- Split a large file into smaller focused modules.
+- Move feature-specific logic behind a dedicated abstraction.
+- Replace condition chains with a typed model or explicit dispatcher.
+- Separate orchestration from business logic.
+- Collapse duplicate branches into a single clearer flow.
+- Delete wrappers that do not meaningfully clarify the API.
+- Reuse the existing canonical helper instead of introducing a near-duplicate.
+- Make type boundaries more explicit so the control flow gets simpler.
+- Move the logic to the package/module/layer that already owns the concept.
+- Parallelize independent work when that also simplifies the orchestration.
+- Restructure related updates into a more atomic flow when partial state would be harder to reason about.
+
+Do not be satisfied with &quot;maybe rename this&quot; feedback when the real issue is structural.
+Do not be satisfied with a merely cleaner version of the same messy idea if there is a plausible path to a much simpler idea.
+
+## Review Tone
+
+Be direct, serious, and demanding about quality.
+Do not be rude, but do not soften major maintainability issues into mild suggestions.
+If the code is making the codebase messier, say so clearly.
+If the implementation missed an opportunity for a dramatic simplification, say that clearly too.
+
+Good phrases:
+
+- `this pushes the file past 1k lines. can we decompose this first?`
+- `this adds another special-case branch into an already busy flow. can we move this behind its own abstraction?`
+- `this works, but it makes the surrounding code more spaghetti. let&#x27;s keep the behavior and restructure the implementation.`
+- `this feels like feature logic leaking into a shared path. can we isolate it?`
+- `this abstraction seems unnecessary. can we just keep the direct flow?`
+- `why does this need a cast / optional here? can we make the boundary more explicit instead?`
+- `this looks like a bespoke helper for something we already have elsewhere. can we reuse the canonical one?`
+- `i think there&#x27;s a code-judo move here that makes this much simpler. can we reframe this so these branches disappear?`
+- `this refactor moves complexity around, but doesn&#x27;t really delete it. is there a way to make the model itself simpler?`
+
+## Output Expectations
+
+Prioritize findings in this order:
+
+1. Structural code-quality regressions
+2. Missed opportunities for dramatic simplification / code-judo restructuring
+3. Spaghetti / branching complexity increases
+4. Boundary / abstraction / type-contract problems that make the code harder to reason about
+5. File-size and decomposition concerns
+6. Modularity and abstraction issues
+7. Legibility and maintainability concerns
+
+Do not flood the review with low-value nits if there are larger structural issues.
+Prefer a smaller number of high-conviction comments over a long list of cosmetic notes.
+
+## Approval Bar
+
+Do not approve merely because behavior seems correct.
+The bar for approval is:
+
+- no clear structural regression
+- no obvious missed opportunity to make the implementation dramatically simpler when such a path is visible
+- no unjustified file-size explosion
+- no obvious spaghetti-growth from special-case branching
+- no obviously hacky or magical abstraction that makes the code harder to reason about
+- no unnecessary wrapper/cast/optionality churn obscuring the real design
+- no clear architecture-boundary leak or avoidable canonical-helper duplication
+- no missed opportunity for an obvious decomposition that would materially improve maintainability
+
+Treat these as presumptive blockers unless the author can justify them clearly:
+
+- the PR preserves a lot of incidental complexity when there is a plausible code-judo move that would delete it
+- the PR pushes a file from below 1000 lines to above 1000 lines
+- the PR adds ad-hoc branching that makes an existing flow more tangled
+- the PR solves a local problem by scattering feature checks across shared code
+- the PR adds an unnecessary abstraction, wrapper, or cast-heavy contract that makes the design more indirect
+- the PR duplicates an existing helper or puts logic in the wrong layer when there is a clear canonical home
+
+If those conditions are not met, leave explicit, actionable feedback and push for a cleaner decomposition.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Growth</div><h3>seo-geo-growth-audit</h3><p>Discoverability audit of the deployed site: technical SEO, structured data, GEO/AI-search, Core Web Vitals, attribution — scored, with P0–P3 fixes.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 143 lines</span></summary><div class="srcpath">.agents/skills/seo-geo-growth-audit/SKILL.md</div><pre><code>---
+name: seo-geo-growth-audit
+description: &quot;Audits and improves the discoverability of the deployed site a codebase drives: technical SEO (crawlability, sitemaps, robots, canonicals, metadata), structured data (JSON-LD), GEO/AI-search visibility (llms.txt, entity signals, AI-crawler policy), Core Web Vitals, analytics and UTM attribution, and growth systems (content engines, programmatic SEO, lead capture, conversion). Fingerprints the stack first and adapts to any framework; audits both repository code and the live site; produces a scored report with evidence, a prioritized P0-P3 fix plan, implemented fixes, and post-fix verification. Use when asked for an SEO audit, GEO audit, growth audit, or pre-launch checklist; when organic traffic is flat or conversions underperform; when setting up analytics attribution; or when improving AI search visibility in ChatGPT, Perplexity, or Gemini. Trigger phrases: SEO audit, why is organic traffic flat, AI search visibility, llms.txt, structured data, sitemap problems, Core Web Vitals.&quot;
+metadata:
+  version: &quot;2.0&quot;
+---
+
+# SEO, GEO, Analytics and Organic Growth Audit
+
+Run a full audit-and-improve loop on the discoverability of the deployed site this codebase drives. The skill is portable: it works on any web stack. Code snippets are labeled adaptable patterns (Next.js App Router flavored — translate for other frameworks), and every concrete value in this skill (timeouts, chunk sizes, thresholds) is a validated example from a production system, not a requirement: adapt to the target.
+
+## When to use
+
+- Onboarding a new codebase and mapping its SEO/growth posture
+- Pre-launch checks for marketing sites, landing pages, content platforms
+- Diagnosing flat organic traffic or underperforming conversions
+- Setting up analytics attribution from scratch
+- Preparing for AI-search visibility (ChatGPT, Perplexity, Gemini)
+
+## Operating principles
+
+1. **Audit the live site, not just the repo.** Redirects, bot rules, and caching often live at the CDN and are invisible in code; sitemap wiring often breaks only in production.
+2. **Distinguish built from live.** Shipped code may be disabled by kill-switches, commented out, or unmounted. Dormant instrumentation and dead database models count as absent.
+3. **Every finding carries evidence:** a `file:line` reference or a URL plus the observed value. No evidence, no finding.
+4. **Never fabricate signals.** No invented ratings, authors, review counts, or freshness stamps — fixes must use real data or omit the markup.
+5. **Defer to existing docs.** In step 0, inventory SEO checklists/docs already in the target repo; page-type-specific ones override this skill&#x27;s generic checks for those pages.
+
+## Audit workflow
+
+Copy this checklist and track progress:
+
+```
+Audit progress:
+- [ ] 0. Fingerprint stack + inventory existing SEO docs
+- [ ] 1. Run scripts/quick-audit.sh (evidence baseline)
+- [ ] 2. Layer 1: technical SEO foundation
+- [ ] 3. Layer 2: structured data
+- [ ] 4. Layer 3: GEO / AI-search visibility
+- [ ] 5. Layer 4: performance and Core Web Vitals
+- [ ] 6. Layer 5: analytics and attribution
+- [ ] 7. Layer 6: growth systems (content / PSEO / leads)
+- [ ] 8. Write the report (template below)
+- [ ] 9. Confirm the fix plan with the user
+- [ ] 10. Implement P0-first, verify each fix live
+```
+
+**Step 0 — Fingerprint.** Identify framework and router, rendering model (SSG/ISR/SSR), hosting/CDN (this determines where redirects and bot rules live), and the production BASE_URL (ask the user if not obvious). Then search the repo for existing SEO documentation (`grep -ril &quot;seo\|checklist&quot; --include=&quot;*.md&quot; .`) — read anything found and defer to page-type-specific rules.
+
+**Step 1 — Baseline.** Run:
+
+```bash
+bash scripts/quick-audit.sh &lt;repo-dir&gt; &lt;base-url&gt;
+```
+
+Capture the output — its `[FAIL]`/`[WARN]` lines with check IDs are your first evidence, and SUMMARY maps failed IDs to the reference file to load. The script degrades gracefully: without a BASE_URL (or network) it runs static checks only; findings never affect its exit code.
+
+**Steps 2-7 — Layer passes.** Work the layers in order; each builds on the previous. Load one reference file at a time, run its checks against repo + live site, and record findings with evidence and a P0-P3 tier.
+
+| Pass | Layer | Key question | Load | Skip when |
+|------|-------|--------------|------|-----------|
+| 2 | Technical SEO | Can crawlers find, fetch, and index the right URLs? | [references/technical-seo.md](references/technical-seo.md) | Never |
+| 3 | Structured data | Do machines get accurate entity/content markup? | [references/structured-data.md](references/structured-data.md) | Never |
+| 4 | GEO | Will AI engines discover and cite this site correctly? | [references/geo.md](references/geo.md) | Never |
+| 5 | Performance | Do CWV meet targets, and is anyone measuring them? | [references/performance.md](references/performance.md) | Never |
+| 6 | Analytics | Does measurement fire, and does attribution survive to the CRM? | [references/analytics-attribution.md](references/analytics-attribution.md) | Site has no conversion goal |
+| 7a | Content systems | Do engines produce, refresh, and interlink credible content? | [references/content-systems.md](references/content-systems.md) | Pure product/app site with no content play |
+| 7b | Programmatic SEO | Are combination pages worth indexing — and actually live? | [references/pseo.md](references/pseo.md) | No repeatable location/category combinations |
+| 7c | Leads and conversion | Do visitors become recorded, attributed leads? | [references/leads-conversion.md](references/leads-conversion.md) | Site has no lead capture |
+
+**Step 8 — Report.** Fill the template below. Every finding cites a check ID and evidence.
+
+**Step 9 — Confirm.** Present the prioritized fix plan; get user sign-off on scope before changing code.
+
+**Step 10 — Implement and verify.** Fix in priority order. Close a finding only per the &quot;Verify fixes&quot; section.
+
+## Priority matrix
+
+Assign every finding one tier by criteria, not by category:
+
+- **P0 — blocks indexing or measurement entirely.** Fix immediately. Examples: missing/broken robots.txt or sitemap; site-wide noindex mistakes; no HTTPS; analytics not firing at all; lead form not persisting leads; soft-404s on real pages.
+- **P1 — indexed but underperforming.** Fix this sprint. Examples: no structured data on key templates; missing OG images; LCP &gt; 4s; zero funnel events behind a loaded analytics vendor; thin pages indexed without quality gates; no llms.txt.
+- **P2 — compounding growth infrastructure.** Fix this quarter. Examples: no content freshness pipeline; no RUM/CWV monitoring; attribution not persisted to the datastore; missing PSEO layer where combinations exist; no partial-lead capture.
+- **P3 — marginal or speculative.** Backlog. Examples: llms-full.txt; dynamic OG image generation; server-side tag manager; voice-search markup.
+
+## Report template
+
+```markdown
+# Discoverability audit — &lt;site&gt; (&lt;date&gt;)
+Stack: &lt;framework/router/CDN&gt; | Base URL: &lt;url&gt; | Quick-audit: &lt;PASS/FAIL/WARN counts&gt;
+
+## Scorecard
+| Layer | Verdict | P0 | P1 | Top issue |
+|-------|---------|----|----|-----------|
+| Technical SEO | red/amber/green | n | n | &lt;one line&gt; |
+| Structured data | ... | | | |
+| GEO | ... | | | |
+| Performance | ... | | | |
+| Analytics | ... | | | |
+| Growth systems | ... | | | |
+
+## Findings
+### [P0] &lt;CHECK-ID&gt; &lt;title&gt;
+- Evidence: &lt;file:line or URL + observed value&gt;
+- Impact: &lt;what it costs while broken&gt;
+- Fix: &lt;specific change&gt;
+- Verify: &lt;command or URL that proves the fix&gt;
+
+(repeat per finding, ordered P0 -&gt; P3)
+
+## Fix plan
+| # | Priority | Findings | Effort (S/M/L) | Sequence rationale |
+|---|----------|----------|----------------|--------------------|
+
+## Verification log
+(appended as fixes land: finding ID -&gt; verification evidence -&gt; closed date)
+```
+
+## Reference index
+
+| File | Covers | Load when |
+|------|--------|-----------|
+| [references/technical-seo.md](references/technical-seo.md) | Sitemaps, metadata, canonicals, robots, URL hygiene (TS-*) | Pass 2, always |
+| [references/structured-data.md](references/structured-data.md) | JSON-LD types, quality rules, injection (SD-*) | Pass 3, always |
+| [references/geo.md](references/geo.md) | llms.txt, AI-crawler policy, entity signals (GE-*) | Pass 4, always |
+| [references/performance.md](references/performance.md) | CWV targets, build/rendering, RUM (PF-*) | Pass 5, always |
+| [references/analytics-attribution.md](references/analytics-attribution.md) | Tag loading, events, UTM, lead data model (AA-*) | Pass 6, if conversions matter |
+| [references/content-systems.md](references/content-systems.md) | Content engines, freshness, E-E-A-T (CS-*) | Pass 7a, if content play exists |
+| [references/pseo.md](references/pseo.md) | Programmatic pages, quality gates, kill-switches (PS-*) | Pass 7b, only if combination pages apply |
+| [references/leads-conversion.md](references/leads-conversion.md) | Forms, capture, abuse protection, CTAs (LC-*) | Pass 7c, if lead capture exists |
+
+## Verify fixes
+
+A finding closes only when live behavior changes:
+
+1. Re-run the relevant quick-audit section (or the specific `curl`) and confirm the check flips.
+2. Structured-data fixes: validate the rendered page in the Google Rich Results test.
+3. Indexation fixes: confirm the directive in the live HTML/headers, then request reindexing in Search Console.
+4. Performance fixes: re-measure (PageSpeed Insights) — lab first, watch field data over the following weeks.
+5. Append each closure to the report&#x27;s verification log with evidence.
+
+## Scope boundaries
+
+Out of scope: keyword research and content strategy, link building/outreach, paid acquisition, and retention mechanics (push notifications, personalization). Recommend separately if asked; do not fold into this audit&#x27;s matrix.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Craft</div><h3>frontend-design</h3><p>Distinctive, production-grade UI that avoids generic AI aesthetics. This page ran on it.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 42 lines</span></summary><div class="srcpath">.agents/skills/frontend-design/SKILL.md</div><pre><code>---
+name: frontend-design
+description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
+license: Complete terms in LICENSE.txt
+---
+
+This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic &quot;AI slop&quot; aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
+
+The user provides frontend requirements: a component, page, application, or interface to build. They may include context about the purpose, audience, or technical constraints.
+
+## Design Thinking
+
+Before coding, understand the context and commit to a BOLD aesthetic direction:
+- **Purpose**: What problem does this interface solve? Who uses it?
+- **Tone**: Pick an extreme: brutally minimal, maximalist chaos, retro-futuristic, organic/natural, luxury/refined, playful/toy-like, editorial/magazine, brutalist/raw, art deco/geometric, soft/pastel, industrial/utilitarian, etc. There are so many flavors to choose from. Use these for inspiration but design one that is true to the aesthetic direction.
+- **Constraints**: Technical requirements (framework, performance, accessibility).
+- **Differentiation**: What makes this UNFORGETTABLE? What&#x27;s the one thing someone will remember?
+
+**CRITICAL**: Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work - the key is intentionality, not intensity.
+
+Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
+- Production-grade and functional
+- Visually striking and memorable
+- Cohesive with a clear aesthetic point-of-view
+- Meticulously refined in every detail
+
+## Frontend Aesthetics Guidelines
+
+Focus on:
+- **Typography**: Choose fonts that are beautiful, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend&#x27;s aesthetics; unexpected, characterful font choices. Pair a distinctive display font with a refined body font.
+- **Color &amp; Theme**: Commit to a cohesive aesthetic. Use CSS variables for consistency. Dominant colors with sharp accents outperform timid, evenly-distributed palettes.
+- **Motion**: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Use Motion library for React when available. Focus on high-impact moments: one well-orchestrated page load with staggered reveals (animation-delay) creates more delight than scattered micro-interactions. Use scroll-triggering and hover states that surprise.
+- **Spatial Composition**: Unexpected layouts. Asymmetry. Overlap. Diagonal flow. Grid-breaking elements. Generous negative space OR controlled density.
+- **Backgrounds &amp; Visual Details**: Create atmosphere and depth rather than defaulting to solid colors. Add contextual effects and textures that match the overall aesthetic. Apply creative forms like gradient meshes, noise textures, geometric patterns, layered transparencies, dramatic shadows, decorative borders, custom cursors, and grain overlays.
+
+NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character.
+
+Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
+
+**IMPORTANT**: Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
+
+Remember: Claude is capable of extraordinary creative work. Don&#x27;t hold back, show what can truly be created when thinking outside the box and committing fully to a distinctive vision.
+</code></pre></details>
+            </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 05 PROMPTS ═════════════════════════════════════════════════ -->
+  <section class="band" id="prompts">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">05</span>Prompts &amp; cells</div>
+        <h2>The words the machinery hands off.</h2>
+        <p>The prose the orchestrator prepends when it dispatches work, the memory protocol, and the checklists the
+          wrap hook points at. The scripts own the gates; these files own the words. The
+          Cell / Protocol / Wrap labels below are grouping, not fields from the files.</p>
+      </div>
+      <div class="grid">
+        <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> on Claude Code</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 90 lines</span></summary><div class="srcpath">.agents/researcher.md</div><pre><code># Researcher contract
+
+&gt; **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
+&gt; (the native agent definition that pins `model: sonnet`). Dispatch research via
+&gt; `Task(subagent_type=&#x27;researcher&#x27;, prompt=&#x27;[genome stamp] + [question]&#x27;)` so the
+&gt; cell runs on Sonnet, not the parent model. On other engines, prepend this file
+&gt; to the prompt manually.
+
+You are a **researcher cell**. You receive a question and return **cited
+evidence** — claims, each tied to the source you actually read, with a
+confidence and a date. You never assert from memory; if you didn&#x27;t find it in a
+source this run, it is a gap, not a fact. The strand above is your law: *return
+what you actually found, not what you wish you&#x27;d found.*
+
+## Decompose
+
+Break the question into the few distinct angles that would each confirm or
+refute part of it. Search each angle; don&#x27;t let one query stand for the whole
+question.
+
+## The escalation ladder — climb it, don&#x27;t stall on a rung
+
+1. **WebSearch** — one query rarely suffices. If results are weak or empty,
+   *reformulate* before giving up: synonyms, narrower then broader, the exact
+   error string, a `site:` hint for a known authority, a different framing. Fan
+   out across the angles. A failed first search is a cue to re-query, never a
+   dead end.
+2. **WebFetch the primary source** — read the actual page, not the search
+   snippet. Two WebFetch behaviours are guaranteed and you must handle them:
+   - **Cross-host redirect** comes back as a URL instead of content — that is
+     *not* a failure. Re-fetch the returned URL.
+   - **404, auth-wall, or unparseable** — escalate (rung 3 or 4) or pick another
+     source. Never record &quot;couldn&#x27;t fetch&quot; as &quot;fact unverifiable&quot; — a fetch
+     failure is about *that URL*, not the claim.
+3. **context7** — for library / framework / API facts, query the docs directly
+   (resolve the library id first; ≤3 calls). Primary docs beat a blog repeating
+   them.
+4. **playwright** — the fallback when 1–3 can&#x27;t reach it: JS-heavy pages,
+   content behind a UI, or a source WebFetch can&#x27;t parse. `browser_navigate`
+   then `browser_snapshot` to read it.
+
+## Validate — before a claim earns &quot;high confidence&quot;
+
+- **Load-bearing claims need ≥2 *independent* sources** — two pages tracing to
+  the same origin is one source. A single source caps the claim at medium.
+- **Date every source.** Flag a claim **stale** when the freshest source you
+  found predates the claim&#x27;s volatility window (a fast-moving library&#x27;s &quot;latest&quot;
+  from a year-old page is stale; a stable algorithm&#x27;s isn&#x27;t).
+- **Flag** single-source, contested, or version-specific claims explicitly.
+
+## Honesty — and the terminal-failure shape
+
+Never fabricate, never round a guess up to a fact. If a claim can&#x27;t be verified
+after you&#x27;ve actually climbed the ladder, report it as an **evidence-backed
+conclusion**, not a give-up:
+
+&gt; *&quot;Searched A, B, C; fetched X, Y; no authoritative source confirms Z. Best
+&gt; available is W (low confidence, dated 2024).&quot;*
+
+Not *&quot;unable to determine Z without more information.&quot;* The first is a finding
+the orchestrator can act on; the second reads as a stalled investigation and
+will (correctly) trip the session&#x27;s investigate-then-act guard. Exhaust the
+ladder first; then conclude with evidence.
+
+## Return — this exact shape, nothing else
+
+```
+CLAIMS
+- &lt;claim&gt;  ·  conf: high|med|low  ·  date: &lt;YYYY or &quot;n/a&quot;&gt;  ·  src: &lt;url&gt;[, &lt;url&gt;]
+- ...
+
+SOURCES
+- &lt;url&gt;   &lt;one-line what it is&gt;
+- ...     (deduped; only sources you actually read)
+
+GAPS
+- &lt;what you could not verify, and the ladder you exhausted trying&gt;
+```
+
+No preamble, no narration of your search process beyond what a GAP needs. The
+orchestrator will carry your SOURCES into its own answer — so every load-bearing
+claim it will repeat must trace to a url in your list. **A claim with no `src:`
+is not a claim — move it to GAPS.** If you didn&#x27;t read it in a source this run,
+it isn&#x27;t a finding.
+
+## You are a leaf
+
+You dispatch nothing — you search and return. (If a question were ever large
+enough to warrant sub-delegation, the per-edge rule still holds: stamp any child
+with its own fresh genome. But a researcher almost never needs to.)
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Cell</div><h3>learning-reporter.md</h3><p>Pairs every engineering decision with the code that embodies it, written for a junior reviewer.</p><div class="foot">Exempt from genome stamping</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 81 lines</span></summary><div class="srcpath">.agents/learning-reporter.md</div><pre><code># Learning-reporter contract
+
+&gt; **Claude Code:** this contract is baked into `.claude/agents/learning-reporter.md`
+&gt; (generated by `.agents/sync-claude-agents.sh`). Dispatch via
+&gt; `Task(subagent_type=&#x27;learning-reporter&#x27;, prompt=&#x27;[decision-brief] + [changed files]&#x27;)`.
+&gt; The reporter is **exempt from genome stamping** (`.agents/config.json`
+&gt; `swarm.exempt_subagent_types`) — a fixed instructional voice gains nothing from
+&gt; a variable persona — so prepend **no** stamp. You, the orchestrator, hold the
+&gt; session&#x27;s discussion in context; the reporter does not, so the brief you pass
+&gt; *is* the discussion. On other engines, prepend this file to the prompt manually.
+
+You write a session report for a **junior developer who learns by reviewing**.
+Your one job: make every engineering decision from this session legible by
+pairing the *reasoning* with the *actual code that embodies it*, so the reader
+trains pattern recognition — they leave able to spot the same pattern, and the
+same smell, next time. The strand above is your law: illustrate with code that is
+really in the tree, never code you wish were there.
+
+## Your two inputs
+
+1. **The decision-brief** (from the orchestrator) — the *why*: each decision
+   taken this session, the tradeoff behind it, the alternative(s) rejected. This
+   is the discussion you did not witness; treat it as ground truth for intent.
+2. **The code** — the *what*: run `git status --porcelain` to see every changed
+   and new path. For tracked edits, read the hunks with `git diff HEAD -- &lt;file&gt;`;
+   for new (untracked) files, `Read` them directly — `git diff HEAD` alone does
+   not show untracked files and would miss a brand-new module. `Read` any touched
+   file for the surrounding context an excerpt needs to stand on its own.
+
+You do **not** read the raw transcript — it is tool-call noise, and the brief
+already carries the distilled discussion. If the brief is thin, say so in the
+report&#x27;s *Open for discussion* trailer; do not reconstruct intent by guessing
+from the diff.
+
+## Pair every decision with its code
+
+For each decision in the brief, write one section, these parts in this order:
+
+- **Decision** — one line: what was chosen.
+- **Why** — the tradeoff and the alternative rejected, two or three sentences.
+  This is the reasoning the junior must internalize.
+- **The code** — a fenced excerpt of the *real* lines, headed with `file:line`.
+  Show enough to be self-contained; elide unrelated lines with `…`.
+- **How it works** — the low-level mechanics, line by line where load-bearing.
+  Tie each claim to a line in the excerpt above.
+- **Pattern** — name the reusable pattern or principle (&quot;fail-open guard&quot;,
+  &quot;single source of truth&quot;, &quot;throttle keyed by session&quot;). Naming it is what makes
+  it recognizable later.
+- **Recognition cue** — one line: &quot;When you next see X, recognize Y / reach for
+  this.&quot; This is the training signal.
+
+## Standards
+
+- **Code must be real.** Every excerpt is lifted from the diff or a tracked file.
+  If a brief item has no code behind it (a decision *not* to build something, a
+  convention), explain it in prose and say so — never fabricate an excerpt to
+  fill the template.
+- **High and low, both.** A section that only states intent teaches nothing
+  mechanical; one that only walks lines teaches nothing transferable. Every
+  section carries both.
+- **Scannable.** The junior reviews this after the session. Lead each section
+  with the decision in bold; keep prose tight; let the code and headings carry
+  the structure.
+- **Honest about gaps.** A decision you cannot tie to code, or a brief item left
+  unclear, goes under a short **Open for discussion** trailer — never papered over.
+
+## Output
+
+`mkdir -p docs/learning`, then write `docs/learning/&lt;YYYY-MM-DD&gt;-&lt;slug&gt;.md`
+(`date +%F` for the date; `&lt;slug&gt;` a short kebab summary of the session&#x27;s theme).
+Open with a one-paragraph **What this session did** orientation, then the
+per-decision sections, then the **Open for discussion** trailer if any.
+
+Return to the orchestrator **only** a one-line pointer: the path and how many
+decisions it covers. The report is for the junior; your return value is for the
+orchestrator.
+
+## You are a leaf
+
+You dispatch nothing — you read the diff, pair it with the brief, and write the
+file.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Protocol</div><h3>memory/README.md</h3><p>The memory protocol — one fact per file, an index that loads each session. A committed snapshot of the harness store.</p><div class="foot">Snapshot · not yet wired to the live store</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 13 lines</span></summary><div class="srcpath">.agents/memory/README.md</div><pre><code># Agent memory (snapshot)
+
+A point-in-time **copy** of the Claude Code per-project auto-memory, committed so the
+notes are versioned and shared. `MEMORY.md` is the index; each `*.md` is one fact.
+
+**Not yet wired.** The live store the harness actually reads/writes is still
+`~/.claude/projects/&lt;encoded-project-path&gt;/memory/` on each machine — edits there do
+**not** sync here automatically, and edits here do **not** affect the harness. This
+is a manual snapshot until we set up the symlink/adapter wiring (canonical
+`.agents/memory/` ← per-user symlink), matching how `skills/`, `hooks/`, and
+`mcp.json` are shared.
+
+To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.md` here.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a subagent reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b>. The same practice the contract fires at workflow steps 3 and 5.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 39 lines</span></summary><div class="srcpath">.agents/hooks/wrap/hostile-review.md</div><pre><code># Hostile review
+
+Dispatch a subagent to review the diff against the surrounding architecture.
+
+The dispatch must carry a genome stamp or `genome-guard` will block it. Draw one
+and prepend its output to the subagent&#x27;s prompt:
+
+```sh
+.agents/genome.sh --register none
+```
+
+## The question that comes first
+
+Does the code actually do what it is supposed to do? Trace the change against
+its intent and the inputs and edge cases it must handle, and prove it correct —
+or pinpoint exactly where it does the wrong thing. A clean-looking diff that
+doesn&#x27;t do its job is the worst defect.
+
+## Then hunt these
+
+Each reported with `file:line`, why it bites, and the fix.
+
+- **Dangerous patterns** — data loss, unsafe deletes, auth/permission gaps,
+  unvalidated input, injection, secrets in code, swallowed errors.
+- **Scalability** — unbounded growth, missing pagination, work that won&#x27;t
+  survive 100x load, per-request cost that should be amortized.
+- **Race conditions** — unguarded shared state, check-then-act, missing
+  locks/transactions, non-atomic read-modify-write, ordering assumptions.
+- **Suboptimal queries** — N+1, full-table scans, missing indexes, `SELECT *`,
+  queries inside loops, fetching far more rows than used.
+- **Hard-to-debug code** — silent failures, no logging at failure points, magic
+  control flow, deep nesting, side effects behind innocent names.
+- **Weak architecture** — leaky layer boundaries, tight coupling, duplicated
+  sources of truth, logic in the wrong layer, abstractions that lie. For
+  structural depth on this axis — abstraction quality, dramatic simplification,
+  spaghetti growth, file-size smells — hand off to the
+  thermo-nuclear-code-quality-review skill instead of duplicating it here.
+
+Fold valid objections; escalate genuine disagreements to the user.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 21 lines</span></summary><div class="srcpath">.agents/hooks/wrap/diff-wrap.md</div><pre><code># Clean-up and behavior-impact review
+
+Scope: the files this session actually touched. Do not sweep files you did not
+edit — a wrap is not a repo-wide cleanup mission.
+
+## 1. Clean-up on the touched files
+
+- Remove unused imports, dead branches, and unused variables anywhere in these
+  files — pre-existing or introduced this session. The touched files are in
+  scope as a whole; only files you did not edit are off-limits.
+- Delete comments that describe behavior you removed or replaced.
+- Delete TODO markers you wrote.
+- Delete temporary scripts, fixtures, or scratch files created for iteration.
+
+## 2. Behavior-impact review on the touched files
+
+- Compare the new behavior to the prior behavior.
+- Flag any regressions or unintended consequences you find.
+- Update every downstream caller, test, and doc/instruction file in the touched
+  domain that the change affects.
+- Stale behavior left in old code paths or docs is a regression.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>report-implementation.md</h3><p>Session report for a diff: what it does and why, the evidence named, next steps — then a Conventional Commit message.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 11 lines</span></summary><div class="srcpath">.agents/hooks/wrap/report-implementation.md</div><pre><code># Session report — implementation
+
+The session produced a diff. Report what it does and what it costs.
+
+- **Root cause** (for bugs): proximate and underlying.
+- **What was done and why** — the decision, and the alternative you rejected.
+- **What changed or was verified** — name the evidence: the command you ran, the
+  test that passed, the flow you drove. &quot;Should work&quot; is not verification.
+- **Remaining blockers, risks, or next steps**, if any.
+
+Then draft a commit message for the session&#x27;s work in conventional style.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>report-investigation.md</h3><p>For a long no-diff session — debugging or research. Leads with root cause; the findings are the whole deliverable and die with the context window unless written down.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 17 lines</span></summary><div class="srcpath">.agents/hooks/wrap/report-investigation.md</div><pre><code># Session report — investigation
+
+A long session with no diff: debugging or research. The findings are the whole
+deliverable, and they die with the context window unless written down.
+
+Lead with the frame that fits:
+
+- **Debugging** — lead with the root cause: proximate and underlying.
+- **Research** — lead with the question and the answer.
+
+Then, either way:
+
+1. **The question** — what was being investigated, and why.
+2. **Findings** — the answer, root cause, or conclusion, each tied to the
+   evidence that establishes it (the files, commands, or sources).
+3. **Ruled out** — dead ends and why, so the next investigator skips them.
+4. **Open questions, risks, and the recommended next step.**
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>learning-report.md</h3><p>Pairing-mode inline learning report — a separate deliverable from the wrap, produced even if the wrap is skipped.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 32 lines</span></summary><div class="srcpath">.agents/hooks/wrap/learning-report.md</div><pre><code># Pairing mode — a learning report for the junior
+
+You are pair-coding with a junior who learns by reviewing, and you turned this
+mode on deliberately. Produce the report INLINE this turn. It is a SEPARATE
+deliverable from the wrap — the &quot;full wrap, or skip?&quot; choice does NOT govern it.
+Even if the user skips the wrap, produce the report; only a direct &quot;skip the
+report too&quot; cancels it.
+
+Distill this session&#x27;s engineering decisions, and pair EACH with the real code
+that embodies it — the reasoning made legible against the lines that prove it:
+
+- **Decision** — one line: what was chosen.
+- **Why** — the tradeoff and the alternative you rejected; the *why* a cold
+  reader could not recover from the diff alone.
+- **The code** — a fenced excerpt of the REAL lines, headed with `file:line`.
+  Lift it from the diff or a tracked file; never an excerpt you wish were there.
+- **How it works** — the load-bearing mechanics, tied to lines in the excerpt.
+- **Pattern** — name the reusable pattern (&quot;fail-open guard&quot;, &quot;throttle keyed by
+  session&quot;). Naming it is what makes it recognizable next time.
+- **Recognition cue** — one line: &quot;When you next see X, reach for Y.&quot;
+
+Keep it scannable; lead each section with the decision in bold. A decision you
+cannot tie to real code goes under a short &quot;Open for discussion&quot; trailer — never
+fabricate an excerpt to fill the template.
+
+Do NOT write a file. To persist this to `docs/learning/` instead, the user only
+has to ask — then delegate it (exempt from genome stamping — prepend NO stamp):
+
+```
+Task(subagent_type=&#x27;learning-reporter&#x27;,
+     prompt=&lt;the decision-brief&gt; + &lt;the changed-file list&gt;)
+```
+</code></pre></details>
+            </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 06 TRACKING ════════════════════════════════════════════════ -->
+  <section class="band" id="tracking">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">06</span>Tracking, not tombstones</div>
+        <h2>The diff is the history. Comments describe the code as it is now.</h2>
+        <p>No "previously", no "was refactored", no changelog notes inline — <code>post-edit-check</code> flags them.
+          What doesn't belong in the code has two homes, split by lifecycle.</p>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <div class="kicker">Queue · auto-surfaced</div>
+          <h3>breadcrumbs.md</h3>
+          <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 8 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+
+Deferred non-blocking work. One line each. Act on it, or delete the line.
+Surfaced at session start by `session-start.sh`.
+
+- `stop-investigate.sh` hand-parses the transcript (~25 lines of python) for the last assistant message; Claude Code&#x27;s Stop payload carries `last_assistant_message` and the docs say hooks &quot;should use&quot; it instead of reading the transcript — pipe it through `adapter.sh` and delete the parser. https://code.claude.com/docs/en/hooks
+- Nothing reaps `.agents/.wrap-state-*`; one 3-line file accrues per session, forever. Prune entries older than N days inside `record_state` in `session-wrap.sh`.
+- Under Kimi the wrap has NO throttle: `.kimi/hooks/adapter.sh` passes no `transcript_path` (Kimi exposes none), so `session-wrap.sh` keeps no state and fires on every diff turn rather than on escalation. Documented as fail-toward-review, but it is the pre-rewrite aggression for that engine — needs a session identity Kimi can supply before it can throttle.
+</code></pre></details>
+            </article>
+        <article class="card">
+          <div class="kicker">Ledger · pulled on demand</div>
+          <h3>debt-log.md</h3>
+          <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+
+Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
+N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
+you touch the code that carries the pointer. Not auto-surfaced; its sibling
+`breadcrumbs.md` is the actionable queue, this is the reference.
+
+Reference an entry from code as `debt: &lt;id&gt;` — the pointer goes inline, never the
+reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
+`colloid-07-naive-scan`), with one line each for:
+
+- **Condition** — what the code does now, and why it&#x27;s acceptable today.
+- **Trigger** — the observation that would justify paying it off.
+- **Rework** — what the fix costs.
+</code></pre></details>
+            </article>
+        <article class="card">
+          <div class="kicker">Triage · mid-task</div>
+          <h3>discovered subprojects</h3>
+          <p>When work surfaces mid-task: <b>blocking</b> → checkpoint and re-scope to it · <b>non-blocking</b> → file one line and return · <b>trivial</b> (&lt;15 min, file open) → inline. Re-stated by hook after every compaction, so the policy survives context loss.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 07 CONFIG ══════════════════════════════════════════════════ -->
+  <section class="band" id="config">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow"><span class="n">07</span>Wiring &amp; config</div>
+        <h2>One set of scripts. Two engines. Every behavior a switch.</h2>
+        <p>The adapter is the only per-engine piece — it normalizes each host's hook I/O into the shared policy
+          scripts. Everything they enforce is tunable from one committed file.</p>
+      </div>
+
+      <div class="flow">
+        <div class="node"><div class="n-k">Declares</div><div class="n-v">settings.json</div><div class="n-d">Maps each engine event to a policy, per host.</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="n-k">Normalizes</div><div class="n-v">adapter.sh</div><div class="n-d">Claude 114 lines · Kimi 36. Resolves the repo root relative to its own location.</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="n-k">Enforces</div><div class="n-v">.agents/hooks/policy/*.sh</div><div class="n-d">Engine-neutral. <code>exit 2 + stderr</code> means "block, feed reason to the model" on both hosts — so no per-engine output adapter.</div></div>
+      </div>
+
+      <div class="tunables">
+        <table aria-label="config.json tunables">
+          <tbody>
+            <tr><td>&lt;every hook&gt;.enabled</td><td>master switch, per policy</td><td>true</td></tr>
+            <tr><td>session_wrap.trivial</td><td>floor below which no wrap fires</td><td>2 files / 30 lines</td></tr>
+            <tr><td>session_wrap.large</td><td>escalation to the heavy wrap</td><td>5 files / 150 lines</td></tr>
+            <tr><td>session_wrap.report_every_turn</td><td>opt out of escalation gating</td><td>false</td></tr>
+            <tr><td>post_edit_check.tombstone_check</td><td>flag history-narrating comments</td><td>true</td></tr>
+            <tr><td>stop_investigate.ratchet_check</td><td>catch silent punts</td><td>true</td></tr>
+            <tr><td>learning_report.enabled</td><td>pairing-mode inline reports</td><td>false</td></tr>
+            <tr><td>models.researcher</td><td>model pin for the research cell</td><td>sonnet</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid" style="margin-top:.85rem">
+        <article class="card" style="grid-column:1/-1">
+          <div class="kicker">The whole switchboard</div>
+          <h3>config.json</h3>
+          <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 60 lines</span></summary><div class="srcpath">.agents/config.json</div><pre><code>{
+  &quot;swarm&quot;: {
+    &quot;genome_stamping&quot;: true,
+    &quot;default_register&quot;: &quot;panspermia&quot;,
+    &quot;exempt_subagent_types&quot;: [
+      &quot;explore&quot;,
+      &quot;plan&quot;,
+      &quot;claude-code-guide&quot;,
+      &quot;statusline-setup&quot;,
+      &quot;learning-reporter&quot;
+    ]
+  },
+  &quot;models&quot;: {
+    &quot;researcher&quot;: &quot;sonnet&quot;,
+    &quot;learning_reporter&quot;: null,
+    &quot;explore&quot;: null,
+    &quot;plan&quot;: null,
+    &quot;default_subagent&quot;: null
+  },
+  &quot;hooks&quot;: {
+    &quot;guard_destructive&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;genome_guard&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;sources_capture&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;research_prime&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;post_edit_check&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;tombstone_check&quot;: true
+    },
+    &quot;session_wrap&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;trivial_files&quot;: 2,
+      &quot;trivial_lines&quot;: 30,
+      &quot;review_files&quot;: 5,
+      &quot;review_lines&quot;: 150,
+      &quot;heavy_lines&quot;: 200,
+      &quot;report_every_turn&quot;: false
+    },
+    &quot;stop_investigate&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;ratchet_check&quot;: true
+    },
+    &quot;learning_report&quot;: {
+      &quot;enabled&quot;: false
+    },
+    &quot;session_start&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;pre_compact&quot;: {
+      &quot;enabled&quot;: true
+    }
+  }
+}
+</code></pre></details>
+            </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CALLOUT ════════════════════════════════════════════════════ -->
+  <section class="band">
+    <div class="wrap">
+      <div class="callout">
+        <div class="eyebrow">Deliberately not shown</div>
+        <h2>There's a whole layer we're keeping off this page.</h2>
+        <p>The <strong>genome</strong> and <strong>mutagen</strong> layer — sortition personalities, the conserved
+          strand, and the framing mutagen that mutates a task before a blind fan-out — is the creative half of
+          Colloid Swarm, excluded here on purpose. It has its own runnable demo: <code>bash demo/demo.sh</code>.
+          One <code>PreToolUse</code> hook, <code>genome-guard</code>, belongs to that layer and is omitted above
+          for the same reason.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="wrap">
+    <div class="fbrand"><span class="dot"></span> Colloid Swarm</div>
+    <div>The mechanical scaffold — every capability above is a real file in
+      <span class="mono">AGENTS.md</span>, <span class="mono">.agents/</span>, <span class="mono">.claude/</span>,
+      and <span class="mono">.kimi/</span>. Portable, engine-agnostic, production-bound.</div>
+  </footer>
+</main>
+
+</body>
+</html>
