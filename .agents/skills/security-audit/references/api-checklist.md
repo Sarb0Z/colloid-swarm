@@ -13,6 +13,8 @@ For the 5–10 most frequently called endpoints, ask:
 - ORM `.toJSON()` / `.serialize()` not excluding sensitive fields
 - Admin APIs returning same shape as public APIs (no field filtering by role)
 
+**Relation-hydration false-positive (read before scoring an over-share):** ORM relations are opt-in, not transitive — `relations: ["profile"]` (TypeORM), `include: { profile: true }` (Prisma) pulls *only* the listed relation. So when the credential-bearing entity is a **relation of the root you're fetching** (e.g. `orderRepo.findOne(id)` where `User` is a relation of `Order`), a query that doesn't hydrate it can't leak that relation's `passwordHash` — it was never loaded. Check the actual relation list before flagging *that* case. **But do not extend this to base columns of a directly-fetched entity:** `userRepo.findOne({ where: { id } })` returns `passwordHash` / `email` / `isAdmin` **by default** — they're columns on the entity itself, not a relation — unless each is `select: false` (TypeORM) / omitted from an explicit `select`/`omit` (Prisma). A bare fetch-then-serialize of the credential entity is a real leak, not a false positive; the "safe unless hydrated" logic never covers it.
+
 ---
 
 ## Unnecessary Re-fetches
@@ -61,6 +63,15 @@ Common patterns of redundant calls:
 - `DELETE` routes must check ownership
 - `PUT` vs `PATCH` — `PUT` replaces the full object (dangerous with partial input); `PATCH` is safer for updates
 - Ensure `OPTIONS` doesn't expose unexpected allowed methods
+
+**BFLA bypass playbook** — an admin/privileged function reachable by a lower-privilege or unauthenticated principal (OWASP API5). Admin-style patterns: `/admin`, `/internal`, `/manage`, `/actuator`. Run read-only:
+1. Call each admin route **unauthenticated** — any 2xx is a critical break.
+2. Call it as a **low-privilege** account — non-admin 2xx on an admin function is high.
+3. **Method swap:** if `GET` is gated, try `HEAD`/`OPTIONS` (reason about `POST`/`PUT`/`DELETE` without executing) — gates are often method-specific.
+4. **Header tricks:** replay with `X-Forwarded-For: 127.0.0.1`, `X-Real-IP`, `X-Original-URL: /admin`, `X-Rewrite-URL`, `X-Forwarded-Host`, `Role: admin`, `X-Role: admin`.
+5. **Path normalization:** `/api/admin/..;/users`, `//admin`, `/Admin`, trailing `%2f`, `%2e` variants.
+
+Verdict: VULNERABLE only on 2xx **with a body that differs from the gated baseline** (diff length/hash, not status alone). Never submit state-changing payloads on write verbs — inspect reachability (401/403 vs 2xx) only.
 
 ---
 

@@ -90,3 +90,39 @@ When an admin disables a user account, their existing sessions/tokens should be 
 - Is there a `is_active`/`is_enabled` check in the auth middleware?
 - If using stateless JWT, is there a token blacklist or short expiry?
 - Does the "disable user" endpoint also revoke all their active tokens?
+
+---
+
+## Flaw 9 — Mass assignment → `role=admin` → account takeover
+
+The create/update handler binds the whole request body to the user model, so `role` (or `isAdmin` / `permissions` / `scope`) rides along:
+
+```js
+// VULNERABLE — attacker POSTs { email, password, role: "admin" }
+const user = await User.create(req.body);
+
+// SAFE — allowlist server-side; role is never client-supplied
+const user = await User.create({
+  email: req.body.email,
+  password: hash(req.body.password),
+  role: 'user', // fixed
+});
+```
+
+Self-registration + mass assignment = anyone signs up as admin. Check every `create`/`update` that touches the user/identity model for an explicit field allowlist. **Test:** submit `role=admin` at signup, then read the account back — if the field is honored, it's critical.
+
+---
+
+## Flaw 10 — Role validated at registration but not on profile update
+
+The signup path correctly forces `role='user'`, but the profile-update path trusts the body:
+
+```js
+// Registration — SAFE
+await User.create({ ...allowlisted, role: 'user' });
+
+// PATCH /me — VULNERABLE, same field now writable
+await User.update(req.body, { where: { id: req.user.id } });
+```
+
+The guard on one write path does not cover the others. **Test:** `PATCH /me` (or `/profile`, `/account`) with `role`/`isAdmin`/domain-role (`student→teacher`, `member→owner`); read back to confirm the field was ignored. Every write path that reaches the identity model needs the same allowlist — validate the escalation-bearing field on all of them, not just registration.

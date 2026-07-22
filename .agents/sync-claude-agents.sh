@@ -23,8 +23,16 @@ import json, os, sys
 
 config_path, agents_dir, src_dir = sys.argv[1:]
 
-with open(config_path, encoding="utf-8") as f:
-    cfg = json.load(f)
+# config.json is gitignored + per-repo; a fresh clone has only the .example.
+# Fall back to it, then to empty defaults, so sync never dies on a clean checkout.
+cfg = {}
+for candidate in (config_path, config_path + ".example"):
+    try:
+        with open(candidate, encoding="utf-8") as f:
+            cfg = json.load(f)
+        break
+    except Exception:
+        continue
 
 # Agent registry: one entry per generated definition. `model_key` indexes
 # cfg["models"]; a null/absent model omits the frontmatter line (inherit parent).

@@ -31,7 +31,10 @@ emitter, mutagen, the destructive-command guard). No mocks. See `demo/README.md`
     `genome-guard`, `sources-capture`, `research-prime`, `post-edit-check`,
     `session-start`, `session-wrap`, `stop-investigate`.
   - `skills/` — 8 reusable skills.
-  - `mcp.json` — context7 + playwright.
+  - `mcp.json` — context7 + playwright + appium-mcp (Appium is to mobile
+    apps what playwright is to web apps: drive the app, inspect the UI,
+    verify changes on device/simulator; needs `ANDROID_HOME` in the shell
+    env for Android targets).
   - `memory/README.md` — the memory protocol (project memories NOT included).
 - `.claude/`, `.kimi/` — per-engine adapters that normalize hook I/O into the
   shared policy scripts. Structure-relative; no hardcoded paths.
