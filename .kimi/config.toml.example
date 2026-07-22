@@ -7,27 +7,29 @@
 # Hook policy lives in .agents/hooks/policy/ (engine-agnostic).
 # .kimi/hooks/adapter.sh normalizes Kimi's stdin into the policy contract.
 #
-# The transcript-based stop-investigate hook is omitted: current Kimi
-# hook docs expose stop_hook_active but not a transcript path or
-# last-message field, so a faithful port is not possible today.
+# Matchers are regexes over Kimi's tool names (Kimi >= 0.29: Bash, Write,
+# Edit — the pre-0.29 names Shell/WriteFile/StrReplaceFile match nothing).
+#
+# The transcript-based stop-investigate hook is omitted: Kimi's Stop payload
+# exposes no transcript path or last-message field, so a faithful port is
+# not possible today.
 #
 # The genome-guard hook is omitted too — but for a different reason. The
 # emitter (.agents/genome.sh) is engine-neutral, so the orchestrator protocol
 # (stamp a genome onto each dispatched subagent) works under Kimi natively.
-# Only the *enforcement* guard is Claude-wired, because Kimi's subagent-dispatch
-# tool name and PreToolUse payload shape aren't pinned here. If your Kimi build
-# fires PreToolUse on its dispatch tool, add a [[hooks]] block with the right
-# matcher pointing at `.kimi/hooks/adapter.sh genome-guard.sh` and extend the
-# Kimi adapter normalizer to map {prompt, subagent_type}.
+# Only the *enforcement* guard is Claude-wired. Kimi >= 0.29 fires
+# SubagentStart (and its dispatch tools are Agent/AgentSwarm, matchable on
+# PreToolUse); porting the guard needs a [[hooks]] block pointing at
+# `.kimi/hooks/adapter.sh genome-guard.sh` plus an adapter branch mapping
+# {prompt, subagent_type} — unwritten, see breadcrumbs.
 #
-# The search scaffold degrades the same way. The researcher cell
+# The search scaffold degrades partway. The researcher cell
 # (.agents/researcher.md) and the search-and-cite skill are engine-neutral and
-# work natively. But the two mechanical halves are Claude-wired: sources-capture
-# needs Kimi's web-tool names (a PostToolUse matcher + a Kimi adapter branch that
-# maps {tool_name -> kind, value}), and research-prime needs a UserPromptSubmit
-# event Kimi does not expose. So under Kimi today you get the researcher and the
-# discipline, but no automatic evidence trail and no prime — the citation
-# honesty is entirely the agent's.
+# work natively. sources-capture needs Kimi's web-tool names mapped (a
+# PostToolUse matcher on WebSearch/FetchURL + an adapter branch for
+# {tool_name -> kind, value}); research-prime needs a UserPromptSubmit block —
+# Kimi >= 0.29 exposes both events, but the ports are unwritten (see
+# breadcrumbs). Until then the evidence trail and the prime are Claude-only.
 
 # MCP servers: this repo's servers (context7, playwright) live in
 # .agents/mcp.json — the same `mcpServers` JSON Claude loads via .mcp.json.
@@ -38,13 +40,13 @@
 
 [[hooks]]
 event = "PreToolUse"
-matcher = "Shell"
+matcher = "Bash"
 command = ".kimi/hooks/adapter.sh guard-destructive.sh"
 timeout = 10
 
 [[hooks]]
 event = "PostToolUse"
-matcher = "WriteFile|StrReplaceFile"
+matcher = "Write|Edit"
 command = ".kimi/hooks/adapter.sh post-edit-check.sh"
 timeout = 30
 
