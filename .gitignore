@@ -4,6 +4,7 @@
 .agents/.sources-ledger
 .agents/.compaction-pending
 .agents/.wrap-state-*
+.agents/.kimi-pending-findings-*
 
 # Per-operator local config and secrets (carry the framework, not the keys).
 **/settings.local.json
