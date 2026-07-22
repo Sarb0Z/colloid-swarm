@@ -5,6 +5,10 @@ the full engine-agnostic scaffold (hooks, skills, MCP, adapters, system prompt)
 extracted from a working project and generalized. Aesthetic:
 intelligence-as-broth, nanoswarm, panspermia.
 
+## See it run
+`bash demo/demo.sh` — live output from the three runnable cores (genome
+emitter, mutagen, the destructive-command guard). No mocks. See `demo/README.md`.
+
 ## Registers & genomes (the creative layer)
 - `colloid-constitution.md` — base operating register.
 - `genomes.md` — conserved strand + 8 genomes; `.agents/genome.sh` stamps one
