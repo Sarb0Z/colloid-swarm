@@ -1,4 +1,8 @@
-# Merge these hooks into ~/.kimi/config.toml when using Kimi CLI in this repo.
+# Merge these hooks into ~/.kimi-code/config.toml when using Kimi CLI in this
+# repo. The hook commands are RELATIVE paths — Kimi resolves them against the
+# project cwd, so the global registration works across repos, but ONLY in
+# repos that vendor .kimi/hooks/adapter.sh; anywhere else the hooks silently
+# do nothing.
 #
 # Hook policy lives in .agents/hooks/policy/ (engine-agnostic).
 # .kimi/hooks/adapter.sh normalizes Kimi's stdin into the policy contract.
