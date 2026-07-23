@@ -1,0 +1,1 @@
+../../.agents/skills/seo-geo-growth-audit/AGENTS.md
