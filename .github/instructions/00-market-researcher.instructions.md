@@ -1,0 +1,1 @@
+../../.agents/skills/market-researcher/AGENTS.md
