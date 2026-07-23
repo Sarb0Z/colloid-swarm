@@ -31,7 +31,7 @@ disclosure fan-out. No mocks. See `demo/README.md`.
   - `hooks/policy/` — engine-agnostic enforcement: `guard-destructive`,
     `genome-guard`, `sources-capture`, `research-prime`, `post-edit-check`,
     `session-start`, `session-wrap`, `stop-investigate`.
-  - `skills/` — 12 reusable skills, each with a scoped `AGENTS.md`.
+  - `skills/` — 9 reusable skills, each with a scoped `AGENTS.md`.
   - `mcp.json` — context7 + playwright + appium-mcp (Appium is to mobile
     apps what playwright is to web apps: drive the app, inspect the UI,
     verify changes on device/simulator; needs `ANDROID_HOME` in the shell
