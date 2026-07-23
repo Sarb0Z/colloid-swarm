@@ -20,10 +20,9 @@ Scoped instructions are co-located with the code they govern:
 | Tensium trial | `tensium-trial/AGENTS.md` |
 | Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
 
-Skills: `dispatching-parallel-agents`, `executing-plans`, `frontend-design`,
-`panspermia-mutation`, `pentesting`, `perf-budget`, `search-and-cite`,
-`security-audit`, `security-scan`, `seo-geo-growth-audit`,
-`thermo-nuclear-code-quality-review`, `writing-plans`.
+Skills: `frontend-design`, `panspermia-mutation`, `pentesting`, `perf-budget`,
+`search-and-cite`, `security-audit`, `security-scan`, `seo-geo-growth-audit`,
+`thermo-nuclear-code-quality-review`.
 
 ## Tool Fan-Out
 

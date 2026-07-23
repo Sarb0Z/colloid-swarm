@@ -38,7 +38,8 @@ current shape is the thing in question.
 multiplier. You are amplifying variance and then selecting from it. The winner
 may have won on a lucky axis as much as on better execution — that's fine, you
 keep the *output*, not a theory of which axis is best. If you just want parallel
-coverage of independent tasks, use `dispatching-parallel-agents` instead.
+coverage of independent tasks, dispatch parallel agents directly — this skill is
+only worth its cost when you need variation *and* selection.
 
 ## The eval-cost dial
 
