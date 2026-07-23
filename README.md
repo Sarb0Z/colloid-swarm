@@ -7,7 +7,8 @@ intelligence-as-broth, nanoswarm, panspermia.
 
 ## See it run
 `bash demo/demo.sh` — live output from the three runnable cores (genome
-emitter, mutagen, the destructive-command guard). No mocks. See `demo/README.md`.
+emitter, mutagen, the destructive-command guard) plus a live check of the
+disclosure fan-out. No mocks. See `demo/README.md`.
 
 ## Registers & genomes (the creative layer)
 - `colloid-constitution.md` — base operating register.
@@ -30,12 +31,17 @@ emitter, mutagen, the destructive-command guard). No mocks. See `demo/README.md`
   - `hooks/policy/` — engine-agnostic enforcement: `guard-destructive`,
     `genome-guard`, `sources-capture`, `research-prime`, `post-edit-check`,
     `session-start`, `session-wrap`, `stop-investigate`.
-  - `skills/` — 8 reusable skills.
+  - `skills/` — 12 reusable skills, each with a scoped `AGENTS.md`.
   - `mcp.json` — context7 + playwright + appium-mcp (Appium is to mobile
     apps what playwright is to web apps: drive the app, inspect the UI,
     verify changes on device/simulator; needs `ANDROID_HOME` in the shell
     env for Android targets).
   - `memory/README.md` — the memory protocol (project memories NOT included).
+- Scoped `AGENTS.md` hierarchy — progressive disclosure per module
+  (`.agents/`, `.claude/`, `demo/`, `tensium-trial/`) and per skill. Canonical
+  files carry dual `applyTo`/`paths` frontmatter; `.claude/rules/` and
+  `.github/instructions/` are the symlink fan-out. Authoring rules:
+  `.github/instructions/README.md`.
 - `.claude/`, `.kimi/` — per-engine adapters that normalize hook I/O into the
   shared policy scripts. Structure-relative; no hardcoded paths.
 - `CLAUDE.md → AGENTS.md`, `.mcp.json → .agents/mcp.json` — per-tool symlinks.

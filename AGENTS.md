@@ -152,3 +152,37 @@ call is not a delegation; when one grep or file read answers it, run it
 yourself rather than spinning up a context around it. Subagents return
 dense, distilled reports: conclusions, decisions, and evidence pointers,
 not transcripts.
+
+## Hierarchical Instructions
+
+Scoped agent instructions live in canonical `AGENTS.md` files co-located
+with the code they govern. **When working in a subtree, read its local
+`AGENTS.md` first.** These files are the single source of truth — always
+edit the canonical file, never a symlink pointing to it.
+
+Canonical files carry dual YAML frontmatter: `applyTo:` (GitHub Copilot)
+and `paths:` (Claude Code). Both keys are load-bearing; Codex/Kimi read
+the file as plain AGENTS.md and treat the frontmatter as inert text. Do
+not "clean it up".
+
+Layers:
+
+| Scope | Canonical |
+| --- | --- |
+| Agent scaffold | `.agents/AGENTS.md` |
+| Claude adapter layer | `.claude/AGENTS.md` |
+| Demo | `demo/AGENTS.md` |
+| Tensium trial | `tensium-trial/AGENTS.md` |
+| Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
+
+A skill `AGENTS.md` governs *editing* the skill; `SKILL.md` governs
+*using* it.
+
+Tool fan-out (symlinks, do not edit directly):
+
+- Copilot: `.github/instructions/*.instructions.md` → canonical files
+- Claude Code: layer `CLAUDE.md` → sibling `AGENTS.md`;
+  `.claude/rules/<skill>.md` → skill canonicals
+
+Authoring rules for scoped instruction content are in
+`.github/instructions/README.md`.

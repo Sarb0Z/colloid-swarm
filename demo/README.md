@@ -7,9 +7,10 @@ bash demo/demo.sh
 ```
 
 It exercises the three runnable cores of the mechanical layer against real
-inputs and prints what they actually emit.
+inputs and prints what they actually emit. A fourth beat verifies the
+progressive-disclosure fan-out live.
 
-## The three beats
+## The beats
 
 1. **Genome emitter** (`.agents/genome.sh`) — stamps one of 8 personalities on
    a subagent dispatch. `--check` validates `genomes.md`; `--seed` pins a
@@ -23,6 +24,10 @@ inputs and prints what they actually emit.
 3. **The membrane** (`.agents/hooks/policy/guard-destructive.sh`) — the
    fail-closed floor. Six destructive commands get blocked (exit 2 + reason);
    two safe ones pass. Same script both engines' adapters call.
+4. **Progressive disclosure** (scoped `AGENTS.md` hierarchy) — counts the
+   canonical instruction files, verifies every fan-out symlink
+   (`.claude/rules/`, `.github/instructions/`, sibling `CLAUDE.md`) resolves,
+   and shows one rule reached through three tool doors.
 
 ## The "it's real" moment
 

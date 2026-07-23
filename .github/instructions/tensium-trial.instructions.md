@@ -1,0 +1,1 @@
+../../tensium-trial/AGENTS.md

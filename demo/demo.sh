@@ -4,7 +4,8 @@
 # Runs the three runnable cores against real inputs and prints their real
 # output: the genome emitter (personality sortition + fan-out), the mutagen
 # roller (framing mutation), and the destructive-command guard (the membrane).
-# No mocks — every line below is the actual script doing its actual job.
+# Then verifies the progressive-disclosure fan-out: every symlink must resolve
+# to its canonical AGENTS.md. No mocks — every line is the real thing.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -61,5 +62,25 @@ probe "DROP TABLE"         "$(j 'psql -c "DROP TABLE users"')"
 probe "DELETE no WHERE"    "$(j 'psql -c "DELETE FROM users;"')"
 probe "ls -la"             "$(j 'ls -la')"
 probe "scoped build clean" "$(j "$(printf 'rm -%sf ./build/tmp' r)")"
+
+# ── 4. Progressive disclosure ───────────────────────────────────────────────
+sec "4. Progressive disclosure — scoped AGENTS.md + symlink fan-out"
+rule
+canon=$(find . -name AGENTS.md -type f | wc -l | tr -d ' ')
+links=$(find .agents .claude demo tensium-trial .github -type l | wc -l | tr -d ' ')
+broken=$(find . -type l ! -exec test -e {} \; -print)
+printf '  canonical AGENTS.md files: %s\n' "$canon"
+printf '  fan-out symlinks:          %s\n' "$links"
+if [[ -z "$broken" ]]; then
+  printf '  %sPASS%s  every symlink resolves to a canonical file\n' "$grn" "$rst"
+else
+  printf '  %sFAIL%s  broken symlinks:\n%s\n' "$red" "$rst" "$broken"
+fi
+printf '\n%sone rule, three doors — all resolve to the same canonical file:%s\n' "$dim" "$rst"
+for p in .agents/skills/security-scan/AGENTS.md \
+         .claude/rules/security-scan.md \
+         .github/instructions/00-security-scan.instructions.md; do
+  printf '  %-52s %s->%s %s\n' "$p" "$dim" "$rst" "$(realpath "$p")"
+done
 
 printf '\n%s⊱ every line above is live output — no mocks, no slides ⊰%s\n' "$bold" "$rst"

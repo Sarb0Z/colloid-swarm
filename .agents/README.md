@@ -19,6 +19,7 @@ format or location) pointing back here. Edit things here, once.
 | `researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | stamped + dispatched (native; no capture) |
 | `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — |
+| `AGENTS.md` (here + `../demo/`, `../tensium-trial/`, `../.claude/`, `skills/<name>/`) | Scoped instructions with dual `applyTo`/`paths` frontmatter | `.claude/rules/<skill>.md` + sibling `CLAUDE.md` → symlinks | native (root `AGENTS.md` points to subtree files) |
 
 `genome.sh` writes a transient `.genome-ledger` (recent draws, for anti-repeat);
 `mutagen.sh` writes `.mutagen-ledger` (each roll, read back for operator
@@ -76,6 +77,13 @@ cp .agents/config.json.example .agents/config.json   # then tune
   ```
   Per-leaf symlinks (a whole-dir `.claude/skills` symlink works but is
   version-fragile). Kimi picks it up natively.
+  Give the skill a scoped `skills/<name>/AGENTS.md` (see the skeleton in
+  `.github/instructions/README.md`), then add its fan-out:
+  `.claude/rules/<name>.md` and `.github/instructions/00-<name>.instructions.md`,
+  both symlinks to the canonical file.
+- **A scoped instruction file** — follow the scope contract in
+  `.github/instructions/README.md`: canonical `AGENTS.md` co-located with the
+  subtree, dual `applyTo`/`paths` frontmatter, symlink fan-out per tool.
 - **An MCP server** — edit `mcp.json`. Claude gets it through the `.mcp.json`
   symlink; Kimi through the `--mcp-config-file` flag above.
 - **A new tool** — add its directory with a symlink (same format) or adapter
