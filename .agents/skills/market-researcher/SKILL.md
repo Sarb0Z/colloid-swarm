@@ -1,3 +1,8 @@
+---
+name: market-researcher
+description: Conduct market research grounded in cited web sources — competitor analysis, market sizing and trends, user demand signals, pricing intelligence, and gap/blue-ocean analysis. Use when scoping or building a new feature or product and you need to know what competitors ship and where they fall short, the market size and growth trend, what users request or churn over, how the space is priced, or where the unmet gaps are. Trigger phrases: market research, competitor analysis, competitive landscape, market size, TAM, pricing analysis, what are users asking for, market gap, blue ocean, is there demand for this.
+---
+
 # Market Researcher Skill
 
 Conduct comprehensive market research including competitor analysis, market trends, and user demand signals.
@@ -184,16 +189,6 @@ Blue Ocean Opportunities:
 - WebSearch - Market research queries
 - WebFetch - Detailed page analysis
 - Read/Write - Report generation
-
-## Runtime Implementation
-
-This skill includes a minimal `skill.ts` entry point to satisfy plugin requirements.
-The primary value remains in this documentation - see sections above for:
-- Market research patterns
-- Analysis workflows
-- Best practices
-
-The runtime entry point can be extended with actual functionality as needed.
 
 ## Quality Guidelines
 
