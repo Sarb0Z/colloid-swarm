@@ -17,6 +17,11 @@ __pycache__/
 # macOS Finder metadata.
 .DS_Store
 
+# Generated connection files — produced by .agents/sync-mcp.sh from the
+# canonical registry (.agents/mcp.json, .agents/lsp.json) + config.json toggles.
+/.mcp.json
+/.kimi-code/mcp.json
+
 # Local, per-repo tuned config — copy from config.json.example and tune
 .agents/config.json
 

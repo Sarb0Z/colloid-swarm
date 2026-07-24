@@ -27,12 +27,24 @@
 # defaults trigger=auto. SubagentStart is unused — genome-guard rides
 # PreToolUse on Agent|AgentSwarm, which is blockable and schema-verified.
 
-# MCP servers: this repo's servers (context7, playwright) live in
-# .agents/mcp.json — the same `mcpServers` JSON Claude loads via .mcp.json.
-# Kimi has no repo-level MCP auto-discovery, so launch it with that file:
-#     kimi --mcp-config-file .agents/mcp.json
-# The flag is CLI-only (not a config.toml key) — nothing to merge here.
+# MCP servers: the registry lives in .agents/mcp.json; per-repo toggles in
+# .agents/config.json (mcp.servers.<name>.enabled). .agents/sync-mcp.sh
+# generates .kimi-code/mcp.json (Kimi's native project-level path — Kimi
+# 0.29+ auto-discovers it, no launch flag) and .mcp.json for Claude.
+# Both are gitignored build output — never hand-edit them.
 # (AGENTS.md and .agents/skills/ are already read natively by Kimi.)
+
+# Progressive tool disclosure (Kimi >= 0.23, experimental): keeps MCP tool
+# schemas out of the upfront context; the model loads them on demand via a
+# select_tools tool. Two config keys, both required:
+#   [experimental]
+#   tool-select = true
+# and the model must declare the capability — add "dynamically_loaded_tools"
+# to the model's `capabilities` array (unioned, never removed). K3 supports
+# it (API-level dynamic loading is kimi-k3 only). If the capability is not
+# declared the flag is inert. Claude Code equivalent: ENABLE_TOOL_SEARCH in
+# .claude/settings.json `env` (this repo sets "auto:5" — load upfront
+# while schemas fit under 5% of context, defer the overflow).
 
 [[hooks]]
 event = "PreToolUse"

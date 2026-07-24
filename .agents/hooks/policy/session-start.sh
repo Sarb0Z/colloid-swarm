@@ -11,6 +11,9 @@
 #   context policy, never a gate (no exit 2).
 #
 #   - Unaddressed .agents/breadcrumbs.md items (markdown "- " bullets).
+#   - Registry MCP servers that are toggled off (name + description), with the
+#     sync-mcp.sh enable/disable incantation — the model learns they exist and
+#     how to switch them on without paying their tool-schema cost upfront.
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
@@ -50,6 +53,38 @@ items=""
 crumbs="$proj/.agents/breadcrumbs.md"
 [[ -f "$crumbs" ]] && items="$(grep -E '^[[:space:]]*-[[:space:]]' "$crumbs" 2>/dev/null || true)"
 
+# Registry servers that are toggled off: surface them so the model knows they
+# exist and can switch them on mid-task. Toggle merge mirrors sync-mcp.sh
+# (example base, local per-server override).
+mcp_off="$(PROJ="$proj" python3 <<'PY'
+import json, os
+agents = os.path.join(os.environ["PROJ"], ".agents")
+def load(p):
+    try:
+        with open(p, encoding="utf-8") as f: return json.load(f)
+    except Exception: return {}
+registry = load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
+example = load(os.path.join(agents, "config.json.example"))
+local = load(os.path.join(agents, "config.json"))
+toggles = dict(example.get("mcp", {}).get("servers", {}))
+ls = local.get("mcp", {})
+if isinstance(ls, dict) and isinstance(ls.get("servers"), dict):
+    for name, entry in ls["servers"].items():
+        # Per-entry merge: a local {"enabled": ...} flip must not shadow the
+        # example's description.
+        base = toggles.get(name, {})
+        toggles[name] = {**base, **entry} if isinstance(entry, dict) else entry
+lines = []
+for name in sorted(registry):
+    t = toggles.get(name, {})
+    if not isinstance(t, dict) or t.get("enabled") is True:
+        continue
+    desc = t.get("description", "")
+    lines.append(f"- {name}" + (f" — {desc}" if desc else ""))
+print("\n".join(lines))
+PY
+)"
+
 # source=compact is the trigger. Always consume the PreCompact marker as
 # cleanup, but only trust its trigger word on a genuine post-compaction start
 # — a marker left by an aborted compaction must not fire the policy on an
@@ -66,7 +101,7 @@ if [[ -f "$marker" ]]; then
 fi
 
 # Nothing to surface.
-[[ -z "$items" && "$is_compact" != "true" ]] && exit 0
+[[ -z "$items" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
 
 body="$(
   if [[ "$is_compact" == "true" ]]; then
@@ -114,6 +149,13 @@ EOF
     else
       printf '%s\n' "$items"
     fi
+  fi
+
+  if [[ -n "$mcp_off" ]]; then
+    [[ "$is_compact" == "true" || -n "$items" ]] && echo
+    echo "Registry MCP servers currently OFF (not connected; the description says why):"
+    printf '%s\n' "$mcp_off"
+    echo 'If the task needs one: run `.agents/sync-mcp.sh enable <name>`, then ask the user to restart the session (MCP servers connect at startup). Turn it back off with `.agents/sync-mcp.sh disable <name>`.'
   fi
 )"
 

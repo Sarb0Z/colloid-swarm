@@ -62,7 +62,7 @@ fi
 
 # Destructive SQL (DROP / TRUNCATE / unrestricted DELETE or UPDATE)
 if printf '%s' "$cmd" | grep -Eqi '(psql|mysql)[^|;&]*(DROP[[:space:]]+(TABLE|DATABASE|SCHEMA|INDEX)|TRUNCATE[[:space:]]+TABLE)'; then
-  block "Destructive DDL detected. Confirm with the user and route the change through Alembic migrations."
+  block "Destructive DDL detected. Confirm with the user and route the change through migrations."
 fi
 if printf '%s' "$cmd" | grep -Eqi '(psql|mysql)[^|;&]*(DELETE[[:space:]]+FROM[[:space:]]+[A-Za-z_.]+[[:space:]]*;|UPDATE[[:space:]]+[A-Za-z_.]+[[:space:]]+SET[^;]*;)' && ! printf '%s' "$cmd" | grep -Eqi 'WHERE'; then
   block "Unrestricted DELETE/UPDATE (no WHERE clause) detected. Confirm with the user before running."

@@ -10,6 +10,38 @@
       "learning-reporter"
     ]
   },
+  "mcp": {
+    "servers": {
+      "context7": {
+        "enabled": true,
+        "description": "up-to-date library/framework docs lookup (2 tools)"
+      },
+      "playwright": {
+        "enabled": true,
+        "description": "browser automation for web E2E and UI verification (~24 tools)"
+      },
+      "appium-mcp": {
+        "enabled": true,
+        "description": "mobile app automation — drive the app, inspect the UI, verify on device/simulator (~31 tools)"
+      },
+      "linear": {
+        "enabled": true,
+        "description": "Linear issue tracking (HTTP, OAuth login on first use)"
+      },
+      "atlassian": {
+        "enabled": true,
+        "description": "Jira, Confluence, Bitbucket via Atlassian Rovo MCP (SSE, OAuth login on first use)"
+      },
+      "greptile": {
+        "enabled": false,
+        "description": "codebase Q&A and review via Greptile (HTTP, needs GREPTILE_API_KEY)"
+      },
+      "exa": {
+        "enabled": false,
+        "description": "web search and fetch via Exa (HTTP, needs EXA_API_KEY)"
+      }
+    }
+  },
   "models": {
     "researcher": "sonnet",
     "learning_reporter": null,
