@@ -94,3 +94,7 @@ for agent in AGENTS:
 
     print("generated " + out_path + (f" (model: {model})" if model else " (no model override)"))
 PY
+
+# MCP + LSP connection files ride the same "edited config.json -> re-run sync"
+# habit; sync-mcp.sh is a no-op-safe generator, cheap to always run.
+"$(dirname "${BASH_SOURCE[0]}")/sync-mcp.sh"

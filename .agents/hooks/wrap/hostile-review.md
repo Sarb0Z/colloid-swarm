@@ -1,6 +1,8 @@
 # Hostile review
 
 Dispatch a subagent to review the diff against the surrounding architecture.
+Ground rules for the dispatch: no justifying the change, no praise. The subagent
+hunts for what is wrong and reports it back; you fold valid findings in.
 
 The dispatch must carry a genome stamp or `genome-guard` will block it. Draw one
 and prepend its output to the subagent's prompt:
