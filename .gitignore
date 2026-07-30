@@ -27,3 +27,4 @@ __pycache__/
 
 # per-workspace scratch typecheck cache written by post-edit-check.sh
 **/.tsbuildinfo-claude
+.agents/eval/*/runs.tsv
