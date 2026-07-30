@@ -8,7 +8,7 @@
 # needs a transcript and stays engine-limited.
 # Output: exit 2 + stderr on escalation; exit 0 otherwise.
 #
-# The checklist prose lives in .agents/hooks/wrap/*.md — this script owns only
+# The checklist prose lives in .agents/playbooks/*.md — this script owns only
 # the gate. It emits a short trigger naming the sections and their files; the
 # model reads a file only if the user opts into the wrap. A skipped wrap
 # therefore costs the model nothing, where an inline checklist costs it the
@@ -41,7 +41,7 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cfg_path="$repo/.agents/config.json"
-wrap_dir=".agents/hooks/wrap"
+wrap_dir=".agents/playbooks"
 
 cfg="$(CFG_PATH="$cfg_path" python3 <<'PY'
 import json, os

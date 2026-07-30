@@ -17,7 +17,8 @@ format or location) pointing back here. Edit things here, once.
 | `genome.sh` | Genome emitter (parses `../genomes.md`) | called by the orchestrator; `genome-guard.sh` enforces | called by the orchestrator (native) |
 | `mutagen.sh` + `mutagen.md` | Mutagen: roll a vector + blind-rewriter contract | called by the orchestrator (`panspermia-mutation` skill) | called by the orchestrator (native) |
 | `config.json` | Scaffold toggles, thresholds, model routing | read by every hook + `sync-claude-agents.sh` | read by wired hooks |
-| `researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | stamped + dispatched (native; no capture) |
+| `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | stamped + dispatched (native; no capture) |
+| `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded |
 | `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — |
 | `AGENTS.md` (here + `../demo/`, `../tensium-trial/`, `../.claude/`, `skills/<name>/`) | Scoped instructions with dual `applyTo`/`paths` frontmatter | `.claude/rules/<skill>.md` + sibling `CLAUDE.md` → symlinks | native (root `AGENTS.md` points to subtree files) |

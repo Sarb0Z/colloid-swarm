@@ -14,7 +14,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config="$repo/.agents/config.json"
 agents_dir="$repo/.claude/agents"
-src_dir="$repo/.agents"
+src_dir="$repo/.agents/personas"
 
 mkdir -p "$agents_dir"
 
