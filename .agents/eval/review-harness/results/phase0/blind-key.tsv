@@ -1,0 +1,10 @@
+SPOILER — do not read until you have recorded a verdict in judgements.tsv.
+Maps the shuffled labels in the blind comparison to the run that produced them.
+
+set	label	token	contract	replicate
+mailstation	A	533ad358bd	single-phase	1
+mailstation	B	2ab72fe52c	two-phase	1
+mailstation	C	20511ef93a	single-phase	2
+cleanstack	A	49e6fb190b	two-phase	1
+cleanstack	B	849ad4aeaf	two-phase	2
+cleanstack	C	9664a46a3d	single-phase	1

@@ -1,0 +1,6 @@
+fixture	repo	base_sha	commit_sha	apply	target	confidence
+cleanstack-web-disconnect-r1	CleanStack/CleanStack-web	db4346bfa23e5ce65ce53dad05c85036e8101c01	e0ae2396215cfd9092fb13443c1dcb5ab663632b	file	src/app/dashboard/connect/page.tsx	high
+cleanstack-web-disconnect-r2	CleanStack/CleanStack-web	db4346bfa23e5ce65ce53dad05c85036e8101c01	e0ae2396215cfd9092fb13443c1dcb5ab663632b	file	src/app/dashboard/connect/page.tsx	high
+ms-arf-forward-milter	mailstation	6e05bb407ca758f3d91e4fefde5e6ded3d8dd44c	5c8a790efd08f20c5ba9d1e0c276860ce4341566	diff	-	high
+ms-domain-delete-fk-race	mailstation	9c69ac24e6a4d25d29806835408df477e3a5cc64	dafb1bd99322da49cbde81f955418ba67907e22c	diff	-	high
+muscle-app-rebrand-videos	muscle-app	9b69c9379e8dc9f2254a6fe65f0e76c65454f70a	98ef843309c14419e1b9e0b372ce139b8cdffe71	diff	-	exact

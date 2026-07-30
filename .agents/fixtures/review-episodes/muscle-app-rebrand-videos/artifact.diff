@@ -1,0 +1,1597 @@
+diff --git a/.agents/breadcrumbs.md b/.agents/breadcrumbs.md
+index 5ebc403..ed2d345 100644
+--- a/.agents/breadcrumbs.md
++++ b/.agents/breadcrumbs.md
+@@ -10,3 +10,5 @@ promoted to a real task. The SessionStart hook resurfaces the bullets below
+ at the start of each session.
+ 
+ <!-- breadcrumbs (markdown "- " bullets) below this line -->
++- 2026-07-17 .claude/hooks/README.md — documents a `.kimi/` adapter layer this repo does not have (no `.kimi/` dir); either drop the Kimi references or add the adapter
++- 2026-07-17 .claude/hooks/README.md — "Tuning failure modes" documents a `pyproject.toml` ruff ruleset, but this is an Expo/TS repo with no Python; verify against post-edit-check.sh dispatch and correct
+diff --git a/.agents/debt-log.md b/.agents/debt-log.md
+new file mode 100644
+index 0000000..8c70292
+--- /dev/null
++++ b/.agents/debt-log.md
+@@ -0,0 +1,31 @@
++# Debt Log
++
++Standing tradeoffs and deferred *decisions* — the "naive O(n³) here, fine until
++N>10k, rework needs a spatial index" record. Committed, and not auto-surfaced:
++pulled on demand when you touch the code that points here.
++
++Deferred *work* does not belong here — that is a queue, and it lives in
++`.agents/breadcrumbs.md`.
++
++Each entry is a `### <id>` heading — a kebab slug like `proj-07-naive-scan` —
++with one line each for:
++
++- **Condition** — what the code does now, and the tradeoff taken.
++- **Trigger** — the observation that would justify paying it down.
++- **Rework** — what the fix costs.
++
++Reference an entry from code as `debt: <id>`. The pointer goes inline; the
++reasoning stays here.
++
++### video-map-two-generators
++
++- **Condition** — `scripts/prebuild.mjs` and `scripts/bundle-exercise-videos.mjs`
++  both write `src/data/exercise-videos.ts`, with different entry order
++  (alphabetical vs. `NUM_TO_SLUG`) and slightly different headers. `prebuild.mjs`
++  is authoritative: `eas-build-post-install` runs it, so it wins on every build.
++  Running the bundle script therefore leaves a committed file the next build
++  rewrites — harmless churn, but the diff lies about what ships.
++- **Trigger** — a build-order surprise, a confusing no-op diff on the map, or a
++  third caller needing the map generated.
++- **Rework** — small: have `bundle-exercise-videos.mjs` shell out to
++  `prebuild.mjs` after transcoding instead of emitting its own copy of the map.
+diff --git a/.env.example b/.env.example
+index 7223703..709fb07 100644
+--- a/.env.example
++++ b/.env.example
+@@ -4,7 +4,7 @@
+ EXPO_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT-ref.supabase.co
+ EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR-ANON-PUBLIC-KEY
+ 
+-# In-app purchases (MuscleMap Pro). Leave EXPO_PUBLIC_IAP_ENABLED unset to run
++# In-app purchases (urmusclemate Pro). Leave EXPO_PUBLIC_IAP_ENABLED unset to run
+ # the trial + paywall in preview mode (no real billing — "Subscribe" unlocks
+ # locally so the flow is testable). Set it to 1 only in a build that includes
+ # the expo-iap native module AND has the products registered in the stores.
+diff --git a/README.md b/README.md
+index 6c0acc3..d321bb9 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# MuscleMap 💪
++# urmusclemate 💪
+ 
+ A gym companion. Browse the body by muscle group, drill into a muscle to see the
+ exercises that train it, **scan a gym machine's code** to see what it trains and
+diff --git a/app.json b/app.json
+index cab4bba..bc0a0bc 100644
+--- a/app.json
++++ b/app.json
+@@ -1,24 +1,24 @@
+ {
+   "expo": {
+-    "name": "MuscleMap",
++    "name": "urmusclemate",
+     "slug": "muscle-app",
+     "version": "1.0.0",
+     "orientation": "portrait",
+     "icon": "./assets/images/icon.png",
+-    "scheme": "muscleapp",
++    "scheme": "urmusclemate",
+     "userInterfaceStyle": "automatic",
+     "runtimeVersion": {
+       "policy": "fingerprint"
+     },
+     "ios": {
+       "supportsTablet": false,
+-      "bundleIdentifier": "com.thesoftaims.muscleapp",
++      "bundleIdentifier": "com.urmusclemate.app",
+       "config": {
+         "usesNonExemptEncryption": false
+       }
+     },
+     "android": {
+-      "package": "com.thesoftaims.muscleapp",
++      "package": "com.urmusclemate.app",
+       "adaptiveIcon": {
+         "backgroundColor": "#0D0D0F",
+         "foregroundImage": "./assets/images/adaptive-icon.png"
+@@ -49,7 +49,7 @@
+       [
+         "expo-camera",
+         {
+-          "cameraPermission": "Allow MuscleMap to use the camera to scan the code printed on a gym machine.",
++          "cameraPermission": "Allow urmusclemate to use the camera to scan the code printed on a gym machine.",
+           "recordAudioAndroid": false
+         }
+       ],
+diff --git a/docs/android-testing.md b/docs/android-testing.md
+index 16b64e5..62b6a1d 100644
+--- a/docs/android-testing.md
++++ b/docs/android-testing.md
+@@ -1,6 +1,6 @@
+ # Android emulator + Appium testing (Intel Mac)
+ 
+-Local stack for running and UI-testing MuscleMap on an Android emulator,
++Local stack for running and UI-testing urmusclemate on an Android emulator,
+ configured for an **Intel (x86_64) Mac**. Set up 2026-06-20.
+ 
+ ## What's installed
+@@ -87,5 +87,5 @@ npx expo run:android
+ ```
+ 
+ > The `preview` APK includes the x86_64 ABI, so it installs and runs on this
+-> emulator. After install, `adb shell monkey -p com.thesoftaims.muscleapp 1`
++> emulator. After install, `adb shell monkey -p com.urmusclemate.app 1`
+ > launches it.
+diff --git a/docs/legal/account-deletion.md b/docs/legal/account-deletion.md
+index d019887..7940e68 100644
+--- a/docs/legal/account-deletion.md
++++ b/docs/legal/account-deletion.md
+@@ -1,10 +1,15 @@
+-# Delete your MuscleMap account and data
++# Delete your urmusclemate account and data
+ 
+ **Last updated: 6 June 2026**
+ 
+-This page explains how to permanently delete your **MuscleMap** account and all of
+-the data associated with it. MuscleMap is published by **TheSoftAims**
+-(`com.thesoftaims.muscleapp`).
++> **Draft — not yet published.** urmusclemate has not launched in the app
++> stores yet, and these pages are not live on the web. This is placeholder copy
++> for the final legal/support pages; publish them at the URLs configured in
++> `src/constants/links.ts` before store submission.
++
++This page explains how to permanently delete your **urmusclemate** account and all of
++the data associated with it. urmusclemate is published by **TheSoftAims**
++(`com.urmusclemate.app`).
+ 
+ You can delete your account in two ways: **inside the app** (fastest) or by
+ **sending us a request**. Both result in permanent deletion of the same data.
+@@ -13,7 +18,7 @@ You can delete your account in two ways: **inside the app** (fastest) or by
+ 
+ ## Option 1 — Delete in the app (recommended)
+ 
+-1. Open **MuscleMap** and sign in to the account you want to delete.
++1. Open **urmusclemate** and sign in to the account you want to delete.
+ 2. Go to the **Profile** tab.
+ 3. Tap **Manage account**.
+ 4. Tap **Delete account**.
+@@ -32,7 +37,7 @@ the account can no longer be used to sign in.
+ If you cannot access the app, you can request deletion:
+ 
+ 1. Email **uzair@thesoftaims.com** from the **email address associated with your
+-   MuscleMap account**, with the subject **"Delete my MuscleMap account"**.
++   urmusclemate account**, with the subject **"Delete my urmusclemate account"**.
+    (Or use the web request form at
+    <https://www.thesoftaims.com/musclemap/delete-account>.)
+ 2. We will verify that the request comes from the account owner.
+diff --git a/docs/legal/privacy-policy.md b/docs/legal/privacy-policy.md
+index 755cf61..197bf3e 100644
+--- a/docs/legal/privacy-policy.md
++++ b/docs/legal/privacy-policy.md
+@@ -1,15 +1,20 @@
+-# MuscleMap Privacy Policy
++# urmusclemate Privacy Policy
+ 
+ **Last updated: 15 June 2026**
+ 
++> **Draft — not yet published.** urmusclemate has not launched in the app
++> stores yet, and these pages are not live on the web. This is placeholder copy
++> for the final legal/support pages; publish them at the URLs configured in
++> `src/constants/links.ts` before store submission.
++
+ This Privacy Policy explains how **TheSoftAims** ("we", "us", "our") collects,
+-uses, stores, and protects information when you use the **MuscleMap** mobile
+-application (the "App"). MuscleMap is a gym companion that lets you browse an
++uses, stores, and protects information when you use the **urmusclemate** mobile
++application (the "App"). urmusclemate is a gym companion that lets you browse an
+ exercise/anatomy library with demonstration videos, search exercises, scan a gym
+ machine (by its printed code or by photo) to see what it trains, follow
+ ready-made routines, and — if you create an account — log your workouts. Logging
+ features are offered on a free trial and then via an optional paid subscription
+-(**MuscleMap Pro**).
++(**urmusclemate Pro**).
+ 
+ We have written this policy in plain English. If anything is unclear, email us at
+ **privacy@thesoftaims.com**.
+@@ -19,11 +24,11 @@ We have written this policy in plain English. If anything is unclear, email us a
+ ## 1. Who we are (data controller)
+ 
+ - **Developer / publisher:** TheSoftAims
+-- **App:** MuscleMap (`com.thesoftaims.muscleapp`)
++- **App:** urmusclemate (`com.urmusclemate.app`)
+ - **Contact:** privacy@thesoftaims.com (privacy matters), support@thesoftaims.com (general support)
+ 
+ TheSoftAims is the **data controller** for personal data processed through
+-MuscleMap.
++urmusclemate.
+ 
+ ---
+ 
+@@ -38,7 +43,7 @@ MuscleMap.
+   AI provider to recognise the machine**. The photo is used only for that
+   recognition and is **not stored**. (The separate code-scan reads a printed
+   barcode/QR entirely on your device.)
+-- **MuscleMap Pro** is an optional auto-renewing subscription. Purchases are
++- **urmusclemate Pro** is an optional auto-renewing subscription. Purchases are
+   processed by **Apple/Google** — we never receive your card or payment details;
+   we only keep a flag of whether your subscription is active.
+ - We use **no third-party analytics, no advertising, no trackers**. We **do not
+@@ -73,7 +78,7 @@ If you delete the App, this on-device data is removed with it.
+ 
+ ### 3.3 Camera and machine scanning
+ 
+-MuscleMap requests camera permission to help you identify gym equipment, in two
++urmusclemate requests camera permission to help you identify gym equipment, in two
+ ways:
+ 
+ - **Scan a printed code** — reads a barcode/QR code on a machine **entirely on
+@@ -88,7 +93,7 @@ To prevent abuse of the (paid) recognition service we keep a short-lived
+ rate-limit record. It contains **no raw IP address** — only a one-way hashed
+ identifier — and is automatically deleted within a couple of hours.
+ 
+-### 3.4 Subscriptions (MuscleMap Pro)
++### 3.4 Subscriptions (urmusclemate Pro)
+ 
+ Logging, history, and import are offered free for a trial period and then via an
+ optional auto-renewing subscription. **Purchases are handled entirely by the
+@@ -101,7 +106,7 @@ active. Manage or cancel anytime in your App Store / Google Play account.
+ We do **not** collect: precise or coarse location, contacts, your photo/media
+ library, advertising identifiers, device fingerprints for tracking, health-kit /
+ fitness-platform data, your **payment card details**, or browsing behaviour for
+-analytics. MuscleMap contains **no third-party analytics, advertising, or
++analytics. urmusclemate contains **no third-party analytics, advertising, or
+ tracking SDKs**.
+ 
+ ---
+@@ -259,7 +264,7 @@ complaint with your local data protection authority.
+ 
+ ## 11. Children's privacy
+ 
+-MuscleMap is intended for users aged **13 and older**. It is a general
++urmusclemate is intended for users aged **13 and older**. It is a general
+ fitness/exercise app and is **not** directed to children under 13. We do not
+ knowingly collect personal data from children under 13. If you believe a child
+ under 13 has provided us with personal data, contact privacy@thesoftaims.com and
+@@ -269,7 +274,7 @@ we will delete it.
+ 
+ ## 12. No medical claims
+ 
+-MuscleMap provides general fitness and exercise information for educational and
++urmusclemate provides general fitness and exercise information for educational and
+ informational purposes. It does **not** provide medical advice, diagnosis, or
+ treatment and makes **no medical claims**. Always consult a qualified
+ professional before beginning any exercise program.
+@@ -280,7 +285,7 @@ professional before beginning any exercise program.
+ 
+ We may update this Privacy Policy from time to time. When we make material
+ changes, we will update the "Last updated" date above and, where appropriate,
+-notify you in the App. Continued use of MuscleMap after an update means you accept
++notify you in the App. Continued use of urmusclemate after an update means you accept
+ the revised policy.
+ 
+ ---
+diff --git a/docs/legal/support.md b/docs/legal/support.md
+index 64e1cd4..237b173 100644
+--- a/docs/legal/support.md
++++ b/docs/legal/support.md
+@@ -1,8 +1,13 @@
+-# MuscleMap Support
++# urmusclemate Support
+ 
+ **Last updated: 6 June 2026**
+ 
+-Welcome to MuscleMap support. MuscleMap is a **free gym companion** from
++> **Draft — not yet published.** urmusclemate has not launched in the app
++> stores yet, and these pages are not live on the web. This is placeholder copy
++> for the final legal/support pages; publish them at the URLs configured in
++> `src/constants/links.ts` before store submission.
++
++Welcome to urmusclemate support. urmusclemate is a **free gym companion** from
+ **TheSoftAims** that helps you learn what each gym machine trains, explore an
+ exercise and muscle-anatomy library, follow ready-made routines, and log your
+ workouts. Below are answers to common questions. If you need more help, email us —
+@@ -14,14 +19,14 @@ details at the bottom.
+ 
+ ### How does scanning a machine work?
+ 
+-Many gym machines have a **barcode or QR code** printed on them. In MuscleMap:
++Many gym machines have a **barcode or QR code** printed on them. In urmusclemate:
+ 
+ 1. Tap the **Scan** action.
+ 2. Grant camera permission the first time (the camera is used **only** for
+    scanning).
+ 3. Point your camera at the code on the machine.
+ 
+-MuscleMap reads the code **on your device** and shows you the matching exercise —
++urmusclemate reads the code **on your device** and shows you the matching exercise —
+ including the muscles it trains. **No photos or video are taken, stored, or
+ uploaded.** If a machine isn't recognized, you can still find the exercise using
+ **Search** or by browsing the library.
+@@ -54,7 +59,7 @@ servers.
+ 
+ ### How do I export / download my data?
+ 
+-In the App, go to **Profile → Download my data**. MuscleMap exports your account
++In the App, go to **Profile → Download my data**. urmusclemate exports your account
+ and workout history as a **JSON** file you can save or move elsewhere.
+ 
+ ### How do I delete my account and data?
+@@ -75,16 +80,16 @@ full details.
+ Use the **"Forgot password"** option on the sign-in screen to receive a password
+ reset email at your account address.
+ 
+-### Is MuscleMap medical advice?
++### Is urmusclemate medical advice?
+ 
+-No. MuscleMap provides **general fitness and exercise information only** and makes
++No. urmusclemate provides **general fitness and exercise information only** and makes
+ **no medical claims**. Consult a qualified professional before starting any
+ exercise program. See our
+ [Terms of Service](https://www.thesoftaims.com/musclemap/terms).
+ 
+-### What ages is MuscleMap for?
++### What ages is urmusclemate for?
+ 
+-MuscleMap is intended for users **13 and older**.
++urmusclemate is intended for users **13 and older**.
+ 
+ ---
+ 
+diff --git a/docs/legal/terms.md b/docs/legal/terms.md
+index 49380a0..a672e43 100644
+--- a/docs/legal/terms.md
++++ b/docs/legal/terms.md
+@@ -1,17 +1,22 @@
+-# MuscleMap Terms of Service
++# urmusclemate Terms of Service
+ 
+ **Last updated: 6 June 2026**
+ 
+-These Terms of Service ("Terms") govern your use of the **MuscleMap** mobile
++> **Draft — not yet published.** urmusclemate has not launched in the app
++> stores yet, and these pages are not live on the web. This is placeholder copy
++> for the final legal/support pages; publish them at the URLs configured in
++> `src/constants/links.ts` before store submission.
++
++These Terms of Service ("Terms") govern your use of the **urmusclemate** mobile
+ application (the "App"), provided by **TheSoftAims** ("we", "us", "our"). By
+-downloading, accessing, or using MuscleMap, you agree to these Terms. If you do
++downloading, accessing, or using urmusclemate, you agree to these Terms. If you do
+ not agree, do not use the App.
+ 
+ ---
+ 
+ ## 1. Eligibility
+ 
+-You must be at least **13 years old** to use MuscleMap. By using the App, you
++You must be at least **13 years old** to use urmusclemate. By using the App, you
+ represent that you meet this requirement. If you are under the age of majority in
+ your jurisdiction, you may use the App only with the involvement of a parent or
+ legal guardian.
+@@ -21,10 +26,10 @@ legal guardian.
+ ## 2. License to use the App
+ 
+ Subject to these Terms, we grant you a **personal, limited, non-exclusive,
+-non-transferable, revocable** license to download and use MuscleMap on devices you
++non-transferable, revocable** license to download and use urmusclemate on devices you
+ own or control, for your own personal, non-commercial fitness use.
+ 
+-MuscleMap is **free to use**. We may offer optional paid features in the future;
++urmusclemate is **free to use**. We may offer optional paid features in the future;
+ if we do, additional terms may apply at that time.
+ 
+ ---
+@@ -64,7 +69,7 @@ We may suspend or terminate access for conduct that violates these Terms.
+ 
+ ## 5. Your content
+ 
+-You retain ownership of the workout data and notes you create in MuscleMap ("Your
++You retain ownership of the workout data and notes you create in urmusclemate ("Your
+ Content"). You grant us a limited license to store and process Your Content solely
+ to provide the App's features to you, as described in our
+ [Privacy Policy](https://www.thesoftaims.com/musclemap/privacy). You are
+@@ -75,7 +80,7 @@ data at any time using **"Download my data"** in the App).
+ 
+ ## 6. Fitness disclaimer — not medical advice
+ 
+-**MuscleMap provides general fitness and exercise information for informational
++**urmusclemate provides general fitness and exercise information for informational
+ and educational purposes only. It is not medical advice and makes no medical
+ claims.** The App does not diagnose, treat, cure, or prevent any condition.
+ 
+@@ -88,13 +93,13 @@ claims.** The App does not diagnose, treat, cure, or prevent any condition.
+ - Information about gym machines, muscles, and routines is provided for general
+   guidance and may not suit your individual circumstances.
+ 
+-**You use MuscleMap and perform any exercise at your own risk.**
++**You use urmusclemate and perform any exercise at your own risk.**
+ 
+ ---
+ 
+ ## 7. Third-party services
+ 
+-MuscleMap relies on third-party infrastructure (including **Supabase** for hosting
++urmusclemate relies on third-party infrastructure (including **Supabase** for hosting
+ and authentication) to operate. Your use of the App is also subject to the terms
+ and policies of the app store from which you obtained it (Apple App Store or
+ Google Play). We are not responsible for third-party services we do not control.
+@@ -124,7 +129,7 @@ or accurate.
+ To the maximum extent permitted by law, **TheSoftAims and its officers, employees,
+ and agents will not be liable** for any indirect, incidental, special,
+ consequential, or punitive damages, or for any loss of data, profits, or goodwill,
+-arising out of or related to your use of (or inability to use) MuscleMap — **nor
++arising out of or related to your use of (or inability to use) urmusclemate — **nor
+ for any personal injury or harm resulting from exercise or reliance on the App's
+ content.** Our total aggregate liability for any claim relating to the App will
+ not exceed the greater of (a) the amount you paid us for the App in the 12 months
+@@ -138,7 +143,7 @@ law.
+ 
+ ## 11. Termination
+ 
+-You may stop using MuscleMap and delete your account at any time (see
++You may stop using urmusclemate and delete your account at any time (see
+ [Account deletion](https://www.thesoftaims.com/musclemap/delete-account)). We may
+ suspend or terminate your access if you violate these Terms or if we discontinue
+ the App. Sections that by their nature should survive termination (e.g. 5–10, 12)
+diff --git a/docs/store/app-store-listing.md b/docs/store/app-store-listing.md
+index 6b61c12..6d8b7ce 100644
+--- a/docs/store/app-store-listing.md
++++ b/docs/store/app-store-listing.md
+@@ -1,10 +1,10 @@
+-# MuscleMap — Apple App Store listing
++# urmusclemate — Apple App Store listing
+ 
+ This document contains the App Store Connect (ASC) listing copy, metadata, App
+-Privacy answers, age-rating answers, and App Review notes for **MuscleMap**.
++Privacy answers, age-rating answers, and App Review notes for **urmusclemate**.
+ Copy each field into the corresponding ASC field at submission time.
+ 
+-- **Bundle ID:** `com.thesoftaims.muscleapp`
++- **Bundle ID:** `com.urmusclemate.app`
+ - **Seller / Developer:** TheSoftAims
+ - **SKU (suggested):** `musclemap-ios-001`
+ - **Primary language:** English (U.S.)
+@@ -16,7 +16,7 @@ Copy each field into the corresponding ASC field at submission time.
+ 
+ ### App Name (≤30 chars)
+ ```
+-MuscleMap
++urmusclemate
+ ```
+ 
+ ### Subtitle (≤30 chars)
+@@ -33,10 +33,10 @@ Scan any gym machine to see what it trains, explore the muscle library, follow r
+ 
+ ### Description (full)
+ ```
+-MuscleMap is your free gym companion. Walk up to any machine, scan the code printed on it, and instantly see exactly what it trains — no more guessing.
++urmusclemate is your free gym companion. Walk up to any machine, scan the code printed on it, and instantly see exactly what it trains — no more guessing.
+ 
+ WHAT YOU CAN DO
+-• Scan a machine — point your camera at the barcode or QR code on a gym machine and MuscleMap shows you the exercise and the muscles it works. Scanning happens entirely on your device.
++• Scan a machine — point your camera at the barcode or QR code on a gym machine and urmusclemate shows you the exercise and the muscles it works. Scanning happens entirely on your device.
+ • Explore the anatomy library — browse by muscle group, drill into individual muscles, and see the exercises that target them.
+ • Search exercises — find any exercise fast.
+ • Follow ready-made routines — start training with structured, ready-to-go workouts.
+@@ -50,7 +50,7 @@ PRIVATE BY DESIGN
+ 
+ Browsing the library, searching, scanning and viewing routines are completely free and need no account. Create an account only when you want to log and track your workouts.
+ 
+-MuscleMap provides general fitness and exercise information only and is not medical advice. Consult a qualified professional before starting any exercise program.
++urmusclemate provides general fitness and exercise information only and is not medical advice. Consult a qualified professional before starting any exercise program.
+ 
+ Questions? support@thesoftaims.com
+ ```
+@@ -122,7 +122,7 @@ Sources for the sizes above:
+ 
+ ## 4. Age rating questionnaire (ASC)
+ 
+-MuscleMap contains no objectionable content. Answer **None / No** to every
++urmusclemate contains no objectionable content. Answer **None / No** to every
+ content category, including:
+ 
+ | Question | Answer |
+@@ -195,7 +195,7 @@ Password:         ____________________         ← TODO: set & paste here
+ 
+ ### Review notes (paste into "Notes")
+ ```
+-MuscleMap is a free gym companion.
++urmusclemate is a free gym companion.
+ 
+ • Most of the app is free and needs no account: browse the muscle/anatomy
+   library, search exercises, scan a gym-machine barcode/QR, and view routines.
+diff --git a/docs/store/google-play-listing.md b/docs/store/google-play-listing.md
+index 67f2bc0..94c3964 100644
+--- a/docs/store/google-play-listing.md
++++ b/docs/store/google-play-listing.md
+@@ -1,11 +1,11 @@
+-# MuscleMap — Google Play listing
++# urmusclemate — Google Play listing
+ 
+ This document contains the Google Play Console store-listing copy, metadata, the
+ **Data safety** form answers, and the **content rating (IARC)** questionnaire
+-answers for **MuscleMap**. Copy each field into the corresponding Play Console
++answers for **urmusclemate**. Copy each field into the corresponding Play Console
+ field at submission time.
+ 
+-- **Package name:** `com.thesoftaims.muscleapp`
++- **Package name:** `com.urmusclemate.app`
+ - **Developer:** TheSoftAims
+ - **Default language:** English (United States) — `en-US`
+ - **App or game:** App
+@@ -18,7 +18,7 @@ field at submission time.
+ 
+ ### App title (≤30 chars)
+ ```
+-MuscleMap
++urmusclemate
+ ```
+ 
+ ### Short description (≤80 chars)
+@@ -29,10 +29,10 @@ Scan gym machines to see what they train, follow routines & log every set.
+ 
+ ### Full description (≤4000 chars)
+ ```
+-MuscleMap is your free gym companion. Walk up to any machine, scan the code printed on it, and instantly see exactly what it trains — no more guessing.
++urmusclemate is your free gym companion. Walk up to any machine, scan the code printed on it, and instantly see exactly what it trains — no more guessing.
+ 
+ WHAT YOU CAN DO
+-• Scan a machine — point your camera at the barcode or QR code on a gym machine and MuscleMap shows you the exercise and the muscles it works. Scanning happens entirely on your device.
++• Scan a machine — point your camera at the barcode or QR code on a gym machine and urmusclemate shows you the exercise and the muscles it works. Scanning happens entirely on your device.
+ • Explore the anatomy library — browse by muscle group, drill into individual muscles, and see the exercises that target them.
+ • Search exercises — find any exercise fast.
+ • Follow ready-made routines — start training with structured, ready-to-go workouts.
+@@ -46,7 +46,7 @@ PRIVATE BY DESIGN
+ 
+ Browsing the library, searching, scanning and viewing routines are completely free and need no account. Create an account only when you want to log and track your workouts.
+ 
+-MuscleMap provides general fitness and exercise information only and is not medical advice. Consult a qualified professional before starting any exercise program.
++urmusclemate provides general fitness and exercise information only and is not medical advice. Consult a qualified professional before starting any exercise program.
+ 
+ Questions? support@thesoftaims.com
+ ```
+@@ -147,7 +147,7 @@ their own use; Supabase is our processor, which Play does not count as
+ ## 4. Content rating (IARC) questionnaire
+ 
+ Play Console → **App content → Content rating**. Category: **Reference, News, or
+-Educational** (or **Utility/Other**) — MuscleMap is a fitness/reference utility.
++Educational** (or **Utility/Other**) — urmusclemate is a fitness/reference utility.
+ Answer **No** to all sensitive-content questions:
+ 
+ | Topic | Answer |
+@@ -188,7 +188,7 @@ ESRB Everyone). The app's own stated minimum age is 13+.
+ 
+ - **App bundle:** `eas build -p android --profile production` produces an **AAB**
+   (`eas.json` → production `android.buildType: app-bundle`).
+-- **Package name:** `com.thesoftaims.muscleapp` (must match `app.json` →
++- **Package name:** `com.urmusclemate.app` (must match `app.json` →
+   `android.package`).
+ - **App signing:** use **Play App Signing** (recommended/default).
+ - **First upload:** the very first build must be uploaded **manually** to a track
+diff --git a/docs/store/submission-checklist.md b/docs/store/submission-checklist.md
+index 0d32fb9..b1dc4e3 100644
+--- a/docs/store/submission-checklist.md
++++ b/docs/store/submission-checklist.md
+@@ -1,9 +1,9 @@
+-# MuscleMap — Store submission checklist
++# urmusclemate — Store submission checklist
+ 
+-An ordered, do-this-then-that checklist to ship **MuscleMap** to **both** the
++An ordered, do-this-then-that checklist to ship **urmusclemate** to **both** the
+ Apple App Store and Google Play from this Expo **SDK 56** / **EAS** project.
+ 
+-- **App:** MuscleMap — `com.thesoftaims.muscleapp`
++- **App:** urmusclemate — `com.urmusclemate.app`
+ - **Developer:** TheSoftAims
+ - **EAS project ID:** `a3fd2be8-360b-4d94-9a4e-04e6c9d55201`
+ - **Supabase project ref:** `gpvithryqrakejjppvdp`
+@@ -22,8 +22,8 @@ These have external waits; kick them off before doing anything else.
+ - [ ] **Enroll / confirm Apple Developer Program** membership for TheSoftAims
+       (annual; can take time if new).
+ - [ ] **Create the app record in App Store Connect** (My Apps → +). Set name
+-      "MuscleMap", primary language English (U.S.), bundle ID
+-      `com.thesoftaims.muscleapp`, SKU `musclemap-ios-001`.
++      "urmusclemate", primary language English (U.S.), bundle ID
++      `com.urmusclemate.app`, SKU `musclemap-ios-001`.
+       → This generates the **numeric Apple ID** you need for
+       `eas.json` → `ascAppId`.
+ - [ ] **Create an App Store Connect API key** (App Manager role), download the
+@@ -41,7 +41,7 @@ These have external waits; kick them off before doing anything else.
+       before they can apply for production access. Recruit testers and start this
+       **as early as possible** — it is the single longest pole. (Organization/
+       business accounts may be exempt; confirm in your console.)
+-- [ ] **Create the app in Play Console** (package `com.thesoftaims.muscleapp`).
++- [ ] **Create the app in Play Console** (package `com.urmusclemate.app`).
+ - [ ] **Set up a Google Cloud service account** (Play Console → Setup → API
+       access), grant it **Release Manager/Admin**, download the JSON →
+       save as `credentials/play-service-account.json`.
+@@ -77,8 +77,8 @@ Supabase Dashboard → **Authentication**:
+         rely on the demo account. (Pick one; document it in the review notes.)
+ - [ ] **Site URL / Redirect URLs:** add the app's deep-link scheme so auth
+       redirects (e.g. password reset / confirmation) return to the app. The scheme
+-      is **`muscleapp`** (`app.json` → `expo.scheme`). Add a redirect such as
+-      `muscleapp://` (and any auth callback path the app uses).
++      is **`urmusclemate`** (`app.json` → `expo.scheme`). Add a redirect such as
++      `urmusclemate://` (and any auth callback path the app uses).
+ - [ ] **Password policy:** set a sensible **minimum length** (e.g. ≥8) and enable
+       leaked-password protection if available.
+ - [ ] Confirm **Row-Level Security** is enabled on `profiles`, `workouts`,
+@@ -120,9 +120,9 @@ Supabase Dashboard → **Authentication**:
+ 
+ ---
+ 
+-## Phase 1.5 — In-app purchases (MuscleMap Pro)
++## Phase 1.5 — In-app purchases (urmusclemate Pro)
+ 
+-Logging/history/import are gated behind a 7-day trial then the **MuscleMap Pro**
++Logging/history/import are gated behind a 7-day trial then the **urmusclemate Pro**
+ subscription (`expo-iap`). The app ships in **preview mode** (paywall + trial
+ work; "Subscribe" only unlocks locally) and **fails closed in production** until
+ real billing is configured — so this phase is required before a paid release.
+@@ -225,7 +225,7 @@ Run from the repo root; fix anything that fails before building.
+       eas build -p android --profile production
+       ```
+ - [ ] On first iOS build, let EAS manage signing (distribution cert + provisioning
+-      profile) for `com.thesoftaims.muscleapp`.
++      profile) for `com.urmusclemate.app`.
+ 
+ ---
+ 
+diff --git a/eslint.config.js b/eslint.config.js
+index ba708ed..7a3d9fe 100644
+--- a/eslint.config.js
++++ b/eslint.config.js
+@@ -6,5 +6,29 @@ module.exports = defineConfig([
+   expoConfig,
+   {
+     ignores: ["dist/*"],
+-  }
++  },
++  {
++    // Supabase Edge Functions run on Deno, not React Native. Deno resolves
++    // `jsr:`/`npm:`/`https:` specifiers natively, which the Node-based import
++    // resolver cannot follow, and `Deno` is a global there.
++    files: ["supabase/functions/**/*.ts"],
++    languageOptions: {
++      globals: { Deno: "readonly" },
++    },
++    rules: {
++      "import/no-unresolved": "off",
++    },
++  },
++  {
++    // Build/config scripts run on Node, so Node globals are in scope.
++    files: ["*.config.js", "scripts/**/*.{js,mjs}"],
++    languageOptions: {
++      globals: {
++        __dirname: "readonly",
++        Buffer: "readonly",
++        process: "readonly",
++        console: "readonly",
++      },
++    },
++  },
+ ]);
+diff --git a/scripts/bundle-exercise-videos.mjs b/scripts/bundle-exercise-videos.mjs
+index 7a33a56..eb5b538 100644
+--- a/scripts/bundle-exercise-videos.mjs
++++ b/scripts/bundle-exercise-videos.mjs
+@@ -1,6 +1,6 @@
+ // @ts-nocheck
+ /**
+- * Transcode the raw AI-generated exercise clips into small, muted, app-bundled
++ * Transcode the raw exercise demo clips into small, muted, app-bundled
+  * loops under `assets/videos/<slug>.mp4`, then keep `src/data/exercise-videos.ts`
+  * (the static `require()` map the app plays from) in sync.
+  *
+@@ -8,8 +8,8 @@
+  * each), so shipping them in the binary makes playback instant, works fully
+  * offline (the catalog is already offline-first), and removes the Supabase-
+  * hosting dependency for these editorial clips. The canonical Supabase URLs
+- * still live in `catalog.json` for credit attribution and as a remote fallback
+- * (see `scripts/fetch-catalog-media.mjs --ai-video` to host them too).
++ * still live in `catalog.json` as a remote fallback
++ * (see `scripts/fetch-catalog-media.mjs --demo-video` to host them too).
+  *
+  * Source files are named `<n>.<Title> → <muscles>.mp4` (n indexes NUM_TO_SLUG
+  * below). We map by the leading number so the messy human titles don't matter.
+@@ -42,7 +42,7 @@ const CHECK_ONLY = process.argv.includes('--check');
+ 
+ /**
+  * Leading file number (1-based, as downloaded) → catalog slug. Keep in sync with
+- * the catalog's exercise slugs and the AI_VIDEO_SLUGS list in fetch-catalog-media.mjs.
++ * the catalog's exercise slugs and the DEMO_VIDEO_SLUGS list in fetch-catalog-media.mjs.
+  */
+ const NUM_TO_SLUG = {
+   1: 'barbell-bench-press',
+@@ -106,8 +106,8 @@ function writeSourceMap(slugs) {
+  * to add or refresh clips. Metro requires literal \`require()\` paths, so this is
+  * a static map rather than a dynamic lookup.
+  *
+- * The matching attribution + canonical (remote) URLs live in
+- * \`src/data/catalog.json\` (\`video_url\` + \`mediaCredits\`).
++ * The canonical (remote) fallback URLs live in \`src/data/catalog.json\`
++ * (\`video_url\`). These clips are ours, so they carry no media credit.
+  */
+ 
+ import type { VideoSource } from 'expo-video';
+diff --git a/scripts/fetch-catalog-media.mjs b/scripts/fetch-catalog-media.mjs
+index a831f56..380ff01 100644
+--- a/scripts/fetch-catalog-media.mjs
++++ b/scripts/fetch-catalog-media.mjs
+@@ -8,11 +8,11 @@
+  *            attribution required, redistribution + commercial use allowed.
+  *   Videos : wger                       — CC BY-SA 4.0. Attribution REQUIRED
+  *            (handled by the in-app Licenses screen, fed from `mediaCredits`).
+- *   AI vids: MuscleMap-generated clips  — our own, hosted in Supabase Storage.
+- *            Wired via `--ai-video` from local files in AI_VIDEO_DIR (defaults
++ *   Demos : urmusclemate exercise clips     — our own, hosted in Supabase Storage.
++ *            Wired via `--demo-video` from local files in DEMO_VIDEO_DIR (defaults
+  *            to `.media-src/videos/`; the app-ready transcodes produced by
+  *            `bundle-exercise-videos.mjs` live in `assets/videos/` — point
+- *            AI_VIDEO_DIR there and add `--raw-upload` to ship them verbatim).
++ *            DEMO_VIDEO_DIR there and add `--raw-upload` to ship them verbatim).
+  *
+  * Two hosting modes:
+  *
+@@ -35,13 +35,13 @@
+  *   node scripts/fetch-catalog-media.mjs --no-video       # skip wger videos
+  *   node scripts/fetch-catalog-media.mjs --dry-run        # report, write nothing
+  *
+- *   # AI-generated exercise videos (our own clips, <slug>.mp4 in AI_VIDEO_DIR):
+- *   node scripts/fetch-catalog-media.mjs --ai-video                  # transcode + upload + wire catalog
+- *   AI_VIDEO_DIR=assets/videos node scripts/fetch-catalog-media.mjs --ai-video --raw-upload
++ *   # Exercise demo videos (our own clips, <slug>.mp4 in DEMO_VIDEO_DIR):
++ *   node scripts/fetch-catalog-media.mjs --demo-video                  # transcode + upload + wire catalog
++ *   DEMO_VIDEO_DIR=assets/videos node scripts/fetch-catalog-media.mjs --demo-video --raw-upload
+  *   #   ^ upload the already-transcoded app bundles as-is (no second encode)
+- *   node scripts/fetch-catalog-media.mjs --ai-video --write-urls-only  # just write catalog URLs (no keys/ffmpeg)
+- *   #   --ai-video needs SUPABASE_SERVICE_ROLE_KEY; ffmpeg is optional (raw upload if absent).
+- *   #   Source dir overridable with AI_VIDEO_DIR; clip length cap with AI_VIDEO_MAX_SECONDS.
++ *   node scripts/fetch-catalog-media.mjs --demo-video --write-urls-only  # just write catalog URLs (no keys/ffmpeg)
++ *   #   --demo-video needs SUPABASE_SERVICE_ROLE_KEY; ffmpeg is optional (raw upload if absent).
++ *   #   Source dir overridable with DEMO_VIDEO_DIR; clip length cap with DEMO_VIDEO_MAX_SECONDS.
+  *
+  * Re-runnable: it overwrites `image_url`/`video_url` for every mapped record and
+  * rebuilds the top-level `mediaCredits` array from scratch on each run (so run
+@@ -65,25 +65,25 @@ const DRY_RUN = args.has('--dry-run');
+ const WANT_VIDEO = !args.has('--no-video') && MODE === 'upload';
+ const BUCKET = process.env.CATALOG_MEDIA_BUCKET || 'catalog-media';
+ 
+-// AI-generated exercise videos: our own clips, wired from local files.
+-const AI_VIDEO = args.has('--ai-video');
++// Exercise demo videos: our own clips, wired from local files.
++const DEMO_VIDEO = args.has('--demo-video');
+ // Write the catalog video_url/credits without uploading bytes (no keys/ffmpeg
+ // needed) — useful to wire the app before the clips are hosted.
+ const WRITE_URLS_ONLY = args.has('--write-urls-only');
+-// Upload AI clips byte-for-byte, skipping the ffmpeg pass — for sources that
++// Upload demo clips byte-for-byte, skipping the ffmpeg pass — for sources that
+ // are already final transcodes (e.g. assets/videos/), where a second encode
+ // would only lose quality.
+ const RAW_UPLOAD = args.has('--raw-upload');
+-const AI_VIDEO_DIR = process.env.AI_VIDEO_DIR || join(ROOT, '.media-src', 'videos');
+-const AI_VIDEO_MAX_SECONDS = process.env.AI_VIDEO_MAX_SECONDS
+-  ? Number(process.env.AI_VIDEO_MAX_SECONDS)
++const DEMO_VIDEO_DIR = process.env.DEMO_VIDEO_DIR || join(ROOT, '.media-src', 'videos');
++const DEMO_VIDEO_MAX_SECONDS = process.env.DEMO_VIDEO_MAX_SECONDS
++  ? Number(process.env.DEMO_VIDEO_MAX_SECONDS)
+   : null;
+ 
+ /**
+- * Catalog slugs that have an AI-generated demonstration clip (file name
+- * `<slug>.mp4` under AI_VIDEO_DIR). Keep in sync with the generated set.
++ * Catalog slugs that have a demonstration clip (file name
++ * `<slug>.mp4` under DEMO_VIDEO_DIR). Keep in sync with the generated set.
+  */
+-const AI_VIDEO_SLUGS = [
++const DEMO_VIDEO_SLUGS = [
+   'barbell-bench-press',
+   'push-up',
+   'incline-dumbbell-press',
+@@ -129,16 +129,6 @@ const AI_VIDEO_SLUGS = [
+   'hanging-leg-raise',
+ ];
+ 
+-// Our own clips — no third-party license, but we still record a credit so the
+-// in-player caption + Licenses screen describe their AI provenance honestly.
+-const AI_GENERATED = {
+-  author: 'MuscleMap',
+-  license: 'AI-generated',
+-  licenseUrl: null,
+-  source: 'MuscleMap',
+-  sourceUrl: null,
+-};
+-
+ // ---------------------------------------------------------------------------
+ // Source config
+ // ---------------------------------------------------------------------------
+@@ -281,7 +271,7 @@ async function uploadObject(path, buffer, contentType) {
+ /**
+  * Re-encode to a small muted 720p H.264 loop (broad iOS/Android decode) and
+  * return the buffer. `maxSeconds` caps the length (null = keep full clip — used
+- * for AI clips, where truncating a rep mid-motion looks wrong).
++ * for demo clips, where truncating a rep mid-motion looks wrong).
+  */
+ function transcodeVideo(srcBuffer, { maxSeconds = 6 } = {}) {
+   const dir = mkdtempSync(join(tmpdir(), 'mm-video-'));
+@@ -354,23 +344,23 @@ function matchWgerVideo(index, terms) {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// AI-generated exercise videos (local files → Supabase Storage)
++// Exercise demo videos (local files → Supabase Storage)
+ // ---------------------------------------------------------------------------
+ 
+ /**
+- * Wire our own AI demo clips into the catalog. Reads `<slug>.mp4` from
+- * AI_VIDEO_DIR, (optionally) transcodes to a small muted MP4, uploads to
++ * Wire our own demo clips into the catalog. Reads `<slug>.mp4` from
++ * DEMO_VIDEO_DIR, (optionally) transcodes to a small muted MP4, uploads to
+  * `videos/<slug>.mp4` in the public bucket, and sets `video_url` + a credit.
+  * With `--write-urls-only` it computes the canonical public URL and writes the
+  * catalog WITHOUT uploading (no service key / ffmpeg needed) — handy to wire
+  * the app before the bytes are hosted.
+  */
+-async function runAiVideos(catalog, addCredit, credits) {
++async function runDemoVideos(catalog, addCredit, credits) {
+   const upload = !WRITE_URLS_ONLY;
+   log(
+     upload
+-      ? 'AI exercise videos → transcode + upload to Supabase Storage:'
+-      : 'AI exercise videos → writing catalog URLs only (no upload):',
++      ? 'Exercise demo videos → transcode + upload to Supabase Storage:'
++      : 'Exercise demo videos → writing catalog URLs only (no upload):',
+   );
+ 
+   if (upload && !DRY_RUN) await supabase(); // fail fast on missing keys
+@@ -392,7 +382,7 @@ async function runAiVideos(catalog, addCredit, credits) {
+ 
+   const bySlug = new Map(catalog.exercises.map((e) => [e.slug, e]));
+   let done = 0;
+-  for (const slug of AI_VIDEO_SLUGS) {
++  for (const slug of DEMO_VIDEO_SLUGS) {
+     const ex = bySlug.get(slug);
+     if (!ex) {
+       warn(`${slug}: not in catalog — skipping`);
+@@ -400,25 +390,26 @@ async function runAiVideos(catalog, addCredit, credits) {
+     }
+     let url = publicVideoUrl(slug);
+     if (upload && !DRY_RUN) {
+-      const file = join(AI_VIDEO_DIR, `${slug}.mp4`);
++      const file = join(DEMO_VIDEO_DIR, `${slug}.mp4`);
+       if (!existsSync(file)) {
+         warn(`${slug}: missing ${file}`);
+         continue;
+       }
+       const raw = readFileSync(file);
+-      const buf = ffmpegOk ? transcodeVideo(raw, { maxSeconds: AI_VIDEO_MAX_SECONDS }) : raw;
++      const buf = ffmpegOk ? transcodeVideo(raw, { maxSeconds: DEMO_VIDEO_MAX_SECONDS }) : raw;
+       url = await uploadObject(`videos/${slug}.mp4`, buf, 'video/mp4');
+       log(`  ✓ ${slug} (${(raw.length / 1e6).toFixed(1)}→${(buf.length / 1e6).toFixed(1)} MB)`);
+     } else {
+       log(`  • ${slug} → ${url}${DRY_RUN ? ' (dry-run)' : ''}`);
+     }
++    // No credit recorded: these clips are ours. The Licenses screen exists to
++    // attribute third-party media, and a self-credit only adds noise to it.
+     if (!DRY_RUN) ex.video_url = url;
+-    addCredit({ url, title: `${ex.name} — exercise demonstration`, ...AI_GENERATED });
+     done++;
+   }
+ 
+   if (DRY_RUN) {
+-    log(`\nDry-run — ${done} AI videos would be wired. No files written.`);
++    log(`\nDry-run — ${done} demo videos would be wired. No files written.`);
+     return;
+   }
+ 
+@@ -433,7 +424,7 @@ async function runAiVideos(catalog, addCredit, credits) {
+   writeFileSync(CATALOG_PATH, JSON.stringify(catalog, null, 2) + '\n');
+   const withVid = catalog.exercises.filter((e) => e.video_url).length;
+   log(
+-    `\n✓ Wrote ${CATALOG_PATH}\n  ${done}/${AI_VIDEO_SLUGS.length} AI clips wired this run · ` +
++    `\n✓ Wrote ${CATALOG_PATH}\n  ${done}/${DEMO_VIDEO_SLUGS.length} demo clips wired this run · ` +
+       `${withVid}/${catalog.exercises.length} exercises have a video · ${credits.length} credit entries.` +
+       `${upload ? '' : ' Run without --write-urls-only to upload the bytes.'}\n`,
+   );
+@@ -444,7 +435,7 @@ async function runAiVideos(catalog, addCredit, credits) {
+ // ---------------------------------------------------------------------------
+ 
+ async function main() {
+-  log(`\nMuscleMap media pipeline — mode: ${MODE}${DRY_RUN ? ' (dry-run)' : ''}\n`);
++  log(`\nurmusclemate media pipeline — mode: ${MODE}${DRY_RUN ? ' (dry-run)' : ''}\n`);
+ 
+   const catalog = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
+   const credits = []; // top-level mediaCredits (CC-BY-SA attribution lives here)
+@@ -456,12 +447,12 @@ async function main() {
+     credits.push(entry);
+   };
+ 
+-  // ---- AI-generated exercise videos (our own clips) ---------------------
+-  // Self-contained: wires video_url + credits for the AI clips and leaves the
++  // ---- Exercise demo videos (our own clips) -----------------------------
++  // Self-contained: wires video_url for the demo clips and leaves the
+   // (already CDN-hosted) images untouched. Runs and returns before the
+   // image/wger flow below.
+-  if (AI_VIDEO) {
+-    await runAiVideos(catalog, addCredit, credits);
++  if (DEMO_VIDEO) {
++    await runDemoVideos(catalog, addCredit, credits);
+     return;
+   }
+ 
+diff --git a/scripts/prebuild.mjs b/scripts/prebuild.mjs
+index eea0e6b..6919488 100644
+--- a/scripts/prebuild.mjs
++++ b/scripts/prebuild.mjs
+@@ -55,8 +55,8 @@ function generateMap(slugs) {
+  * refresh clips. Metro requires literal \`require()\` paths, so this is a static
+  * map rather than a dynamic lookup.
+  *
+- * The matching attribution + canonical (remote) URLs live in
+- * \`src/data/catalog.json\` (\`video_url\` + \`mediaCredits\`).
++ * The canonical (remote) fallback URLs live in \`src/data/catalog.json\`
++ * (\`video_url\`). These clips are ours, so they carry no media credit.
+  */
+ 
+ import type { VideoSource } from 'expo-video';
+diff --git a/src/app/(tabs)/profile.tsx b/src/app/(tabs)/profile.tsx
+index eaa5852..55499eb 100644
+--- a/src/app/(tabs)/profile.tsx
++++ b/src/app/(tabs)/profile.tsx
+@@ -87,7 +87,7 @@ export default function ProfileScreen() {
+       <Card style={styles.settings}>
+         <ListRow
+           leadingIcon="flame-outline"
+-          title="MuscleMap Pro"
++          title="urmusclemate Pro"
+           subtitle={proSubtitle}
+           onPress={() => router.push('/paywall' as Href)}
+         />
+@@ -118,7 +118,7 @@ export default function ProfileScreen() {
+         <ListRow
+           leadingIcon="information-circle-outline"
+           title="About"
+-          subtitle={`MuscleMap v${version}`}
++          subtitle={`urmusclemate v${version}`}
+           onPress={() => router.push('/about')}
+         />
+       </Card>
+diff --git a/src/app/about.tsx b/src/app/about.tsx
+index 2df78aa..d25b963 100644
+--- a/src/app/about.tsx
++++ b/src/app/about.tsx
+@@ -20,7 +20,7 @@ export default function AboutScreen() {
+         <View style={[styles.logo, { backgroundColor: theme.primaryMuted }]}>
+           <Icon name="barbell" size={36} color="primary" />
+         </View>
+-        <ThemedText type="subtitle">MuscleMap</ThemedText>
++        <ThemedText type="subtitle">urmusclemate</ThemedText>
+         <ThemedText type="small" themeColor="textMuted">
+           Version {version}
+         </ThemedText>
+diff --git a/src/app/import.tsx b/src/app/import.tsx
+index f8fd8ec..0b34cee 100644
+--- a/src/app/import.tsx
++++ b/src/app/import.tsx
+@@ -22,7 +22,7 @@ import { haptics } from '@/lib/haptics';
+ const FORMAT_LABEL: Record<ParseResult['format'], string> = {
+   strong: 'Strong',
+   hevy: 'Hevy',
+-  musclemap: 'MuscleMap',
++  musclemap: 'urmusclemate',
+   unknown: 'Unknown',
+ };
+ 
+@@ -50,7 +50,7 @@ export default function ImportScreen() {
+         setParsed(null);
+         setMatch(null);
+         setError(
+-          "Couldn't read that file. Export a CSV from Strong, Hevy, or MuscleMap and try again.",
++          "Couldn't read that file. Export a CSV from Strong, Hevy, or urmusclemate and try again.",
+         );
+         return;
+       }
+@@ -96,7 +96,7 @@ export default function ImportScreen() {
+       <FeatureGate copy={GATES.import}>
+         <SectionHeader
+           title="Bring your history"
+-          subtitle="Import a CSV exported from Strong, Hevy, or MuscleMap — your PRs come with you."
++          subtitle="Import a CSV exported from Strong, Hevy, or urmusclemate — your PRs come with you."
+         />
+ 
+         <Button
+diff --git a/src/app/licenses.tsx b/src/app/licenses.tsx
+index 1b36fc3..059528e 100644
+--- a/src/app/licenses.tsx
++++ b/src/app/licenses.tsx
+@@ -30,8 +30,8 @@ export default function LicensesScreen() {
+     <Screen>
+       <Stack.Screen options={{ title: 'Licenses & Credits' }} />
+       <ThemedText themeColor="textSecondary">
+-        Exercise imagery and demonstration videos in MuscleMap are provided by the open
+-        projects below. We&apos;re grateful to their contributors.
++        Exercise imagery in urmusclemate is provided by the open projects below. We&apos;re
++        grateful to their contributors. Demonstration videos are our own.
+       </ThemedText>
+ 
+       {groups.length === 0 ? (
+diff --git a/src/app/paywall.tsx b/src/app/paywall.tsx
+index de6056b..222726f 100644
+--- a/src/app/paywall.tsx
++++ b/src/app/paywall.tsx
+@@ -60,7 +60,7 @@ export default function PaywallScreen() {
+     setBusy(false);
+     if (res.ok) {
+       haptics.success();
+-      Alert.alert('Restored', 'Your MuscleMap Pro subscription is active.');
++      Alert.alert('Restored', 'Your urmusclemate Pro subscription is active.');
+       close();
+     } else {
+       Alert.alert('Restore purchases', res.error ?? 'No previous purchase found.');
+@@ -90,7 +90,7 @@ export default function PaywallScreen() {
+ 
+         <View style={styles.hero}>
+           <ThemedText type="display" style={styles.title}>
+-            MuscleMap Pro
++            urmusclemate Pro
+           </ThemedText>
+           <ThemedText themeColor="textSecondary" style={styles.center}>
+             {headline}
+@@ -147,7 +147,7 @@ export default function PaywallScreen() {
+ 
+       <View style={[styles.footer, { borderTopColor: theme.border }]}>
+         <Button
+-          label={status === 'expired' ? 'Unlock MuscleMap Pro' : 'Continue with Pro'}
++          label={status === 'expired' ? 'Unlock urmusclemate Pro' : 'Continue with Pro'}
+           size="lg"
+           fullWidth
+           loading={busy}
+diff --git a/src/app/settings/account.tsx b/src/app/settings/account.tsx
+index 2360510..6b7b506 100644
+--- a/src/app/settings/account.tsx
++++ b/src/app/settings/account.tsx
+@@ -48,7 +48,7 @@ export default function AccountScreen() {
+           .order('performed_at', { ascending: false }),
+       ]);
+       const payload = {
+-        app: 'MuscleMap',
++        app: 'urmusclemate',
+         exportedAt: new Date().toISOString(),
+         account: { id: user.id, email },
+         profile,
+@@ -61,7 +61,7 @@ export default function AccountScreen() {
+       if (await Sharing.isAvailableAsync()) {
+         await Sharing.shareAsync(file.uri, {
+           mimeType: 'application/json',
+-          dialogTitle: 'Export MuscleMap data',
++          dialogTitle: 'Export urmusclemate data',
+           UTI: 'public.json',
+         });
+       } else {
+diff --git a/src/app/settings/appearance.tsx b/src/app/settings/appearance.tsx
+index f354051..f979350 100644
+--- a/src/app/settings/appearance.tsx
++++ b/src/app/settings/appearance.tsx
+@@ -16,7 +16,7 @@ export default function AppearanceScreen() {
+ 
+   return (
+     <Screen>
+-      <SectionHeader title="Appearance" subtitle="Choose how MuscleMap looks" />
++      <SectionHeader title="Appearance" subtitle="Choose how urmusclemate looks" />
+       <Card style={styles.card}>
+         {OPTIONS.map((o) => (
+           <ListRow
+diff --git a/src/constants/links.ts b/src/constants/links.ts
+index f6a05c3..7c8cc78 100644
+--- a/src/constants/links.ts
++++ b/src/constants/links.ts
+@@ -2,7 +2,7 @@
+  * Canonical external URLs (legal + support). These must be live HTTPS pages
+  * before store submission — both stores require a reachable privacy policy, and
+  * Google additionally requires a public account-deletion page. Page copy is in
+- * `docs/legal/`. Update the host if MuscleMap moves off thesoftaims.com.
++ * `docs/legal/`. Update the host if urmusclemate moves off thesoftaims.com.
+  */
+ export const Links = {
+   privacy: 'https://www.thesoftaims.com/musclemap/privacy',
+diff --git a/src/data/catalog.json b/src/data/catalog.json
+index ad69b6c..de0598b 100644
+--- a/src/data/catalog.json
++++ b/src/data/catalog.json
+@@ -2167,384 +2167,6 @@
+       "licenseUrl": "https://unlicense.org/",
+       "source": "free-exercise-db",
+       "sourceUrl": "https://github.com/yuhonas/free-exercise-db"
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/barbell-bench-press.mp4",
+-      "title": "Barbell Bench Press — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/push-up.mp4",
+-      "title": "Push-up — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/incline-dumbbell-press.mp4",
+-      "title": "Incline Dumbbell Press — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/chest-press-machine.mp4",
+-      "title": "Chest Press (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/lat-pulldown.mp4",
+-      "title": "Lat Pulldown — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/pull-up.mp4",
+-      "title": "Pull-up — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/seated-cable-row.mp4",
+-      "title": "Seated Cable Row — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/barbell-squat.mp4",
+-      "title": "Barbell Back Squat — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/leg-press.mp4",
+-      "title": "Leg Press — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/romanian-deadlift.mp4",
+-      "title": "Romanian Deadlift — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/leg-curl.mp4",
+-      "title": "Leg Curl — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/calf-raise.mp4",
+-      "title": "Standing Calf Raise — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/overhead-press.mp4",
+-      "title": "Overhead Press — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/lateral-raise.mp4",
+-      "title": "Dumbbell Lateral Raise — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/dumbbell-bicep-curl.mp4",
+-      "title": "Dumbbell Bicep Curl — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/tricep-pushdown.mp4",
+-      "title": "Tricep Pushdown — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/plank.mp4",
+-      "title": "Plank — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/hip-thrust.mp4",
+-      "title": "Barbell Hip Thrust — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/pec-deck.mp4",
+-      "title": "Pec Deck — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/incline-chest-press.mp4",
+-      "title": "Incline Chest Press (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/cable-crossover.mp4",
+-      "title": "Cable Crossover — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/machine-row.mp4",
+-      "title": "Seated Row (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/assisted-pull-up.mp4",
+-      "title": "Assisted Pull-up (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/t-bar-row.mp4",
+-      "title": "T-Bar Row — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/back-extension.mp4",
+-      "title": "Back Extension — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/machine-shoulder-press.mp4",
+-      "title": "Shoulder Press (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/reverse-pec-deck.mp4",
+-      "title": "Reverse Pec Deck — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/face-pull.mp4",
+-      "title": "Cable Face Pull — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/preacher-curl.mp4",
+-      "title": "Preacher Curl — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/machine-tricep-extension.mp4",
+-      "title": "Tricep Extension (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/cable-bicep-curl.mp4",
+-      "title": "Cable Bicep Curl — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/leg-extension.mp4",
+-      "title": "Leg Extension — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/hack-squat.mp4",
+-      "title": "Hack Squat — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/smith-machine-squat.mp4",
+-      "title": "Smith Machine Squat — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/hip-abduction.mp4",
+-      "title": "Hip Abduction (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/hip-adduction.mp4",
+-      "title": "Hip Adduction (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/seated-calf-raise.mp4",
+-      "title": "Seated Calf Raise — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/glute-kickback.mp4",
+-      "title": "Cable Glute Kickback — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/ab-crunch.mp4",
+-      "title": "Ab Crunch (Machine) — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/cable-crunch.mp4",
+-      "title": "Cable Crunch — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/rotary-torso.mp4",
+-      "title": "Rotary Torso — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+-    },
+-    {
+-      "url": "https://gpvithryqrakejjppvdp.supabase.co/storage/v1/object/public/catalog-media/videos/hanging-leg-raise.mp4",
+-      "title": "Hanging Leg Raise — exercise demonstration",
+-      "author": "MuscleMap",
+-      "license": "AI-generated",
+-      "licenseUrl": null,
+-      "source": "MuscleMap",
+-      "sourceUrl": null
+     }
+   ]
+ }
+diff --git a/src/data/exercise-videos.ts b/src/data/exercise-videos.ts
+index 1610e75..60195b0 100644
+--- a/src/data/exercise-videos.ts
++++ b/src/data/exercise-videos.ts
+@@ -4,8 +4,8 @@
+  * refresh clips. Metro requires literal `require()` paths, so this is a static
+  * map rather than a dynamic lookup.
+  *
+- * The matching attribution + canonical (remote) URLs live in
+- * `src/data/catalog.json` (`video_url` + `mediaCredits`).
++ * The canonical (remote) fallback URLs live in `src/data/catalog.json`
++ * (`video_url`). These clips are ours, so they carry no media credit.
+  */
+ 
+ import type { VideoSource } from 'expo-video';
+diff --git a/src/features/access/gate.tsx b/src/features/access/gate.tsx
+index 7ab1457..961f083 100644
+--- a/src/features/access/gate.tsx
++++ b/src/features/access/gate.tsx
+@@ -78,7 +78,7 @@ export const GATES: Record<'history' | 'import', FeatureGateCopy> = {
+       icon: 'lock-closed-outline',
+       title: 'History is a Pro feature',
+       message:
+-        'Your free trial has ended. Unlock MuscleMap Pro to save and review your training history.',
++        'Your free trial has ended. Unlock urmusclemate Pro to save and review your training history.',
+     },
+   },
+   import: {
+@@ -92,7 +92,7 @@ export const GATES: Record<'history' | 'import', FeatureGateCopy> = {
+       icon: 'lock-closed-outline',
+       title: 'Importing is a Pro feature',
+       message:
+-        'Your free trial has ended. Unlock MuscleMap Pro to import your Strong, Hevy, or MuscleMap history.',
++        'Your free trial has ended. Unlock urmusclemate Pro to import your Strong, Hevy, or urmusclemate history.',
+     },
+   },
+ };
+diff --git a/src/features/auth/use-auth-redirect.ts b/src/features/auth/use-auth-redirect.ts
+index cd15a74..001b73e 100644
+--- a/src/features/auth/use-auth-redirect.ts
++++ b/src/features/auth/use-auth-redirect.ts
+@@ -1,10 +1,10 @@
+ /**
+  * Catches the deep link that Supabase opens after an email confirmation or
+  * password-reset link. With the PKCE flow the link returns to the app as
+- * `muscleapp://...?code=...`; we exchange that code for a session and, for a
++ * `urmusclemate://...?code=...`; we exchange that code for a session and, for a
+  * recovery link, route to the "set a new password" screen.
+  *
+- * Requires the app's redirect URLs (the `muscleapp://` scheme) to be allow-listed
++ * Requires the app's redirect URLs (the `urmusclemate://` scheme) to be allow-listed
+  * in Supabase → Authentication → URL Configuration.
+  */
+ 
+diff --git a/src/features/billing/constants.ts b/src/features/billing/constants.ts
+index 69b58b9..cb14f58 100644
+--- a/src/features/billing/constants.ts
++++ b/src/features/billing/constants.ts
+@@ -1,9 +1,9 @@
+ /**
+  * Subscription / trial configuration.
+  *
+- * MuscleMap is free to browse forever (catalog, anatomy, exercise videos).
++ * urmusclemate is free to browse forever (catalog, anatomy, exercise videos).
+  * Workout *logging* — saving sessions, history, and importing — is the premium
+- * tier, unlocked free for the first {@link TRIAL_DAYS} days and by a MuscleMap
++ * tier, unlocked free for the first {@link TRIAL_DAYS} days and by a urmusclemate
+  * Pro subscription thereafter. The AI machine scanner stays available on the
+  * free plan but is capped at {@link FREE_DAILY_SCANS} scans a day (unlimited
+  * on trial/Pro, still subject to the server's hourly abuse limit).
+diff --git a/src/features/billing/entitlement.tsx b/src/features/billing/entitlement.tsx
+index 4119819..66e25ab 100644
+--- a/src/features/billing/entitlement.tsx
++++ b/src/features/billing/entitlement.tsx
+@@ -4,7 +4,7 @@
+  *
+  * The trial is tracked locally (AsyncStorage), so it works offline and needs no
+  * account: the clock starts on first launch and runs for {@link TRIAL_DAYS}.
+- * After it expires, logging/history/import are gated behind MuscleMap Pro.
++ * After it expires, logging/history/import are gated behind urmusclemate Pro.
+  * Purchasing flips the plan to `pro` — via real IAP when configured, or locally
+  * in preview mode so the whole flow is testable without store products.
+  *
+diff --git a/src/features/workouts/import.ts b/src/features/workouts/import.ts
+index 168a25f..ca04dce 100644
+--- a/src/features/workouts/import.ts
++++ b/src/features/workouts/import.ts
+@@ -1,6 +1,6 @@
+ /**
+  * Parse a workout-history CSV exported from another tracker into our own
+- * workout/set shape. Supports Strong, Hevy, and MuscleMap's own CSV — detected
++ * workout/set shape. Supports Strong, Hevy, and urmusclemate's own CSV — detected
+  * from the header row. Exercise names are kept verbatim here; matching to the
+  * catalog happens at import time so the preview can report how many mapped.
+  */
+@@ -27,7 +27,7 @@ export type ParsedWorkout = {
+ export type ParseResult = {
+   format: ImportFormat;
+   workouts: ParsedWorkout[];
+-  /** True when weights are already kilograms (Hevy, MuscleMap); false = unknown unit. */
++  /** True when weights are already kilograms (Hevy, urmusclemate); false = unknown unit. */
+   weightsAreKg: boolean;
+   setCount: number;
+ };

@@ -1,0 +1,8 @@
+R1	yes	
+R2	yes	
+R3	yes	
+R4	yes	
+R5	yes	
+R6	yes	
+R7	no	NOT reachable from `artifact.tsx` — targets `src/app/globals.css` (NOT RECOVERED).
+R8	no	NOT reachable from `artifact.tsx` — concerns a sibling file's presence in

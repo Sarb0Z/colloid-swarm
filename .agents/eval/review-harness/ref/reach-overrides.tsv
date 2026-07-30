@@ -1,0 +1,2 @@
+fixture	reference_id	reachable	reason
+cleanstack-web-disconnect-r1	R7	yes	targets src/app/globals.css, which the base tree supplies; the fixture annotation assumed artifact.tsx alone

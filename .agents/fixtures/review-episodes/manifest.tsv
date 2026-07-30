@@ -1,0 +1,42 @@
+fixture	id	class	disposition	reachable	summary
+cleanstack-web-disconnect-r1	1	QUALITY	ADOPTED	yes	(HIGH) Focus destroyed on every state flip
+cleanstack-web-disconnect-r1	2	QUALITY	ADOPTED	yes	(HIGH) State change is silent to assistive tech
+cleanstack-web-disconnect-r1	3	QUALITY	ADOPTED	yes	(MEDIUM) No Escape to cancel
+cleanstack-web-disconnect-r1	4	QUALITY	IGNORED	yes	(MEDIUM) `connecting` never resets on success; `disabled={connecting}`
+cleanstack-web-disconnect-r1	5	QUALITY	ADOPTED	yes	(MEDIUM) Cancel disabled mid-flight with no timeout; card can freeze i
+cleanstack-web-disconnect-r1	6	QUALITY	ADOPTED	yes	(LOW-MED) Generic error string discards cases the backend distinguishe
+cleanstack-web-disconnect-r1	7	QUALITY	ADOPTED	no	(LOW) `:disabled` does not suppress the hover fill
+cleanstack-web-disconnect-r1	8	REQUIREMENT	ESCALATED	no	(LOW) Unrelated change bundled in the working tree
+cleanstack-web-disconnect-r2	1	QUALITY	ADOPTED	yes	`role="status"` is on the wrong node — announces the footnote, never t
+cleanstack-web-disconnect-r2	2	QUALITY	ADOPTED	yes	Live region spams on mount
+cleanstack-web-disconnect-r2	3	QUALITY	ADOPTED	yes	`.catch()` launders real HTTP failures into "check your connection"
+cleanstack-web-disconnect-r2	4	QUALITY	ADOPTED	yes	`aria-describedby` pointing at a live region causes double announcemen
+cleanstack-web-disconnect-r2	5	QUALITY	ADOPTED	yes	State lie: a timed-out disconnect leaves the card claiming "Connected"
+cleanstack-web-disconnect-r2	6	QUALITY	ADOPTED	no	`globals.css` comment is false
+cleanstack-web-disconnect-r2	7	QUALITY	ADOPTED	no	`transform` is still order-dependent after the var refactor
+cleanstack-web-disconnect-r2	8	REQUIREMENT	ADOPTED	no	Stale doc comments describe the code as it was before the diff
+ms-arf-forward-milter	1	AMBIGUITY	ESCALATED	yes	Reinjected ARFs can be silently HELD by Postfix `header_checks`
+ms-arf-forward-milter	2	QUALITY	IGNORED	yes	Capture-before-forward ordering; duplicate row when the ARF has no Mes
+ms-arf-forward-milter	3	QUALITY	IGNORED	yes	Duplicated `-o receive_override_options=` lines make the second win
+ms-domain-delete-fk-race	1	REQUIREMENT	ADOPTED	yes	S1 — deploy.sh log-dir owner
+ms-domain-delete-fk-race	2	QUALITY	ADOPTED	yes	S2 — fallback log dir never rotated
+ms-domain-delete-fk-race	3	QUALITY	ADOPTED	yes	S3 — bare `await db.rollback()` can escape
+ms-domain-delete-fk-race	4	QUALITY	ADOPTED	yes	N1 — `_is_retryable` docstring is factually wrong
+ms-domain-delete-fk-race	5	REQUIREMENT	ADOPTED	yes	N2 — only the first physical line gets the `<N>` prefix
+ms-domain-delete-fk-race	6	QUALITY	ADOPTED	yes	N3 — concurrency primitive has zero real-DB test coverage
+ms-domain-delete-fk-race	7	QUALITY	ADOPTED	yes	N4 — reader cannot read compressed rotated logs
+ms-domain-delete-fk-race	8	QUALITY	DECLINED	yes	N5 — torn lines for >~8 KB records under concurrent writers
+ms-domain-delete-fk-race	9	QUALITY	ADOPTED	yes	N6a — stale helper name in test assertion strings
+ms-domain-delete-fk-race	10	QUALITY	ADOPTED	yes	N6b — `_active_log_dir` module cache is a global-state footgun
+ms-domain-delete-fk-race	11	QUALITY	ADOPTED	yes	N6c — worker return omits `not_found`
+ms-domain-delete-fk-race	12	QUALITY	IGNORED	yes	N6d — `_null_send_log_domain_refs` has no iteration cap
+ms-unit0-quarantine-plan	1	QUALITY	ADOPTED	yes	MAJOR — the `catch_all` quarantine class matches zero rows on prod
+ms-unit0-quarantine-plan	2	REQUIREMENT	ADOPTED	yes	MINOR — the held IP's row must never be deleted
+ms-unit0-quarantine-plan	3	REQUIREMENT	ADOPTED	yes	MINOR — `scripts/recover_domains.py:318-330` bulk-writes `IPAddress.st
+ms-unit0-quarantine-plan	4	QUALITY	ADOPTED	yes	MINOR — the observability `elif` re-inlines the extracted predicate
+ms-unit0-quarantine-plan	5	QUALITY	ADOPTED	yes	MINOR — the `create_all` column-parity claim is wrong
+ms-unit0-quarantine-plan	6	QUALITY	ADOPTED	yes	MINOR — sender-side over-match in the bounce patterns
+ms-unit0-quarantine-plan	7	QUALITY	ADOPTED	yes	MINOR — the done-gate overstates test coverage
+muscle-app-rebrand-videos	1	QUALITY	DECLINED	yes	(HIGH) Scheme rename has an unfulfilled external dependency
+muscle-app-rebrand-videos	2	AMBIGUITY	DECLINED	yes	(MEDIUM) Legal URL slug is a half-rename
+muscle-app-rebrand-videos	3	QUALITY	ADOPTED	yes	(MEDIUM) Two-generator trap and a misleading self-authored header

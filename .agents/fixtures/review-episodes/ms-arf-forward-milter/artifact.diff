@@ -1,0 +1,126 @@
+diff --git a/agent/mailfilter_server.js b/agent/mailfilter_server.js
+index 72ad2c1..fb9023e 100644
+--- a/agent/mailfilter_server.js
++++ b/agent/mailfilter_server.js
+@@ -491,34 +491,32 @@ async function parseArf(parsed) {
+ }
+ 
+ /**
+- * Parse + queue one ARF complaint for the next batched flush. A malformed report
+- * must never crash the SMTP handler or block mail, so parse failures are logged
+- * and dropped.
++ * Parse + record one ARF complaint for the next batched flush. A malformed report
++ * must never crash the SMTP handler or block mail, so parse failures are logged and
++ * the complaint simply isn't recorded. The caller forwards every ARF to the inbox
++ * regardless of what happens here, so a report we can't parse is still seen by a human.
+  */
+-// Returns true if the complaint was queued, false if it couldn't be recorded — the
+-// caller forwards the un-recorded ARF to the inbox rather than swallowing it.
+ async function enqueueComplaint(parsed) {
+-  if (!CONTROL_PLANE_URL || !AGENT_KEY) return false;
++  if (!CONTROL_PLANE_URL || !AGENT_KEY) return;
+   let complaint;
+   try {
+     complaint = await parseArf(parsed);
+   } catch (err) {
+     console.error("ARF complaint parse failed — not recorded:", err.message);
+-    return false;
++    return;
+   }
+   if (!complaint) {
+     // No complainant parsable (e.g. the ISP redacted the recipient, as Outlook JMRP
+-    // does). Don't silently destroy an abuse signal — report nothing here and let the
+-    // caller forward it to a human.
+-    console.error("ARF complaint had no parseable complainant — not recorded, forwarding to inbox");
+-    return false;
++    // does), so there's no contact to suppress. The caller still forwards it to the
++    // inbox, so the abuse signal isn't lost.
++    console.error("ARF complaint had no parseable complainant — not recorded");
++    return;
+   }
+   pendingComplaints.push(complaint);
+   // Same backstop as replies: keep only the most recent N during a backend outage.
+   if (pendingComplaints.length > COMPLAINT_BUFFER_MAX) {
+     pendingComplaints.splice(0, pendingComplaints.length - COMPLAINT_BUFFER_MAX);
+   }
+-  return true;
+ }
+ 
+ async function flushComplaints() {
+@@ -562,6 +560,20 @@ const transporter = nodemailer.createTransport({
+   tls: { rejectUnauthorized: false },
+ });
+ 
++// Reinject a message to Postfix for onward delivery using the original SMTP
++// envelope. Shared by the normal forward path and the ARF-complaint forward, so
++// both deliver a complaint to jerry@ through the exact same route.
++async function reinject(session, outbound) {
++  const from = session.envelope.mailFrom?.address || "";
++  const to = (session.envelope.rcptTo || [])
++    .map((recipient) => recipient.address)
++    .filter(Boolean);
++  if (!to.length) {
++    throw new Error("No RCPT TO found in session envelope");
++  }
++  await transporter.sendMail({ envelope: { from, to }, raw: outbound });
++}
++
+ const server = new SMTPServer({
+   disabledCommands: ["AUTH"],
+   onConnect(session, callback) {
+@@ -580,20 +592,22 @@ const server = new SMTPServer({
+         const raw = Buffer.concat(chunks);
+         const parsed = await simpleParser(raw);
+ 
+-        // SES ARF abuse reports are machine mail: capture the structured complaint
+-        // for the backend and drop it here — never forward to the human inbox, and
+-        // never run it through warmup matching. Only short-circuit when reporting is
+-        // configured; otherwise we'd silently swallow a complaint we can't record, so
+-        // an unconfigured node lets the ARF fall through and reach the inbox as before.
+-        // Anything that isn't an ARF falls through to the normal path below unchanged.
+-        if (CONTROL_PLANE_URL && AGENT_KEY && isArfComplaint(parsed)) {
+-          const captured = await enqueueComplaint(parsed);
+-          if (captured) {
+-            callback();
+-            return;
++        // SES ARF abuse reports are machine mail. Capture the structured complaint
++        // for the backend (enqueueComplaint self-gates on reporting being configured;
++        // parseable ARFs → complaint_messages + contact suppression) AND forward the
++        // report to the human inbox, so every complaint — parseable or not — is
++        // visible in jerry@ alongside the Complaints tab. Skip warmup matching and
++        // reply enqueue: the ARF embeds our original outbound (its warmup keywords
++        // would mis-tag the report) and it is never a genuine reply.
++        if (isArfComplaint(parsed)) {
++          await enqueueComplaint(parsed);
++          let outbound = raw;
++          if (!hasHeader(outbound, "X-Filtered-By")) {
++            outbound = prependHeader(outbound, "X-Filtered-By: mailfilter");
+           }
+-          // Un-parseable ARF: fall through to forward it to the human inbox rather
+-          // than swallow an abuse complaint we couldn't record.
++          await reinject(session, outbound);
++          callback();
++          return;
+         }
+ 
+         // Combine subject + text + html for comprehensive matching
+@@ -637,18 +651,7 @@ const server = new SMTPServer({
+           console.log("warmup matched:", allMatched.slice(0, 10));
+         }
+ 
+-        const from = session.envelope.mailFrom?.address || "";
+-        const to = (session.envelope.rcptTo || [])
+-          .map((recipient) => recipient.address)
+-          .filter(Boolean);
+-        if (!to.length) {
+-          throw new Error("No RCPT TO found in session envelope");
+-        }
+-
+-        await transporter.sendMail({
+-          envelope: { from, to },
+-          raw: outbound,
+-        });
++        await reinject(session, outbound);
+ 
+         // Queue genuine replies for the next batched flush (not warmup/seed
+         // traffic). Synchronous + non-blocking: forwarding already succeeded, so

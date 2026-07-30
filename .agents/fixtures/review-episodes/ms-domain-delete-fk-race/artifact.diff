@@ -1,0 +1,1169 @@
+diff --git a/backend/api/domains.py b/backend/api/domains.py
+index aad0cf9..18d19cf 100644
+--- a/backend/api/domains.py
++++ b/backend/api/domains.py
+@@ -3377,14 +3377,16 @@ async def delete_domain(
+     if not domain:
+         raise HTTPException(status_code=404, detail="Domain not found")
+ 
+-    deleted = await delete_domains_in_batches(
++    succeeded, failed = await delete_domains_in_batches(
+         db,
+         account_id=user.account_id,
+         domain_ids=[domain_id],
+         batch_size=1,
+     )
+-    name = deleted[0][1]
+-    return {"status": "ok", "deleted": name}
++    if not succeeded:
++        reason = failed[0][2] if failed else "domain no longer exists"
++        raise HTTPException(status_code=409, detail=f"Could not delete {domain.name}: {reason}")
++    return {"status": "ok", "deleted": succeeded[0][1]}
+ 
+ 
+ class BulkDeleteRequest(BaseModel):
+@@ -3398,32 +3400,21 @@ async def bulk_delete_domains(
+     user: User = Depends(require_permission("domains.delete")),
+ ):
+     """Delete multiple domains at once."""
+-    result = await db.execute(
+-        select(Domain).where(
+-            Domain.id.in_(body.domain_ids),
+-            Domain.account_id == user.account_id,
+-        )
++    succeeded, failed = await delete_domains_in_batches(
++        db,
++        account_id=user.account_id,
++        domain_ids=body.domain_ids,
+     )
+-    domains = result.scalars().all()
+-    deleted_names = []
+-    matched_ids = []
+-    for d in domains:
+-        deleted_names.append(d.name)
+-        matched_ids.append(d.id)
+-
+-    if matched_ids:
+-        deleted = await delete_domains_in_batches(
+-            db,
+-            account_id=user.account_id,
+-            domain_ids=matched_ids,
+-        )
+-        deleted_names = [name for _domain_id, name in deleted]
+-
++    matched = len(succeeded) + len(failed)
+     return {
+         "status": "ok",
+-        "deleted": len(deleted_names),
+-        "domains": deleted_names,
+-        "not_found": len(body.domain_ids) - len(deleted_names),
++        "deleted": len(succeeded),
++        "domains": [name for _domain_id, name in succeeded],
++        "failed": len(failed),
++        "failed_domains": [
++            {"domain": name, "reason": reason} for _domain_id, name, reason in failed
++        ],
++        "not_found": len(set(body.domain_ids)) - matched,
+     }
+ 
+ 
+diff --git a/backend/api/logs.py b/backend/api/logs.py
+index c03e6e3..f71e1a9 100644
+--- a/backend/api/logs.py
++++ b/backend/api/logs.py
+@@ -4,7 +4,6 @@ Supports filtering by service, level, logger, time range, and full-text search.
+ """
+ 
+ import json
+-import os
+ import re
+ import subprocess
+ from collections import Counter
+@@ -15,21 +14,32 @@ from typing import Optional
+ from fastapi import APIRouter, Depends, Query
+ from pydantic import BaseModel
+ 
++from backend.logging_config import log_dir_candidates
+ from backend.policies import require_permission
+ 
+ router = APIRouter()
+ 
+-# Where logs live
+-PROD_LOG_DIR = Path("/var/log/email-system")
+-DEV_LOG_DIR = Path("logs")
+-
+ SERVICES = ["backend", "celery", "beat"]
+ LEVEL_PRIORITY = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+ 
++# The app's ConsoleFormatter prints "HH:MM:SS LEVEL  [logger] message" to stdout,
++# which is what journald stores. journald stamps every stdout line PRIORITY=6, so
++# the real level is only recoverable from this token — not from journald PRIORITY.
++_CONSOLE_LEVEL_RE = re.compile(r"^(?:<\d+>)?\d{2}:\d{2}:\d{2}\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL)\b")
++
++
++def _level_from_message(msg: str, fallback: str) -> str:
++    match = _CONSOLE_LEVEL_RE.match(msg)
++    return match.group(1) if match else fallback
++
+ 
+-def _get_log_dir() -> Path:
+-    env = os.environ.get("ENVIRONMENT", "development")
+-    return PROD_LOG_DIR if env == "production" else DEV_LOG_DIR
++def _find_service_file(service: str) -> Optional[Path]:
++    """First existing {service}.log across the resolved log dirs, else None."""
++    for log_dir in log_dir_candidates():
++        candidate = log_dir / f"{service}.log"
++        if candidate.exists():
++            return candidate
++    return None
+ 
+ 
+ class LogResponse(BaseModel):
+@@ -66,12 +76,11 @@ async def get_logs(
+             page=1, pages=0, level_counts={},
+         )
+ 
+-    log_dir = _get_log_dir()
+     all_entries: list[dict] = []
+ 
+     for svc in svc_list:
+-        log_file = log_dir / f"{svc}.log"
+-        if log_file.exists():
++        log_file = _find_service_file(svc)
++        if log_file is not None:
+             svc_entries = _read_log_file(log_file, level, logger_filter, category, search, since, until)
+             if service == "all":
+                 for e in svc_entries:
+@@ -109,16 +118,15 @@ async def get_logs(
+ @router.get("/services")
+ async def list_services(_admin=Depends(require_permission("system_logs.read"))):
+     """List available log services and their file sizes."""
+-    log_dir = _get_log_dir()
+     result = []
+     for svc in SERVICES:
+-        log_file = log_dir / f"{svc}.log"
+-        size = log_file.stat().st_size if log_file.exists() else 0
++        log_file = _find_service_file(svc)
++        exists = log_file is not None
+         result.append({
+             "name": svc,
+-            "file": str(log_file),
+-            "size_bytes": size,
+-            "exists": log_file.exists(),
++            "file": str(log_file) if exists else f"{svc}.log",
++            "size_bytes": log_file.stat().st_size if exists else 0,
++            "exists": exists,
+         })
+ 
+     nginx_access = Path("/var/log/nginx/access.log")
+@@ -136,12 +144,11 @@ async def list_services(_admin=Depends(require_permission("system_logs.read"))):
+ @router.get("/loggers")
+ async def list_loggers(_admin=Depends(require_permission("system_logs.read"))):
+     """Get unique logger names seen in recent logs."""
+-    log_dir = _get_log_dir()
+     loggers: set[str] = set()
+ 
+     for svc in SERVICES:
+-        log_file = log_dir / f"{svc}.log"
+-        if not log_file.exists():
++        log_file = _find_service_file(svc)
++        if log_file is None:
+             continue
+         try:
+             with open(log_file, "r", encoding="utf-8", errors="replace") as fh:
+@@ -172,10 +179,9 @@ async def tail_logs(
+     if service not in SERVICES:
+         return {"lines": [], "service": service}
+ 
+-    log_dir = _get_log_dir()
+-    log_file = log_dir / f"{service}.log"
++    log_file = _find_service_file(service)
+ 
+-    if not log_file.exists():
++    if log_file is None:
+         return _tail_journalctl(service, lines)
+ 
+     result = []
+@@ -392,7 +398,9 @@ def _read_journalctl_entries(
+ 
+         msg = jentry.get("MESSAGE", "")
+         j_priority = jentry.get("PRIORITY", "6")
+-        entry_level = journal_to_level.get(str(j_priority), "INFO")
++        # journald PRIORITY is 6 for everything the app writes to stdout, so the
++        # real level lives in the console-formatted message text — parse it there.
++        entry_level = _level_from_message(msg, journal_to_level.get(str(j_priority), "INFO"))
+ 
+         if LEVEL_PRIORITY.get(entry_level, 0) < min_priority:
+             continue
+@@ -451,11 +459,14 @@ def _tail_journalctl(service: str, lines: int) -> dict:
+             ts = datetime.fromtimestamp(ts_usec / 1_000_000, tz=timezone.utc).strftime(
+                 "%Y-%m-%dT%H:%M:%S.%fZ"
+             )
++            msg = jentry.get("MESSAGE", "")
+             entry = {
+                 "ts": ts,
+-                "level": journal_to_level.get(str(jentry.get("PRIORITY", "6")), "INFO"),
++                "level": _level_from_message(
++                    msg, journal_to_level.get(str(jentry.get("PRIORITY", "6")), "INFO")
++                ),
+                 "logger": jentry.get("SYSLOG_IDENTIFIER", unit),
+-                "message": jentry.get("MESSAGE", ""),
++                "message": msg,
+             }
+             _enrich_entry(entry)
+             entries.append(entry)
+diff --git a/backend/database.py b/backend/database.py
+index ccff371..34e1476 100644
+--- a/backend/database.py
++++ b/backend/database.py
+@@ -58,6 +58,19 @@ async def set_local_statement_timeout(session: AsyncSession, milliseconds: int)
+     )
+ 
+ 
++async def set_local_lock_timeout(session: AsyncSession, milliseconds: int) -> None:
++    """Bound how long the current transaction waits for a row/table lock.
++
++    SET LOCAL, so it reverts on commit/rollback — issue it inside the same
++    transaction as the lock-taking statement. Used by the domain delete to fail
++    fast (and retry) instead of hanging when a send holds a conflicting lock.
++    """
++    await session.execute(
++        text("SELECT set_config('lock_timeout', :value, true)"),
++        {"value": f"{milliseconds}ms"},
++    )
++
++
+ async def set_statement_timeout(session: AsyncSession, milliseconds: int) -> None:
+     """Set session-level statement timeout (persists across transactions).
+ 
+diff --git a/backend/logging_config.py b/backend/logging_config.py
+index 9658c37..391a458 100644
+--- a/backend/logging_config.py
++++ b/backend/logging_config.py
+@@ -107,14 +107,96 @@ class JSONFormatter(logging.Formatter):
+         return json.dumps(entry, default=str)
+ 
+ 
++# Python level -> syslog priority for the "<N>" line prefix that systemd's
++# journald parses (SyslogLevelPrefix=yes, the default). Without it every stdout
++# line lands at PRIORITY=6=INFO and `journalctl -p err` / the log viewer's
++# "Errors Only" can never match a real error.
++_SYSLOG_PRIORITY = {
++    logging.CRITICAL: 2,
++    logging.ERROR: 3,
++    logging.WARNING: 4,
++    logging.INFO: 6,
++    logging.DEBUG: 7,
++}
++
++
+ class ConsoleFormatter(logging.Formatter):
+-    """Readable console format for development / journald."""
++    """Readable console format for development / journald.
++
++    When stdout is wired to journald (`journald=True`), each record is prefixed
++    with its syslog priority `<N>` so journald stores the real level. The prefix
++    is emitted only in that case so dev terminals / docker logs stay clean.
++    """
+ 
+     FORMAT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
+     DATE_FMT = "%H:%M:%S"
+ 
+-    def __init__(self):
++    def __init__(self, journald: bool = False):
+         super().__init__(fmt=self.FORMAT, datefmt=self.DATE_FMT)
++        self._journald = journald
++
++    def format(self, record: logging.LogRecord) -> str:
++        text = super().format(record)
++        if self._journald:
++            return f"<{_SYSLOG_PRIORITY.get(record.levelno, 6)}>{text}"
++        return text
++
++
++_PRIMARY_PROD_LOG_DIR = Path("/var/log/email-system")
++# App-owned, always-writable fallback (the unit WorkingDirectory) so that a
++# missing/unwritable /var/log dir never silently drops file logging — that gap
++# once hid a prod outage, with every error only reaching journald (where it is
++# stamped PRIORITY=6=INFO and can't be filtered as an error). Absolute, not
++# cwd-relative, so the reader (api/logs) resolves the same dir regardless of cwd.
++_FALLBACK_PROD_LOG_DIR = Path("/opt/email-system/logs")
++_DEV_LOG_DIR = Path("logs")
++
++_active_log_dir: Path | None = None
++
++
++def _dir_is_writable(path: Path) -> bool:
++    """True if `path` can be created (if needed) and written into."""
++    try:
++        path.mkdir(parents=True, exist_ok=True)
++    except OSError:
++        return False
++    return os.access(path, os.W_OK)
++
++
++def _resolve_log_dir() -> Path:
++    """The directory this process writes JSON logs to."""
++    env = os.environ.get("ENVIRONMENT", "development")
++    if env != "production":
++        return _DEV_LOG_DIR
++    for candidate in (_PRIMARY_PROD_LOG_DIR, _FALLBACK_PROD_LOG_DIR):
++        if _dir_is_writable(candidate):
++            return candidate
++    return _FALLBACK_PROD_LOG_DIR
++
++
++def get_active_log_dir() -> Path:
++    """Resolved (cached) log dir this process reads/writes."""
++    global _active_log_dir
++    if _active_log_dir is None:
++        _active_log_dir = _resolve_log_dir()
++    return _active_log_dir
++
++
++def log_dir_candidates() -> list[Path]:
++    """Dirs a reader (the log viewer) should search, active dir first.
++
++    Includes both prod candidates so the viewer still finds files during the
++    deploy window when a just-restarted reader and a still-draining writer may
++    briefly disagree on which dir is active.
++    """
++    env = os.environ.get("ENVIRONMENT", "development")
++    if env != "production":
++        return [_DEV_LOG_DIR]
++    ordered: list[Path] = []
++    for p in (get_active_log_dir(), _PRIMARY_PROD_LOG_DIR, _FALLBACK_PROD_LOG_DIR):
++        if p not in ordered:
++            ordered.append(p)
++    return ordered
+ 
+ 
+ def setup_logging(service: str = "backend", log_level: str = "INFO"):
+@@ -122,9 +204,10 @@ def setup_logging(service: str = "backend", log_level: str = "INFO"):
+     Configure logging for the given service.
+ 
+     - Always logs to stdout (for journald / docker).
+-    - In production, also writes JSON to /var/log/email-system/{service}.log
+-      with automatic rotation (10 MB x 5 files = 50 MB per service).
+-    - In development, writes to ./logs/{service}.log.
++    - Also writes JSON to a writable log dir ({service}.log): /var/log/email-system
++      in production (falling back to ./logs if that isn't writable), ./logs in dev.
++      Rotation is external (logrotate) — backend/celery run multiple processes per
++      file, so an in-process RotatingFileHandler would race on rollover.
+     """
+     level = getattr(logging, log_level.upper(), logging.INFO)
+     root = logging.getLogger()
+@@ -133,35 +216,36 @@ def setup_logging(service: str = "backend", log_level: str = "INFO"):
+     # Clear any existing handlers (avoid duplicates on reload)
+     root.handlers.clear()
+ 
+-    # 1) Console handler (always) — goes to journald via stdout
++    # 1) Console handler (always) — goes to journald via stdout. systemd sets
++    #    $JOURNAL_STREAM when it is capturing stdout into the journal; only then
++    #    do we emit the "<N>" priority prefix journald understands.
+     console = logging.StreamHandler(sys.stdout)
+     console.setLevel(level)
+-    console.setFormatter(ConsoleFormatter())
++    console.setFormatter(ConsoleFormatter(journald="JOURNAL_STREAM" in os.environ))
+     root.addHandler(console)
+ 
+-    # 2) File handler — JSON, with rotation
++    # 2) File handler — JSON, real levels. WatchedFileHandler (not
++    #    RotatingFileHandler): backend runs `uvicorn --workers N` and celery runs
++    #    a prefork pool, so several processes share one file; in-process rollover
++    #    would rename the file out from under the others and corrupt it. Rotation
++    #    is handled externally by logrotate (copytruncate keeps the same inode).
+     env = os.environ.get("ENVIRONMENT", "development")
+-    if env == "production":
+-        log_dir = Path("/var/log/email-system")
+-    else:
+-        log_dir = Path("logs")
+-
++    log_dir = get_active_log_dir()
+     try:
+-        log_dir.mkdir(parents=True, exist_ok=True)
+         log_file = log_dir / f"{service}.log"
+-
+-        file_handler = logging.handlers.RotatingFileHandler(
+-            log_file,
+-            maxBytes=10 * 1024 * 1024,  # 10 MB
+-            backupCount=5,
+-            encoding="utf-8",
+-        )
++        file_handler = logging.handlers.WatchedFileHandler(log_file, encoding="utf-8")
+         file_handler.setLevel(level)
+         file_handler.setFormatter(JSONFormatter())
+         root.addHandler(file_handler)
+-    except PermissionError:
+-        # Can't write to log dir — just use console
+-        root.warning("Cannot write to %s — file logging disabled", log_dir)
++        if env == "production" and log_dir != _PRIMARY_PROD_LOG_DIR:
++            root.warning(
++                "File logging falling back to %s — %s is not writable",
++                log_dir, _PRIMARY_PROD_LOG_DIR,
++            )
++    except OSError as e:
++        # Should not happen (get_active_log_dir picks a writable dir), but never
++        # crash startup over logging — fall back to console only.
++        root.warning("Cannot write to %s — file logging disabled (%s)", log_dir, e)
+ 
+     # Silence noisy third-party loggers
+     for name in (
+diff --git a/backend/services/domain_deletion.py b/backend/services/domain_deletion.py
+index 6a1972c..94566af 100644
+--- a/backend/services/domain_deletion.py
++++ b/backend/services/domain_deletion.py
+@@ -1,11 +1,13 @@
+ import logging
+ import uuid
+ from collections.abc import Awaitable, Callable, Sequence
++from dataclasses import dataclass, field
+ 
+ from sqlalchemy import delete, select, text, update
++from sqlalchemy.exc import IntegrityError, OperationalError
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from backend.database import set_local_statement_timeout
++from backend.database import set_local_lock_timeout, set_local_statement_timeout
+ from backend.models.alert import Alert
+ from backend.models.campaign_sequence_contact import CampaignSequenceContact
+ from backend.models.domain import Domain
+@@ -17,14 +19,17 @@ logger = logging.getLogger(__name__)
+ 
+ DOMAIN_DELETE_BATCH_SIZE = 10
+ DOMAIN_DELETE_STATEMENT_TIMEOUT_MS = 120000
++DOMAIN_DELETE_LOCK_TIMEOUT_MS = 10000
++DOMAIN_DELETE_MAX_ATTEMPTS = 3
+ 
+ # Single source of truth for the domains-FK guard. Every FK to `domains` is
+ # ON DELETE NO ACTION, so each referencing column must be nulled before a domain
+ # row is deleted or the delete trips a ForeignKeyViolation. The small tables get
+-# one UPDATE each below; send_logs is multi-million-row and is nulled in committed
+-# chunks by _null_send_log_domain_refs. tests/test_domain_deletion_fk_cleanup.py
+-# asserts this set covers every live FK to domains, so a newly-added FK can't slip
+-# past cleanup the way campaign_sequence_contacts.chosen_domain_id did.
++# one UPDATE each in the locked delete; send_logs is multi-million-row and is
++# nulled in committed chunks first by _null_send_log_domain_refs.
++# tests/test_domain_deletion_fk_cleanup.py asserts this set covers every live FK
++# to domains, so a newly-added FK can't slip past cleanup the way
++# campaign_sequence_contacts.chosen_domain_id did.
+ _SMALL_TABLE_DOMAIN_FKS = (
+     (Alert, Alert.domain_id),
+     (InboxTest, InboxTest.domain_id),
+@@ -44,6 +49,56 @@ ALL_DOMAIN_FK_COLUMNS = (
+ # milliseconds.
+ SEND_LOG_FK_CHUNK_SIZE = 5000
+ 
++# PG SQLSTATEs worth retrying a locked delete on — all transient contention, not
++# logic errors: 23503 foreign_key_violation (a send committed a referencing row
++# in the sliver between the bulk pre-null and taking the lock; the next attempt's
++# residual-null clears it), 40P01 deadlock_detected, 55P03 lock_not_available
++# (our lock_timeout fired), 40001 serialization_failure, 57014 query_canceled
++# (statement_timeout fired while blocked on the lock).
++_RETRYABLE_SQLSTATES = frozenset({"23503", "40P01", "55P03", "40001", "57014"})
++
++
++@dataclass
++class DomainDeleteResult:
++    """Partitions the requested domain ids into deleted vs. couldn't-delete."""
++
++    succeeded: list[uuid.UUID] = field(default_factory=list)
++    failed: list[tuple[uuid.UUID, str]] = field(default_factory=list)  # (id, reason)
++
++
++def _sqlstate(exc: BaseException) -> str | None:
++    """Best-effort PostgreSQL SQLSTATE from a SQLAlchemy/asyncpg exception."""
++    orig = getattr(exc, "orig", None)
++    for obj in (exc, orig, getattr(orig, "__cause__", None)):
++        code = getattr(obj, "sqlstate", None) or getattr(obj, "pgcode", None)
++        if code:
++            return str(code)
++    return None
++
++
++def _is_retryable(exc: BaseException) -> bool:
++    """Transient DB contention worth retrying the locked delete on.
++
++    Prefer the exact SQLSTATE, but fall back to the SQLAlchemy exception type so a
++    real deadlock/FK still retries even if SQLSTATE extraction misses (the asyncpg
++    wrapping chain varies). On a domain DELETE the only possible IntegrityError is
++    the send_logs FK, and OperationalError covers deadlock/lock-timeout/
++    serialization/statement-timeout — all safe to re-run since the work is
++    idempotent.
++    """
++    if _sqlstate(exc) in _RETRYABLE_SQLSTATES:
++        return True
++    return isinstance(exc, (IntegrityError, OperationalError))
++
++
++def _failure_reason(exc: BaseException) -> str:
++    state = _sqlstate(exc)
++    if state == "23503" or isinstance(exc, IntegrityError):
++        return "still referenced by active sends after retries"
++    if state in _RETRYABLE_SQLSTATES or isinstance(exc, OperationalError):
++        return "database contention — timed out acquiring the delete lock"
++    return f"{type(exc).__name__}: {str(exc)[:160]}"
++
+ 
+ async def _null_send_log_domain_refs(
+     db: AsyncSession,
+@@ -54,7 +109,10 @@ async def _null_send_log_domain_refs(
+     """Null send_logs.domain_id for these domains in small, committed chunks.
+ 
+     Loops until no matching rows remain; each chunk commits so its locks are
+-    released immediately rather than held for the rest of the delete.
++    released immediately rather than held for the rest of the delete. This clears
++    the bulk of the millions of rows lock-light; the residual handful that a
++    concurrent send may add before the lock is taken is cleaned inside
++    _delete_domain_chunk_locked.
+     """
+     ids = list(domain_ids)
+     while True:
+@@ -72,38 +130,123 @@ async def _null_send_log_domain_refs(
+             return
+ 
+ 
+-async def clear_domain_references(
++async def _delete_domain_chunk_locked(
+     db: AsyncSession,
+-    domain_ids: Sequence[uuid.UUID],
++    chunk_ids: Sequence[uuid.UUID],
+     *,
+-    statement_timeout_ms: int = DOMAIN_DELETE_STATEMENT_TIMEOUT_MS,
++    statement_timeout_ms: int,
++    lock_timeout_ms: int,
+ ) -> None:
+-    """Null every FK reference to these domains so the rows survive a domain delete.
++    """Atomically lock these domain rows, null every residual FK, delete them.
+ 
+-    Commits as it goes — the send_logs cleanup is chunked across several
+-    transactions to keep each statement's lock set small — so on return all
+-    references are nulled and durable. Callers must therefore not assume this
+-    and a following domain delete form one atomic unit; re-running is safe
+-    because nulling an already-null row is a no-op.
++    One transaction. `SELECT ... FOR UPDATE` conflicts with the `FOR KEY SHARE`
++    lock a child INSERT (e.g. a send writing a send_logs row) takes on its parent
++    domain row, so once we hold it no new referencing row can be committed until
++    we delete and release — closing the "commit-then-delete" race a separate
++    transaction leaves open. Rows are locked in ascending id order so concurrent
++    deleters (a bulk task vs. the daily cleanup) can't deadlock each other.
+ 
+-    (The legacy warmup_inboxes table also referenced domains but was dropped in
+-    the warmup→send_logs consolidation, so it is intentionally not handled.)
++    Assumes _null_send_log_domain_refs already ran, so the residual send_logs
++    UPDATE here touches few rows and the domain lock is held only briefly. Raises
++    on failure; the caller rolls back the aborted transaction and retries.
+     """
+-    if not domain_ids:
+-        return
+-
+-    await _null_send_log_domain_refs(
+-        db, domain_ids, statement_timeout_ms=statement_timeout_ms
++    ordered = sorted(chunk_ids)
++    await set_local_statement_timeout(db, statement_timeout_ms)
++    await set_local_lock_timeout(db, lock_timeout_ms)
++    await db.execute(
++        select(Domain.id)
++        .where(Domain.id.in_(ordered))
++        .order_by(Domain.id)
++        .with_for_update()
++    )
++    await db.execute(
++        update(SendLog).where(SendLog.domain_id.in_(ordered)).values(domain_id=None)
+     )
+-
+-    # The remaining referencing tables are small; one statement each is cheap and
+-    # safe. _SMALL_TABLE_DOMAIN_FKS is the source of truth (see its definition).
+     for model, col in _SMALL_TABLE_DOMAIN_FKS:
+-        await set_local_statement_timeout(db, statement_timeout_ms)
+-        await db.execute(update(model).where(col.in_(domain_ids)).values({col: None}))
++        await db.execute(update(model).where(col.in_(ordered)).values({col: None}))
++    await db.execute(delete(Domain).where(Domain.id.in_(ordered)))
+     await db.commit()
+ 
+ 
++async def clear_and_delete_domains(
++    db: AsyncSession,
++    domain_ids: Sequence[uuid.UUID],
++    *,
++    statement_timeout_ms: int = DOMAIN_DELETE_STATEMENT_TIMEOUT_MS,
++    lock_timeout_ms: int = DOMAIN_DELETE_LOCK_TIMEOUT_MS,
++    batch_size: int = DOMAIN_DELETE_BATCH_SIZE,
++    progress_cb: Callable[[int, int], Awaitable[None] | None] | None = None,
++) -> DomainDeleteResult:
++    """Null every FK to these domains and delete them, safe under concurrent sends.
++
++    Processes the ids in sorted chunks. Each chunk: a lock-light committed
++    pre-null of send_logs, then an atomic lock+residual-null+delete with bounded
++    retry on transient contention. A chunk that still fails after retries is
++    recorded in `failed` and does NOT abort the rest of the batch. Commits as it
++    goes; on return the session holds no open transaction, so a caller that
++    shares the session (or relies on a trailing commit) is safe.
++    """
++    ids = sorted(set(domain_ids))
++    result = DomainDeleteResult()
++    if not ids:
++        return result
++
++    total = len(ids)
++    for start in range(0, total, batch_size):
++        chunk = ids[start : start + batch_size]
++        reason: str | None = None
++        for attempt in range(1, DOMAIN_DELETE_MAX_ATTEMPTS + 1):
++            try:
++                await _null_send_log_domain_refs(
++                    db, chunk, statement_timeout_ms=statement_timeout_ms
++                )
++                await _delete_domain_chunk_locked(
++                    db,
++                    chunk,
++                    statement_timeout_ms=statement_timeout_ms,
++                    lock_timeout_ms=lock_timeout_ms,
++                )
++                reason = None
++                break
++            except Exception as exc:  # noqa: BLE001 — must clear the aborted txn
++                # After any DB error the transaction is aborted; the session
++                # rejects further statements until rolled back. This is what the
++                # retry and the continue-to-next-chunk both depend on.
++                await db.rollback()
++                if _is_retryable(exc) and attempt < DOMAIN_DELETE_MAX_ATTEMPTS:
++                    logger.warning(
++                        "domain delete chunk retry %d/%d (%d domains): %s",
++                        attempt,
++                        DOMAIN_DELETE_MAX_ATTEMPTS,
++                        len(chunk),
++                        _failure_reason(exc),
++                    )
++                    continue
++                reason = _failure_reason(exc)
++                logger.error(
++                    "domain delete chunk failed after %d attempt(s) (%d domains): %s",
++                    attempt,
++                    len(chunk),
++                    reason,
++                    exc_info=True,
++                )
++                break
++
++        if reason is None:
++            result.succeeded.extend(chunk)
++        else:
++            result.failed.extend((cid, reason) for cid in chunk)
++
++        if progress_cb is not None:
++            maybe_awaitable = progress_cb(
++                len(result.succeeded) + len(result.failed), total
++            )
++            if maybe_awaitable is not None:
++                await maybe_awaitable
++
++    return result
++
++
+ async def delete_domains_in_batches(
+     db: AsyncSession,
+     *,
+@@ -111,41 +254,42 @@ async def delete_domains_in_batches(
+     domain_ids: Sequence[uuid.UUID],
+     batch_size: int = DOMAIN_DELETE_BATCH_SIZE,
+     statement_timeout_ms: int = DOMAIN_DELETE_STATEMENT_TIMEOUT_MS,
++    lock_timeout_ms: int = DOMAIN_DELETE_LOCK_TIMEOUT_MS,
+     progress_cb: Callable[[int, int], Awaitable[None] | None] | None = None,
+-) -> list[tuple[uuid.UUID, str]]:
++) -> tuple[list[tuple[uuid.UUID, str]], list[tuple[uuid.UUID, str, str]]]:
++    """Account-scoped domain delete.
++
++    Returns (succeeded, failed): succeeded is [(id, name)], failed is
++    [(id, name, reason)]. Domains not owned by `account_id` are silently skipped
++    (they appear in neither list).
++    """
+     if not domain_ids:
+-        return []
++        return [], []
+ 
+     result = await db.execute(
+-        select(Domain.id, Domain.name)
+-        .where(Domain.id.in_(domain_ids), Domain.account_id == account_id)
+-        .order_by(Domain.name)
+-    )
+-    matched_rows = [(row[0], row[1]) for row in result.all()]
+-    total = len(matched_rows)
+-
+-    if total == 0:
+-        return []
+-
+-    deleted = 0
+-    for start in range(0, total, batch_size):
+-        chunk = matched_rows[start:start + batch_size]
+-        chunk_ids = [domain_id for domain_id, _domain_name in chunk]
+-
+-        await clear_domain_references(
+-            db,
+-            chunk_ids,
+-            statement_timeout_ms=statement_timeout_ms,
++        select(Domain.id, Domain.name).where(
++            Domain.id.in_(domain_ids), Domain.account_id == account_id
+         )
+-        await set_local_statement_timeout(db, statement_timeout_ms)
+-        await db.execute(delete(Domain).where(Domain.id.in_(chunk_ids)))
+-        await db.commit()
+-
+-        deleted += len(chunk)
+-        if progress_cb:
+-            maybe_awaitable = progress_cb(deleted, total)
+-            if maybe_awaitable is not None:
+-                await maybe_awaitable
++    )
++    name_by_id = {row[0]: row[1] for row in result.all()}
++    if not name_by_id:
++        return [], []
+ 
+-    logger.info("Deleted %d domains in %d batches", total, (total + batch_size - 1) // batch_size)
+-    return matched_rows
+\ No newline at end of file
++    outcome = await clear_and_delete_domains(
++        db,
++        list(name_by_id),
++        batch_size=batch_size,
++        statement_timeout_ms=statement_timeout_ms,
++        lock_timeout_ms=lock_timeout_ms,
++        progress_cb=progress_cb,
++    )
++    succeeded = [(cid, name_by_id[cid]) for cid in outcome.succeeded]
++    failed = [(cid, name_by_id[cid], reason) for cid, reason in outcome.failed]
++    logger.info(
++        "delete_domains_in_batches: %d/%d deleted, %d failed (account %s)",
++        len(succeeded),
++        len(name_by_id),
++        len(failed),
++        account_id,
++    )
++    return succeeded, failed
+diff --git a/backend/workers/bulk_dns_worker.py b/backend/workers/bulk_dns_worker.py
+index 8491de6..058b7b3 100644
+--- a/backend/workers/bulk_dns_worker.py
++++ b/backend/workers/bulk_dns_worker.py
+@@ -959,24 +959,26 @@ def bulk_dns_operation(
+ 
+             if operation == "delete":
+                 domain_ids = [uuid.UUID(d) for d in domain_id_strs]
+-                async def _report_progress(done_count: int, total_count: int):
+-                    pass
+ 
+                 async with create_worker_session() as db:
+-                    deleted = await delete_domains_in_batches(
++                    succeeded_rows, failed_rows = await delete_domains_in_batches(
+                         db,
+                         account_id=account_id,
+                         domain_ids=domain_ids,
+-                        progress_cb=_report_progress,
+                     )
+-                    succeeded = len(deleted)
+ 
+-                for _ in range(succeeded):
++                for _domain_id, _domain_name in succeeded_rows:
+                     progress.increment(task_id, succeeded=True)
++                for _domain_id, domain_name, reason in failed_rows:
++                    progress.increment(
++                        task_id, succeeded=False, error=f"{domain_name}: {reason}"
++                    )
++                succeeded = len(succeeded_rows)
++                failed = len(failed_rows)
+                 _celery_progress()
+                 progress.mark_completed(task_id)
+                 _celery_progress()
+-                return {"succeeded": succeeded, "failed": 0, "total": total, "operation": operation}
++                return {"succeeded": succeeded, "failed": failed, "total": total, "operation": operation}
+ 
+             # --------------------------------------------------------------
+             # DNS operations (need provider routing)
+diff --git a/backend/workers/cleanup_worker.py b/backend/workers/cleanup_worker.py
+index 60b3067..17db027 100644
+--- a/backend/workers/cleanup_worker.py
++++ b/backend/workers/cleanup_worker.py
+@@ -249,7 +249,7 @@ def cleanup_expired_domains():
+         from backend.models.provider_domain import ProviderDomain
+         from backend.models.mail_forwarding import MailForwarding
+         from backend.models.alert import Alert
+-        from backend.services.domain_deletion import clear_domain_references
++        from backend.services.domain_deletion import clear_and_delete_domains
+ 
+         now = datetime.now(timezone.utc)
+         warning_cutoff = now + timedelta(days=EXPIRY_WARNING_DAYS)
+@@ -278,22 +278,38 @@ def cleanup_expired_domains():
+                 )
+                 domains_to_delete = result.scalars().all()
+ 
++                # Domains that couldn't be deleted this run (e.g. a delete lock
++                # timed out under heavy sending) — keep their provider_domains and
++                # forwarding rules so the next run retries them instead of
++                # orphaning the domain row.
++                failed_names: list[str] = []
+                 if domains_to_delete:
+                     domain_ids = [d.id for d in domains_to_delete]
+-                    domain_names = [d.name for d in domains_to_delete]
+-
+-                    # Null FK references to these domains before deleting them,
+-                    # via the shared helper that the manual-delete path also uses.
+-                    await clear_domain_references(db, domain_ids)
+-
+-                    # Delete the domains
+-                    await db.execute(
+-                        delete(Domain).where(Domain.id.in_(domain_ids))
+-                    )
++                    name_by_id = {d.id: d.name for d in domains_to_delete}
++
++                    # Null FK references and delete atomically, safe against
++                    # concurrent sends — the same locked primitive the manual
++                    # delete path uses.
++                    delete_result = await clear_and_delete_domains(db, domain_ids)
++                    deleted_ids = delete_result.succeeded
++                    failed_names = [name_by_id[cid] for cid, _reason in delete_result.failed]
++
++                    if delete_result.failed:
++                        logger.error(
++                            "cleanup_expired_domains: %d/%d expired domains could not be deleted: %s",
++                            len(delete_result.failed),
++                            len(domain_ids),
++                            "; ".join(
++                                f"{name_by_id[cid]}: {reason}"
++                                for cid, reason in delete_result.failed[:10]
++                            ),
++                        )
++                    deleted_names = [name_by_id[cid] for cid in deleted_ids]
+                     logger.info(
+-                        "Deleted %d domains from system: %s",
+-                        len(domain_names),
+-                        ", ".join(domain_names[:20]) + ("..." if len(domain_names) > 20 else ""),
++                        "Deleted %d/%d expired domains from system: %s",
++                        len(deleted_ids),
++                        len(domain_ids),
++                        ", ".join(deleted_names[:20]) + ("..." if len(deleted_names) > 20 else ""),
+                     )
+ 
+                     # ── Step 3: Clean Redis budget counters ──────────────
+@@ -303,7 +319,7 @@ def cleanup_expired_domains():
+                         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+                         r = aioredis.from_url(redis_url)
+                         cleaned_keys = 0
+-                        for did in domain_ids:
++                        for did in deleted_ids:
+                             pattern = f"domain:budget:{did}:*"
+                             async for key in r.scan_iter(match=pattern, count=100):
+                                 await r.delete(key)
+@@ -315,19 +331,24 @@ def cleanup_expired_domains():
+                         logger.warning("Failed to clean Redis budget keys: %s", e)
+ 
+                 # ── Step 4: Delete mail_forwarding rules ─────────────────
+-                result = await db.execute(
+-                    delete(MailForwarding).where(
+-                        MailForwarding.domain_name.in_(expired_names)
++                fwd_names = [n for n in expired_names if n not in failed_names]
++                if fwd_names:
++                    result = await db.execute(
++                        delete(MailForwarding).where(
++                            MailForwarding.domain_name.in_(fwd_names)
++                        )
+                     )
+-                )
+-                fwd_deleted = result.rowcount
+-                if fwd_deleted:
+-                    logger.info("Deleted %d mail_forwarding rules for expired domains", fwd_deleted)
++                    fwd_deleted = result.rowcount
++                    if fwd_deleted:
++                        logger.info("Deleted %d mail_forwarding rules for expired domains", fwd_deleted)
+ 
+                 # ── Step 5: Delete expired provider_domains ──────────────
+-                await db.execute(
+-                    delete(ProviderDomain).where(ProviderDomain.expires_at < now)
+-                )
++                provider_delete = delete(ProviderDomain).where(ProviderDomain.expires_at < now)
++                if failed_names:
++                    provider_delete = provider_delete.where(
++                        ProviderDomain.domain.notin_(failed_names)
++                    )
++                await db.execute(provider_delete)
+ 
+                 await db.commit()
+                 logger.info("Expired domain cleanup complete: %d domains processed", len(expired_names))
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index 872f374..1a8ea37 100755
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -216,6 +216,31 @@ sudo ln -sf "$APP_DIR/scripts/mailstation" /usr/local/bin/mailstation
+ echo "Refreshing control-plane systemd units..."
+ sudo bash scripts/install_control_plane_services.sh
+ 
++# Ensure the JSON log directory exists and is writable by the app user, plus a
++# logrotate policy. logging_config.py writes {backend,celery,beat}.log here and
++# api/logs.py reads them. This creation only lived in the run-once
++# setup-logging.sh, so a rebuilt box silently lost file logging and errors
++# stopped surfacing in the log viewer (they only reached journald as INFO).
++LOG_DIR="/var/log/email-system"
++DEPLOY_APP_USER="${APP_USER:-ubuntu}"
++echo "Ensuring log directory $LOG_DIR (owner $DEPLOY_APP_USER)..."
++sudo mkdir -p "$LOG_DIR"
++sudo chown "$DEPLOY_APP_USER":"$DEPLOY_APP_USER" "$LOG_DIR"
++sudo chmod 755 "$LOG_DIR"
++if [ ! -f /etc/logrotate.d/email-system ]; then
++    sudo tee /etc/logrotate.d/email-system >/dev/null <<LOGROTATE
++$LOG_DIR/*.log {
++    daily
++    missingok
++    rotate 30
++    compress
++    delaycompress
++    notifempty
++    copytruncate
++}
++LOGROTATE
++fi
++
+ # Restart services
+ sudo systemctl restart email-backend
+ sudo systemctl reload nginx
+diff --git a/tests/test_domain_deletion_fk_cleanup.py b/tests/test_domain_deletion_fk_cleanup.py
+index f906ad5..714d574 100644
+--- a/tests/test_domain_deletion_fk_cleanup.py
++++ b/tests/test_domain_deletion_fk_cleanup.py
+@@ -1,11 +1,11 @@
+ """Guard against the recurring "domain delete trips a ForeignKeyViolation" bug.
+ 
+ Every FK to `domains` is `ON DELETE NO ACTION`, so each referencing column MUST
+-be nulled by `clear_domain_references` before a domain row is deleted. When a new
+-table gains a domain FK and the helper isn't updated, the daily
+-`cleanup_expired_domains` worker (and the manual-delete path) abort with a
+-ForeignKeyViolation — this happened with `warmup_inboxes`, then again with
+-`campaign_sequence_contacts.chosen_domain_id`.
++be nulled by the delete helpers in `backend.services.domain_deletion` before a
++domain row is deleted. When a new table gains a domain FK and the set isn't
++updated, the daily `cleanup_expired_domains` worker (and the manual-delete path)
++abort with a ForeignKeyViolation — this happened with `warmup_inboxes`, then
++again with `campaign_sequence_contacts.chosen_domain_id`.
+ 
+ This test compares the FKs to `domains` in the live SQLAlchemy metadata against
+ the set the helper actually nulls — imported from the helper as
+"""Race-safe domain delete: retry, partial-failure, and rollback behaviour.
+
+Exercises `clear_and_delete_domains` with the two chunk primitives monkeypatched
+so no real database is needed — the point is the orchestration: a transient chunk
+failure retries, a permanent one is recorded and does NOT abort the batch, and the
+aborted transaction is always rolled back before the loop moves on.
+"""
+import asyncio
+import uuid
+
+import backend.services.domain_deletion as dd
+
+
+class _FakeOrig:
+    def __init__(self, sqlstate):
+        self.sqlstate = sqlstate
+
+
+class _FakePGError(Exception):
+    """Mimics a SQLAlchemy DBAPIError carrying a PG SQLSTATE via `.orig`."""
+
+    def __init__(self, sqlstate):
+        super().__init__(f"pg error {sqlstate}")
+        self.orig = _FakeOrig(sqlstate)
+
+
+class _FakeSession:
+    def __init__(self):
+        self.rollbacks = 0
+
+    async def rollback(self):
+        self.rollbacks += 1
+
+
+def _ids(n):
+    return [uuid.uuid4() for _ in range(n)]
+
+
+def _patch(monkeypatch, *, null=None, delete=None):
+    async def _ok(*a, **k):
+        return None
+
+    monkeypatch.setattr(dd, "_null_send_log_domain_refs", null or _ok)
+    monkeypatch.setattr(dd, "_delete_domain_chunk_locked", delete or _ok)
+
+
+def test_sqlstate_and_reason_classification():
+    assert dd._sqlstate(_FakePGError("23503")) == "23503"
+    assert dd._sqlstate(ValueError("nope")) is None
+    assert "active sends" in dd._failure_reason(_FakePGError("23503"))
+    assert "contention" in dd._failure_reason(_FakePGError("40P01"))
+    assert "ValueError" in dd._failure_reason(ValueError("nope"))
+
+
+def test_all_chunks_succeed(monkeypatch):
+    _patch(monkeypatch)
+    ids = _ids(25)
+    session = _FakeSession()
+    res = asyncio.run(dd.clear_and_delete_domains(session, ids, batch_size=10))
+    assert sorted(res.succeeded) == sorted(ids)
+    assert res.failed == []
+    assert session.rollbacks == 0
+
+
+def test_permanent_failure_is_isolated_to_its_chunk(monkeypatch):
+    ids = sorted(_ids(25))
+    target = ids[12]  # lands in the middle chunk (10..19)
+
+    async def selective_delete(db, chunk, **k):
+        if target in chunk:
+            raise ValueError("boom")  # non-retryable (no sqlstate)
+
+    _patch(monkeypatch, delete=selective_delete)
+    session = _FakeSession()
+    res = asyncio.run(dd.clear_and_delete_domains(session, ids, batch_size=10))
+
+    failed_ids = {cid for cid, _reason in res.failed}
+    assert target in failed_ids
+    # Only the one 10-domain chunk failed; the other 15 survived.
+    assert len(res.succeeded) == 15
+    assert len(res.failed) == 10
+    assert session.rollbacks == 1  # exactly one aborted txn, rolled back once
+
+
+def test_retryable_error_retries_then_succeeds(monkeypatch):
+    ids = _ids(5)  # single chunk
+    attempts = {"n": 0}
+
+    async def flaky_delete(db, chunk, **k):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise _FakePGError("23503")  # foreign_key_violation — retryable
+
+    _patch(monkeypatch, delete=flaky_delete)
+    session = _FakeSession()
+    res = asyncio.run(dd.clear_and_delete_domains(session, ids, batch_size=10))
+
+    assert sorted(res.succeeded) == sorted(ids)
+    assert res.failed == []
+    assert attempts["n"] == 2  # failed once, retried, succeeded
+    assert session.rollbacks == 1  # the aborted first attempt was rolled back
+
+
+def test_retryable_error_gives_up_after_max_attempts(monkeypatch):
+    ids = _ids(5)
+
+    async def always_deadlock(db, chunk, **k):
+        raise _FakePGError("40P01")  # deadlock — retryable but never clears
+
+    _patch(monkeypatch, delete=always_deadlock)
+    session = _FakeSession()
+    res = asyncio.run(dd.clear_and_delete_domains(session, ids, batch_size=10))
+
+    assert res.succeeded == []
+    assert {cid for cid, _ in res.failed} == set(ids)
+    assert session.rollbacks == dd.DOMAIN_DELETE_MAX_ATTEMPTS
+
+
+def test_chunks_are_processed_in_sorted_order(monkeypatch):
+    ids = _ids(30)
+    seen = []
+
+    async def record_delete(db, chunk, **k):
+        seen.extend(chunk)
+
+    _patch(monkeypatch, delete=record_delete)
+    asyncio.run(dd.clear_and_delete_domains(_FakeSession(), ids, batch_size=10))
+    # Global ascending order so concurrent deleters can't deadlock each other.
+    assert seen == sorted(ids)
+
+
+def test_progress_callback_reports_cumulative_done(monkeypatch):
+    _patch(monkeypatch)
+    ids = _ids(25)
+    seen = []
+
+    async def cb(done, total):
+        seen.append((done, total))
+
+    asyncio.run(dd.clear_and_delete_domains(_FakeSession(), ids, batch_size=10, progress_cb=cb))
+    assert seen == [(10, 25), (20, 25), (25, 25)]
+"""Logging must never silently go dark, and levels must survive the journald path.
+
+Covers the two faults that hid a prod outage:
+  1. file logging silently disabled when /var/log/email-system isn't writable
+     -> here: resolve to an app-local writable dir instead of dropping to console.
+  2. journald stamps every stdout line PRIORITY=6=INFO -> here: emit the syslog
+     "<N>" prefix so journald stores the real level, and parse the level out of
+     the console-formatted message as a fallback.
+"""
+import logging
+
+import backend.logging_config as lc
+from backend.api.logs import _level_from_message
+from backend.logging_config import ConsoleFormatter
+
+
+def _record(level, msg="hello"):
+    return logging.LogRecord("t", level, "f.py", 1, msg, None, None)
+
+
+# --- 1. writable-dir resolution -------------------------------------------
+
+def test_dir_is_writable_true_for_tmp(tmp_path):
+    assert lc._dir_is_writable(tmp_path) is True
+
+
+def test_dir_is_writable_false_when_uncreatable(tmp_path):
+    a_file = tmp_path / "a_file"
+    a_file.write_text("x")
+    # mkdir under a regular file raises NotADirectoryError (an OSError)
+    assert lc._dir_is_writable(a_file / "sub") is False
+
+
+def test_resolve_prefers_primary_when_writable(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(lc, "_dir_is_writable", lambda p: True)
+    assert lc._resolve_log_dir() == lc._PRIMARY_PROD_LOG_DIR
+
+
+def test_resolve_falls_back_when_primary_unwritable(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(
+        lc, "_dir_is_writable", lambda p: p == lc._FALLBACK_PROD_LOG_DIR
+    )
+    assert lc._resolve_log_dir() == lc._FALLBACK_PROD_LOG_DIR
+
+
+def test_dev_resolves_to_local_logs(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    assert lc._resolve_log_dir() == lc._DEV_LOG_DIR
+
+
+def test_reader_candidates_include_both_prod_dirs(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(lc, "_active_log_dir", None)
+    monkeypatch.setattr(lc, "_dir_is_writable", lambda p: p == lc._FALLBACK_PROD_LOG_DIR)
+    candidates = lc.log_dir_candidates()
+    assert lc._PRIMARY_PROD_LOG_DIR in candidates
+    assert lc._FALLBACK_PROD_LOG_DIR in candidates
+    assert candidates[0] == lc._FALLBACK_PROD_LOG_DIR  # active dir first
+
+
+# --- 2. level survives the journald path ----------------------------------
+
+def test_console_formatter_prefixes_priority_under_journald():
+    assert ConsoleFormatter(journald=True).format(_record(logging.ERROR)).startswith("<3>")
+    assert ConsoleFormatter(journald=True).format(_record(logging.WARNING)).startswith("<4>")
+    assert ConsoleFormatter(journald=True).format(_record(logging.INFO)).startswith("<6>")
+
+
+def test_console_formatter_clean_without_journald():
+    out = ConsoleFormatter(journald=False).format(_record(logging.ERROR))
+    assert not out.startswith("<")
+    assert "ERROR" in out  # level still present in the human-readable text
+
+
+def test_level_parsed_from_console_message():
+    assert _level_from_message("19:30:09 WARNING  [budget_sync] failed", "INFO") == "WARNING"
+    assert _level_from_message("19:30:09 ERROR    [x] boom", "INFO") == "ERROR"
+    # A traceback continuation line has no level token -> keep the fallback.
+    assert _level_from_message('  File "x.py", line 3', "INFO") == "INFO"
+
