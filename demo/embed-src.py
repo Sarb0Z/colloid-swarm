@@ -36,9 +36,7 @@ MANIFEST = {
     "session-wrap":      ".agents/hooks/policy/session-wrap.sh",
     "pre-compact":       ".agents/hooks/policy/pre-compact.sh",
     # skills (SKILL.md only)
-    "dispatching-parallel-agents":        ".agents/skills/dispatching-parallel-agents/SKILL.md",
-    "writing-plans":                      ".agents/skills/writing-plans/SKILL.md",
-    "executing-plans":                    ".agents/skills/executing-plans/SKILL.md",
+    "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",
     "search-and-cite":                    ".agents/skills/search-and-cite/SKILL.md",
     "security-audit":                     ".agents/skills/security-audit/SKILL.md",
     "thermo-nuclear-code-quality-review": ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
@@ -50,8 +48,8 @@ MANIFEST = {
     "debt-log.md":     ".agents/debt-log.md",
     "config.json":     ".agents/config.json",
     # contracts
-    "researcher.md":            ".agents/researcher.md",
-    "learning-reporter.md":     ".agents/learning-reporter.md",
+    "researcher.md":            ".agents/personas/researcher.md",
+    "learning-reporter.md":     ".agents/personas/learning-reporter.md",
     "memory/README.md":         ".agents/memory/README.md",
     "diff-wrap.md":             ".agents/playbooks/diff-wrap.md",
     "report-implementation.md": ".agents/playbooks/report-implementation.md",
