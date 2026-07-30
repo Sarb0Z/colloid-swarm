@@ -365,7 +365,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 154 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 214 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production and must withstand hostile
 technical review — reviewer (Linus) rejects placeholder types, mock
@@ -388,39 +388,56 @@ Listed in priority order. Resolve conflicts top-down.
 
 ## Workflow
 
-1. **Research.** Use web search tool to research best practices and 
-   principles for any pattern we implement. Use documentation tool to get
-   upto-date information on libraries and frameworks being used. Do market
-   research on what competitors are offering and what their customers find
-   lacking when building a new feature. Do not reinvent the wheel. Check
-   forums for what powerusers have said about any problem we face.
+1. **Research.** Ground new work in current sources, not memory: the
+   `search-and-cite` skill draws the line between a quick lookup and
+   delegating a researcher cell; the `market-researcher` skill covers
+   competitor, demand, and gap research when building a new feature. Do
+   not reinvent the wheel — find what practitioners and power users
+   already learned about the problem.
 2. **Plan.** For non-trivial work, use plan mode tool; outline the approach
    before touching code: affected modules, constraints, and the one or two
    options worth considering. Skip for trivial edits. Use the ask questions
    tool to clarify ambiguities or zero in on multiple valid approaches.
+   Classify high-stakes changes (auth, data loss, money, prod config) up
+   front, even when the plan is skipped; state, for each, the one claim
+   step 5&#x27;s review must independently reproduce. When unsure, classify
+   as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Dispatch a subagent to attack it — fit
    against surrounding architecture, failure modes, edge cases, missing
-   steps. No justifying the plan; find what&#x27;s wrong. Fold findings in
-   before coding.
+   steps. No justifying the plan; find what&#x27;s wrong. Findings are input,
+   not orders — disposition each one before coding: adopt it because
+   it&#x27;s right, decline it with a reason, file it (breadcrumbs or
+   debt-log) when valid but not this unit&#x27;s work, or escalate a
+   decision only the user can make. The burden of proof sits on the
+   finding, not the decline. State every disposition explicitly — a
+   silent drop is not a disposition.
 4. **Implement, then test.** If anything fails, diagnose and fix. If the fix
    forces a redesign, return to step 1.
 5. **Hostile-review the implementation.** Dispatch a subagent to review
    the diff against the plan and the surrounding architecture. Same
-   ground rules: no justifying, find what&#x27;s wrong, fold it in.
+   reviewer ground rules: no justifying, find what&#x27;s wrong. You
+   disposition every finding the same way.
+
+A review round is review → fix → re-review; &quot;don&#x27;t hold&quot; means the same
+defect returns. Three consecutive rounds where fixes don&#x27;t hold mean the
+shape is wrong — stop patching and take the architecture question to the
+user.
 
 ## Behavior
 
-### Investigate assumptions
-Read the referenced files, trace the code path, and reach a defensible
-conclusion before proposing changes — investigate, don&#x27;t speculate.
-External code is not at fault until the investigation proves it. Use web search or documentation
-tools to validate assumptions or get latest information and practices.
-
 ### Verify with user
-When genuinely blocked on a decision only the user can make, ask one
-focused question; otherwise keep investigating. Use the ask questions tool
-when stuck and need user input to zero in on the best path forward. Provide
-the user with context on trade-offs and alternatives.
+Go to the user when a blocker is genuinely theirs to resolve: their
+stated targets disagree with what you found, a reference could mean two
+things, or defensible paths trade off in ways only they can weigh.
+Reconcile those before acting, and present out-of-scope discoveries as
+findings awaiting a ruling rather than absorbing them into the work. A
+question the session can answer itself — a check to run, an execution
+path to attempt — is not a blocker: attempt it and bring the result,
+even a failed one.
+
+When you ask, make the decision cheap: one focused question (the ask
+questions tool) carrying what you found, the options, and your
+recommendation with its trade-offs.
 
 ### Persist to completion
 Work until the task is end-to-end done. Iterate, test, and resolve follow-ups
@@ -441,7 +458,9 @@ comments do not rescue it.
 ### Jobs-grade UI
 Design like Steve Jobs: Highly scannable, visually harmonious, frictionless
 Typography, spacing, hierarchy, and micro-interactions are load-bearing, not
-decorative.
+decorative. Render and inspect the actual output before presenting it —
+fix collisions, clipping, and readability first; when the user supplies
+a reference, match its quality before showing yours.
 
 ### No backwards compatibility 
 Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility
@@ -514,11 +533,52 @@ Hand off cross-domain or parallelizable work (architecture, bug
 investigation, research/discovery) as soon as it&#x27;s identifiable. Handoffs
 are dense: decisions, affected paths, single next step. No raw logs or
 quoted issue bodies. Spawn subagents for mundane and trivial work you&#x27;re
-too smart for — give it to a smaller minion. The floor: a single tool
-call is not a delegation; when one grep or file read answers it, run it
-yourself rather than spinning up a context around it. Subagents return
-dense, distilled reports: conclusions, decisions, and evidence pointers,
-not transcripts.</code></pre></details>
+too smart for — give it to a smaller minion. Pick the cheapest tier that
+can be relied on to finish the task and name it in the dispatch call,
+since an omitted model inherits yours; step up a tier only where a wrong
+answer costs more than the retry. Your own tier is for planning and
+hostile review. The floor: a single tool call is not a delegation; when
+one grep or file read answers it, run it yourself rather than spinning
+up a context around it.
+Subagents return dense, distilled reports: conclusions, decisions, and
+evidence pointers, not transcripts. A subagent that changed files or
+state must return runnable acceptance — a command, or a checkable
+assertion for non-executable artifacts. Re-run it before relying on the
+result; its claim is never the only evidence.
+
+## Hierarchical Instructions
+
+Scoped agent instructions live in canonical `AGENTS.md` files co-located
+with the code they govern. **When working in a subtree, read its local
+`AGENTS.md` first.** These files are the single source of truth — always
+edit the canonical file, never a symlink pointing to it.
+
+Canonical files carry dual YAML frontmatter: `applyTo:` (GitHub Copilot)
+and `paths:` (Claude Code). Both keys are load-bearing; Codex/Kimi read
+the file as plain AGENTS.md and treat the frontmatter as inert text. Do
+not &quot;clean it up&quot;.
+
+Layers:
+
+| Scope | Canonical |
+| --- | --- |
+| Agent scaffold | `.agents/AGENTS.md` |
+| Claude adapter layer | `.claude/AGENTS.md` |
+| Demo | `demo/AGENTS.md` |
+| Tensium trial | `tensium-trial/AGENTS.md` |
+| Skill (feature) | `.agents/skills/&lt;name&gt;/AGENTS.md` |
+
+A skill `AGENTS.md` governs *editing* the skill; `SKILL.md` governs
+*using* it.
+
+Tool fan-out (symlinks, do not edit directly):
+
+- Copilot: `.github/instructions/*.instructions.md` → canonical files
+- Claude Code: layer `CLAUDE.md` → sibling `AGENTS.md`;
+  `.claude/rules/&lt;skill&gt;.md` → skill canonicals
+
+Authoring rules for scoped instruction content are in
+`.github/instructions/README.md`.</code></pre></details>
             </article>
       </div>
     </div>
@@ -550,7 +610,7 @@ not transcripts.</code></pre></details>
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 131 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 173 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: surface deferred work, and re-state the Discovered
 # Subprojects policy when a session resumes on compacted context.
 #
@@ -563,6 +623,9 @@ not transcripts.</code></pre></details>
 #   context policy, never a gate (no exit 2).
 #
 #   - Unaddressed .agents/breadcrumbs.md items (markdown &quot;- &quot; bullets).
+#   - Registry MCP servers that are toggled off (name + description), with the
+#     sync-mcp.sh enable/disable incantation — the model learns they exist and
+#     how to switch them on without paying their tool-schema cost upfront.
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
@@ -602,6 +665,38 @@ items=&quot;&quot;
 crumbs=&quot;$proj/.agents/breadcrumbs.md&quot;
 [[ -f &quot;$crumbs&quot; ]] &amp;&amp; items=&quot;$(grep -E &#x27;^[[:space:]]*-[[:space:]]&#x27; &quot;$crumbs&quot; 2&gt;/dev/null || true)&quot;
 
+# Registry servers that are toggled off: surface them so the model knows they
+# exist and can switch them on mid-task. Toggle merge mirrors sync-mcp.sh
+# (example base, local per-server override).
+mcp_off=&quot;$(PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
+import json, os
+agents = os.path.join(os.environ[&quot;PROJ&quot;], &quot;.agents&quot;)
+def load(p):
+    try:
+        with open(p, encoding=&quot;utf-8&quot;) as f: return json.load(f)
+    except Exception: return {}
+registry = load(os.path.join(agents, &quot;mcp.json&quot;)).get(&quot;mcpServers&quot;, {})
+example = load(os.path.join(agents, &quot;config.json.example&quot;))
+local = load(os.path.join(agents, &quot;config.json&quot;))
+toggles = dict(example.get(&quot;mcp&quot;, {}).get(&quot;servers&quot;, {}))
+ls = local.get(&quot;mcp&quot;, {})
+if isinstance(ls, dict) and isinstance(ls.get(&quot;servers&quot;), dict):
+    for name, entry in ls[&quot;servers&quot;].items():
+        # Per-entry merge: a local {&quot;enabled&quot;: ...} flip must not shadow the
+        # example&#x27;s description.
+        base = toggles.get(name, {})
+        toggles[name] = {**base, **entry} if isinstance(entry, dict) else entry
+lines = []
+for name in sorted(registry):
+    t = toggles.get(name, {})
+    if not isinstance(t, dict) or t.get(&quot;enabled&quot;) is True:
+        continue
+    desc = t.get(&quot;description&quot;, &quot;&quot;)
+    lines.append(f&quot;- {name}&quot; + (f&quot; — {desc}&quot; if desc else &quot;&quot;))
+print(&quot;\n&quot;.join(lines))
+PY
+)&quot;
+
 # source=compact is the trigger. Always consume the PreCompact marker as
 # cleanup, but only trust its trigger word on a genuine post-compaction start
 # — a marker left by an aborted compaction must not fire the policy on an
@@ -618,7 +713,7 @@ if [[ -f &quot;$marker&quot; ]]; then
 fi
 
 # Nothing to surface.
-[[ -z &quot;$items&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$items&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
   if [[ &quot;$is_compact&quot; == &quot;true&quot; ]]; then
@@ -666,6 +761,13 @@ EOF
     else
       printf &#x27;%s\n&#x27; &quot;$items&quot;
     fi
+  fi
+
+  if [[ -n &quot;$mcp_off&quot; ]]; then
+    [[ &quot;$is_compact&quot; == &quot;true&quot; || -n &quot;$items&quot; ]] &amp;&amp; echo
+    echo &quot;Registry MCP servers currently OFF (not connected; the description says why):&quot;
+    printf &#x27;%s\n&#x27; &quot;$mcp_off&quot;
+    echo &#x27;If the task needs one: run `.agents/sync-mcp.sh enable &lt;name&gt;`, then ask the user to restart the session (MCP servers connect at startup). Turn it back off with `.agents/sync-mcp.sh disable &lt;name&gt;`.&#x27;
   fi
 )&quot;
 
@@ -837,7 +939,7 @@ fi
 
 # Destructive SQL (DROP / TRUNCATE / unrestricted DELETE or UPDATE)
 if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eqi &#x27;(psql|mysql)[^|;&amp;]*(DROP[[:space:]]+(TABLE|DATABASE|SCHEMA|INDEX)|TRUNCATE[[:space:]]+TABLE)&#x27;; then
-  block &quot;Destructive DDL detected. Confirm with the user and route the change through Alembic migrations.&quot;
+  block &quot;Destructive DDL detected. Confirm with the user and route the change through migrations.&quot;
 fi
 if printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eqi &#x27;(psql|mysql)[^|;&amp;]*(DELETE[[:space:]]+FROM[[:space:]]+[A-Za-z_.]+[[:space:]]*;|UPDATE[[:space:]]+[A-Za-z_.]+[[:space:]]+SET[^;]*;)&#x27; &amp;&amp; ! printf &#x27;%s&#x27; &quot;$cmd&quot; | grep -Eqi &#x27;WHERE&#x27;; then
   block &quot;Unrestricted DELETE/UPDATE (no WHERE clause) detected. Confirm with the user before running.&quot;
@@ -1570,7 +1672,7 @@ exit 0
 # needs a transcript and stays engine-limited.
 # Output: exit 2 + stderr on escalation; exit 0 otherwise.
 #
-# The checklist prose lives in .agents/hooks/wrap/*.md — this script owns only
+# The checklist prose lives in .agents/playbooks/*.md — this script owns only
 # the gate. It emits a short trigger naming the sections and their files; the
 # model reads a file only if the user opts into the wrap. A skipped wrap
 # therefore costs the model nothing, where an inline checklist costs it the
@@ -1603,7 +1705,7 @@ set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
 cfg_path=&quot;$repo/.agents/config.json&quot;
-wrap_dir=&quot;.agents/hooks/wrap&quot;
+wrap_dir=&quot;.agents/playbooks&quot;
 
 cfg=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
 import json, os
@@ -1961,432 +2063,6 @@ exit 0
         <p>Model-invocable and portable across projects — each one a focused responsibility, no overlap.</p>
       </div>
       <div class="grid">
-        <article class="card"><div class="kicker">Orchestration</div><h3>dispatching-parallel-agents</h3><p>Fan out two or more independent tasks that share no state and have no ordering between them.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 195 lines</span></summary><div class="srcpath">.agents/skills/dispatching-parallel-agents/SKILL.md</div><pre><code>---
-name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
----
-
-# Dispatching Parallel Agents
-
-## Overview
-
-You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session&#x27;s context or history — you construct exactly what they need. This also preserves your own context for coordination work.
-
-When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
-
-**Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
-
-## When to Use
-
-```dot
-digraph when_to_use {
-    &quot;Multiple failures?&quot; [shape=diamond];
-    &quot;Are they independent?&quot; [shape=diamond];
-    &quot;Single agent investigates all&quot; [shape=box];
-    &quot;One agent per problem domain&quot; [shape=box];
-    &quot;Can they work in parallel?&quot; [shape=diamond];
-    &quot;Sequential agents&quot; [shape=box];
-    &quot;Parallel dispatch&quot; [shape=box];
-
-    &quot;Multiple failures?&quot; -&gt; &quot;Are they independent?&quot; [label=&quot;yes&quot;];
-    &quot;Are they independent?&quot; -&gt; &quot;Single agent investigates all&quot; [label=&quot;no - related&quot;];
-    &quot;Are they independent?&quot; -&gt; &quot;Can they work in parallel?&quot; [label=&quot;yes&quot;];
-    &quot;Can they work in parallel?&quot; -&gt; &quot;Parallel dispatch&quot; [label=&quot;yes&quot;];
-    &quot;Can they work in parallel?&quot; -&gt; &quot;Sequential agents&quot; [label=&quot;no - shared state&quot;];
-}
-```
-
-**Use when:**
-- 3+ test files failing with different root causes
-- Multiple subsystems broken independently
-- Each problem can be understood without context from others
-- No shared state between investigations
-
-**Don&#x27;t use when:**
-- Failures are related (fix one might fix others)
-- Need to understand full system state
-- Agents would interfere with each other
-
-## The Pattern
-
-### 1. Identify Independent Domains
-
-Group failures by what&#x27;s broken:
-- File A tests: Tool approval flow
-- File B tests: Batch completion behavior
-- File C tests: Abort functionality
-
-Each domain is independent - fixing tool approval doesn&#x27;t affect abort tests.
-
-### 2. Create Focused Agent Tasks
-
-Each agent gets:
-- **Specific scope:** One test file or subsystem
-- **Clear goal:** Make these tests pass
-- **Constraints:** Don&#x27;t change other code
-- **Expected output:** Summary of what you found and fixed
-
-### 3. Stamp a Genome per Agent
-
-Each agent dissolves into the broth with its own personality. Draw the whole
-batch in one shot so the genomes are distinct and the swarm *fights* instead of
-echoing — a fan-out of yes-men explores nothing:
-
-```sh
-.agents/genome.sh --count 3                  # 3 distinct stamps
-.agents/genome.sh --count 12 --register none # wide fan-out: drop the register tax
-```
-
-Split the output on the `⊰ COLLOID GENOME` header line and prepend one stamp to
-each agent&#x27;s prompt. `genome-guard.sh` blocks any dispatch you forget to stamp.
-See `genomes.md` for the genomes and the selection rules.
-
-### 4. Dispatch in Parallel
-
-```typescript
-// In Claude Code / AI environment — each prompt carries its prepended genome
-Task(&quot;⊰ COLLOID GENOME · THE MYCELIUM …\n\nFix agent-tool-abort.test.ts failures&quot;)
-Task(&quot;⊰ COLLOID GENOME · THE TARDIGRADE …\n\nFix batch-completion-behavior.test.ts failures&quot;)
-Task(&quot;⊰ COLLOID GENOME · THE EXTREMOPHILE …\n\nFix tool-approval-race-conditions.test.ts failures&quot;)
-// All three run concurrently
-```
-
-### 5. Review and Integrate
-
-When agents return:
-- Read each summary
-- Verify fixes don&#x27;t conflict
-- Run full test suite
-- Integrate all changes
-
-## Agent Prompt Structure
-
-Good agent prompts are:
-1. **Focused** - One clear problem domain
-2. **Self-contained** - All context needed to understand the problem
-3. **Specific about output** - What should the agent return?
-4. **Goal-shaped, not step-scripted** - State the outcome, the constraints, and
-   the success criteria; let the agent plan its own route. Frontier models
-   reason past a hand-written step list — prescribing one caps them at your
-   plan and burns thinking tokens reconciling it with their own.
-
-```markdown
-Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
-
-1. &quot;should abort tool with partial output capture&quot; - expects &#x27;interrupted at&#x27; in message
-2. &quot;should handle mixed completed and aborted tools&quot; - fast tool aborted instead of completed
-3. &quot;should properly track pendingToolCount&quot; - expects 3 results but gets 0
-
-These look like timing/race issues — diagnose whether the bug is in the abort
-implementation or in the tests before fixing either. Prefer event-based
-waiting over arbitrary timeouts; a bigger timeout is a symptom patch, not a
-fix.
-
-Return: Summary of root cause and what you fixed.
-```
-
-## Common Mistakes
-
-**❌ Too broad:** &quot;Fix all the tests&quot; - agent gets lost
-**✅ Specific:** &quot;Fix agent-tool-abort.test.ts&quot; - focused scope
-
-**❌ No context:** &quot;Fix the race condition&quot; - agent doesn&#x27;t know where
-**✅ Context:** Paste the error messages and test names
-
-**❌ No constraints:** Agent might refactor everything
-**✅ Constraints:** &quot;Do NOT change production code&quot; or &quot;Fix tests only&quot;
-
-**❌ Vague output:** &quot;Fix it&quot; - you don&#x27;t know what changed
-**✅ Specific:** &quot;Return summary of root cause and changes&quot;
-
-## When NOT to Use
-
-**Related failures:** Fixing one might fix others - investigate together first
-**Need full context:** Understanding requires seeing entire system
-**Exploratory debugging:** You don&#x27;t know what&#x27;s broken yet
-**Shared state:** Agents would interfere (editing same files, using same resources)
-
-## Real Example from Session
-
-**Scenario:** 6 test failures across 3 files after major refactoring
-
-**Failures:**
-- agent-tool-abort.test.ts: 3 failures (timing issues)
-- batch-completion-behavior.test.ts: 2 failures (tools not executing)
-- tool-approval-race-conditions.test.ts: 1 failure (execution count = 0)
-
-**Decision:** Independent domains - abort logic separate from batch completion separate from race conditions
-
-**Dispatch:**
-```
-Agent 1 → Fix agent-tool-abort.test.ts
-Agent 2 → Fix batch-completion-behavior.test.ts
-Agent 3 → Fix tool-approval-race-conditions.test.ts
-```
-
-**Results:**
-- Agent 1: Replaced timeouts with event-based waiting
-- Agent 2: Fixed event structure bug (threadId in wrong place)
-- Agent 3: Added wait for async tool execution to complete
-
-**Integration:** All fixes independent, no conflicts, full suite green
-
-**Time saved:** 3 problems solved in parallel vs sequentially
-
-## Key Benefits
-
-1. **Parallelization** - Multiple investigations happen simultaneously
-2. **Focus** - Each agent has narrow scope, less context to track
-3. **Independence** - Agents don&#x27;t interfere with each other
-4. **Speed** - 3 problems solved in time of 1
-
-## Verification
-
-After agents return:
-1. **Review each summary** - Understand what changed
-2. **Check for conflicts** - Did agents edit same code?
-3. **Run full suite** - Verify all fixes work together
-4. **Spot check** - Agents can make systematic errors
-
-## Real-World Impact
-
-From debugging session (2025-10-03):
-- 6 failures across 3 files
-- 3 agents dispatched in parallel
-- All investigations completed concurrently
-- All fixes integrated successfully
-- Zero conflicts between agent changes
-</code></pre></details>
-            </article>
-        <article class="card"><div class="kicker">Orchestration</div><h3>writing-plans</h3><p>Turn a spec into a reviewable implementation plan before touching code.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 152 lines</span></summary><div class="srcpath">.agents/skills/writing-plans/SKILL.md</div><pre><code>---
-name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
----
-
-# Writing Plans
-
-## Overview
-
-Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
-
-Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don&#x27;t know good test design very well.
-
-**Announce at start:** &quot;I&#x27;m using the writing-plans skill to create the implementation plan.&quot;
-
-**Context:** This should be run in a dedicated worktree (created by brainstorming skill).
-
-**Save plans to:** `docs/superpowers/plans/YYYY-MM-DD-&lt;feature-name&gt;.md`
-- (User preferences for plan location override this default)
-
-## Scope Check
-
-If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn&#x27;t, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
-
-## File Structure
-
-Before defining tasks, map out which files will be created or modified and what each one is responsible for. This is where decomposition decisions get locked in.
-
-- Design units with clear boundaries and well-defined interfaces. Each file should have one clear responsibility.
-- You reason best about code you can hold in context at once, and your edits are more reliable when files are focused. Prefer smaller, focused files over large ones that do too much.
-- Files that change together should live together. Split by responsibility, not by technical layer.
-- In existing codebases, follow established patterns. If the codebase uses large files, don&#x27;t unilaterally restructure - but if a file you&#x27;re modifying has grown unwieldy, including a split in the plan is reasonable.
-
-This structure informs the task decomposition. Each task should produce self-contained changes that make sense independently.
-
-## Bite-Sized Task Granularity
-
-**Each step is one action (2-5 minutes):**
-- &quot;Write the failing test&quot; - step
-- &quot;Run it to make sure it fails&quot; - step
-- &quot;Implement the minimal code to make the test pass&quot; - step
-- &quot;Run the tests and make sure they pass&quot; - step
-- &quot;Commit&quot; - step
-
-## Plan Document Header
-
-**Every plan must start with this header:**
-
-```markdown
-# [Feature Name] Implementation Plan
-
-&gt; **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
-**Goal:** [One sentence describing what this builds]
-
-**Architecture:** [2-3 sentences about approach]
-
-**Tech Stack:** [Key technologies/libraries]
-
----
-```
-
-## Task Structure
-
-````markdown
-### Task N: [Component Name]
-
-**Files:**
-- Create: `exact/path/to/file.py`
-- Modify: `exact/path/to/existing.py:123-145`
-- Test: `tests/exact/path/to/test.py`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_specific_behavior():
-    result = function(input)
-    assert result == expected
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: FAIL with &quot;function not defined&quot;
-
-- [ ] **Step 3: Write minimal implementation**
-
-```python
-def function(input):
-    return expected
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/path/test.py src/path/file.py
-git commit -m &quot;feat: add specific feature&quot;
-```
-````
-
-## No Placeholders
-
-Every step must contain the actual content an engineer needs. These are **plan failures** — never write them:
-- &quot;TBD&quot;, &quot;TODO&quot;, &quot;implement later&quot;, &quot;fill in details&quot;
-- &quot;Add appropriate error handling&quot; / &quot;add validation&quot; / &quot;handle edge cases&quot;
-- &quot;Write tests for the above&quot; (without actual test code)
-- &quot;Similar to Task N&quot; (repeat the code — the engineer may be reading tasks out of order)
-- Steps that describe what to do without showing how (code blocks required for code steps)
-- References to types, functions, or methods not defined in any task
-
-## Remember
-- Exact file paths always
-- Complete code in every step — if a step changes code, show the code
-- Exact commands with expected output
-- DRY, YAGNI, TDD, frequent commits
-
-## Self-Review
-
-After writing the complete plan, look at the spec with fresh eyes and check the plan against it. This is a checklist you run yourself — not a subagent dispatch.
-
-**1. Spec coverage:** Skim each section/requirement in the spec. Can you point to a task that implements it? List any gaps.
-
-**2. Placeholder scan:** Search your plan for red flags — any of the patterns from the &quot;No Placeholders&quot; section above. Fix them.
-
-**3. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
-
-If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
-
-## Execution Handoff
-
-After saving the plan, offer execution choice:
-
-**&quot;Plan complete and saved to `docs/superpowers/plans/&lt;filename&gt;.md`. Two execution options:**
-
-**1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
-
-**2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints
-
-**Which approach?&quot;**
-
-**If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
-- Fresh subagent per task + two-stage review
-
-**If Inline Execution chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
-- Batch execution with checkpoints for review
-</code></pre></details>
-            </article>
-        <article class="card"><div class="kicker">Orchestration</div><h3>executing-plans</h3><p>Execute a written plan in a fresh session with review checkpoints between steps.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 70 lines</span></summary><div class="srcpath">.agents/skills/executing-plans/SKILL.md</div><pre><code>---
-name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
----
-
-# Executing Plans
-
-## Overview
-
-Load plan, review critically, execute all tasks, report when complete.
-
-**Announce at start:** &quot;I&#x27;m using the executing-plans skill to implement this plan.&quot;
-
-**Note:** Tell your human partner that Superpowers works much better with access to subagents. The quality of its work will be significantly higher if run on a platform with subagent support (such as Claude Code or Codex). If subagents are available, use superpowers:subagent-driven-development instead of this skill.
-
-## The Process
-
-### Step 1: Load and Review Plan
-1. Read plan file
-2. Review critically - identify any questions or concerns about the plan
-3. If concerns: Raise them with your human partner before starting
-4. If no concerns: Create TodoWrite and proceed
-
-### Step 2: Execute Tasks
-
-For each task:
-1. Mark as in_progress
-2. Follow each step exactly (plan has bite-sized steps)
-3. Run verifications as specified
-4. Mark as completed
-
-### Step 3: Complete Development
-
-After all tasks complete and verified:
-- Announce: &quot;I&#x27;m using the finishing-a-development-branch skill to complete this work.&quot;
-- **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
-- Follow that skill to verify tests, present options, execute choice
-
-## When to Stop and Ask for Help
-
-**STOP executing immediately when:**
-- Hit a blocker (missing dependency, test fails, instruction unclear)
-- Plan has critical gaps preventing starting
-- You don&#x27;t understand an instruction
-- Verification fails repeatedly
-
-**Ask for clarification rather than guessing.**
-
-## When to Revisit Earlier Steps
-
-**Return to Review (Step 1) when:**
-- Partner updates the plan based on your feedback
-- Fundamental approach needs rethinking
-
-**Don&#x27;t force through blockers** - stop and ask.
-
-## Remember
-- Review plan critically first
-- Follow plan steps exactly
-- Don&#x27;t skip verifications
-- Reference skills when plan says to
-- Stop when blocked, don&#x27;t guess
-- Never start implementation on main/master branch without explicit user consent
-
-## Integration
-
-**Required workflow skills:**
-- **superpowers:using-git-worktrees** - REQUIRED: Set up isolated workspace before starting
-- **superpowers:writing-plans** - Creates the plan this skill executes
-- **superpowers:finishing-a-development-branch** - Complete development after all tasks
-</code></pre></details>
-            </article>
         <article class="card"><div class="kicker">Research</div><h3>search-and-cite</h3><p>Draw the line between an inline lookup and a delegated researcher cell — and carry sources through to the answer.</p>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 113 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
 name: search-and-cite
@@ -2434,7 +2110,7 @@ question. The **Mycelium** is its natural genome (trace every source, three hops
 out, impossible to surprise):
 
 ```sh
-.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/researcher.md + the question
+.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/personas/researcher.md + the question
 ```
 
 ### Claude Code — use the native researcher agent (Sonnet)
@@ -2459,7 +2135,7 @@ its system prompt, and your prompt carries the genome stamp + question. The
 
 ### Other engines — generic dispatch
 
-Dispatch `[genome stamp] + [.agents/researcher.md] + [your research question]`.
+Dispatch `[genome stamp] + [.agents/personas/researcher.md] + [your research question]`.
 It climbs the escalation ladder (WebSearch → WebFetch primary sources →
 context7 for libs → playwright for hard pages), cross-checks load-bearing
 claims, and returns `CLAIMS / SOURCES / GAPS`. The genome stamp means it carries
@@ -2815,11 +2491,264 @@ For deep dives on specific vulnerability classes, read:
 These are loaded only when needed to keep context lean.
 </code></pre></details>
             </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>scalability-audit</h3><p>Eight laws that predict where a growing system breaks, each with a detection question, plus an eight-step audit that finds the next failure before it bills you.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 251 lines</span></summary><div class="srcpath">.agents/skills/scalability-audit/SKILL.md</div><pre><code>---
+name: scalability-audit
+description: Find where a growing system breaks before it breaks. Eight failure laws with detection questions, an eight-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, or when asking what breaks next as N grows.
+---
+
+# Scalability Audit
+
+Predict where a growing system breaks, then find the breaks you have not hit
+yet.
+
+The laws below explain failures a system has already had. The audit in §2 finds
+the ones it has not. The audit does not require knowing the failure in advance,
+which is the whole point of running it.
+
+These laws come from mining 28 sessions and 181 findings in one production
+system into 10 recurring failure classes, each re-verified against live code.
+The laws generalise. The evidence does not travel, so this skill does not
+reproduce another system&#x27;s numbers — gather your own as you go.
+
+## When to use this
+
+| Situation | Read |
+| --- | --- |
+| Shipping a change today | §4 |
+| Looking for the next incident | §2 |
+| Explaining why something broke | §1 |
+| Fixing one you found | §3 |
+
+A hostile review flags the axis. This skill runs the sweep. Do not run both on
+the same diff — the review covers a change, this covers a system.
+
+## §1 The eight laws
+
+### Law 1 — Cost follows N, not intent
+
+Code is written for the case in front of you, and it is correct. It is then
+reused for the fleet by wrapping it in a loop, which is also correct. Neither
+step prices the result. The loop inherits the body&#x27;s cost and multiplies it by
+whatever N happens to be that day.
+
+Cadence obeys the same law. True cost is cost per run times runs per day. A
+five-minute beat is 288 runs a day. Both numbers get chosen from intuition, not
+arithmetic.
+
+**Detection.** For any operation, state N today, cost per item, and frequency.
+Multiply. If you cannot state the product, you have not designed it.
+
+### Law 2 — The system moves; the numbers do not
+
+Every constant is a fossil of the moment someone chose it. Thresholds, caps,
+retention windows, batch sizes, cadences, timeouts — each was calibrated
+against a snapshot, and each stays fixed while the snapshot rots.
+
+The subtler half is denominator drift. A control that reads a slice of traffic
+was calibrated against that slice&#x27;s share of the whole. The share moves without
+telling the control, which then goes quietly blind instead of failing loudly.
+
+**Detection.** For every constant that gates behaviour, ask what N was when it
+was chosen and what N is now. For every ratio, ask what fraction of the system
+its denominator covers today.
+
+### Law 3 — Two states cannot carry three outcomes
+
+Any check against something that can fail has three outcomes, not two: genuine
+yes, genuine no, and the check did not complete. A boolean or an empty list
+holds two. The third collapses into the falsy one, which is almost always the
+reassuring one — clean, not listed, no record, absent.
+
+The system then acts on a verdict nobody rendered. This is the most expensive
+class, because the failure is silent and the action taken is often destructive.
+
+**Detection.** For every function returning a verdict, ask whether it can tell
+&quot;no&quot; from &quot;I could not tell&quot;. Follow the `except` clauses. A bare
+`except Exception: return False` is the signature.
+
+### Law 4 — Every reservoir needs a source and a drain
+
+Anything that accumulates or depletes is a reservoir: table rows, log files,
+open alerts, queue depth, held locks, budget reservations, connection slots, a
+pool of recipients.
+
+A source with no drain grows until it hits a physical limit. A drain with no
+source empties until the feature depending on it quietly stops working. Both
+are the same oversight: the feature is the flow one way, and the other way is
+nobody&#x27;s job. The depleting case is worse, because a shrinking reservoir
+usually has no alarm — the system keeps running on an unrepresentative pool and
+reports success while doing it.
+
+**Detection.** List every store. For each, name the source, the drain, and the
+steady state they imply. A missing answer is a scheduled incident.
+
+### Law 5 — Blast radius is nobody&#x27;s property
+
+Automated remediation gets designed one entity at a time, and that logic is
+correct. It is then scaled by iteration. No line in that path asks what
+fraction of the fleet one run is about to mutate, because the question belongs
+to no single entity.
+
+Combine with Law 3 and you get the defining incident shape: a shared signal
+fails, every entity independently evaluates to bad, and the loop faithfully
+applies a destructive action to all of them.
+
+**Detection.** For every automated mutation, ask the maximum number of entities
+one run can change. If the answer is all of them, it needs a per-run cap and a
+second corroborating signal. Duration limits are not blast-radius limits.
+
+### Law 6 — Correlation is the multiplier
+
+Independent failures average out. Correlated failures sum. Any dimension held
+constant across the fleet turns one incident into a fleet-wide one — and the
+dimensions that matter are the ones your dependency or your adversary clusters
+on, not the ones you think of as your architecture.
+
+One proxy in front of every outbound call, one resolver, one credential, one
+region, one template. Each is shared fate wearing the costume of a shared
+resource.
+
+**Detection.** Draw what is shared across N. For each shared thing, ask how
+many entities go down with it. Provisioning that optimises for unit cost —
+cheapest supplier, same template, least-loaded host — manufactures correlation
+as a side effect, because uncorrelated identity is nobody&#x27;s owned metric.
+
+### Law 7 — A signal that cannot escape does not exist
+
+A failure logged but not raised, counted but not paged, or returned in a
+payload nobody inspects is indistinguishable from success. Error handling gets
+written to keep the worker alive rather than to inform an operator, and the
+cheapest shape that achieves that passes review, because no test and no
+dashboard asserts a failure count.
+
+The corollary governs batches. One bad item must not destroy the batch, and it
+must also not vanish.
+
+**Detection.** For each failure mode, trace the path from exception to human.
+If the trace ends at a log line, a return value, or a 200 response, the failure
+is invisible. Ask how long a fully broken component would run before anyone
+noticed.
+
+### Law 8 — The binding constraint is usually someone else&#x27;s
+
+Past a certain size the limit that stops you is not in your code. It is a
+provider&#x27;s rate cap, a protocol&#x27;s field length, a quota, a concurrency ceiling,
+a licence. These are invisible in development because a single-item test never
+approaches them, and they get discovered by crossing them in production.
+
+They do not scale with spending or cleverness, and several are hard walls
+rather than slopes. You do not degrade; you fail.
+
+**Detection.** Register every external dependency with its documented ceiling,
+current usage, and what happens at 100 percent. Convert each into distance: how
+many units of growth until you arrive?
+
+## §2 The audit
+
+A fixed procedure over the whole system. Work through every step. Each one
+produces an artefact; a step with nothing to show means it was not run.
+
+1. **Inventory every N.** List every quantity that grows: entities, rows,
+   users, jobs, files. Record today&#x27;s value and where it is measured.
+2. **Build the 10x table.** For each operation, one row: N, cost per item,
+   frequency, product today, product at 10x. Sort by the 10x column.
+3. **Date every constant.** Every threshold, cap, window, batch size, cadence,
+   timeout. Record the value, when it was chosen, and what N was then.
+4. **Reservoir census.** Every store, with source, drain, and implied steady
+   state. Flag missing drains and missing sources separately.
+5. **Blast-radius census.** Every automated mutation, with the maximum
+   entities one run can change, and whether a cap and a corroborating signal
+   exist.
+6. **Correlation map.** Every resource shared across N, with the count of
+   entities that fail with it.
+7. **Boundary register.** Every external ceiling, with current usage, distance
+   to the wall, and whether the wall degrades or fails.
+8. **Signal trace.** Every failure mode, with the path from exception to human,
+   and the time a fully broken component would run unnoticed.
+
+### Turning findings into tripwires
+
+A finding you cannot detect again is a finding you will re-earn. For each one,
+add the cheapest thing that would have caught it: an assertion, a counter, a
+query in a dashboard, a scheduled check. Prefer a tripwire that fails toward
+alerting.
+
+## §3 Remedy shapes
+
+### Three-outcome checks
+
+Wrap an unreliable external signal so the verdict and the failure are separate
+fields.
+
+- The helper that queries the source must not swallow everything. Catch only
+  the exceptions that mean a genuine negative; let the rest propagate.
+- The public function one layer up owns the catch-all, and it puts the failure
+  in a field the caller reads independently of the verdict. Never overload the
+  verdict field.
+- A check that errored never downgrades good existing state. A write failure
+  never downgrades a previously good read.
+- Size the alerting to the check. A log line by default. A strike counter or a
+  batch failure-ratio escalation only where cadence and blast radius warrant
+  it.
+
+### Failure visibility
+
+- A background job must re-raise after logging, so the framework&#x27;s own failure
+  tracking and any paging path actually fire. Logging alone is not enough.
+- A loop over many items isolates a per-item exception into its own counted
+  bucket. Never drop it, and never fold it into a legitimate skip.
+- A systemic fault — a broken session, a dead connection — still aborts loudly
+  rather than being swallowed once per item.
+- A handler that enqueues downstream work and acknowledges success must not
+  treat &quot;enqueued&quot; and &quot;processed&quot; as the same fact.
+
+WARNING: Per-item isolation is only safe when the loop body holds no external
+reservation partway through, such as a budget hold or an in-flight lock.
+Catching broadly across a reservation without a matching release is a silent
+leak, not a fix.
+
+### Blast-radius caps
+
+Cap the fraction of entities one run may mutate. Require a second,
+independently sourced signal before a destructive action. Prefer a cap that
+refuses and pages over one that truncates silently.
+
+### Reservoirs
+
+Give every source a drain and every drain a source. Retention needs an owner
+and a schedule. A depleting reservoir needs an alarm on its level, not on its
+consumption.
+
+## §4 Preflight
+
+Before shipping a change, answer these. An unanswerable question is the
+finding.
+
+- What is N for anything this touches, and what is the product of N, cost, and
+  frequency?
+- Does any new check return a verdict that can hide its own failure?
+- Does any new constant have a recorded basis?
+- Does anything new accumulate or deplete?
+- Can one run of anything new mutate an unbounded number of entities?
+- Does any new failure mode reach a human?
+- Does this move usage closer to an external ceiling?
+
+## Output
+
+Report findings as a numbered list, ordered by product at 10x, not by how
+interesting they are. For each: the law it violates, the location, the
+arithmetic or census entry that proves it, the distance to the wall, and the
+cheapest tripwire that would catch it again.
+
+State which audit steps you ran and which you could not. A sweep that silently
+skipped steps reads as coverage it does not have.
+</code></pre></details>
+            </article>
         <article class="card"><div class="kicker">Assurance</div><h3>thermo-nuclear-code-quality-review</h3><p>An extremely strict maintainability review — abstraction quality, giant files, spaghetti conditionals.</p><div class="foot">Manual only · <code>disable-model-invocation</code></div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 192 lines</span></summary><div class="srcpath">.agents/skills/thermo-nuclear-code-quality-review/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 191 lines</span></summary><div class="srcpath">.agents/skills/thermo-nuclear-code-quality-review/SKILL.md</div><pre><code>---
 name: thermo-nuclear-code-quality-review
 description: Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for a thermo-nuclear code quality review, thermonuclear review, deep code quality audit, or especially harsh maintainability review.
-disable-model-invocation: true
 ---
 
 # Thermo-Nuclear Code Quality Review
@@ -3217,7 +3146,7 @@ Commit fully to the distinctive vision and execute it without hedging.
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> on Claude Code</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 107 lines</span></summary><div class="srcpath">.agents/researcher.md</div><pre><code># Researcher contract
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 107 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code># Researcher contract
 
 &gt; **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
 &gt; (the native agent definition that pins `model: sonnet`). Dispatch research via
@@ -3327,7 +3256,7 @@ with its own fresh genome. But a researcher almost never needs to.)
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>learning-reporter.md</h3><p>Pairs every engineering decision with the code that embodies it, written for a junior reviewer.</p><div class="foot">Exempt from genome stamping</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 81 lines</span></summary><div class="srcpath">.agents/learning-reporter.md</div><pre><code># Learning-reporter contract
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 81 lines</span></summary><div class="srcpath">.agents/personas/learning-reporter.md</div><pre><code># Learning-reporter contract
 
 &gt; **Claude Code:** this contract is baked into `.claude/agents/learning-reporter.md`
 &gt; (generated by `.agents/sync-claude-agents.sh`). Dispatch via
@@ -3427,7 +3356,7 @@ To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.m
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a subagent reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b>. The same practice the contract fires at workflow steps 3 and 5.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 39 lines</span></summary><div class="srcpath">.agents/hooks/wrap/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 160 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch a subagent to review the diff against the surrounding architecture.
 
@@ -3438,38 +3367,159 @@ and prepend its output to the subagent&#x27;s prompt:
 .agents/genome.sh --register none
 ```
 
+Then paste the reviewer contract below it verbatim. Do not paraphrase it — a
+paraphrase is an untested variant.
+
+With it, supply the artifact and the intent the reviewer will grade against:
+the ask in the requester&#x27;s own words, the plan you wrote, and where the report
+goes. Quote the ask; do not summarise it. A summary is your reading of the ask,
+and handing the reviewer your reading is what makes it agree with you.
+
+If you cannot supply the ask, say so in the dispatch rather than leaving the
+reviewer to infer it.
+
+## Reviewer contract
+
+````
+You are reviewing an artifact against the surrounding architecture. Ground
+rules: no justifying the change, no praise, no filler. If you are not sure, say
+you are not sure. Do not make up a finding to fill space — a short honest
+report beats a padded one.
+
 ## The question that comes first
 
-Does the code actually do what it is supposed to do? Trace the change against
-its intent and the inputs and edge cases it must handle, and prove it correct —
-or pinpoint exactly where it does the wrong thing. A clean-looking diff that
-doesn&#x27;t do its job is the worst defect.
+Does the code do what it was supposed to do? That needs a source of truth, and
+the diff is not one. Establish it before you grade anything against it.
 
-## Then hunt these
+Read these, in descending authority:
 
-Each reported with `file:line`, why it bites, and the fix.
+1. **Standing rules** — the repository&#x27;s instruction files: root `AGENTS.md`
+   and any scoped file whose globs match the changed paths. These are
+   invariants about the business, the data, and the product. A change that
+   breaks one is wrong even if the ask requested it.
+2. **The stated ask** — what the user, ticket, or issue asked for, in their own
+   words where you have them.
+3. **The plan** — what the implementer said they would do. The plan is derived
+   from the ask, so a plan that quietly widened, narrowed, or reinterpreted the
+   ask is itself the finding.
+4. **The artifact&#x27;s own claims** — commit message, docstrings, tests, comments.
+   Lowest authority: the same hand wrote them and the code, so they are wrong
+   together.
 
-- **Dangerous patterns** — data loss, unsafe deletes, auth/permission gaps,
-  unvalidated input, injection, secrets in code, swallowed errors.
-- **Scalability** — unbounded growth, missing pagination, work that won&#x27;t
-  survive 100x load, per-request cost that should be amortized.
-- **Race conditions** — unguarded shared state, check-then-act, missing
-  locks/transactions, non-atomic read-modify-write, ordering assumptions.
-- **Suboptimal queries** — N+1, full-table scans, missing indexes, `SELECT *`,
-  queries inside loops, fetching far more rows than used.
-- **Hard-to-debug code** — silent failures, no logging at failure points, magic
-  control flow, deep nesting, side effects behind innocent names.
-- **Weak architecture** — leaky layer boundaries, tight coupling, duplicated
-  sources of truth, logic in the wrong layer, abstractions that lie. For
-  structural depth on this axis — abstraction quality, dramatic simplification,
-  spaghetti growth, file-size smells — hand off to the
-  thermo-nuclear-code-quality-review skill instead of duplicating it here.
+Then trace the change against that, and against the inputs and edge cases it
+must handle, and prove it correct — or pinpoint exactly where it does the wrong
+thing. A clean-looking diff that doesn&#x27;t do its job is the worst defect. For
+changes classified high-stakes, independently reproduce the claim the plan
+named — the review is incomplete without it.
 
-Fold valid objections; escalate genuine disagreements to the user.
+**When the sources disagree, the disagreement is the finding.** Do not pick the
+one that makes the code look correct and grade against that.
+
+**When intent is missing, say so; do not supply it.** A specification inferred
+from the code makes this check circular — code always satisfies a spec read off
+itself. Report that you could not establish intent, review everything else, and
+leave the conformance question open for the operator.
+
+## Underspecified and ambiguous requirements
+
+A requirement that admits two readings is a defect in the requirement, not in
+the code, and this review is the last cheap place to catch it. Report it instead
+of choosing a reading and grading against your own choice.
+
+Report each one on its own line:
+
+```
+AMBIGUITY: &lt;requirement&gt; — reads as (a) &lt;...&gt; or (b) &lt;...&gt;; the code does
+&lt;a|b|neither&gt;. To settle: &lt;what you need, and from whom&gt;.
+```
+
+Report it even when the code&#x27;s reading looks reasonable. &quot;Reasonable&quot; is you
+deciding, which is the thing to avoid. Silence here is how an unasked product
+decision ships as an implementation detail.
+
+## Then work the axes
+
+The axis catalogue is `.agents/playbooks/review-axes.md`. Read it. It holds
+four groups of three or four axes.
+
+Work one group at a time and finish it before starting the next. A group you
+did not work is a group you did not review, and it is not the same thing as a
+group with nothing to report.
+
+If you cannot read the catalogue, say so and stop. Do not review from memory —
+an unmeasurable review is worse than none.
+
+## When to reach past this review
+
+Two skills go deeper than a diff review. Reach for one on recognition, not on
+suspicion: you should be able to name the thing you saw.
+
+**thermo-nuclear-code-quality-review** — run it yourself, on the code you are
+already reading. Reach for it when:
+
+- the change reads sloppy enough that you re-read it to trust it;
+- it touches a core or critical path — auth, money, deletion, the module
+  everything imports;
+- it grows a file or function that was already too big;
+- the same defect keeps recurring in different places, so the real fix is a
+  redesign rather than the four patches you were about to write.
+
+**scalability-audit** — flag it, never run it: its sweep needs live system data
+a diff does not carry. The axes already tell you what to look for; reach for the
+skill when you find it and the diff cannot settle it — a hot table whose row
+count you cannot see, an N you cannot state, a reservoir whose drain you cannot
+find, a ceiling you cannot measure the distance to, or a shape that will be
+expensive to redesign around once it is built.
+
+End the report with `HANDOFF: scalability-audit — &lt;trigger&gt;`. Name what you
+saw, not the axis: &quot;per-domain external call inside a fleet loop with no cap&quot;,
+never &quot;scalability&quot;.
+
+## How to report
+
+Open with one line on conformance: does the change do what its intent requires?
+Say it plainly, before anything else. If it does not, say where. If you could
+not establish intent, say that instead. This line is mandatory in every case.
+
+Then report your findings as a single numbered list. For each, give `file:line`,
+what is wrong, why it bites, and the fix.
+
+Order the list by what you would have the implementer fix first. You do not
+need to rank every axis against every other: put anything that breaks
+conformance or destroys data at the top, then order the rest by what it costs
+to leave in. Ties do not matter.
+
+Name the groups you worked and any group you could not finish.
+
+Close with any `AMBIGUITY:` lines, then any `HANDOFF:` line. Omit either
+heading when it has nothing under it.
+````
+
+## After the report
+
+An `AMBIGUITY:` line is not yours to close. It escalates — take both readings
+to the user and let them pick. Deciding it yourself is the failure the line
+exists to prevent, and &quot;the code&#x27;s reading was reasonable&quot; is not a
+disposition. The one exception: the ask itself already settles it and the
+reviewer missed that, in which case quote the line that settles it.
+
+A `HANDOFF:` line is a finding like any other and gets a disposition: run the
+skill now, file it for later, or decline it with a reason. Running it is a
+separate unit of work with its own budget — do not fold a system sweep into the
+current change without saying so.
+
+Findings are input, not orders — disposition each one: adopt it because
+it&#x27;s right, decline it with a reason, file it (breadcrumbs or debt-log)
+when valid but not this unit&#x27;s work, or escalate a decision only the
+user can make. The burden of proof sits on the finding, not the
+decline. State every disposition explicitly — a silent drop is not a
+disposition. Three consecutive rounds where fixes don&#x27;t hold mean the
+shape is wrong — stop patching and take the architecture question to the
+user.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 21 lines</span></summary><div class="srcpath">.agents/hooks/wrap/diff-wrap.md</div><pre><code># Clean-up and behavior-impact review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 21 lines</span></summary><div class="srcpath">.agents/playbooks/diff-wrap.md</div><pre><code># Clean-up and behavior-impact review
 
 Scope: the files this session actually touched. Do not sweep files you did not
 edit — a wrap is not a repo-wide cleanup mission.
@@ -3493,7 +3543,7 @@ edit — a wrap is not a repo-wide cleanup mission.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>report-implementation.md</h3><p>Session report for a diff: what it does and why, the evidence named, next steps — then a Conventional Commit message.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 11 lines</span></summary><div class="srcpath">.agents/hooks/wrap/report-implementation.md</div><pre><code># Session report — implementation
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 15 lines</span></summary><div class="srcpath">.agents/playbooks/report-implementation.md</div><pre><code># Session report — implementation
 
 The session produced a diff. Report what it does and what it costs.
 
@@ -3501,13 +3551,17 @@ The session produced a diff. Report what it does and what it costs.
 - **What was done and why** — the decision, and the alternative you rejected.
 - **What changed or was verified** — name the evidence: the command you ran, the
   test that passed, the flow you drove. &quot;Should work&quot; is not verification.
+  Curl checks, spot checks, and local runs are partial evidence — report
+  them as partial; only the real user path exercised end-to-end upgrades
+  a claim to verified.
 - **Remaining blockers, risks, or next steps**, if any.
+- **Review findings declined or filed**, each with its reason.
 
 Then draft a commit message for the session&#x27;s work in conventional style.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>report-investigation.md</h3><p>For a long no-diff session — debugging or research. Leads with root cause; the findings are the whole deliverable and die with the context window unless written down.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 17 lines</span></summary><div class="srcpath">.agents/hooks/wrap/report-investigation.md</div><pre><code># Session report — investigation
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 17 lines</span></summary><div class="srcpath">.agents/playbooks/report-investigation.md</div><pre><code># Session report — investigation
 
 A long session with no diff: debugging or research. The findings are the whole
 deliverable, and they die with the context window unless written down.
@@ -3527,7 +3581,7 @@ Then, either way:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>learning-report.md</h3><p>Pairing-mode inline learning report — a separate deliverable from the wrap, produced even if the wrap is skipped.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 63 lines</span></summary><div class="srcpath">.agents/hooks/wrap/learning-report.md</div><pre><code># Pairing mode — a learning report for the junior
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 63 lines</span></summary><div class="srcpath">.agents/playbooks/learning-report.md</div><pre><code># Pairing mode — a learning report for the junior
 
 You are pair-coding with a junior who learns by reviewing, and you turned this
 mode on deliberately. Produce the report INLINE this turn. It is a SEPARATE
@@ -3610,7 +3664,7 @@ Task(subagent_type=&#x27;learning-reporter&#x27;,
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 9 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 13 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
@@ -3619,13 +3673,17 @@ Surfaced at session start by `session-start.sh`.
 - Kimi &gt;= 0.29 exposes SubagentStart — genome-guard could ride it instead of PreToolUse Agent/AgentSwarm matching; needs payload-shape verification. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
 - Persona-layer decision (user call, not unilateral): Wharton &quot;Playing Pretend&quot; (arxiv.org/abs/2512.05858) — expert personas don&#x27;t improve factual accuracy and domain-mismatched ones degrade it; personas DO still shape tone/behavior. Genome personas are diversity-for-selection (defensible), but &quot;You are a senior red-team engineer&quot; (pentesting SKILL) and Carmack/Jobs/Linus anchors (AGENTS.md) are the expert-persona pattern. Keep for tone, drop for accuracy claims, or trim?
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
+- Seed real invariants into the 7 content-free skill AGENTS.md files (frontend-design, market-researcher, mobile-responsive-web, panspermia-mutation, react-native-expert, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — they ship `None recorded yet.` in every section. Open user decision: seed-on-demand vs delete-until-needed.
+- Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
+- `config.json` model routing has three dead keys: `models.explore`, `models.plan`, `models.default_subagent`. Only `researcher` and `learning_reporter` are read (`sync-claude-agents.sh` AGENTS registry); the other three route nothing, and no runtime knob exists for a default ad-hoc subagent model — the tier rule in AGENTS.md carries it instead. Delete the three keys from `config.json.example` + live configs, and drop the &quot;(etc.)&quot; claim in `.agents/README.md:71`.
+- `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 20 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -3639,6 +3697,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — what the code does now, and why it&#x27;s acceptable today.
 - **Trigger** — the observation that would justify paying it off.
 - **Rework** — what the fix costs.
+
+### githook-variant-strip-anywhere
+
+- **Condition** — `.githooks/commit-msg` strips attribution-variant lines anywhere in the message, not only in the trailer block; body prose that starts a line with &quot;Authored by:&quot; is eaten. Acceptable: such prose is rare and the strip is what delivers variant normalization.
+- **Trigger** — a real commit loses a legitimate body line to the strip.
+- **Rework** — locate the trailer block (e.g. via `git interpret-trailers --parse`) and confine the strip to it; ~40 lines plus tests.
 </code></pre></details>
             </article>
         <article class="card">
