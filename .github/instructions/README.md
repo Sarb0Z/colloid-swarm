@@ -22,8 +22,8 @@ Scoped instructions are co-located with the code they govern:
 
 Skills: `frontend-design`, `market-researcher`, `mobile-responsive-web`,
 `panspermia-mutation`, `pentesting`, `perf-budget`, `react-native-expert`,
-`search-and-cite`, `security-audit`, `security-scan`, `seo-geo-growth-audit`,
-`thermo-nuclear-code-quality-review`.
+`scalability-audit`, `search-and-cite`, `security-audit`, `security-scan`,
+`seo-geo-growth-audit`, `thermo-nuclear-code-quality-review`.
 
 ## Tool Fan-Out
 
