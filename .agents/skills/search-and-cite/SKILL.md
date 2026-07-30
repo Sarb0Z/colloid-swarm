@@ -44,7 +44,7 @@ question. The **Mycelium** is its natural genome (trace every source, three hops
 out, impossible to surprise):
 
 ```sh
-.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/researcher.md + the question
+.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/personas/researcher.md + the question
 ```
 
 ### Claude Code — use the native researcher agent (Sonnet)
@@ -69,7 +69,7 @@ its system prompt, and your prompt carries the genome stamp + question. The
 
 ### Other engines — generic dispatch
 
-Dispatch `[genome stamp] + [.agents/researcher.md] + [your research question]`.
+Dispatch `[genome stamp] + [.agents/personas/researcher.md] + [your research question]`.
 It climbs the escalation ladder (WebSearch → WebFetch primary sources →
 context7 for libs → playwright for hard pages), cross-checks load-bearing
 claims, and returns `CLAIMS / SOURCES / GAPS`. The genome stamp means it carries

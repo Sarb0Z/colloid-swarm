@@ -53,11 +53,11 @@ MANIFEST = {
     "researcher.md":            ".agents/researcher.md",
     "learning-reporter.md":     ".agents/learning-reporter.md",
     "memory/README.md":         ".agents/memory/README.md",
-    "diff-wrap.md":             ".agents/hooks/wrap/diff-wrap.md",
-    "report-implementation.md": ".agents/hooks/wrap/report-implementation.md",
-    "report-investigation.md":  ".agents/hooks/wrap/report-investigation.md",
-    "hostile-review.md":        ".agents/hooks/wrap/hostile-review.md",
-    "learning-report.md":       ".agents/hooks/wrap/learning-report.md",
+    "diff-wrap.md":             ".agents/playbooks/diff-wrap.md",
+    "report-implementation.md": ".agents/playbooks/report-implementation.md",
+    "report-investigation.md":  ".agents/playbooks/report-investigation.md",
+    "hostile-review.md":        ".agents/playbooks/hostile-review.md",
+    "learning-report.md":       ".agents/playbooks/learning-report.md",
 }
 
 ARTICLE = re.compile(r'(<article class="(?:hook|card)"[^>]*>)(.*?)(</article>)', re.S)
