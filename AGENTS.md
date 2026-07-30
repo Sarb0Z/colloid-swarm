@@ -21,39 +21,56 @@ Listed in priority order. Resolve conflicts top-down.
 
 ## Workflow
 
-1. **Research.** Use web search tool to research best practices and 
-   principles for any pattern we implement. Use documentation tool to get
-   upto-date information on libraries and frameworks being used. Do market
-   research on what competitors are offering and what their customers find
-   lacking when building a new feature. Do not reinvent the wheel. Check
-   forums for what powerusers have said about any problem we face.
+1. **Research.** Ground new work in current sources, not memory: the
+   `search-and-cite` skill draws the line between a quick lookup and
+   delegating a researcher cell; the `market-researcher` skill covers
+   competitor, demand, and gap research when building a new feature. Do
+   not reinvent the wheel — find what practitioners and power users
+   already learned about the problem.
 2. **Plan.** For non-trivial work, use plan mode tool; outline the approach
    before touching code: affected modules, constraints, and the one or two
    options worth considering. Skip for trivial edits. Use the ask questions
    tool to clarify ambiguities or zero in on multiple valid approaches.
+   Classify high-stakes changes (auth, data loss, money, prod config) up
+   front, even when the plan is skipped; state, for each, the one claim
+   step 5's review must independently reproduce. When unsure, classify
+   as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Dispatch a subagent to attack it — fit
    against surrounding architecture, failure modes, edge cases, missing
-   steps. No justifying the plan; find what's wrong. Fold findings in
-   before coding.
+   steps. No justifying the plan; find what's wrong. Findings are input,
+   not orders — disposition each one before coding: adopt it because
+   it's right, decline it with a reason, file it (breadcrumbs or
+   debt-log) when valid but not this unit's work, or escalate a
+   decision only the user can make. The burden of proof sits on the
+   finding, not the decline. State every disposition explicitly — a
+   silent drop is not a disposition.
 4. **Implement, then test.** If anything fails, diagnose and fix. If the fix
    forces a redesign, return to step 1.
 5. **Hostile-review the implementation.** Dispatch a subagent to review
    the diff against the plan and the surrounding architecture. Same
-   ground rules: no justifying, find what's wrong, fold it in.
+   reviewer ground rules: no justifying, find what's wrong. You
+   disposition every finding the same way.
+
+A review round is review → fix → re-review; "don't hold" means the same
+defect returns. Three consecutive rounds where fixes don't hold mean the
+shape is wrong — stop patching and take the architecture question to the
+user.
 
 ## Behavior
 
-### Investigate assumptions
-Read the referenced files, trace the code path, and reach a defensible
-conclusion before proposing changes — investigate, don't speculate.
-External code is not at fault until the investigation proves it. Use web search or documentation
-tools to validate assumptions or get latest information and practices.
-
 ### Verify with user
-When genuinely blocked on a decision only the user can make, ask one
-focused question; otherwise keep investigating. Use the ask questions tool
-when stuck and need user input to zero in on the best path forward. Provide
-the user with context on trade-offs and alternatives.
+Go to the user when a blocker is genuinely theirs to resolve: their
+stated targets disagree with what you found, a reference could mean two
+things, or defensible paths trade off in ways only they can weigh.
+Reconcile those before acting, and present out-of-scope discoveries as
+findings awaiting a ruling rather than absorbing them into the work. A
+question the session can answer itself — a check to run, an execution
+path to attempt — is not a blocker: attempt it and bring the result,
+even a failed one.
+
+When you ask, make the decision cheap: one focused question (the ask
+questions tool) carrying what you found, the options, and your
+recommendation with its trade-offs.
 
 ### Persist to completion
 Work until the task is end-to-end done. Iterate, test, and resolve follow-ups
@@ -74,7 +91,9 @@ comments do not rescue it.
 ### Jobs-grade UI
 Design like Steve Jobs: Highly scannable, visually harmonious, frictionless
 Typography, spacing, hierarchy, and micro-interactions are load-bearing, not
-decorative.
+decorative. Render and inspect the actual output before presenting it —
+fix collisions, clipping, and readability first; when the user supplies
+a reference, match its quality before showing yours.
 
 ### No backwards compatibility 
 Remove stubs and dead code completely. Don't preserve backwards compatibility
@@ -147,11 +166,18 @@ Hand off cross-domain or parallelizable work (architecture, bug
 investigation, research/discovery) as soon as it's identifiable. Handoffs
 are dense: decisions, affected paths, single next step. No raw logs or
 quoted issue bodies. Spawn subagents for mundane and trivial work you're
-too smart for — give it to a smaller minion. The floor: a single tool
-call is not a delegation; when one grep or file read answers it, run it
-yourself rather than spinning up a context around it. Subagents return
-dense, distilled reports: conclusions, decisions, and evidence pointers,
-not transcripts.
+too smart for — give it to a smaller minion. Pick the cheapest tier that
+can be relied on to finish the task and name it in the dispatch call,
+since an omitted model inherits yours; step up a tier only where a wrong
+answer costs more than the retry. Your own tier is for planning and
+hostile review. The floor: a single tool call is not a delegation; when
+one grep or file read answers it, run it yourself rather than spinning
+up a context around it.
+Subagents return dense, distilled reports: conclusions, decisions, and
+evidence pointers, not transcripts. A subagent that changed files or
+state must return runnable acceptance — a command, or a checkable
+assertion for non-executable artifacts. Re-run it before relying on the
+result; its claim is never the only evidence.
 
 ## Hierarchical Instructions
 
