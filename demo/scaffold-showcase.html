@@ -610,7 +610,7 @@ Authoring rules for scoped instruction content are in
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 173 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 201 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: surface deferred work, and re-state the Discovered
 # Subprojects policy when a session resumes on compacted context.
 #
@@ -655,11 +655,39 @@ import json, os
 d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
 print(d.get(&quot;project_dir&quot;, &quot;&quot;))
 print(d.get(&quot;source&quot;, &quot;&quot;))
+print(d.get(&quot;session_id&quot;, &quot;&quot;))
+print(d.get(&quot;transcript_path&quot;, &quot;&quot;))
 PY
 )&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 start_source=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+session_id=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
+
+# Seed session-wrap&#x27;s baseline with the commit this session STARTS from. Its own
+# first write happens at the end of turn 1, by which time a turn that implemented
+# and committed has already hidden that work inside the baseline. Only this hook
+# runs early enough to see the true starting point.
+#
+# Write when the file is absent, and on a RESUME. source=compact continues a
+# session inside one sitting — re-seeding there would erase a ladder mid-flight —
+# but a resume picks up a session whose state can be days old, and commits that
+# landed from anywhere in between would otherwise be measured as its own work.
+#
+# The file format is owned by .agents/hooks/policy/session-wrap.sh — read the
+# state-file schema in its header before touching these five lines.
+ident=&quot;${session_id:-$transcript}&quot;
+if [[ -n &quot;$ident&quot; ]] &amp;&amp; git -C &quot;$proj&quot; rev-parse --is-inside-work-tree &gt;/dev/null 2&gt;&amp;1; then
+  seed=&quot;$proj/.agents/.wrap-state-$(printf &#x27;%s&#x27; &quot;$ident&quot; | cksum | tr -d &#x27; &#x27;)&quot;
+  if [[ ! -e &quot;$seed&quot; || &quot;$start_source&quot; == &quot;resume&quot; ]]; then
+    head_sha=&quot;$(git -C &quot;$proj&quot; rev-parse -q --verify HEAD 2&gt;/dev/null || true)&quot;
+    commits=&quot;$(git -C &quot;$proj&quot; rev-list --count HEAD 2&gt;/dev/null || true)&quot;
+    [[ &quot;$commits&quot; =~ ^[0-9]+$ ]] || commits=&quot;&quot;
+    mkdir -p &quot;$proj/.agents&quot; 2&gt;/dev/null || true
+    { printf &#x27;none\n\n%s\n%s\n\n&#x27; &quot;$commits&quot; &quot;$head_sha&quot; &gt; &quot;$seed&quot;; } 2&gt;/dev/null || true
+  fi
+fi
 
 items=&quot;&quot;
 crumbs=&quot;$proj/.agents/breadcrumbs.md&quot;
@@ -1662,14 +1690,14 @@ exit 0
               <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
               <p class="what">On magnitude escalation (none → trivial → diff → large) offers a clean-up + report wrap, and asks the user — full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 trigger | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 280 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 427 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool,
 #                        &quot;transcript_path&quot;: &quot;...&quot;, &quot;session_id&quot;: &quot;...&quot;}
-# transcript_path (Claude) doubles as session identity and exchange counter;
-# session_id (Kimi) supplies identity alone — the no-diff investigation branch
-# needs a transcript and stays engine-limited.
+# session_id is the session identity, with the transcript path as fallback. The
+# transcript also serves as the exchange counter, so the no-diff investigation
+# branch needs one and stays engine-limited; the magnitude measures do not.
 # Output: exit 2 + stderr on escalation; exit 0 otherwise.
 #
 # The checklist prose lives in .agents/playbooks/*.md — this script owns only
@@ -1686,6 +1714,18 @@ exit 0
 # unit of work rather than one per turn. State lives in
 # .agents/.wrap-state-&lt;hash of session identity&gt; — one file per session, so a
 # new session starts the ladder fresh and concurrent sessions never clobber.
+#
+# TWO MEASURES, because the tier reads the UNCOMMITTED tree. An agent that edits
+# and commits inside one turn leaves a clean tree at Stop, so its tier is `none`
+# every turn: the diff ladder never leaves the floor, and the work falls to the
+# no-diff branch that reports a research session. The second measure is the work
+# that LANDED — commits made since the last one reported — on the same thresholds.
+# Discipline about committing inside the turn now earns the wrap instead of hiding
+# it. It is not a ladder: reporting a range consumes it, so unit two of a session
+# earns the same wrap unit one did.
+#
+# .agents/hooks/policy/session-start.sh seeds the baseline at session start,
+# before turn 1 runs. Without it the baseline lands a turn late (see below).
 #
 # Why escalation and not every turn: firing every turn makes each turn cost two
 # assistant messages and forces the model to triage a wall it will mostly ignore.
@@ -1777,6 +1817,20 @@ if git rev-parse --is-inside-work-tree &gt;/dev/null 2&gt;&amp;1; then
 fi
 
 # ───────────────────────────── classify the tier ─────────────────────────────
+# A binary change, or churn we cannot measure (no commit yet), is never trivial:
+# a safety wrap fails toward more review. Shared by both ladders — the committed
+# one must not drift onto its own thresholds.
+classify() {                       # files, lines (&quot;&quot; = unmeasurable), binary flag
+  local n_files=&quot;$1&quot; n_lines=&quot;$2&quot; is_binary=&quot;$3&quot; tier=&quot;diff&quot;
+  (( n_files == 0 )) &amp;&amp; { echo none; return; }
+  if [[ -z &quot;$is_binary&quot; &amp;&amp; -n &quot;$n_lines&quot; ]] &amp;&amp; (( n_files &lt;= TRIVIAL_FILES &amp;&amp; n_lines &lt;= TRIVIAL_LINES )); then
+    tier=&quot;trivial&quot;
+  elif [[ -z &quot;$n_lines&quot; ]] || (( n_files &gt;= REVIEW_FILES || n_lines &gt;= REVIEW_LINES )); then
+    tier=&quot;large&quot;
+  fi
+  echo &quot;$tier&quot;
+}
+
 count=0
 lines=&quot;&quot;
 binary=&quot;&quot;
@@ -1784,7 +1838,7 @@ if [[ -n &quot;$changed&quot; ]]; then
   count=&quot;$(printf &#x27;%s\n&#x27; &quot;$changed&quot; | wc -l | tr -d &#x27; &#x27;)&quot;
   if git rev-parse --verify -q HEAD &gt;/dev/null 2&gt;&amp;1; then
     binary=&quot;$(git diff HEAD --numstat 2&gt;/dev/null \
-      | awk &#x27;$1 == &quot;-&quot; &amp;&amp; $2 == &quot;-&quot; { print 1; exit }&#x27; || true)&quot;
+      | awk &#x27;$1 == &quot;-&quot; &amp;&amp; $2 == &quot;-&quot; { b = 1 } END { if (b) print 1 }&#x27; || true)&quot;
     tracked=&quot;$(git diff HEAD --numstat 2&gt;/dev/null \
       | awk &#x27;$1 ~ /^[0-9]+$/ &amp;&amp; $2 ~ /^[0-9]+$/ { s += $1 + $2 } END { print s + 0 }&#x27; || true)&quot;
     untracked=&quot;$(git ls-files --others --exclude-standard 2&gt;/dev/null \
@@ -1795,21 +1849,7 @@ if [[ -n &quot;$changed&quot; ]]; then
   fi
 fi
 
-# A binary change, or churn we cannot measure (no commit yet), is never trivial:
-# a safety wrap fails toward more review.
-tier=&quot;none&quot;
-if [[ -n &quot;$changed&quot; ]]; then
-  if [[ -n &quot;$binary&quot; || -z &quot;$lines&quot; ]]; then
-    tier=&quot;diff&quot;
-  elif (( count &lt;= TRIVIAL_FILES &amp;&amp; lines &lt;= TRIVIAL_LINES )); then
-    tier=&quot;trivial&quot;
-  else
-    tier=&quot;diff&quot;
-  fi
-  if [[ &quot;$tier&quot; == &quot;diff&quot; ]] &amp;&amp; { [[ -z &quot;$lines&quot; ]] || (( count &gt;= REVIEW_FILES || lines &gt;= REVIEW_LINES )); }; then
-    tier=&quot;large&quot;
-  fi
-fi
+tier=&quot;$(classify &quot;$count&quot; &quot;$lines&quot; &quot;$binary&quot;)&quot;
 
 rank() { case &quot;$1&quot; in none) echo 0;; trivial) echo 1;; diff) echo 2;; large) echo 3;; *) echo 0;; esac; }
 
@@ -1821,22 +1861,32 @@ rank() { case &quot;$1&quot; in none) echo 0;; trivial) echo 1;; diff) echo 2;; 
 #   line 1  highest tier already fired (the diff ladder)
 #   line 2  &quot;1&quot; once the no-diff investigation report has fired this session
 #   line 3  commit count at the last write — a rise means a commit landed
-# The diff ladder cannot throttle the no-diff branch — `none` and `trivial` never
-# out-rank a fresh `none` — so that branch carries its own flag.
+#   line 4  the commit the committed ladder measures FROM: session start, then the
+#           last commit whose work was reported. Everything after it is unreported.
+#   line 5  &quot;1&quot; once the committed ladder has fired this session
+# Each branch carries its own throttle. The diff ladder cannot throttle the other
+# two — `none` never out-ranks a fresh `none` — and the committed ladder is not a
+# ladder of tiers at all: reporting a range CONSUMES it by advancing line 4, so the
+# next unit measures from zero again and earns its own wrap. A rung that only
+# climbs would fire on the session&#x27;s first unit and stay latched for every one
+# after it, which is the throttle swallowing the work rather than pacing it.
 #
 # The commit count is tracked because a tier drop is not the only way work
 # completes: a turn that commits AND opens the next unit never dips to `none`, so
 # the ladder would stay latched and swallow the next wrap. The count catches the
 # commit the tier never shows. It is a COUNT and not a sha because a sha merely
 # *moves* on `--amend`, `rebase`, or `checkout` — none of which close a unit of
-# work — and would re-fire the wrap on an unchanged tree.
+# work — and would re-fire the wrap on an unchanged tree. Line 4 holds a sha for
+# the other job, MEASURING: the two are not interchangeable. A count cannot name
+# a diff range, and a sha cannot answer &quot;did a commit land&quot;.
 #
-# Session identity: the transcript path (Claude) or session_id (Kimi) — either
-# names this session&#x27;s state file. Neither present = no identity = no throttle:
-# read and write nothing, and let every escalation fire. Keying a shared file on
-# an empty identity would make one repo-wide ladder that every future session
-# inherits, silently suppressing wraps forever. A safety wrap fails toward review.
-ident=&quot;${transcript:-$session_id}&quot;
+# Session identity: session_id, falling back to the transcript path. Neither
+# present = no identity = no throttle: read and write nothing, and let every diff
+# escalation fire. Keying a shared file on an empty identity would make one
+# repo-wide ladder that every future session inherits, silently suppressing wraps
+# forever. A safety wrap fails toward review. The other two branches need a
+# remembered baseline to mean anything, so they are silent without identity.
+ident=&quot;${session_id:-$transcript}&quot;
 state=&quot;&quot;
 if [[ -n &quot;$ident&quot; ]]; then
   state=&quot;$proj/.agents/.wrap-state-$(printf &#x27;%s&#x27; &quot;$ident&quot; | cksum | tr -d &#x27; &#x27;)&quot;
@@ -1850,14 +1900,38 @@ commits=&quot;$(git rev-list --count HEAD 2&gt;/dev/null || true)&quot;
 fired=&quot;none&quot;
 investigated=&quot;&quot;
 prev_commits=&quot;&quot;
+unreported=&quot;&quot;
+implemented=&quot;&quot;
 if [[ -n &quot;$state&quot; &amp;&amp; -f &quot;$state&quot; ]]; then
   fired=&quot;$(sed -n &#x27;1p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
   investigated=&quot;$(sed -n &#x27;2p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
   prev_commits=&quot;$(sed -n &#x27;3p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
+  unreported=&quot;$(sed -n &#x27;4p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
+  implemented=&quot;$(sed -n &#x27;5p&#x27; &quot;$state&quot; 2&gt;/dev/null || true)&quot;
 fi
 case &quot;$fired&quot; in none|trivial|diff|large) ;; *) fired=&quot;none&quot;;; esac
 [[ &quot;$investigated&quot; == &quot;1&quot; ]] || investigated=&quot;&quot;
+[[ &quot;$implemented&quot; == &quot;1&quot; ]] || implemented=&quot;&quot;
 [[ &quot;$prev_commits&quot; =~ ^[0-9]+$ ]] || prev_commits=&quot;&quot;
+# Width, not 40: a sha-256 repository writes 64 hex characters, and a baseline
+# rejected as malformed is re-seeded to HEAD every turn — which silently empties
+# the range and disables the committed branch for the whole session.
+[[ &quot;$unreported&quot; =~ ^[0-9a-f]{7,64}$ ]] || unreported=&quot;&quot;
+
+head_sha=&quot;$(git rev-parse -q --verify HEAD 2&gt;/dev/null || true)&quot;
+
+# The baseline is normally seeded by session-start.sh, before turn 1 runs. Without
+# it — another engine, session_start disabled, a session_id that changed under us —
+# the first Stop seeds it instead, and that write lands AFTER turn 1 already
+# committed. On that one invocation &quot;did this session build anything?&quot; is
+# unanswerable, so the two branches that depend on the answer stay silent rather
+# than guess: a late wrap costs a turn, where a session labelled &quot;research&quot;
+# because it committed its implementation is the defect this exists to remove.
+baseline_known=&quot;yes&quot;
+if [[ -z &quot;$unreported&quot; ]]; then
+  [[ -n &quot;$head_sha&quot; ]] &amp;&amp; baseline_known=&quot;no&quot;
+  unreported=&quot;$head_sha&quot;
+fi
 
 # Re-arm the ladder when the unit of work closed. Two independent signals:
 #   - the tier dropped (work committed away, or reverted)
@@ -1871,14 +1945,70 @@ fi
 escalated=&quot;no&quot;
 (( $(rank &quot;$tier&quot;) &gt; $(rank &quot;$fired&quot;) )) &amp;&amp; escalated=&quot;yes&quot;
 
+# ────────────────── the committed branch: work that already landed ──────────────────
+# The range is `unreported..HEAD` — everything committed since the last report, not
+# the whole session. Reporting it advances the base, so the next unit measures from
+# zero. Committed work below the threshold is NOT dropped: the base does not
+# advance, so a run of small commits accumulates until it crosses.
+#
+# Two shapes of history motion are refused rather than measured, because neither is
+# this session&#x27;s work closing a unit — and the emitted text tells the agent to
+# review &quot;the files this session touched&quot;:
+#   - HEAD does not descend from the base (checkout, reset, a rebase onto another
+#     base). The range would be someone else&#x27;s branch.
+#   - a merge landed in the range (merge, pull). The range would be whatever the
+#     other side wrote.
+# Both re-base the range on HEAD and stay silent for the turn.
+#
+# What it cannot see: a repository with no commits when the session began (the
+# dirty-tree branch already covers everything up to the first commit, and this
+# branch starts measuring from it), and which session authored a commit when two
+# share one working tree — debt: colloid-wrap-concurrent-attribution
+landed_count=0
+landed_lines=&quot;&quot;
+landed_binary=&quot;&quot;
+landed_changed=&quot;&quot;
+if [[ -n &quot;$unreported&quot; &amp;&amp; -n &quot;$head_sha&quot; &amp;&amp; &quot;$unreported&quot; != &quot;$head_sha&quot; ]]; then
+  if git merge-base --is-ancestor &quot;$unreported&quot; HEAD 2&gt;/dev/null \
+     &amp;&amp; [[ -z &quot;$(git rev-list --merges --max-count=1 &quot;$unreported..HEAD&quot; 2&gt;/dev/null)&quot; ]]; then
+    landed_changed=&quot;$(git diff --name-only &quot;$unreported&quot; HEAD 2&gt;/dev/null \
+      | grep -Ev &quot;$markers&quot; || true)&quot;
+    if [[ -n &quot;$landed_changed&quot; ]]; then
+      landed_count=&quot;$(printf &#x27;%s\n&#x27; &quot;$landed_changed&quot; | wc -l | tr -d &#x27; &#x27;)&quot;
+      # numstat is `added &lt;TAB&gt; deleted &lt;TAB&gt; path`, except a rename, which prints
+      # `old =&gt; new` and so splits into $3..$5 — hence both ends are tested. ENVIRON
+      # keeps the marker regex literal, where -v would eat its backslashes and turn
+      # `\.` into &quot;any character&quot;.
+      landed_binary=&quot;$(git diff --numstat &quot;$unreported&quot; HEAD 2&gt;/dev/null \
+        | MARKERS=&quot;$markers&quot; awk &#x27;BEGIN { m = ENVIRON[&quot;MARKERS&quot;] }
+            $3 !~ m &amp;&amp; $NF !~ m &amp;&amp; $1 == &quot;-&quot; &amp;&amp; $2 == &quot;-&quot; { b = 1 }
+            END { if (b) print 1 }&#x27; || true)&quot;
+      landed_lines=&quot;$(git diff --numstat &quot;$unreported&quot; HEAD 2&gt;/dev/null \
+        | MARKERS=&quot;$markers&quot; awk &#x27;BEGIN { m = ENVIRON[&quot;MARKERS&quot;] }
+            $3 !~ m &amp;&amp; $NF !~ m &amp;&amp; $1 ~ /^[0-9]+$/ &amp;&amp; $2 ~ /^[0-9]+$/ { s += $1 + $2 }
+            END { print s + 0 }&#x27; || true)&quot;
+    fi
+  else
+    unreported=&quot;$head_sha&quot;
+  fi
+fi
+landed_tier=&quot;$(classify &quot;$landed_count&quot; &quot;$landed_lines&quot; &quot;$landed_binary&quot;)&quot;
+
 # Persist unconditionally, at every invocation — NOT only when emitting. A commit
 # turn emits nothing; if the re-armed `fired` were written only from an emit
 # branch, the re-arm would live in memory and die there, and the next unit of work
 # reaching the same tier would be silently swallowed.
-record_state() {
+#
+# Returns non-zero when the write did not land. The caller stays SILENT on that
+# path: with a state file it cannot write (a read-only checkout, a root-owned
+# .agents/ from a container run), every turn re-reads the same absent state and
+# re-fires the same wall — a throttle that cannot remember is a spammer, and eight
+# such blocks in a row make the engine drop the hook for the rest of the session.
+record_state() {                   # fired, investigated, implemented
   [[ -z &quot;$state&quot; ]] &amp;&amp; return 0
   mkdir -p &quot;$proj/.agents&quot; 2&gt;/dev/null || true
-  { printf &#x27;%s\n%s\n%s\n&#x27; &quot;$1&quot; &quot;$2&quot; &quot;$commits&quot; &gt; &quot;$state&quot;; } 2&gt;/dev/null || true
+  { printf &#x27;%s\n%s\n%s\n%s\n%s\n&#x27; \
+      &quot;$1&quot; &quot;$2&quot; &quot;$commits&quot; &quot;$unreported&quot; &quot;$3&quot; &gt; &quot;$state&quot;; } 2&gt;/dev/null || return 1
   # Reap state from long-dead sessions; today&#x27;s file was just written, so a
   # week-old mtime can only mean an abandoned session.
   find &quot;$proj/.agents&quot; -maxdepth 1 -name &#x27;.wrap-state-*&#x27; -mtime +7 -delete 2&gt;/dev/null || true
@@ -1892,13 +2022,45 @@ add() { sections=&quot;${sections}${1}&quot;$&#x27;\n&#x27;; }
 # which emits nothing — still writes the reset.
 next_fired=&quot;$fired&quot;
 next_investigated=&quot;$investigated&quot;
+next_implemented=&quot;$implemented&quot;
 
-if [[ &quot;$tier&quot; == &quot;diff&quot; || &quot;$tier&quot; == &quot;large&quot; ]]; then
+# A CLOSED unit outranks work in flight, so the committed branch is tested first.
+# Ordered the other way, one stray untracked file above the trivial floor holds the
+# tier at `diff` for the whole session — the commit-count re-arm re-fires the same
+# stale wall every commit turn, and the units that actually landed are never named.
+if [[ &quot;$landed_tier&quot; == &quot;diff&quot; || &quot;$landed_tier&quot; == &quot;large&quot; ]]; then
+  landed_commits=&quot;$(git rev-list --count &quot;$unreported..HEAD&quot; 2&gt;/dev/null || true)&quot;
+  size=&quot;${landed_commits:-?} commit(s), $landed_count file(s)&quot;
+  [[ -n &quot;$landed_lines&quot; ]] &amp;&amp; size=&quot;$size, ~$landed_lines changed lines&quot;
+  [[ -n &quot;$landed_binary&quot; ]] &amp;&amp; size=&quot;$size, binary&quot;
+  shown=&quot;$(printf &#x27;%s\n&#x27; &quot;$landed_changed&quot; | sed -n &#x27;1,20{s/^/  - /;p;}&#x27;)&quot;
+  (( landed_count &gt; 20 )) &amp;&amp; shown=&quot;$shown&quot;$&#x27;\n&#x27;&quot;  - … $((landed_count - 20)) more&quot;
+
+  add &quot;Committed and unwrapped ($size):&quot;
+  add &quot;$shown&quot;
+  add &quot;&quot;
+  add &quot;This crossed the &#x27;$landed_tier&#x27; threshold. Ask the user — full session wrap,&quot;
+  add &quot;or skip? (Claude: use AskUserQuestion.) Honor the answer; if they skip, stop&quot;
+  add &quot;here. If they want it, read the file for each section below and work it&quot;
+  add &quot;against the files listed above — do not sweep files you did not edit.&quot;
+  add &quot;Anything it turns up lands as a follow-up commit.&quot;
+  [[ -n &quot;$changed&quot; ]] &amp;&amp; \
+  add &quot;$count more file(s) are still uncommitted and are NOT in that list.&quot;
+  add &quot;&quot;
+  add &quot;  - Clean-up + behavior impact  -&gt; $wrap_dir/diff-wrap.md&quot;
+  [[ &quot;$landed_tier&quot; == &quot;large&quot; ]] &amp;&amp; \
+  add &quot;  - Hostile review (subagent)   -&gt; $wrap_dir/hostile-review.md&quot;
+  add &quot;  - Session report              -&gt; $wrap_dir/report-implementation.md&quot;
+  [[ &quot;$learning_enabled&quot; == &quot;yes&quot; ]] &amp;&amp; \
+  add &quot;  - Pairing: learning report    -&gt; $wrap_dir/learning-report.md  (NOT governed by the skip)&quot;
+  unreported=&quot;$head_sha&quot;          # consumed: the next unit measures from here
+  next_implemented=&quot;1&quot;
+elif [[ &quot;$tier&quot; == &quot;diff&quot; || &quot;$tier&quot; == &quot;large&quot; ]]; then
   if [[ &quot;$escalated&quot; == &quot;yes&quot; || &quot;$report_every_turn&quot; == &quot;yes&quot; ]]; then
     size=&quot;$count file(s)&quot;
     [[ -n &quot;$lines&quot; ]] &amp;&amp; size=&quot;$size, ~$lines changed lines&quot;
     [[ -n &quot;$binary&quot; ]] &amp;&amp; size=&quot;$size, binary&quot;
-    shown=&quot;$(printf &#x27;%s\n&#x27; &quot;$changed&quot; | head -20 | sed &#x27;s/^/  - /&#x27;)&quot;
+    shown=&quot;$(printf &#x27;%s\n&#x27; &quot;$changed&quot; | sed -n &#x27;1,20{s/^/  - /;p;}&#x27;)&quot;
     (( count &gt; 20 )) &amp;&amp; shown=&quot;$shown&quot;$&#x27;\n&#x27;&quot;  - … $((count - 20)) more&quot;
 
     add &quot;Uncommitted changes this session ($size):&quot;
@@ -1917,16 +2079,27 @@ if [[ &quot;$tier&quot; == &quot;diff&quot; || &quot;$tier&quot; == &quot;large&
     add &quot;  - Pairing: learning report    -&gt; $wrap_dir/learning-report.md  (NOT governed by the skip)&quot;
   fi
   next_fired=&quot;$tier&quot;
+  # Work of this size, committed or not, means the session BUILT something. Without
+  # this the investigation report reappears the moment the tree goes clean by any
+  # route other than a commit — a stash, a revert — and calls it research.
+  next_implemented=&quot;1&quot;
 else
   # ──────────── no diff (or trivial): capture a long investigation ────────────
   # Length ≈ transcript line count (one line per exchange); schema-agnostic, so
   # any engine that hands us a transcript path works. Throttled by the
   # `investigated` flag: once per session, not once per turn.
+  #
+  # `implemented` is the load-bearing guard: without it this branch reads a clean
+  # tree as &quot;nothing was built&quot; and calls a heavily-committed implementation
+  # session a research session. It asks whether the session BUILT something, not
+  # whether it committed anything — a research session that fixes one typo along
+  # the way is still a research session, and still needs its findings written down.
   events=&quot;&quot;
   [[ -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]] &amp;&amp; \
     events=&quot;$(wc -l &lt;&quot;$transcript&quot; 2&gt;/dev/null | tr -d &#x27; &#x27; || true)&quot;
 
   if [[ -n &quot;$events&quot; ]] &amp;&amp; (( events &gt;= HEAVY )) \
+     &amp;&amp; [[ -z &quot;$implemented&quot; &amp;&amp; &quot;$baseline_known&quot; == &quot;yes&quot; ]] \
      &amp;&amp; { [[ -z &quot;$investigated&quot; ]] || [[ &quot;$report_every_turn&quot; == &quot;yes&quot; ]]; }; then
     add &quot;A long session (~$events exchanges) with no substantial diff — a debugging&quot;
     add &quot;or research session whose findings die with the context window.&quot;
@@ -1937,7 +2110,9 @@ else
   fi
 fi
 
-record_state &quot;$next_fired&quot; &quot;$next_investigated&quot;
+if ! record_state &quot;$next_fired&quot; &quot;$next_investigated&quot; &quot;$next_implemented&quot;; then
+  sections=&quot;&quot;
+fi
 
 [[ -z &quot;$sections&quot; ]] &amp;&amp; exit 0
 printf &#x27;%s&#x27; &quot;$sections&quot; &gt;&amp;2
@@ -3664,7 +3839,7 @@ Task(subagent_type=&#x27;learning-reporter&#x27;,
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 13 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 17 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
@@ -3677,13 +3852,17 @@ Surfaced at session start by `session-start.sh`.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
 - `config.json` model routing has three dead keys: `models.explore`, `models.plan`, `models.default_subagent`. Only `researcher` and `learning_reporter` are read (`sync-claude-agents.sh` AGENTS registry); the other three route nothing, and no runtime knob exists for a default ad-hoc subagent model — the tier rule in AGENTS.md carries it instead. Delete the three keys from `config.json.example` + live configs, and drop the &quot;(etc.)&quot; claim in `.agents/README.md:71`.
 - `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.
+- `post-edit-check.sh` asks eslint for `--format unix`, which ESLint 9 moved out of core (https://eslint.org/docs/latest/use/migrate-to-9.0.0). Under eslint 9 the call exits 2 with empty stdout, the `[Error/` grep matches nothing, and the hook returns 0 — the lint gate is silently dead. Fixed in both Meridian repos by switching to `--format json` + a severity-2 parse; port it here.
+- `post-edit-check.sh` runs `prettier --write` on every edited file. In a repo that is not already prettier-clean this rewrites the whole file, so a one-line edit ships as a large diff the agent never mentions (measured: a 1-line probe produced a 6-line diff). Meridian now captures `--list-different` before writing and emits an advisory naming each reformatted file; port it here.
+- Hook policies need bash &gt;= 4 (heredoc inside `$()`), but stock macOS `/bin/bash` is 3.2 and fails to parse `post-edit-check.sh`, `session-start.sh`, `stop-investigate.sh`. It works only because Homebrew bash wins PATH. Meridian&#x27;s `adapter.sh` now guards on `BASH_VERSINFO[0] &lt; 4` and disables the policies loudly; port it here.
+- `.claude/settings.json`, `.claude/hooks/adapter.sh`, `.claude/hooks/README.md`, `.claude/AGENTS.md` have no source outside `.claude/`. Where `.claude/` is gitignored, a fresh clone gets zero hooks. Meridian moved these under `.agents/claude/` and made `sync-claude-agents.sh` deploy them, so the layer rebuilds from the tracked tree with one command. Consider the same here.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 20 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 26 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -3697,6 +3876,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — what the code does now, and why it&#x27;s acceptable today.
 - **Trigger** — the observation that would justify paying it off.
 - **Rework** — what the fix costs.
+
+### colloid-wrap-concurrent-attribution
+
+- **Condition** — `session-wrap.sh` cannot tell which session authored a commit or a working-tree change, so two concurrent sessions in one working tree each measure the other&#x27;s work: session B can be handed session A&#x27;s files and told to review them. Acceptable: one working tree per session is the normal shape, both measures already read shared state (the tree, HEAD), and the wrap is a skippable prompt.
+- **Trigger** — routine parallel sessions in one checkout, or a wrap that sends a hostile-review subagent over another session&#x27;s diff.
+- **Rework** — attribute work to a session (record each session&#x27;s own commits as it makes them, or key the range on a per-session ref) and measure only what it authored; ~60 lines plus a new piece of per-session state, and it still cannot attribute the shared working tree.
 
 ### githook-variant-strip-anywhere
 

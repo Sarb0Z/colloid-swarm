@@ -20,7 +20,9 @@
 # Still not portable: stop-investigate (Kimi's Stop payload has no
 # transcript path or last-message field). The no-diff investigation report
 # inside session-wrap also stays Claude-only (needs a transcript to size
-# the session); the wrap's diff ladder works fully under Kimi.
+# the session). Both of the wrap's magnitude measures — uncommitted tree and
+# committed work — are git-only, and session_id keys the state they need,
+# so both work under Kimi.
 #
 # PreCompact/PostCompact payload shapes are unverified (compaction can't be
 # forced in a short probe); both hooks fail open and the marker protocol
