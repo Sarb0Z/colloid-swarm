@@ -978,7 +978,7 @@ exit 0
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 415 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 449 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
@@ -1039,6 +1039,7 @@ proj=&quot;$(pwd -P)&quot;
 issues=&quot;&quot;
 ts_edited=&quot;&quot;      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=&quot;&quot;   # all JS/TS — linted by eslint, formatted by prettier
+reformatted=&quot;&quot;    # files prettier rewrote beyond the agent&#x27;s own edit
 py_edited=&quot;&quot;      # .py — type-checked by pyright (ruff runs inline below)
 
 while IFS= read -r f; do
@@ -1140,16 +1141,38 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
   jsfiles=()
   while IFS= read -r jf; do [[ -n &quot;$jf&quot; ]] &amp;&amp; jsfiles+=(&quot;$jf&quot;); done &lt;&lt;&lt; &quot;$js_ts_edited&quot;
 
+  # A file that was already clean reformats to itself. A file that was not gets
+  # rewritten whole, and that diff can dwarf the edit the agent actually made —
+  # so record which files moved and say so, rather than changing them in silence.
   if [[ -x &quot;$proj/node_modules/.bin/prettier&quot; ]]; then
+    pre_dirty=&quot;$(&quot;$proj/node_modules/.bin/prettier&quot; --list-different &quot;${jsfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
     &quot;$proj/node_modules/.bin/prettier&quot; --write --log-level silent &quot;${jsfiles[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
+    [[ -n &quot;$pre_dirty&quot; ]] &amp;&amp; reformatted=&quot;$(printf &#x27;%s\n&#x27; &quot;$pre_dirty&quot; | sed &quot;s|^$proj/||&quot;)&quot;
   fi
 
+  # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for it
+  # exits 2 with an empty stdout — indistinguishable from &quot;no errors found&quot; to a
+  # reader that only greps stdout. json is core and stable across both majors.
   if [[ -x &quot;$proj/node_modules/.bin/eslint&quot; ]]; then
-    eslint_out=&quot;$(&quot;$proj/node_modules/.bin/eslint&quot; --format unix &quot;${jsfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
-    # unix format tags each line `[Error/rule]` or `[Warning/rule]`. Match the
-    # severity token, not free text, so a message or path containing &quot;error&quot;
-    # (no-console-error, errorHandler.ts) can&#x27;t spuriously block the edit.
-    eslint_errs=&quot;$(printf &#x27;%s\n&#x27; &quot;$eslint_out&quot; | grep -E &#x27;\[Error/&#x27; || true)&quot;
+    eslint_raw=&quot;$(&quot;$proj/node_modules/.bin/eslint&quot; --format json &quot;${jsfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
+    eslint_errs=&quot;$(HOOK_INPUT=&quot;$eslint_raw&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;EPY&#x27; || true
+import json, os
+try:
+    results = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;[]&quot;)
+except Exception:
+    raise SystemExit(0)
+proj = os.environ[&quot;PROJ&quot;]
+for r in results:
+    f = r.get(&quot;filePath&quot;, &quot;&quot;)
+    if f.startswith(proj + os.sep):
+        f = f[len(proj) + 1:]
+    for m in r.get(&quot;messages&quot;, []):
+        if m.get(&quot;severity&quot;) != 2:
+            continue
+        rule = m.get(&quot;ruleId&quot;) or &quot;parse-error&quot;
+        print(f&quot;{f}:{m.get(&#x27;line&#x27;, 0)}:{m.get(&#x27;column&#x27;, 0)}: {m.get(&#x27;message&#x27;, &#x27;&#x27;)} [{rule}]&quot;)
+EPY
+)&quot;
     if [[ -n &quot;$eslint_errs&quot; ]]; then
       issues+=$&#x27;\n&#x27;&quot;[eslint] (scoped to edited files; errors only)&quot;$&#x27;\n&#x27;&quot;$eslint_errs&quot;$&#x27;\n&#x27;
     fi
@@ -1391,7 +1414,18 @@ $nullsafety
 EOF
 fi
 
-[[ -n &quot;$issues&quot; || -n &quot;$tombstones&quot; || -n &quot;$nullsafety&quot; ]] &amp;&amp; exit 2
+if [[ -n &quot;$reformatted&quot; ]]; then
+  cat &gt;&amp;2 &lt;&lt;EOF
+
+Advisory (not a correctness gate) — prettier reformatted these files, which were
+not formatted before your edit. Their diff now contains changes you did not
+make. Check the diff before you describe it, and say so if the reformatting is
+larger than your own change.
+$reformatted
+EOF
+fi
+
+[[ -n &quot;$issues&quot; || -n &quot;$tombstones&quot; || -n &quot;$nullsafety&quot; || -n &quot;$reformatted&quot; ]] &amp;&amp; exit 2
 exit 0
 </code></pre></details>
             </article>
@@ -3831,7 +3865,7 @@ Task(subagent_type=&#x27;learning-reporter&#x27;,
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 17 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
@@ -3844,9 +3878,6 @@ Surfaced at session start by `session-start.sh`.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
 - `config.json` model routing has three dead keys: `models.explore`, `models.plan`, `models.default_subagent`. Only `researcher` and `learning_reporter` are read (`sync-claude-agents.sh` AGENTS registry); the other three route nothing, and no runtime knob exists for a default ad-hoc subagent model — the tier rule in AGENTS.md carries it instead. Delete the three keys from `config.json.example` + live configs, and drop the &quot;(etc.)&quot; claim in `.agents/README.md:71`.
 - `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.
-- `post-edit-check.sh` asks eslint for `--format unix`, which ESLint 9 moved out of core (https://eslint.org/docs/latest/use/migrate-to-9.0.0). Under eslint 9 the call exits 2 with empty stdout, the `[Error/` grep matches nothing, and the hook returns 0 — the lint gate is silently dead. Fixed in both Meridian repos by switching to `--format json` + a severity-2 parse; port it here.
-- `post-edit-check.sh` runs `prettier --write` on every edited file. In a repo that is not already prettier-clean this rewrites the whole file, so a one-line edit ships as a large diff the agent never mentions (measured: a 1-line probe produced a 6-line diff). Meridian now captures `--list-different` before writing and emits an advisory naming each reformatted file; port it here.
-- Hook policies need bash &gt;= 4 (heredoc inside `$()`), but stock macOS `/bin/bash` is 3.2 and fails to parse `post-edit-check.sh`, `session-start.sh`, `stop-investigate.sh`. It works only because Homebrew bash wins PATH. Meridian&#x27;s `adapter.sh` now guards on `BASH_VERSINFO[0] &lt; 4` and disables the policies loudly; port it here.
 - `.claude/settings.json`, `.claude/hooks/adapter.sh`, `.claude/hooks/README.md`, `.claude/AGENTS.md` have no source outside `.claude/`. Where `.claude/` is gitignored, a fresh clone gets zero hooks. Meridian moved these under `.agents/claude/` and made `sync-claude-agents.sh` deploy them, so the layer rebuilds from the tracked tree with one command. Consider the same here.
 </code></pre></details>
             </article>
