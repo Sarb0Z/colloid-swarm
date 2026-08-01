@@ -27,6 +27,14 @@
 
 set -euo pipefail
 
+# The shared policies use heredocs inside command substitution, which bash 3.2
+# (stock on macOS) cannot parse. Refuse loudly instead of failing per policy.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "hooks: bash $BASH_VERSION is too old (need >= 4); policies are disabled." >&2
+  echo "hooks: install a modern bash (e.g. 'brew install bash') and reopen the session." >&2
+  exit 0
+fi
+
 policy="$1"; shift || true
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 policy_path="$repo/.agents/hooks/policy/$(basename "$policy")"

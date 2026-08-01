@@ -59,6 +59,7 @@ proj="$(pwd -P)"
 issues=""
 ts_edited=""      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=""   # all JS/TS — linted by eslint, formatted by prettier
+reformatted=""    # files prettier rewrote beyond the agent's own edit
 py_edited=""      # .py — type-checked by pyright (ruff runs inline below)
 
 while IFS= read -r f; do
@@ -160,16 +161,38 @@ if [[ -n "$js_ts_edited" ]]; then
   jsfiles=()
   while IFS= read -r jf; do [[ -n "$jf" ]] && jsfiles+=("$jf"); done <<< "$js_ts_edited"
 
+  # A file that was already clean reformats to itself. A file that was not gets
+  # rewritten whole, and that diff can dwarf the edit the agent actually made —
+  # so record which files moved and say so, rather than changing them in silence.
   if [[ -x "$proj/node_modules/.bin/prettier" ]]; then
+    pre_dirty="$("$proj/node_modules/.bin/prettier" --list-different "${jsfiles[@]}" 2>/dev/null || true)"
     "$proj/node_modules/.bin/prettier" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
+    [[ -n "$pre_dirty" ]] && reformatted="$(printf '%s\n' "$pre_dirty" | sed "s|^$proj/||")"
   fi
 
+  # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for it
+  # exits 2 with an empty stdout — indistinguishable from "no errors found" to a
+  # reader that only greps stdout. json is core and stable across both majors.
   if [[ -x "$proj/node_modules/.bin/eslint" ]]; then
-    eslint_out="$("$proj/node_modules/.bin/eslint" --format unix "${jsfiles[@]}" 2>/dev/null || true)"
-    # unix format tags each line `[Error/rule]` or `[Warning/rule]`. Match the
-    # severity token, not free text, so a message or path containing "error"
-    # (no-console-error, errorHandler.ts) can't spuriously block the edit.
-    eslint_errs="$(printf '%s\n' "$eslint_out" | grep -E '\[Error/' || true)"
+    eslint_raw="$("$proj/node_modules/.bin/eslint" --format json "${jsfiles[@]}" 2>/dev/null || true)"
+    eslint_errs="$(HOOK_INPUT="$eslint_raw" PROJ="$proj" python3 <<'EPY' || true
+import json, os
+try:
+    results = json.loads(os.environ["HOOK_INPUT"] or "[]")
+except Exception:
+    raise SystemExit(0)
+proj = os.environ["PROJ"]
+for r in results:
+    f = r.get("filePath", "")
+    if f.startswith(proj + os.sep):
+        f = f[len(proj) + 1:]
+    for m in r.get("messages", []):
+        if m.get("severity") != 2:
+            continue
+        rule = m.get("ruleId") or "parse-error"
+        print(f"{f}:{m.get('line', 0)}:{m.get('column', 0)}: {m.get('message', '')} [{rule}]")
+EPY
+)"
     if [[ -n "$eslint_errs" ]]; then
       issues+=$'\n'"[eslint] (scoped to edited files; errors only)"$'\n'"$eslint_errs"$'\n'
     fi
@@ -411,5 +434,16 @@ $nullsafety
 EOF
 fi
 
-[[ -n "$issues" || -n "$tombstones" || -n "$nullsafety" ]] && exit 2
+if [[ -n "$reformatted" ]]; then
+  cat >&2 <<EOF
+
+Advisory (not a correctness gate) — prettier reformatted these files, which were
+not formatted before your edit. Their diff now contains changes you did not
+make. Check the diff before you describe it, and say so if the reformatting is
+larger than your own change.
+$reformatted
+EOF
+fi
+
+[[ -n "$issues" || -n "$tombstones" || -n "$nullsafety" || -n "$reformatted" ]] && exit 2
 exit 0

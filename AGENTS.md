@@ -146,19 +146,14 @@ brevity; dense is not minimal.
 
 ## Documentation
 
-Write all documentation in ASD-STE100 Simplified Technical English.
+Write all documentation in ASD-STE100 Simplified Technical English. Naming the
+standard carries short sentences, active voice, and the imperative mood on its
+own. Two rules do not survive the abbreviation, because they are what drifts:
 
-1. **Approved vocabulary.** Use one approved term per concept; no synonym
-   drift. Introduce project-specific technical names once, then reuse them
-   verbatim.
-2. **Short sentences.** Instructions: 20 words maximum. Descriptions: 25 words
-   maximum. One instruction per sentence.
-3. **Active, imperative, present.** Procedures use the imperative mood and
-   active voice. State facts in the present tense.
-4. **Explicit modals.** "Must" for requirements, "should" for recommendations,
+1. **Approved vocabulary.** One term per concept; no synonym drift. Introduce a
+   project-specific name once, then reuse it verbatim.
+2. **Explicit modals.** "Must" for requirements, "should" for recommendations,
    "may" for permissions. Never blend them.
-5. **Safety messages first.** Put WARNING, CAUTION, and NOTE blocks before the
-   step or statement they apply to, never after.
 
 ## Subagent Delegation
 
