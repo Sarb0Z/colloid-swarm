@@ -43,11 +43,39 @@ import json, os
 d = json.loads(os.environ["HOOK_INPUT"] or "{}")
 print(d.get("project_dir", ""))
 print(d.get("source", ""))
+print(d.get("session_id", ""))
+print(d.get("transcript_path", ""))
 PY
 )"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 start_source="$(printf '%s\n' "$parsed" | sed -n '2p')"
+session_id="$(printf '%s\n' "$parsed" | sed -n '3p')"
+transcript="$(printf '%s\n' "$parsed" | sed -n '4p')"
 [[ -z "$proj" ]] && proj="$PWD"
+
+# Seed session-wrap's baseline with the commit this session STARTS from. Its own
+# first write happens at the end of turn 1, by which time a turn that implemented
+# and committed has already hidden that work inside the baseline. Only this hook
+# runs early enough to see the true starting point.
+#
+# Write when the file is absent, and on a RESUME. source=compact continues a
+# session inside one sitting — re-seeding there would erase a ladder mid-flight —
+# but a resume picks up a session whose state can be days old, and commits that
+# landed from anywhere in between would otherwise be measured as its own work.
+#
+# The file format is owned by .agents/hooks/policy/session-wrap.sh — read the
+# state-file schema in its header before touching these five lines.
+ident="${session_id:-$transcript}"
+if [[ -n "$ident" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  seed="$proj/.agents/.wrap-state-$(printf '%s' "$ident" | cksum | tr -d ' ')"
+  if [[ ! -e "$seed" || "$start_source" == "resume" ]]; then
+    head_sha="$(git -C "$proj" rev-parse -q --verify HEAD 2>/dev/null || true)"
+    commits="$(git -C "$proj" rev-list --count HEAD 2>/dev/null || true)"
+    [[ "$commits" =~ ^[0-9]+$ ]] || commits=""
+    mkdir -p "$proj/.agents" 2>/dev/null || true
+    { printf 'none\n\n%s\n%s\n\n' "$commits" "$head_sha" > "$seed"; } 2>/dev/null || true
+  fi
+fi
 
 items=""
 crumbs="$proj/.agents/breadcrumbs.md"

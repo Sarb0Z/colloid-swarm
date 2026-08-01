@@ -106,6 +106,9 @@ elif policy == "stop-investigate.sh":
     out["transcript_path"] = src.get("transcript_path", "")
 elif policy == "session-start.sh":
     out["source"] = src.get("source", "")
+    # Identity, for seeding session-wrap's baseline before turn 1 runs.
+    out["session_id"] = src.get("session_id", "")
+    out["transcript_path"] = src.get("transcript_path", "")
 elif policy == "research-prime.sh":
     out["prompt"] = src.get("prompt", "")
 elif policy == "pre-compact.sh":

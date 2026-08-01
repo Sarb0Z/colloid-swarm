@@ -32,9 +32,9 @@ live in `.agents/hooks/policy/`.
 | `sources-capture.sh` | `{"project_dir": "...", "agent": "...", "kind": "...", "value": "..."}` |
 | `research-prime.sh` | `{"project_dir": "...", "prompt": "..."}` |
 | `post-edit-check.sh` | `{"project_dir": "...", "files": ["..."]}` |
-| `session-wrap.sh` | `{"project_dir": "...", "stop_hook_active": bool, "transcript_path": "..."}` |
+| `session-wrap.sh` | `{"project_dir": "...", "stop_hook_active": bool, "transcript_path": "...", "session_id": "..."}` |
 | `stop-investigate.sh` | `{"project_dir": "...", "transcript_path": "...", "stop_hook_active": bool}` |
-| `session-start.sh` | `{"project_dir": "...", "source": "..."}` |
+| `session-start.sh` | `{"project_dir": "...", "source": "...", "session_id": "...", "transcript_path": "..."}` |
 | `pre-compact.sh` | `{"project_dir": "...", "trigger": "auto"\|"manual"}` |
 
 All policies: `exit 0` = allow, `exit 2` + stderr = block with reason.
@@ -208,6 +208,38 @@ rather than comparing `HEAD`, because a sha merely *moves* on `--amend`,
 `rebase`, or `checkout` — none of which close a unit of work — and would re-fire
 the wrap on an unchanged tree.
 
+**Two measures**, because the tier reads the *uncommitted* tree. An agent that
+edits and commits inside one turn leaves a clean tree at `Stop`, so its tier is
+`none` every turn: the diff ladder never leaves the floor, and the work drops
+through to the no-diff branch — which then reports a *research* session over a
+heavily-committed implementation one. The second measure is what **landed**, on
+the same thresholds, so committing inside the turn earns the wrap instead of
+hiding it. The perverse incentive it removes is the sharp end: `hostile-review.md`
+is offered only by these branches, so discipline about committing made the
+mandated adversarial review *less* likely to be offered.
+
+The committed range is `unreported..HEAD` — everything committed since the last
+report, not the session total, and **reporting it consumes it** by advancing the
+base. A tier ladder would be wrong here: the measure only grows, so a rung that
+only climbs fires on the session's first unit and latches for every unit after
+it. Consumption paces instead of latching, and committed work *below* threshold
+is not dropped — the base does not advance, so a run of small commits accumulates
+until it crosses. A one-line typo commit therefore leaves the investigation report
+intact: that report asks whether the session **built** something (`implemented`),
+not whether it committed anything.
+
+Two shapes of history motion are refused rather than measured, because the emitted
+text tells the agent to review "the files this session touched": HEAD not
+descending from the base (`checkout`, `reset`, a rebase onto another base), and a
+merge inside the range (`merge`, `pull`) — either would hand it someone else's
+branch. Both re-base the range on `HEAD` and stay silent for the turn. What
+remains unattributable is two concurrent sessions in one working tree: they share
+a tree and a HEAD, so each measures the other's commits (`debt:
+colloid-wrap-concurrent-attribution`). The two measures never speak on the same
+turn: the committed one is reached only from a clean or trivial tree, and its
+range is left unconsumed on a turn the dirty-tree branch owns, so pending
+committed work waits rather than being swallowed.
+
 Escalation, not every-turn, because every-turn blocking makes each turn cost two
 assistant messages and forces the agent to triage a wall it will mostly ignore.
 It is also self-defeating: [Claude Code overrides a Stop hook after it blocks
@@ -227,21 +259,48 @@ toward more review. The changed-file list (`git status --porcelain=v1
 ledger write never reads as session work and a real file in `.agents/` is never
 hidden. Re-entry guarded by `stop_hook_active`.
 
-State lives in `.agents/.wrap-state-<hash of transcript_path>` — **one file per
+State lives in `.agents/.wrap-state-<hash of session identity>` — **one file per
 session**, so a new session starts fresh and two concurrent sessions in one repo
-never clobber each other (a single shared file keyed by a line-1 identity makes
-each session reset the other's ladder and fire every turn). Line 1 is the highest
+never clobber each other's *state* (a single shared file keyed by a line-1
+identity makes each session reset the other's ladder and fire every turn). Their
+*measures* still overlap, since they share one working tree. Line 1 is the highest
 tier fired, line 2 a flag for the no-diff report, line 3 the commit count at last
-write. The no-diff branch needs its own flag because the tier ladder cannot
-throttle it — `none` never out-ranks a fresh `none`. State is written on **every**
-invocation, not only when the hook speaks: a commit turn emits nothing, so a
-re-arm persisted only from an emit branch would live in memory and die there.
+write, line 4 the commit the committed range measures **from**, line 5 a flag for
+the committed report. Each branch needs its own throttle: the tier ladder cannot
+throttle the no-diff report (`none` never out-ranks a fresh `none`), and the
+committed branch throttles by consuming its range rather than by rank. Lines 3
+and 4 are not redundant — a count cannot name a diff range, and a sha cannot
+answer "did a commit land". State is written on **every** invocation, not only
+when the hook speaks: a commit turn emits nothing, so a re-arm persisted only from
+an emit branch would live in memory and die there.
 
-With **no transcript path** (Kimi exposes none) there is no session identity, so
-the hook reads and writes no state and every escalation fires. Keying a shared
+The identity is `session_id`, falling back to `transcript_path`; both are
+[documented on every hook payload](https://code.claude.com/docs/en/hooks), and the
+Kimi adapter supplies `session_id` too, so the throttle is not Claude-only. With
+neither, the hook reads and writes nothing and every diff escalation fires; the
+other two branches need a remembered baseline to mean anything and stay silent.
+
+The baseline is seeded by **`session-start.sh`**, which runs before turn 1 — the
+only hook early enough to see where the session actually started. `session-wrap`'s
+own first write happens at the *end* of turn 1, by which time a turn that
+implemented and committed has already hidden that work inside the baseline. The
+seed writes only when the file is absent, so a `SessionStart` with
+`source=compact` (or a resume) continues an existing session instead of erasing
+its ladder mid-flight. Where the seed does not happen — another engine,
+`session_start` disabled, an identity that changed under us — the wrap seeds
+itself one turn late and the two branches that depend on the baseline stay silent
+for exactly that one invocation, rather than guess. A late wrap costs a turn,
+where a session labelled "research" because it committed its implementation is
+the defect this exists to remove.
+
+With **no identity at all** — neither `session_id` nor a transcript path — the
+hook reads and writes no state and every diff escalation fires. Keying a shared
 file on an empty identity would build one repo-wide ladder that every future
 session inherits, silently suppressing wraps forever — a wrap must fail toward
-review, never away from it.
+review, never away from it. A state file it cannot *write* is the opposite case
+and gets the opposite answer: the hook goes silent, because a throttle that
+cannot remember re-fires the same wall every turn and spends the eight-block
+override budget on repetition.
 
 `hostile-review` fires only at `large`, so a 4-file/140-line change gets clean-up
 and a report but no adversarial subagent. That is a deliberate cost of keeping
@@ -250,7 +309,7 @@ want it back earlier.
 
 **Pairing mode (`hooks.learning_report`, opt-in, OFF by default).** When
 pair-coding with a junior who learns by reviewing, the diff branch adds one more
-pointer — `wrap/learning-report.md` — asking the agent to pair each of the
+pointer — `.agents/playbooks/learning-report.md` — asking the agent to pair each of the
 session's decisions (the *why*, tradeoffs, alternatives rejected) with the real
 code (`file:line`) that embodies it. The instruction is explicitly **decoupled
 from the "full wrap, or skip?" choice**: the report is its own deliverable,
@@ -267,10 +326,29 @@ it. Requires `session_wrap` enabled (it rides this hook).
 The no-diff path measures *length* as the transcript's **line count** (one line
 per exchange) — schema-agnostic, so it works on any engine that passes a
 transcript path, not just one transcript format, and it can't crash on a
-malformed transcript. It still needs *a* transcript path: Kimi exposes none, so
-a no-diff session is silent there; the diff tiering is fully engine-agnostic
-(git only). The `--agent main`-gated ask routes through the agent because a Stop
-hook cannot call `AskUserQuestion` itself.
+malformed transcript. It still needs *a* transcript path: Kimi's Stop payload
+exposes none, so a no-diff session is silent there; both magnitude measures are
+fully engine-agnostic (git only). It fires only while `implemented` is unset — a
+clean tree means "nothing was built" only when neither measure has reported
+substantial work. The `--agent main`-gated ask routes through the agent because a
+Stop hook cannot call `AskUserQuestion` itself.
+
+**Branch order: a closed unit outranks work in flight.** The committed branch is
+tested first. The other way round, one stray untracked file above the trivial
+floor pins the tier at `diff` for the whole session, the commit-count re-arm
+re-fires that same stale wall every commit turn, and the units that actually
+landed are never named. When both have something to say, the committed message
+names the uncommitted remainder rather than claiming a clean tree.
+
+Known and accepted: work reported while uncommitted is reported again once it
+lands (the two measures cannot compare content across that boundary, and the
+alternative — suppressing on a tier match — silently swallows real work when the
+tree was dirty for an unrelated reason). A base rewritten by `--amend` of a
+pre-session commit fails the ancestry test, so that one range is re-based and its
+report lost; distinguishing that from a branch switch needs a heuristic that
+re-opens the foreign-work problem. Follow-up commits from the wrap itself can earn
+a second wrap — review fixes are unreviewed code, so that one is working as
+intended.
 
 **Note on the sibling Stop hook.** `stop-investigate.sh` is also wired on `Stop`,
 so two hooks can both `exit 2` on one turn. The docs cover neighbouring cases but

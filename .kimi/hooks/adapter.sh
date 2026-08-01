@@ -76,6 +76,10 @@ elif policy == "session-start.sh":
         out["source"] = "compact"
     else:
         out["source"] = src.get("source", "")
+    # Identity, for seeding session-wrap's baseline before turn 1 runs. Same
+    # session_id the Stop payload carries, so the seed lands in the file the wrap
+    # reads; empty would mean no seed and a baseline one turn late, not a wrong one.
+    out["session_id"] = src.get("session_id", "")
 elif policy == "research-prime.sh":
     p = src.get("prompt")
     if isinstance(p, list):        # Kimi: array of content parts
