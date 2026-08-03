@@ -1,5 +1,17 @@
 # Common RBAC Implementation Flaws
 
+## Contents
+- Flaw 1 — Role set at login but never re-checked
+- Flaw 2 — Role carried in client-supplied payload
+- Flaw 3 — UI-only role checks
+- Flaw 4 — Middleware applied at router level but skipped by a sub-route
+- Flaw 5 — Privilege escalation via role assignment endpoint
+- Flaw 6 — Multi-tenant: org ID not validated
+- Flaw 7 — Roles not defined on login response
+- Flaw 8 — Disabled user sessions still active
+- Flaw 9 — Mass assignment → `role=admin` → account takeover
+- Flaw 10 — Role validated at registration but not on profile update
+
 ## Flaw 1 — Role set at login but never re-checked
 
 The role is stored in the JWT/session at login time. If the admin changes the user's role in the DB, the user's old token still works until expiry.

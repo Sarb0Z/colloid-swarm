@@ -1,5 +1,15 @@
 # Responsive Images
 
+## Contents
+- 1. Next.js `<Image>` (Preferred in this Codebase)
+- 2. Art Direction with `<picture>`
+- 3. Breakpoint Strategy: File-Size Steps, Not Device Widths
+- 4. DPR Cap: 2× Is Enough
+- 5. Formats: AVIF → WebP → JPEG/PNG
+- 6. CLS Prevention Checklist
+- 7. ProgressiveImage Fallbacks
+- 8. Sizes Attribute Recipes
+
 Three concerns must be handled simultaneously: **resolution switching**,
 **art direction**, and **format selection**. Getting any of them wrong
 shows up as a CLS regression, a blurry LCP element, or wasted bandwidth on

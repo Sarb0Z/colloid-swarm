@@ -61,6 +61,7 @@ ts_edited=""      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=""   # all JS/TS — linted by eslint, formatted by prettier
 reformatted=""    # files prettier rewrote beyond the agent's own edit
 py_edited=""      # .py — type-checked by pyright (ruff runs inline below)
+skills_edited=""  # skills/<name>/*.md — frontmatter and layout, per skill
 
 while IFS= read -r f; do
   [[ -z "$f" || ! -f "$f" ]] && continue
@@ -84,8 +85,25 @@ while IFS= read -r f; do
     *.js|*.jsx|*.mjs|*.cjs)
       js_ts_edited+=$'\n'"$f"
       ;;
+    */skills/*/*.md)
+      # Any file in a skill directory can break the skill's layout rules, so
+      # the whole skill is revalidated from its SKILL.md.
+      skill_md="${f%/skills/*}/skills/$(echo "${f#*/skills/}" | cut -d/ -f1)/SKILL.md"
+      [[ -f "$skill_md" && "$skills_edited" != *"$skill_md"* ]] && skills_edited+=$'\n'"$skill_md"
+      ;;
   esac
 done <<< "$files"
+
+# Agent Skills format: frontmatter validation plus reference-layout rules.
+# Errors fail; the line-count and table-of-contents rules warn (see the script).
+if [[ -n "$skills_edited" ]]; then
+  linter="$proj/.agents/lint-skills.sh"
+  if [[ -x "$linter" ]]; then
+    if ! lint_out="$("$linter" $(echo "$skills_edited" | tr '\n' ' ') 2>&1)"; then
+      issues+=$'\n'"[lint-skills]"$'\n'"$lint_out"$'\n'
+    fi
+  fi
+fi
 
 # TypeScript: each edited file is typechecked by its OWN workspace — the nearest
 # ancestor holding a tsconfig.json (apps/*, packages/*), never a single hardcoded

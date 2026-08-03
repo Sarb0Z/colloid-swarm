@@ -4,7 +4,7 @@
 - Animations
 - React Compiler Compatibility
 
-## 10. Animations
+## Animations
 
 ### Reanimated Best Practices
 
@@ -127,7 +127,7 @@ function AnimatedButton({ onPress }: { onPress: () => void }) {
 
 ---
 
-## 11. React Compiler Compatibility
+## React Compiler Compatibility
 
 If the project has **React Compiler** enabled, two patterns are required for the
 compiler to memoize correctly.
