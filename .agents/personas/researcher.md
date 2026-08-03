@@ -75,6 +75,9 @@ ladder first; then conclude with evidence.
 
 ## Return — this exact shape, nothing else
 
+A brief may add fields to a claim line; it may never remove one or change the
+shape. If a brief asks for an extra mark alongside `conf:`, carry both.
+
 ```
 CLAIMS
 - <claim>  ·  conf: high|med|low  ·  date: <YYYY or "n/a">  ·  src: <url>[, <url>]
