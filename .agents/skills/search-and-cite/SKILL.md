@@ -1,6 +1,6 @@
 ---
 name: search-and-cite
-description: Use when a turn rests on an external fact — a library API, a version, a "current best practice", anything you'd otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
+description: Use when a turn rests on an external fact — a library API, a version, a "current best practice", anything that would otherwise be asserted from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
 ---
 
 # Search and cite
