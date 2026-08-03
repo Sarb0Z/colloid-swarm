@@ -24,3 +24,9 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — `.githooks/commit-msg` strips attribution-variant lines anywhere in the message, not only in the trailer block; body prose that starts a line with "Authored by:" is eaten. Acceptable: such prose is rare and the strip is what delivers variant normalization.
 - **Trigger** — a real commit loses a legitimate body line to the strip.
 - **Rework** — locate the trailer block (e.g. via `git interpret-trailers --parse`) and confine the strip to it; ~40 lines plus tests.
+
+### colloid-lint-skills-deletion-blind
+
+- **Condition** — `post-edit-check.sh` drops paths that no longer exist (`[[ ! -f "$f" ]] && continue`), so deleting a skill's reference file never runs `lint-skills.sh`, and the dangling `SKILL.md` link it leaves behind goes unreported until the next unrelated edit to that skill. Acceptable: the linter catches it on any later edit to the same skill, and deleting a reference file is rare next to editing one.
+- **Trigger** — a dangling link reaching a commit, or reference files being deleted often enough that "the next edit" is not soon enough.
+- **Rework** — the hook needs the pre-edit path set to know which skill a deleted file belonged to; either derive the owning skill from the deleted path before the existence check, or have the linter sweep every skill when any tracked deletion appears; ~20 lines, and the derive-from-path route reintroduces the string surgery the linter exists to avoid.
