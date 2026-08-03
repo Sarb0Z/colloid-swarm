@@ -14,9 +14,8 @@ paths:
 - A `[?]` must always say which kind it is — `unchecked` or `no primary`. They are opposite objects: unfinished work versus a completed negative result. One mark for both is how a real finding gets re-opened as a to-do.
 - Every trigger phrase in the `description` needs three things: a method in the body, a numbered checklist step that reaches it, and a section in the write-up structure that gives its findings a home. A phrase with only the first two advertises a capability the tracked workflow never arrives at. When trimming or adding, check all three.
 - Tier 4 covers both halves of the user signal. Complaints alone produce a gap list with no sense of what is load-bearing; satisfaction drivers and switching triggers are what say which gaps matter.
-- `description` must stay within **1024 characters** and third person — cross-vendor field validation, not a guideline. Both `name` and `description` are pre-loaded metadata and both feed skill selection, but the description carries the trigger load. `.agents/lint-skills.sh` measures it, and the lint gate runs the same check on every skill edit.
+- This description runs close to the 1024-char ceiling that `.agents/AGENTS.md` sets, so trim before adding. Both `name` and `description` are pre-loaded metadata and both feed skill selection, but the description carries the trigger load here.
 - `name` stays noun-form. Gerund form is documented house style, but noun phrases are an explicit "acceptable alternative", and the same guidance lists "inconsistent patterns within your skill collection" under Avoid — the sibling skills are noun-form, so switching this one alone would create the inconsistency, not fix one.
-- Reference depth stays **one level**: `SKILL.md` to a sibling, never sibling to sibling. Nested references get partially read.
 
 ## Abnormal Cases and Rationale
 - The starting-hypotheses table in `finding-gaps.md` is priming, not a lookup table, and says so. Keep the rules above it that make a row a candidate needing independent evidence. Presenting it as answers is how an unevidenced architectural story ships as a finding.

@@ -85,23 +85,25 @@ while IFS= read -r f; do
     *.js|*.jsx|*.mjs|*.cjs)
       js_ts_edited+=$'\n'"$f"
       ;;
-    */skills/*/*.md)
-      # Any file in a skill directory can break the skill's layout rules, so
-      # the whole skill is revalidated from its SKILL.md.
-      skill_md="${f%/skills/*}/skills/$(echo "${f#*/skills/}" | cut -d/ -f1)/SKILL.md"
-      [[ -f "$skill_md" && "$skills_edited" != *"$skill_md"* ]] && skills_edited+=$'\n'"$skill_md"
+    */.agents/skills/*/*.md)
+      # Any file in a skill can break that skill's layout rules. The linter
+      # resolves each path to its owning SKILL.md, so no derivation here.
+      skills_edited+=$'\n'"$f"
       ;;
   esac
 done <<< "$files"
 
 # Agent Skills format: frontmatter validation plus reference-layout rules.
-# Errors fail; the line-count and table-of-contents rules warn (see the script).
+# Paths travel newline-delimited in the environment so spaces survive.
+# Unlike the external toolchain above, a missing linter is NOT skipped: it is
+# repo-internal, so its absence means the gate did not run, which is a
+# different thing from the gate passing.
 if [[ -n "$skills_edited" ]]; then
   linter="$proj/.agents/lint-skills.sh"
-  if [[ -x "$linter" ]]; then
-    if ! lint_out="$("$linter" $(echo "$skills_edited" | tr '\n' ' ') 2>&1)"; then
-      issues+=$'\n'"[lint-skills]"$'\n'"$lint_out"$'\n'
-    fi
+  if [[ ! -x "$linter" ]]; then
+    issues+=$'\n'"[lint-skills] cannot run: $linter is missing or not executable."$'\n'"Skill format was not validated. Restore it (chmod +x) rather than proceeding."$'\n'
+  elif ! lint_out="$(LINT_SKILLS_PATHS="$skills_edited" "$linter" 2>&1)"; then
+    issues+=$'\n'"[lint-skills]"$'\n'"$lint_out"$'\n'
   fi
 fi
 
