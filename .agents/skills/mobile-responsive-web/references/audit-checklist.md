@@ -1,5 +1,21 @@
 # Mobile Responsive Audit Checklist
 
+## Contents
+- Text & Typography
+- Viewport Units
+- Spacing & Padding
+- Layout & Grids
+- Forms & Inputs
+- Images & Media
+- Touch & Pointer
+- Navigation
+- Fixed Elements & Safe Areas
+- Animations
+- Orientation & System Settings
+- Core Web Vitals
+- Accessibility
+- Final Verification
+
 Run through this for every page being audited. Grouped by concern; each
 item must be verified — not assumed — on a real device or accurate emulator.
 

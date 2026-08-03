@@ -1,6 +1,6 @@
 # Navigation
 
-## 6. Navigation (React Navigation)
+## Navigation (React Navigation)
 
 ### Type-Safe Navigation
 

@@ -1,5 +1,13 @@
 # Viewport Testing with Playwright
 
+## Contents
+- Standard Viewport Sizes
+- Screenshot Workflow
+- Common Issues in Screenshots
+- Mandatory Scenarios
+- Core Web Vitals During Testing
+- Post-Change Verification Checklist
+
 ## Standard Viewport Sizes
 
 Test at minimum these three viewports:

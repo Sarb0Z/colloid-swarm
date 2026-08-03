@@ -53,7 +53,7 @@ Fixes, in priority order:
 
 ## CLS
 
-See the [CLS Prevention Checklist in responsive-images.md](./responsive-images.md).
+See the CLS prevention checklist in `responsive-images.md`.
 Additional rules:
 
 - Skeletons must match the final element's dimensions, not a generic box.

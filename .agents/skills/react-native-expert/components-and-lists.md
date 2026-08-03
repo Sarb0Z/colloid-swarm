@@ -5,7 +5,7 @@
 - Lists
 - Native UI Primitives
 
-## 4. Component Patterns
+## Component Patterns
 
 ### Adaptive Styling Detection
 
@@ -72,11 +72,11 @@ import { Pressable } from 'react-native';
 ```
 
 For **animated** press states (scale/opacity on press), reach for
-`GestureDetector` with `Gesture.Tap()` instead — see section 10.
+`GestureDetector` with `Gesture.Tap()` instead, covered in `animations.md`.
 
 ---
 
-## 5. Lists
+## Lists
 
 ### Default to a virtualizer — even for short lists
 
@@ -147,7 +147,7 @@ const getItemLayout = useCallback((_data, index: number) => ({
 
 ---
 
-## 9. Native UI Primitives
+## Native UI Primitives
 
 Rely on native UI for low-level primitives — you get accessibility, platform-
 consistent UX, and performance for free.

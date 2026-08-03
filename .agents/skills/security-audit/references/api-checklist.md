@@ -1,5 +1,16 @@
 # API Security Checklist
 
+## Contents
+- Response Bloat Audit
+- Unnecessary Re-fetches
+- Pagination Enforcement
+- Redundant API Calls
+- HTTP Method Enforcement
+- Error Response Leakage
+- API Versioning Risks
+- File Upload Security
+- Webhook & Callback URL Validation
+
 ## Response Bloat Audit
 
 For the 5–10 most frequently called endpoints, ask:

@@ -1,9 +1,11 @@
 # Architecture: modular monolith
 
 ## Contents
-- Architecture: Modular Monolith
-
-## 2. Architecture: Modular Monolith
+- A module must not import from another module
+- Promote on the second consumer
+- Module layout
+- Keep the routing layer as routes and composition only
+- Business logic in hooks, UI in screens
 
 As an app grows past a handful of screens, organize by **feature module**, not by
 technical layer. Two top-level concerns live under `src/`:

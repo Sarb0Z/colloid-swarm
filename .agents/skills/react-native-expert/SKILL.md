@@ -1,7 +1,6 @@
 ---
 name: react-native-expert
 description: "React Native and Expo engineering patterns: modular-monolith architecture, rendering safety, component and list performance, navigation, platform-specific code, image handling, native UI primitives, animations with Reanimated, React Compiler compatibility, storage, and testing. Use when building or reviewing React Native or Expo code, when a mobile screen crashes on render or drops frames in a long list, when navigation or deep linking needs wiring, when platform behaviour diverges between iOS and Android, or when a component must be made compiler-safe. Trigger terms: react-native, react native, expo, mobile, iOS, Android, NativeWind, Reanimated, FlatList, FlashList, React Navigation, safe area, native module."
-allowed-tools: Read, Grep, Glob, Edit, Write
 ---
 
 # React Native Expert Skill
@@ -10,39 +9,33 @@ Expert-level React Native patterns, mobile-specific optimizations, navigation, a
 
 ---
 
-## Auto-Detection
+## Project Structure
 
-This skill activates when:
-- Working with React Native projects
-- Detected `react-native` or `expo` in package.json
-- Building mobile components
-- Platform-specific code needed
-
----
-
-## 1. Project Structure
-
-### Recommended Structure
+Organize by **feature module**, not by technical layer. A tree of
+`components/`, `screens/`, and `services/` couples every feature to every
+other one and stops any of them being deletable.
 
 ```
 src/
-├── components/           # Shared components
-│   ├── ui/              # Base UI components
-│   └── common/          # Business components
-├── screens/             # Screen components
-├── navigation/          # Navigation config
-├── hooks/               # Custom hooks
-├── services/            # API services
-├── stores/              # State management
-├── utils/               # Utilities
-├── constants/           # App constants
-├── types/               # TypeScript types
-└── assets/              # Images, fonts
+├── app/                  # Routes and composition only
+├── modules/              # Self-contained feature modules
+│   └── <feature>/        # Owns its screens, components, hooks,
+│                         # services, types, stores, validations
+└── shared/               # Primitives used by 2+ modules
 ```
+
+A module must be deletable without breaking unrelated features, and must not
+import from another module — promote the shared thing to `src/shared/` on the
+second consumer. Module boundaries, the promotion rule, and the dependency
+direction are in [architecture.md](architecture.md).
+
+Below a handful of screens, a flat layer tree is not yet wrong; the module
+split is what carries an app past that point, so start there rather than
+migrating later.
 
 ---
 
-## 3. Rendering Safety (CRITICAL)
+## Rendering Safety (CRITICAL)
 
 ### Never use `&&` with potentially-falsy values
 
@@ -102,12 +95,14 @@ Read the file for the area in hand; each is self-contained.
 
 | Area | File |
 |---|---|
-| Modular-monolith layering, module boundaries, dependency rules | [architecture.md](architecture.md) |
+| Module boundaries, dependency rules, promotion to `shared/` | [architecture.md](architecture.md) |
 | Component patterns, list performance, native UI primitives | [components-and-lists.md](components-and-lists.md) |
 | React Navigation, deep linking | [navigation.md](navigation.md) |
-| Platform-specific code, image handling | [platform-and-images.md](platform-and-images.md) |
+| `Platform.select`, safe area, platform divergence | [platform.md](platform.md) |
+| `expo-image`, galleries, caching | [images.md](images.md) |
 | Reanimated, React Compiler compatibility | [animations.md](animations.md) |
-| Storage, persistence, testing | [storage-and-testing.md](storage-and-testing.md) |
+| SecureStore, AsyncStorage, persistence | [storage.md](storage.md) |
+| React Native Testing Library | [testing.md](testing.md) |
 
 ---
 
@@ -133,6 +128,3 @@ checklist[16]{area,best_practice}:
   Testing,React Native Testing Library
 ```
 
----
-
-**Version:** 1.4.0

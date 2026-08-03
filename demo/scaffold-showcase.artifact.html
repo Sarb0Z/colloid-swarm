@@ -357,7 +357,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 214 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 209 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production and must withstand hostile
 technical review — reviewer (Linus) rejects placeholder types, mock
@@ -505,19 +505,14 @@ brevity; dense is not minimal.
 
 ## Documentation
 
-Write all documentation in ASD-STE100 Simplified Technical English.
+Write all documentation in ASD-STE100 Simplified Technical English. Naming the
+standard carries short sentences, active voice, and the imperative mood on its
+own. Two rules do not survive the abbreviation, because they are what drifts:
 
-1. **Approved vocabulary.** Use one approved term per concept; no synonym
-   drift. Introduce project-specific technical names once, then reuse them
-   verbatim.
-2. **Short sentences.** Instructions: 20 words maximum. Descriptions: 25 words
-   maximum. One instruction per sentence.
-3. **Active, imperative, present.** Procedures use the imperative mood and
-   active voice. State facts in the present tense.
-4. **Explicit modals.** &quot;Must&quot; for requirements, &quot;should&quot; for recommendations,
+1. **Approved vocabulary.** One term per concept; no synonym drift. Introduce a
+   project-specific name once, then reuse it verbatim.
+2. **Explicit modals.** &quot;Must&quot; for requirements, &quot;should&quot; for recommendations,
    &quot;may&quot; for permissions. Never blend them.
-5. **Safety messages first.** Put WARNING, CAUTION, and NOTE blocks before the
-   step or statement they apply to, never after.
 
 ## Subagent Delegation
 
@@ -2267,7 +2262,7 @@ exit 0
         <article class="card"><div class="kicker">Research</div><h3>search-and-cite</h3><p>Draw the line between an inline lookup and a delegated researcher cell — and carry sources through to the answer.</p>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 113 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
 name: search-and-cite
-description: Use when a turn rests on an external fact — a library API, a version, a &quot;current best practice&quot;, anything you&#x27;d otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
+description: Use when a turn rests on an external fact — a library API, a version, a &quot;current best practice&quot;, anything the agent would otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
 ---
 
 # Search and cite
@@ -3347,7 +3342,7 @@ Commit fully to the distinctive vision and execute it without hedging.
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> on Claude Code</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 107 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code># Researcher contract
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 110 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code># Researcher contract
 
 &gt; **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
 &gt; (the native agent definition that pins `model: sonnet`). Dispatch research via
@@ -3423,6 +3418,9 @@ will (correctly) trip the session&#x27;s investigate-then-act guard. Exhaust the
 ladder first; then conclude with evidence.
 
 ## Return — this exact shape, nothing else
+
+A brief may add fields to a claim line; it may never remove one or change the
+shape. If a brief asks for an extra mark alongside `conf:`, carry both.
 
 ```
 CLAIMS
@@ -3874,7 +3872,7 @@ Surfaced at session start by `session-start.sh`.
 - Kimi &gt;= 0.29 exposes SubagentStart — genome-guard could ride it instead of PreToolUse Agent/AgentSwarm matching; needs payload-shape verification. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
 - Persona-layer decision (user call, not unilateral): Wharton &quot;Playing Pretend&quot; (arxiv.org/abs/2512.05858) — expert personas don&#x27;t improve factual accuracy and domain-mismatched ones degrade it; personas DO still shape tone/behavior. Genome personas are diversity-for-selection (defensible), but &quot;You are a senior red-team engineer&quot; (pentesting SKILL) and Carmack/Jobs/Linus anchors (AGENTS.md) are the expert-persona pattern. Keep for tone, drop for accuracy claims, or trim?
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
-- Seed real invariants into the 7 content-free skill AGENTS.md files (frontend-design, market-researcher, mobile-responsive-web, panspermia-mutation, react-native-expert, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — they ship `None recorded yet.` in every section. Open user decision: seed-on-demand vs delete-until-needed.
+- Seed real invariants into the 5 content-free skill AGENTS.md files (frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — each ships `None recorded yet.` in one section. Open user decision: seed-on-demand vs delete-until-needed.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
 - `config.json` model routing has three dead keys: `models.explore`, `models.plan`, `models.default_subagent`. Only `researcher` and `learning_reporter` are read (`sync-claude-agents.sh` AGENTS registry); the other three route nothing, and no runtime knob exists for a default ad-hoc subagent model — the tier rule in AGENTS.md carries it instead. Delete the three keys from `config.json.example` + live configs, and drop the &quot;(etc.)&quot; claim in `.agents/README.md:71`.
 - `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.

@@ -1,5 +1,15 @@
 # Modern Responsive CSS (2026)
 
+## Contents
+- 1. Mobile-First, Always
+- 2. Viewport Units: `svh` / `dvh` / `lvh`
+- 3. Fluid Typography with `clamp()`
+- 4. Container Queries
+- 5. Grid with `auto-fit` + `minmax()`
+- 6. Hover & Pointer Capability Queries
+- 7. Safe-Area Insets (Notched Devices)
+- 8. Spacing Scale
+
 The techniques below are Baseline-widely-available and should be preferred over
 older media-query-only approaches. All examples are Tailwind-compatible via
 arbitrary values or the official `@tailwindcss/container-queries` plugin.

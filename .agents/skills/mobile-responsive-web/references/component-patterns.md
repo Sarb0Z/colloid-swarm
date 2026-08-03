@@ -1,9 +1,21 @@
 # Component-Specific Responsive Patterns
 
+## Contents
+- Container-Query Cards
+- Hover / Pointer-Aware Interactions
+- Hero Section
+- Search Form
+- Card Grids
+- Mobile Menu
+- Mobile Scroll Indicator
+- Section Dividers
+- Search Results Page
+- Footer
+
 For foundational techniques (container queries, `svh`/`dvh`, fluid
 typography, hover/pointer queries, safe-area insets), see
-[modern-css.md](./modern-css.md). For images, see
-[responsive-images.md](./responsive-images.md). This file documents the
+`modern-css.md`. For images, see
+`responsive-images.md`. This file documents the
 component shapes this codebase uses.
 
 ## Container-Query Cards
@@ -46,7 +58,6 @@ Gate visual hover effects and expand touch padding for coarse pointers:
 ```
 
 ## Hero Section
-
 
 ### Title
 
