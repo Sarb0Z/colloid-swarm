@@ -30,6 +30,7 @@
       },
       "atlassian": {
         "enabled": true,
+        "codex_enabled": false,
         "description": "Jira, Confluence, Bitbucket via Atlassian Rovo MCP (SSE, OAuth login on first use)"
       },
       "greptile": {
