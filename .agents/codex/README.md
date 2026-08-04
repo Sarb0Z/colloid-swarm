@@ -11,8 +11,8 @@ script therefore creates no source-capture hook. Record sources in the response
 when you use the hosted search tool.
 
 Codex requires hooks 0.124.0 or later. Earlier versions fire `PreToolUse` and
-`PostToolUse` for Bash only, which stops the `apply_patch` and `Agent` matchers
-from ever running.
+`PostToolUse` for Bash only, which stops the `apply_patch` and `spawn_agent`
+matchers from ever running.
 
 Codex gates each hook behind a trust record in `~/.codex/config.toml` under
 `[hooks.state]`, keyed by hook and holding the hash Codex computed when you
@@ -26,6 +26,17 @@ writes those hashes back as trusted. The hash comes from Codex, so the
 normalization rules stay Codex's business. It only writes entries for this
 repository, it leaves other projects and plugins alone, and it is a no-op when
 `codex` is not on PATH.
+
+Discovery is gated on the project itself being trusted, so the script writes
+the `[projects]` entry first. That is what makes a fresh clone on a new machine
+work without a manual approval round.
+
+It refuses to write a config that does not parse, keeps any other keys already
+in a hook's block, and reports rather than swallows a Codex warning. It sets
+`enabled = true`, so a hook you turned off by hand comes back on at the next
+sync. `--no-trust` on the sync skips the step entirely, which is what the test
+suite uses; `--dry-run` and `--config=PATH` on the script itself keep a run away
+from the real config. `test-trust-hooks.py` covers the rewriter.
 
 This trusts the hooks without asking. Read `hooks.json` before you run the sync
 on a repository you did not write.

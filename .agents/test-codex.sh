@@ -3,8 +3,8 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-"$repo/.agents/sync-codex.sh"
-"$repo/.agents/sync-codex.sh" --check
+"$repo/.agents/sync-codex.sh" --no-trust
+"$repo/.agents/sync-codex.sh" --check --no-trust
 
 normalizer="$repo/.agents/codex/normalize-hook.py"
 assert_json() {
@@ -66,3 +66,5 @@ fi
 )
 
 echo "Codex integration checks passed."
+
+python3 "$repo/.agents/codex/test-trust-hooks.py"
