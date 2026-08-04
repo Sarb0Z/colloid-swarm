@@ -16,7 +16,7 @@ import os
 import sys
 import tempfile
 
-repo, check = sys.argv[1], sys.argv[2] == "True"
+repo, check = sys.argv[1], sys.argv[2] == "true"
 agents = os.path.join(repo, ".agents")
 codex = os.path.join(repo, ".codex")
 
@@ -76,9 +76,12 @@ def contract_body(name):
     return "".join(body).strip()
 
 def toml_multiline(value):
-    if '"""' in value:
+    # Literal, not basic: persona prose carries regexes and paths, and a basic
+    # string would read a backslash as an escape and a trailing one as a line
+    # continuation.
+    if "'''" in value:
         raise SystemExit("sync-codex: custom agent instructions contain TOML delimiter")
-    return '"""\n' + value + '\n"""\n'
+    return "'''\n" + value + "\n'''\n"
 
 def agent_toml(name, description):
     header = (

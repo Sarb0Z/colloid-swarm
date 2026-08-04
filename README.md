@@ -56,9 +56,11 @@ disclosure fan-out. No mocks. See `demo/README.md`.
 ## How the enforcement wires up
 `settings.json` → `adapter.sh [--agent <sel>] <policy>.sh` →
 `.agents/hooks/policy/`. The adapter resolves the repo root relative to its own
-location. Codex hook commands resolve the Git root before they start the
-adapter. The kit works wherever you drop it as long as the
-  `.agents` / `.claude` / `.kimi` / `.codex` structure stays intact.
+location. Codex hook commands are the exception: they resolve the Git root
+from the working directory before they start the adapter, so they find no
+adapter from a submodule or an unrelated repository. The kit works wherever you
+drop it as long as the `.agents` / `.claude` / `.kimi` / `.codex` structure
+stays intact.
 
 ## The invariant
 The membrane is conserved across every register, genome, and hook: safety,

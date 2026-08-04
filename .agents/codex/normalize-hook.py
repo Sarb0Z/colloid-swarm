@@ -38,6 +38,12 @@ def patch_paths(command: object) -> tuple[list[str], list[str]]:
     return paths, warnings
 
 
+def text(source: dict, key: str) -> str:
+    """Codex declares several of these nullable, so a present key can be None."""
+    value = source.get(key)
+    return value if isinstance(value, str) else ""
+
+
 def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
     source = src if isinstance(src, dict) else {}
     tool_input = source.get("tool_input")
@@ -55,18 +61,19 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         out["warnings"] = warnings
     elif policy in {"session-wrap.sh", "stop-investigate.sh"}:
         out["stop_hook_active"] = bool(source.get("stop_hook_active", False))
-        out["transcript_path"] = source.get("transcript_path", "")
-        out["last_assistant_message"] = source.get("last_assistant_message", "")
+        out["transcript_path"] = text(source, "transcript_path")
         if policy == "session-wrap.sh":
-            out["session_id"] = source.get("session_id", "")
+            out["session_id"] = text(source, "session_id")
+        else:
+            out["last_assistant_message"] = text(source, "last_assistant_message")
     elif policy == "session-start.sh":
-        out["source"] = source.get("source", "")
-        out["session_id"] = source.get("session_id", "")
-        out["transcript_path"] = source.get("transcript_path", "")
+        out["source"] = text(source, "source")
+        out["session_id"] = text(source, "session_id")
+        out["transcript_path"] = text(source, "transcript_path")
     elif policy == "research-prime.sh":
-        out["prompt"] = source.get("prompt", "")
+        out["prompt"] = text(source, "prompt")
     elif policy == "pre-compact.sh":
-        out["trigger"] = source.get("trigger", "")
+        out["trigger"] = text(source, "trigger")
     return out
 
 
