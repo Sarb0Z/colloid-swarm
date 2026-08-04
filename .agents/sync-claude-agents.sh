@@ -95,6 +95,31 @@ for agent in AGENTS:
     print("generated " + out_path + (f" (model: {model})" if model else " (no model override)"))
 PY
 
+# The adapter layer itself. These three have no generator — they are hand-
+# written sources that live under .agents/ so the tracked tree carries them,
+# and .claude/ gets symlinks. Without this a checkout that ignores .claude/
+# has no settings and no adapter, which means no hooks at all.
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mkdir -p "$repo/.claude/hooks"
+link() {   # source under .agents/claude, destination under .claude
+  local src="$1" dst="$2" rel="$3"
+  [[ -f "$repo/$src" ]] || { echo "sync: missing source $src" >&2; return 1; }
+  [[ -L "$repo/$dst" && "$(readlink "$repo/$dst")" == "$rel" ]] && return 0
+  rm -f "$repo/$dst"
+  ln -s "$rel" "$repo/$dst"
+  echo "linked $dst"
+}
+link .agents/claude/adapter.sh .claude/hooks/adapter.sh ../../.agents/claude/adapter.sh
+link .agents/claude/README.md  .claude/hooks/README.md  ../../.agents/claude/README.md
+
+# settings.json is copied, not linked: this file is the one the layer rules
+# forbid symlinking, and a settings loader that does not follow a link would
+# take every hook with it.
+if ! cmp -s "$repo/.agents/claude/settings.json" "$repo/.claude/settings.json"; then
+  cp "$repo/.agents/claude/settings.json" "$repo/.claude/settings.json"
+  echo "wrote .claude/settings.json"
+fi
+
 # MCP + LSP connection files ride the same "edited config.json -> re-run sync"
 # habit; sync-mcp.sh is a no-op-safe generator, cheap to always run.
 "$(dirname "${BASH_SOURCE[0]}")/sync-mcp.sh"

@@ -47,8 +47,14 @@ the repo root.
 - **Adapter** when formats or event contracts differ. Hooks stay adapters:
   Claude and Kimi use different event names and stdin shapes, so a small
   per-tool script normalizes them into the shared policy contract. Never
-  symlink `.claude/settings.json` / `.kimi/config.toml`. See
-  `.claude/hooks/README.md`.
+  symlink `.claude/settings.json` / `.kimi/config.toml`; `sync-claude-agents.sh`
+  copies the first from `.agents/claude/settings.json`. See
+  `.agents/claude/README.md`.
+
+  The Claude adapter layer keeps its source under `.agents/claude/`:
+  `settings.json`, `adapter.sh`, and `README.md`. `sync-claude-agents.sh`
+  deploys them, so a checkout that ignores `.claude/` still rebuilds every
+  hook with one command.
 
 Codex discovers the same skills directly from `.agents/skills/`. It requires
 `.codex/` for hooks, MCP configuration, and custom agents. Run
