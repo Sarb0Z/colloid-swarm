@@ -3,7 +3,7 @@
 # message hedges, declares the task out of scope, or disclaims ownership
 # of code it touched.
 #
-# Input  (stdin JSON): {"transcript_path": "...", "stop_hook_active": bool}
+# Input  (stdin JSON): {"last_assistant_message": "...", "transcript_path": "...", "stop_hook_active": bool}
 # Output: exit 2 + stderr reason on a match; exit 0 otherwise.
 #
 # Two pattern classes share one hook because a second Stop hook would race
@@ -12,8 +12,8 @@
 # first — a give-up is the harder failure — so a message doing both shows only
 # the hedge reason.
 #
-# Only wired where the host engine exposes a transcript path (Claude
-# Code today). Silent no-op if transcript_path is missing.
+# Prefer the host-provided last assistant message. Fall back to a transcript for
+# hosts that do not provide it.
 
 set -euo pipefail
 
@@ -36,19 +36,29 @@ ratchet="$(printf '%s\n' "$toggles" | sed -n '2p')"
 
 input="$(cat)"
 
-parsed="$(HOOK_INPUT="$input" python3 <<'PY'
+stop_active="$(HOOK_INPUT="$input" python3 <<'PY'
 import json, os
 d = json.loads(os.environ["HOOK_INPUT"] or "{}")
 print(str(d.get("stop_hook_active", False)).lower())
-print(d.get("transcript_path", ""))
 PY
 )"
-stop_active="$(printf '%s\n' "$parsed" | sed -n '1p')"
-transcript="$(printf '%s\n' "$parsed" | sed -n '2p')"
+last_msg="$(HOOK_INPUT="$input" python3 <<'PY'
+import json, os, sys
+d = json.loads(os.environ["HOOK_INPUT"] or "{}")
+msg = d.get("last_assistant_message", "")
+sys.stdout.write(msg if isinstance(msg, str) else "")
+PY
+)"
+transcript="$(HOOK_INPUT="$input" python3 <<'PY'
+import json, os
+d = json.loads(os.environ["HOOK_INPUT"] or "{}")
+path = d.get("transcript_path", "")
+print(path if isinstance(path, str) else "")
+PY
+)"
 
 [[ "${stop_active:-false}" == "true" ]] && exit 0
-[[ -z "${transcript:-}" || ! -f "$transcript" ]] && exit 0
-
+if [[ -z "$last_msg" && -n "${transcript:-}" && -f "$transcript" ]]; then
 last_msg="$(python3 - "$transcript" <<'PY'
 import json, sys
 path = sys.argv[1]
@@ -75,6 +85,7 @@ with open(path, "r", encoding="utf-8") as f:
 print(last)
 PY
 )"
+fi
 
 [[ -z "$last_msg" ]] && exit 0
 
