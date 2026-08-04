@@ -1,14 +1,17 @@
 #!/bin/bash
-# commit-msg: every commit carries a canonical `By: <login> <noreply-email>`
-# trailer matching the gh-authenticated GitHub identity for this repo. Adds
-# it when missing, replaces a wrong value, and normalizes attribution
-# variants (`Authored By:`, `authored-by:`, `Co-Authored-By:`, any case)
-# into it. Fail open: an unavailable identity or a failed rewrite never
+# commit-msg: every commit carries a canonical
+# `Authored-By: <login> <noreply-email>` trailer matching the
+# gh-authenticated GitHub identity for this repo. Adds it when missing,
+# replaces a wrong value, and normalizes attribution variants (`By:`,
+# `Authored By:`, `Co-Authored-By:`, any case) into it. Git trailer tokens
+# admit only alphanumerics and `-`, so the token is hyphenated; a space
+# would make git read the whole line as one valueless token.
+# Fail open: an unavailable identity or a failed rewrite never
 # blocks the commit. Known gap: cherry-pick and rebase replay commits
 # without running commit-msg; those messages pass through unchanged.
 #
 # Wiring (once per clone): git config core.hooksPath .githooks
-# Identity resolution: $BY_TRAILER_IDENTITY env override, else a cache in
+# Identity resolution: $AUTHORED_BY_IDENTITY env override, else a cache in
 # the common .git dir (refreshed from `gh api user` when older than 7
 # days; delete the cache to force a refresh), else live gh.
 # debt: githook-variant-strip-anywhere
@@ -29,8 +32,8 @@ awk -v c="$cc" 'substr($0, 1, length(c)) != c && $0 !~ /^[[:space:]]*$/ \
   {found = 1; exit} END {exit found ? 0 : 1}' "$msg_file" || exit 0
 
 git_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
-cache="$git_dir/by-trailer-identity"
-identity="${BY_TRAILER_IDENTITY:-}"
+cache="$git_dir/authored-by-identity"
+identity="${AUTHORED_BY_IDENTITY:-}"
 
 if [ -z "$identity" ] && [ -f "$cache" ] \
    && [ -n "$(find "$cache" -mtime -7 2>/dev/null)" ]; then
@@ -50,19 +53,20 @@ if [ -z "$identity" ]; then
 fi
 
 if [ -z "$identity" ]; then
-  echo "commit-msg: gh identity unavailable — By: trailer skipped" >&2
+  echo "commit-msg: gh identity unavailable — Authored-By: trailer skipped" >&2
   exit 0
 fi
 
-# Strip attribution variants and existing By: lines; the canonical trailer
-# below replaces them. Self-stripping `By:` lets interpret-trailers run in
-# `add` mode, whose token matching cannot eat unrelated `By*` trailers the
-# way `replace` prefix-matching does. grep -v + mv, not sed -i (BSD/GNU).
+# Strip attribution variants and existing Authored-By: lines; the canonical
+# trailer below replaces them. Self-stripping lets interpret-trailers run in
+# `add` mode, whose token matching cannot eat unrelated `Authored-By*`
+# trailers the way `replace` prefix-matching does. grep -v + mv, not sed -i
+# (BSD/GNU).
 if grep -qiE '^((co-)?authored[- ]by:|by:)' "$msg_file"; then
-  grep -viE '^((co-)?authored[- ]by:|by:)' "$msg_file" > "$msg_file.by-trailer" \
-    && mv "$msg_file.by-trailer" "$msg_file"
+  grep -viE '^((co-)?authored[- ]by:|by:)' "$msg_file" > "$msg_file.authored-by" \
+    && mv "$msg_file.authored-by" "$msg_file"
 fi
 
 git interpret-trailers --in-place --no-divider --if-exists add \
-  --trailer "By: $identity" "$msg_file" 2>/dev/null || true
+  --trailer "Authored-By: $identity" "$msg_file" 2>/dev/null || true
 exit 0
