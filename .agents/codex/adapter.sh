@@ -7,9 +7,9 @@ if (( BASH_VERSINFO[0] < 4 )); then
   exit 0
 fi
 
-policy="${1:?usage: adapter.sh <policy.sh>}"
+policy="$(basename "${1:?usage: adapter.sh <policy.sh>}")"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-policy_path="$repo/.agents/hooks/policy/$(basename "$policy")"
+policy_path="$repo/.agents/hooks/policy/$policy"
 normalizer="$repo/.agents/codex/normalize-hook.py"
 
 if [[ ! -x "$policy_path" || ! -x "$normalizer" ]]; then
