@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Map Codex hook input to the shared policy contracts."""
+
+import json
+import shlex
+import sys
+
+
+def patch_paths(command: object) -> tuple[list[str], list[str]]:
+    if not isinstance(command, str):
+        return [], []
+
+    paths: list[str] = []
+    warnings: list[str] = []
+    prefixes = ("*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: ")
+    for line in command.splitlines():
+        prefix = next((value for value in prefixes if line.startswith(value)), None)
+        if prefix is None:
+            continue
+        raw = line[len(prefix):].strip()
+        if raw.startswith(('"', "'")):
+            try:
+                values = shlex.split(raw)
+            except ValueError:
+                warnings.append("cannot parse quoted apply_patch path")
+                continue
+            if len(values) != 1:
+                warnings.append("apply_patch path must name one file")
+                continue
+            raw = values[0]
+        if not raw or raw.startswith("/") or any(part == ".." for part in raw.split("/")):
+            warnings.append("apply_patch path is outside the project")
+            continue
+        if raw not in paths:
+            paths.append(raw)
+    if command.strip() and not paths and not warnings:
+        warnings.append("apply_patch command contained no recognized file header")
+    return paths, warnings
+
+
+def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
+    source = src if isinstance(src, dict) else {}
+    tool_input = source.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    out: dict[str, object] = {"project_dir": source.get("cwd") or repo}
+
+    if policy == "guard-destructive.sh":
+        out["command"] = tool_input.get("command", "")
+    elif policy == "genome-guard.sh":
+        out["prompt"] = tool_input.get("message", "")
+        out["subagent_type"] = tool_input.get("agent_type", "")
+    elif policy == "post-edit-check.sh":
+        files, warnings = patch_paths(tool_input.get("command"))
+        out["files"] = files
+        out["warnings"] = warnings
+    elif policy in {"session-wrap.sh", "stop-investigate.sh"}:
+        out["stop_hook_active"] = bool(source.get("stop_hook_active", False))
+        out["transcript_path"] = source.get("transcript_path", "")
+        out["last_assistant_message"] = source.get("last_assistant_message", "")
+        if policy == "session-wrap.sh":
+            out["session_id"] = source.get("session_id", "")
+    elif policy == "session-start.sh":
+        out["source"] = source.get("source", "")
+        out["session_id"] = source.get("session_id", "")
+        out["transcript_path"] = source.get("transcript_path", "")
+    elif policy == "research-prime.sh":
+        out["prompt"] = source.get("prompt", "")
+    elif policy == "pre-compact.sh":
+        out["trigger"] = source.get("trigger", "")
+    return out
+
+
+def main() -> None:
+    if len(sys.argv) != 3:
+        raise SystemExit("usage: normalize-hook.py <policy> <repository>")
+    try:
+        source = json.load(sys.stdin)
+    except json.JSONDecodeError:
+        source = {}
+    json.dump(normalize(source, sys.argv[1], sys.argv[2]), sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
