@@ -19,7 +19,7 @@ format or location) pointing back here. Edit things here, once.
 | `config.json` | Scaffold toggles, thresholds, model routing | read by every hook + `sync-claude-agents.sh` | read by wired hooks | read by `sync-codex.sh` and shared policies |
 | `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | stamped + dispatched (native; no capture) | `.codex/agents/researcher.toml` — generated native agent |
 | `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded | data, not auto-loaded |
-| `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | surfaced by the SessionStart hook |
+| `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | SessionStart hook wired; context injection not yet confirmed |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — | committed; pulled on demand |
 | `AGENTS.md` (here + `../demo/`, `../tensium-trial/`, `../.claude/`, `skills/<name>/`) | Scoped instructions with dual `applyTo`/`paths` frontmatter | `.claude/rules/<skill>.md` + sibling `CLAUDE.md` → symlinks | native (root `AGENTS.md` points to subtree files) | native (root `AGENTS.md` points to subtree files) |
 
