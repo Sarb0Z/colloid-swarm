@@ -4,11 +4,16 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 check=false
-if [[ "${1:-}" == "--check" ]]; then
-  check=true
-  shift
-fi
-[[ $# -eq 0 ]] || { echo "usage: sync-codex.sh [--check]" >&2; exit 2; }
+trust=true
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check)    check=true; shift ;;
+    # For tests and dry runs: the trust step writes ~/.codex/config.toml, which
+    # belongs to the operator, not to this repository.
+    --no-trust) trust=false; shift ;;
+    *) echo "usage: sync-codex.sh [--check] [--no-trust]" >&2; exit 2 ;;
+  esac
+done
 
 python3 - "$repo" "$check" <<'PY'
 import json
@@ -158,6 +163,6 @@ PY
 # Rewriting hooks.json invalidates the trust hash of every hook it changed, and
 # an untrusted hook does not run. Re-trust what was just deployed, so the sync
 # leaves the hooks armed rather than silently disarmed. --check must not write.
-if [[ "$check" != "true" ]]; then
+if [[ "$check" != "true" && "$trust" == "true" ]]; then
   "$repo/.agents/codex/trust-hooks.py" "$repo"
 fi
