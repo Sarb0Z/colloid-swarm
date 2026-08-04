@@ -154,3 +154,10 @@ if failures:
     print("sync-codex: generated output is stale: " + ", ".join(failures), file=sys.stderr)
     raise SystemExit(1)
 PY
+
+# Rewriting hooks.json invalidates the trust hash of every hook it changed, and
+# an untrusted hook does not run. Re-trust what was just deployed, so the sync
+# leaves the hooks armed rather than silently disarmed. --check must not write.
+if [[ "$check" != "true" ]]; then
+  "$repo/.agents/codex/trust-hooks.py" "$repo"
+fi

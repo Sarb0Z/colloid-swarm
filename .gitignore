@@ -23,7 +23,6 @@ __pycache__/
 /.mcp.json
 /.kimi-code/mcp.json
 /.codex/config.toml
-/.claude/settings.json
 
 # Local, per-repo tuned config — copy from config.json.example and tune
 .agents/config.json

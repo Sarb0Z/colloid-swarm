@@ -19,7 +19,7 @@ format or location) pointing back here. Edit things here, once.
 | `config.json` | Scaffold toggles, thresholds, model routing | read by every hook + `sync-claude-agents.sh` | read by wired hooks | read by `sync-codex.sh` and shared policies |
 | `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | stamped + dispatched (native; no capture) | `.codex/agents/researcher.toml` — generated native agent |
 | `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded | data, not auto-loaded |
-| `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | SessionStart hook wired; context injection not yet confirmed |
+| `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | surfaced by the SessionStart hook |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — | committed; pulled on demand |
 | `AGENTS.md` (here + `../demo/`, `../tensium-trial/`, `../.claude/`, `skills/<name>/`) | Scoped instructions with dual `applyTo`/`paths` frontmatter | `.claude/rules/<skill>.md` + sibling `CLAUDE.md` → symlinks | native (root `AGENTS.md` points to subtree files) | native (root `AGENTS.md` points to subtree files) |
 
@@ -46,9 +46,9 @@ the repo root.
   deterministic and machine-independent.
 - **Adapter** when formats or event contracts differ. Hooks stay adapters:
   Claude and Kimi use different event names and stdin shapes, so a small
-  per-tool script normalizes them into the shared policy contract. Never
-  symlink `.claude/settings.json` / `.kimi/config.toml`; `sync-claude-agents.sh`
-  copies the first from `.agents/claude/settings.json`. See
+  per-tool script normalizes them into the shared policy contract. The two
+  engines' settings files hold different schemas, so never point one engine's
+  settings at the other's; each keeps its own source. See
   `.agents/claude/README.md`.
 
   The Claude adapter layer keeps its source under `.agents/claude/`:
@@ -60,8 +60,10 @@ Codex discovers the same skills directly from `.agents/skills/`. It requires
 `.codex/` for hooks, MCP configuration, and custom agents. Run
 `.agents/sync-codex.sh` after you change `.agents/codex/`, a persona, the MCP
 registry, or MCP toggles. The script uses symlinks where Codex accepts the
-canonical format and generates the remaining Codex formats. Run
-`.agents/test-codex.sh` to verify the generated layer.
+canonical format and generates the remaining Codex formats. It then re-trusts
+the hooks, because Codex stops running a hook whose recorded hash differs from
+the deployed file and the sync rewrites that file. Run `.agents/test-codex.sh`
+to verify the generated layer.
 
 ## Configuration
 
