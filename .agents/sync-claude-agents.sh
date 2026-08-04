@@ -109,16 +109,9 @@ link() {   # source under .agents/claude, destination under .claude
   ln -s "$rel" "$repo/$dst"
   echo "linked $dst"
 }
-link .agents/claude/adapter.sh .claude/hooks/adapter.sh ../../.agents/claude/adapter.sh
-link .agents/claude/README.md  .claude/hooks/README.md  ../../.agents/claude/README.md
-
-# settings.json is copied, not linked: this file is the one the layer rules
-# forbid symlinking, and a settings loader that does not follow a link would
-# take every hook with it.
-if ! cmp -s "$repo/.agents/claude/settings.json" "$repo/.claude/settings.json"; then
-  cp "$repo/.agents/claude/settings.json" "$repo/.claude/settings.json"
-  echo "wrote .claude/settings.json"
-fi
+link .agents/claude/settings.json .claude/settings.json    ../.agents/claude/settings.json
+link .agents/claude/adapter.sh    .claude/hooks/adapter.sh ../../.agents/claude/adapter.sh
+link .agents/claude/README.md     .claude/hooks/README.md  ../../.agents/claude/README.md
 
 # MCP + LSP connection files ride the same "edited config.json -> re-run sync"
 # habit; sync-mcp.sh is a no-op-safe generator, cheap to always run.

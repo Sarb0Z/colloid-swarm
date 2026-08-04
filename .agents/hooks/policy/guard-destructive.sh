@@ -4,8 +4,10 @@
 # Input  (stdin JSON): {"command": "<shell command>"}
 # Output: exit 2 + stderr reason on block; exit 0 otherwise.
 #
-# Both Claude Code and Kimi CLI treat exit 2 + stderr as "block, feed
-# reason to the model", so no per-engine output adapter is needed.
+# Claude Code, Kimi CLI, and Codex all treat exit 2 + stderr as "block, feed
+# reason to the model", so no per-engine output adapter is needed. Every other
+# non-zero exit is a hook failure on all three, and the action proceeds — so a
+# policy that cannot run must exit 0 deliberately rather than error.
 
 set -euo pipefail
 
