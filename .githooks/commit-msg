@@ -11,9 +11,12 @@
 # without running commit-msg; those messages pass through unchanged.
 #
 # Wiring (once per clone): git config core.hooksPath .githooks
-# Identity resolution: $AUTHORED_BY_IDENTITY env override, else a cache in
-# the common .git dir (refreshed from `gh api user` when older than 7
-# days; delete the cache to force a refresh), else live gh.
+# Identity resolution: $AUTHORED_BY_IDENTITY env override, else the repo's
+# own `user.email`. A GitHub noreply address encodes the login as
+# <id>+<login>@users.noreply.github.com; any other address falls back to
+# `user.name`. This is the same identity git records as the author, so the
+# trailer and the author agree by construction, and includeIf rules that
+# select an identity per repository select the trailer with it.
 # debt: githook-variant-strip-anywhere
 
 msg_file="$1"
@@ -31,29 +34,18 @@ case "$cc" in ''|auto) cc='#' ;; esac
 awk -v c="$cc" 'substr($0, 1, length(c)) != c && $0 !~ /^[[:space:]]*$/ \
   {found = 1; exit} END {exit found ? 0 : 1}' "$msg_file" || exit 0
 
-git_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
-cache="$git_dir/authored-by-identity"
 identity="${AUTHORED_BY_IDENTITY:-}"
 
-if [ -z "$identity" ] && [ -f "$cache" ] \
-   && [ -n "$(find "$cache" -mtime -7 2>/dev/null)" ]; then
-  identity=$(head -n1 "$cache")
+if [ -z "$identity" ]; then
+  email=$(git config user.email 2>/dev/null)
+  login=$(printf '%s' "$email" \
+    | sed -n 's/^[0-9]*+\([^@]*\)@users\.noreply\.github\.com$/\1/p')
+  [ -n "$login" ] || login=$(git config user.name 2>/dev/null)
+  [ -n "$email" ] && [ -n "$login" ] && identity="$login <$email>"
 fi
 
 if [ -z "$identity" ]; then
-  fresh=$(gh api user \
-    --jq '"\(.login) <\(.id)+\(.login)@users.noreply.github.com>"' 2>/dev/null)
-  if [ -n "$fresh" ]; then
-    identity="$fresh"
-    printf '%s\n' "$identity" > "$cache.tmp" && mv "$cache.tmp" "$cache"
-  elif [ -f "$cache" ]; then
-    identity=$(head -n1 "$cache")   # stale cache beats no identity
-    touch "$cache"                  # bound refresh retries to once per TTL
-  fi
-fi
-
-if [ -z "$identity" ]; then
-  echo "commit-msg: gh identity unavailable — Authored-By: trailer skipped" >&2
+  echo "commit-msg: no user.email — Authored-By: trailer skipped" >&2
   exit 0
 fi
 
