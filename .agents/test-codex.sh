@@ -36,17 +36,34 @@ for name, server in registry.items():
     setting = toggles.get(name, {})
     enabled = setting.get("enabled") is True and setting.get("codex_enabled", True) is True
     if enabled and "${" in server.get("url", ""):
-        continue
+        enabled = False          # Codex cannot interpolate it; masked, not omitted
     expected[name] = enabled
 
 actual = {name: server.get("enabled", True) for name, server in servers.items()}
 if actual != expected:
     raise SystemExit(f"expected generated MCP states {expected}, got {actual}")
+
+# A disabled record must carry nothing but the flag. Codex merges project over
+# user per key, so a `url` landing on a lower layer's `command` leaves one
+# server holding both and Codex refuses to load the whole configuration.
+carrying = {name: sorted(k for k in server if k != "enabled")
+            for name, server in servers.items()
+            if server.get("enabled") is False and len(server) > 1}
+if carrying:
+    raise SystemExit(f"disabled records must carry no transport keys: {carrying}")
 PY
 
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
 cp -R "$repo/.agents" "$fixture/.agents"
+# config.json is gitignored and per-machine. A fixture that inherits it passes
+# or fails on whatever the operator happens to have toggled.
+python3 - "$fixture/.agents/config.json" <<'PY'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({"mcp": {"servers": {"context7": {"enabled": True},
+                                   "exa": {"enabled": False}}}}, f, indent=1)
+PY
 "$fixture/.agents/sync-mcp.sh" disable context7 >/dev/null
 python3 - "$fixture/.codex/config.toml" <<'PY'
 import sys
@@ -65,7 +82,7 @@ import tomllib
 with open(sys.argv[1], "rb") as config_file:
     exa = tomllib.load(config_file)["mcp_servers"]["exa"]
 if exa.get("enabled") is not False:
-    raise SystemExit("a Codex-incompatible enable must retain its disabled mask")
+    raise SystemExit("enabling a server whose URL carries a credential must still emit its mask")
 PY
 rm -rf "$fixture"
 trap - EXIT

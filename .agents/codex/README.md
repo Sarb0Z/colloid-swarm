@@ -7,10 +7,16 @@ The script creates `.codex/`. It uses symlinks for this adapter, this file, and
 Codex requires different formats for these files.
 
 Codex merges project config over user and plugin config by MCP server name.
-The generated config must include a complete disabled record for each
-compatible registry server that is off. This record blocks a same-name lower
-config entry. It cannot block an unknown server name. Use a managed MCP
-allowlist when the effective server set must contain only approved names.
+The generated config includes a record for each compatible registry server that
+is off. This record blocks a same-name lower config entry. It cannot block an
+unknown server name. Use a managed MCP allowlist when the effective server set
+must contain only approved names.
+
+A disabled record carries the `enabled` flag and nothing else. The merge is per
+key, so a transport key in a disabled record lands on the lower layer's own
+transport key: a `url` over a `command` leaves one server holding both, and
+Codex then refuses to load the whole configuration rather than that one entry.
+The bare flag masks the lower record just as completely.
 
 The ask questions tool is mode-dependent. Use Plan mode when a task needs the
 tool. Start a new session after you change project MCP config because Codex
