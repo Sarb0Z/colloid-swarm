@@ -84,6 +84,30 @@ with open(sys.argv[1], "rb") as config_file:
 if exa.get("enabled") is not False:
     raise SystemExit("enabling a server whose URL carries a credential must still emit its mask")
 PY
+# config.json is canonical and overrides per key, so a lone codex_enabled must
+# mask the server for Codex without dropping it from the other tools.
+python3 - "$fixture/.agents/config.json" <<'PY'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({"mcp": {"servers": {"context7": {"codex_enabled": False}}}}, f, indent=1)
+PY
+"$fixture/.agents/sync-mcp.sh" >/dev/null
+python3 - "$fixture" <<'PY'
+import json
+import sys
+import tomllib
+from pathlib import Path
+
+fixture = Path(sys.argv[1])
+claude = json.loads((fixture / ".mcp.json").read_text())["mcpServers"]
+with (fixture / ".codex/config.toml").open("rb") as config_file:
+    codex = tomllib.load(config_file)["mcp_servers"]
+if "context7" not in claude:
+    raise SystemExit("a lone codex_enabled must leave the server in the Claude output")
+if codex.get("context7", {}).get("enabled") is not False:
+    raise SystemExit("a lone codex_enabled must mask the server for Codex")
+PY
+
 rm -rf "$fixture"
 trap - EXIT
 
