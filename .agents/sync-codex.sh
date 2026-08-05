@@ -120,9 +120,31 @@ for name in sorted(registry):
     server = registry[name]
     server_type = server.get("type")
     table = f'[mcp_servers.{quoted(name)}]'
+    if server_type not in ("stdio", "http"):
+        print(f"sync-codex: skipping {name}; Codex requires stdio or streamable HTTP", file=sys.stderr)
+        continue
+
+    url = server.get("url", "")
+    if server_type == "http" and enabled and "${" in url:
+        # Codex cannot interpolate the credential, so the server cannot run
+        # here. Mask it rather than omitting it: with no record at all, a
+        # same-name server from user or plugin config loads unmasked.
+        print(f"sync-codex: disabling {name} for Codex; it cannot interpolate URL credentials",
+              file=sys.stderr)
+        enabled = False
+
+    config += "\n" + table + "\n"
+    config += f"enabled = {str(enabled).lower()}\n"
+
+    # A disabled record carries no transport keys. The merge is per key, so a
+    # `url` landing on a lower layer's `command` — or the reverse — leaves one
+    # server holding both, and Codex then refuses to load the whole
+    # configuration rather than just that entry. `enabled = false` alone masks
+    # the lower record just as completely and cannot conflict with it.
+    if not enabled:
+        continue
+
     if server_type == "stdio":
-        config += "\n" + table + "\n"
-        config += f"enabled = {str(enabled).lower()}\n"
         config += f"command = {quoted(server['command'])}\n"
         if server.get("args"):
             config += "args = [" + ", ".join(quoted(value) for value in server["args"]) + "]\n"
@@ -130,22 +152,14 @@ for name in sorted(registry):
             config += f"\n[mcp_servers.{quoted(name)}.env]\n"
             for key, value in sorted(server["env"].items()):
                 config += f"{key} = {quoted(value)}\n"
-    elif server_type == "http":
-        url = server.get("url", "")
+    else:
         headers = server.get("headers", {})
         auth = headers.get("Authorization") if isinstance(headers, dict) else None
-        if enabled and "${" in url:
-            print(f"sync-codex: skipping {name}; Codex cannot safely interpolate URL credentials", file=sys.stderr)
-            continue
-        config += "\n" + table + "\n"
-        config += f"enabled = {str(enabled).lower()}\n"
         config += f"url = {quoted(url)}\n"
         if isinstance(auth, str) and auth.startswith("Bearer ${") and auth.endswith("}"):
             config += f"bearer_token_env_var = {quoted(auth[9:-1])}\n"
         elif headers:
             print(f"sync-codex: skipping headers for {name}; only bearer environment headers are portable", file=sys.stderr)
-    else:
-        print(f"sync-codex: skipping {name}; Codex requires stdio or streamable HTTP", file=sys.stderr)
 
 write(os.path.join(codex, "config.toml"), config)
 write(os.path.join(codex, "agents", "researcher.toml"), agent_toml(
