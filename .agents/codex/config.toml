@@ -4,7 +4,8 @@ inherit = "core"
 [shell_environment_policy.set]
 ENABLE_TOOL_SEARCH = "auto:5"
 
-# Ask the user directly instead of only inside Plan mode. Interactive
-# sessions only; `codex exec` refuses the tool.
+# Declare the request_user_input tool. Availability outside Plan mode is
+# separately gated by the default_mode_request_user_input feature, and the
+# tool needs an interactive terminal. See .agents/codex/README.md.
 [tools]
 experimental_request_user_input = { enabled = true }

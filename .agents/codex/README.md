@@ -26,10 +26,17 @@ This applies to enabled records too, so the generator cannot avoid it.
 scratch home that declares no servers. TOML that parses is not TOML that loads,
 and only the binary knows the difference.
 
-`[tools] experimental_request_user_input = { enabled = true }` gives the agent
-the `request_user_input` tool in every mode, not only Plan mode. It needs an
-interactive terminal; `codex exec` refuses it. Start a new session after you
-change project MCP config because Codex loads MCP servers at session start.
+`[tools] experimental_request_user_input = { enabled = true }` declares the
+`request_user_input` tool. The key is real — Codex type-checks the struct and
+rejects a bare boolean — but declaring the tool is not the same as being offered
+it outside Plan mode: `codex features list` reports
+`default_mode_request_user_input` as under development and off, and the binary
+carries a call-time refusal reading `request_user_input is unavailable in
+<mode>`. The tool also needs an interactive terminal, and `codex exec` refuses
+it. Confirm in a live session before relying on it.
+
+Start a new session after you change project MCP config because Codex loads MCP
+servers at session start.
 
 Codex does not expose hosted web search through local tool hooks. The sync
 script therefore creates no source-capture hook. Record sources in the response
