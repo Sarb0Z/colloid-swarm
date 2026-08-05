@@ -6,6 +6,70 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$repo/.agents/sync-codex.sh" --no-trust
 "$repo/.agents/sync-codex.sh" --check --no-trust
 
+python3 - "$repo" <<'PY'
+import json
+from pathlib import Path
+import sys
+import tomllib
+
+repo = Path(sys.argv[1])
+with (repo / ".codex/config.toml").open("rb") as config_file:
+    servers = tomllib.load(config_file).get("mcp_servers", {})
+
+with (repo / ".agents/config.json.example").open(encoding="utf-8") as config_file:
+    toggles = json.load(config_file)["mcp"]["servers"]
+local_path = repo / ".agents/config.json"
+if local_path.exists():
+    with local_path.open(encoding="utf-8") as config_file:
+        local = json.load(config_file).get("mcp", {}).get("servers", {})
+    for name, setting in local.items():
+        if isinstance(setting, dict):
+            toggles.setdefault(name, {}).update(setting)
+
+with (repo / ".agents/mcp.json").open(encoding="utf-8") as registry_file:
+    registry = json.load(registry_file)["mcpServers"]
+
+expected = {}
+for name, server in registry.items():
+    if server.get("type") not in {"stdio", "http"}:
+        continue
+    setting = toggles.get(name, {})
+    enabled = setting.get("enabled") is True and setting.get("codex_enabled", True) is True
+    if enabled and "${" in server.get("url", ""):
+        continue
+    expected[name] = enabled
+
+actual = {name: server.get("enabled", True) for name, server in servers.items()}
+if actual != expected:
+    raise SystemExit(f"expected generated MCP states {expected}, got {actual}")
+PY
+
+fixture="$(mktemp -d)"
+trap 'rm -rf "$fixture"' EXIT
+cp -R "$repo/.agents" "$fixture/.agents"
+"$fixture/.agents/sync-mcp.sh" disable context7 >/dev/null
+python3 - "$fixture/.codex/config.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as config_file:
+    context7 = tomllib.load(config_file)["mcp_servers"]["context7"]
+if context7.get("enabled") is not False:
+    raise SystemExit("sync-mcp disable must regenerate the Codex server state")
+PY
+"$fixture/.agents/sync-mcp.sh" enable exa >/dev/null
+python3 - "$fixture/.codex/config.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as config_file:
+    exa = tomllib.load(config_file)["mcp_servers"]["exa"]
+if exa.get("enabled") is not False:
+    raise SystemExit("a Codex-incompatible enable must retain its disabled mask")
+PY
+rm -rf "$fixture"
+trap - EXIT
+
 normalizer="$repo/.agents/codex/normalize-hook.py"
 assert_json() {
   local payload="$1" policy="$2" expected="$3"

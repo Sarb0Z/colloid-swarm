@@ -39,8 +39,9 @@ the repo root.
   are symlinks, not copies.
 - **Generated** when one canonical source feeds tools that want different
   formats or filtered subsets: `sync-mcp.sh` turns the `mcp.json` registry +
-  `config.json` toggles into `.mcp.json`, `.kimi-code/mcp.json`, and
-  `.github/lsp.json`; `sync-claude-agents.sh` stamps `.claude/agents/*.md`.
+  `config.json` toggles into `.mcp.json`, `.kimi-code/mcp.json`,
+  `.codex/config.toml`, and `.github/lsp.json`; `sync-claude-agents.sh` stamps
+  `.claude/agents/*.md`.
   Generated files are never hand-edited. The MCP outputs are gitignored
   (per-machine toggles, expanded keys); `.github/lsp.json` is committed —
   deterministic and machine-independent.
@@ -71,8 +72,15 @@ One file, `.agents/config.json`, controls the whole scaffold:
 
 - **Hook toggles** — enable/disable any of the 9 policies without touching
   `.claude/settings.json` or `.kimi/config.toml`.
-- **MCP toggles** — `mcp.servers.<name>.enabled` gates which registry servers
-  load. Progressive disclosure carries the schema cost (Claude
+- **MCP toggles** — `mcp.servers.<name>.enabled` controls each compatible
+  registry server in the generated output. The generated Codex config includes
+  a complete disabled record for each compatible registry server that is off.
+  This record overrides the state of a same-name server from a user or plugin
+  config. Codex still loads unknown server names from those configs because
+  project config is an overlay, not an allowlist. Set `codex_enabled` to
+  `false` when another tool can use a server that Codex cannot represent
+  safely. Progressive disclosure
+  carries the schema cost (Claude
   `ENABLE_TOOL_SEARCH=auto:5`, Kimi `tool-select` — see
   `.kimi/config.toml.example`), so unkeyed servers default ON: their tools
   defer until searched. Default-off is reserved for keyed servers

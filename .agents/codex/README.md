@@ -6,6 +6,16 @@ The script creates `.codex/`. It uses symlinks for this adapter, this file, and
 `hooks.json`. It generates `config.toml` and custom-agent TOML files because
 Codex requires different formats for these files.
 
+Codex merges project config over user and plugin config by MCP server name.
+The generated config must include a complete disabled record for each
+compatible registry server that is off. This record blocks a same-name lower
+config entry. It cannot block an unknown server name. Use a managed MCP
+allowlist when the effective server set must contain only approved names.
+
+The ask questions tool is mode-dependent. Use Plan mode when a task needs the
+tool. Start a new session after you change project MCP config because Codex
+loads MCP servers at session start.
+
 Codex does not expose hosted web search through local tool hooks. The sync
 script therefore creates no source-capture hook. Record sources in the response
 when you use the hosted search tool.

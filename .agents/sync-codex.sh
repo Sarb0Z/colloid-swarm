@@ -116,13 +116,13 @@ link(os.path.join(codex, "hooks", "README.md"), "../../.agents/codex/README.md")
 config = open(os.path.join(agents, "codex", "config.toml"), encoding="utf-8").read().rstrip() + "\n"
 for name in sorted(registry):
     setting = toggles.get(name, {})
-    if setting.get("enabled") is not True or setting.get("codex_enabled", True) is not True:
-        continue
+    enabled = setting.get("enabled") is True and setting.get("codex_enabled", True) is True
     server = registry[name]
     server_type = server.get("type")
     table = f'[mcp_servers.{quoted(name)}]'
     if server_type == "stdio":
         config += "\n" + table + "\n"
+        config += f"enabled = {str(enabled).lower()}\n"
         config += f"command = {quoted(server['command'])}\n"
         if server.get("args"):
             config += "args = [" + ", ".join(quoted(value) for value in server["args"]) + "]\n"
@@ -134,10 +134,12 @@ for name in sorted(registry):
         url = server.get("url", "")
         headers = server.get("headers", {})
         auth = headers.get("Authorization") if isinstance(headers, dict) else None
-        if "${" in url:
+        if enabled and "${" in url:
             print(f"sync-codex: skipping {name}; Codex cannot safely interpolate URL credentials", file=sys.stderr)
             continue
-        config += "\n" + table + "\n" + f"url = {quoted(url)}\n"
+        config += "\n" + table + "\n"
+        config += f"enabled = {str(enabled).lower()}\n"
+        config += f"url = {quoted(url)}\n"
         if isinstance(auth, str) and auth.startswith("Bearer ${") and auth.endswith("}"):
             config += f"bearer_token_env_var = {quoted(auth[9:-1])}\n"
         elif headers:
