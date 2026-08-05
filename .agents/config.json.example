@@ -39,6 +39,7 @@
       },
       "exa": {
         "enabled": false,
+        "codex_enabled": false,
         "description": "web search and fetch via Exa (HTTP, needs EXA_API_KEY)"
       }
     }

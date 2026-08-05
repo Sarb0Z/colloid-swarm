@@ -14,6 +14,8 @@
 #                              false so they override same-named user-level
 #                              servers instead of being shadow-loaded. 0600:
 #                              holds expanded secrets.
+#   .codex/config.toml         Codex project level — generated through
+#                              sync-codex.sh with explicit server states.
 #   .claude/settings.local.json  enabledMcpjsonServers merged in (other keys and
 #                              non-registry entries kept).
 #   .github/lsp.json           Copilot CLI, regenerated from .agents/lsp.json
@@ -219,6 +221,9 @@ lsp = load_json(os.path.join(agents, "lsp.json"))
 if lsp:
     write_json(os.path.join(repo, ".github", "lsp.json"), lsp)
 PY
+
+# MCP changes do not change hooks, so this path must not write user trust state.
+"$repo/.agents/sync-codex.sh" --no-trust
 
 if [[ "$cmd" == "enable" || "$cmd" == "disable" ]]; then
   echo "NOTE: MCP servers connect at session start — restart the session (or /reload) for this to take effect."
