@@ -118,11 +118,17 @@ def write_json(path, data, mode=None):
     os.replace(tmp, path)  # atomic: consumers never see a truncated file
     print("generated " + path)
 
-# Toggles: example per-server entries are the base; local entries override
-# per server, so enabling one server never silently disables the others.
+# Toggles: example per-server entries are the base. config.json is canonical —
+# every key it states wins for every tool, and keys it leaves out fall back to
+# the example. The override is per key, not per server: a hand-written
+# {"codex_enabled": false} must mask the server for Codex without dropping the
+# `enabled` that keeps it live for the others. Entries are copied, so an
+# override never reaches through into the example's own dict.
 example = load_json(os.path.join(agents, "config.json.example"), {})
 local = load_json(os.path.join(agents, "config.json"), {})
-toggles = dict(example.get("mcp", {}).get("servers", {}))
+toggles = {name: dict(entry)
+           for name, entry in example.get("mcp", {}).get("servers", {}).items()
+           if isinstance(entry, dict)}
 local_servers = local.get("mcp", {})
 if not isinstance(local_servers, dict):
     print("sync-mcp: WARNING: config.json \"mcp\" is not an object — ignored",
@@ -130,7 +136,11 @@ if not isinstance(local_servers, dict):
 elif "servers" in local_servers:
     if isinstance(local_servers["servers"], dict):
         for name, entry in local_servers["servers"].items():
-            toggles[name] = entry
+            if isinstance(entry, dict):
+                toggles.setdefault(name, {}).update(entry)
+            else:
+                print(f"sync-mcp: WARNING: config.json mcp.servers.{name} is not an object — ignored",
+                      file=sys.stderr)
     else:
         print("sync-mcp: WARNING: config.json mcp.servers is not an object — ignored",
               file=sys.stderr)
