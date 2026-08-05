@@ -1,0 +1,40 @@
+{
+  "name": "@colloid-swarm/research-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Repository-owned MCP server for reading the public web: article extraction and open-access resolution.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "main": "dist/server.js",
+  "bin": {
+    "research-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "sbom": "node scripts/generate-sbom.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings 0",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test && npm run check:bundle && npm run sbom"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@mozilla/readability": "0.6.0",
+    "linkedom": "0.18.13",
+    "unpdf": "1.8.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@typescript-eslint/eslint-plugin": "8.66.0",
+    "@typescript-eslint/parser": "8.66.0",
+    "esbuild": "0.28.1",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

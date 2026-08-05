@@ -91,10 +91,12 @@ elif policy == "sources-capture.sh":
     tool = src.get("tool_name") or ""
     _a = src.get("agent_type")
     out["agent"] = (_a if isinstance(_a, str) else "main").strip() or "main"
-    if tool == "WebSearch":
+    if tool == "WebSearch" or tool.endswith("__resolve_open_access"):
         out["kind"], out["value"] = "search", ti.get("query", "")
-    else:                              # WebFetch / browser_navigate carry a url
-        out["kind"], out["value"] = ("fetch" if tool == "WebFetch" else "browse"), ti.get("url", "")
+    elif tool == "WebFetch" or tool.endswith("__fetch_readable"):
+        out["kind"], out["value"] = "fetch", ti.get("url", "")
+    else:                              # browser_navigate carries a url
+        out["kind"], out["value"] = "browse", ti.get("url", "")
 elif policy == "post-edit-check.sh":
     files = []
     for key in ("file_path", "path", "notebook_path"):

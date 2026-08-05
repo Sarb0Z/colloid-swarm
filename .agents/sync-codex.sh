@@ -24,6 +24,9 @@ import tempfile
 repo, check = sys.argv[1], sys.argv[2] == "true"
 agents = os.path.join(repo, ".agents")
 codex = os.path.join(repo, ".codex")
+sys.path.insert(0, agents)
+from mcp_registry import resolve_registry
+import reader_config
 
 def load(path):
     try:
@@ -101,6 +104,11 @@ def agent_toml(name, description):
 example = load(os.path.join(agents, "config.json.example"))
 local = load(os.path.join(agents, "config.json"))
 registry = load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
+# The reader tier's launch config is a local path resolve_registry validates for
+# every entry, enabled or not. Generated here too, because this script runs
+# standalone on a fresh clone — where sync-mcp.sh has not written it yet.
+reader_config.write(agents)
+registry = resolve_registry(registry, repo, "sync-codex")
 toggles = {name: dict(value) for name, value in example.get("mcp", {}).get("servers", {}).items() if isinstance(value, dict)}
 local_servers = local.get("mcp", {}).get("servers", {})
 if isinstance(local_servers, dict):
@@ -144,6 +152,8 @@ for name in sorted(registry):
         config += f"command = {quoted(server['command'])}\n"
         if server.get("args"):
             config += "args = [" + ", ".join(quoted(value) for value in server["args"]) + "]\n"
+        if server.get("cwd"):
+            config += f"cwd = {quoted(server['cwd'])}\n"
         if server.get("env"):
             config += f"\n[mcp_servers.{quoted(name)}.env]\n"
             for key, value in sorted(server["env"].items()):

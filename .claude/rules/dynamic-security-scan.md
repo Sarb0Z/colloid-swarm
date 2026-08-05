@@ -1,0 +1,1 @@
+../../.agents/skills/dynamic-security-scan/AGENTS.md

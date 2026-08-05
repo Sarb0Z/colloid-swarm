@@ -20,8 +20,10 @@ fact what you didn't verify.*
 ## Inline, or delegate? Draw the line
 
 **Inline fast-path** — one `WebSearch`, read the top primary source with
-`WebFetch`, cite the URL. No subagent. Use it for a **single, well-known,
-low-stakes fact**:
+`WebFetch`, cite the URL. No subagent. When `WebFetch` returns navigation, a
+cookie wall or boilerplate instead of the text, re-read the same URL with
+`research-mcp`'s `fetch_readable` — it also reads PDFs, which `WebFetch` cannot.
+Use the fast path for a **single, well-known, low-stakes fact**:
 - "What's the current Node LTS?" · "Does `Array.prototype.at` exist in Node 18?"
 - "What's the latest stable Postgres major?"
 
@@ -71,8 +73,9 @@ its system prompt, and your prompt carries the genome stamp + question. The
 
 Dispatch `[genome stamp] + [.agents/personas/researcher.md] + [your research question]`.
 It climbs the escalation ladder (WebSearch → WebFetch primary sources →
-context7 for libs → playwright for hard pages), cross-checks load-bearing
-claims, and returns `CLAIMS / SOURCES / GAPS`. The genome stamp means it carries
+context7 for libs → research-mcp for articles, PDFs and open-access copies →
+playwright for hard pages), cross-checks load-bearing claims, and returns
+`CLAIMS / SOURCES / GAPS`. The genome stamp means it carries
 the membrane and the honesty clause — it returns what it found, not what it
 wishes it found.
 
@@ -95,7 +98,8 @@ The researcher's `SOURCES` are now **your** sources. When you write the answer:
 
 ## The evidence trail
 
-Every `WebSearch` / `WebFetch` / `browser_navigate` — yours and the
+Every `WebSearch` / `WebFetch` / `browser_navigate` / `fetch_readable` /
+`resolve_open_access` — yours and the
 researcher's — is logged to `.agents/.sources-ledger` (`ts · agent · kind ·
 value`) by the `sources-capture` hook. It's the operator's audit trail and a
 backstop for the URLs you actually read (`fetch`/`browse` rows are real URLs;

@@ -14,7 +14,18 @@
       "command": "npx",
       "args": [
         "-y",
-        "@playwright/mcp@latest"
+        "@playwright/mcp@0.0.78"
+      ],
+      "env": {}
+    },
+    "playwright-reader": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.78",
+        "--config",
+        "${REPO_ROOT}/.agents/.playwright-reader.json"
       ],
       "env": {}
     },
@@ -25,6 +36,24 @@
         "-y",
         "appium-mcp"
       ],
+      "env": {}
+    },
+    "security-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${REPO_ROOT}/.agents/mcp-servers/security-mcp/dist/server.js"
+      ],
+      "cwd": "${REPO_ROOT}/.agents/mcp-servers/security-mcp",
+      "env": {}
+    },
+    "research-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${REPO_ROOT}/.agents/mcp-servers/research-mcp/dist/server.js"
+      ],
+      "cwd": "${REPO_ROOT}/.agents/mcp-servers/research-mcp",
       "env": {}
     },
     "linear": {

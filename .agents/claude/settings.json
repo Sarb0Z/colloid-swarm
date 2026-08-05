@@ -34,7 +34,7 @@
         ]
       },
       {
-        "matcher": "WebSearch|WebFetch|mcp__playwright__browser_navigate",
+        "matcher": "WebSearch|WebFetch|mcp__playwright__browser_navigate|mcp__playwright-reader__browser_navigate|mcp__research-mcp__fetch_readable|mcp__research-mcp__resolve_open_access",
         "hooks": [
           {
             "type": "command",

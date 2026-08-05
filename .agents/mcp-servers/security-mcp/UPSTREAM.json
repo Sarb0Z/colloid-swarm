@@ -1,0 +1,55 @@
+{
+  "plugin": {
+    "id": "security-mcp@security-mcp",
+    "marketplace": "security-mcp",
+    "version": "0.10.0"
+  },
+  "upstream": {
+    "url": "https://github.com/MuhammadAjeelk/security-mcp.git",
+    "revision": "c571b1f0abf417be4c2ac412acf61d481720d2d1",
+    "manifestSha256": "c9b257d939fad6c367c1d40e42dabc082e9ab33265278f6d8345b0218deac9fd",
+    "packageSha256": "fd6797324ddd661dd3b3b7a25ae50ab1b35d4cb1320b9efbc53d21ad6822a2bc",
+    "selectedInputsSha256": "393c8b239c2a5422c42b46e395624ef98c00d693bd26a43a706c70e9f5b19013"
+  },
+  "fork": {
+    "selectedInputs": [
+      "LICENSE",
+      "src/core/prompt-engine/prompts/**",
+      "src/core/prompt-engine/prompt-registry.ts",
+      "src/core/prompt-engine/types.ts",
+      "src/core/prompt-engine/helpers.ts",
+      "src/core/prompt-engine/prompt-context.ts",
+      "templates/**",
+      "wordlists/**"
+    ],
+    "modifiedUpstreamFiles": [
+      "src/core/prompt-engine/prompt-context.ts",
+      "src/core/prompt-engine/types.ts",
+      "src/core/prompt-engine/prompts/access-control/bfla.prompt.ts",
+      "src/core/prompt-engine/prompts/access-control/bola.prompt.ts",
+      "src/core/prompt-engine/prompts/access-control/idor.prompt.ts",
+      "src/core/prompt-engine/prompts/access-control/privilege-escalation.prompt.ts",
+      "src/core/prompt-engine/prompts/authentication/auth-bypass.prompt.ts",
+      "src/core/prompt-engine/prompts/multi-tenant/tenant-isolation.prompt.ts",
+      "templates/cors-null-origin.yaml"
+    ],
+    "repositoryInputsSha256": "64930add364629634e7a464b44569af7e9f44057257d6b189f64b1c2060d95e3",
+    "digestMethod": "Sort file paths, hash each file with SHA-256, then hash the ordered checksum records with SHA-256. Repository inputs include src, templates, wordlists, and scripts.",
+    "omittedCapabilities": [
+      "plugin manifests, commands, and migrated command skills",
+      "HTTP MCP transport",
+      "run_prompt_loop and all server-side LLM clients",
+      "generate_report and all report persistence",
+      "dotenv loading and provider credentials",
+      "automatic account creation and state-changing probes",
+      "browser automation, queues, brute force, and optional providers",
+      "examples, reports, node_modules, and upstream Git metadata"
+    ]
+  },
+  "license": {
+    "spdx": "MIT",
+    "file": "LICENSE",
+    "sha256": "c6a73776da62bbf7b818782b8f92f3cc801fc5fd1072ca7592421695b0d07bc1"
+  },
+  "refresh": "Fetch the recorded upstream repository, verify the revision and digests, then review a three-way update. Do not overwrite this fork automatically."
+}

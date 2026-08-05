@@ -112,20 +112,23 @@ Claude-only. `.agents/genome.sh` itself is engine-neutral, so the orchestrator
 protocol works under Kimi; the guard is not wired there because Kimi's
 subagent/hook surface differs (see `.kimi/config.toml.example`).
 
-### `sources-capture.sh` — PostToolUse (`WebSearch|WebFetch|mcp__playwright__browser_navigate`)
+### `sources-capture.sh` — PostToolUse (web lookups; matcher below)
 The search scaffold's evidence trail. Observes web lookups — the main agent's
 *and* any researcher cell's, since subagents inherit hooks — and appends one row
 `ts · agent · kind · value` to `.agents/.sources-ledger` (`agent` from
 `agent_type`, so a researcher's rows are tagged apart from `main`). Always exits
 0; a trail is never a gate. The adapter maps `tool_name` → kind and pulls the
-source value (`WebSearch.query`, `WebFetch.url`, `browser_navigate.url`). The
+source value (`WebSearch.query`, `WebFetch.url`, `browser_navigate.url`,
+`fetch_readable.url`, `resolve_open_access.query`). The
 ledger is transient and gitignored; safe to delete.
 
-Matcher caveat: `WebSearch|WebFetch|mcp__playwright__browser_navigate` is an
-*exact* `|`-list (letters/digits/`_`/`|` only), so each name matches literally —
-including the one MCP tool. Switching to "all playwright tools"
-(`mcp__playwright__.*`) would flip the whole matcher into regex mode and change
-how `WebSearch|WebFetch` is read; keep it exact unless you mean to.
+Matcher caveat: the list names every logged tool literally. It now carries
+hyphens (`mcp__playwright-reader__browser_navigate`,
+`mcp__research-mcp__fetch_readable`), so it reads as a regex alternation rather
+than a plain `|`-list. A hyphen outside a character class is a literal, so each
+alternative still matches only its own tool. Do not add a metacharacter —
+`mcp__playwright__.*` would widen the whole matcher, not just its own branch.
+Add new web-reading tools here, or their lookups leave no trail.
 
 ### `research-prime.sh` — UserPromptSubmit (`--agent main`, Claude-only)
 The search scaffold's nudge — a *context* policy, not a gate (always exits 0).
@@ -307,7 +310,7 @@ and a report but no adversarial subagent. That is a deliberate cost of keeping
 the subagent spawn off routine work; drop `review_files`/`review_lines` if you
 want it back earlier.
 
-**Pairing mode (`hooks.learning_report`, opt-in, OFF by default).** When
+**Learning report (`hooks.learning_report`, opt-in, OFF by default).** When
 pair-coding with a junior who learns by reviewing, the diff branch adds one more
 pointer — `.agents/playbooks/learning-report.md` — asking the agent to pair each of the
 session's decisions (the *why*, tradeoffs, alternatives rejected) with the real
@@ -431,9 +434,16 @@ Not wired in Kimi: depends on transcript access. Current Kimi hook
 docs expose `stop_hook_active` but not a transcript path or last-
 message field, so a faithful port is not available yet.
 
-### `session-start.sh` — SessionStart (Claude only)
-A *context* policy, not a gate: always exits 0, never blocks. Surfaces
-deferred work so it isn't lost across sessions:
+### `session-start.sh` — SessionStart (Claude, Codex, and Kimi)
+A *context* policy, not a gate: always exits 0 and never blocks. When
+`hooks.learning_output_style` is on, it injects
+`.agents/playbooks/learning-output-style.md` on startup, resume, and
+compaction. The unique marker makes duplicate injection testable. The style
+explains meaningful choices and completes the task. At a genuine decision, it
+offers a small code contribution without blocking progress. It does not offer
+configuration, boilerplate, or obvious work.
+
+When `hooks.session_start` is on, it surfaces this operational state:
 
 - **Breadcrumbs** — every markdown `- ` bullet in `.agents/breadcrumbs.md`
   (deferred non-blocking *work* — a queue) is re-shown at session start. Silent
@@ -441,6 +451,8 @@ deferred work so it isn't lost across sessions:
   deferred *decisions*) is deliberately **not** surfaced here: it's a durable
   reference pulled just-in-time when code carrying a `debt: <id>` ref is touched,
   not an actionable queue — re-injecting it every session would be context rot.
+- **MCP state** — each registry MCP server that is off, with its description
+  and the commands that enable or disable it.
 - **Post-compaction nudge + Discovered Subprojects policy** — when `source`
   is `compact`, it emits a checkpoint reminder tailored to the trigger
   (recovered from the `.compaction-pending` marker `pre-compact.sh` left, and
@@ -450,11 +462,17 @@ deferred work so it isn't lost across sessions:
   of costing always-loaded context. The marker only carries the trigger
   word; `source=compact` is what fires the block.
 
-It emits a single JSON object on stdout carrying
+The learning switch does not control baseline seeding, breadcrumb display, MCP
+display, or compaction-marker consumption. The operational switch does not
+control the learning output style.
+
+The policy emits one JSON object on stdout carrying
 `hookSpecificOutput.additionalContext`. Plain stdout is **not** injected for
 `source=compact` (anthropics/claude-code#15174); the structured
 `additionalContext` field is injected regardless of source, so it is the
-robust channel. Not wired in Kimi (no `SessionStart`).
+robust channel. The Kimi adapter unwraps this object to plain context. It also
+maps Kimi `PostCompact` to `source=compact` so the same policy restores the
+learning and recovery context after compaction.
 
 ### `pre-compact.sh` — PreCompact (`--agent main`, Claude only)
 PreCompact fires right before compaction. It is control-only — its stdout is
@@ -480,10 +498,9 @@ When a new bad pattern shows up, add a rule. Keep scope per-file.
 
 ## Configuration
 
-All hooks respect `.agents/config.json` — they read it at startup and become
-no-ops when their toggle is `false`. Engine wiring (`settings.json`,
-`config.toml`) stays static; the config file is the single source of truth for
-what's active and how it behaves.
+Each hook behavior reads `.agents/config.json`. A behavior becomes a no-op when
+its toggle is `false`. Engine wiring (`settings.json`, `config.toml`) stays
+static. The config file is the single source of truth for active behavior.
 
 ### Hook toggles
 
@@ -497,10 +514,11 @@ what's active and how it behaves.
 | `hooks.post_edit_check.tombstone_check` | `post-edit-check.sh` | No tombstone-comment advisory (lint still runs) |
 | `hooks.session_wrap` | `session-wrap.sh` | No end-of-session wrap prompt |
 | `hooks.session_wrap.report_every_turn` | `session-wrap.sh` | *(default)* wrap fires only on tier escalation; `true` fires it every turn |
-| `hooks.learning_report` | `session-wrap.sh` (pairing mode) | No junior learning-report dispatch — **the default**; this toggle is opt-in |
+| `hooks.learning_report` | `session-wrap.sh` (learning report) | No junior learning-report dispatch — **the default**; this toggle is opt-in |
+| `hooks.learning_output_style` | `session-start.sh` | No live teaching context |
 | `hooks.stop_investigate` | `stop-investigate.sh` | No hedge/give-up blocking |
 | `hooks.stop_investigate.ratchet_check` | `stop-investigate.sh` | No ownership-disclaimer blocking (hedge check still runs) |
-| `hooks.session_start` | `session-start.sh` | No breadcrumbs / compaction nudge |
+| `hooks.session_start` | `session-start.sh` | No baseline seed, breadcrumbs, MCP display, compaction nudge, or marker consumption |
 | `hooks.pre_compact` | `pre-compact.sh` | No `.compaction-pending` marker |
 
 Missing or broken config = all enabled (backward compatible) — with one

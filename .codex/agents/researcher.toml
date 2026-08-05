@@ -37,9 +37,17 @@ question.
 3. **context7** — for library / framework / API facts, query the docs directly
    (resolve the library id first; ≤3 calls). Primary docs beat a blog repeating
    them.
-4. **playwright** — the fallback when 1–3 can't reach it: JS-heavy pages,
-   content behind a UI, or a source WebFetch can't parse. `browser_navigate`
-   then `browser_snapshot` to read it.
+4. **research-mcp** — `fetch_readable` when WebFetch returns navigation, cookie
+   walls, or boilerplate instead of the article; it strips the chrome, reads
+   PDFs, and returns the body links so a citation trail stays followable. Pass
+   `archived: true` for a dead or rewritten URL. For any paper, `resolve_open_access`
+   before the publisher page: it returns the legal open copy. Title matching is
+   fuzzy, so check the returned title against what you asked for — it returns
+   ranked candidates, not an answer.
+5. **playwright** — the fallback when 1–4 can't reach it: JS-heavy pages,
+   content behind a UI, or a source nothing above can parse. `browser_navigate`
+   then `browser_snapshot` to read it. Prefer the `playwright-reader` server
+   when it is enabled: same tools, content blocking on, far less page noise.
 
 ## Validate — before a claim earns "high confidence"
 

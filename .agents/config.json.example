@@ -20,9 +20,21 @@
         "enabled": true,
         "description": "browser automation for web E2E and UI verification (~24 tools)"
       },
+      "playwright-reader": {
+        "enabled": false,
+        "description": "reading tier — Chrome for Testing with content blocking, for research fetches (~24 tools; run .agents/fetch-extension.sh ublock-lite first)"
+      },
       "appium-mcp": {
         "enabled": true,
         "description": "mobile app automation — drive the app, inspect the UI, verify on device/simulator (~31 tools)"
+      },
+      "security-mcp": {
+        "enabled": false,
+        "description": "repository-owned authorized security scanning (3 tools)"
+      },
+      "research-mcp": {
+        "enabled": true,
+        "description": "repository-owned web reading — article/PDF extraction and open-access resolution (2 tools; set RESEARCH_MCP_CONTACT_EMAIL to enable Unpaywall)"
       },
       "linear": {
         "enabled": true,
@@ -83,6 +95,9 @@
       "ratchet_check": true
     },
     "learning_report": {
+      "enabled": false
+    },
+    "learning_output_style": {
       "enabled": true
     },
     "session_start": {
