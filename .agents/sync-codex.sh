@@ -136,14 +136,10 @@ for name in sorted(registry):
     config += "\n" + table + "\n"
     config += f"enabled = {str(enabled).lower()}\n"
 
-    # A disabled record carries no transport keys. The merge is per key, so a
-    # `url` landing on a lower layer's `command` — or the reverse — leaves one
-    # server holding both, and Codex then refuses to load the whole
-    # configuration rather than just that entry. `enabled = false` alone masks
-    # the lower record just as completely and cannot conflict with it.
-    if not enabled:
-        continue
-
+    # Every record carries its transport, disabled ones included: Codex
+    # validates the merged entry, and a record with no transport is invalid
+    # unless some lower layer happens to supply one. Nothing guarantees that.
+    # debt: codex-mcp-transport-collision
     if server_type == "stdio":
         config += f"command = {quoted(server['command'])}\n"
         if server.get("args"):

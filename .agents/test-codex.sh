@@ -43,15 +43,30 @@ actual = {name: server.get("enabled", True) for name, server in servers.items()}
 if actual != expected:
     raise SystemExit(f"expected generated MCP states {expected}, got {actual}")
 
-# A disabled record must carry nothing but the flag. Codex merges project over
-# user per key, so a `url` landing on a lower layer's `command` leaves one
-# server holding both and Codex refuses to load the whole configuration.
-carrying = {name: sorted(k for k in server if k != "enabled")
-            for name, server in servers.items()
-            if server.get("enabled") is False and len(server) > 1}
-if carrying:
-    raise SystemExit(f"disabled records must carry no transport keys: {carrying}")
 PY
+
+# Parsing is not loading. Codex rejects a record whose transport is missing or
+# contradicts a lower layer, and such a file is still valid TOML — only the
+# binary can say. The scratch home declares no servers, so this covers the case
+# where nothing underneath supplies a transport.
+if command -v codex >/dev/null 2>&1; then
+  # Physical path: mktemp hands back a symlinked one on macOS, and a trust key
+  # that does not match the cwd Codex resolves leaves the project untrusted,
+  # its config ignored, and this check silently inert.
+  loader="$(cd "$(mktemp -d)" && pwd -P)"
+  mkdir -p "$loader/home" "$loader/ws/.codex"
+  cp "$repo/.codex/config.toml" "$loader/ws/.codex/config.toml"
+  printf '[projects."%s/ws"]\ntrust_level = "trusted"\n' "$loader" > "$loader/home/config.toml"
+  git -C "$loader/ws" init -q
+  if ! ( cd "$loader/ws" && CODEX_HOME="$loader/home" codex mcp list ) \
+       >"$loader/out" 2>&1; then
+    echo "test-codex: Codex refuses to load the generated config:" >&2
+    sed 's/^/  /' "$loader/out" >&2
+    rm -rf "$loader"
+    exit 1
+  fi
+  rm -rf "$loader"
+fi
 
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT

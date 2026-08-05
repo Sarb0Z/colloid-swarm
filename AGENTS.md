@@ -30,9 +30,8 @@ Listed in priority order. Resolve conflicts top-down.
 2. **Plan.** For non-trivial work, use plan mode tool; outline the approach
    before touching code: affected modules, constraints, and the one or two
    options worth considering. Skip for trivial edits. Use the ask questions
-   tool when the current mode provides it. Otherwise, ask one focused question
-   directly. Use the question to clarify ambiguities or select between multiple
-   valid approaches.
+   tool where applicable, otherwise ask one focused question directly. Use the
+   question to clarify ambiguities or select between multiple valid approaches.
    Classify high-stakes changes (auth, data loss, money, prod config) up
    front, even when the plan is skipped; state, for each, the one claim
    step 5's review must independently reproduce. When unsure, classify
@@ -72,7 +71,7 @@ even a failed one.
 
 When you ask, make the decision cheap. Use one focused question that carries
 what you found, the options, and your recommendation with its trade-offs. Use
-the ask questions tool when the current mode provides it.
+the ask questions tool where applicable.
 
 ### Persist to completion
 Work until the task is end-to-end done. Iterate, test, and resolve follow-ups
