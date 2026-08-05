@@ -74,9 +74,9 @@ One file, `.agents/config.json`, controls the whole scaffold:
   `.claude/settings.json` or `.kimi/config.toml`.
 - **MCP toggles** — `mcp.servers.<name>.enabled` controls each compatible
   registry server in the generated output. The generated Codex config includes
-  a record for each compatible registry server that is off, carrying the
-  `enabled` flag alone. This record overrides the state of a same-name server
-  from a user or plugin config. Codex still loads unknown server names from those configs because
+  a record for each compatible registry server that is off, carrying its
+  transport as well as the flag. This record overrides the state of a same-name
+  server from a user or plugin config. Codex still loads unknown server names from those configs because
   project config is an overlay, not an allowlist. Set `codex_enabled` to
   `false` when another tool can use a server that Codex cannot represent
   safely. Progressive disclosure

@@ -3,3 +3,8 @@ inherit = "core"
 
 [shell_environment_policy.set]
 ENABLE_TOOL_SEARCH = "auto:5"
+
+# Ask the user directly instead of only inside Plan mode. Interactive
+# sessions only; `codex exec` refuses the tool.
+[tools]
+experimental_request_user_input = { enabled = true }

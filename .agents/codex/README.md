@@ -12,15 +12,24 @@ is off. This record blocks a same-name lower config entry. It cannot block an
 unknown server name. Use a managed MCP allowlist when the effective server set
 must contain only approved names.
 
-A disabled record carries the `enabled` flag and nothing else. The merge is per
-key, so a transport key in a disabled record lands on the lower layer's own
-transport key: a `url` over a `command` leaves one server holding both, and
-Codex then refuses to load the whole configuration rather than that one entry.
-The bare flag masks the lower record just as completely.
+Every record carries its transport, disabled ones included. Codex validates the
+merged entry, and a record holding only `enabled` is invalid unless some lower
+layer supplies a transport for that name — which nothing guarantees.
 
-The ask questions tool is mode-dependent. Use Plan mode when a task needs the
-tool. Start a new session after you change project MCP config because Codex
-loads MCP servers at session start.
+The merge is per key, so a record whose transport differs from a same-name
+lower-layer record leaves one server holding both a `command` and a `url`, and
+Codex then refuses to load the whole configuration rather than that one entry.
+This applies to enabled records too, so the generator cannot avoid it.
+`debt: codex-mcp-transport-collision`.
+
+`.agents/test-codex.sh` runs `codex mcp list` against the generated file in a
+scratch home that declares no servers. TOML that parses is not TOML that loads,
+and only the binary knows the difference.
+
+`[tools] experimental_request_user_input = { enabled = true }` gives the agent
+the `request_user_input` tool in every mode, not only Plan mode. It needs an
+interactive terminal; `codex exec` refuses it. Start a new session after you
+change project MCP config because Codex loads MCP servers at session start.
 
 Codex does not expose hosted web search through local tool hooks. The sync
 script therefore creates no source-capture hook. Record sources in the response
