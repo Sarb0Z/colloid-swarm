@@ -16,27 +16,29 @@ Every record carries its transport, disabled ones included. Codex validates the
 merged entry, and a record holding only `enabled` is invalid unless some lower
 layer supplies a transport for that name — which nothing guarantees.
 
-The merge is per key, so a record whose transport differs from a same-name
-lower-layer record leaves one server holding both a `command` and a `url`, and
-Codex then refuses to load the whole configuration rather than that one entry.
-This applies to enabled records too, so the generator cannot avoid it.
+Codex merges the TOML layers — user, project, and `-c` overrides — per key, so
+a record whose transport differs from a same-name record in another TOML layer
+leaves one server holding both a `command` and a `url`, and Codex then refuses
+to load the whole configuration rather than that one entry. This applies to
+enabled records too, so the generator cannot avoid it; `check-mcp-conflicts.py`
+reports the condition on every sync. A configured server replaces a same-name
+plugin catalog entry outright, so plugins cannot produce this.
 `debt: codex-mcp-transport-collision`.
 
 `.agents/test-codex.sh` runs `codex mcp list` against the generated file in a
 scratch home that declares no servers. TOML that parses is not TOML that loads,
 and only the binary knows the difference.
 
-`[tools] experimental_request_user_input = { enabled = true }` declares the
-`request_user_input` tool. The key is real — Codex type-checks the struct and
-rejects a bare boolean — but declaring the tool is not the same as being offered
-it outside Plan mode: `codex features list` reports
-`default_mode_request_user_input` as under development and off, and the binary
-carries a call-time refusal reading `request_user_input is unavailable in
-<mode>`. The tool also needs an interactive terminal, and `codex exec` refuses
-it. Confirm in a live session before relying on it.
+`[features] default_mode_request_user_input = true` lets the agent ask the user
+a question outside Plan mode. Registration of the `request_user_input` tool
+already defaults to on, so the `[tools]` entry adds nothing; this feature is
+what makes Default mode eligible. Without it Codex answers `request_user_input
+is unavailable in Default mode` and asks in prose instead. It is under
+development upstream. The tool needs an interactive client: `codex exec`
+refuses it, while an app-server client can answer it.
 
-Start a new session after you change project MCP config because Codex loads MCP
-servers at session start.
+Start a new thread after you change project MCP config: a thread reloads the
+configuration, so restarting the process is safe but not required.
 
 Codex does not expose hosted web search through local tool hooks. The sync
 script therefore creates no source-capture hook. Record sources in the response

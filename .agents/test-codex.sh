@@ -86,6 +86,17 @@ if missing:
         f"{missing}")
 if not names:
     raise SystemExit("generated config declares no MCP servers; nothing was proven")
+
+# One transport per record. Two makes Codex reject every configuration for the
+# workspace, and the merge is per key, so a second one can also arrive from the
+# user layer.
+with open(sys.argv[1], "rb") as config_file:
+    records = tomllib.load(config_file)["mcp_servers"]
+both = {name: sorted(k for k in body if k in ("command", "url"))
+        for name, body in records.items()
+        if "command" in body and "url" in body}
+if both:
+    raise SystemExit(f"records carrying two transports: {both}")
 PY
   rm -rf "$loader"
   trap - EXIT

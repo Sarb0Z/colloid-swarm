@@ -175,6 +175,9 @@ PY
 # Rewriting hooks.json invalidates the trust hash of every hook it changed, and
 # an untrusted hook does not run. Re-trust what was just deployed, so the sync
 # leaves the hooks armed rather than silently disarmed. --check must not write.
+# Read-only, no Codex process: safe on every run, including --check.
+"$repo/.agents/codex/check-mcp-conflicts.py" "$repo"
+
 if [[ "$check" != "true" && "$trust" == "true" ]]; then
   "$repo/.agents/codex/trust-hooks.py" "$repo"
 fi

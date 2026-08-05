@@ -4,8 +4,9 @@ inherit = "core"
 [shell_environment_policy.set]
 ENABLE_TOOL_SEARCH = "auto:5"
 
-# Declare the request_user_input tool. Availability outside Plan mode is
-# separately gated by the default_mode_request_user_input feature, and the
-# tool needs an interactive terminal. See .agents/codex/README.md.
-[tools]
-experimental_request_user_input = { enabled = true }
+# Let the agent ask the user a question outside Plan mode. Registration of the
+# tool already defaults to on; this feature is what makes Default mode eligible,
+# and without it Codex answers `request_user_input is unavailable in Default
+# mode` and falls back to asking in prose. Under development upstream.
+[features]
+default_mode_request_user_input = true
