@@ -21,7 +21,9 @@ npm ci --ignore-scripts
 npm run check
 ```
 
-`npm run build` creates `dist/server.js` and copies the tracked templates and wordlist below `dist/`. `npm run check:bundle` first verifies each current distribution file against `.build-manifest.json`. It then proves that the verified distribution matches a clean build. `npm run sbom` creates `sbom.cdx.json` from `package-lock.json` without a timestamp or random identifier.
+`dist/` is committed. The MCP client starts this server at session start, and no step in that path installs dependencies or builds first, so the tracked bundle must run from a clone with no install and no network. Commit `dist/` together with the source that produced it.
+
+`npm run build` creates `dist/server.js` and copies the tracked templates and wordlist below `dist/`. The bundled server reads its assets from `dist/`, so the copies must stay in the commit. `npm run check:bundle` first verifies each current distribution file against `.build-manifest.json`. It then proves that the verified distribution matches a clean build. `npm run sbom` creates `sbom.cdx.json` from `package-lock.json` without a timestamp or random identifier.
 
 The hard environment limits are:
 

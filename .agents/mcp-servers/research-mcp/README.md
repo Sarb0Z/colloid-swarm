@@ -61,9 +61,16 @@ contact address when one is configured.
 
 ```sh
 npm install
-npm run check      # typecheck, lint, test, build, deterministic bundle, SBOM
+npm run build      # after any change under src/
+npm run check      # typecheck, lint, test, deterministic bundle, SBOM
 ```
 
 `dist/server.js` is committed and self-contained: it runs from a clone with no
-install step. `npm run check:bundle` proves the committed bundle matches a clean
-rebuild, so the tracked artifact cannot drift from the source.
+install step. The MCP client starts this server at session start, and no step in
+that path installs dependencies or builds first, so the tracked bundle must run
+with no install and no network.
+
+`npm run check` does not build. `npm run check:bundle` proves the committed
+bundle matches a clean rebuild, so a stale `dist/` fails the check instead of
+being overwritten by it. Build first, then commit `dist/` with the source that
+produced it.
