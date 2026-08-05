@@ -49,23 +49,47 @@ PY
 # contradicts a lower layer, and such a file is still valid TOML — only the
 # binary can say. The scratch home declares no servers, so this covers the case
 # where nothing underneath supplies a transport.
+loader_checked=no
 if command -v codex >/dev/null 2>&1; then
   # Physical path: mktemp hands back a symlinked one on macOS, and a trust key
   # that does not match the cwd Codex resolves leaves the project untrusted,
   # its config ignored, and this check silently inert.
   loader="$(cd "$(mktemp -d)" && pwd -P)"
+  trap 'rm -rf "$loader"' EXIT
   mkdir -p "$loader/home" "$loader/ws/.codex"
   cp "$repo/.codex/config.toml" "$loader/ws/.codex/config.toml"
   printf '[projects."%s/ws"]\ntrust_level = "trusted"\n' "$loader" > "$loader/home/config.toml"
+  # Without a repository boundary Codex walks up and merges an ancestor
+  # .codex/config.toml, so the listing would not be the generated file alone.
   git -C "$loader/ws" init -q
   if ! ( cd "$loader/ws" && CODEX_HOME="$loader/home" codex mcp list ) \
        >"$loader/out" 2>&1; then
     echo "test-codex: Codex refuses to load the generated config:" >&2
     sed 's/^/  /' "$loader/out" >&2
-    rm -rf "$loader"
     exit 1
   fi
+  # Success also covers "Codex never read the project config" — an untrusted
+  # workspace lists nothing and still exits 0. Assert it read what we wrote,
+  # or the check reverts to green on a file Codex would refuse.
+  python3 - "$repo/.codex/config.toml" "$loader/out" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as config_file:
+    names = sorted(tomllib.load(config_file).get("mcp_servers", {}))
+with open(sys.argv[2], encoding="utf-8") as listing_file:
+    listing = listing_file.read()
+missing = [name for name in names if name not in listing]
+if missing:
+    raise SystemExit(
+        "Codex did not read the generated config — absent from `codex mcp list`: "
+        f"{missing}")
+if not names:
+    raise SystemExit("generated config declares no MCP servers; nothing was proven")
+PY
   rm -rf "$loader"
+  trap - EXIT
+  loader_checked=yes
 fi
 
 fixture="$(mktemp -d)"
@@ -185,6 +209,10 @@ fi
   printf '%s' "$stamped" | ../.codex/hooks/adapter.sh genome-guard.sh >/dev/null
 )
 
-echo "Codex integration checks passed."
+if [[ "$loader_checked" == "yes" ]]; then
+  echo "Codex integration checks passed."
+else
+  echo "Codex integration checks passed (loader check SKIPPED: codex not on PATH)."
+fi
 
 python3 "$repo/.agents/codex/test-trust-hooks.py"
