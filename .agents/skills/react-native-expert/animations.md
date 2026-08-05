@@ -2,11 +2,22 @@
 
 ## Contents
 - Animations
+- Derived values and reactions
+- Scroll position
 - React Compiler Compatibility
 
 ## Animations
 
 ### Reanimated Best Practices
+
+For visual-only motion, animate `transform` and `opacity`. These properties do
+not require sibling layout to reflow. A transform changes how a view is drawn;
+it does not move the layout space that its siblings use. Use a layout animation
+when the surrounding layout must also move.
+
+The examples in this section use `.value`. This API works with Reanimated 3 and
+with Reanimated 4 when React Compiler is not enabled. See the version-specific
+compiler rule below.
 
 ```tsx
 import Animated, {
@@ -14,7 +25,6 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  runOnJS,
 } from 'react-native-reanimated';
 
 // ✅ GOOD - Worklet-based animations
@@ -41,6 +51,59 @@ function AnimatedCard() {
     </Pressable>
   );
 }
+```
+
+## Derived values and reactions
+
+Use `useDerivedValue` for a read-only value that depends on shared values. Use
+`useAnimatedReaction` when the operation needs the previous value or must cause
+a side effect. The reaction `prepare` function and `react` function must not
+read and mutate the same shared value. That cycle can run without end.
+
+See the Reanimated documentation for
+[`useDerivedValue`](https://docs.swmansion.com/react-native-reanimated/docs/core/useDerivedValue/)
+and
+[`useAnimatedReaction`](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useAnimatedReaction/).
+
+```tsx
+import { scheduleOnRN } from 'react-native-worklets';
+import {
+  useAnimatedReaction,
+  useDerivedValue,
+  useSharedValue,
+} from 'react-native-reanimated';
+
+const progress = useSharedValue(0);
+const width = useDerivedValue(() => progress.value * MAX_WIDTH);
+
+useAnimatedReaction(
+  () => progress.value >= 1,
+  (complete, wasComplete) => {
+    if (complete && !wasComplete) {
+      scheduleOnRN(onComplete);
+    }
+  },
+);
+```
+
+## Scroll position
+
+Do not put high-frequency scroll position in React state. Use a shared value
+when an animation consumes the position. Use a ref when code only needs to
+observe the latest position without a render.
+
+```tsx
+const scrollY = useSharedValue(0);
+const handler = useAnimatedScrollHandler({
+  onScroll: (event) => {
+    scrollY.value = event.contentOffset.y;
+  },
+});
+
+const lastObservedY = useRef(0);
+const observeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  lastObservedY.current = event.nativeEvent.contentOffset.y;
+};
 ```
 
 ### Gesture Handler
@@ -82,6 +145,9 @@ thread as worklets — no JS-thread round-trip, so the feedback stays smooth und
 load. Store the press **state** (0/1) as the shared value and derive the visual
 via `interpolate`.
 
+The good example below assumes Reanimated 4 with React Compiler. Use `.value`
+for the same shared-value operations in Reanimated 3 or without React Compiler.
+
 ```tsx
 // ❌ BAD - press animation bounces through the JS thread
 <Pressable
@@ -97,8 +163,9 @@ via `interpolate`.
 // ✅ GOOD - Gesture.Tap on the UI thread
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withTiming, interpolate, runOnJS,
+  useSharedValue, useAnimatedStyle, withTiming, interpolate,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 function AnimatedButton({ onPress }: { onPress: () => void }) {
   const pressed = useSharedValue(0); // 0 = up, 1 = down
@@ -106,7 +173,7 @@ function AnimatedButton({ onPress }: { onPress: () => void }) {
   const tap = Gesture.Tap()
     .onBegin(() => pressed.set(withTiming(1)))
     .onFinalize(() => pressed.set(withTiming(0)))
-    .onEnd(() => runOnJS(onPress)());
+    .onEnd(() => scheduleOnRN(onPress));
 
   const animatedStyle = useAnimatedStyle(() => ({
     // `pressed` is already animated via withTiming in the gesture callbacks;
@@ -124,6 +191,11 @@ function AnimatedButton({ onPress }: { onPress: () => void }) {
   );
 }
 ```
+
+For Reanimated 3, import `runOnJS` from `react-native-reanimated` and call
+`runOnJS(onPress)()` instead. Reanimated 4 replaces that API with
+[`scheduleOnRN`](https://docs.swmansion.com/react-native-worklets/docs/threading/scheduleOnRN/)
+from `react-native-worklets`.
 
 ---
 
@@ -164,17 +236,23 @@ function SaveButton({ onSave }) {
 
 ### Reanimated shared values: use `.get()` / `.set()`, not `.value`
 
-With React Compiler on, read and write shared values through `.get()` and
-`.set()`. The compiler can't track `.value` property access, so `.value` opts the
-component out of compilation.
+Use `.get()` and `.set()` only when the project uses Reanimated 4 with React
+Compiler. Reanimated 4 requires the New Architecture and the
+`react-native-worklets` package. Keep `.value` in Reanimated 3 or in a project
+that does not use React Compiler. Check the Reanimated
+[migration guide](https://docs.swmansion.com/react-native-reanimated/docs/guides/migration-from-3.x/),
+[compatibility table](https://docs.swmansion.com/react-native-reanimated/docs/guides/compatibility/),
+and [`useSharedValue`
+API](https://docs.swmansion.com/react-native-reanimated/docs/core/useSharedValue/)
+before you change this access pattern.
 
 ```tsx
-// ❌ BAD - .value opts out of React Compiler
+// ❌ BAD - property access is not compatible with React Compiler
 const count = useSharedValue(0);
 const increment = () => { count.value = count.value + 1; };
 // title={`Count: ${count.value}`}
 
-// ✅ GOOD - explicit methods stay compiler-compatible
+// ✅ GOOD - Reanimated 4 with React Compiler
 const count = useSharedValue(0);
 const increment = () => { count.set(count.get() + 1); };
 // title={`Count: ${count.get()}`}

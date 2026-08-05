@@ -52,3 +52,19 @@ function CustomHeader() {
   );
 }
 ```
+
+On iOS, a scroll view below a native navigation bar may use
+`contentInsetAdjustmentBehavior="automatic"` so UIKit adjusts its insets. Use
+an explicit `contentInset` only when the iOS layout needs an additional custom
+offset. Do not apply these iOS inset rules as a replacement for cross-platform
+safe-area handling.
+
+```tsx
+// Screen.ios.tsx
+<ScrollView
+  contentInsetAdjustmentBehavior="automatic"
+  contentInset={{ bottom: extraIosBottomInset }}
+>
+  <Content />
+</ScrollView>
+```
