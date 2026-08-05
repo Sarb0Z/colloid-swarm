@@ -1,15 +1,12 @@
 ---
 name: security-audit
 description: >
-  Comprehensive adversarial security review of a full-stack codebase. Use this skill whenever 
-  the user wants to audit, test, or review the security of an application — frontend, backend, 
-  database, or all layers. Triggers include: "security review", "security audit", "pentest", 
-  "find vulnerabilities", "check for issues", "adversarial review", "look for bugs", 
-  "hardened?", "is this secure", or any request to systematically check authentication, 
-  authorization, rate limiting, input validation, role-based access, session handling, 
-  or API security. Also trigger when the user pastes code and asks if it's safe, or when 
-  they describe a feature and ask what could go wrong. Even if they just say "review my app", 
-  "check my codebase", or "find problems" — use this skill.
+  Comprehensive source-only adversarial security review of a full-stack codebase. Use this skill
+  to inspect application code, configuration, and dependencies for authentication, authorization,
+  rate limiting, input validation, role-based access, session handling, or API risks. It triggers
+  for "security review", "security audit", "check my codebase", "find vulnerabilities", or a
+  request to assess pasted code. It does not contact a live target; use dynamic-security-scan for
+  an explicitly authorized localhost or staging scan.
 ---
 
 # Security Audit Skill

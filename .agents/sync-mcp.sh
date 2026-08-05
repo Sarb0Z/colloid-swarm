@@ -93,6 +93,9 @@ import json, os, re, sys, tempfile
 
 repo = sys.argv[1]
 agents = os.path.join(repo, ".agents")
+sys.path.insert(0, agents)
+from mcp_registry import resolve_registry
+import reader_config
 
 def load_json(path, default=None):
     """Missing file -> default. Corrupt file -> default + loud warning."""
@@ -149,6 +152,18 @@ registry = load_json(os.path.join(agents, "mcp.json"), {}).get("mcpServers", {})
 if not registry:
     print("sync-mcp: .agents/mcp.json missing or empty — nothing to do", file=sys.stderr)
     sys.exit(0)
+
+# --- Reader browser tier: the launch config its registry entry points at ------
+# Shared with sync-codex.sh, which resolves the same registry on its own.
+extensions = reader_config.write(agents, log=print)
+if toggles.get("playwright-reader", {}).get("enabled") is True and not extensions:
+    print("sync-mcp: playwright-reader is enabled but no extension is installed.\n"
+          "          Install one:  .agents/fetch-extension.sh ublock-lite\n"
+          "          Or turn it off: .agents/sync-mcp.sh disable playwright-reader",
+          file=sys.stderr)
+    sys.exit(1)
+
+registry = resolve_registry(registry, repo, "sync-mcp")
 enabled = {name: srv for name, srv in registry.items()
            if toggles.get(name, {}).get("enabled") is True}
 

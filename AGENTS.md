@@ -96,6 +96,12 @@ decorative. Render and inspect the actual output before presenting it —
 fix collisions, clipping, and readability first; when the user supplies
 a reference, match its quality before showing yours.
 
+### Browser surface
+Playwright MCP is the only browser surface. Use it for every browser task —
+a local dev server, a static file, or a public page; layout inspection,
+screenshots, responsive checks, interaction tests, and any page `WebFetch`
+cannot parse.
+
 ### No backwards compatibility 
 Remove stubs and dead code completely. Don't preserve backwards compatibility
 for its own sake—if something is unused or being replaced, delete it outright.

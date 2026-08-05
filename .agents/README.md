@@ -64,14 +64,19 @@ registry, or MCP toggles. The script uses symlinks where Codex accepts the
 canonical format and generates the remaining Codex formats. It then re-trusts
 the hooks, because Codex stops running a hook whose recorded hash differs from
 the deployed file and the sync rewrites that file. Run `.agents/test-codex.sh`
-to verify the generated layer.
+to verify the generated layer. Run `bash .agents/test-session-start.sh` to
+verify the shared SessionStart policy.
 
 ## Configuration
 
 One file, `.agents/config.json`, controls the whole scaffold:
 
-- **Hook toggles** — enable/disable any of the 9 policies without touching
+- **Hook toggles** — enable or disable each hook behavior without touching
   `.claude/settings.json` or `.kimi/config.toml`.
+- **Learning output style** — `hooks.learning_output_style.enabled` controls
+  concise teaching context on SessionStart. It is on by default and is
+  independent of `hooks.session_start`, which controls operational recovery
+  context. `hooks.learning_report` controls the separate post-hoc report.
 - **MCP toggles** — `mcp.servers.<name>.enabled` controls each compatible
   registry server in the generated output. The generated Codex config includes
   a record for each compatible registry server that is off, carrying its
@@ -83,8 +88,10 @@ One file, `.agents/config.json`, controls the whole scaffold:
   carries the schema cost (Claude
   `ENABLE_TOOL_SEARCH=auto:5`, Kimi `tool-select` — see
   `.kimi/config.toml.example`), so unkeyed servers default ON: their tools
-  defer until searched. Default-off is reserved for keyed servers
-  (greptile, exa) that cannot connect without credentials. The session-start
+  defer until searched. Default-off is for servers that cannot work as shipped:
+  keyed ones (greptile, exa) with no credentials, `security-mcp` which needs an
+  authorized target, and `playwright-reader` which needs an operator-installed
+  extension (`.agents/fetch-extension.sh ublock-lite`). The session-start
   hook advertises whatever is off (name + description), and
   `.agents/sync-mcp.sh enable <name>` / `disable <name>` flips a toggle
   (writing a minimal override into `config.json`) and regenerates. MCP servers
@@ -96,11 +103,11 @@ One file, `.agents/config.json`, controls the whole scaffold:
 - **Swarm behavior** — `swarm.genome_stamping`, `swarm.exempt_subagent_types`,
   `swarm.default_register`.
 
-`config.json.example` is the committed template — every knob present and on.
-The real `config.json` is **gitignored and per-repo**: copy the example, tune it
-to this repo, and keep the tuning local (no fleet-wide merge conflicts). Missing
-config = all defaults enabled, matching the example; a broken config is never
-fatal — hooks fail open.
+`config.json.example` is the committed template. It contains each knob. The
+real `config.json` is **gitignored and per-repo**: copy the example, tune it to
+this repo, and keep the tuning local (no fleet-wide merge conflicts). Missing
+or malformed config enables each default-on behavior. It keeps the opt-in
+learning report off. A config error is never fatal.
 
 ```sh
 cp .agents/config.json.example .agents/config.json   # then tune

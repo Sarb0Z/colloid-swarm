@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Engine-agnostic policy: surface deferred work, and re-state the Discovered
-# Subprojects policy when a session resumes on compacted context.
+# Engine-agnostic policy: inject the learning output style, surface deferred
+# work, and re-state the Discovered Subprojects policy after compaction.
 #
 # Input  (stdin JSON): {"project_dir": "...", "source": "..."}
 # Output (STDOUT): a single JSON object carrying
@@ -10,6 +10,7 @@
 #   one. Silent (exit 0, no output) when there is nothing to surface. A
 #   context policy, never a gate (no exit 2).
 #
+#   - Learning output style instructions on each session start.
 #   - Unaddressed .agents/breadcrumbs.md items (markdown "- " bullets).
 #   - Registry MCP servers that are toggled off (name + description), with the
 #     sync-mcp.sh enable/disable incantation — the model learns they exist and
@@ -24,16 +25,26 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cfg_path="$repo/.agents/config.json"
-enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
+switches="$(CFG_PATH="$cfg_path" python3 <<'PY'
 import json, os
 cfg = {}
 try:
     with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
 except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("session_start", {}).get("enabled", True) else "no")
+if not isinstance(cfg, dict):
+    cfg = {}
+hooks = cfg.get("hooks", {})
+if not isinstance(hooks, dict):
+    hooks = {}
+for key in ("session_start", "learning_output_style"):
+    entry = hooks.get(key, {})
+    enabled = entry.get("enabled", True) if isinstance(entry, dict) else True
+    print("yes" if enabled is not False else "no")
 PY
 )"
-[[ "$enabled" == "no" ]] && exit 0
+session_start_enabled="$(printf '%s\n' "$switches" | sed -n '1p')"
+learning_enabled="$(printf '%s\n' "$switches" | sed -n '2p')"
+[[ "$session_start_enabled" == "no" && "$learning_enabled" == "no" ]] && exit 0
 
 input="$(cat)"
 
@@ -66,7 +77,7 @@ transcript="$(printf '%s\n' "$parsed" | sed -n '4p')"
 # The file format is owned by .agents/hooks/policy/session-wrap.sh — read the
 # state-file schema in its header before touching these five lines.
 ident="${session_id:-$transcript}"
-if [[ -n "$ident" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if [[ "$session_start_enabled" == "yes" && -n "$ident" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   seed="$proj/.agents/.wrap-state-$(printf '%s' "$ident" | cksum | tr -d ' ')"
   if [[ ! -e "$seed" || "$start_source" == "resume" ]]; then
     head_sha="$(git -C "$proj" rev-parse -q --verify HEAD 2>/dev/null || true)"
@@ -79,17 +90,22 @@ fi
 
 items=""
 crumbs="$proj/.agents/breadcrumbs.md"
-[[ -f "$crumbs" ]] && items="$(grep -E '^[[:space:]]*-[[:space:]]' "$crumbs" 2>/dev/null || true)"
+if [[ "$session_start_enabled" == "yes" && -f "$crumbs" ]]; then
+  items="$(grep -E '^[[:space:]]*-[[:space:]]' "$crumbs" 2>/dev/null || true)"
+fi
 
 # Registry servers that are toggled off: surface them so the model knows they
 # exist and can switch them on mid-task. Toggle merge mirrors sync-mcp.sh
 # (example base, local per-server override).
-mcp_off="$(PROJ="$proj" python3 <<'PY'
+mcp_off=""
+if [[ "$session_start_enabled" == "yes" ]]; then
+  mcp_off="$(PROJ="$proj" python3 <<'PY'
 import json, os
 agents = os.path.join(os.environ["PROJ"], ".agents")
 def load(p):
     try:
-        with open(p, encoding="utf-8") as f: return json.load(f)
+        with open(p, encoding="utf-8") as f: value = json.load(f)
+        return value if isinstance(value, dict) else {}
     except Exception: return {}
 registry = load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
 example = load(os.path.join(agents, "config.json.example"))
@@ -112,27 +128,41 @@ for name in sorted(registry):
 print("\n".join(lines))
 PY
 )"
+fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as
 # cleanup, but only trust its trigger word on a genuine post-compaction start
 # — a marker left by an aborted compaction must not fire the policy on an
 # ordinary startup/resume.
 is_compact="false"
-[[ "$start_source" == "compact" ]] && is_compact="true"
+[[ "$session_start_enabled" == "yes" && "$start_source" == "compact" ]] && is_compact="true"
 
 marker="$proj/.agents/.compaction-pending"
 trigger="auto"
-if [[ -f "$marker" ]]; then
+if [[ "$session_start_enabled" == "yes" && -f "$marker" ]]; then
   m="$(head -n1 "$marker" 2>/dev/null || true)"
   rm -f "$marker"
   [[ "$m" =~ ^(auto|manual)$ ]] && trigger="$m"
 fi
 
+# Load the teaching contract from one canonical file. A missing playbook must
+# not block session startup.
+learning_body=""
+learning_playbook="$repo/.agents/playbooks/learning-output-style.md"
+if [[ "$learning_enabled" == "yes" && -f "$learning_playbook" ]]; then
+  learning_body="$(cat "$learning_playbook")"
+fi
+
 # Nothing to surface.
-[[ -z "$items" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
+[[ -z "$learning_body" && -z "$items" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
 
 body="$(
+  if [[ -n "$learning_body" ]]; then
+    printf '%s\n' "$learning_body"
+  fi
+
   if [[ "$is_compact" == "true" ]]; then
+    [[ -n "$learning_body" ]] && echo
     cat <<EOF
 Context was just compacted (trigger: $trigger). If you were mid-pivot on a
 discovered subproject, checkpoint the current unit now — update the todo list,
@@ -168,7 +198,7 @@ EOF
   fi
 
   if [[ -n "$items" ]]; then
-    [[ "$is_compact" == "true" ]] && echo
+    [[ -n "$learning_body" || "$is_compact" == "true" ]] && echo
     count="$(printf '%s\n' "$items" | wc -l | tr -d ' ')"
     echo "Unaddressed breadcrumbs in .agents/breadcrumbs.md (deferred non-blocking work — act on each, or delete the line):"
     if (( count > 10 )); then
@@ -180,7 +210,7 @@ EOF
   fi
 
   if [[ -n "$mcp_off" ]]; then
-    [[ "$is_compact" == "true" || -n "$items" ]] && echo
+    [[ -n "$learning_body" || "$is_compact" == "true" || -n "$items" ]] && echo
     echo "Registry MCP servers currently OFF (not connected; the description says why):"
     printf '%s\n' "$mcp_off"
     echo 'If the task needs one: run `.agents/sync-mcp.sh enable <name>`, then ask the user to restart the session (MCP servers connect at startup). Turn it back off with `.agents/sync-mcp.sh disable <name>`.'

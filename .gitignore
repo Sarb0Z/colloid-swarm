@@ -24,8 +24,18 @@ __pycache__/
 /.kimi-code/mcp.json
 /.codex/config.toml
 
+# Reader browser tier. The launch config carries absolute paths, so it is
+# machine-local; the extension tree is operator-supplied payload the repository
+# wires up but never vendors (uBO Lite is GPL-3.0).
+.agents/.playwright-reader.json
+.agents/browser-extensions/
+
 # Local, per-repo tuned config — copy from config.json.example and tune
 .agents/config.json
+
+# Playwright MCP session output — page snapshots and console logs written
+# per browser run.
+/.playwright-mcp/
 
 # per-workspace scratch typecheck cache written by post-edit-check.sh
 **/.tsbuildinfo-claude

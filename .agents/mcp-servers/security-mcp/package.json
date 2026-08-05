@@ -1,0 +1,38 @@
+{
+  "name": "@colloid-swarm/security-mcp",
+  "version": "0.10.0-colloid.1",
+  "private": true,
+  "license": "MIT",
+  "description": "Repository-owned MCP server for bounded security checks against authorized targets.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "main": "dist/server.js",
+  "bin": {
+    "security-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "sbom": "node scripts/generate-sbom.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings 0",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle && npm run sbom"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "js-yaml": "5.2.3",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@typescript-eslint/eslint-plugin": "8.66.0",
+    "@typescript-eslint/parser": "8.66.0",
+    "esbuild": "0.28.1",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

@@ -65,6 +65,13 @@ Discovery is gated on the project itself being trusted, so the script writes
 the `[projects]` entry first. That is what makes a fresh clone on a new machine
 work without a manual approval round.
 
+The same path is why `sync-codex.sh` generates the reader tier's launch config
+itself, through `.agents/reader_config.py` shared with `sync-mcp.sh`. This script
+runs standalone, and `resolve_registry` validates the local paths of *every*
+registry entry — enabled or not — before anything is written. A launch config
+that only `sync-mcp.sh` produced would be missing on a fresh clone, and the
+failure would take down the whole Codex layer, not just the reader.
+
 It refuses to write a config that does not parse, keeps any other keys already
 in a hook's block, and reports rather than swallows a Codex warning. It sets
 `enabled = true`, so a hook you turned off by hand comes back on at the next
