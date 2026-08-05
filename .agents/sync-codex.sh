@@ -80,6 +80,10 @@ def contract_body(name):
             heading_seen = True
         if not heading_seen and (line.startswith("> ") or line.strip() == ">"):
             continue
+        # export-scaffold.py's region markers are source annotations, not
+        # content; the agent reads this body and should never see them.
+        if line.strip() in ("<!-- colloid-only -->", "<!-- /colloid-only -->"):
+            continue
         body.append(line)
     return "".join(body).strip()
 

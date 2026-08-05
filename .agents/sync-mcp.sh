@@ -218,8 +218,13 @@ for name, srv in registry.items():
         entry["enabled"] = False
         kimi_servers[name] = entry
 
-write_json(os.path.join(repo, ".kimi-code", "mcp.json"),
-           {"mcpServers": kimi_servers}, mode=0o600)
+# Kimi's project file only where Kimi is wired: .kimi/ is the engine's hook and
+# config layer, .kimi-code/ its native project scope. Writing it into a repo
+# with neither engine scaffolds a tool nobody uses and leaves an unignored,
+# key-expanded file behind.
+if os.path.isdir(os.path.join(repo, ".kimi")) or os.path.isdir(os.path.join(repo, ".kimi-code")):
+    write_json(os.path.join(repo, ".kimi-code", "mcp.json"),
+               {"mcpServers": kimi_servers}, mode=0o600)
 
 # --- Claude auto-approval: union-merge enabledMcpjsonServers -----------------
 # Entries for servers outside our registry are the operator's own — keep them.
@@ -242,8 +247,11 @@ if os.path.isdir(claude_dir):
 # Regenerated copy (re-serialized, not byte-identical): single source of
 # truth, deletions propagate. Satellites add servers to their own
 # .agents/lsp.json, never to the generated file.
+# Only where Copilot already has a home: creating .github/ for this one file
+# scaffolds a tool the repository never asked for, and the directory then reads
+# as a Copilot setup that nothing else backs.
 lsp = load_json(os.path.join(agents, "lsp.json"))
-if lsp:
+if lsp and os.path.isdir(os.path.join(repo, ".github")):
     write_json(os.path.join(repo, ".github", "lsp.json"), lsp)
 PY
 

@@ -172,6 +172,7 @@ if json.loads(os.environ["ACTUAL"]) != json.loads(os.environ["EXPECTED"]):
 PY
 }
 
+# colloid-only
 stamp="⊰ COLLOID GENOME · THE test"
 missing='{"cwd":"'"$repo"'","tool_input":{"message":"review this","agent_type":"worker"}}'
 stamped='{"cwd":"'"$repo"'","tool_input":{"message":"'"$stamp"'\nreview this","agent_type":"worker"}}'
@@ -188,6 +189,7 @@ for payload in "$missing" "$stamped" "$duplicate" "$exempt"; do
     *) [[ $rc -eq 0 ]] ;;
   esac
 done
+# /colloid-only
 
 assert_json \
   '{"cwd":"/repo","tool_input":{"command":"*** Add File: plain.py\n*** Update File: \"dir/file name.ts\"\n*** Delete File: old.py\n*** Move to: moved.py"}}' \
@@ -215,9 +217,11 @@ if printf '%s' '{"last_assistant_message":"The lint errors are pre-existing.","s
   echo "test-codex: stop-investigate must ratchet an unfiled defect" >&2
   exit 1
 fi
+# The adapter resolves the repository from its own path, not from cwd.
 (
   cd "$repo/.agents"
-  printf '%s' "$stamped" | ../.codex/hooks/adapter.sh genome-guard.sh >/dev/null
+  printf '%s' '{"last_assistant_message":"Implemented and verified the change.","stop_hook_active":false}' \
+    | ../.codex/hooks/adapter.sh stop-investigate.sh >/dev/null
 )
 
 if [[ "$loader_checked" == "yes" ]]; then

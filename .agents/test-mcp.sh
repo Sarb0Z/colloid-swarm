@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
-# Verify repository-root expansion and native security-mcp generation.
+# Verify repository-root expansion and native repository-owned server generation.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The subject is repository-owned server handling, not one named server. A
+# repository may carry only research-mcp, so drive whichever are installed and
+# let the single-server cases use the first.
+owned=()
+for candidate in research-mcp security-mcp; do
+  if [[ -d "$repo/.agents/mcp-servers/$candidate" ]]; then owned+=("$candidate"); fi
+done
+if [[ ${#owned[@]} -eq 0 ]]; then
+  echo "test-mcp: no repository-owned MCP server is installed" >&2
+  exit 1
+fi
+primary="${owned[0]}"
 # The fixture path holds a space on purpose: quoting regressions in the sync
 # scripts have to fail here rather than on someone's machine.
 make_fixture() {
@@ -19,8 +32,10 @@ make_fixture() {
   rm -rf "$fixture/.agents/browser-extensions" \
          "$fixture/.agents/.playwright-reader.json" \
          "$fixture/.agents/config.json"
-  rm -f "$fixture/.agents/".genome-ledger "$fixture/.agents/".mutagen-ledger \
-        "$fixture/.agents/".sources-ledger "$fixture/.agents/".compaction-pending
+  rm -f "$fixture/.agents/".sources-ledger "$fixture/.agents/".compaction-pending
+  # colloid-only
+  rm -f "$fixture/.agents/".genome-ledger "$fixture/.agents/".mutagen-ledger
+  # /colloid-only
   rm -f "$fixture/.agents/".wrap-state-* 2>/dev/null || true
   # A synthetic MV3 extension stands in for the operator's install, so the
   # reader tier is exercised on every machine rather than only where uBO Lite
@@ -28,31 +43,34 @@ make_fixture() {
   mkdir -p "$fixture/.agents/browser-extensions/fixture-extension"
   printf '%s\n' '{"manifest_version":3,"name":"fixture","version":"1"}' \
     > "$fixture/.agents/browser-extensions/fixture-extension/manifest.json"
+  # sync-mcp writes Kimi's project file only where the engine is wired. The
+  # subject here is the generator, so the fixture wires it; the gate's
+  # off-branch gets its own case below.
+  mkdir -p "$fixture/.kimi/hooks"
   printf '%s\n' "$fixture"
 }
 
 fixture="$(make_fixture)"
 trap 'rm -rf "$fixture"' EXIT
-python3 - "$fixture/.agents/config.json" <<'PY'
+python3 - "$fixture/.agents/config.json" "${owned[@]}" <<'PY'
 import json
 import sys
 
+servers = {name: {"enabled": True} for name in sys.argv[2:]}
+servers["playwright-reader"] = {"enabled": True}
 with open(sys.argv[1], "w", encoding="utf-8") as output:
-    json.dump({"mcp": {"servers": {
-        "security-mcp": {"enabled": True},
-        "research-mcp": {"enabled": True},
-        "playwright-reader": {"enabled": True},
-    }}}, output)
+    json.dump({"mcp": {"servers": servers}}, output)
 PY
 "$fixture/.agents/sync-mcp.sh" >/dev/null
 
-python3 - "$fixture" <<'PY'
+python3 - "$fixture" "${owned[@]}" <<'PY'
 import json
 import sys
 import tomllib
 from pathlib import Path
 
 root = Path(sys.argv[1])
+owned = sys.argv[2:]
 claude = json.loads((root / ".mcp.json").read_text())["mcpServers"]
 kimi = json.loads((root / ".kimi-code/mcp.json").read_text())["mcpServers"]
 with (root / ".codex/config.toml").open("rb") as config_file:
@@ -61,7 +79,7 @@ hosts = (("Claude", claude), ("Kimi", kimi), ("Codex", codex))
 
 # Every repository-owned server resolves to the same node/dist/cwd triple on
 # all three hosts, with no token left unexpanded.
-for name in ("security-mcp", "research-mcp"):
+for name in owned:
     executable = str(root / f".agents/mcp-servers/{name}/dist/server.js")
     cwd = str(root / f".agents/mcp-servers/{name}")
     for host, servers in hosts:
@@ -100,39 +118,39 @@ if "$fixture/.agents/sync-mcp.sh" >/dev/null 2>&1; then
   echo "test-mcp: enabled playwright-reader with no extension must fail closed" >&2
   exit 1
 fi
-python3 - "$fixture/.agents/config.json" <<'PY'
+python3 - "$fixture/.agents/config.json" "$primary" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], "w", encoding="utf-8") as output:
-    json.dump({"mcp": {"servers": {"security-mcp": {"enabled": True}}}}, output)
+    json.dump({"mcp": {"servers": {sys.argv[2]: {"enabled": True}}}}, output)
 PY
 "$fixture/.agents/sync-mcp.sh" >/dev/null
 
-python3 - "$fixture/.agents/config.json" <<'PY'
+python3 - "$fixture/.agents/config.json" "$primary" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], "w", encoding="utf-8") as output:
-    json.dump({"mcp": {"servers": {"security-mcp": {"enabled": False}}}}, output)
+    json.dump({"mcp": {"servers": {sys.argv[2]: {"enabled": False}}}}, output)
 PY
 "$fixture/.agents/sync-mcp.sh" >/dev/null
-python3 - "$fixture" <<'PY'
+python3 - "$fixture" "$primary" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-root = Path(sys.argv[1])
-kimi = json.loads((root / ".kimi-code/mcp.json").read_text())["mcpServers"]["security-mcp"]
+root, name = Path(sys.argv[1]), sys.argv[2]
+kimi = json.loads((root / ".kimi-code/mcp.json").read_text())["mcpServers"][name]
 claude = json.loads((root / ".mcp.json").read_text())["mcpServers"]
-if "security-mcp" in claude:
-    raise SystemExit("disabled security-mcp must be absent from Claude output")
+if name in claude:
+    raise SystemExit(f"disabled {name} must be absent from Claude output")
 if kimi.get("enabled") is not False or not kimi.get("command") or not kimi.get("args") or not kimi.get("cwd"):
-    raise SystemExit("disabled security-mcp must remain a structurally valid Kimi record")
+    raise SystemExit(f"disabled {name} must remain a structurally valid Kimi record")
 PY
 
-mv "$fixture/.agents/mcp-servers/security-mcp/dist/server.js" \
-   "$fixture/.agents/mcp-servers/security-mcp/dist/server.js.hidden"
+mv "$fixture/.agents/mcp-servers/$primary/dist/server.js" \
+   "$fixture/.agents/mcp-servers/$primary/dist/server.js.hidden"
 if "$fixture/.agents/sync-mcp.sh" >/dev/null 2>&1; then
   echo "test-mcp: missing repository executable must fail closed" >&2
   exit 1
@@ -140,13 +158,13 @@ fi
 
 rm -rf "$fixture"
 fixture="$(make_fixture)"
-python3 - "$fixture/.agents/mcp.json" <<'PY'
+python3 - "$fixture/.agents/mcp.json" "$primary" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as source:
     registry = json.load(source)
-registry["mcpServers"]["security-mcp"]["env"] = {"API_TOKEN": "${REPO_ROOT}/must-not-expand"}
+registry["mcpServers"][sys.argv[2]]["env"] = {"API_TOKEN": "${REPO_ROOT}/must-not-expand"}
 with open(sys.argv[1], "w", encoding="utf-8") as output:
     json.dump(registry, output)
 PY
@@ -169,5 +187,18 @@ fi
   echo "test-mcp: sync-codex.sh did not generate the reader launch config" >&2
   exit 1
 }
+
+# The Kimi writer is gated on the engine being wired. A repository with neither
+# .kimi/ nor .kimi-code/ must come out of a sync with no Kimi project file:
+# that file carries expanded credentials and would otherwise sit untracked in a
+# repository that never asked for the engine.
+rm -rf "$fixture"
+fixture="$(make_fixture)"
+rm -rf "$fixture/.kimi" "$fixture/.kimi-code"
+"$fixture/.agents/sync-mcp.sh" >/dev/null
+if [[ -e "$fixture/.kimi-code/mcp.json" ]]; then
+  echo "test-mcp: Kimi project file written into a repository with no Kimi engine" >&2
+  exit 1
+fi
 
 echo "MCP repository-root checks passed."

@@ -56,6 +56,19 @@ PY
 cd "$proj"
 proj="$(pwd -P)"
 
+# A Python repository usually keeps its tools in a virtualenv rather than on
+# PATH, and a session that has not activated it would otherwise get a gate that
+# reports success having run nothing. Resolve repo-local first, like tsc.
+resolve_py_tool() {
+  local name="$1" candidate
+  for candidate in "${VIRTUAL_ENV:-}/bin/$name" "$proj/.venv/bin/$name" "$proj/venv/bin/$name"; do
+    if [[ -x "$candidate" ]]; then printf '%s\n' "$candidate"; return 0; fi
+  done
+  if command -v "$name" >/dev/null 2>&1; then printf '%s\n' "$name"; return 0; fi
+  return 1
+}
+ruff_bin="$(resolve_py_tool ruff || true)"
+
 issues=""
 ts_edited=""      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=""   # all JS/TS — linted by eslint, formatted by prettier
@@ -69,10 +82,10 @@ while IFS= read -r f; do
 
   case "$f" in
     *.py)
-      if command -v ruff >/dev/null 2>&1; then
-        ruff check --fix --force-exclude --quiet "$f" >/dev/null 2>&1 || true
-        ruff format --force-exclude --quiet "$f" >/dev/null 2>&1 || true
-        if ! check_out="$(ruff check --force-exclude --quiet --output-format=concise "$f" 2>&1)"; then
+      if [[ -n "$ruff_bin" ]]; then
+        "$ruff_bin" check --fix --force-exclude --quiet "$f" >/dev/null 2>&1 || true
+        "$ruff_bin" format --force-exclude --quiet "$f" >/dev/null 2>&1 || true
+        if ! check_out="$("$ruff_bin" check --force-exclude --quiet --output-format=concise "$f" 2>&1)"; then
           issues+=$'\n'"[ruff] $rel"$'\n'"$check_out"$'\n'
         fi
       fi
@@ -113,9 +126,86 @@ fi
 # A workspace without a resolvable tsc is skipped silently.
 if [[ -n "$ts_edited" ]]; then
   workspaces="$(TS_FILES="$ts_edited" PROJ="$proj" python3 <<'PY'
-import os
+import json, os, re
 
 proj = os.path.realpath(os.environ["PROJ"])
+
+
+def read_config(path):
+    """tsconfig permits comments and trailing commas; json does not."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            raw = handle.read()
+    except OSError:
+        return {}
+    raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+    raw = re.sub(r"(^|\s)//[^\n]*", r"\1", raw)
+    raw = re.sub(r",(\s*[}\]])", r"\1", raw)
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def literal_prefix(pattern):
+    """The leading path of an include pattern, up to its first wildcard."""
+    return re.split(r"[*?]", pattern, maxsplit=1)[0].rstrip("/")
+
+
+def covers(config_dir, config, target_file):
+    """Length of the longest include prefix that claims the file, else None."""
+    rel = os.path.relpath(target_file, config_dir)
+    if rel.startswith(os.pardir):
+        return None
+    for entry in config.get("files") or []:
+        if os.path.normpath(entry) == os.path.normpath(rel):
+            return len(rel)
+    for pattern in config.get("exclude") or []:
+        prefix = literal_prefix(pattern)
+        if prefix and (rel == prefix or rel.startswith(prefix + os.sep)):
+            return None
+    best = None
+    for pattern in config.get("include") or ["**/*"]:
+        prefix = literal_prefix(pattern)
+        if not prefix or rel == prefix or rel.startswith(prefix + os.sep):
+            best = max(best or 0, len(prefix))
+    return best
+
+
+def project_for(workspace, target_file):
+    """Pick the tsconfig that actually typechecks this file.
+
+    A Vite or React workspace usually keeps `tsconfig.json` as a solution file
+    -- `{"files": [], "references": [...]}`. tsc run against it reads no source,
+    so the gate would report success having checked nothing. Where the nearest
+    config declares no inputs of its own, follow its references and take the
+    project whose include prefix claims the file most specifically.
+    """
+    config_path = os.path.join(workspace, "tsconfig.json")
+    config = read_config(config_path)
+    references = config.get("references") or []
+    if not references:
+        return "tsconfig.json"
+    if (config.get("files") or config.get("include")) and \
+            covers(workspace, config, target_file) is not None:
+        return "tsconfig.json"
+    best, best_score = None, -1
+    for reference in references:
+        path = reference.get("path") if isinstance(reference, dict) else None
+        if not isinstance(path, str):
+            continue
+        candidate = os.path.normpath(os.path.join(workspace, path))
+        if os.path.isdir(candidate):
+            candidate = os.path.join(candidate, "tsconfig.json")
+        if not os.path.isfile(candidate):
+            continue
+        score = covers(os.path.dirname(candidate), read_config(candidate), target_file)
+        if score is not None and score > best_score:
+            best, best_score = os.path.relpath(candidate, workspace), score
+    return best or "tsconfig.json"
+
+
 groups = {}
 for p in os.environ["TS_FILES"].splitlines():
     p = p.strip()
@@ -127,21 +217,23 @@ for p in os.environ["TS_FILES"].splitlines():
     d = os.path.dirname(ap)
     while True:
         if os.path.isfile(os.path.join(d, "tsconfig.json")):
-            groups.setdefault(d, []).append(os.path.relpath(ap, d))
+            groups.setdefault((d, project_for(d, ap)), []).append(os.path.relpath(ap, d))
             break
         if d == proj:
             break                      # no tsconfig anywhere above: skip
         d = os.path.dirname(d)
 
-for ws, rels in groups.items():
-    print("\t".join([ws] + rels))
+for (ws, config), rels in groups.items():
+    print("\t".join([ws, config] + rels))
 PY
 )"
 
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     ws="${line%%$'\t'*}"
-    ws_rels="${line#*$'\t'}"
+    rest="${line#*$'\t'}"
+    ws_config="${rest%%$'\t'*}"
+    ws_rels="${rest#*$'\t'}"
 
     if [[ -x "$ws/node_modules/.bin/tsc" ]]; then
       tsc_bin="$ws/node_modules/.bin/tsc"
@@ -151,7 +243,7 @@ PY
       continue                         # no typechecker installed: silent skip
     fi
 
-    tsc_raw="$(cd "$ws" && "$tsc_bin" --noEmit --incremental --tsBuildInfoFile .tsbuildinfo-claude 2>&1 || true)"
+    tsc_raw="$(cd "$ws" && "$tsc_bin" --noEmit -p "$ws_config" --incremental --tsBuildInfoFile .tsbuildinfo-claude 2>&1 || true)"
     [[ -z "$tsc_raw" ]] && continue
 
     scoped="$(HOOK_INPUT="$tsc_raw" TS_RELS="$ws_rels" python3 <<'PY'
@@ -165,7 +257,7 @@ PY
 )"
 
     if [[ -n "$scoped" ]]; then
-      ws_label="${ws#$proj/}"
+      ws_label="${ws#$proj/}/$ws_config"
       issues+=$'\n'"[tsc --noEmit] $ws_label (scoped to edited files)"$'\n'"$scoped"$'\n'
     fi
   done <<< "$workspaces"
@@ -228,8 +320,8 @@ if [[ -n "$py_edited" ]]; then
   pyright_bin=""
   if [[ -x "$proj/node_modules/.bin/pyright" ]]; then
     pyright_bin="$proj/node_modules/.bin/pyright"
-  elif command -v pyright >/dev/null 2>&1; then
-    pyright_bin="pyright"
+  elif pyright_bin="$(resolve_py_tool pyright)"; then
+    :
   fi
 
   if [[ -n "$pyright_bin" ]]; then

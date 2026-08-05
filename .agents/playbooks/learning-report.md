@@ -28,9 +28,13 @@ For live teaching behavior, follow
 this post-hoc report.
 
 Do NOT write a file. To persist this to `docs/learning/` instead, the user only
-has to ask — then delegate it (exempt from genome stamping — prepend NO stamp):
+has to ask — then delegate it:
 
 ```
 Task(subagent_type='learning-reporter',
      prompt=<the decision-brief> + <the changed-file list>)
 ```
+<!-- colloid-only -->
+
+The reporter is exempt from genome stamping — prepend NO stamp.
+<!-- /colloid-only -->

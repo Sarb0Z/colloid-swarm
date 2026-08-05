@@ -73,6 +73,10 @@ for agent in AGENTS:
             seen_heading = True
         if not seen_heading and (line.startswith("> ") or line.strip() == ">"):
             continue
+        # export-scaffold.py's region markers are source annotations, not
+        # content; the agent reads this body and should never see them.
+        if line.strip() in ("<!-- colloid-only -->", "<!-- /colloid-only -->"):
+            continue
         body_lines.append(line)
 
     body = "".join(body_lines).strip()
@@ -95,12 +99,12 @@ for agent in AGENTS:
     print("generated " + out_path + (f" (model: {model})" if model else " (no model override)"))
 PY
 
-# The adapter layer itself. These three have no generator — they are hand-
+# The adapter layer itself. These four have no generator — they are hand-
 # written sources that live under .agents/ so the tracked tree carries them,
 # and .claude/ gets symlinks. Without this a checkout that ignores .claude/
 # has no settings and no adapter, which means no hooks at all.
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mkdir -p "$repo/.claude/hooks"
+mkdir -p "$repo/.claude/hooks" "$repo/.claude/skills" "$repo/.claude/rules"
 link() {   # source under .agents/claude, destination under .claude
   local src="$1" dst="$2" rel="$3"
   [[ -f "$repo/$src" ]] || { echo "sync: missing source $src" >&2; return 1; }
@@ -112,6 +116,28 @@ link() {   # source under .agents/claude, destination under .claude
 link .agents/claude/settings.json .claude/settings.json    ../.agents/claude/settings.json
 link .agents/claude/adapter.sh    .claude/hooks/adapter.sh ../../.agents/claude/adapter.sh
 link .agents/claude/README.md     .claude/hooks/README.md  ../../.agents/claude/README.md
+link .agents/claude/AGENTS.md     .claude/AGENTS.md        ../.agents/claude/AGENTS.md
+ln -sfn AGENTS.md "$repo/.claude/CLAUDE.md"
+
+# One symlink per installed skill: Claude reads .claude/skills/<name> and
+# .claude/rules/<name>.md, both resolving back to the canonical copy under
+# .agents/skills/, which Kimi and Codex already read natively.
+for skill_dir in "$repo"/.agents/skills/*/; do
+  [[ -d "$skill_dir" ]] || continue
+  n="$(basename "$skill_dir")"
+  ln -sfn "../../.agents/skills/$n" "$repo/.claude/skills/$n"
+  ln -sfn "../../.agents/skills/$n/AGENTS.md" "$repo/.claude/rules/$n.md"
+done
+
+# Prune links whose canonical file is gone. A removed skill would otherwise
+# leave a dangling link, and .agents/AGENTS.md reads a broken link as a missing
+# canonical file — a real defect, not a stale mirror.
+for stale in "$repo"/.claude/skills/* "$repo"/.claude/rules/*; do
+  if [[ -L "$stale" && ! -e "$stale" ]]; then
+    rm -f "$stale"
+    echo "pruned ${stale#$repo/}"
+  fi
+done
 
 # MCP + LSP connection files ride the same "edited config.json -> re-run sync"
 # habit; sync-mcp.sh is a no-op-safe generator, cheap to always run.

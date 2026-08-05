@@ -81,10 +81,12 @@ out = {"project_dir": os.environ.get("CLAUDE_PROJECT_DIR") or src.get("cwd") or 
 
 if policy == "guard-destructive.sh":
     out["command"] = ti.get("command", "")
+# colloid-only
 elif policy == "genome-guard.sh":
     # Task/Agent dispatch input: the subagent's prompt and its type.
     out["prompt"] = ti.get("prompt", "")
     out["subagent_type"] = ti.get("subagent_type", "")
+# /colloid-only
 elif policy == "sources-capture.sh":
     # Web lookup -> evidence trail. Map the tool to a kind + the source value;
     # agent_type tags a researcher cell's rows apart from the main agent's.

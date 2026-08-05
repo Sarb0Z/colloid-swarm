@@ -63,7 +63,11 @@ Apply this only to the **architectural cost** and **genuinely hard** rows above.
 
 Ask: **what would have to be true about their system for this to still be broken?**
 
-Then generate several answers, not one. A persistent complaint usually has three or four plausible structural causes, and the interesting work is separating them with evidence — not picking the first that fits. If only one explanation comes to mind, that is a sign of not having thought about it long enough. When the obvious explanation is suspect and the fan-out is worth its cost, `panspermia-mutation` is built for exactly this: mutate the framing per worker, run them blind, select on evidence rather than on which story was drafted first.
+Then generate several answers, not one. A persistent complaint usually has three or four plausible structural causes, and the interesting work is separating them with evidence — not picking the first that fits. If only one explanation comes to mind, that is a sign of not having thought about it long enough. When the obvious explanation is suspect and the fan-out is worth its cost, vary the framing per researcher and run them blind, so the selection lands on evidence rather than on whichever story was drafted first.
+<!-- colloid-only -->
+
+The `panspermia-mutation` skill is built for exactly this fan-out.
+<!-- /colloid-only -->
 
 ### Starting hypotheses — not a lookup table
 

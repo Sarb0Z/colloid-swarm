@@ -199,9 +199,14 @@ Layers:
 | --- | --- |
 | Agent scaffold | `.agents/AGENTS.md` |
 | Claude adapter layer | `.claude/AGENTS.md` |
+| Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
+
+<!-- colloid-only -->
+| Scope | Canonical |
+| --- | --- |
 | Demo | `demo/AGENTS.md` |
 | Tensium trial | `tensium-trial/AGENTS.md` |
-| Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
+<!-- /colloid-only -->
 
 A skill `AGENTS.md` governs *editing* the skill; `SKILL.md` governs
 *using* it.

@@ -1,0 +1,25 @@
+# --- agent scaffold ---------------------------------------------------------
+# Generated from .agents/ by the sync scripts, or machine-local. Regenerate
+# with .agents/sync-claude-agents.sh (which also runs sync-mcp.sh) and
+# .agents/sync-codex.sh. Everything else under .agents/ is tracked source.
+/.mcp.json
+/.kimi-code/mcp.json
+/.codex/config.toml
+.agents/config.json
+.agents/.playwright-reader.json
+.agents/.sources-ledger
+.agents/.compaction-pending
+.agents/.wrap-state-*
+.agents/browser-extensions/
+.claude/settings.local.json
+**/__pycache__/
+**/.tsbuildinfo-claude
+.agents/mcp-servers/*/node_modules/
+
+# A repository-level `dist/` or `package-lock.json` rule, left unanchored,
+# also matches inside the bundled MCP servers and drops the very files the
+# registry points at — a fresh clone then fails `resolve_registry` and every
+# sync script exits non-zero. Re-include the directory first: git cannot
+# re-include a file whose parent directory is excluded.
+!.agents/mcp-servers/*/dist/
+!.agents/mcp-servers/*/package-lock.json

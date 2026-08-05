@@ -2,15 +2,17 @@
 
 Dispatch a subagent to review the diff against the surrounding architecture.
 
-The dispatch must carry a genome stamp or `genome-guard` will block it. Draw one
-and prepend its output to the subagent's prompt:
+Paste the reviewer contract below verbatim. Do not paraphrase it — a
+paraphrase is an untested variant.
+<!-- colloid-only -->
+
+The dispatch must also carry a genome stamp or `genome-guard` will block it.
+Draw one and prepend its output above the contract:
 
 ```sh
 .agents/genome.sh --register none
 ```
-
-Then paste the reviewer contract below it verbatim. Do not paraphrase it — a
-paraphrase is an untested variant.
+<!-- /colloid-only -->
 
 With it, supply the artifact and the intent the reviewer will grade against:
 the ask in the requester's own words, the plan you wrote, and where the report

@@ -57,11 +57,13 @@ out = {"project_dir": src.get("cwd") or repo}
 
 if policy == "guard-destructive.sh":
     out["command"] = ti.get("command", "")
+# colloid-only
 elif policy == "genome-guard.sh":
     # Agent carries prompt; AgentSwarm carries prompt_template. Same guard.
     prompt = ti.get("prompt", "") or ti.get("prompt_template", "")
     out["prompt"] = prompt if isinstance(prompt, str) else ""
     out["subagent_type"] = ti.get("subagent_type", "")
+# /colloid-only
 elif policy == "sources-capture.sh":
     tool = src.get("tool_name") or ""
     out["agent"] = "main"          # Kimi payloads carry no subagent tag

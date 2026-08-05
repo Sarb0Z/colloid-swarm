@@ -15,20 +15,31 @@ format or location) pointing back here. Edit things here, once.
 | `mcp-servers/<name>/` | Repository-owned MCP servers (`research-mcp`, `security-mcp`); committed `dist/server.js` starts with no install — see [Repository-owned MCP servers](#repository-owned-mcp-servers) | launched from the generated `.mcp.json` | launched from the generated `.kimi-code/mcp.json` | launched from the generated `.codex/config.toml` |
 | `lsp.json` | LSP server registry (`lspServers`); fanned out to `.github/lsp.json` for Copilot CLI | official marketplace plugins (`typescript-lsp`, `pyright-lsp`) | no LSP support in Kimi — nothing generated | no project LSP configuration |
 | `hooks/policy/*.sh` | Engine-agnostic hook policies | `.claude/settings.json` + adapter | `.kimi/config.toml` + adapter | `.codex/hooks.json` + adapter |
-| `genome.sh` | Genome emitter (parses `../genomes.md`) | called by the orchestrator; `genome-guard.sh` enforces | called by the orchestrator (native) | called by the orchestrator; `genome-guard.sh` enforces |
-| `mutagen.sh` + `mutagen.md` | Mutagen: roll a vector + blind-rewriter contract | called by the orchestrator (`panspermia-mutation` skill) | called by the orchestrator (native) | called by the orchestrator |
 | `config.json` | Scaffold toggles, thresholds, model routing | read by every hook + `sync-claude-agents.sh` | read by wired hooks | read by `sync-codex.sh` and shared policies |
-| `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | stamped + dispatched (native; no capture) | `.codex/agents/researcher.toml` — generated native agent |
+| `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | dispatched natively (no capture) | `.codex/agents/researcher.toml` — generated native agent |
 | `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded | data, not auto-loaded |
 | `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | surfaced by the SessionStart hook |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — | committed; pulled on demand |
 | `AGENTS.md` (here + `../demo/`, `../tensium-trial/`, `../.claude/`, `skills/<name>/`) | Scoped instructions with dual `applyTo`/`paths` frontmatter | `.claude/rules/<skill>.md` + sibling `CLAUDE.md` → symlinks | native (root `AGENTS.md` points to subtree files) | native (root `AGENTS.md` points to subtree files) |
+<!-- colloid-only -->
 
-`genome.sh` writes a transient `.genome-ledger` (recent draws, for anti-repeat);
-`mutagen.sh` writes `.mutagen-ledger` (each roll, read back for operator
-disclosure); the `sources-capture` hook writes `.sources-ledger` (every web
-lookup, the evidence trail). All, with `.compaction-pending`, are gitignored at
-the repo root.
+The genome layer rides the same fan-out:
+
+| Canonical (here) | What | Claude Code | Kimi CLI | Codex |
+|---|---|---|---|---|
+| `genome.sh` | Genome emitter (parses `../genomes.md`) | called by the orchestrator; `genome-guard.sh` enforces | called by the orchestrator (native) | called by the orchestrator; `genome-guard.sh` enforces |
+| `mutagen.sh` + `mutagen.md` | Mutagen: roll a vector + blind-rewriter contract | called by the orchestrator (`panspermia-mutation` skill) | called by the orchestrator (native) | called by the orchestrator |
+<!-- /colloid-only -->
+
+The `sources-capture` hook writes `.sources-ledger` (every web lookup, the
+evidence trail). It, with `.compaction-pending` and `.wrap-state-*`, is
+gitignored at the repo root.
+<!-- colloid-only -->
+
+`genome.sh` writes a transient `.genome-ledger` (recent draws, for anti-repeat)
+and `mutagen.sh` writes `.mutagen-ledger` (each roll, read back for operator
+disclosure). Both are gitignored beside it.
+<!-- /colloid-only -->
 
 (`.github/copilot-instructions.md` also symlinks to `../AGENTS.md`.)
 
@@ -101,8 +112,10 @@ One file, `.agents/config.json`, controls the whole scaffold:
   override).
 - **Model routing** — `models.researcher` (etc.) drives `.agents/sync-claude-agents.sh`,
   which regenerates `.claude/agents/*.md` with the correct `model:` frontmatter.
+<!-- colloid-only -->
 - **Swarm behavior** — `swarm.genome_stamping`, `swarm.exempt_subagent_types`,
   `swarm.default_register`.
+<!-- /colloid-only -->
 
 `config.json.example` is the committed template. It contains each knob. The
 real `config.json` is **gitignored and per-repo**: copy the example, tune it to

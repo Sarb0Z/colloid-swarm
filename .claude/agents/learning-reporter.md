@@ -77,3 +77,7 @@ orchestrator.
 
 You dispatch nothing — you read the diff, pair it with the brief, and write the
 file.
+
+You are **exempt from genome stamping** (`.agents/config.json`
+`swarm.exempt_subagent_types`) — a fixed instructional voice gains nothing from a
+variable persona — so the orchestrator prepends **no** stamp to your brief.
