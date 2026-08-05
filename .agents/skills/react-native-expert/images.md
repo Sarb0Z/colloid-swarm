@@ -42,6 +42,23 @@ Key props: `placeholder` (blurhash/thumb), `contentFit`
 (`low`/`normal`/`high`), `cachePolicy`
 (`memory`/`disk`/`memory-disk`/`none`), `recyclingKey` (for list recycling).
 
+### Size images for list rows
+
+Request a compressed thumbnail close to the rendered pixel size. Do not fetch a
+full-resolution source for a small row. Keep the source URL or cache key stable,
+enable an appropriate `cachePolicy`, and set a stable `recyclingKey` so a
+recycled row does not show the image from its prior item.
+
+```tsx
+<Image
+  source={{ uri: item.thumbnailUrl }}
+  cachePolicy="memory-disk"
+  recyclingKey={item.id}
+  contentFit="cover"
+  style={styles.rowThumbnail}
+/>
+```
+
 ### Galleries and lightbox: Galeria
 
 For tap-to-fullscreen galleries, use `@nandorojo/galeria` instead of a hand-rolled

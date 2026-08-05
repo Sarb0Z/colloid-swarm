@@ -46,6 +46,28 @@ const ListItem = React.memo(function ListItem({ item, onPress }: Props) {
 });
 ```
 
+For a repeated row, pass the smallest stable interface that the row needs.
+Prefer an item ID and primitive display values when this reduces prop churn.
+Define the root action once and let it accept the item ID. Preserve the object
+identity of unchanged items when the parent builds a new data array.
+
+```tsx
+const { push } = useRouter();
+const onItemPress = useCallback((itemId: string) => {
+  push(`/items/${itemId}`);
+}, [push]);
+
+const ItemRow = memo(function ItemRow({ id, title, onPress }: RowProps) {
+  const handlePress = useCallback(() => onPress(id), [id, onPress]);
+  return <Pressable onPress={handlePress}><Text>{title}</Text></Pressable>;
+});
+```
+
+Do not rebuild every item object because an unrelated parent value changed.
+`map` and `filter` are valid when the data must change. Memoize the result when
+the transformation is expensive or when stable item references let memoized
+rows skip work.
+
 ### Pressable, never Touchable
 
 Never use `TouchableOpacity` or `TouchableHighlight` — use `Pressable`. Inside
@@ -144,6 +166,64 @@ const getItemLayout = useCallback((_data, index: number) => ({
   extraData={selectedId}   // so selection changes actually re-render rows
 />
 ```
+
+### Keep rows cheap
+
+A row can mount many times during a fast scroll. Move repeated parsing,
+sorting, aggregation, and formatting out of the row. Do not start one network
+request for each mounted row when the screen can load or batch the data. A row
+may use context or a query when that ownership is correct, but the subscription
+must be narrow enough that unrelated changes do not render every visible row.
+
+Create static `Intl` formatters once at module scope. If the formatter depends
+on the active locale or user options, memoize it from those inputs.
+
+```tsx
+const shortDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+
+function StaticDate({ value }: { value: Date }) {
+  return <Text>{shortDate.format(value)}</Text>;
+}
+
+function LocalizedDate({ value, locale }: Props) {
+  const formatter = useMemo(
+    () => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }),
+    [locale],
+  );
+  return <Text>{formatter.format(value)}</Text>;
+}
+```
+
+### Describe heterogeneous item families
+
+Use a discriminated item type when one list renders materially different row
+families. Give FlashList or LegendList a fast `getItemType` callback so the
+virtualizer can recycle a compatible row. Do not use a type for cosmetic
+variants that share the same row structure.
+
+```tsx
+type FeedItem =
+  | { kind: 'article'; id: string; title: string }
+  | { kind: 'advert'; id: string; campaignId: string };
+
+const getItemType = (item: FeedItem) => item.kind;
+const keyExtractor = (item: FeedItem) => item.id;
+
+<FlashList
+  data={items}
+  getItemType={getItemType}
+  keyExtractor={keyExtractor}
+  renderItem={renderItem}
+/>
+```
+
+Keys must be stable and unique for the data set. Virtualizers recycle row
+components. Reset item-specific local state when the item identity changes, or
+keep that state outside the recycled row. Check the current
+[FlashList usage guide](https://shopify.github.io/flash-list/docs/usage/),
+[LegendList API](https://legendapp.com/open-source/list/v3/api/), and
+[LegendList guides](https://legendapp.com/open-source/list/v3/guides/) for the
+installed library.
 
 ---
 

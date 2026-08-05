@@ -1,0 +1,23 @@
+{
+  "installed_plugin": {
+    "name": "react-native-optimization-and-architecture",
+    "version": "1.0.0",
+    "manifest_author": "Muhammad-uzair029"
+  },
+  "installed_skill": {
+    "path": "skills/react-native-optimization-and-architecture/SKILL.md",
+    "metadata_author": "vercel",
+    "declared_license": "MIT",
+    "hash_algorithm": "SHA-256",
+    "sha256": "88605d530730a51da5ba0112a3e4d9aae2785dd4653180fe9e19033da89e519f"
+  },
+  "reviewed_rules": {
+    "path": "skills/react-native-optimization-and-architecture/rules",
+    "file_pattern": "*.md",
+    "file_count": 41,
+    "tree_hash_algorithm": "From the rules directory, hash each relative-path file with SHA-256 in byte-sorted path order, then SHA-256 hash the resulting shasum lines.",
+    "sha256": "cdcd19dbd40770c61a48e8db740e95d51a84eead5168673537613c1795195df0"
+  },
+  "verification_source": "https://github.com/vercel-labs/agent-skills",
+  "adaptation": "The canonical guidance is independently rewritten. No exact upstream revision or copyright notice is inferred."
+}
