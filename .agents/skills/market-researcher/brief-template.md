@@ -1,6 +1,10 @@
 # Researcher brief template
 
-Fill the angle brackets and append to the genome stamp. Every rule below earned its place by having been omitted once.
+Fill the angle brackets. Every rule below earned its place by having been omitted once.
+<!-- colloid-only -->
+
+Append the filled brief to the genome stamp.
+<!-- /colloid-only -->
 
 **What this brief does not restate.** The researcher cell already carries the escalation ladder, the two-independent-sources rule for load-bearing claims, source dating, the honesty clause, and the `CLAIMS / SOURCES / GAPS` return shape — see `.agents/personas/researcher.md`, baked into `.claude/agents/researcher.md`. Repeating them here dilutes the brief and lets the two copies drift. What follows is only the market-research-specific part.
 

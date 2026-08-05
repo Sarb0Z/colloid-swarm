@@ -113,7 +113,11 @@ HEAVY="${WRAP_HEAVY_LINES:-$cfg_heavy_lines}"
 # The kit's own transient state is not session work — exclude by name (precise,
 # so a real file that merely sits in .agents/ is never hidden). Generated
 # learning reports are tooling output, not the user's diff.
-markers='(\.agents/\.(genome-ledger|mutagen-ledger|sources-ledger|compaction-pending)$|\.agents/\.wrap-state-|^docs/learning/)'
+ledgers='sources-ledger|compaction-pending'
+# colloid-only
+ledgers="genome-ledger|mutagen-ledger|$ledgers"
+# /colloid-only
+markers='(\.agents/\.('"$ledgers"')$|\.agents/\.wrap-state-|^docs/learning/)'
 
 changed=""
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then

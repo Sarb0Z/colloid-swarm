@@ -28,7 +28,6 @@ live in `.agents/hooks/policy/`.
 | Policy | Stdin JSON |
 |--------|------------|
 | `guard-destructive.sh` | `{"command": "..."}` |
-| `genome-guard.sh` | `{"prompt": "...", "subagent_type": "..."}` |
 | `sources-capture.sh` | `{"project_dir": "...", "agent": "...", "kind": "...", "value": "..."}` |
 | `research-prime.sh` | `{"project_dir": "...", "prompt": "..."}` |
 | `post-edit-check.sh` | `{"project_dir": "...", "files": ["..."]}` |
@@ -36,6 +35,10 @@ live in `.agents/hooks/policy/`.
 | `stop-investigate.sh` | `{"project_dir": "...", "transcript_path": "...", "stop_hook_active": bool}` |
 | `session-start.sh` | `{"project_dir": "...", "source": "...", "session_id": "...", "transcript_path": "..."}` |
 | `pre-compact.sh` | `{"project_dir": "...", "trigger": "auto"\|"manual"}` |
+<!-- colloid-only -->
+
+`genome-guard.sh` takes `{"prompt": "...", "subagent_type": "..."}`.
+<!-- /colloid-only -->
 
 All policies: `exit 0` = allow, `exit 2` + stderr = block with reason.
 Exception: `session-start.sh` is a *context* policy, not a gate — it always
@@ -83,6 +86,7 @@ installs, `sed -i`, piping into `/etc/`), and destructive SQL (`DROP
 TABLE/DATABASE/SCHEMA/INDEX`, `TRUNCATE`, unrestricted `DELETE`/`UPDATE`).
 Reason points at the correct channel (ask the user, or ship through the
 deploy path).
+<!-- colloid-only -->
 
 ### `genome-guard.sh` — PreToolUse (`Task|Agent`)
 Enforces the genome-stamping protocol: every substantive subagent dispatch must
@@ -111,6 +115,7 @@ fresh one for each). Fails **open** on an empty/unreadable payload, like
 Claude-only. `.agents/genome.sh` itself is engine-neutral, so the orchestrator
 protocol works under Kimi; the guard is not wired there because Kimi's
 subagent/hook surface differs (see `.kimi/config.toml.example`).
+<!-- /colloid-only -->
 
 ### `sources-capture.sh` — PostToolUse (web lookups; matcher below)
 The search scaffold's evidence trail. Observes web lookups — the main agent's
@@ -507,7 +512,6 @@ static. The config file is the single source of truth for active behavior.
 | Config key | Hook | What happens when `false` |
 |---|---|---|
 | `hooks.guard_destructive` | `guard-destructive.sh` | No destructive-command blocking |
-| `hooks.genome_guard` | `genome-guard.sh` | No genome-stamp enforcement |
 | `hooks.sources_capture` | `sources-capture.sh` | No `.sources-ledger` writes |
 | `hooks.research_prime` | `research-prime.sh` | No research nudge on UserPromptSubmit |
 | `hooks.post_edit_check` | `post-edit-check.sh` | No lint/format/typecheck on edits |
@@ -520,6 +524,11 @@ static. The config file is the single source of truth for active behavior.
 | `hooks.stop_investigate.ratchet_check` | `stop-investigate.sh` | No ownership-disclaimer blocking (hedge check still runs) |
 | `hooks.session_start` | `session-start.sh` | No baseline seed, breadcrumbs, MCP display, compaction nudge, or marker consumption |
 | `hooks.pre_compact` | `pre-compact.sh` | No `.compaction-pending` marker |
+<!-- colloid-only -->
+
+`hooks.genome_guard` gates `genome-guard.sh`: `false` means no genome-stamp
+enforcement.
+<!-- /colloid-only -->
 
 Missing or broken config = all enabled (backward compatible) — with one
 deliberate exception: `hooks.learning_report` is opt-in and reads
@@ -550,13 +559,17 @@ carries the full researcher contract (escalation ladder, cross-checking,
 `CLAIMS / SOURCES / GAPS` return shape). The orchestrator dispatches it with:
 
 ```
-Task(subagent_type='researcher', prompt='[genome stamp] + [research question]')
+Task(subagent_type='researcher', prompt='[research question]')
 ```
 
-The genome stamp stays in the prompt (so `genome-guard` is satisfied), the
-contract stays in the agent definition, and `sources-capture` logs the cell's
-web lookups because subagents inherit hooks. See the `search-and-cite` skill for
+The contract stays in the agent definition, and `sources-capture` logs the
+cell's web lookups because subagents inherit hooks. See the `search-and-cite` skill for
 the full delegation protocol.
+<!-- colloid-only -->
+
+The genome stamp rides ahead of the question in that prompt, where
+`genome-guard` can see it.
+<!-- /colloid-only -->
 
 ### `learning-reporter` — `.claude/agents/learning-reporter.md`
 
@@ -573,12 +586,15 @@ Two design points. (1) It is **seeded, not cold**: the orchestrator distills the
 session's decisions (the *why* — tradeoffs, rejected alternatives — which it holds
 in live context) into the brief and passes it in; the subagent reads only
 `git diff HEAD` and the named files for the *code*, never the raw transcript (which
-is tool-call noise the orchestrator is far better placed to interpret). (2) It is
-**exempt from genome stamping** (`swarm.exempt_subagent_types`), so the dispatch
-carries no stamp — a teaching report wants a fixed instructional voice, not a
-variable persona (see `genome-guard.sh` above). Its product is the file in
+is tool-call noise the orchestrator is far better placed to interpret). (2) Its product is the file in
 `docs/learning/`; its return value to the orchestrator is just a one-line pointer.
 Claude-only (rides the transcript-gated wrap); not wired in Kimi.
+<!-- colloid-only -->
+
+It is also **exempt from genome stamping** (`swarm.exempt_subagent_types`), so
+the dispatch carries no stamp — a teaching report wants a fixed instructional
+voice, not a variable persona (see `genome-guard.sh` above).
+<!-- /colloid-only -->
 
 ## Drop-in extensions (not active)
 

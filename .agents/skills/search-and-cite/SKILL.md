@@ -41,13 +41,18 @@ cross-checks and isolates the search context from yours.
 
 ## Delegating a researcher
 
-It's a cell like any other — stamp it with a genome and dispatch it with the
-question. The **Mycelium** is its natural genome (trace every source, three hops
-out, impossible to surprise):
+Dispatch it with the question. `.agents/personas/researcher.md` is the
+engine-neutral contract: the escalation ladder, the corroboration rules, and the
+`CLAIMS / SOURCES / GAPS` return shape.
+<!-- colloid-only -->
+
+It's a cell like any other — stamp it with a genome first. The **Mycelium** is
+its natural genome (trace every source, three hops out, impossible to surprise):
 
 ```sh
 .agents/genome.sh mycelium --register none   # stamp; then prepend .agents/personas/researcher.md + the question
 ```
+<!-- /colloid-only -->
 
 ### Claude Code — use the native researcher agent (Sonnet)
 
@@ -58,26 +63,35 @@ model:
 ```
 Task(
     subagent_type='researcher',
-    prompt='[genome stamp] + [your research question]'
+    prompt='[your research question]'
 )
 ```
 
 The `.claude/agents/researcher.md` definition is generated from `.agents/config.json`
 by `.agents/sync-claude-agents.sh`; the `model:` frontmatter pins whatever model
 you configured (`sonnet` by default). The agent loads the researcher contract as
-its system prompt, and your prompt carries the genome stamp + question. The
-`genome-guard` hook still applies (the stamp is in the prompt), and
-`sources-capture` still logs its web calls.
+its system prompt, and your prompt carries the question. `sources-capture` logs
+its web calls.
+<!-- colloid-only -->
+
+Prepend the genome stamp to that prompt — `prompt='[genome stamp] + [your
+research question]'`. The `genome-guard` hook still applies, and the stamp is in
+the prompt, so it passes.
+<!-- /colloid-only -->
 
 ### Other engines — generic dispatch
 
-Dispatch `[genome stamp] + [.agents/personas/researcher.md] + [your research question]`.
+Dispatch `[.agents/personas/researcher.md] + [your research question]`.
 It climbs the escalation ladder (WebSearch → WebFetch primary sources →
 context7 for libs → research-mcp for articles, PDFs and open-access copies →
 playwright for hard pages), cross-checks load-bearing claims, and returns
-`CLAIMS / SOURCES / GAPS`. The genome stamp means it carries
-the membrane and the honesty clause — it returns what it found, not what it
-wishes it found.
+`CLAIMS / SOURCES / GAPS` — what it found, not what it wishes it found.
+<!-- colloid-only -->
+
+Prepend the genome stamp here too — `[genome stamp] +
+[.agents/personas/researcher.md] + [your research question]`. The stamp means the
+cell carries the membrane and the honesty clause.
+<!-- /colloid-only -->
 
 ## Consume the evidence — carry the sources through
 

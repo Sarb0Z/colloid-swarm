@@ -20,14 +20,17 @@ make_fixture() {
     "$dir/.agents/playbooks" \
     "$dir/.agents/claude" \
     "$dir/.agents/codex" \
-    "$dir/.codex/hooks" \
-    "$dir/.kimi/hooks"
+    "$dir/.codex/hooks"
   cp "$repo/.agents/hooks/policy/session-start.sh" "$dir/.agents/hooks/policy/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
   cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
-  cp "$repo/.kimi/hooks/adapter.sh" "$dir/.kimi/hooks/"
+  # Kimi is optional: only repositories that wire the engine carry .kimi/.
+  if [[ -f "$repo/.kimi/hooks/adapter.sh" ]]; then
+    mkdir -p "$dir/.kimi/hooks"
+    cp "$repo/.kimi/hooks/adapter.sh" "$dir/.kimi/hooks/"
+  fi
   printf '%s\n' '- fixture breadcrumb' > "$dir/.agents/breadcrumbs.md"
   printf '%s\n' '{"mcpServers": {}}' > "$dir/.agents/mcp.json"
   printf '%s\n' '{"mcp": {"servers": {}}}' > "$dir/.agents/config.json.example"
@@ -215,8 +218,10 @@ for engine in claude codex; do
   assert_marker_once "$(context_of "$("$adapter" "$adapters")")"
   assert_marker_once "$(context_of "$("$adapter" "$adapters" compact)")"
 done
-assert_marker_once "$(run_kimi_adapter "$adapters")"
-assert_marker_once "$(run_kimi_adapter "$adapters" compact)"
+if [[ -f "$adapters/.kimi/hooks/adapter.sh" ]]; then
+  assert_marker_once "$(run_kimi_adapter "$adapters")"
+  assert_marker_once "$(run_kimi_adapter "$adapters" compact)"
+fi
 
 # Disabled learning must remain absent through each real adapter path.
 write_config "$adapters" true false
@@ -224,6 +229,8 @@ for engine in claude codex; do
   adapter="run_${engine}_adapter"
   assert_not_contains "$(context_of "$("$adapter" "$adapters")")" '[learning-output-style:v1]'
 done
-assert_not_contains "$(run_kimi_adapter "$adapters")" '[learning-output-style:v1]'
+if [[ -f "$adapters/.kimi/hooks/adapter.sh" ]]; then
+  assert_not_contains "$(run_kimi_adapter "$adapters")" '[learning-output-style:v1]'
+fi
 
 printf 'PASS: session-start policy\n'

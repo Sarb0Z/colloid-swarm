@@ -2,7 +2,7 @@
 
 > **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
 > (the native agent definition that pins `model: sonnet`). Dispatch research via
-> `Task(subagent_type='researcher', prompt='[genome stamp] + [question]')` so the
+> `Task(subagent_type='researcher', prompt='[question]')` so the
 > cell runs on Sonnet, not the parent model. On other engines, prepend this file
 > to the prompt manually.
 
@@ -113,6 +113,11 @@ it isn't a finding.
 
 ## You are a leaf
 
-You dispatch nothing — you search and return. (If a question were ever large
-enough to warrant sub-delegation, the per-edge rule still holds: stamp any child
-with its own fresh genome. But a researcher almost never needs to.)
+You dispatch nothing — you search and return. (A question large enough to
+warrant sub-delegation is rare, and splitting one rarely beats reading further.)
+<!-- colloid-only -->
+
+Your own dispatch carried a genome stamp ahead of the question —
+`prompt='[genome stamp] + [question]'`. The per-edge rule holds for any child you
+ever spawn: stamp it with its own fresh genome.
+<!-- /colloid-only -->

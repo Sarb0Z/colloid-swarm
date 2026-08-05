@@ -333,7 +333,6 @@ worth nothing.
 
 ## Delegating
 
-Researchers are cells like any other — stamp each with a genome and dispatch.
 Scope first:
 
 - **Bounded question, one known target** — do it inline. No cell.
@@ -343,6 +342,9 @@ Scope first:
   per-dimension split makes every researcher re-find the same pages. Past eight,
   prioritise the target list rather than widening the fan — each cell runs
   unmetered searches, and a sweep nobody reads costs the same as one that lands.
+<!-- colloid-only -->
+
+Researchers are cells like any other — stamp each with a genome and dispatch:
 
 ```sh
 .agents/genome.sh mycelium --register none      # single sweep: trace every source
@@ -357,6 +359,7 @@ stamps so the targets are not all read through the same lens.
 `panspermia`, which instructs a cell to *"dream weirder"* and prefer wild
 conjecture over a safe answer — the exact opposite of a contract whose first rule
 is never to assert what it did not read in a source this run.
+<!-- /colloid-only -->
 
 **Delegation is an accelerant, not a dependency.** Where the engine exposes a
 subagent mechanism, use it; where it does not, work the targets in sequence in
@@ -365,9 +368,15 @@ the sweeps run concurrently in isolated context.
 
 | Engine | Dispatch |
 |---|---|
-| Claude Code | `Task(subagent_type='researcher', prompt='[stamp] + [brief]')` — pins the cell to Sonnet instead of the parent model |
-| Kimi CLI | the `Agent` tool, or `AgentSwarm` for the broad-sweep fan-out; prepend `.agents/personas/researcher.md` to the prompt |
+| Claude Code | `Task(subagent_type='researcher', prompt='[brief]')` — pins the cell to Sonnet instead of the parent model |
+| Kimi CLI | the `Agent` tool; prepend `.agents/personas/researcher.md` to the prompt |
 | Codex, or any engine with no subagent primitive | apply `.agents/personas/researcher.md` yourself, then work each target in sequence |
+<!-- colloid-only -->
+
+Every dispatch carries its stamp ahead of the brief — under Claude Code,
+`prompt='[stamp] + [brief]'`. Kimi CLI also exposes `AgentSwarm`, which fits the
+broad-sweep fan-out better than one `Agent` call per target.
+<!-- /colloid-only -->
 
 `.agents/personas/researcher.md` is the engine-neutral contract and already
 carries the escalation ladder, the corroboration rules, and the
