@@ -40,34 +40,113 @@ print(d.get("project_dir", ""))
 PY
 )"
 
-files="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-seen = set()
-for p in d.get("files") or []:
-    if isinstance(p, str) and p and p not in seen:
-        seen.add(p)
-        print(p)
-PY
-)"
-
-[[ -z "$files" ]] && exit 0
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
 proj="$(pwd -P)"
 
+# One place decides what counts as a file this hook checks, so the groupers
+# below never re-answer the question and never disagree about it.
+#
+# Engines send different shapes: Claude Code absolute paths, the Codex adapter
+# paths relative to the project. Both become absolute here, or the walk upward
+# starts nowhere and every checker resolves from the root.
+#
+# In scope means inside the repository either literally or after following
+# symlinks — a workspace symlinked out of the tree is still this repository's to
+# check. The literal form travels onward, so the walk stays within the names the
+# agent actually edited rather than jumping to wherever they happen to live.
+files="$(HOOK_INPUT="$input" PROJ="$proj" python3 <<'PY'
+import json, os
+d = json.loads(os.environ["HOOK_INPUT"] or "{}")
+proj = os.environ["PROJ"]
+real_proj = os.path.realpath(proj)
+seen = set()
+for p in d.get("files") or []:
+    if not isinstance(p, str) or not p:
+        continue
+    ap = os.path.abspath(os.path.join(proj, p))
+    if not ap.startswith(proj + os.sep):
+        # $proj is physical (pwd -P) while an engine may send the path through a
+        # symlink — /tmp for /private/tmp is the everyday one. Re-express it
+        # under $proj rather than dropping it, so that every walk upward below
+        # has a terminator it will actually reach.
+        rp = os.path.realpath(ap)
+        if not rp.startswith(real_proj + os.sep):
+            continue                   # outside the repo: not ours to check
+        ap = proj + rp[len(real_proj):]
+    if ap not in seen:
+        seen.add(ap)
+        print(ap)
+PY
+)"
+
+[[ -z "$files" ]] && exit 0
+
+# The walk resolves a directory, but what runs is a binary, and once a symlink
+# is involved those are different questions: a directory inside the repository
+# can point anywhere. Judge the binary, after following links. Failing this is
+# not a reason to stop climbing — a workspace symlinked out of the tree should
+# still be checked, by the nearest binary the repository does own, which the
+# caller finds by continuing upward.
+in_repo() {
+  local resolved
+  resolved="$(cd "${1%/*}" 2>/dev/null && pwd -P)" || return 1
+  [[ "$resolved" == "$proj" || "$resolved" == "$proj"/* ]]
+}
+
 # A Python repository usually keeps its tools in a virtualenv rather than on
 # PATH, and a session that has not activated it would otherwise get a gate that
-# reports success having run nothing. Resolve repo-local first, like tsc.
+# reports success having run nothing. Resolve repo-local first, like tsc — and
+# like tsc, walk up from the edited file, because a monorepo puts the environment
+# beside the package it serves (apps/api/.venv) rather than at the root. Every
+# path arriving here is already absolute and already in scope.
+#
+# Sets PY_TOOL_DIR and PY_TOOL_BIN rather than printing them: this runs once per
+# edited file, and a command substitution per call costs a fork the answer almost
+# never changes across. PY_TOOL_DIR is the working directory the tool must run
+# in — pyright reads its interpreter and config from there, so a batch spanning
+# two packages needs one run per environment.
+declare -A py_tool_cache=()
 resolve_py_tool() {
-  local name="$1" candidate
-  for candidate in "${VIRTUAL_ENV:-}/bin/$name" "$proj/.venv/bin/$name" "$proj/venv/bin/$name"; do
-    if [[ -x "$candidate" ]]; then printf '%s\n' "$candidate"; return 0; fi
+  local name="$1" dir="$2" candidate key
+  PY_TOOL_DIR=""; PY_TOOL_BIN=""
+  key="$name:$dir"
+  if [[ -n "${py_tool_cache[$key]+set}" ]]; then
+    [[ -z "${py_tool_cache[$key]}" ]] && return 1
+    PY_TOOL_DIR="${py_tool_cache[$key]%%$'\t'*}"
+    PY_TOOL_BIN="${py_tool_cache[$key]#*$'\t'}"
+    return 0
+  fi
+  while :; do
+    # node_modules/.bin too: pyright ships as an npm package, and a workspace
+    # install of it is as invisible from the root as a nested virtualenv.
+    for candidate in .venv/bin venv/bin node_modules/.bin; do
+      if [[ -x "$dir/$candidate/$name" ]] && in_repo "$dir/$candidate/$name"; then
+        PY_TOOL_DIR="$dir"; PY_TOOL_BIN="$dir/$candidate/$name"
+        py_tool_cache[$key]="$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"
+        return 0
+      fi
+    done
+    [[ "$dir" == "$proj" ]] && break
+    dir="${dir%/*}"
+    [[ -z "$dir" ]] && dir="$proj"
   done
-  if command -v "$name" >/dev/null 2>&1; then printf '%s\n' "$name"; return 0; fi
-  return 1
+  # Only once the repository has nothing to offer: an activated environment, then
+  # PATH. Proximity outranks $VIRTUAL_ENV rather than the reverse, because a
+  # short-circuit here would collapse a batch spanning two packages onto one
+  # interpreter — and an activated environment is a developer's normal state, so
+  # that collapse would be the common case rather than the corner.
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "$VIRTUAL_ENV/bin/$name" ]]; then
+    PY_TOOL_DIR="$proj"; PY_TOOL_BIN="$VIRTUAL_ENV/bin/$name"
+  elif command -v "$name" >/dev/null 2>&1; then
+    PY_TOOL_DIR="$proj"; PY_TOOL_BIN="$name"
+  else
+    py_tool_cache[$key]=""
+    return 1
+  fi
+  py_tool_cache[$key]="$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"
+  return 0
 }
-ruff_bin="$(resolve_py_tool ruff || true)"
 
 issues=""
 ts_edited=""      # .ts/.tsx — typechecked by tsc, per workspace
@@ -80,9 +159,19 @@ while IFS= read -r f; do
   [[ -z "$f" || ! -f "$f" ]] && continue
   rel="${f#$proj/}"
 
+  # Every per-workspace grouping below is tab-delimited, so a tab inside a path
+  # would split into two names that do not exist — every tool would fail, the
+  # failure would be swallowed, and the gate would pass having checked nothing.
+  # Refuse the file loudly instead; a silent skip is the bug being avoided.
+  if [[ "$f" == *$'\t'* ]]; then
+    issues+=$'\n'"[skipped] no checker can run on this path — a tab in a filename splits every per-workspace grouping below. Rename it: $rel"$'\n'
+    continue
+  fi
+
   case "$f" in
     *.py)
-      if [[ -n "$ruff_bin" ]]; then
+      if resolve_py_tool ruff "${f%/*}"; then
+        ruff_bin="$PY_TOOL_BIN"
         "$ruff_bin" check --fix --force-exclude --quiet "$f" >/dev/null 2>&1 || true
         "$ruff_bin" format --force-exclude --quiet "$f" >/dev/null 2>&1 || true
         if ! check_out="$("$ruff_bin" check --force-exclude --quiet --output-format=concise "$f" 2>&1)"; then
@@ -207,19 +296,15 @@ def project_for(workspace, target_file):
 
 
 groups = {}
-for p in os.environ["TS_FILES"].splitlines():
-    p = p.strip()
-    if not p:
-        continue
-    ap = os.path.realpath(p if os.path.isabs(p) else os.path.join(proj, p))
-    if not (ap == proj or ap.startswith(proj + os.sep)):
-        continue                       # outside the repo: not ours to check
+for ap in os.environ["TS_FILES"].splitlines():
+    if not ap:
+        continue                       # already absolute and already in scope
     d = os.path.dirname(ap)
     while True:
         if os.path.isfile(os.path.join(d, "tsconfig.json")):
             groups.setdefault((d, project_for(d, ap)), []).append(os.path.relpath(ap, d))
             break
-        if d == proj:
+        if d == proj or d == os.path.dirname(d):
             break                      # no tsconfig anywhere above: skip
         d = os.path.dirname(d)
 
@@ -268,25 +353,77 @@ fi
 # report-only: unlike ruff, its --fix reaches past formatting (import pruning,
 # let->const, plugin rewrites) and could rewrite the file under the agent
 # mid-edit, so we surface errors and let the agent fix them. Config resolution is
-# eslint/prettier's own job; a root-hoisted binary is used (skipped if absent).
+# eslint/prettier's own job; this only has to find a binary that can run.
 if [[ -n "$js_ts_edited" ]]; then
-  jsfiles=()
-  while IFS= read -r jf; do [[ -n "$jf" ]] && jsfiles+=("$jf"); done <<< "$js_ts_edited"
+  # bun and npm both install a workspace's own devDependencies inside that
+  # workspace, so a monorepo holds one eslint per app and a root that holds
+  # none. Resolving from the root alone gives a gate that reports success
+  # having run nothing. Group the edited files by the nearest
+  # node_modules/.bin holding the tool, and run one pass per binary; a file
+  # with no binary above it is skipped, as before.
+  js_groups() {
+    JS_FILES="$js_ts_edited" PROJ="$proj" TOOL="$1" python3 <<'PY'
+import os
+proj, tool = os.environ["PROJ"], os.environ["TOOL"]
+real_proj = os.path.realpath(proj)
+groups = {}
+for ap in os.environ["JS_FILES"].splitlines():
+    if not ap:
+        continue                       # already absolute and already in scope
+    d = os.path.dirname(ap)
+    while True:
+        candidate = os.path.join(d, "node_modules", ".bin", tool)
+        # Same rule the shell's in_repo applies: judge the directory holding the
+        # binary, never the binary's own link target. A .bin entry is a symlink
+        # by construction and pnpm's can point into a store outside the project,
+        # so following it would disarm the gate for every pnpm repository. What
+        # must stay inside the repository is the directory, because that is what
+        # a symlinked workspace can move. Keep climbing when it does not.
+        holder = os.path.realpath(os.path.dirname(candidate))
+        if os.access(candidate, os.X_OK) and (holder == real_proj or holder.startswith(real_proj + os.sep)):
+            groups.setdefault(candidate, []).append(ap)
+            break
+        if d == proj or d == os.path.dirname(d):
+            break                      # no install anywhere above: skip
+        d = os.path.dirname(d)
+for binary, files in groups.items():
+    print("\t".join([binary] + files))
+PY
+  }
 
   # A file that was already clean reformats to itself. A file that was not gets
   # rewritten whole, and that diff can dwarf the edit the agent actually made —
   # so record which files moved and say so, rather than changing them in silence.
-  if [[ -x "$proj/node_modules/.bin/prettier" ]]; then
-    pre_dirty="$("$proj/node_modules/.bin/prettier" --list-different "${jsfiles[@]}" 2>/dev/null || true)"
-    "$proj/node_modules/.bin/prettier" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
-    [[ -n "$pre_dirty" ]] && reformatted="$(printf '%s\n' "$pre_dirty" | sed "s|^$proj/||")"
-  fi
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    prettier_bin="${line%%$'\t'*}"
+    IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+    # Stay in $proj. Prettier finds its config from each file's own path, so the
+    # workspace's .prettierrc applies either way — and --list-different prints
+    # relative to the working directory, so running elsewhere would label
+    # apps/web/src/a.js and apps/api/src/a.js both as src/a.js.
+    pre_dirty="$("$prettier_bin" --list-different "${jsfiles[@]}" 2>/dev/null || true)"
+    "$prettier_bin" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
+    [[ -n "$pre_dirty" ]] && reformatted+="$pre_dirty"$'\n'
+  done <<< "$(js_groups prettier)"
+  reformatted="${reformatted%$'\n'}"
 
   # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for it
   # exits 2 with an empty stdout — indistinguishable from "no errors found" to a
   # reader that only greps stdout. json is core and stable across both majors.
-  if [[ -x "$proj/node_modules/.bin/eslint" ]]; then
-    eslint_raw="$("$proj/node_modules/.bin/eslint" --format json "${jsfiles[@]}" 2>/dev/null || true)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    eslint_bin="${line%%$'\t'*}"
+    IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+    # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
+    # resolve a config, which a stdout-only reader cannot tell apart from a
+    # clean run — the same trap the --format note above describes, one level up.
+    eslint_rc=0
+    eslint_raw="$(cd "${eslint_bin%/node_modules/.bin/*}" && "$eslint_bin" --format json "${jsfiles[@]}" 2>/dev/null)" || eslint_rc=$?
+    if [[ "$eslint_rc" -ne 0 && -z "$eslint_raw" ]]; then
+      issues+=$'\n'"[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted."$'\n'
+      continue
+    fi
     eslint_errs="$(HOOK_INPUT="$eslint_raw" PROJ="$proj" python3 <<'EPY' || true
 import json, os
 try:
@@ -308,24 +445,50 @@ EPY
     if [[ -n "$eslint_errs" ]]; then
       issues+=$'\n'"[eslint] (scoped to edited files; errors only)"$'\n'"$eslint_errs"$'\n'
     fi
-  fi
+  done <<< "$(js_groups eslint)"
 fi
 
 # Python type gate: ruff is lint/format only — it does no type inference, so
 # None-flow, wrong-arg-type, and missing-return bugs pass it. Pyright fills that.
 if [[ -n "$py_edited" ]]; then
-  pyfiles=()
-  while IFS= read -r pf; do [[ -n "$pf" ]] && pyfiles+=("$pf"); done <<< "$py_edited"
+  # pyright takes its interpreter from the environment it runs in, so one binary
+  # cannot serve a batch that spans two packages: run it against the wrong
+  # virtualenv and every third-party import is reportMissingImports at error
+  # severity — a blocking false positive, which is worse than no gate. Group the
+  # files by resolved environment and run one pass per group, from that
+  # environment's own directory so its pyproject/pyrightconfig is the one read.
+  py_pairs=""
+  while IFS= read -r pf; do
+    [[ -z "$pf" ]] && continue
+    resolve_py_tool pyright "${pf%/*}" || continue
+    py_pairs+="$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"$'\t'"$pf"$'\n'
+  done <<< "$py_edited"
 
-  pyright_bin=""
-  if [[ -x "$proj/node_modules/.bin/pyright" ]]; then
-    pyright_bin="$proj/node_modules/.bin/pyright"
-  elif pyright_bin="$(resolve_py_tool pyright)"; then
-    :
-  fi
+  while IFS=$'\t' read -r py_ws pyright_bin; do
+    [[ -z "$pyright_bin" ]] && continue
+    pyfiles=()
+    while IFS=$'\t' read -r w b pf; do
+      [[ "$w" == "$py_ws" && "$b" == "$pyright_bin" ]] && pyfiles+=("$pf")
+    done <<< "$py_pairs"
+    [[ ${#pyfiles[@]} -eq 0 ]] && continue
 
-  if [[ -n "$pyright_bin" ]]; then
-    pyright_raw="$("$pyright_bin" --outputjson "${pyfiles[@]}" 2>/dev/null || true)"
+    # cwd settles which pyrightconfig.json / [tool.pyright] applies. It does not
+    # settle the interpreter: with no pythonPath configured pyright takes
+    # `python` from PATH, and it ignores $VIRTUAL_ENV by design. Left alone, a
+    # package's own environment is never consulted and every third-party import
+    # comes back missing at error severity — a gate that blocks on nothing.
+    py_interp=""
+    case "$pyright_bin" in
+      */.venv/bin/pyright|*/venv/bin/pyright)
+        [[ -x "${pyright_bin%/pyright}/python" ]] && py_interp="${pyright_bin%/pyright}/python" ;;
+      *)
+        [[ -x "$py_ws/.venv/bin/python" ]] && py_interp="$py_ws/.venv/bin/python" ;;
+    esac
+    if [[ -n "$py_interp" ]]; then
+      pyright_raw="$(cd "$py_ws" && "$pyright_bin" --pythonpath "$py_interp" --outputjson "${pyfiles[@]}" 2>/dev/null || true)"
+    else
+      pyright_raw="$(cd "$py_ws" && "$pyright_bin" --outputjson "${pyfiles[@]}" 2>/dev/null || true)"
+    fi
     if [[ -n "$pyright_raw" ]]; then
       scoped="$(HOOK_INPUT="$pyright_raw" PROJ="$proj" python3 <<'PY'
 import json, os
@@ -347,7 +510,7 @@ PY
 )"
       [[ -n "$scoped" ]] && issues+=$'\n'"[pyright] (scoped to edited files)"$'\n'"$scoped"$'\n'
     fi
-  fi
+  done <<< "$(printf '%s' "$py_pairs" | cut -f1,2 | sort -u)"
 fi
 
 # Tombstones: diary/changelog narration added in this edit. Advisory only —
