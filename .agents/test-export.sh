@@ -32,7 +32,8 @@ fi
 for path in .agents/genome.sh .agents/mutagen.sh .agents/hooks/policy/genome-guard.sh \
             .agents/skills/panspermia-mutation .agents/eval .agents/fixtures \
             .agents/breadcrumbs.md .agents/debt-log.md .agents/export-scaffold.py \
-            .agents/test-export.sh; do
+            .agents/test-export.sh .agents/knowledge/index.md \
+            .agents/knowledge/research .agents/knowledge/transcripts; do
   if [[ -e "$workspace/kit/$path" ]]; then fail "export still carries $path"; fi
 done
 
@@ -46,6 +47,12 @@ done
 
 [[ -f "$workspace/kit/export/README.md" ]] || fail "export omitted its own transplant guide"
 [[ -x "$workspace/kit/export/drop-server.py" ]] || fail "export omitted drop-server.py"
+
+# The knowledge store splits in two: the entries above are dropped as this
+# repository's content, but the contract must arrive or the satellite inherits
+# an undocumented directory it will never write to.
+[[ -f "$workspace/kit/.agents/knowledge/README.md" ]] \
+  || fail "export omitted the knowledge contract"
 
 # --- Each posture must survive a real install --------------------------------
 install_posture() {           # <name> <keep-security-mcp> <keep-kimi>
