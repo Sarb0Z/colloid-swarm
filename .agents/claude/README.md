@@ -159,10 +159,17 @@ edits don't turn into repo-wide cleanup missions.
 | Extension | Tools run | Configured by |
 |-----------|-----------|---------------|
 | `*.py` | `ruff check --fix` → `ruff format` → `ruff check` (residuals) | `pyproject.toml` `[tool.ruff]` |
-| `*.ts`, `*.tsx` | `tsc --noEmit --incremental` (output scoped to edited files) | `frontend/tsconfig.json` |
+| `*.py` | `pyright --outputjson` (errors only, scoped to edited files) | `pyrightconfig.json` or `[tool.pyright]`, per package |
+| `*.ts`, `*.tsx` | `tsc --noEmit --incremental` (scoped to edited files) | the nearest `tsconfig.json` above the file |
+| `*.ts`, `*.tsx`, `*.js`, `*.jsx`, `*.mjs`, `*.cjs` | `prettier --write` (advisory when it rewrites) then `eslint --format json` (errors only) | `.prettierrc` / `eslint.config.*`, per workspace |
+| `skills/<name>/*.md` | `lint-skills.sh` on the owning skill | the script itself |
 
-Tools that aren't installed are silently skipped. Install a tool to opt
-in; drop the config to tune rules.
+Every tool is resolved from the edited file's own workspace, walking up to
+the repository root: a monorepo keeps `ruff` in `apps/api/.venv` and `eslint`
+in `apps/web/node_modules`, and neither is visible from the root. A tool that
+is installed nowhere above the file is skipped silently — but a tool that runs
+and fails to produce a report is reported, because the two are
+indistinguishable from an exit code alone.
 
 It also runs an **advisory tombstone check** (`hooks.post_edit_check.tombstone_check`,
 default on): the added lines of the edit (vs `HEAD` — no mid-session commits, by
@@ -600,14 +607,10 @@ voice, not a variable persona (see `genome-guard.sh` above).
 
 Intentionally deferred — YAGNI beats pre-emptive tooling:
 
-- **ESLint + `@typescript-eslint`** — stray `any`, unused vars, non-null-
-  assertion abuse in the frontend. Add `eslint.config.js` in `frontend/`
-  and extend `post-edit-check.sh` dispatch.
 - **jscpd** — cross-file duplicate detection. Too slow per-edit; wire
   into a `Stop` or `PreCompact` hook.
-- **mypy** / **pyright** — mypy is installed. Not wired because without
-  a repo-wide type config they produce pre-existing noise. Add
-  `[tool.mypy]` with `strict = true` on a single package first.
+- **mypy** — pyright already covers the type gate. A second checker would
+  double the noise for one more opinion.
 
 ## Runtime requirements
 
