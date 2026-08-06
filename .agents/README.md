@@ -20,6 +20,7 @@ format or location) pointing back here. Edit things here, once.
 | `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded | data, not auto-loaded |
 | `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | surfaced by the SessionStart hook |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — | committed; pulled on demand |
+| `knowledge/` | Dated observations from outside the repository — research findings and human transcripts. `README.md` states the contract; `index.md` is what a reader loads instead of the folder | committed; read via the index on demand, not auto-surfaced | — | committed; read via the index on demand |
 | `AGENTS.md` (here + `../demo/`, `../tensium-trial/`, `../.claude/`, `skills/<name>/`) | Scoped instructions with dual `applyTo`/`paths` frontmatter | `.claude/rules/<skill>.md` + sibling `CLAUDE.md` → symlinks | native (root `AGENTS.md` points to subtree files) | native (root `AGENTS.md` points to subtree files) |
 <!-- colloid-only -->
 

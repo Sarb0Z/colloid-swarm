@@ -13,6 +13,12 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — the observation that would justify paying it off.
 - **Rework** — what the fix costs.
 
+### colloid-knowledge-index-markdown
+
+- **Condition** — `.agents/knowledge/index.md` is a markdown bullet list, but it is the one record-shaped file in the store (date, kind, subject, summary) and the one meant to be scanned rather than read. Benchmarks on nested-data retrieval put YAML ahead of markdown on two of three models tested (GPT-5 Nano 62.1% vs 54.3%; Gemini 2.5 Flash Lite 51.9% vs 48.2%), so a YAML index may retrieve better. Acceptable: that test used deeply nested Terraform configs at stress volume, where this index is flat and currently one line; a larger study (9,649 trials, 11 models) found no significant aggregate format effect, and markdown costs fewer tokens.
+- **Trigger** — the index passes a few dozen entries, or gains a field worth filtering on (staleness sweeps, per-competitor lookup) rather than reading top to bottom.
+- **Rework** — convert `index.md` to `index.yaml`, update the write instructions in `market-researcher` step 11 and `search-and-cite`, and add a parser wherever it is read; ~40 lines, plus a YAML dependency for any non-model reader.
+
 ### colloid-wrap-concurrent-attribution
 
 - **Condition** — `session-wrap.sh` cannot tell which session authored a commit or a working-tree change, so two concurrent sessions in one working tree each measure the other's work: session B can be handed session A's files and told to review them. Acceptable: one working tree per session is the normal shape, both measures already read shared state (the tree, HEAD), and the wrap is a skippable prompt.

@@ -110,8 +110,10 @@ for its own sake—if something is unused or being replaced, delete it outright.
 Comments and docs describe the code **as it is now**, never its history. The
 diff is the history — don't narrate it. Never write "previously", "used to",
 "was refactored", "changed from", dates, or changelog notes in code or docs.
+The one date this permits is an observation's own timestamp under
+`.agents/knowledge/`, which scopes the claim rather than narrating a change.
 
-What doesn't belong inline has two homes, split by lifecycle:
+What doesn't belong inline has three homes. Two split by lifecycle:
 - **`.agents/breadcrumbs.md`** — deferred *work*: a queue. One line each; the
   SessionStart hook re-surfaces unaddressed items. Act on it, or delete the line.
 - **`.agents/debt-log.md`** — standing tradeoffs and deferred *decisions*: the
@@ -121,6 +123,14 @@ What doesn't belong inline has two homes, split by lifecycle:
   would justify fixing it, and the rework cost. Reference it from code as
   `debt: <id>` — the pointer goes inline, never the reasoning. Not auto-surfaced;
   pulled on demand when you touch that code.
+
+The third sits on a different axis — not deferred internal work, but what the
+repository cannot tell you about itself:
+- **`.agents/knowledge/`** — dated observations from outside the repository:
+  competitor teardowns, prior art, benchmark numbers, and human transcripts.
+  The test is whether deleting the entry loses anything an agent could rebuild
+  by reading the tree. Read `index.md`, not the folder. `README.md` there is
+  the contract. A finding that also produces work gets a breadcrumb line too.
 
 When a subproject surfaces mid-task, classify before acting: **blocking** (A
 can't complete without it) → checkpoint A and re-scope to it; **non-blocking**

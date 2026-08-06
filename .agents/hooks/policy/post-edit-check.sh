@@ -552,6 +552,11 @@ DOC_EXT = (".md", ".mdx", ".markdown", ".rst", ".txt")
 # Files whose whole job is to narrate history — exempt, or they nag on every edit.
 SKIP_NAMES = re.compile(r'^(CHANGELOG|CHANGES|HISTORY|RELEASES?|NEWS|MIGRATION|UPGRADING)(\.|$)', re.I)
 
+# The knowledge store holds dated observations of things outside this
+# repository. An entry reporting that a claim "no longer" holds describes a
+# source that moved, not a change to this code, so the rule does not reach it.
+SKIP_PATHS = re.compile(r'(^|/)\.agents/knowledge/')
+
 # A banned phrase inside double-quotes/backticks is a citation (defining or
 # discussing the word), not narration — strip those spans before matching so this
 # rule and its own docs don't trip it, while bare `// previously returned X`
@@ -585,6 +590,8 @@ def added_lines(f):
 hits, seen = [], set()
 for f in files:
     if not os.path.isfile(f) or SKIP_NAMES.match(os.path.basename(f)):
+        continue
+    if SKIP_PATHS.search(rel_of(f)):
         continue
     is_doc = f.lower().endswith(DOC_EXT)
     for ln in added_lines(f):

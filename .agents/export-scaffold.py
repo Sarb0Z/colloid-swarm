@@ -51,6 +51,14 @@ DROPPED_PATHS = (
     # keeps its own, and the transplant must never overwrite them.
     ".agents/breadcrumbs.md",
     ".agents/debt-log.md",
+    # Knowledge entries are that same class -- observations this repository
+    # made, meaningless in a satellite. Its `README.md` is the exception and
+    # travels, because it is the contract rather than content. That split is
+    # why the entries sit one level down: it keeps them droppable as whole
+    # paths, with no per-file rule reaching inside the directory.
+    ".agents/knowledge/index.md",
+    ".agents/knowledge/research",
+    ".agents/knowledge/transcripts",
 )
 
 # Policy files the export omits. Any hook entry naming one is removed from every

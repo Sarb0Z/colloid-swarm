@@ -120,6 +120,24 @@ backstop for the URLs you actually read (`fetch`/`browse` rows are real URLs;
 `search` rows hold the query, not the result link). Transient and gitignored;
 safe to delete.
 
+## File what a cell found
+
+The ledger records that a lookup happened. It carries no findings and is not
+committed, so nothing later reads it for answers.
+
+**When you delegated a cell, file what it returned.** Delegation is the test
+that the question was substantial — that is what the line at the top of this
+skill draws — and the answer is a dated observation of something outside the
+repository. Write it to `.agents/knowledge/research/` and add its index line.
+The entry contract is in `.agents/knowledge/README.md`.
+
+**An inline lookup files nothing.** One fact does not earn an entry, and a store
+padded with one-line entries is a store nobody opens.
+
+You file, never the cell. The cell answers one angle and hands it back; you hold
+the question it was cut from, so only you can write an entry that reads as an
+answer rather than a fragment.
+
 ## On other engines
 
 `researcher.md` and this skill are engine-neutral — the researcher cell and the

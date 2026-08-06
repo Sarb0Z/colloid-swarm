@@ -34,7 +34,19 @@ Research progress:
 - [ ] 8. Chase every [S] claim to its primary source
 - [ ] 9. Write up: graded claims, named gaps, folklore flagged
 - [ ] 10. Close with what transfers, what does not, and which constraints moved
+- [ ] 11. File the report in `.agents/knowledge/research/`
 ```
+
+**Read `.agents/knowledge/index.md` first.** Earlier sweeps are filed there, one
+line each with its date. Open any entry whose subject overlaps this brief. It
+gives you a starting target list and the gaps the last pass could not close, and
+it stops you paying full price to rediscover what the store already holds.
+
+Treat a filed entry as evidence with an expiry, never as a settled fact. Prices,
+tiers, and thresholds move, so re-verify anything load-bearing that is more than
+a few months old and file the new reading rather than editing the old one. An
+entry the market has moved past is itself a finding: name the drift in the
+write-up.
 
 ### 1. State our constraints
 
@@ -330,6 +342,20 @@ constraint away must say so out loud.
 **Correct the brief.** If the request named a source, person, or premise that does
 not check out, say so plainly. Research that only confirms its own framing is
 worth nothing.
+
+### 11. File the report
+
+Write the report to `.agents/knowledge/research/YYYY-MM-DD-<subject>.md`, then
+add its line to `.agents/knowledge/index.md`. The entry contract — frontmatter
+fields, index line shape, and why an entry is never revised in place — is in
+`.agents/knowledge/README.md`. Read it once; do not restate it here.
+
+File the report you wrote, whole. The grades, the thin-section warnings, and the
+"Could not verify" list are what make it re-readable months later; a version
+trimmed to conclusions is a set of unsourced assertions, which is the object
+this skill exists to avoid producing.
+
+Answer the caller in the same turn. The file is the record, not the reply.
 
 ## Delegating
 
