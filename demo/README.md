@@ -6,9 +6,8 @@ One command, live output, no slides:
 bash demo/demo.sh
 ```
 
-It exercises the three runnable cores of the mechanical layer against real
-inputs and prints what they actually emit. A fourth beat verifies the
-progressive-disclosure fan-out live.
+It exercises the runnable cores of the mechanical layer against real inputs and
+prints what they actually emit. Every beat runs offline.
 
 ## The beats
 
@@ -28,6 +27,18 @@ progressive-disclosure fan-out live.
    canonical instruction files, verifies every fan-out symlink
    (`.claude/rules/`, `.github/instructions/`, sibling `CLAUDE.md`) resolves,
    and shows one rule reached through three tool doors.
+5. **Scaffold export** (`.agents/export-scaffold.py`) — emits the satellite copy
+   into a temporary directory, then proves the subtraction held: every dropped
+   path is absent, no engine's hook table still names a dropped policy, no
+   `colloid-only` marker line survives, and the genome config keys are gone. The
+   assertions read the export's own drop lists, so a new entry is checked here
+   the moment it is added.
+6. **Repository-owned MCP** (`.agents/mcp-servers/`) — speaks the real MCP
+   handshake to both committed bundles over stdio, lists the tools each
+   registers, then calls the two guards. `security-mcp` allows loopback and
+   refuses a public host and a cloud-metadata address; `research-mcp` refuses
+   link-local, loopback, and `file://`. Both refuse before opening a socket,
+   which is why this beat needs no network.
 
 ## The "it's real" moment
 
@@ -35,6 +46,12 @@ The live session's own guard is wired to this same script. Writing `rm -rf ~`
 straight into a shell here gets **blocked before it runs** — the demo assembles
 its probe payloads at runtime specifically so presenting it doesn't trip the
 very membrane it's demonstrating. The scaffold governs the session showing it.
+
+## Requirements
+
+`bash` and `python3` cover beats 1-5. Beat 6 also needs Node `>=20.19.0` to run
+the MCP bundles; without it that beat prints a SKIP notice and the rest still
+runs.
 
 ## What isn't in this script
 
