@@ -201,11 +201,6 @@ def tracked_paths():
     return {entry for entry in result.stdout.split("\0") if entry}
 
 
-def unmodified(rel):
-    """True when the worktree copy matches the index, so git can give it back."""
-    return git("diff", "--quiet", "--", rel) is not None
-
-
 # Directories the prune may consider. Everything else under .claude/ — most
 # importantly the gitignored, per-operator settings.local.json — is out of reach.
 MANAGED = (".claude/agents/", ".claude/skills/", ".claude/rules/")
@@ -286,7 +281,7 @@ if check:
     for prefix in DANGLING_SCAN:
         for rel in dangling(prefix):
             if rel in (known or set()):
-                drift.append(f"{rel} (dangling)")
+                drift.append(f"{rel} (dangling — remove it: git rm {rel})")
 
     if known is None:
         raise SystemExit("sync-claude-agents: --check needs a git work tree; "
@@ -304,7 +299,7 @@ if check:
             # from the worktree is a deletion still to be staged, which is drift.
             if managed(rel) and os.path.lexists(path) and ours(path) is False:
                 continue          # the operator's own file, deliberately committed
-            drift.append(f"{rel} (tracked, not generated)")
+            drift.append(f"{rel} (tracked, not generated — remove it: git rm {rel})")
         for rel in sorted(set(plan) - known):
             drift.append(f"{rel} (generated, not tracked — commit it)")
 else:
@@ -345,30 +340,6 @@ else:
         else:
             replace(path, lambda temporary, payload=payload: os.symlink(payload, temporary))
             print("linked " + rel)
-
-    # Prune only what git can give back, or what points at nothing. An untracked
-    # real file under .claude/agents is an operator's own subagent, so it is
-    # neither deleted nor reported: git does not track it, and the manifest is
-    # what git tracks.
-    if known is None:
-        print("sync-claude-agents: git could not list .claude/; pruned nothing "
-              "except dangling links", file=sys.stderr)
-    for rel in sorted(known or set()):
-        if rel in plan or not managed(rel):
-            continue
-        path = os.path.join(repo, rel)
-        if not os.path.lexists(path):
-            continue
-        # A local edit is not in the index, so deleting the file destroys it.
-        # `git can give it back` is only true of what git already holds.
-        if ours(path) is not True:
-            continue          # the operator's, or unreadable: not this script's to delete
-        if not unmodified(rel):
-            print(f"sync-claude-agents: {rel} is not generated but has uncommitted "
-                  "changes; left alone", file=sys.stderr)
-            continue
-        os.unlink(path)
-        print(f"pruned {rel} (restore: git checkout -- {rel})")
 
 # --- Report -----------------------------------------------------------------
 if blocked:
