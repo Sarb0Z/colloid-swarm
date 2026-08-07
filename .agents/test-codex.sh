@@ -227,6 +227,40 @@ fi
     | ../.codex/hooks/adapter.sh stop-investigate.sh >/dev/null
 )
 
+# A generation failure must leave .codex/ untouched and the hooks armed. Both
+# properties are invisible to a passing sync, so drive one that throws: a
+# persona carrying the TOML delimiter makes toml_multiline raise after the first
+# agent TOML would otherwise have been written.
+txn="$(mktemp -d)"
+trap 'rm -rf "$txn"' EXIT
+cp -R "$repo/.agents" "$txn/.agents"
+git -C "$txn" init -q
+"$txn/.agents/sync-codex.sh" --no-trust >/dev/null 2>&1
+# trust-hooks.py owns the operator's ~/.codex/config.toml, so the test observes
+# a stand-in rather than letting the suite write there.
+cat > "$txn/.agents/codex/trust-hooks.py" <<'STUB'
+#!/usr/bin/env python3
+import os, sys
+open(os.path.join(sys.argv[1], ".trust-hooks-ran"), "w").write("ran\n")
+STUB
+chmod +x "$txn/.agents/codex/trust-hooks.py"
+printf '\nSENTINEL\n' >> "$txn/.codex/agents/researcher.toml"
+printf "\n'''\n" >> "$txn/.agents/personas/learning-reporter.md"
+if "$txn/.agents/sync-codex.sh" >/dev/null 2>&1; then
+  echo "test-codex: a persona that cannot build must fail the sync" >&2
+  exit 1
+fi
+if ! grep -q SENTINEL "$txn/.codex/agents/researcher.toml"; then
+  echo "test-codex: the aborted sync half-generated .codex/ — build every output before writing any" >&2
+  exit 1
+fi
+if [[ ! -f "$txn/.trust-hooks-ran" ]]; then
+  echo "test-codex: the aborted sync skipped the re-trust — the hooks.json re-link leaves them disarmed" >&2
+  exit 1
+fi
+rm -rf "$txn"
+trap - EXIT
+
 if [[ "$loader_checked" == "yes" ]]; then
   echo "Codex integration checks passed."
 else

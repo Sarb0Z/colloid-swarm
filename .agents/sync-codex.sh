@@ -21,7 +21,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-python3 - "$repo" "$check" <<'PY'
+status=0
+python3 - "$repo" "$check" <<'PY' || status=$?
 import json
 import os
 import sys
@@ -175,19 +176,22 @@ def codex_config():
                 print(f"sync-codex: skipping headers for {name}; only bearer environment headers are portable", file=sys.stderr)
     return config
 
-failures = []
-link(os.path.join(codex, "hooks.json"), "../.agents/codex/hooks.json")
-link(os.path.join(codex, "hooks", "adapter.sh"), "../../.agents/codex/adapter.sh")
-link(os.path.join(codex, "hooks", "README.md"), "../../.agents/codex/README.md")
-
-write(os.path.join(codex, "agents", "researcher.toml"), agent_toml(
-    "researcher",
-    "Delegate research that depends on current or external facts. Return cited evidence with confidence and date.",
-))
-write(os.path.join(codex, "agents", "learning-reporter.toml"), agent_toml(
-    "learning-reporter",
-    "Create a learning-focused session report that links each engineering decision to the code that implements it.",
-))
+# Every output is built before any of it is written. contract_body raises on a
+# missing persona and toml_multiline on one carrying the TOML delimiter, and a
+# throw part-way through the flush leaves .codex/ half-generated. The one write
+# this phase does make is the reader tier's launch config, which is a
+# precondition rather than an output: resolve_registry validates its path, and
+# it derives from nothing but the extensions directory.
+outputs = [
+    (os.path.join(codex, "agents", "researcher.toml"), agent_toml(
+        "researcher",
+        "Delegate research that depends on current or external facts. Return cited evidence with confidence and date.",
+    )),
+    (os.path.join(codex, "agents", "learning-reporter.toml"), agent_toml(
+        "learning-reporter",
+        "Create a learning-focused session report that links each engineering decision to the code that implements it.",
+    )),
+]
 
 # .codex/config.toml is the one output here that is gitignored: it derives from
 # the gitignored config.json, so no tracked baseline exists to compare it
@@ -195,7 +199,20 @@ write(os.path.join(codex, "agents", "learning-reporter.toml"), agent_toml(
 # output, so it skips this — which is also what keeps --check read-only, since
 # building the config writes the reader tier's launch file.
 if not check:
-    write(os.path.join(codex, "config.toml"), codex_config())
+    outputs.append((os.path.join(codex, "config.toml"), codex_config()))
+
+# The flush. Nothing above this line has touched .codex/.
+failures = []
+for path, content in outputs:
+    write(path, content)
+
+# Linked last, because re-linking hooks.json invalidates the trust hash of every
+# hook it changes and an untrusted hook does not run. The wrapper re-trusts
+# immediately after this script returns, so the disarmed window is one step wide
+# and does not span the generation above.
+link(os.path.join(codex, "hooks.json"), "../.agents/codex/hooks.json")
+link(os.path.join(codex, "hooks", "adapter.sh"), "../../.agents/codex/adapter.sh")
+link(os.path.join(codex, "hooks", "README.md"), "../../.agents/codex/README.md")
 
 if failures:
     print("sync-codex: generated output is stale: " + ", ".join(failures), file=sys.stderr)
@@ -204,10 +221,22 @@ PY
 
 # Rewriting hooks.json invalidates the trust hash of every hook it changed, and
 # an untrusted hook does not run. Re-trust what was just deployed, so the sync
-# leaves the hooks armed rather than silently disarmed. --check must not write.
-# Read-only, no Codex process: safe on every run, including --check.
+# leaves the hooks armed rather than silently disarmed. --check writes nothing,
+# so it has nothing to re-trust.
+#
+# This runs even when generation failed. hooks.json is a symlink to a constant
+# canonical target, so a failed re-link leaves the previous link pointing at the
+# same file: re-trusting is correct either way, and leaving the hooks disarmed
+# because a persona would not build is the worse outcome. $status still carries
+# the failure out.
+if [[ "$check" != "true" && "$trust" == "true" ]]; then
+  if ! "$repo/.agents/codex/trust-hooks.py" "$repo"; then
+    if [[ "$status" -eq 0 ]]; then status=1; fi
+  fi
+fi
+
+# Warning only, read-only, no Codex process: safe on every run, including
+# --check. It follows the re-trust so a crash here cannot disarm the hooks.
 "$repo/.agents/codex/check-mcp-conflicts.py" "$repo"
 
-if [[ "$check" != "true" && "$trust" == "true" ]]; then
-  "$repo/.agents/codex/trust-hooks.py" "$repo"
-fi
+exit "$status"
