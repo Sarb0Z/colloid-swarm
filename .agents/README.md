@@ -113,6 +113,9 @@ One file, `.agents/config.json`, controls the whole scaffold:
   override).
 - **Model routing** — `models.researcher` (etc.) drives `.agents/sync-claude-agents.sh`,
   which regenerates `.claude/agents/*.md` with the correct `model:` frontmatter.
+  Read from the tracked `config.json.example`, not the local `config.json`: the
+  frontmatter lands in a committed file, so the routing is a repository
+  decision. `.agents/sync-claude-agents.sh --check` gates the result.
 <!-- colloid-only -->
 - **Swarm behavior** — `swarm.genome_stamping`, `swarm.exempt_subagent_types`,
   `swarm.default_register`.
@@ -131,6 +134,10 @@ cp .agents/config.json.example .agents/config.json   # then tune
 ```sh
 # After editing config.json, regenerate Claude agent definitions
 .agents/sync-claude-agents.sh
+
+# Gate: exit 1 when a committed agent definition disagrees with its inputs
+.agents/sync-claude-agents.sh --check
+.agents/sync-codex.sh --check --no-trust
 ```
 
 ## Repository-owned MCP servers
