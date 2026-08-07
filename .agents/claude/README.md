@@ -78,7 +78,12 @@ policies stay engine-agnostic and never see it.
 
 ## Active policies
 
-### `guard-destructive.sh` — PreToolUse (shell)
+### `guard-destructive.sh` — PreToolUse (`Bash|PowerShell|Monitor`)
+The matcher names all three shell-running tools. A hook matcher matches the tool
+name, so `Bash` alone leaves `PowerShell` and `Monitor` unguarded even though
+both carry their command in `tool_input.command`. Monitor's WebSocket form
+carries no command, and the policy exits 0 on an empty one.
+
 Blocks irreversible shell commands: `rm -rf` on broad paths, `git push
 --force`, `git reset --hard`, `--no-verify`, SSH-into-prod mutations
 (`systemctl restart|stop|reload`, `postsuper`, `postqueue -f`, package
