@@ -46,6 +46,9 @@ jobs:
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
+      - name: Claude drift gate
+        run: .agents/test-sync-claude.sh
+
       - name: MCP generation
         run: .agents/test-mcp.sh
 

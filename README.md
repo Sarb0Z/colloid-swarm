@@ -202,6 +202,7 @@ Claude Code wires `PreToolUse`, `PostToolUse`, `Stop`, `SessionStart`,
 .agents/test-codex.sh          # Codex config generation and loader behavior
 .agents/test-export.sh         # scaffold export correctness
 .agents/test-session-start.sh  # session-start hook output
+.agents/test-sync-claude.sh    # the .claude/ drift gate, both directions
 .agents/lint-skills.sh         # skill format
 ```
 

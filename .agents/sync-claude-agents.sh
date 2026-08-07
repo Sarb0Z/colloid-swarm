@@ -31,19 +31,31 @@ src_dir="$repo/.agents/personas"
 
 [[ "$check" == "true" ]] || mkdir -p "$agents_dir"
 
-python3 - "$config" "$local_config" "$agents_dir" "$src_dir" "$check" <<'PY'
+# Both halves of the gate report together. The Python block records drift here
+# rather than exiting on it, so a stale agent definition cannot abort the run
+# before the symlinks below are compared and leave the operator fixing one
+# class per CI round.
+drift_file="$(mktemp)"
+trap 'rm -f "$drift_file"' EXIT
+
+python3 - "$config" "$local_config" "$agents_dir" "$src_dir" "$check" "$drift_file" <<'PY'
 import json, os, sys
 
-config_path, local_path, agents_dir, src_dir, check = sys.argv[1:]
+config_path, local_path, agents_dir, src_dir, check, drift_path = sys.argv[1:]
 check = check == "true"
 
 def load(path):
+    # Absent is a fresh clone; malformed is a typo the operator must see.
+    # sync-codex.sh's loader splits these the same way, which .agents/AGENTS.md
+    # requires of every sync script.
     try:
         with open(path, encoding="utf-8") as f:
             value = json.load(f)
-        return value if isinstance(value, dict) else {}
-    except Exception:
+    except FileNotFoundError:
         return {}
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"sync-claude-agents: invalid JSON in {path}: {error}")
+    return value if isinstance(value, dict) else {}
 
 # Routing comes from config.json.example, never the gitignored, per-repo
 # config.json: `model:` lands in the frontmatter of a committed file, so reading
@@ -86,7 +98,7 @@ header = (
     "and run the sync script. -->\n"
 )
 
-failures = []
+failures, emitted = [], []
 for agent in AGENTS:
     model = cfg.get("models", {}).get(agent["model_key"])
     model_line = f"model: {model}" if model else ""
@@ -124,6 +136,7 @@ for agent in AGENTS:
     output = frontmatter + "\n" + header + "\n" + body + "\n"
 
     out_path = os.path.join(agents_dir, agent["name"] + ".md")
+    emitted.append(out_path)
     if check:
         try:
             with open(out_path, encoding="utf-8") as f:
@@ -139,9 +152,23 @@ for agent in AGENTS:
 
     print("generated " + out_path + (f" (model: {model})" if model else " (no model override)"))
 
-if failures:
-    print("sync-claude-agents: generated output is stale: " + ", ".join(failures), file=sys.stderr)
-    raise SystemExit(1)
+# An agent dropped from AGENTS leaves a tracked definition behind, and Claude
+# Code keeps loading a subagent whose source contract is gone. .claude/skills
+# and .claude/rules already get pruned; this is the same rule for .claude/agents.
+for name in sorted(os.listdir(agents_dir)) if os.path.isdir(agents_dir) else []:
+    stale = os.path.join(agents_dir, name)
+    if not name.endswith(".md") or stale in emitted:
+        continue
+    if check:
+        failures.append(stale + " (not generated)")
+        continue
+    os.unlink(stale)
+    print("pruned " + stale)
+
+# Drift is data, not an exit code: the caller merges it with the symlink half.
+with open(drift_path, "a", encoding="utf-8") as f:
+    for path in failures:
+        f.write(path + "\n")
 PY
 
 # The adapter layer itself. These four have no generator — they are hand-
@@ -151,9 +178,8 @@ PY
 #
 # Every link below is tracked, so --check compares instead of writing: a skill
 # added without a re-run leaves a canonical file Claude Code never loads.
-# Accumulated as a string rather than an array — bash 3.2 errors on ${#a[@]}
-# for an empty array under set -u.
-drift=""
+drift=()
+expected=$'\n'   # newline-delimited repo-relative paths this run emits
 [[ "$check" == "true" ]] || mkdir -p "$repo/.claude/hooks" "$repo/.claude/skills" "$repo/.claude/rules"
 
 points_at() {   # dst rel — true when dst is a symlink already naming rel
@@ -161,14 +187,28 @@ points_at() {   # dst rel — true when dst is a symlink already naming rel
 }
 relink() {      # dst rel
   local dst="$1" rel="$2"
+  expected="$expected$dst"$'\n'
   if points_at "$dst" "$rel"; then return 0; fi
-  if [[ "$check" == "true" ]]; then drift="$drift $dst"; return 0; fi
+  if [[ "$check" == "true" ]]; then drift+=("$dst"); return 0; fi
+  # ln -sfn resolves a real directory destination and links *inside* it,
+  # reporting success while --check fails forever. The old rm -f aborted here.
+  if [[ -d "$repo/$dst" && ! -L "$repo/$dst" ]]; then
+    echo "sync: $dst is a directory, not a link" >&2
+    drift+=("$dst (directory)")
+    return 0
+  fi
   ln -sfn "$rel" "$repo/$dst"
   echo "linked $dst"
 }
 link() {        # source under .agents/claude, destination under .claude
   local src="$1" dst="$2" rel="$3"
-  [[ -f "$repo/$src" ]] || { echo "sync: missing source $src" >&2; return 1; }
+  # A missing canonical source is drift, not a reason to abandon the remaining
+  # comparisons — returning non-zero here would abort the whole report.
+  if [[ ! -f "$repo/$src" ]]; then
+    echo "sync: missing source $src" >&2
+    drift+=("$src (missing source)")
+    return 0
+  fi
   relink "$dst" "$rel"
 }
 link .agents/claude/settings.json .claude/settings.json    ../.agents/claude/settings.json
@@ -187,24 +227,32 @@ for skill_dir in "$repo"/.agents/skills/*/; do
   relink ".claude/rules/$n.md" "../../.agents/skills/$n/AGENTS.md"
 done
 
-# Prune links whose canonical file is gone. A removed skill would otherwise
-# leave a dangling link, and .agents/AGENTS.md reads a broken link as a missing
-# canonical file — a real defect, not a stale mirror.
+# Anything under the generated directories this run did not emit. Covers a
+# dangling link whose canonical file is gone, and equally a link that resolves
+# fine but names a skill absent from .agents/skills/ — a broken-link test sees
+# only the first, so the emitted set is the reliable answer.
 for stale in "$repo"/.claude/skills/* "$repo"/.claude/rules/*; do
-  if [[ -L "$stale" && ! -e "$stale" ]]; then
-    if [[ "$check" == "true" ]]; then drift="$drift ${stale#$repo/}"; continue; fi
-    rm -f "$stale"
-    echo "pruned ${stale#$repo/}"
-  fi
+  [[ -e "$stale" || -L "$stale" ]] || continue
+  rel="${stale#$repo/}"
+  if printf '%s' "$expected" | grep -Fxq "$rel"; then continue; fi
+  if [[ "$check" == "true" ]]; then drift+=("$rel (not generated)"); continue; fi
+  rm -f "$stale"
+  echo "pruned $rel"
 done
+
+# The Python half recorded its drift as data so both classes report together.
+while IFS= read -r line; do
+  [[ -n "$line" ]] && drift+=("${line#$repo/}")
+done < "$drift_file"
 
 # --check gates committed output and stops here. Below this line only
 # sync-mcp.sh remains, and its output is gitignored.
+if (( ${#drift[@]} > 0 )); then
+  printf 'sync-claude-agents: generated output is stale:\n' >&2
+  printf '  %s\n' "${drift[@]}" >&2
+  exit 1
+fi
 if [[ "$check" == "true" ]]; then
-  if [[ -n "${drift// /}" ]]; then
-    echo "sync-claude-agents: generated output is stale:$drift" >&2
-    exit 1
-  fi
   exit 0
 fi
 
