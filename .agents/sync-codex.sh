@@ -72,9 +72,14 @@ def link(path, target):
             failures.append(os.path.relpath(path, repo))
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.lexists(path):
-        os.unlink(path)
-    os.symlink(target, path)
+    # Same temp+rename as write(): unlink-then-symlink leaves a window with no
+    # hooks.json at all, and Codex with no hooks is worse than Codex with hooks
+    # whose trust hash the re-link just invalidated.
+    temporary = os.path.join(os.path.dirname(path), ".sync-codex-link")
+    if os.path.lexists(temporary):
+        os.unlink(temporary)
+    os.symlink(target, temporary)
+    os.replace(temporary, path)
     print("linked " + os.path.relpath(path, repo))
 
 def contract_body(name):
