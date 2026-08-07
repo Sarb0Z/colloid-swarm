@@ -72,10 +72,14 @@ def link(path, target):
             failures.append(os.path.relpath(path, repo))
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    # Same temp+rename as write(): unlink-then-symlink leaves a window with no
+    # Temp+rename, like write(): unlink-then-symlink leaves a window with no
     # hooks.json at all, and Codex with no hooks is worse than Codex with hooks
-    # whose trust hash the re-link just invalidated.
-    temporary = os.path.join(os.path.dirname(path), ".sync-codex-link")
+    # whose trust hash the re-link just invalidated. mkstemp cannot name a
+    # symlink, so the name carries the pid — a fixed one collides between two
+    # concurrent syncs and strands the loser's destination absent, which is the
+    # failure this replaces. os.replace renames the link itself, never the
+    # target it points at.
+    temporary = f"{path}.sync-codex-{os.getpid()}"
     if os.path.lexists(temporary):
         os.unlink(temporary)
     os.symlink(target, temporary)
