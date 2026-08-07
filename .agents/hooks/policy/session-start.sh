@@ -11,7 +11,8 @@
 #   context policy, never a gate (no exit 2).
 #
 #   - Learning output style instructions on each session start.
-#   - Unaddressed .agents/breadcrumbs.md items (markdown "- " bullets).
+#   - Unaddressed .agents/breadcrumbs.md items (markdown "- " bullets), capped
+#     at the oldest 10 — the head of the queue.
 #   - Registry MCP servers that are toggled off (name + description), with the
 #     sync-mcp.sh enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
@@ -202,8 +203,12 @@ EOF
     count="$(printf '%s\n' "$items" | wc -l | tr -d ' ')"
     echo "Unaddressed breadcrumbs in .agents/breadcrumbs.md (deferred non-blocking work — act on each, or delete the line):"
     if (( count > 10 )); then
-      echo "  (10 most recent of $count — prune the file)"
-      printf '%s\n' "$items" | tail -n 10
+      # Head of the queue, not the tail. New items are appended, so file order
+      # is arrival order: the first ten are the ones deferred longest. Taking
+      # the tail would pin the oldest items below the cap forever — invisible,
+      # so never acted on, so never deleted. From the head the cap drains.
+      echo "  (oldest 10 of $count — the queue head; prune the file)"
+      printf '%s\n' "$items" | head -n 10
     else
       printf '%s\n' "$items"
     fi

@@ -138,6 +138,38 @@ assert_contains "$tt_context" 'fixture breadcrumb'
 assert_not_contains "$tt_context" 'TODO'
 assert_wrap_state "$tt"
 
+write_crumbs() {
+  local dir="$1"
+  local last="$2"
+  local i
+  : > "$dir/.agents/breadcrumbs.md"
+  for i in $(seq -w 1 "$last"); do
+    printf -- '- crumb-%s\n' "$i" >> "$dir/.agents/breadcrumbs.md"
+  done
+}
+
+# Past the cap the hook shows the head of the queue, not the tail. New items are
+# appended, so a tail would pin the oldest items below the cap permanently:
+# never surfaced, so never acted on, so never deleted.
+cap="$(make_fixture breadcrumb-cap)"
+write_config "$cap" true true
+write_crumbs "$cap" 12
+cap_context="$(context_of "$(run_policy "$cap")")"
+assert_contains "$cap_context" '(oldest 10 of 12 — the queue head; prune the file)'
+assert_contains "$cap_context" '- crumb-01'
+assert_contains "$cap_context" '- crumb-10'
+assert_not_contains "$cap_context" '- crumb-11'
+assert_not_contains "$cap_context" '- crumb-12'
+
+# At the cap exactly, every item shows and no truncation notice appears.
+exact="$(make_fixture breadcrumb-exact)"
+write_config "$exact" true true
+write_crumbs "$exact" 10
+exact_context="$(context_of "$(run_policy "$exact")")"
+assert_contains "$exact_context" '- crumb-01'
+assert_contains "$exact_context" '- crumb-10'
+assert_not_contains "$exact_context" 'prune the file'
+
 # Learning off: preserve operational context and side effects.
 tf="$(make_fixture learning-off)"
 write_config "$tf" true false
