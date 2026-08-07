@@ -48,6 +48,11 @@ sync()  { ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); }
 gate()  { ( cd "$fixture" && .agents/sync-claude-agents.sh --check >/dev/null 2>&1 ); }
 # Stderr only: the drift report goes there, and stdout carries generator noise.
 report() { ( cd "$fixture" && { .agents/sync-claude-agents.sh --check >/dev/null; } 2>&1 ); }
+commit_fixture() {
+  git -C "$fixture" add -A >/dev/null 2>&1
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false \
+    commit -qm "$1" >/dev/null 2>&1 || true
+}
 
 sync || fail 'the generator must succeed on a clean fixture'
 # The gate compares against `git ls-files .claude`, so the fixture has to have a
@@ -75,26 +80,30 @@ mutate 'repointed link'           ln -sfn ../.agents/claude/README.md "$fixture/
 
 # A path git tracks that the plan does not emit: a skill removed while its links
 # stayed committed. The manifest is the only thing that sees these — the first
-# resolves fine, so no broken-link test finds it. The generator may delete them
-# because git can give them back.
+# resolves fine, so no broken-link test finds it.
+#
+# This script deletes nothing, so the gate must name the path AND the command
+# that removes it, and the generator must leave it exactly where it is.
 orphan() {
-  local name="$1"; shift
+  local name="$1" rel="$2"; shift 2
   "$@" || fail "could not apply mutation: $name"
-  git -C "$fixture" add -A >/dev/null 2>&1
-  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm "$name" >/dev/null 2>&1 \
-    || fail "could not commit mutation: $name"
+  commit_fixture "$name"
   if gate; then fail "--check passed on a tracked path the plan does not emit: $name"; fi
-  sync || fail "the generator must repair: $name"
-  # The manifest is the index, so a deletion still reads as tracked until it is
-  # staged — the gate is right to keep reporting until the removal is recorded.
-  if gate; then fail "the gate cleared before the removal was staged: $name"; fi
-  git -C "$fixture" add -A >/dev/null 2>&1
-  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm "repair $name" >/dev/null 2>&1
-  gate || fail "the generator did not repair: $name"
+  [[ "$(report || true)" == *"git rm $rel"* ]] \
+    || fail "the report named no remedy for: $name"
+  sync || fail "the generator must still succeed alongside: $name"
+  [[ -e "$fixture/$rel" || -L "$fixture/$rel" ]] \
+    || fail "the generator deleted a path it does not own: $name"
+  git -C "$fixture" rm -q -f "$rel" >/dev/null 2>&1 || fail "could not git rm: $name"
+  commit_fixture "remove $name"
+  gate || fail "the gate did not clear after git rm: $name"
 }
-orphan 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
-orphan 'tracked dangling link'    ln -sfn ../../.agents/skills/absent "$fixture/.claude/skills/gone"
-orphan 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
+orphan 'link to an unknown skill' .claude/skills/ghost \
+  ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
+orphan 'tracked dangling link'    .claude/skills/gone \
+  ln -sfn ../../.agents/skills/absent "$fixture/.claude/skills/gone"
+orphan 'orphan agent definition'  .claude/agents/orphan.md \
+  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
 # Claude Code supports hand-written project subagents, so .claude/agents is not
 # exclusively generated. Ownership is the GENERATED banner, not tracking state:
 # an operator's definition survives whether or not they committed it, and the
@@ -109,30 +118,29 @@ git -C "$fixture" add -A >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm mine >/dev/null 2>&1
 sync >/dev/null || fail 'the generator must succeed alongside a committed operator file'
 [[ -f "$fixture/.claude/agents/my-helper.md" ]] \
-  || fail 'committing an operator subagent must not forfeit it to the prune'
+  || fail 'committing an operator subagent must not forfeit it'
 grep -q 'my own subagent' "$fixture/.claude/agents/my-helper.md" \
   || fail 'the operator subagent was overwritten'
 gate || fail 'a committed operator subagent must not read as drift'
 git -C "$fixture" rm -q -f .claude/agents/my-helper.md >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unmine >/dev/null 2>&1
 
-# MANAGED is the only thing keeping the prune out of the rest of .claude/. A
-# plain file is already protected by the banner rule, so testing with one proves
-# nothing — it takes a tracked symlink, which `ours()` accepts, sitting outside
-# the three managed directories.
+# MANAGED decides which tracked-but-unplanned paths are the operator's to keep
+# and which are reported. A tracked link outside it is not an operator file, so
+# the gate must name it; a banner-less file inside it must stay silent.
 ln -sfn ../../.agents/claude/README.md "$fixture/.claude/hooks/legacy.md"
-git -C "$fixture" add -A >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm legacy >/dev/null 2>&1
+commit_fixture legacy
+if gate; then fail 'the gate ignored a tracked link outside the managed directories'; fi
 sync >/dev/null 2>&1 || true
 [[ -L "$fixture/.claude/hooks/legacy.md" ]] \
-  || fail 'the prune escaped the managed directories and deleted a tracked link'
+  || fail 'the generator deleted a tracked link it does not own'
 git -C "$fixture" rm -q -f .claude/hooks/legacy.md >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unlegacy >/dev/null 2>&1
+commit_fixture unlegacy
 gate || fail 'the gate must clear once the unmanaged link is removed'
 
-# Every way reading .agents/skills can fail must stop the run, because each one
-# otherwise yields an empty plan and an empty plan authorises deleting every
-# link. `chmod 111` is only one of four; the other three shipped once already.
+# Every way reading .agents/skills can fail must stop the run. An empty plan no
+# longer authorises deleting anything, but it would still make the gate report
+# all 28 links as stale and tell the operator to `git rm` them.
 count_links() { find "$fixture/.claude/skills" "$fixture/.claude/rules" -type l 2>/dev/null | wc -l | tr -d ' '; }
 skills_intact() {
   local label="$1" before after
@@ -177,23 +185,26 @@ gate || fail 'the fixture must be repairable after the skills-directory cases'
 # "What git can give back" means what git already holds. A tracked path the plan
 # does not emit, carrying an uncommitted edit, is not recoverable by deleting it
 # and running `git checkout --` — that restores the last commit, not the edit.
-# Carries the banner, so it is ours and otherwise prunable — which is what makes
-# the uncommitted-edit guard the only thing protecting it.
+# Carries the banner, so it is ours — and still not the generator's to delete.
+# A local edit is the case that made deleting tempting: `git checkout --` would
+# return the committed blob, not the edit, so the restore hint would have lied.
 cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/extra.md"
-git -C "$fixture" add -A >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm extra >/dev/null 2>&1
+commit_fixture extra
 printf '\nLOCAL EDIT\n' >> "$fixture/.claude/agents/extra.md"
 sync >/dev/null 2>&1 || true
 [[ -f "$fixture/.claude/agents/extra.md" ]] \
-  || fail 'the prune destroyed an uncommitted edit git cannot restore'
+  || fail 'the generator destroyed an uncommitted edit git cannot restore'
 grep -q 'LOCAL EDIT' "$fixture/.claude/agents/extra.md" \
-  || fail 'the prune replaced an uncommitted edit with the committed blob'
+  || fail 'the generator replaced an uncommitted edit with the committed blob'
 git -C "$fixture" checkout -- .claude/agents/extra.md >/dev/null 2>&1
 sync >/dev/null 2>&1 || true
-[[ -f "$fixture/.claude/agents/extra.md" ]] && fail 'a clean generated orphan must be pruned'
-git -C "$fixture" add -A >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unextra >/dev/null 2>&1
-gate || fail 'the gate must clear once the pruned orphan is staged'
+[[ -f "$fixture/.claude/agents/extra.md" ]] \
+  || fail 'the generator deleted a clean tracked orphan instead of reporting it'
+[[ "$(report || true)" == *"git rm .claude/agents/extra.md"* ]] \
+  || fail 'the report named no remedy for a tracked orphan'
+git -C "$fixture" rm -q -f .claude/agents/extra.md >/dev/null 2>&1
+commit_fixture unextra
+gate || fail 'the gate must clear once the orphan is removed by hand'
 
 # An operator subagent sharing a registry name. `researcher` is the name Claude
 # Code's own docs use in examples, so the collision is likely rather than
@@ -219,9 +230,10 @@ ln -sfn ../../.agents/skills/removed "$fixture/.claude/skills/removed"
 git -C "$fixture" add -A >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm removed >/dev/null 2>&1
 sync >/dev/null 2>&1 || true
-[[ -L "$fixture/.claude/skills/removed" ]] && fail 'a tracked dangling link must still be pruned'
-git -C "$fixture" add -A >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unremoved >/dev/null 2>&1
+[[ -L "$fixture/.claude/skills/removed" ]] \
+  || fail 'the generator deleted a tracked dangling link instead of reporting it'
+git -C "$fixture" rm -q -f .claude/skills/removed >/dev/null 2>&1
+commit_fixture unremoved
 
 # An uncommitted edit to a tracked link. Deleting it loses the edit — the
 # committed target is what `git checkout --` returns, not the operator's change.
