@@ -205,8 +205,18 @@ Claude Code wires `PreToolUse`, `PostToolUse`, `Stop`, `SessionStart`,
 .agents/lint-skills.sh         # skill format
 ```
 
-Each repository-owned MCP server also has `npm run check`. No CI workflow runs
-these yet; run them by hand.
+Two drift gates cover the generated output that is committed. Run each on its
+own — after the generator it compares fresh writes against themselves:
+
+```sh
+.agents/sync-codex.sh --check --no-trust  # .codex/agents/*.toml match their personas
+.agents/sync-claude-agents.sh --check     # .claude/agents/*.md match theirs
+```
+
+Each repository-owned MCP server also has `npm run check`.
+`.github/workflows/ci.yml` runs every command above on push and pull request.
+CI carries no `codex` binary, so `test-codex.sh` skips its loader check there
+and the run emits a notice; run that suite on a machine with Codex to cover it.
 
 ## The genome layer
 

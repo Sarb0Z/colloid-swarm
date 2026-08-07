@@ -1,0 +1,96 @@
+# Gates the scaffold's own suites and the two repository-owned MCP servers.
+#
+# `.agents/fetch-extension.sh` is deliberately absent: it downloads a release
+# from api.github.com, and the reader-tier suites already cover the install path
+# against a synthetic MV3 fixture. Do not add it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scaffold:
+    name: Scaffold suites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # The drift gates run first and on their own. test-codex.sh invokes this
+      # repository's sync-codex.sh, so a gate placed after it would compare
+      # freshly written files against themselves and pass on any drift.
+      - name: Drift — .codex/agents/*.toml
+        run: .agents/sync-codex.sh --check --no-trust
+
+      - name: Drift — .claude/agents/*.md
+        run: .agents/sync-claude-agents.sh --check
+
+      - name: Skill format
+        run: .agents/lint-skills.sh
+
+      - name: SessionStart policy
+        run: .agents/test-session-start.sh
+
+      - name: MCP generation
+        run: .agents/test-mcp.sh
+
+      # The suite's strongest Codex assertion loads the generated config with
+      # the real binary, and self-skips when codex is absent. Nothing installs
+      # it here, so surface the gap rather than reading a green run as coverage.
+      - name: Codex integration
+        shell: bash
+        run: |
+          .agents/test-codex.sh | tee "$RUNNER_TEMP/codex.log"
+          if grep -q 'loader check SKIPPED' "$RUNNER_TEMP/codex.log"; then
+            echo '::notice title=Codex loader check skipped::codex is not on PATH, so the generated .codex/config.toml was never loaded by the binary. Parsing is not loading — this run proves only that the file is valid TOML.'
+          fi
+
+      - name: Export kit
+        run: .agents/test-export.sh
+
+      - name: Working tree is clean
+        run: git diff --exit-code
+
+  servers:
+    name: ${{ matrix.server }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [research-mcp, security-mcp]
+    defaults:
+      run:
+        working-directory: .agents/mcp-servers/${{ matrix.server }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: .agents/mcp-servers/${{ matrix.server }}/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run check
+
+      # security-mcp's `check` runs `build`, so a stale committed dist/ is
+      # repaired in place and the dirty tree is the only signal it was stale.
+      # research-mcp omits `build`, and the same staleness fails inside
+      # check:bundle instead.
+      - name: Working tree is clean
+        run: git diff --exit-code
