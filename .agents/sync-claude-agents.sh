@@ -13,9 +13,10 @@
 # fresh writes to themselves.
 #
 # Generate mode exits 1 only when it could not do its work: a missing canonical
-# source, or a link destination that is a real directory. A path it reports but
-# will not delete does not fail the run, so a stray file cannot break the chain
-# to sync-mcp.sh.
+# source, or a link destination that is a real directory. Both stop the run
+# before sync-mcp.sh. Untracked files under the managed directories are left
+# alone and not reported — they are nobody's drift, because the manifest this
+# gate compares against is what git tracks.
 #
 # Do not hand-edit files in .claude/agents/ — they are generated.
 set -euo pipefail
@@ -125,6 +126,13 @@ def definition(agent):
     if model:
         front.append(f"model: {model}")
     front.append("---")
+    # A persona mid-merge would otherwise be copied verbatim into a live system
+    # prompt, and the gate would certify it: the comparison only asks whether the
+    # output matches the input, and it does.
+    for line in body:
+        if line.startswith(("<<<<<<< ", "=======\n", ">>>>>>> ")):
+            raise SystemExit(f"sync-claude-agents: {agent['source']} contains merge "
+                             "conflict markers; resolve it before generating")
     # Frontmatter MUST start on line 1 — Claude Code only registers an agent
     # whose `---` is the first byte. The GENERATED banner therefore sits just
     # below the closing `---`, inside the markdown body.
@@ -137,6 +145,10 @@ def definition(agent):
 # it more than once is what made the same defect keep coming back: the copies
 # disagreed, and whichever one the prune consulted decided what got deleted.
 plan, blocked = {}, []
+
+
+def plan_has_skills(entries):
+    return any(rel.startswith(".claude/skills/") for rel in entries)
 
 for agent in AGENTS:
     plan[f".claude/agents/{agent['name']}.md"] = ("file", definition(agent))
@@ -152,26 +164,46 @@ plan[".claude/CLAUDE.md"] = ("link", "AGENTS.md")
 # .claude/rules/<name>.md, both resolving back to the canonical copy under
 # .agents/skills/, which Kimi and Codex already read natively.
 #
-# os.listdir raises on a directory it cannot read, where a shell glob yields
-# nothing and reads identical to "no skills installed". That difference decides
-# whether an unreadable input fails the run or silently authorises deleting
-# every link below, so the plan is built with the call that raises.
+# Unguarded on purpose. Every way this read can fail — absent, a regular file, a
+# broken symlink, unreadable — must raise, because each one otherwise yields an
+# empty plan, and an empty plan authorises the prune below to delete every link
+# it finds. A guard that turns any of them into "no skills installed" is the
+# defect this file has already shipped twice.
 skills_root = os.path.join(agents, "skills")
-if os.path.isdir(skills_root):
-    for name in sorted(os.listdir(skills_root)):
-        if not os.path.isdir(os.path.join(skills_root, name)):
-            continue
-        plan[f".claude/skills/{name}"] = ("link", f"../../.agents/skills/{name}")
-        plan[f".claude/rules/{name}.md"] = ("link", f"../../.agents/skills/{name}/AGENTS.md")
+if os.path.islink(skills_root):
+    raise SystemExit("sync-claude-agents: .agents/skills is a symlink; refusing to "
+                     "treat whatever it points at as the installed skill set")
+for name in sorted(os.listdir(skills_root)):
+    if not os.path.isdir(os.path.join(skills_root, name)):
+        continue
+    plan[f".claude/skills/{name}"] = ("link", f"../../.agents/skills/{name}")
+    plan[f".claude/rules/{name}.md"] = ("link", f"../../.agents/skills/{name}/AGENTS.md")
+if not plan_has_skills(plan):
+    raise SystemExit("sync-claude-agents: .agents/skills holds no skill directories; "
+                     "refusing to prune every installed link on that basis")
+
+
+def git(*arguments):
+    """Run git, returning None when it could not answer at all."""
+    try:
+        result = subprocess.run(["git", "-C", repo, *arguments],
+                                capture_output=True, text=True, errors="surrogateescape")
+    except OSError:
+        return None                       # git is not installed
+    return result if result.returncode == 0 else None
 
 
 def tracked_paths():
-    """What git says .claude/ must hold, or None outside a work tree."""
-    result = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", ".claude"],
-                            capture_output=True, text=True)
-    if result.returncode != 0:
+    """What git says .claude/ must hold, or None when git could not say."""
+    result = git("ls-files", "-z", "--", ".claude")
+    if result is None:
         return None
     return {entry for entry in result.stdout.split("\0") if entry}
+
+
+def unmodified(rel):
+    """True when the worktree copy matches the index, so git can give it back."""
+    return git("diff", "--quiet", "--", rel) is not None
 
 
 # Directories the prune may consider. Everything else under .claude/ — most
@@ -181,6 +213,24 @@ MANAGED = (".claude/agents/", ".claude/skills/", ".claude/rules/")
 
 def managed(rel):
     return rel.startswith(MANAGED)
+
+
+# One list and one scan, used by both the gate and the prune. Two copies of
+# these directories, each with its own glob, is the shape that kept them
+# disagreeing about what existed.
+DANGLING_SCAN = MANAGED
+
+
+def dangling(prefix):
+    """Managed entries whose symlink target does not resolve, planned or not."""
+    root = os.path.join(repo, prefix.rstrip("/"))
+    found = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        rel = prefix + name
+        path = os.path.join(repo, rel)
+        if os.path.islink(path) and not os.path.exists(path):
+            found.append(rel)
+    return found
 
 
 drift = []
@@ -206,13 +256,12 @@ if check:
     # A dangling link under a managed directory is broken whatever git knows
     # about it: .agents/AGENTS.md reads one as a missing canonical file, not a
     # stale mirror. Same condition the prune uses below.
-    for directory in (".claude/skills", ".claude/rules"):
-        root = os.path.join(repo, directory)
-        for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
-            rel = f"{directory}/{name}"
-            path = os.path.join(repo, rel)
-            if rel in plan or not os.path.islink(path) or os.path.exists(path):
-                continue
+    # Planned entries included: a skill directory with no AGENTS.md still yields
+    # a .claude/rules/<name>.md, and comparing only the readlink string calls
+    # that healthy. .agents/AGENTS.md reads a broken link as a missing canonical
+    # file, which is a defect whoever owns the skill has to fix.
+    for prefix in DANGLING_SCAN:
+        for rel in dangling(prefix):
             drift.append(f"{rel} (dangling)")
 
     if known is None:
@@ -262,24 +311,34 @@ else:
             print("linked " + rel)
 
     # Prune only what git can give back, or what points at nothing. An untracked
-    # real file under .claude/agents is an operator's own subagent, not this
-    # script's to delete — it is reported above and left where it is.
+    # real file under .claude/agents is an operator's own subagent, so it is
+    # neither deleted nor reported: git does not track it, and the manifest is
+    # what git tracks.
+    if known is None:
+        print("sync-claude-agents: git could not list .claude/; pruned nothing "
+              "except dangling links", file=sys.stderr)
     for rel in sorted(known or set()):
         if rel in plan or not managed(rel):
             continue
         path = os.path.join(repo, rel)
-        if os.path.lexists(path):
-            os.unlink(path)
-            print("pruned " + rel)
-    for directory in (".claude/skills", ".claude/rules"):
-        root = os.path.join(repo, directory)
-        for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
-            rel = f"{directory}/{name}"
-            path = os.path.join(repo, rel)
-            if rel in plan or not os.path.islink(path) or os.path.exists(path):
+        if not os.path.lexists(path):
+            continue
+        # A local edit is not in the index, so deleting the file destroys it.
+        # `git can give it back` is only true of what git already holds.
+        if not unmodified(rel):
+            print(f"sync-claude-agents: {rel} is not generated but has uncommitted "
+                  "changes; left alone", file=sys.stderr)
+            continue
+        os.unlink(path)
+        print(f"pruned {rel} (restore: git checkout -- {rel})")
+    for prefix in DANGLING_SCAN:
+        for rel in dangling(prefix):
+            # A planned path belongs to the write phase above. Deleting it here
+            # would just have the next run recreate it — a churn loop, not a fix.
+            if rel in plan:
                 continue
-            os.unlink(path)
-            print("pruned " + rel)
+            os.unlink(os.path.join(repo, rel))
+            print("pruned " + rel + " (dangling)")
 
 # --- Report -----------------------------------------------------------------
 if blocked:

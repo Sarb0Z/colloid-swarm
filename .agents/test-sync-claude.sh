@@ -26,6 +26,11 @@ mkdir -p "$fixture"
 ( cd "$repo" && git ls-files -z -- .agents .claude | tar -cf - --null -T - ) \
   | tar -xf - -C "$fixture" \
   || fail 'could not build the fixture from tracked paths'
+# The root .gitignore lives outside those two trees, so it has to be carried in
+# deliberately. Without it `git add -A` tracks the settings.local.json that
+# sync-mcp.sh writes, and the manifest correctly reports a file nothing
+# generates — green only on a machine whose global ignore happens to cover it.
+cp "$repo/.gitignore" "$fixture/.gitignore" || fail 'could not carry .gitignore into the fixture'
 git -C "$fixture" init -q
 
 # Whichever skill the repository actually installs. Satellites carry a different
@@ -46,9 +51,10 @@ report() { ( cd "$fixture" && { .agents/sync-claude-agents.sh --check >/dev/null
 
 sync || fail 'the generator must succeed on a clean fixture'
 # The gate compares against `git ls-files .claude`, so the fixture has to have a
-# commit — an uncommitted tree is the writing-coach shape, tested separately.
+# commit. A repository that tracks no .claude paths at all is a supported
+# shape too — the gate says so on stderr and checks content only.
 git -C "$fixture" add -A >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t commit -qm fixture >/dev/null 2>&1 \
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm fixture >/dev/null 2>&1 \
   || fail 'could not commit the fixture'
 gate || fail 'the gate must pass immediately after a generator run'
 
@@ -76,7 +82,7 @@ orphan() {
   local name="$1"; shift
   "$@" || fail "could not apply mutation: $name"
   git -C "$fixture" add -A >/dev/null 2>&1
-  git -C "$fixture" -c user.email=t@example.com -c user.name=t commit -qm "$name" >/dev/null 2>&1 \
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm "$name" >/dev/null 2>&1 \
     || fail "could not commit mutation: $name"
   if gate; then fail "--check passed on a tracked path the plan does not emit: $name"; fi
   sync || fail "the generator must repair: $name"
@@ -84,13 +90,11 @@ orphan() {
   # staged — the gate is right to keep reporting until the removal is recorded.
   if gate; then fail "the gate cleared before the removal was staged: $name"; fi
   git -C "$fixture" add -A >/dev/null 2>&1
-  git -C "$fixture" -c user.email=t@example.com -c user.name=t commit -qm "repair $name" >/dev/null 2>&1
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm "repair $name" >/dev/null 2>&1
   gate || fail "the generator did not repair: $name"
 }
 orphan 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
 orphan 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
-gate || fail 'removing the orphans by hand must clear the gate'
-
 # An operator's own subagent definition is not this script's to delete. It is
 # untracked, so a prune is unrecoverable.
 printf 'my own subagent\n' > "$fixture/.claude/agents/my-helper.md"
@@ -99,18 +103,80 @@ sync >/dev/null || fail 'the generator must succeed alongside an operator file'
   || fail 'the generator deleted an untracked operator file in .claude/agents'
 rm -f "$fixture/.claude/agents/my-helper.md"
 
-# An unreadable skills directory must not read as "zero skills" and take every
-# link with it. Skipped as root, which ignores the mode bits.
-if [[ "$(id -u)" != "0" ]]; then
-  links_before="$(find "$fixture/.claude/skills" "$fixture/.claude/rules" -type l | wc -l | tr -d ' ')"
-  chmod 111 "$fixture/.agents/skills"
+# A tracked file outside the managed directories must survive. MANAGED is the
+# only thing standing between the prune and the rest of .claude/, and an
+# untracked file never reaches it — so only a tracked one tests it.
+printf 'notes\n' > "$fixture/.claude/NOTES.md"
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm notes >/dev/null 2>&1
+sync >/dev/null 2>&1 || true
+[[ -f "$fixture/.claude/NOTES.md" ]] \
+  || fail 'the prune escaped the managed directories and deleted a tracked file'
+git -C "$fixture" rm -q -f .claude/NOTES.md >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unnotes >/dev/null 2>&1
+
+# Every way reading .agents/skills can fail must stop the run, because each one
+# otherwise yields an empty plan and an empty plan authorises deleting every
+# link. `chmod 111` is only one of four; the other three shipped once already.
+count_links() { find "$fixture/.claude/skills" "$fixture/.claude/rules" -type l 2>/dev/null | wc -l | tr -d ' '; }
+skills_intact() {
+  local label="$1" before after
+  before="$(count_links)"
   sync >/dev/null 2>&1 || true
+  after="$(count_links)"
+  [[ "$before" == "$after" ]] || fail "$label swept the links: $before -> $after"
+}
+saved="$scratch/skills-backup"
+cp -R "$fixture/.agents/skills" "$saved"
+
+rm -rf "$fixture/.agents/skills"
+skills_intact 'an absent .agents/skills'
+printf 'x' > "$fixture/.agents/skills"
+skills_intact 'a regular file at .agents/skills'
+rm -f "$fixture/.agents/skills"
+ln -s /nonexistent-skills-target "$fixture/.agents/skills"
+skills_intact 'a broken symlink at .agents/skills'
+rm -f "$fixture/.agents/skills"
+# Pointed at a *different* skill set, which is the hazard: following the link
+# would wire foreign skills in as trusted and prune the real ones. A symlink to
+# an identical copy proves nothing.
+mkdir -p "$scratch/foreign/impostor"
+printf -- '---\nname: impostor\ndescription: x\n---\n' > "$scratch/foreign/impostor/AGENTS.md"
+ln -s "$scratch/foreign" "$fixture/.agents/skills"
+skills_intact 'a symlinked .agents/skills'
+rm -f "$fixture/.agents/skills"
+# Readable and empty is the one case os.listdir cannot refuse on its own.
+mkdir -p "$fixture/.agents/skills"
+skills_intact 'an empty .agents/skills'
+rmdir "$fixture/.agents/skills"
+cp -R "$saved" "$fixture/.agents/skills"
+# Skipped as root, which ignores the mode bits.
+if [[ "$(id -u)" != "0" ]]; then
+  chmod 111 "$fixture/.agents/skills"
+  skills_intact 'an unreadable .agents/skills'
   chmod 755 "$fixture/.agents/skills"
-  links_after="$(find "$fixture/.claude/skills" "$fixture/.claude/rules" -type l | wc -l | tr -d ' ')"
-  [[ "$links_before" == "$links_after" ]] \
-    || fail "an unreadable .agents/skills deleted links: $links_before -> $links_after"
-  sync >/dev/null
 fi
+sync >/dev/null
+gate || fail 'the fixture must be repairable after the skills-directory cases'
+
+# "What git can give back" means what git already holds. A tracked path the plan
+# does not emit, carrying an uncommitted edit, is not recoverable by deleting it
+# and running `git checkout --` — that restores the last commit, not the edit.
+printf 'v1\n' > "$fixture/.claude/agents/extra.md"
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm extra >/dev/null 2>&1
+printf 'v2 uncommitted\n' > "$fixture/.claude/agents/extra.md"
+sync >/dev/null 2>&1 || true
+[[ -f "$fixture/.claude/agents/extra.md" ]] \
+  || fail 'the prune destroyed an uncommitted edit git cannot restore'
+grep -q 'v2 uncommitted' "$fixture/.claude/agents/extra.md" \
+  || fail 'the prune replaced an uncommitted edit with the committed blob'
+git -C "$fixture" checkout -- .claude/agents/extra.md >/dev/null 2>&1
+sync >/dev/null 2>&1 || true
+[[ -f "$fixture/.claude/agents/extra.md" ]] && fail 'a clean tracked orphan must be pruned'
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unextra >/dev/null 2>&1
+gate || fail 'the gate must clear once the pruned orphan is staged'
 
 printf '\nTAMPERED\n' >> "$fixture/.claude/agents/researcher.md"
 if gate; then fail '--check passed on a hand-edited agent definition'; fi
@@ -119,12 +185,12 @@ sync >/dev/null
 # One run must name every class of drift. Reporting the agent file and stopping
 # leaves the operator fixing one class per CI round.
 printf '\nTAMPERED\n' >> "$fixture/.claude/agents/researcher.md"
-rm -f "$fixture/.claude/rules/pentesting.md"
+rm -f "$fixture/.claude/rules/$skill.md"
 # `|| true`: the gate exits 1 here by design, and set -e would take the
 # assignment down with it before the report could be read.
 both="$(report || true)"
 [[ "$both" == *"researcher.md"* ]] || fail 'the report omitted the stale agent definition'
-[[ "$both" == *"rules/pentesting.md"* ]] || fail 'a stale agent definition suppressed the symlink report'
+[[ "$both" == *"rules/$skill.md"* ]] || fail 'a stale agent definition suppressed the symlink report'
 sync >/dev/null
 gate || fail 'the generator did not repair the combined case'
 
@@ -164,6 +230,16 @@ warning="$(cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null)"
 [[ "$warning" == *"researcher"* ]] || fail 'an ignored config.json model must warn'
 grep -q 'model: sonnet' "$fixture/.claude/agents/researcher.md" \
   || fail 'routing must follow config.json.example, not the local config'
+
+# A persona mid-merge would be copied verbatim into a live system prompt, and
+# the gate would certify it: the output does match the input.
+cp "$fixture/.agents/personas/researcher.md" "$scratch/persona-backup"
+{ printf '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> other\n'; } >> "$fixture/.agents/personas/researcher.md"
+if sync; then fail 'a persona holding conflict markers must not reach an agent definition'; fi
+grep -q '<<<<<<<' "$fixture/.claude/agents/researcher.md" \
+  && fail 'conflict markers were written into the generated definition'
+cp "$scratch/persona-backup" "$fixture/.agents/personas/researcher.md"
+sync >/dev/null
 
 # A malformed config is a typo the operator must see, not a silent default.
 printf '%s\n' '{ broken' > "$fixture/.agents/config.json"
