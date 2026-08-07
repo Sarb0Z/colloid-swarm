@@ -19,6 +19,18 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — the index passes a few dozen entries, or gains a field worth filtering on (staleness sweeps, per-competitor lookup) rather than reading top to bottom.
 - **Rework** — convert `index.md` to `index.yaml`, update the write instructions in `market-researcher` step 11 and `search-and-cite`, and add a parser wherever it is read; ~40 lines, plus a YAML dependency for any non-model reader.
 
+### colloid-guard-destructive-honest-mistake-only
+
+- **Condition** — `guard-destructive.sh` matches regexes against a raw command string, so it cannot stop shell indirection: `eval $(base64 -d <<<…)`, `R=$(echo rm); $R -rf /`, and `echo / | xargs rm -rf` all pass, verified. A regex over a Turing-complete shell cannot win that fight. Acceptable: the guard's threat model is the model's own honest mistake, not an adversary with shell access — an adversary who can run `Bash` has already won. The header does not say this, which invites the guard being read as a security boundary it is not.
+- **Trigger** — anyone proposing the guard as a control against a hostile operator or a prompt-injected agent, or a satellite repository citing it as one.
+- **Rework** — none available at this layer; the honest fix is to state the threat model in the header and in `README.md`'s "The invariant" section. Real containment needs a permission layer or a sandbox, not a pattern list. Separately, the *honest-mistake* set is closeable and is filed as work in `breadcrumbs.md`.
+
+### colloid-bash4-policy-layer-silent-off
+
+- **Condition** — five of nine policy scripts use `x="$(python3 <<'PY' … PY)"`, a heredoc nested in command substitution that bash 3.2 mis-scans, so they fail to parse there. All four adapters guard on `BASH_VERSINFO[0] < 4` and exit 0 with two stderr lines, so nothing breaks — but on a stock macOS machine with no newer bash the entire enforcement layer is off. Acceptable: the guard is loud on stderr, the direction is fail-open rather than fail-closed, and `README.md` states `bash` as a requirement.
+- **Trigger** — an operator running on stock macOS discovering mid-session that no guard has been active, or a satellite transplant onto a machine without Homebrew bash.
+- **Rework** — either rewrite the 33 nested-heredoc sites to pipe stdin into `python3` (also closes the `E2BIG` ceiling filed in `breadcrumbs.md`), or have the SessionStart path emit `additionalContext` announcing that the policy layer is disabled, so the model knows its guards are absent rather than assuming they hold. The second is ~10 lines and buys most of the value.
+
 ### colloid-wrap-concurrent-attribution
 
 - **Condition** — `session-wrap.sh` cannot tell which session authored a commit or a working-tree change, so two concurrent sessions in one working tree each measure the other's work: session B can be handed session A's files and told to review them. Acceptable: one working tree per session is the normal shape, both measures already read shared state (the tree, HEAD), and the wrap is a skippable prompt.
