@@ -215,4 +215,61 @@ if [[ -e "$fixture/.kimi-code/mcp.json" ]]; then
   exit 1
 fi
 
+# The toggle-merge rule, against an explicit table rather than a second
+# implementation of itself: four readers apply this rule, so a bug in it is a
+# bug everywhere at once.
+python3 - "$repo" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1] + "/.agents")
+import toggles
+
+CASES = [
+    # name, example, local, expected merged table
+    ("local overrides one key and inherits the rest",
+     {"mcp": {"servers": {"exa": {"enabled": False, "description": "web search"}}}},
+     {"mcp": {"servers": {"exa": {"enabled": True}}}},
+     {"exa": {"enabled": True, "description": "web search"}}),
+    ("a server only the local file names still lands",
+     {"mcp": {"servers": {}}},
+     {"mcp": {"servers": {"new": {"enabled": True}}}},
+     {"new": {"enabled": True}}),
+    ("an absent local file changes nothing",
+     {"mcp": {"servers": {"exa": {"enabled": False}}}},
+     {},
+     {"exa": {"enabled": False}}),
+    ("a non-object local entry carries no toggle and is ignored",
+     {"mcp": {"servers": {"exa": {"enabled": False}}}},
+     {"mcp": {"servers": {"exa": "yes"}}},
+     {"exa": {"enabled": False}}),
+    ("a non-object mcp block states nothing",
+     {"mcp": {"servers": {"exa": {"enabled": True}}}},
+     {"mcp": "on"},
+     {"exa": {"enabled": True}}),
+]
+
+fails = 0
+for name, example, local, expected in CASES:
+    got = toggles.merge(example, local)
+    if got != expected:
+        fails += 1
+        print(f"test-mcp: toggle merge — {name}\n  expected {expected}\n  got      {got}", file=sys.stderr)
+
+# The example must not be reachable through the merged table, or a later write
+# would reach back into the tracked file's own dict.
+example = {"mcp": {"servers": {"exa": {"enabled": False}}}}
+merged = toggles.merge(example, {})
+merged["exa"]["enabled"] = True
+if example["mcp"]["servers"]["exa"]["enabled"] is not False:
+    fails += 1
+    print("test-mcp: toggle merge — the merged table aliases the example", file=sys.stderr)
+
+if toggles.malformed({"mcp": {"servers": {"a": {}, "b": 1}}}) != ["b"]:
+    fails += 1
+    print("test-mcp: toggle merge — malformed() did not name the non-object entry", file=sys.stderr)
+
+if fails:
+    sys.exit(1)
+print(f"test-mcp: toggle merge — {len(CASES) + 2} assertions pass")
+PY
+
 echo "MCP repository-root checks passed."

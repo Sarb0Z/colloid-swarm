@@ -36,26 +36,18 @@ Listed in priority order. Resolve conflicts top-down.
    front, even when the plan is skipped; state, for each, the one claim
    step 5's review must independently reproduce. When unsure, classify
    as high-stakes; never downgrade.
-3. **Hostile-review the plan.** Dispatch a subagent to attack it — fit
-   against surrounding architecture, failure modes, edge cases, missing
-   steps. No justifying the plan; find what's wrong. Findings are input,
-   not orders — disposition each one before coding: adopt it because
-   it's right, decline it with a reason, file it (breadcrumbs or
-   debt-log) when valid but not this unit's work, or escalate a
-   decision only the user can make. The burden of proof sits on the
-   finding, not the decline. State every disposition explicitly — a
-   silent drop is not a disposition.
+3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md`
+   with the plan as the artifact. Disposition every finding before you
+   write code.
 4. **Implement, then test.** If anything fails, diagnose and fix. If the fix
    forces a redesign, return to step 1.
-5. **Hostile-review the implementation.** Dispatch a subagent to review
-   the diff against the plan and the surrounding architecture. Same
-   reviewer ground rules: no justifying, find what's wrong. You
-   disposition every finding the same way.
+5. **Hostile-review the implementation.** Run the same playbook with the
+   diff as the artifact.
 
-A review round is review → fix → re-review; "don't hold" means the same
-defect returns. Three consecutive rounds where fixes don't hold mean the
-shape is wrong — stop patching and take the architecture question to the
-user.
+The playbook is the reviewer contract, the disposition rules, and the
+stop condition. Read it; do not restate it here. It is also what
+`.agents/eval/review-harness` grades against, so a paraphrase in this
+file would ship one review and measure another.
 
 ## Behavior
 
@@ -116,6 +108,7 @@ The one date this permits is an observation's own timestamp under
 What doesn't belong inline has three homes. Two split by lifecycle:
 - **`.agents/breadcrumbs.md`** — deferred *work*: a queue. One line each; the
   SessionStart hook re-surfaces unaddressed items. Act on it, or delete the line.
+  Draining the queue is its own unit of work: `playbooks/breadcrumb-burndown.md`.
 - **`.agents/debt-log.md`** — standing tradeoffs and deferred *decisions*: the
   "naive O(n³) here, fine until N>10k, rework needs a spatial index" record.
   Committed. Each entry is a `### <id>` heading (a kebab slug like
@@ -160,6 +153,11 @@ brevity; dense is not minimal.
    deliver sources: high-quality references, one-line notes on what each
    covers, no essay. A question asked with "include sources" is still a
    question — answer it and cite.
+5. **Counts are measured, never narrated.** Every number in a report — files
+   changed, tests passing, findings left — must come from a command that
+   produced it: `wc -l`, `grep -c`, the suite's own tally. Report what the
+   command returned. A narrated count and a measured count drift apart in
+   silence, and only the measured one is evidence.
 
 ## Documentation
 

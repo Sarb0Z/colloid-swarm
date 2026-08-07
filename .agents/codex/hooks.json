@@ -26,6 +26,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "POST_EDIT_MODE=write bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" post-edit-check.sh"
+          },
+          {
+            "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" post-edit-check.sh"
           }
         ]

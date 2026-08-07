@@ -17,27 +17,11 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-cfg_path="$repo/.agents/config.json"
-enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("pre_compact", {}).get("enabled", True) else "no")
-PY
-)"
+lib="$repo/.agents/hooks/lib"
+enabled="$(python3 "$lib/config.py" "$repo/.agents/config.json" hooks.pre_compact.enabled=true)"
 [[ "$enabled" == "no" ]] && exit 0
 
-input="$(cat)"
-
-parsed="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-print(d.get("project_dir", ""))
-print(d.get("trigger", ""))
-PY
-)"
+parsed="$(python3 "$lib/payload.py" project_dir trigger)"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 trigger="$(printf '%s\n' "$parsed" | sed -n '2p')"
 [[ -z "$proj" ]] && proj="$PWD"

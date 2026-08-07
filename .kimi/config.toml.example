@@ -63,6 +63,14 @@ command = ".kimi/hooks/adapter.sh genome-guard.sh"
 # /colloid-only
 timeout = 10
 
+# Two entries, split by whether the work rewrites the tree. The fixer runs
+# first; the read-only gate follows and exits 2 with what it found.
+[[hooks]]
+event = "PostToolUse"
+matcher = "Write|Edit"
+command = "POST_EDIT_MODE=write .kimi/hooks/adapter.sh post-edit-check.sh"
+timeout = 30
+
 [[hooks]]
 event = "PostToolUse"
 matcher = "Write|Edit"

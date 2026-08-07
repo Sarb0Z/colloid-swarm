@@ -96,6 +96,7 @@ agents = os.path.join(repo, ".agents")
 sys.path.insert(0, agents)
 from mcp_registry import resolve_registry
 import reader_config
+import toggles as toggle_rules
 
 def load_json(path, default=None):
     """Missing file -> default. Corrupt file -> default + loud warning."""
@@ -129,23 +130,17 @@ def write_json(path, data, mode=None):
 # override never reaches through into the example's own dict.
 example = load_json(os.path.join(agents, "config.json.example"), {})
 local = load_json(os.path.join(agents, "config.json"), {})
-toggles = {name: dict(entry)
-           for name, entry in example.get("mcp", {}).get("servers", {}).items()
-           if isinstance(entry, dict)}
-local_servers = local.get("mcp", {})
-if not isinstance(local_servers, dict):
+toggles = toggle_rules.merge(example, local)
+local_mcp = local.get("mcp", {})
+if not isinstance(local_mcp, dict):
     print("sync-mcp: WARNING: config.json \"mcp\" is not an object — ignored",
           file=sys.stderr)
-elif "servers" in local_servers:
-    if isinstance(local_servers["servers"], dict):
-        for name, entry in local_servers["servers"].items():
-            if isinstance(entry, dict):
-                toggles.setdefault(name, {}).update(entry)
-            else:
-                print(f"sync-mcp: WARNING: config.json mcp.servers.{name} is not an object — ignored",
-                      file=sys.stderr)
-    else:
-        print("sync-mcp: WARNING: config.json mcp.servers is not an object — ignored",
+elif "servers" in local_mcp and not isinstance(local_mcp["servers"], dict):
+    print("sync-mcp: WARNING: config.json mcp.servers is not an object — ignored",
+          file=sys.stderr)
+else:
+    for name in toggle_rules.malformed(local):
+        print(f"sync-mcp: WARNING: config.json mcp.servers.{name} is not an object — ignored",
               file=sys.stderr)
 
 registry = load_json(os.path.join(agents, "mcp.json"), {}).get("mcpServers", {})

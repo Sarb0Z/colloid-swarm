@@ -94,11 +94,20 @@ you detonate, because even a star tells the system what's about to expand.
 
 The strand above is conserved; the genome mutates. `.agents/genome.sh` is the
 pipette — it parses this file, draws one genome, and prints a stamp (sentinel
-header + conserved strand + one genome + a register) for the orchestrator to
-prepend to a subagent's prompt. No hook can inject a personality into a
-spawned cell's own context, so the orchestrator does the stamping;
-`.agents/hooks/policy/genome-guard.sh` is the membrane that refuses an
-un-stamped dispatch.
+header + conserved strand + one genome + a register).
+
+Two paths carry that stamp into a cell, by engine:
+
+- **Injection.** Claude Code delivers `SubagentStart` context into the spawned
+  cell's own transcript before its first prompt, so
+  `.agents/hooks/policy/genome-inject.sh` draws and injects for every dispatch.
+  The treatment applies whether or not the orchestrator remembers it, which is
+  what makes an unstamped run a control arm rather than a failure.
+- **The membrane.** Where an engine has no such event, the orchestrator prepends
+  the stamp and `.agents/hooks/policy/genome-guard.sh` refuses an un-stamped
+  dispatch. Codex and Kimi run this path.
+
+Both read one exemption list, `swarm.exempt_subagent_types`.
 
 ```sh
 .agents/genome.sh                  # sortition (anti-repeat) + panspermia register

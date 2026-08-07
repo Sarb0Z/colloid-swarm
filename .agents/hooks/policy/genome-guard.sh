@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Engine-agnostic policy: every substantive subagent dispatch carries exactly
-# one genome stamp. A hook cannot inject context into a spawned subagent, so
-# this enforces the orchestrator protocol instead of replacing it — it blocks a
+# one genome stamp. This enforces the orchestrator protocol — it blocks a
 # dispatch whose prompt is missing (or doubling) the genome the orchestrator was
 # supposed to prepend with `.agents/genome.sh`.
+#
+# For an engine whose SubagentStart event can deliver context into the spawned
+# cell, genome-inject.sh replaces this: injecting applies the treatment to every
+# dispatch, where a guard only rejects one that forgot. This is the path for an
+# engine without that event.
 #
 # Input  (stdin JSON): {"prompt": "<subagent prompt>", "subagent_type": "..."}
 # Output: exit 2 + stderr reason on block; exit 0 otherwise.
@@ -15,47 +19,12 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
-enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("genome_guard", {}).get("enabled", True) else "no")
-PY
-)"
+enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.genome_guard.enabled=true)"
 [[ "$enabled" == "no" ]] && exit 0
 
-verdict="$(HOOK_INPUT="$(cat)" CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-
-try:
-    d = json.loads(os.environ.get("HOOK_INPUT") or "{}")
-except Exception:
-    d = {}
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-
-# Coerce defensively: a non-string prompt/type must fail open, not crash.
-prompt = d.get("prompt")
-prompt = prompt if isinstance(prompt, str) else ""
-atype  = d.get("subagent_type")
-atype  = (atype if isinstance(atype, str) else "").strip().lower()
-
-# Read-only / utility subagent types — no genome expected.
-exempt = set(cfg.get("swarm", {}).get("exempt_subagent_types", ["explore", "plan", "claude-code-guide", "statusline-setup", "learning-reporter"]))
-SENTINEL = "⊰ COLLOID GENOME · THE "   # genome.sh emits this as a stamp's first line
-
-if atype in exempt or not prompt.strip():
-    print("allow")
-else:
-    n = sum(1 for line in prompt.splitlines() if line.startswith(SENTINEL))
-    print("missing" if n == 0 else "double" if n > 1 else "allow")
-PY
-)"
+verdict="$(python3 "$lib/genome-guard.py" "$cfg_path")"
 
 case "$verdict" in
   missing)

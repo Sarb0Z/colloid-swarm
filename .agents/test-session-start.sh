@@ -17,19 +17,26 @@ make_fixture() {
   local dir="$scratch/$name"
   mkdir -p \
     "$dir/.agents/hooks/policy" \
+    "$dir/.agents/hooks/lib" \
     "$dir/.agents/playbooks" \
     "$dir/.agents/claude" \
     "$dir/.agents/codex" \
     "$dir/.codex/hooks"
   cp "$repo/.agents/hooks/policy/session-start.sh" "$dir/.agents/hooks/policy/"
+  # The policy shells out to these, so the fixture is not a fixture without them.
+  cp "$repo/.agents/hooks/lib/config.py" \
+     "$repo/.agents/hooks/lib/payload.py" \
+     "$repo/.agents/hooks/lib/emit-context.py" \
+     "$repo/.agents/hooks/lib/mcp-off.py" "$dir/.agents/hooks/lib/"
+  cp "$repo/.agents/toggles.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$dir/.agents/playbooks/"
-  cp "$repo/.agents/claude/adapter.sh" "$dir/.agents/claude/"
+  cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
   cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
   # Kimi is optional: only repositories that wire the engine carry .kimi/.
   if [[ -f "$repo/.kimi/hooks/adapter.sh" ]]; then
     mkdir -p "$dir/.kimi/hooks"
-    cp "$repo/.kimi/hooks/adapter.sh" "$dir/.kimi/hooks/"
+    cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$dir/.kimi/hooks/"
   fi
   printf '%s\n' '- fixture breadcrumb' > "$dir/.agents/breadcrumbs.md"
   printf '%s\n' '{"mcpServers": {}}' > "$dir/.agents/mcp.json"
@@ -264,5 +271,22 @@ done
 if [[ -f "$adapters/.kimi/hooks/adapter.sh" ]]; then
   assert_not_contains "$(run_kimi_adapter "$adapters")" '[learning-output-style:v1]'
 fi
+
+# The --agent gate keys on agent_id, the one field a spawned subagent carries
+# and a `claude --agent <name>` main session does not. Keying on agent_type
+# would let a launch flag disable every main-gated policy for a whole session.
+gate() {
+  local dir="$1"
+  local tags="$2"
+  printf '{"hook_event_name":"SessionStart","cwd":"%s","source":"startup","session_id":"gate-fixture"%s}\n' \
+    "$dir" "$tags" |
+    CLAUDE_PROJECT_DIR="$dir" bash "$dir/.agents/claude/adapter.sh" --agent main session-start.sh
+}
+write_config "$adapters" true true
+[[ -n "$(gate "$adapters" '')" ]] || fail 'the main agent must run a --agent main policy'
+[[ -n "$(gate "$adapters" ',"agent_type":"code-reviewer"')" ]] ||
+  fail 'a --agent launch is still the main agent, so the policy must run'
+[[ -z "$(gate "$adapters" ',"agent_type":"Explore","agent_id":"agent_1"')" ]] ||
+  fail 'a spawned subagent must not run a --agent main policy'
 
 printf 'PASS: session-start policy\n'

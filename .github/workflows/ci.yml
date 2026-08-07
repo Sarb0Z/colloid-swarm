@@ -46,6 +46,18 @@ jobs:
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
+      - name: Destructive-command policy
+        run: python3 .agents/test-guard-destructive.py
+
+      - name: Grader-lock policy
+        run: python3 .agents/test-grader-lock.py
+
+      # Cost is linear in rows: one tree copy and one full suite run each, plus
+      # one control per distinct suite. Measured at 6 rows over 3 suites: 3m35s.
+      # Grouping rows by suite is the lever if that becomes the slow step.
+      - name: Guards go red when removed
+        run: python3 .agents/test-mutation.py
+
       - name: Claude drift gate
         run: .agents/test-sync-claude.sh
 

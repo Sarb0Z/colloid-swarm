@@ -28,7 +28,15 @@ number as a question, never as a verdict.
 
 ## Results so far
 
-Eight runs across two fixtures, sonnet, one constant genome.
+Eight runs across two fixtures, sonnet, one constant genome. Their reports are
+`results/phase0/`, keyed by `results/phase0/blind-key.tsv`.
+
+`runs.tsv` is the ledger `bin/run-review.sh` appends to, and it starts after
+phase 0 — the eight runs above are not in it and cannot be backfilled honestly,
+because no record holds the contract hash and base commit each one ran against.
+Its two rows are runs that were materialised and never graded, which is what
+`pending` says. Read `runs.tsv` for what the harness has measured since phase 0,
+and this section for phase 0 itself.
 
 - 4 of 8 runs opened with a conformance statement. A fifth stated one after a
   paragraph of process narration, which the mandatory line now rules out. Three
@@ -111,8 +119,11 @@ Reviewers route findings there when it is available, which truncates the
 returned report and makes finding counts unusable. Two of the first eight runs
 were lost this way.
 
-The prompt must also ask for text, not a file. This repository blocks subagent
-file writes.
+The prompt must also ask for text, not a file. A report the harness has to go
+find is one that can be missing, half-written, or written where the grader does
+not look; the returned text is the artifact. Nothing stops a reviewer from
+writing a file — `grader-lock.sh` refuses a subagent only the governing set, and
+a report is not in it.
 
 ## Intent files
 

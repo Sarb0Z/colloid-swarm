@@ -2,83 +2,68 @@
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {"project_dir": "...", "files": ["...", ...]}
-# Output: exit 2 + stderr findings on issues; exit 0 otherwise.
+# Scoped strictly to the provided file list — never sweeps the repo. Every
+# external tool is optional: a missing binary is skipped silently.
 #
-# Scoped strictly to the provided file list — never sweeps the repo. Per
-# language: Python -> ruff (lint+format) + pyright (types); TS/JS -> eslint
-# (lint, autofix) + prettier (format) + tsc --noEmit (types, per workspace).
-# Plus advisory scans on the added lines: tombstone narration + null-safety.
-# Every external tool is optional: a missing binary is skipped silently.
+# Two modes, wired as two hook entries, split by whether the work rewrites the
+# tree. $POST_EDIT_MODE selects one:
+#
+#   write  — every fixer and formatter (ruff --fix, ruff format, prettier
+#            --write, eslint --fix), then the advisory scans on the added
+#            lines. Exits 0 always and reports through additionalContext, so an
+#            advisory never rides the channel that carries type failures.
+#            This entry MUST stay synchronous: a formatter running in the
+#            background can read a file, be overtaken by the agent's next edit,
+#            and write the pre-edit content back over it.
+#   check  — gates that only report: ruff check, eslint, tsc --noEmit per workspace,
+#            pyright per environment, and the skill-format linter. Exits 2 with
+#            the findings on stderr. Nothing here rewrites a file the agent
+#            edited, so this is the entry that runs in the background under
+#            asyncRewake, where the slow typecheckers cost the session nothing.
+#
+# Default is `check`: an engine that wires one entry gets the gate, not the
+# formatter.
+#
+# The two entries run concurrently, so `check` can read a file `write` is still
+# formatting. Nothing is lost, because `check` rewrites nothing — but a file
+# caught mid-rewrite can be reported as a syntax error that does not exist. The
+# next edit clears it, and the alternative (serialising the entries) is not
+# something a hook can ask the host for.
 
 set -euo pipefail
 
+mode="${POST_EDIT_MODE:-check}"
+if [[ "$mode" != "write" && "$mode" != "check" ]]; then
+  echo "post-edit-check: POST_EDIT_MODE must be 'write' or 'check', got '$mode'" >&2
+  exit 1
+fi
+
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-cfg_path="$repo/.agents/config.json"
-cfg="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-pe = cfg.get("hooks", {}).get("post_edit_check", {})
-print("yes" if pe.get("enabled", True) else "no")
-print("yes" if pe.get("tombstone_check", True) else "no")
-print("yes" if pe.get("nullsafety_check", True) else "no")
-PY
-)"
+lib="$repo/.agents/hooks/lib"
+cfg="$(python3 "$lib/config.py" "$repo/.agents/config.json" \
+  hooks.post_edit_check.enabled=true \
+  hooks.post_edit_check.tombstone_check=true \
+  hooks.post_edit_check.nullsafety_check=true)"
 enabled="$(printf '%s\n' "$cfg" | sed -n '1p')"
 tombstone_check="$(printf '%s\n' "$cfg" | sed -n '2p')"
 nullsafety_check="$(printf '%s\n' "$cfg" | sed -n '3p')"
 [[ "$enabled" == "no" ]] && exit 0
 
+# The payload is read once and piped onward. A single edit can carry hundreds of
+# kilobytes, and an environment past ARG_MAX aborts the hook with E2BIG — which
+# turns the gate off on exactly the largest changes.
 input="$(cat)"
 
-proj="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-print(d.get("project_dir", ""))
-PY
-)"
+proj="$(printf '%s' "$input" | python3 "$lib/payload.py" project_dir)"
 
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
 proj="$(pwd -P)"
 
 # One place decides what counts as a file this hook checks, so the groupers
-# below never re-answer the question and never disagree about it.
-#
-# Engines send different shapes: Claude Code absolute paths, the Codex adapter
-# paths relative to the project. Both become absolute here, or the walk upward
-# starts nowhere and every checker resolves from the root.
-#
-# In scope means inside the repository either literally or after following
-# symlinks — a workspace symlinked out of the tree is still this repository's to
-# check. The literal form travels onward, so the walk stays within the names the
-# agent actually edited rather than jumping to wherever they happen to live.
-files="$(HOOK_INPUT="$input" PROJ="$proj" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-proj = os.environ["PROJ"]
-real_proj = os.path.realpath(proj)
-seen = set()
-for p in d.get("files") or []:
-    if not isinstance(p, str) or not p:
-        continue
-    ap = os.path.abspath(os.path.join(proj, p))
-    if not ap.startswith(proj + os.sep):
-        # $proj is physical (pwd -P) while an engine may send the path through a
-        # symlink — /tmp for /private/tmp is the everyday one. Re-express it
-        # under $proj rather than dropping it, so that every walk upward below
-        # has a terminator it will actually reach.
-        rp = os.path.realpath(ap)
-        if not rp.startswith(real_proj + os.sep):
-            continue                   # outside the repo: not ours to check
-        ap = proj + rp[len(real_proj):]
-    if ap not in seen:
-        seen.add(ap)
-        print(ap)
-PY
-)"
+# below never re-answer the question and never disagree about it. The rule and
+# its reasoning are in ../lib/edited-files.py.
+files="$(printf '%s' "$input" | python3 "$lib/edited-files.py" "$proj")"
 
 [[ -z "$files" ]] && exit 0
 
@@ -106,15 +91,22 @@ in_repo() {
 # never changes across. PY_TOOL_DIR is the working directory the tool must run
 # in — pyright reads its interpreter and config from there, so a batch spanning
 # two packages needs one run per environment.
-declare -A py_tool_cache=()
+#
+# The cache is one `<key>\t<dir>\t<bin>` row per resolved key in a plain string,
+# not an associative array: stock macOS ships bash 3.2, which has neither. A
+# miss is cached too, as an empty binary — the walk that produced it is the
+# expensive part. Every lookup is parameter expansion, so it costs no fork.
+py_tool_cache=""
 resolve_py_tool() {
-  local name="$1" dir="$2" candidate key
+  local name="$1" dir="$2" candidate key rest row
   PY_TOOL_DIR=""; PY_TOOL_BIN=""
   key="$name:$dir"
-  if [[ -n "${py_tool_cache[$key]+set}" ]]; then
-    [[ -z "${py_tool_cache[$key]}" ]] && return 1
-    PY_TOOL_DIR="${py_tool_cache[$key]%%$'\t'*}"
-    PY_TOOL_BIN="${py_tool_cache[$key]#*$'\t'}"
+  rest="${py_tool_cache#*$'\n'"$key"$'\t'}"
+  if [[ "$rest" != "$py_tool_cache" ]]; then
+    row="${rest%%$'\n'*}"
+    PY_TOOL_DIR="${row%%$'\t'*}"
+    PY_TOOL_BIN="${row#*$'\t'}"
+    [[ -z "$PY_TOOL_BIN" ]] && return 1
     return 0
   fi
   while :; do
@@ -123,7 +115,7 @@ resolve_py_tool() {
     for candidate in .venv/bin venv/bin node_modules/.bin; do
       if [[ -x "$dir/$candidate/$name" ]] && in_repo "$dir/$candidate/$name"; then
         PY_TOOL_DIR="$dir"; PY_TOOL_BIN="$dir/$candidate/$name"
-        py_tool_cache[$key]="$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"
+        py_tool_cache+=$'\n'"$key"$'\t'"$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"
         return 0
       fi
     done
@@ -141,19 +133,32 @@ resolve_py_tool() {
   elif command -v "$name" >/dev/null 2>&1; then
     PY_TOOL_DIR="$proj"; PY_TOOL_BIN="$name"
   else
-    py_tool_cache[$key]=""
+    py_tool_cache+=$'\n'"$key"$'\t'$'\t'
     return 1
   fi
-  py_tool_cache[$key]="$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"
+  py_tool_cache+=$'\n'"$key"$'\t'"$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"
   return 0
 }
 
 issues=""
 ts_edited=""      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=""   # all JS/TS — linted by eslint, formatted by prettier
-reformatted=""    # files prettier rewrote beyond the agent's own edit
+reformatted=""    # files a fixer rewrote beyond the agent's own edit
 py_edited=""      # .py — type-checked by pyright (ruff runs inline below)
 skills_edited=""  # skills/<name>/*.md — frontmatter and layout, per skill
+
+# Every fixer rewrites files, and the agent's next Edit carries an old_string
+# that predates the rewrite. Checksum around the whole pass rather than asking
+# each tool what it changed: ruff, prettier and eslint report that differently
+# or not at all, and one measurement cannot disagree with itself.
+sums() {
+  local f
+  while IFS= read -r f; do
+    [[ -f "$f" ]] && printf '%s\t%s\n' "$(cksum < "$f")" "$f"
+  done <<< "$1"
+}
+before_sums=""
+[[ "$mode" == "write" ]] && before_sums="$(sums "$files")"
 
 while IFS= read -r f; do
   [[ -z "$f" || ! -f "$f" ]] && continue
@@ -164,7 +169,8 @@ while IFS= read -r f; do
   # failure would be swallowed, and the gate would pass having checked nothing.
   # Refuse the file loudly instead; a silent skip is the bug being avoided.
   if [[ "$f" == *$'\t'* ]]; then
-    issues+=$'\n'"[skipped] no checker can run on this path — a tab in a filename splits every per-workspace grouping below. Rename it: $rel"$'\n'
+    [[ "$mode" == "check" ]] &&
+      issues+=$'\n'"[skipped] no checker can run on this path — a tab in a filename splits every per-workspace grouping below. Rename it: $rel"$'\n'
     continue
   fi
 
@@ -172,9 +178,10 @@ while IFS= read -r f; do
     *.py)
       if resolve_py_tool ruff "${f%/*}"; then
         ruff_bin="$PY_TOOL_BIN"
-        "$ruff_bin" check --fix --force-exclude --quiet "$f" >/dev/null 2>&1 || true
-        "$ruff_bin" format --force-exclude --quiet "$f" >/dev/null 2>&1 || true
-        if ! check_out="$("$ruff_bin" check --force-exclude --quiet --output-format=concise "$f" 2>&1)"; then
+        if [[ "$mode" == "write" ]]; then
+          "$ruff_bin" check --fix --force-exclude --quiet "$f" >/dev/null 2>&1 || true
+          "$ruff_bin" format --force-exclude --quiet "$f" >/dev/null 2>&1 || true
+        elif ! check_out="$("$ruff_bin" check --force-exclude --quiet --output-format=concise "$f" 2>&1)"; then
           issues+=$'\n'"[ruff] $rel"$'\n'"$check_out"$'\n'
         fi
       fi
@@ -200,7 +207,7 @@ done <<< "$files"
 # Unlike the external toolchain above, a missing linter is NOT skipped: it is
 # repo-internal, so its absence means the gate did not run, which is a
 # different thing from the gate passing.
-if [[ -n "$skills_edited" ]]; then
+if [[ "$mode" == "check" && -n "$skills_edited" ]]; then
   linter="$proj/.agents/lint-skills.sh"
   if [[ ! -x "$linter" ]]; then
     issues+=$'\n'"[lint-skills] cannot run: $linter is missing or not executable."$'\n'"Skill format was not validated. Restore it (chmod +x) rather than proceeding."$'\n'
@@ -213,105 +220,8 @@ fi
 # ancestor holding a tsconfig.json (apps/*, packages/*), never a single hardcoded
 # one. One tsc run per distinct workspace, errors scoped to the edited files.
 # A workspace without a resolvable tsc is skipped silently.
-if [[ -n "$ts_edited" ]]; then
-  workspaces="$(TS_FILES="$ts_edited" PROJ="$proj" python3 <<'PY'
-import json, os, re
-
-proj = os.path.realpath(os.environ["PROJ"])
-
-
-def read_config(path):
-    """tsconfig permits comments and trailing commas; json does not."""
-    try:
-        with open(path, encoding="utf-8") as handle:
-            raw = handle.read()
-    except OSError:
-        return {}
-    raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
-    raw = re.sub(r"(^|\s)//[^\n]*", r"\1", raw)
-    raw = re.sub(r",(\s*[}\]])", r"\1", raw)
-    try:
-        value = json.loads(raw)
-    except ValueError:
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def literal_prefix(pattern):
-    """The leading path of an include pattern, up to its first wildcard."""
-    return re.split(r"[*?]", pattern, maxsplit=1)[0].rstrip("/")
-
-
-def covers(config_dir, config, target_file):
-    """Length of the longest include prefix that claims the file, else None."""
-    rel = os.path.relpath(target_file, config_dir)
-    if rel.startswith(os.pardir):
-        return None
-    for entry in config.get("files") or []:
-        if os.path.normpath(entry) == os.path.normpath(rel):
-            return len(rel)
-    for pattern in config.get("exclude") or []:
-        prefix = literal_prefix(pattern)
-        if prefix and (rel == prefix or rel.startswith(prefix + os.sep)):
-            return None
-    best = None
-    for pattern in config.get("include") or ["**/*"]:
-        prefix = literal_prefix(pattern)
-        if not prefix or rel == prefix or rel.startswith(prefix + os.sep):
-            best = max(best or 0, len(prefix))
-    return best
-
-
-def project_for(workspace, target_file):
-    """Pick the tsconfig that actually typechecks this file.
-
-    A Vite or React workspace usually keeps `tsconfig.json` as a solution file
-    -- `{"files": [], "references": [...]}`. tsc run against it reads no source,
-    so the gate would report success having checked nothing. Where the nearest
-    config declares no inputs of its own, follow its references and take the
-    project whose include prefix claims the file most specifically.
-    """
-    config_path = os.path.join(workspace, "tsconfig.json")
-    config = read_config(config_path)
-    references = config.get("references") or []
-    if not references:
-        return "tsconfig.json"
-    if (config.get("files") or config.get("include")) and \
-            covers(workspace, config, target_file) is not None:
-        return "tsconfig.json"
-    best, best_score = None, -1
-    for reference in references:
-        path = reference.get("path") if isinstance(reference, dict) else None
-        if not isinstance(path, str):
-            continue
-        candidate = os.path.normpath(os.path.join(workspace, path))
-        if os.path.isdir(candidate):
-            candidate = os.path.join(candidate, "tsconfig.json")
-        if not os.path.isfile(candidate):
-            continue
-        score = covers(os.path.dirname(candidate), read_config(candidate), target_file)
-        if score is not None and score > best_score:
-            best, best_score = os.path.relpath(candidate, workspace), score
-    return best or "tsconfig.json"
-
-
-groups = {}
-for ap in os.environ["TS_FILES"].splitlines():
-    if not ap:
-        continue                       # already absolute and already in scope
-    d = os.path.dirname(ap)
-    while True:
-        if os.path.isfile(os.path.join(d, "tsconfig.json")):
-            groups.setdefault((d, project_for(d, ap)), []).append(os.path.relpath(ap, d))
-            break
-        if d == proj or d == os.path.dirname(d):
-            break                      # no tsconfig anywhere above: skip
-        d = os.path.dirname(d)
-
-for (ws, config), rels in groups.items():
-    print("\t".join([ws, config] + rels))
-PY
-)"
+if [[ "$mode" == "check" && -n "$ts_edited" ]]; then
+  workspaces="$(printf '%s' "$ts_edited" | python3 "$lib/ts-workspaces.py" "$proj")"
 
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
@@ -328,18 +238,22 @@ PY
       continue                         # no typechecker installed: silent skip
     fi
 
-    tsc_raw="$(cd "$ws" && "$tsc_bin" --noEmit -p "$ws_config" --incremental --tsBuildInfoFile .tsbuildinfo-claude 2>&1 || true)"
+    # No --incremental: two background checks from consecutive edits would
+    # write one build-info file concurrently, and a torn one makes the next run
+    # report errors that are not there. This entry is off the critical path, so
+    # a cold typecheck costs the session nothing.
+    tsc_raw="$(cd "$ws" && "$tsc_bin" --noEmit -p "$ws_config" 2>&1 || true)"
     [[ -z "$tsc_raw" ]] && continue
 
-    scoped="$(HOOK_INPUT="$tsc_raw" TS_RELS="$ws_rels" python3 <<'PY'
-import os
-raw = os.environ["HOOK_INPUT"]
-rels = [r for r in os.environ["TS_RELS"].split("\t") if r]
-# tsc reports paths relative to the tsconfig dir, which is also its cwd here.
-keep = [line for line in raw.splitlines() if any(r in line for r in rels)]
-print("\n".join(keep))
-PY
-)"
+    # tsc reports paths relative to the tsconfig dir, which is also its cwd here.
+    ts_patterns=()
+    IFS=$'\t' read -r -a ts_rel_list <<< "$ws_rels"
+    for ts_rel in "${ts_rel_list[@]}"; do
+      [[ -n "$ts_rel" ]] && ts_patterns+=(-e "$ts_rel")
+    done
+    scoped=""
+    [[ ${#ts_patterns[@]} -gt 0 ]] &&
+      scoped="$(printf '%s\n' "$tsc_raw" | grep -F "${ts_patterns[@]}" || true)"
 
     if [[ -n "$scoped" ]]; then
       ws_label="${ws#$proj/}/$ws_config"
@@ -348,11 +262,12 @@ PY
   done <<< "$workspaces"
 fi
 
-# Prettier + ESLint: the JS/TS analogue of the ruff pass above. Prettier --write
-# formats (like ruff format — deterministic, safe to apply). ESLint is
-# report-only: unlike ruff, its --fix reaches past formatting (import pruning,
-# let->const, plugin rewrites) and could rewrite the file under the agent
-# mid-edit, so we surface errors and let the agent fix them. Config resolution is
+# Prettier + ESLint: the JS/TS analogue of the ruff pass above. Both fix in
+# `write` mode and both report in `check` mode, which is the same rule ruff
+# follows — one policy for every tool, so no reader has to remember which of
+# them rewrites files. eslint --fix reaches past formatting (import pruning,
+# let->const, plugin rewrites), which is precisely why it belongs in the
+# synchronous entry rather than the background one. Config resolution is
 # eslint/prettier's own job; this only has to find a binary that can run.
 if [[ -n "$js_ts_edited" ]]; then
   # bun and npm both install a workspace's own devDependencies inside that
@@ -362,95 +277,54 @@ if [[ -n "$js_ts_edited" ]]; then
   # node_modules/.bin holding the tool, and run one pass per binary; a file
   # with no binary above it is skipped, as before.
   js_groups() {
-    JS_FILES="$js_ts_edited" PROJ="$proj" TOOL="$1" python3 <<'PY'
-import os
-proj, tool = os.environ["PROJ"], os.environ["TOOL"]
-real_proj = os.path.realpath(proj)
-groups = {}
-for ap in os.environ["JS_FILES"].splitlines():
-    if not ap:
-        continue                       # already absolute and already in scope
-    d = os.path.dirname(ap)
-    while True:
-        candidate = os.path.join(d, "node_modules", ".bin", tool)
-        # Same rule the shell's in_repo applies: judge the directory holding the
-        # binary, never the binary's own link target. A .bin entry is a symlink
-        # by construction and pnpm's can point into a store outside the project,
-        # so following it would disarm the gate for every pnpm repository. What
-        # must stay inside the repository is the directory, because that is what
-        # a symlinked workspace can move. Keep climbing when it does not.
-        holder = os.path.realpath(os.path.dirname(candidate))
-        if os.access(candidate, os.X_OK) and (holder == real_proj or holder.startswith(real_proj + os.sep)):
-            groups.setdefault(candidate, []).append(ap)
-            break
-        if d == proj or d == os.path.dirname(d):
-            break                      # no install anywhere above: skip
-        d = os.path.dirname(d)
-for binary, files in groups.items():
-    print("\t".join([binary] + files))
-PY
+    printf '%s' "$js_ts_edited" | python3 "$lib/js-groups.py" "$proj" "$1"
   }
 
-  # A file that was already clean reformats to itself. A file that was not gets
-  # rewritten whole, and that diff can dwarf the edit the agent actually made —
-  # so record which files moved and say so, rather than changing them in silence.
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    prettier_bin="${line%%$'\t'*}"
-    IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
-    # Stay in $proj. Prettier finds its config from each file's own path, so the
-    # workspace's .prettierrc applies either way — and --list-different prints
-    # relative to the working directory, so running elsewhere would label
-    # apps/web/src/a.js and apps/api/src/a.js both as src/a.js.
-    pre_dirty="$("$prettier_bin" --list-different "${jsfiles[@]}" 2>/dev/null || true)"
-    "$prettier_bin" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
-    [[ -n "$pre_dirty" ]] && reformatted+="$pre_dirty"$'\n'
-  done <<< "$(js_groups prettier)"
-  reformatted="${reformatted%$'\n'}"
+  if [[ "$mode" == "write" ]]; then
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      prettier_bin="${line%%$'\t'*}"
+      IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+      # Stay in $proj: prettier finds its config from each file's own path, so
+      # the workspace's .prettierrc applies either way.
+      "$prettier_bin" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
+    done <<< "$(js_groups prettier)"
 
-  # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for it
-  # exits 2 with an empty stdout — indistinguishable from "no errors found" to a
-  # reader that only greps stdout. json is core and stable across both majors.
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    eslint_bin="${line%%$'\t'*}"
-    IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
-    # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
-    # resolve a config, which a stdout-only reader cannot tell apart from a
-    # clean run — the same trap the --format note above describes, one level up.
-    eslint_rc=0
-    eslint_raw="$(cd "${eslint_bin%/node_modules/.bin/*}" && "$eslint_bin" --format json "${jsfiles[@]}" 2>/dev/null)" || eslint_rc=$?
-    if [[ "$eslint_rc" -ne 0 && -z "$eslint_raw" ]]; then
-      issues+=$'\n'"[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted."$'\n'
-      continue
-    fi
-    eslint_errs="$(HOOK_INPUT="$eslint_raw" PROJ="$proj" python3 <<'EPY' || true
-import json, os
-try:
-    results = json.loads(os.environ["HOOK_INPUT"] or "[]")
-except Exception:
-    raise SystemExit(0)
-proj = os.environ["PROJ"]
-for r in results:
-    f = r.get("filePath", "")
-    if f.startswith(proj + os.sep):
-        f = f[len(proj) + 1:]
-    for m in r.get("messages", []):
-        if m.get("severity") != 2:
-            continue
-        rule = m.get("ruleId") or "parse-error"
-        print(f"{f}:{m.get('line', 0)}:{m.get('column', 0)}: {m.get('message', '')} [{rule}]")
-EPY
-)"
-    if [[ -n "$eslint_errs" ]]; then
-      issues+=$'\n'"[eslint] (scoped to edited files; errors only)"$'\n'"$eslint_errs"$'\n'
-    fi
-  done <<< "$(js_groups eslint)"
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      eslint_bin="${line%%$'\t'*}"
+      IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+      (cd "${eslint_bin%/node_modules/.bin/*}" && "$eslint_bin" --fix "${jsfiles[@]}") >/dev/null 2>&1 || true
+    done <<< "$(js_groups eslint)"
+  else
+    # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for
+    # it exits 2 with an empty stdout — indistinguishable from "no errors found"
+    # to a reader that only greps stdout. json is core and stable across both
+    # majors.
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      eslint_bin="${line%%$'\t'*}"
+      IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+      # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
+      # resolve a config, which a stdout-only reader cannot tell apart from a
+      # clean run — the same trap the --format note above describes, one level up.
+      eslint_rc=0
+      eslint_raw="$(cd "${eslint_bin%/node_modules/.bin/*}" && "$eslint_bin" --format json "${jsfiles[@]}" 2>/dev/null)" || eslint_rc=$?
+      if [[ "$eslint_rc" -ne 0 && -z "$eslint_raw" ]]; then
+        issues+=$'\n'"[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted."$'\n'
+        continue
+      fi
+      eslint_errs="$(printf '%s' "$eslint_raw" | python3 "$lib/tool-errors.py" eslint "$proj" || true)"
+      if [[ -n "$eslint_errs" ]]; then
+        issues+=$'\n'"[eslint] (scoped to edited files; errors only)"$'\n'"$eslint_errs"$'\n'
+      fi
+    done <<< "$(js_groups eslint)"
+  fi
 fi
 
 # Python type gate: ruff is lint/format only — it does no type inference, so
 # None-flow, wrong-arg-type, and missing-return bugs pass it. Pyright fills that.
-if [[ -n "$py_edited" ]]; then
+if [[ "$mode" == "check" && -n "$py_edited" ]]; then
   # pyright takes its interpreter from the environment it runs in, so one binary
   # cannot serve a batch that spans two packages: run it against the wrong
   # virtualenv and every third-party import is reportMissingImports at error
@@ -490,27 +364,22 @@ if [[ -n "$py_edited" ]]; then
       pyright_raw="$(cd "$py_ws" && "$pyright_bin" --outputjson "${pyfiles[@]}" 2>/dev/null || true)"
     fi
     if [[ -n "$pyright_raw" ]]; then
-      scoped="$(HOOK_INPUT="$pyright_raw" PROJ="$proj" python3 <<'PY'
-import json, os
-try:
-    d = json.loads(os.environ["HOOK_INPUT"])
-except Exception:
-    raise SystemExit(0)
-proj = os.environ["PROJ"]
-for diag in d.get("generalDiagnostics", []):
-    if diag.get("severity") != "error":
-        continue
-    f = diag.get("file", "")
-    if f.startswith(proj + os.sep):
-        f = f[len(proj) + 1:]
-    line = diag.get("range", {}).get("start", {}).get("line", 0) + 1
-    msg = (diag.get("message", "") or "").splitlines()[0]
-    print(f"{f}:{line}: {msg}")
-PY
-)"
+      scoped="$(printf '%s' "$pyright_raw" | python3 "$lib/tool-errors.py" pyright "$proj")"
       [[ -n "$scoped" ]] && issues+=$'\n'"[pyright] (scoped to edited files)"$'\n'"$scoped"$'\n'
     fi
   done <<< "$(printf '%s' "$py_pairs" | cut -f1,2 | sort -u)"
+fi
+
+if [[ "$mode" == "write" ]]; then
+  after_sums="$(sums "$files")"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    case $'\n'"$before_sums"$'\n' in
+      *$'\n'"$line"$'\n'*) ;;                       # unchanged
+      *) reformatted+="${line#*$'\t'}"$'\n' ;;
+    esac
+  done <<< "$after_sums"
+  reformatted="${reformatted%$'\n'}"
 fi
 
 # Tombstones: diary/changelog narration added in this edit. Advisory only —
@@ -518,96 +387,8 @@ fi
 # additions vs HEAD (no mid-session commits, by policy) so pre-existing history
 # comments aren't re-flagged.
 tombstones=""
-if [[ "$tombstone_check" == "yes" ]]; then
-  tombstones="$(FILES="$files" PROJ="$proj" python3 <<'PY' || true
-import os, re, subprocess
-
-proj = os.environ["PROJ"]
-files = [f for f in os.environ["FILES"].splitlines() if f.strip()]
-
-# High-precision: phrasings that narrate a change rather than describe present
-# behavior. Kept tight on purpose — a false miss beats nagging on legit prose.
-PHRASES = re.compile(r'''(?ix)
-    \b(
-      previously | formerly | no\s+longer |
-      used\s+to(\s+be)? |
-      was\s+(previously\s+|formerly\s+)?(refactored|renamed|removed|replaced|changed|moved|deprecated) |
-      refactored\s+(this|the|from|to|out|into) |
-      changed\s+(this|the|it|these)?\s*from |
-      renamed\s+(this|the|it|from) |
-      moved\s+(this|the|it)\s+(from|to|out) |
-      replaced\s+(the\s+)?old |
-      instead\s+of\s+the\s+old |
-      prior\s+to\s+this\s+(change|refactor) |
-      as\s+part\s+of\s+(the\s+)?refactor |
-      legacy\s+(behaviou?r|version|impl|code|path)
-    )\b
-    | \bTODO\b[^\n]*\b(19|20)\d\d\b
-''')
-
-# Only flag lines that read as comments (any line, in prose docs).
-CODE_COMMENT = re.compile(r'(^\s*(//|\#|\*|/\*|<!--|--|;))|(//|/\*|<!--|\#\s)')
-DOC_EXT = (".md", ".mdx", ".markdown", ".rst", ".txt")
-
-# Files whose whole job is to narrate history — exempt, or they nag on every edit.
-SKIP_NAMES = re.compile(r'^(CHANGELOG|CHANGES|HISTORY|RELEASES?|NEWS|MIGRATION|UPGRADING)(\.|$)', re.I)
-
-# The knowledge store holds dated observations of things outside this
-# repository. An entry reporting that a claim "no longer" holds describes a
-# source that moved, not a change to this code, so the rule does not reach it.
-SKIP_PATHS = re.compile(r'(^|/)\.agents/knowledge/')
-
-# A banned phrase inside double-quotes/backticks is a citation (defining or
-# discussing the word), not narration — strip those spans before matching so this
-# rule and its own docs don't trip it, while bare `// previously returned X`
-# still does. Apostrophes (it's, user's) are NOT treated as delimiters: prose
-# apostrophes far outnumber single-quoted comment strings, and a `'...'` pair
-# straddling a banned phrase would silently hide a real tombstone.
-QUOTED = re.compile(r'"[^"]*"|`[^`]*`')
-
-def rel_of(f):
-    return f[len(proj) + 1:] if f.startswith(proj + "/") else f
-
-def added_lines(f):
-    rel = rel_of(f)
-    try:
-        d = subprocess.run(["git", "-C", proj, "diff", "HEAD", "-U0", "--", rel],
-                           capture_output=True, text=True, timeout=10)
-        if d.returncode == 0 and d.stdout.strip():
-            return [ln[1:] for ln in d.stdout.splitlines()
-                    if ln.startswith("+") and not ln.startswith("+++")]
-        if d.returncode == 0:
-            tracked = subprocess.run(
-                ["git", "-C", proj, "ls-files", "--error-unmatch", "--", rel],
-                capture_output=True, text=True, timeout=10)
-            if tracked.returncode != 0:  # untracked new file: scan it whole
-                with open(f, encoding="utf-8", errors="replace") as fh:
-                    return fh.read().splitlines()
-    except Exception:
-        pass
-    return []
-
-hits, seen = [], set()
-for f in files:
-    if not os.path.isfile(f) or SKIP_NAMES.match(os.path.basename(f)):
-        continue
-    if SKIP_PATHS.search(rel_of(f)):
-        continue
-    is_doc = f.lower().endswith(DOC_EXT)
-    for ln in added_lines(f):
-        if not (is_doc or CODE_COMMENT.search(ln)):
-            continue
-        if not PHRASES.search(QUOTED.sub(" ", ln)):
-            continue
-        entry = f"{rel_of(f)}: {ln.strip()[:120]}"
-        if entry not in seen:
-            seen.add(entry)
-            hits.append(entry)
-
-for h in hits[:12]:
-    print(h)
-PY
-)"
+if [[ "$mode" == "write" && "$tombstone_check" == "yes" ]]; then
+  tombstones="$(printf '%s' "$files" | python3 "$lib/added-scan.py" tombstones "$proj" || true)"
 fi
 
 # Null-safety: high-signal patterns tsc is blind to by construction — a cast
@@ -615,117 +396,57 @@ fi
 # the lines this edit added (like tombstones), so legit pre-existing casts don't
 # nag. Deliberately narrow: false misses beat crying wolf on every `!`.
 nullsafety=""
-if [[ "$nullsafety_check" == "yes" && -n "$js_ts_edited" ]]; then
-  nullsafety="$(FILES="$js_ts_edited" PROJ="$proj" python3 <<'PY' || true
-import os, re, subprocess
-
-proj = os.environ["PROJ"]
-files = [f for f in os.environ["FILES"].splitlines() if f.strip()]
-
-PATS = [
-    (re.compile(r'\bas\s+(any|unknown)\b'),
-     "cast to any/unknown launders the type — tsc can't see past it"),
-    (re.compile(r'[\w\)\]]\!(?=[.\[(])'),
-     "non-null `!` assertion proves nothing at runtime — guard instead"),
-    (re.compile(r'\b(JSON\.parse|await\s+[\w.]+\.json)\s*\('),
-     "parsed data is `any` — validate its shape before use"),
-]
-
-# Strip quoted spans (double, single, backtick) before matching so a string
-# literal that merely mentions "as any" or "JSON.parse(...)" isn't flagged as
-# real code — prettier may have rewritten "…" to '…', so single quotes count too.
-# Safe here because comment-leading lines are already skipped above.
-QUOTED = re.compile(r'"[^"]*"|`[^`]*`' + r"|'[^']*'")
-
-def rel_of(f):
-    return f[len(proj) + 1:] if f.startswith(proj + "/") else f
-
-def added_lines(f):
-    rel = rel_of(f)
-    try:
-        d = subprocess.run(["git", "-C", proj, "diff", "HEAD", "-U0", "--", rel],
-                           capture_output=True, text=True, timeout=10)
-        if d.returncode == 0 and d.stdout.strip():
-            return [ln[1:] for ln in d.stdout.splitlines()
-                    if ln.startswith("+") and not ln.startswith("+++")]
-        if d.returncode == 0:
-            tracked = subprocess.run(
-                ["git", "-C", proj, "ls-files", "--error-unmatch", "--", rel],
-                capture_output=True, text=True, timeout=10)
-            if tracked.returncode != 0:
-                with open(f, encoding="utf-8", errors="replace") as fh:
-                    return fh.read().splitlines()
-    except Exception:
-        pass
-    return []
-
-hits, seen = [], set()
-for f in files:
-    if not os.path.isfile(f):
-        continue
-    rel = rel_of(f)
-    for ln in added_lines(f):
-        s = ln.strip()
-        if s.startswith(("//", "*", "/*")):
-            continue
-        probe = QUOTED.sub(" ", ln)
-        for pat, msg in PATS:
-            if pat.search(probe):
-                key = f"{rel}: {msg}"
-                if key not in seen:
-                    seen.add(key)
-                    hits.append((key, s[:100]))
-                break
-
-for key, src in hits[:10]:
-    print(f"{key}\n    {src}")
-PY
-)"
+if [[ "$mode" == "write" && "$nullsafety_check" == "yes" && -n "$js_ts_edited" ]]; then
+  nullsafety="$(printf '%s' "$js_ts_edited" | python3 "$lib/added-scan.py" nullsafety "$proj" || true)"
 fi
 
-if [[ -n "$issues" ]]; then
+if [[ "$mode" == "check" ]]; then
+  [[ -z "$issues" ]] && exit 0
   cat >&2 <<EOF
 Post-edit checks found issues — fix them before moving on. These are
 scoped to the files you just edited; pre-existing issues elsewhere are
 suppressed.
 $issues
 EOF
+  exit 2
 fi
 
-if [[ -n "$tombstones" ]]; then
-  cat >&2 <<EOF
+# write mode from here. Advisories never block: they leave through
+# additionalContext at exit 0, so the exit-2 channel carries type and lint
+# failures alone and keeps meaning what it says.
+advisories=""
 
-Advisory (not a correctness gate) — possible tombstone comment(s) in your
-additions. Comments and docs describe the code as it is now, not its history;
-the diff already records the change. Move any standing rationale to
-.agents/debt-log.md and reference it inline as \`debt: <id>\`, then delete the
-narration. If a flagged line is legitimate present-tense prose, leave it and
-continue — this does not block.
+if [[ -n "$tombstones" ]]; then
+  advisories+="Advisory — possible tombstone comment(s) in your additions. Comments and docs
+describe the code as it is now, not its history; the diff already records the
+change. Move any standing rationale to .agents/debt-log.md and reference it
+inline as \`debt: <id>\`, then delete the narration. If a flagged line is
+legitimate present-tense prose, leave it and continue.
 $tombstones
-EOF
+"
 fi
 
 if [[ -n "$nullsafety" ]]; then
-  cat >&2 <<EOF
-
-Advisory (not a correctness gate) — possible null-safety gaps in your additions.
-tsc is blind to these (a cast silences it; parsed JSON is \`any\`). Prefer
-validating the shape or narrowing the type over asserting it. If a flagged line
-is a deliberate, proven-safe assertion, leave it and continue — this does not block.
+  advisories+="
+Advisory — possible null-safety gaps in your additions. tsc is blind to these (a
+cast silences it; parsed JSON is \`any\`). Prefer validating the shape or
+narrowing the type over asserting it. If a flagged line is a deliberate,
+proven-safe assertion, leave it and continue.
 $nullsafety
-EOF
+"
 fi
 
 if [[ -n "$reformatted" ]]; then
-  cat >&2 <<EOF
-
-Advisory (not a correctness gate) — prettier reformatted these files, which were
-not formatted before your edit. Their diff now contains changes you did not
-make. Check the diff before you describe it, and say so if the reformatting is
-larger than your own change.
+  advisories+="
+Advisory — a formatter rewrote these files after your edit (ruff, prettier or
+eslint --fix). Their contents no longer match what you wrote, so an Edit whose
+old_string predates this will fail. Re-read the file before your next edit,
+check the diff before you describe it, and say so if the reformatting is larger
+than your own change.
 $reformatted
-EOF
+"
 fi
 
-[[ -n "$issues" || -n "$tombstones" || -n "$nullsafety" || -n "$reformatted" ]] && exit 2
+[[ -z "$advisories" ]] && exit 0
+printf '%s' "$advisories" | python3 "$lib/emit-context.py" PostToolUse
 exit 0

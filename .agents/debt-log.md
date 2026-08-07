@@ -25,11 +25,17 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — anyone proposing the guard as a control against a hostile operator or a prompt-injected agent, or a satellite repository citing it as one.
 - **Rework** — none available at this layer; the honest fix is to state the threat model in the header and in `README.md`'s "The invariant" section. Real containment needs a permission layer or a sandbox, not a pattern list. Separately, the *honest-mistake* set is closeable and is filed as work in `breadcrumbs.md`.
 
-### colloid-bash4-policy-layer-silent-off
+### colloid-grader-lock-claude-only
 
-- **Condition** — five of nine policy scripts use `x="$(python3 <<'PY' … PY)"`, a heredoc nested in command substitution that bash 3.2 mis-scans, so they fail to parse there. All four adapters guard on `BASH_VERSINFO[0] < 4` and exit 0 with two stderr lines, so nothing breaks — but on a stock macOS machine with no newer bash the entire enforcement layer is off. Acceptable: the guard is loud on stderr, the direction is fail-open rather than fail-closed, and `README.md` states `bash` as a requirement.
-- **Trigger** — an operator running on stock macOS discovering mid-session that no guard has been active, or a satellite transplant onto a machine without Homebrew bash.
-- **Rework** — either rewrite the 33 nested-heredoc sites to pipe stdin into `python3` (also closes the `E2BIG` ceiling filed in `breadcrumbs.md`), or have the SessionStart path emit `additionalContext` announcing that the policy layer is disabled, so the model knows its guards are absent rather than assuming they hold. The second is ~10 lines and buys most of the value.
+- **Condition** — `grader-lock.sh` is wired on Claude alone, through the adapter's `--agent subagent` selector. The Codex and Kimi adapters take no selector: `.agents/codex/adapter.sh` and `.kimi/hooks/adapter.sh` accept a policy name and nothing else, so the same wiring there would run for the *main* session and lock the operator out of every gate — strictly worse than no lock. Acceptable: the lock's threat model is a delegated cell writing the rules by accident, Claude is where this repository delegates, and a subagent on the other two engines still faces review. The gap is invisible from the settings files, which is the part that bites.
+- **Trigger** — routine delegation on Codex or Kimi, or a satellite that runs its fan-out on one of them.
+- **Rework** — teach both adapters the selector (parse `--agent`, gate on the payload's subagent identity, exit 0 on no match) and add each engine's `grader-lock.sh` branch to its `normalize-hook.py`; the Codex branch also needs the `apply_patch` command string parsed into a path list, since that engine names N files in one payload rather than one file per call. ~60 lines across four files, plus a fixture per engine.
+
+### colloid-grader-lock-blocks-honest-test-work
+
+- **Condition** — the lock refuses a subagent every write under `.agents/hooks/`, `.agents/test-*`, and the playbooks, without asking why the write is happening. A cell dispatched in good faith to add a hook test hits the same refusal as one quietly softening its own grader, and must hand the edit back to the main session. Acceptable: intent is not in the payload, the refusal is one turn and names the way forward, and the alternative — a warning a cell can walk past — is not a gate. This is the same tradeoff `stop-investigate.sh` documents for its provenance ratchet.
+- **Trigger** — the handback becoming routine rather than rare: several dispatches a week losing a turn to it, or operators disabling `hooks.grader_lock` to get work done.
+- **Rework** — none at this layer that keeps the guarantee. The honest options are to narrow the set (drop the tests, keep the standard and the gates) or to move gate-test authoring to the main session by convention so the refusal never fires; both are policy changes, not code.
 
 ### colloid-wrap-concurrent-attribution
 

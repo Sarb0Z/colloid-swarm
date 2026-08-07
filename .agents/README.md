@@ -15,6 +15,7 @@ format or location) pointing back here. Edit things here, once.
 | `mcp-servers/<name>/` | Repository-owned MCP servers (`research-mcp`, `security-mcp`); committed `dist/server.js` starts with no install — see [Repository-owned MCP servers](#repository-owned-mcp-servers) | launched from the generated `.mcp.json` | launched from the generated `.kimi-code/mcp.json` | launched from the generated `.codex/config.toml` |
 | `lsp.json` | LSP server registry (`lspServers`); fanned out to `.github/lsp.json` for Copilot CLI | official marketplace plugins (`typescript-lsp`, `pyright-lsp`) | no LSP support in Kimi — nothing generated | no project LSP configuration |
 | `hooks/policy/*.sh` | Engine-agnostic hook policies | `.claude/settings.json` + adapter | `.kimi/config.toml` + adapter | `.codex/hooks.json` + adapter |
+| `hooks/lib/*.py` | The logic a policy shells out to; the payload arrives on stdin | called by the policy | called by the policy | called by the policy |
 | `config.json` | Scaffold toggles and thresholds (model routing lives in `config.json.example`, which `sync-claude-agents.sh` reads) | read by every hook | read by wired hooks | read by `sync-codex.sh` and shared policies |
 | `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | dispatched natively (no capture) | `.codex/agents/researcher.toml` — generated native agent |
 | `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded | data, not auto-loaded |
@@ -28,7 +29,7 @@ The genome layer rides the same fan-out:
 
 | Canonical (here) | What | Claude Code | Kimi CLI | Codex |
 |---|---|---|---|---|
-| `genome.sh` | Genome emitter (parses `../genomes.md`) | called by the orchestrator; `genome-guard.sh` enforces | called by the orchestrator (native) | called by the orchestrator; `genome-guard.sh` enforces |
+| `genome.sh` | Genome emitter (parses `../genomes.md`) | drawn by `genome-inject.sh` on `SubagentStart` | called by the orchestrator; `genome-guard.sh` requires it | called by the orchestrator; `genome-guard.sh` requires it |
 | `mutagen.sh` + `mutagen.md` | Mutagen: roll a vector + blind-rewriter contract | called by the orchestrator (`panspermia-mutation` skill) | called by the orchestrator (native) | called by the orchestrator |
 <!-- /colloid-only -->
 
@@ -66,9 +67,17 @@ disclosure). Both are gitignored beside it.
   `.agents/claude/README.md`.
 
   The Claude adapter layer keeps its source under `.agents/claude/`:
-  `settings.json`, `adapter.sh`, and `README.md`. `sync-claude-agents.sh`
-  deploys them, so a checkout that ignores `.claude/` still rebuilds every
-  hook with one command.
+  `settings.json`, `adapter.sh`, `normalize-hook.py`, and `README.md`.
+  `sync-claude-agents.sh` deploys them, so a checkout that ignores `.claude/`
+  still rebuilds every hook with one command.
+
+  Each adapter is a shell script that locates the repository, plus a
+  `normalize-hook.py` that maps the engine's payload onto the shared contract.
+  The payload travels on stdin, never in the environment: a single edit can
+  carry hundreds of kilobytes, and an environment past `ARG_MAX` aborts the
+  hook with `E2BIG` — which turns the gate off on exactly the largest changes.
+  Keeping the interpreters out of shell heredocs is also what lets the whole
+  policy layer run under the bash 3.2 that macOS still ships.
 
 Codex discovers the same skills directly from `.agents/skills/`. It requires
 `.codex/` for hooks, MCP configuration, and custom agents. Run

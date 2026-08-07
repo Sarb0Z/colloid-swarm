@@ -31,13 +31,15 @@ live in `.agents/hooks/policy/`.
 | `sources-capture.sh` | `{"project_dir": "...", "agent": "...", "kind": "...", "value": "..."}` |
 | `research-prime.sh` | `{"project_dir": "...", "prompt": "..."}` |
 | `post-edit-check.sh` | `{"project_dir": "...", "files": ["..."]}` |
+| `grader-lock.sh` | `{"project_dir": "...", "files": ["..."]}` |
 | `session-wrap.sh` | `{"project_dir": "...", "stop_hook_active": bool, "transcript_path": "...", "session_id": "..."}` |
 | `stop-investigate.sh` | `{"project_dir": "...", "transcript_path": "...", "stop_hook_active": bool}` |
 | `session-start.sh` | `{"project_dir": "...", "source": "...", "session_id": "...", "transcript_path": "..."}` |
 | `pre-compact.sh` | `{"project_dir": "...", "trigger": "auto"\|"manual"}` |
 <!-- colloid-only -->
 
-`genome-guard.sh` takes `{"prompt": "...", "subagent_type": "..."}`.
+`genome-guard.sh` takes `{"prompt": "...", "subagent_type": "..."}`;
+`genome-inject.sh` takes `{"subagent_type": "..."}`.
 <!-- /colloid-only -->
 
 All policies: `exit 0` = allow, `exit 2` + stderr = block with reason.
@@ -47,10 +49,12 @@ Claude adds to the session.
 
 ### Agent scoping (Claude adapter)
 
-Subagents inherit the project's hooks. Claude tags every hook payload
-fired inside a subagent with `agent_type` (and `agent_id`); the main
-agent's payload omits them. The Claude adapter turns that into an optional
-selector that gates whether the policy runs for a given invocation:
+Subagents inherit the project's hooks. Claude tags every hook payload fired
+inside a spawned subagent with `agent_id` *and* `agent_type`. It tags a main
+session launched as `claude --agent <name>` with `agent_type` alone, and a plain
+main session with neither. Only `agent_id` separates a spawned subagent from the
+main agent, so the adapter keys on that field. The adapter turns it into an
+optional selector that gates whether the policy runs for a given invocation:
 
 ```
 .claude/hooks/adapter.sh [--agent <selector>] <policy.sh>
@@ -59,9 +63,9 @@ selector that gates whether the policy runs for a given invocation:
 | Selector | Policy runs for |
 |----------|-----------------|
 | *(absent)* | every agent — main and subagents alike |
-| `main` | the main agent only (no `agent_type`) |
-| `subagent` | any subagent (has `agent_type`) |
-| a type name | that agent type only |
+| `main` | the main agent only, `--agent` launch included (no `agent_id`) |
+| `subagent` | any spawned subagent (has `agent_id`) |
+| a type name | spawned subagents of that type only |
 
 For several types, pass them joined by a literal `|` (e.g. `--agent
 Explore|Plan`). `main` and `subagent` are reserved selector words, so a
@@ -99,35 +103,69 @@ installs, `sed -i`, piping into `/etc/`), and destructive SQL (`DROP
 TABLE/DATABASE/SCHEMA/INDEX`, `TRUNCATE`, unrestricted `DELETE`/`UPDATE`).
 Reason points at the correct channel (ask the user, or ship through the
 deploy path).
+
+### `grader-lock.sh` — PreToolUse (`Edit|Write|MultiEdit|NotebookEdit`), `--agent subagent`
+The party being graded does not edit its own grader. Refuses a spawned subagent
+any write to the standard (`AGENTS.md`), the gates (`hooks/`, `lint-skills.sh`,
+the `sync-*` scripts), the transport that carries a payload to one (`claude/`,
+`codex/`, `.kimi/hooks/`), the config that switches one off, and the `test-*`
+scripts that prove a gate fires. A skill stays writable: `lint-skills.sh` grades
+a skill and is itself governed, so the grader is locked while the graded
+artifact stays delegable.
+
+The `--agent subagent` selector is what keeps the operator out of scope. Claude
+tags a subagent's `PreToolUse` payload with `agent_id` and the main session's
+with neither field, so the gate skips the main agent entirely and an amendment
+reaches the standard the way every other operator decision does.
+
+Every path resolves through `realpath` before the match. `CLAUDE.md` and
+`.claude/settings.json` are symlinks onto canonical files inside the governed
+set, and `.agents/AGENTS.md` forbids editing through the mirror — matching the
+raw path would guard the mirror and miss the file it points at.
+
+Claude only. The Codex and Kimi adapters take no `--agent` selector, so the same
+wiring there would fire for the main session and lock the operator out of every
+gate; `debt: colloid-grader-lock-claude-only`. Fails **open** on an unreadable
+payload, an absent `files` list, or a missing decision module — a guard must
+never block on its own blindness. It sees `Edit` and `Write` alone, so a shell
+redirect reaches the same files: a guardrail against writing the rules by
+accident, never a boundary against one that means to.
 <!-- colloid-only -->
 
-### `genome-guard.sh` — PreToolUse (`Task|Agent`)
-Enforces the genome-stamping protocol: every substantive subagent dispatch must
-carry exactly one genome stamp, prepended by the orchestrator from
-`.agents/genome.sh` (see `genomes.md`). A hook cannot inject context into a
-spawned subagent — `PreToolUse` `additionalContext` reaches the *parent*, not
-the child, and it cannot rewrite the dispatch input — so this guard cannot
-*supply* the genome; it blocks a dispatch that lacks one (`exit 2`, reason names
-the fix) and a dispatch that doubles one. Read-only utility types
-(`Explore`, `Plan`, `claude-code-guide`, `statusline-setup`) are exempt; a
-personality on a search that cannot write is noise. `learning-reporter` is exempt
-too — for the adjacent reason: it *does* write (a teaching report), but in a fixed
-instructional voice that a variable persona only distorts (an aggressive genome —
-Pyroclast's "burn it", Supernova's "collapse it" — is actively wrong for material
-a junior is learning from). The exempt set is therefore "agents that gain nothing
-from a genome," not strictly "read-only agents." The matcher is `Task|Agent`
-because the dispatch tool is named `Task` on some Claude Code builds and `Agent`
-on others. Like every policy here it relies on subagents inheriting the
-project's hooks (see *Agent scoping* below): wherever a build fires `PreToolUse`
-on a subagent's own tool calls, a nested dispatch is guarded the same way. Either
-way, the per-edge re-stamp is the minion's own responsibility — `genomes.md`
-states the rule (a genome rides one hop; a minion that spawns children draws a
-fresh one for each). Fails **open** on an empty/unreadable payload, like
-`guard-destructive.sh`.
+### `genome-inject.sh` — SubagentStart
+Draws a genome from `.agents/genome.sh` and delivers it as
+`hookSpecificOutput.additionalContext`, which the host writes into the spawned
+cell's own transcript before its first prompt (see `genomes.md`). Every dispatch
+is therefore stamped, including the ones the orchestrator forgets — the
+treatment applies rather than being demanded, so an unstamped run is a control
+arm rather than a failed one. Sortition uses the `.agents/.genome-ledger`
+anti-repeat trail, so sequential cells in one fan-out condense as different
+selves. Never blocks: a `genome.sh` that cannot parse `genomes.md` yields no
+stamp rather than a half-formed personality.
 
-Claude-only. `.agents/genome.sh` itself is engine-neutral, so the orchestrator
-protocol works under Kimi; the guard is not wired there because Kimi's
-subagent/hook surface differs (see `.kimi/config.toml.example`).
+Read-only utility types (`Explore`, `Plan`, `claude-code-guide`,
+`statusline-setup`) are exempt; a personality on a search that cannot write is
+noise. `learning-reporter` is exempt too — for the adjacent reason: it *does*
+write (a teaching report), but in a fixed instructional voice that a variable
+persona only distorts (an aggressive genome — Pyroclast's "burn it", Supernova's
+"collapse it" — is actively wrong for material a junior is learning from). The
+exempt set is therefore "agents that gain nothing from a genome," not strictly
+"read-only agents." `.agents/hooks/lib/genome-guard.py` owns that list for both
+policies.
+
+### `genome-guard.sh` — PreToolUse (`Task|Agent`), not wired on Claude
+The membrane for an engine with no SubagentStart event: it blocks a dispatch
+whose prompt lacks a genome (`exit 2`, reason names the fix) or doubles one,
+leaving the orchestrator to prepend the stamp. Codex and Kimi run this path.
+Claude injects instead, so wiring both here would block every dispatch for
+missing a stamp the injector is about to supply. The policy stays because it is
+engine-neutral and those engines call it. Fails **open** on an empty or
+unreadable payload, like `guard-destructive.sh`.
+
+The per-edge re-stamp is the minion's own responsibility either way —
+`genomes.md` states the rule (a genome rides one hop; a minion that spawns
+children draws a fresh one for each).
+
 <!-- /colloid-only -->
 
 ### `sources-capture.sh` — PostToolUse (web lookups; matcher below)
@@ -169,13 +207,26 @@ Runs the relevant linter / formatter / typechecker on the edited
 file(s) only. Pre-existing issues in untouched files are suppressed so
 edits don't turn into repo-wide cleanup missions.
 
-| Extension | Tools run | Configured by |
-|-----------|-----------|---------------|
-| `*.py` | `ruff check --fix` → `ruff format` → `ruff check` (residuals) | `pyproject.toml` `[tool.ruff]` |
-| `*.py` | `pyright --outputjson` (errors only, scoped to edited files) | `pyrightconfig.json` or `[tool.pyright]`, per package |
-| `*.ts`, `*.tsx` | `tsc --noEmit --incremental` (scoped to edited files) | the nearest `tsconfig.json` above the file |
-| `*.ts`, `*.tsx`, `*.js`, `*.jsx`, `*.mjs`, `*.cjs` | `prettier --write` (advisory when it rewrites) then `eslint --format json` (errors only) | `.prettierrc` / `eslint.config.*`, per workspace |
-| `skills/<name>/*.md` | `lint-skills.sh` on the owning skill | the script itself |
+Two hook entries, split by whether the work rewrites the tree. `POST_EDIT_MODE`
+selects one, and the settings file wires both:
+
+| Mode | Runs | Exit | Scheduling |
+|------|------|------|------------|
+| `write` | every fixer and formatter, then the advisory scans | always 0, findings through `additionalContext` | synchronous |
+| `check` (default) | the read-only gates | 2 with the findings on stderr | `asyncRewake` — background, wakes the model on a finding |
+
+`write` must stay synchronous. A formatter running in the background can read a
+file, be overtaken by the agent's next edit, and write the pre-edit content back
+over it. Nothing in `check` touches the tree, so `check` is the entry that can
+carry the slow typecheckers off the critical path.
+
+| Extension | `write` runs | `check` runs | Configured by |
+|-----------|--------------|--------------|---------------|
+| `*.py` | `ruff check --fix` → `ruff format` | `ruff check` | `pyproject.toml` `[tool.ruff]` |
+| `*.py` | — | `pyright --outputjson` (errors only, scoped to edited files) | `pyrightconfig.json` or `[tool.pyright]`, per package |
+| `*.ts`, `*.tsx` | — | `tsc --noEmit --incremental` (scoped to edited files) | the nearest `tsconfig.json` above the file |
+| `*.ts`, `*.tsx`, `*.js`, `*.jsx`, `*.mjs`, `*.cjs` | `prettier --write`, `eslint --fix` | `eslint --format json` (errors only) | `.prettierrc` / `eslint.config.*`, per workspace |
+| `skills/<name>/*.md` | — | `lint-skills.sh` on the owning skill | the script itself |
 
 Every tool is resolved from the edited file's own workspace, walking up to
 the repository root: a monorepo keeps `ruff` in `apps/api/.venv` and `eslint`
@@ -189,11 +240,10 @@ default on): the added lines of the edit (vs `HEAD` — no mid-session commits, 
 policy) are scanned for diary/changelog narration ("previously", "used to", "was
 refactored", dated `TODO`s). A banned phrase inside quotes or backticks is treated
 as a citation and skipped, so the rule's own docs don't self-trip. Matches surface
-on stderr as a nudge to move the rationale into `.agents/debt-log.md` and reference
-it inline as `debt: <id>`. It shares `post-edit-check`'s exit-2 channel (that's how
-PostToolUse feeds the model — the edit already applied, so this informs rather than
-reverts); the message states plainly that it does not block. Unlike the lint/tsc
-findings, a flagged line is a judgment call, not a defect.
+as a nudge to move the rationale into `.agents/debt-log.md` and reference it inline
+as `debt: <id>`. A flagged line is a judgment call, not a defect, so it leaves
+through `additionalContext` at exit 0 — the exit-2 channel carries type and lint
+failures alone and keeps meaning what it says.
 
 ### `session-wrap.sh` — Stop (`--agent main`)
 Main agent only — the wrap-up never fires inside a subagent's turn, only
@@ -536,6 +586,7 @@ static. The config file is the single source of truth for active behavior.
 | Config key | Hook | What happens when `false` |
 |---|---|---|
 | `hooks.guard_destructive` | `guard-destructive.sh` | No destructive-command blocking |
+| `hooks.grader_lock` | `grader-lock.sh` | A subagent may write the standard, the gates, and their tests |
 | `hooks.sources_capture` | `sources-capture.sh` | No `.sources-ledger` writes |
 | `hooks.research_prime` | `research-prime.sh` | No research nudge on UserPromptSubmit |
 | `hooks.post_edit_check` | `post-edit-check.sh` | No lint/format/typecheck on edits |
@@ -550,7 +601,8 @@ static. The config file is the single source of truth for active behavior.
 | `hooks.pre_compact` | `pre-compact.sh` | No `.compaction-pending` marker |
 <!-- colloid-only -->
 
-`hooks.genome_guard` gates `genome-guard.sh`: `false` means no genome-stamp
+`hooks.genome_inject` gates `genome-inject.sh` and `hooks.genome_guard` gates
+`genome-guard.sh`: `false` means no genome-stamp
 enforcement.
 <!-- /colloid-only -->
 
@@ -601,8 +653,8 @@ cell's web lookups because subagents inherit hooks. See the `search-and-cite` sk
 the full delegation protocol.
 <!-- colloid-only -->
 
-The genome stamp rides ahead of the question in that prompt, where
-`genome-guard` can see it.
+Do not prepend a genome stamp to that prompt. `genome-inject.sh` stamps the cell
+on `SubagentStart`, and a prepended stamp would give it a second personality.
 <!-- /colloid-only -->
 
 ### `learning-reporter` — `.claude/agents/learning-reporter.md`

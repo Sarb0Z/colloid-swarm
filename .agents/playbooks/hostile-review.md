@@ -1,13 +1,19 @@
 # Hostile review
 
-Dispatch a subagent to review the diff against the surrounding architecture.
+Dispatch a subagent to review an artifact against the surrounding architecture.
+The artifact is the plan before you write code, and the diff after.
 
 Paste the reviewer contract below verbatim. Do not paraphrase it — a
 paraphrase is an untested variant.
 <!-- colloid-only -->
 
-The dispatch must also carry a genome stamp or `genome-guard` will block it.
-Draw one and prepend its output above the contract:
+Under Claude Code, **prepend nothing**. `genome-inject.sh` stamps the cell on
+`SubagentStart`, and a second stamp gives the reviewer two conflicting
+personalities and burns two draws from the anti-repeat ledger.
+
+Under an engine that runs `genome-guard` instead, the dispatch must carry a
+stamp or the guard blocks it — draw one and prepend its output above the
+contract:
 
 ```sh
 .agents/genome.sh --register none
@@ -157,6 +163,6 @@ it's right, decline it with a reason, file it (breadcrumbs or debt-log)
 when valid but not this unit's work, or escalate a decision only the
 user can make. The burden of proof sits on the finding, not the
 decline. State every disposition explicitly — a silent drop is not a
-disposition. Three consecutive rounds where fixes don't hold mean the
-shape is wrong — stop patching and take the architecture question to the
-user.
+disposition. A review round is review → fix → re-review; "don't hold" means the
+same defect returns. Three consecutive rounds where fixes don't hold mean the
+shape is wrong — stop patching and take the architecture question to the user.
