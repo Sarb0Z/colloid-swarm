@@ -18,9 +18,14 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 # delete tracked links. Copied rather than `git archive HEAD`, which would judge
 # the scripts under test against HEAD's inputs and HEAD's .claude/ — the defect
 # class already recorded against test-export.sh.
+#
+# Tracked paths only, so the 250 MB of node_modules under .agents/mcp-servers
+# stays out; the content still comes from the working tree, not the index.
 fixture="$scratch/repo"
 mkdir -p "$fixture"
-tar -cf - -C "$repo" .agents .claude | tar -xf - -C "$fixture"
+( cd "$repo" && git ls-files -z -- .agents .claude | tar -cf - --null -T - ) \
+  | tar -xf - -C "$fixture" \
+  || fail 'could not build the fixture from tracked paths'
 git -C "$fixture" init -q
 
 # Whichever skill the repository actually installs. Satellites carry a different
@@ -40,6 +45,11 @@ gate()  { ( cd "$fixture" && .agents/sync-claude-agents.sh --check >/dev/null 2>
 report() { ( cd "$fixture" && { .agents/sync-claude-agents.sh --check >/dev/null; } 2>&1 ); }
 
 sync || fail 'the generator must succeed on a clean fixture'
+# The gate compares against `git ls-files .claude`, so the fixture has to have a
+# commit — an uncommitted tree is the writing-coach shape, tested separately.
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t commit -qm fixture >/dev/null 2>&1 \
+  || fail 'could not commit the fixture'
 gate || fail 'the gate must pass immediately after a generator run'
 
 # Each mutation is a way the tree drifts from its inputs. The gate must reject
@@ -58,21 +68,27 @@ mutate 'deleted adapter link'     rm -f "$fixture/.claude/hooks/adapter.sh"
 mutate 'repointed link'           ln -sfn ../.agents/claude/README.md "$fixture/.claude/settings.json"
 mutate 'dangling skill link'      ln -sfn ../../.agents/skills/absent "$fixture/.claude/skills/ghost"
 
-# Reported, never deleted. The emitted set is built by side effect of the link
-# loop, so an unreadable input yields an empty set — safe to report against,
-# unsafe to delete against. These stay until a human removes them.
-report_only() {
+# A path git tracks that the plan does not emit: a skill removed while its links
+# stayed committed. The manifest is the only thing that sees these — the first
+# resolves fine, so no broken-link test finds it. The generator may delete them
+# because git can give them back.
+orphan() {
   local name="$1"; shift
   "$@" || fail "could not apply mutation: $name"
-  if gate; then fail "--check passed on drift: $name"; fi
-  sync >/dev/null || fail "the generator must still succeed: $name"
-  if gate; then fail "the generator silently deleted it instead of reporting: $name"; fi
+  git -C "$fixture" add -A >/dev/null 2>&1
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t commit -qm "$name" >/dev/null 2>&1 \
+    || fail "could not commit mutation: $name"
+  if gate; then fail "--check passed on a tracked path the plan does not emit: $name"; fi
+  sync || fail "the generator must repair: $name"
+  # The manifest is the index, so a deletion still reads as tracked until it is
+  # staged — the gate is right to keep reporting until the removal is recorded.
+  if gate; then fail "the gate cleared before the removal was staged: $name"; fi
+  git -C "$fixture" add -A >/dev/null 2>&1
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t commit -qm "repair $name" >/dev/null 2>&1
+  gate || fail "the generator did not repair: $name"
 }
-# Resolves, so a broken-link test never sees it — only the emitted set does.
-report_only 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
-rm -f "$fixture/.claude/skills/ghost"
-report_only 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
-rm -f "$fixture/.claude/agents/orphan.md"
+orphan 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
+orphan 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
 gate || fail 'removing the orphans by hand must clear the gate'
 
 # An operator's own subagent definition is not this script's to delete. It is
