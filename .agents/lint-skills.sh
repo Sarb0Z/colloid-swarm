@@ -137,6 +137,12 @@ for path in paths:
     if src is None:
         continue
 
+    # sync-claude-agents.sh links .claude/rules/<slug>.md at this file for every
+    # skill directory it finds. Without it the link is created and dangles, and
+    # a dangling link reads as a missing canonical file, not a stale mirror.
+    if not os.path.isfile(os.path.join(d, "AGENTS.md")):
+        errors.append(f"{show(d)}: no AGENTS.md; .claude/rules/{slug}.md would dangle")
+
     fm = frontmatter(src, rel)
     if fm is None:
         continue

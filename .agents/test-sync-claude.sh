@@ -95,25 +95,40 @@ orphan() {
 }
 orphan 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
 orphan 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
-# An operator's own subagent definition is not this script's to delete. It is
-# untracked, so a prune is unrecoverable.
+# Claude Code supports hand-written project subagents, so .claude/agents is not
+# exclusively generated. Ownership is the GENERATED banner, not tracking state:
+# an operator's definition survives whether or not they committed it, and the
+# gate must not call it drift either.
 printf 'my own subagent\n' > "$fixture/.claude/agents/my-helper.md"
 sync >/dev/null || fail 'the generator must succeed alongside an operator file'
 [[ -f "$fixture/.claude/agents/my-helper.md" ]] \
   || fail 'the generator deleted an untracked operator file in .claude/agents'
-rm -f "$fixture/.claude/agents/my-helper.md"
+gate || fail 'an untracked operator file must not read as drift'
 
-# A tracked file outside the managed directories must survive. MANAGED is the
-# only thing standing between the prune and the rest of .claude/, and an
-# untracked file never reaches it — so only a tracked one tests it.
-printf 'notes\n' > "$fixture/.claude/NOTES.md"
 git -C "$fixture" add -A >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm notes >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm mine >/dev/null 2>&1
+sync >/dev/null || fail 'the generator must succeed alongside a committed operator file'
+[[ -f "$fixture/.claude/agents/my-helper.md" ]] \
+  || fail 'committing an operator subagent must not forfeit it to the prune'
+grep -q 'my own subagent' "$fixture/.claude/agents/my-helper.md" \
+  || fail 'the operator subagent was overwritten'
+gate || fail 'a committed operator subagent must not read as drift'
+git -C "$fixture" rm -q -f .claude/agents/my-helper.md >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unmine >/dev/null 2>&1
+
+# MANAGED is the only thing keeping the prune out of the rest of .claude/. A
+# plain file is already protected by the banner rule, so testing with one proves
+# nothing — it takes a tracked symlink, which `ours()` accepts, sitting outside
+# the three managed directories.
+ln -sfn ../../.agents/claude/README.md "$fixture/.claude/hooks/legacy.md"
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm legacy >/dev/null 2>&1
 sync >/dev/null 2>&1 || true
-[[ -f "$fixture/.claude/NOTES.md" ]] \
-  || fail 'the prune escaped the managed directories and deleted a tracked file'
-git -C "$fixture" rm -q -f .claude/NOTES.md >/dev/null 2>&1
-git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unnotes >/dev/null 2>&1
+[[ -L "$fixture/.claude/hooks/legacy.md" ]] \
+  || fail 'the prune escaped the managed directories and deleted a tracked link'
+git -C "$fixture" rm -q -f .claude/hooks/legacy.md >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unlegacy >/dev/null 2>&1
+gate || fail 'the gate must clear once the unmanaged link is removed'
 
 # Every way reading .agents/skills can fail must stop the run, because each one
 # otherwise yields an empty plan and an empty plan authorises deleting every
@@ -162,18 +177,20 @@ gate || fail 'the fixture must be repairable after the skills-directory cases'
 # "What git can give back" means what git already holds. A tracked path the plan
 # does not emit, carrying an uncommitted edit, is not recoverable by deleting it
 # and running `git checkout --` — that restores the last commit, not the edit.
-printf 'v1\n' > "$fixture/.claude/agents/extra.md"
+# Carries the banner, so it is ours and otherwise prunable — which is what makes
+# the uncommitted-edit guard the only thing protecting it.
+cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/extra.md"
 git -C "$fixture" add -A >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm extra >/dev/null 2>&1
-printf 'v2 uncommitted\n' > "$fixture/.claude/agents/extra.md"
+printf '\nLOCAL EDIT\n' >> "$fixture/.claude/agents/extra.md"
 sync >/dev/null 2>&1 || true
 [[ -f "$fixture/.claude/agents/extra.md" ]] \
   || fail 'the prune destroyed an uncommitted edit git cannot restore'
-grep -q 'v2 uncommitted' "$fixture/.claude/agents/extra.md" \
+grep -q 'LOCAL EDIT' "$fixture/.claude/agents/extra.md" \
   || fail 'the prune replaced an uncommitted edit with the committed blob'
 git -C "$fixture" checkout -- .claude/agents/extra.md >/dev/null 2>&1
 sync >/dev/null 2>&1 || true
-[[ -f "$fixture/.claude/agents/extra.md" ]] && fail 'a clean tracked orphan must be pruned'
+[[ -f "$fixture/.claude/agents/extra.md" ]] && fail 'a clean generated orphan must be pruned'
 git -C "$fixture" add -A >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unextra >/dev/null 2>&1
 gate || fail 'the gate must clear once the pruned orphan is staged'
