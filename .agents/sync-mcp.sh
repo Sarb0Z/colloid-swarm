@@ -155,13 +155,19 @@ if not registry:
 
 # --- Reader browser tier: the launch config its registry entry points at ------
 # Shared with sync-codex.sh, which resolves the same registry on its own.
-extensions = reader_config.write(agents, log=print)
-if toggles.get("playwright-reader", {}).get("enabled") is True and not extensions:
+#
+# The guard runs before the write. Writing first and aborting after leaves a
+# launch config on disk carrying no --load-extension, while the red exit reads
+# to the operator as "nothing happened" — and the next session browses with the
+# content blocker silently off.
+if (toggles.get("playwright-reader", {}).get("enabled") is True
+        and not reader_config.installed_extensions(agents)):
     print("sync-mcp: playwright-reader is enabled but no extension is installed.\n"
           "          Install one:  .agents/fetch-extension.sh ublock-lite\n"
           "          Or turn it off: .agents/sync-mcp.sh disable playwright-reader",
           file=sys.stderr)
     sys.exit(1)
+reader_config.write(agents, log=print)
 
 registry = resolve_registry(registry, repo, "sync-mcp")
 enabled = {name: srv for name, srv in registry.items()
