@@ -67,7 +67,13 @@
     "guard_destructive": {
       "enabled": true
     },
+    "grader_lock": {
+      "enabled": true
+    },
     "genome_guard": {
+      "enabled": true
+    },
+    "genome_inject": {
       "enabled": true
     },
     "sources_capture": {

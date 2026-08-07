@@ -52,29 +52,21 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
 wrap_dir=".agents/playbooks"
 
-cfg="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-sw = cfg.get("hooks", {}).get("session_wrap", {})
-print("yes" if sw.get("enabled", True) else "no")
-print(sw.get("trivial_files", 2))
-print(sw.get("trivial_lines", 30))
-print(sw.get("review_files", 5))
-print(sw.get("review_lines", 150))
-print(sw.get("heavy_lines", 200))
-print("yes" if sw.get("report_every_turn", False) else "no")
-# Pairing mode is the one OPT-IN toggle: a missing or broken config must leave
-# it OFF, never silently on.
-lr = cfg.get("hooks", {}).get("learning_report", {})
-print("yes" if lr.get("enabled", False) else "no")
-PY
-)"
+# learning_report is the one OPT-IN toggle: its `false` default leaves pairing
+# mode off unless the config says exactly `true`.
+cfg="$(python3 "$lib/config.py" "$cfg_path" \
+  hooks.session_wrap.enabled=true \
+  hooks.session_wrap.trivial_files=2 \
+  hooks.session_wrap.trivial_lines=30 \
+  hooks.session_wrap.review_files=5 \
+  hooks.session_wrap.review_lines=150 \
+  hooks.session_wrap.heavy_lines=200 \
+  hooks.session_wrap.report_every_turn=false \
+  hooks.learning_report.enabled=false)"
 enabled="$(printf '%s\n' "$cfg" | sed -n '1p')"
 [[ "$enabled" == "no" ]] && exit 0
 cfg_trivial_files="$(printf '%s\n' "$cfg" | sed -n '2p')"
@@ -85,22 +77,13 @@ cfg_heavy_lines="$(printf '%s\n' "$cfg" | sed -n '6p')"
 report_every_turn="$(printf '%s\n' "$cfg" | sed -n '7p')"
 learning_enabled="$(printf '%s\n' "$cfg" | sed -n '8p')"
 
-input="$(cat)"
-parsed="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-print(str(d.get("stop_hook_active", False)).lower())
-print(d.get("project_dir", ""))
-print(d.get("transcript_path", ""))
-print(d.get("session_id", ""))
-PY
-)"
+parsed="$(python3 "$lib/payload.py" stop_hook_active=false project_dir transcript_path session_id)"
 stop_active="$(printf '%s\n' "$parsed" | sed -n '1p')"
 proj="$(printf '%s\n' "$parsed" | sed -n '2p')"
 transcript="$(printf '%s\n' "$parsed" | sed -n '3p')"
 session_id="$(printf '%s\n' "$parsed" | sed -n '4p')"
 
-[[ "${stop_active:-false}" == "true" ]] && exit 0
+[[ "$stop_active" == "yes" ]] && exit 0
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
 

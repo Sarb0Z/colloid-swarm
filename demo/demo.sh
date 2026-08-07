@@ -46,8 +46,9 @@ printf '\n%s$ mutagen.sh --cost expensive --seed 3%s   %s(expensive -> a GENTLE 
 sec "3. The membrane — guard-destructive.sh (fail-closed floor)"
 rule
 guard=.agents/hooks/policy/guard-destructive.sh
-# Payloads assembled at runtime so the literal patterns never sit on a command
-# line — the live session's OWN guard would otherwise block this demo script.
+# The patterns sit on the command line literally. The guard matches the tokens
+# of a command, not the text of one, so quoting a pattern is not running it and
+# the live session's own guard lets this script through.
 probe() {
   local label="$1" payload="$2" out rc
   out="$(printf '{"command":%s}' "$payload" | "$guard" 2>&1)" && rc=0 || rc=$?
@@ -58,14 +59,16 @@ probe() {
   fi
 }
 j() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
-probe "rm -rf home"        "$(j "$(printf 'rm -%sf ~' r)")"
+probe "rm -Rf home"        "$(j 'rm -Rf ~')"
 probe "force-push"         "$(j 'git push --force origin main')"
-probe "reset --hard"       "$(j 'git reset --hard HEAD~3')"
+probe "reset --hard via -C" "$(j 'git -C /repo reset --hard')"
 probe "ssh prod restart"   "$(j 'ssh prod systemctl restart nginx')"
-probe "DROP TABLE"         "$(j 'psql -c "DROP TABLE users"')"
-probe "DELETE no WHERE"    "$(j 'psql -c "DELETE FROM users;"')"
+probe "TRUNCATE no TABLE"  "$(j 'psql -c "TRUNCATE users"')"
+probe "DELETE no WHERE"    "$(j 'psql -c "DELETE FROM users"')"
+probe "terraform destroy"  "$(j 'terraform destroy -auto-approve')"
 probe "ls -la"             "$(j 'ls -la')"
-probe "scoped build clean" "$(j "$(printf 'rm -%sf ./build/tmp' r)")"
+probe "scoped build clean" "$(j 'rm -rf ./build/tmp')"
+probe "quoted, not run"    "$(j 'grep -q "rm -rf /" notes.md')"
 
 # ── 4. Progressive disclosure ───────────────────────────────────────────────
 sec "4. Progressive disclosure — scoped AGENTS.md + symlink fan-out"

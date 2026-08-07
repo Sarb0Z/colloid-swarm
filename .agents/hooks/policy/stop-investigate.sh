@@ -18,73 +18,24 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
-toggles="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-h = cfg.get("hooks", {}).get("stop_investigate", {})
-print("yes" if h.get("enabled", True) else "no")
-print("yes" if h.get("ratchet_check", True) else "no")
-PY
-)"
+toggles="$(python3 "$lib/config.py" "$cfg_path" \
+  hooks.stop_investigate.enabled=true hooks.stop_investigate.ratchet_check=true)"
 enabled="$(printf '%s\n' "$toggles" | sed -n '1p')"
 ratchet="$(printf '%s\n' "$toggles" | sed -n '2p')"
 [[ "$enabled" == "no" ]] && exit 0
 
-input="$(cat)"
+# One interpreter for all three fields. The message goes last because it is the
+# one field that may span lines.
+parsed="$(python3 "$lib/payload.py" stop_hook_active=false transcript_path last_assistant_message)"
+stop_active="$(printf '%s\n' "$parsed" | sed -n '1p')"
+transcript="$(printf '%s\n' "$parsed" | sed -n '2p')"
+last_msg="$(printf '%s\n' "$parsed" | tail -n +3)"
 
-stop_active="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-print(str(d.get("stop_hook_active", False)).lower())
-PY
-)"
-last_msg="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os, sys
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-msg = d.get("last_assistant_message", "")
-sys.stdout.write(msg if isinstance(msg, str) else "")
-PY
-)"
-transcript="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-path = d.get("transcript_path", "")
-print(path if isinstance(path, str) else "")
-PY
-)"
-
-[[ "${stop_active:-false}" == "true" ]] && exit 0
-if [[ -z "$last_msg" && -n "${transcript:-}" && -f "$transcript" ]]; then
-last_msg="$(python3 - "$transcript" <<'PY'
-import json, sys
-path = sys.argv[1]
-last = ""
-with open(path, "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        msg = row.get("message") or {}
-        if msg.get("role") != "assistant":
-            continue
-        content = msg.get("content")
-        if isinstance(content, str):
-            last = content
-        elif isinstance(content, list):
-            parts = [b.get("text", "") for b in content
-                     if isinstance(b, dict) and b.get("type") == "text"]
-            last = "\n".join(parts)
-print(last)
-PY
-)"
+[[ "$stop_active" == "yes" ]] && exit 0
+if [[ -z "$last_msg" && -n "$transcript" && -f "$transcript" ]]; then
+  last_msg="$(python3 "$lib/last-message.py" "$transcript")"
 fi
 
 [[ -z "$last_msg" ]] && exit 0
@@ -106,35 +57,10 @@ fi
 [[ "$ratchet" == "no" ]] && exit 0
 
 # Two substrates, because the triggers and the disarm want opposite treatment of
-# markdown quoting. Both drop fenced blocks and blockquotes — bulk citation is
-# never a claim either way.
-#
-#   prose  (triggers) — inline code and quoted spans BLANKED. Quoting a banned
-#           phrase must not read as making it.
-#   ledger (disarm)   — the same spans UNWRAPPED, and whitespace flattened. A
-#           path is conventionally written `.agents/debt-log.md`; blanking inline
-#           code would delete the very evidence the disarm looks for, so a correct
-#           filing would block — and the block message asks the agent to name
-#           where it filed, so it would comply, backtick the path, and block
-#           again. Flattening lets the proximity check span a bulleted filing.
-#
-# Single quotes are deliberately NOT delimiters in either: apostrophes would make
-# the check contraction-dependent, eating the span between "it's" and "I've".
-both="$(LAST_MSG="$last_msg" python3 <<'PY'
-import os, re
-t = os.environ["LAST_MSG"]
-t = re.sub(r"```.*?```", " ", t, flags=re.S)
-t = re.sub(r"(?m)^\s*>.*$", " ", t)
-prose = re.sub(r"`[^`\n]*`", " ", t)
-prose = re.sub(r"\"[^\"\n]*\"|“[^”\n]*”", " ", prose)
-ledger = re.sub(r"\s+", " ", re.sub(r"[`\"“”]", " ", t))
-print(prose)
-print("<<<RATCHET-SPLIT>>>")
-print(ledger)
-PY
-)"
-prose="${both%%<<<RATCHET-SPLIT>>>*}"
-ledger="${both##*<<<RATCHET-SPLIT>>>}"
+# markdown quoting. ../lib/ratchet-text.py states which and why.
+both="$(printf '%s' "$last_msg" | python3 "$lib/ratchet-text.py")"
+prose="${both%%---RATCHET-SPLIT---*}"
+ledger="${both##*---RATCHET-SPLIT---}"
 
 # Two-key gate, deliberately AGGRESSIVE. Provenance must sit within NEAR chars of
 # a second key — either an explicit declination ("so I left it alone") or a plain

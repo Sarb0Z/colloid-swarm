@@ -166,10 +166,14 @@ for path in paths:
         errors.append(f"{rel}: description is empty")
     elif len(desc) > 1024:
         errors.append(f"{rel}: description is {len(desc)} chars, over the 1024 limit")
-    # Quoted spans are trigger phrases carried in the user's voice, not the
-    # skill speaking; only unquoted text is the description's own point of view.
+    # A description is read by the model deciding whether to load the skill, not
+    # by a user, so it must not address a reader. Third person and the
+    # imperative both satisfy that; second person does not. Quoted spans are
+    # trigger phrases carried in the user's voice, not the skill speaking, so
+    # only unquoted text is the description's own point of view.
     if re.search(r"\b(you|your|yours)\b", QUOTED.sub(" ", desc), re.I):
-        errors.append(f"{rel}: description uses second person outside a quoted phrase; write it in third person")
+        errors.append(f"{rel}: description addresses the reader ('you') outside a quoted phrase; "
+                      "state what the skill does, in third person or the imperative")
 
     body = len(src.splitlines())
     if body > 500:
@@ -205,6 +209,18 @@ for path in paths:
             )
         if len(text.splitlines()) > 100 and "## Contents" not in text:
             errors.append(f"{show(ref)}: over 100 lines with no '## Contents' table of contents")
+
+# A same-named skill under ~/.claude/skills wins over the project's, so this
+# repository's own version never loads in its own repo and the two bodies drift
+# apart unnoticed. That directory is the operator's and sits outside the tree,
+# so this warns rather than failing: a CI machine has no such directory, and a
+# red build there would say nothing about the code.
+personal = os.path.join(os.path.expanduser("~"), ".claude", "skills")
+shadowed = [os.path.basename(os.path.dirname(p)) for p in paths
+            if os.path.isdir(os.path.join(personal, os.path.basename(os.path.dirname(p))))]
+for name in shadowed:
+    print(f"WARN  {name}: shadowed by {os.path.join(personal, name)}, which wins over project scope; "
+          "this repository's own version never loads. Remove or rename the personal copy.")
 
 for e in errors:
     print(f"ERROR {e}")

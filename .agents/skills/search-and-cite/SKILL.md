@@ -74,9 +74,10 @@ its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
 <!-- colloid-only -->
 
-Prepend the genome stamp to that prompt — `prompt='[genome stamp] + [your
-research question]'`. The `genome-guard` hook still applies, and the stamp is in
-the prompt, so it passes.
+Under Claude Code the cell is stamped for you on `SubagentStart` — prepending a
+second stamp gives it two personalities. Under an engine that runs
+`genome-guard` instead, prepend one: `prompt='[genome stamp] + [your research
+question]'`.
 <!-- /colloid-only -->
 
 ### Other engines — generic dispatch

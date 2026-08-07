@@ -29,7 +29,7 @@ MANIFEST = {
     # hooks
     "session-start":     ".agents/hooks/policy/session-start.sh",
     "research-prime":    ".agents/hooks/policy/research-prime.sh",
-    "guard-destructive": ".agents/hooks/policy/guard-destructive.sh",
+    "guard-destructive": ".agents/hooks/lib/guard-destructive.py",
     "post-edit-check":   ".agents/hooks/policy/post-edit-check.sh",
     "sources-capture":   ".agents/hooks/policy/sources-capture.sh",
     "stop-investigate":  ".agents/hooks/policy/stop-investigate.sh",

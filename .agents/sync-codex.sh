@@ -34,6 +34,7 @@ codex = os.path.join(repo, ".codex")
 sys.path.insert(0, agents)
 from mcp_registry import resolve_registry
 import reader_config
+import toggles as toggle_rules
 
 def load(path):
     try:
@@ -131,12 +132,7 @@ def codex_config():
     # runs standalone on a fresh clone — where sync-mcp.sh has not written it yet.
     reader_config.write(agents)
     registry = resolve_registry(registry, repo, "sync-codex")
-    toggles = {name: dict(value) for name, value in example.get("mcp", {}).get("servers", {}).items() if isinstance(value, dict)}
-    local_servers = local.get("mcp", {}).get("servers", {})
-    if isinstance(local_servers, dict):
-        for name, value in local_servers.items():
-            if isinstance(value, dict):
-                toggles.setdefault(name, {}).update(value)
+    toggles = toggle_rules.merge(example, local)
 
     config = open(os.path.join(agents, "codex", "config.toml"), encoding="utf-8").read().rstrip() + "\n"
     for name in sorted(registry):

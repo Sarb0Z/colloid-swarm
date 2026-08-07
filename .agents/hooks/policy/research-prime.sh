@@ -14,28 +14,11 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-cfg_path="$repo/.agents/config.json"
-enabled="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-print("yes" if cfg.get("hooks", {}).get("research_prime", {}).get("enabled", True) else "no")
-PY
-)"
+lib="$repo/.agents/hooks/lib"
+enabled="$(python3 "$lib/config.py" "$repo/.agents/config.json" hooks.research_prime.enabled=true)"
 [[ "$enabled" == "no" ]] && exit 0
 
-prompt="$(HOOK_INPUT="$(cat)" python3 <<'PY'
-import json, os
-try:
-    d = json.loads(os.environ.get("HOOK_INPUT") or "{}")
-except Exception:
-    d = {}
-p = d.get("prompt")
-print((p if isinstance(p, str) else "").replace("\n", " "))
-PY
-)"
+prompt="$(python3 "$lib/payload.py" prompt | tr '\n' ' ')"
 
 [[ -z "$prompt" ]] && exit 0
 
@@ -56,13 +39,5 @@ source for a single known fact, or delegate a researcher cell (the
 the URLs you actually used.
 EOF
 
-HOOK_BODY="$body" python3 <<'PY'
-import json, os
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit",
-        "additionalContext": os.environ["HOOK_BODY"].strip(),
-    }
-}))
-PY
+printf '%s' "$body" | python3 "$lib/emit-context.py" UserPromptSubmit
 exit 0

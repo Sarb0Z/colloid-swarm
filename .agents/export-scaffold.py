@@ -41,6 +41,8 @@ DROPPED_PATHS = (
     ".agents/mutagen.sh",
     ".agents/mutagen.md",
     ".agents/hooks/policy/genome-guard.sh",
+    ".agents/hooks/policy/genome-inject.sh",
+    ".agents/hooks/lib/genome-guard.py",
     ".agents/skills/panspermia-mutation",
     ".agents/eval",
     ".agents/fixtures",
@@ -64,11 +66,11 @@ DROPPED_PATHS = (
 # Policy files the export omits. Any hook entry naming one is removed from every
 # engine's dispatch table, so the tables need no marking of their own -- they
 # derive from this list.
-DROPPED_POLICIES = ("genome-guard.sh",)
+DROPPED_POLICIES = ("genome-guard.sh", "genome-inject.sh")
 
 # Config keys that describe a dropped subsystem. Dotted paths, per file.
 DROPPED_KEYS = {
-    ".agents/config.json.example": ("swarm", "hooks.genome_guard"),
+    ".agents/config.json.example": ("swarm", "hooks.genome_guard", "hooks.genome_inject"),
 }
 
 # The escape hatch: places where the colloid-only material is a fragment of a
