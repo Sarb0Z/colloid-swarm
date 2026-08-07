@@ -275,16 +275,18 @@ if check:
         elif not os.path.islink(path) or os.readlink(path) != payload:
             drift.append(rel)
 
-    # A dangling link under a managed directory is broken whatever git knows
-    # about it: .agents/AGENTS.md reads one as a missing canonical file, not a
-    # stale mirror. Same condition the prune uses below.
-    # Planned entries included: a skill directory with no AGENTS.md still yields
-    # a .claude/rules/<name>.md, and comparing only the readlink string calls
-    # that healthy. .agents/AGENTS.md reads a broken link as a missing canonical
-    # file, which is a defect whoever owns the skill has to fix.
+    # Tracked only. An untracked broken link is the operator's work in progress,
+    # and .agents/AGENTS.md says an operator's file is neither deleted nor
+    # reported — reporting one here wedges --check, because the generator
+    # rightly will not touch it and CI runs --check on every push.
+    #
+    # Planned entries are included: a skill directory with no AGENTS.md still
+    # yields a .claude/rules/<name>.md, and comparing only the readlink string
+    # calls that healthy. lint-skills.sh now prevents that at the source.
     for prefix in DANGLING_SCAN:
         for rel in dangling(prefix):
-            drift.append(f"{rel} (dangling)")
+            if rel in (known or set()):
+                drift.append(f"{rel} (dangling)")
 
     if known is None:
         raise SystemExit("sync-claude-agents: --check needs a git work tree; "
@@ -367,14 +369,6 @@ else:
             continue
         os.unlink(path)
         print(f"pruned {rel} (restore: git checkout -- {rel})")
-    for prefix in DANGLING_SCAN:
-        for rel in dangling(prefix):
-            # A planned path belongs to the write phase above. Deleting it here
-            # would just have the next run recreate it — a churn loop, not a fix.
-            if rel in plan or rel not in (known or set()):
-                continue
-            os.unlink(os.path.join(repo, rel))
-            print(f"pruned {rel} (dangling; restore: git checkout -- {rel})")
 
 # --- Report -----------------------------------------------------------------
 if blocked:

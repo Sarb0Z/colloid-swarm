@@ -223,6 +223,30 @@ sync >/dev/null 2>&1 || true
 git -C "$fixture" add -A >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unremoved >/dev/null 2>&1
 
+# An uncommitted edit to a tracked link. Deleting it loses the edit — the
+# committed target is what `git checkout --` returns, not the operator's change.
+# Nothing that deletes may run without consulting the uncommitted-edit guard.
+ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/alias"
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm alias >/dev/null 2>&1
+ln -sfn ../../.agents/skills/wip-not-yet-created "$fixture/.claude/skills/alias"
+sync >/dev/null 2>&1 || true
+[[ -L "$fixture/.claude/skills/alias" ]] \
+  || fail 'an uncommitted edit to a tracked link was deleted despite the guard'
+[[ "$(readlink "$fixture/.claude/skills/alias")" == *wip-not-yet-created ]] \
+  || fail 'the uncommitted edit was reverted to the committed target'
+git -C "$fixture" checkout -- .claude/skills/alias >/dev/null 2>&1
+git -C "$fixture" rm -q -f .claude/skills/alias >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unalias >/dev/null 2>&1
+
+# The generator and the gate must converge: after a sync, --check passes. An
+# operator's untracked broken link is theirs, so reporting it wedges CI red with
+# no repair the generator is willing to make.
+ln -sfn ../../my-local-skills/wip "$fixture/.claude/skills/wip2"
+sync >/dev/null 2>&1 || true
+gate || fail 'an untracked dangling link left --check unclearable after a sync'
+rm -f "$fixture/.claude/skills/wip2"
+
 # A file the gate cannot read is not evidence that it is the operator's. Three
 # outcomes must not collapse onto the reassuring one. Skipped as root.
 if [[ "$(id -u)" != "0" ]]; then
