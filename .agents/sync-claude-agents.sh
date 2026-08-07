@@ -25,29 +25,43 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 config="$repo/.agents/config.json.example"
+local_config="$repo/.agents/config.json"
 agents_dir="$repo/.claude/agents"
 src_dir="$repo/.agents/personas"
 
 [[ "$check" == "true" ]] || mkdir -p "$agents_dir"
 
-python3 - "$config" "$agents_dir" "$src_dir" "$check" <<'PY'
+python3 - "$config" "$local_config" "$agents_dir" "$src_dir" "$check" <<'PY'
 import json, os, sys
 
-config_path, agents_dir, src_dir, check = sys.argv[1:]
+config_path, local_path, agents_dir, src_dir, check = sys.argv[1:]
 check = check == "true"
 
-# config_path is config.json.example, never the gitignored, per-repo config.json:
-# `model:` lands in the frontmatter of a committed file, so reading the local
-# config would commit one operator's machine-local routing and make every other
-# checkout read as drifted.
-cfg = {}
-try:
-    with open(config_path, encoding="utf-8") as f:
-        cfg = json.load(f)
-except Exception:
-    pass
-if not isinstance(cfg, dict):
-    cfg = {}
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            value = json.load(f)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+# Routing comes from config.json.example, never the gitignored, per-repo
+# config.json: `model:` lands in the frontmatter of a committed file, so reading
+# the local config would commit one operator's machine-local routing and make
+# every other checkout read as drifted.
+cfg = load(config_path)
+
+# Setup is `cp config.json.example config.json`, so editing the copy is the
+# obvious move and does nothing here. Say so rather than leaving the operator to
+# infer it from an agent that keeps running the model they thought they changed.
+local_models = load(local_path).get("models", {})
+if isinstance(local_models, dict):
+    ignored = sorted(k for k, v in local_models.items()
+                     if cfg.get("models", {}).get(k) != v)
+    if ignored:
+        print("sync-claude-agents: model routing comes from config.json.example; "
+              "these config.json keys are ignored: " + ", ".join(ignored),
+              file=sys.stderr)
 
 # Agent registry: one entry per generated definition. `model_key` indexes
 # cfg["models"]; a null/absent model omits the frontmatter line (inherit parent).
@@ -130,31 +144,38 @@ if failures:
     raise SystemExit(1)
 PY
 
-# --check gates committed output. Everything below writes: symlinks into
-# .claude/, then sync-mcp.sh, whose own output is gitignored.
-if [[ "$check" == "true" ]]; then
-  exit 0
-fi
-
 # The adapter layer itself. These four have no generator — they are hand-
 # written sources that live under .agents/ so the tracked tree carries them,
 # and .claude/ gets symlinks. Without this a checkout that ignores .claude/
 # has no settings and no adapter, which means no hooks at all.
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mkdir -p "$repo/.claude/hooks" "$repo/.claude/skills" "$repo/.claude/rules"
-link() {   # source under .agents/claude, destination under .claude
+#
+# Every link below is tracked, so --check compares instead of writing: a skill
+# added without a re-run leaves a canonical file Claude Code never loads.
+# Accumulated as a string rather than an array — bash 3.2 errors on ${#a[@]}
+# for an empty array under set -u.
+drift=""
+[[ "$check" == "true" ]] || mkdir -p "$repo/.claude/hooks" "$repo/.claude/skills" "$repo/.claude/rules"
+
+points_at() {   # dst rel — true when dst is a symlink already naming rel
+  [[ -L "$repo/$1" && "$(readlink "$repo/$1")" == "$2" ]]
+}
+relink() {      # dst rel
+  local dst="$1" rel="$2"
+  if points_at "$dst" "$rel"; then return 0; fi
+  if [[ "$check" == "true" ]]; then drift="$drift $dst"; return 0; fi
+  ln -sfn "$rel" "$repo/$dst"
+  echo "linked $dst"
+}
+link() {        # source under .agents/claude, destination under .claude
   local src="$1" dst="$2" rel="$3"
   [[ -f "$repo/$src" ]] || { echo "sync: missing source $src" >&2; return 1; }
-  [[ -L "$repo/$dst" && "$(readlink "$repo/$dst")" == "$rel" ]] && return 0
-  rm -f "$repo/$dst"
-  ln -s "$rel" "$repo/$dst"
-  echo "linked $dst"
+  relink "$dst" "$rel"
 }
 link .agents/claude/settings.json .claude/settings.json    ../.agents/claude/settings.json
 link .agents/claude/adapter.sh    .claude/hooks/adapter.sh ../../.agents/claude/adapter.sh
 link .agents/claude/README.md     .claude/hooks/README.md  ../../.agents/claude/README.md
 link .agents/claude/AGENTS.md     .claude/AGENTS.md        ../.agents/claude/AGENTS.md
-ln -sfn AGENTS.md "$repo/.claude/CLAUDE.md"
+relink .claude/CLAUDE.md AGENTS.md
 
 # One symlink per installed skill: Claude reads .claude/skills/<name> and
 # .claude/rules/<name>.md, both resolving back to the canonical copy under
@@ -162,8 +183,8 @@ ln -sfn AGENTS.md "$repo/.claude/CLAUDE.md"
 for skill_dir in "$repo"/.agents/skills/*/; do
   [[ -d "$skill_dir" ]] || continue
   n="$(basename "$skill_dir")"
-  ln -sfn "../../.agents/skills/$n" "$repo/.claude/skills/$n"
-  ln -sfn "../../.agents/skills/$n/AGENTS.md" "$repo/.claude/rules/$n.md"
+  relink ".claude/skills/$n"   "../../.agents/skills/$n"
+  relink ".claude/rules/$n.md" "../../.agents/skills/$n/AGENTS.md"
 done
 
 # Prune links whose canonical file is gone. A removed skill would otherwise
@@ -171,10 +192,21 @@ done
 # canonical file — a real defect, not a stale mirror.
 for stale in "$repo"/.claude/skills/* "$repo"/.claude/rules/*; do
   if [[ -L "$stale" && ! -e "$stale" ]]; then
+    if [[ "$check" == "true" ]]; then drift="$drift ${stale#$repo/}"; continue; fi
     rm -f "$stale"
     echo "pruned ${stale#$repo/}"
   fi
 done
+
+# --check gates committed output and stops here. Below this line only
+# sync-mcp.sh remains, and its output is gitignored.
+if [[ "$check" == "true" ]]; then
+  if [[ -n "${drift// /}" ]]; then
+    echo "sync-claude-agents: generated output is stale:$drift" >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 # MCP + LSP connection files ride the same "edited config.json -> re-run sync"
 # habit; sync-mcp.sh is a no-op-safe generator, cheap to always run.
