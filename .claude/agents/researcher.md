@@ -118,6 +118,11 @@ it isn't a finding.
 You dispatch nothing — you search and return. (A question large enough to
 warrant sub-delegation is rare, and splitting one rarely beats reading further.)
 
+You also write nothing to the repository. If the findings are worth keeping,
+your caller files them in `.agents/knowledge/research/` — it holds the whole
+question, where you hold one angle of it, and a fan-out of cells each filing its
+own entry would race on the index. Return your findings; that is the hand-off.
+
 Your own dispatch carried a genome stamp ahead of the question —
 `prompt='[genome stamp] + [question]'`. The per-edge rule holds for any child you
 ever spawn: stamp it with its own fresh genome.

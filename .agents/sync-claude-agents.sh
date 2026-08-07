@@ -6,33 +6,48 @@
 # from its source contract in .agents/ (orchestrator meta blockquotes stripped).
 #
 # Usage:
-#   .agents/sync-claude-agents.sh
+#   .agents/sync-claude-agents.sh [--check]
+#
+# --check writes nothing and exits 1 when a generated agent definition has
+# drifted from its tracked inputs. .claude/agents/*.md is committed, so drift
+# there ships a definition contradicting the persona it claims to carry. Run it
+# on its own — after the generator it compares fresh writes to themselves.
 #
 # Do not hand-edit files in .claude/agents/ — they are generated.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+check=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check) check=true; shift ;;
+    *) echo "usage: sync-claude-agents.sh [--check]" >&2; exit 2 ;;
+  esac
+done
 config="$repo/.agents/config.json"
 agents_dir="$repo/.claude/agents"
 src_dir="$repo/.agents/personas"
 
-mkdir -p "$agents_dir"
+[[ "$check" == "true" ]] || mkdir -p "$agents_dir"
 
-python3 - "$config" "$agents_dir" "$src_dir" <<'PY'
+python3 - "$config" "$agents_dir" "$src_dir" "$check" <<'PY'
 import json, os, sys
 
-config_path, agents_dir, src_dir = sys.argv[1:]
+config_path, agents_dir, src_dir, check = sys.argv[1:]
+check = check == "true"
 
-# config.json is gitignored + per-repo; a fresh clone has only the .example.
-# Fall back to it, then to empty defaults, so sync never dies on a clean checkout.
+# Model routing comes from the tracked .example, never the gitignored, per-repo
+# config.json: `model:` lands in the frontmatter of a committed file, so reading
+# the local config would commit one operator's machine-local routing and make
+# every other checkout read as drifted.
 cfg = {}
-for candidate in (config_path, config_path + ".example"):
-    try:
-        with open(candidate, encoding="utf-8") as f:
-            cfg = json.load(f)
-        break
-    except Exception:
-        continue
+try:
+    with open(config_path + ".example", encoding="utf-8") as f:
+        cfg = json.load(f)
+except Exception:
+    pass
+if not isinstance(cfg, dict):
+    cfg = {}
 
 # Agent registry: one entry per generated definition. `model_key` indexes
 # cfg["models"]; a null/absent model omits the frontmatter line (inherit parent).
@@ -56,6 +71,7 @@ header = (
     "Edit .agents/config.json and run the sync script. -->\n"
 )
 
+failures = []
 for agent in AGENTS:
     model = cfg.get("models", {}).get(agent["model_key"])
     model_line = f"model: {model}" if model else ""
@@ -93,11 +109,31 @@ for agent in AGENTS:
     output = frontmatter + "\n" + header + "\n" + body + "\n"
 
     out_path = os.path.join(agents_dir, agent["name"] + ".md")
+    if check:
+        try:
+            with open(out_path, encoding="utf-8") as f:
+                actual = f.read()
+        except FileNotFoundError:
+            actual = None
+        if actual != output:
+            failures.append(out_path)
+        continue
+
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(output)
 
     print("generated " + out_path + (f" (model: {model})" if model else " (no model override)"))
+
+if failures:
+    print("sync-claude-agents: generated output is stale: " + ", ".join(failures), file=sys.stderr)
+    raise SystemExit(1)
 PY
+
+# --check gates committed output. Everything below writes: symlinks into
+# .claude/, then sync-mcp.sh, whose own output is gitignored.
+if [[ "$check" == "true" ]]; then
+  exit 0
+fi
 
 # The adapter layer itself. These four have no generator — they are hand-
 # written sources that live under .agents/ so the tracked tree carries them,

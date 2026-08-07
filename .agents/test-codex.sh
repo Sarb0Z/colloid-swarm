@@ -3,8 +3,11 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-"$repo/.agents/sync-codex.sh" --no-trust
+# --check first and on its own: it is the drift gate on the tracked .codex/
+# agent TOMLs, and running the generator ahead of it would rewrite the very
+# drift it exists to catch. Regenerating is the developer's job, not the test's.
 "$repo/.agents/sync-codex.sh" --check --no-trust
+"$repo/.agents/sync-codex.sh" --no-trust
 
 python3 - "$repo" <<'PY'
 import json

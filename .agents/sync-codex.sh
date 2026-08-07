@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Generate the Codex integration from canonical .agents inputs.
+#
+# --check writes nothing and exits 1 when tracked generated output has drifted
+# from its tracked inputs: .codex/agents/*.toml and the three .codex/ symlinks.
+# It skips the gitignored .codex/config.toml, which has no tracked baseline.
+# Run it on its own — after the generator it compares fresh writes to themselves
+# and can never fail.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -105,73 +111,75 @@ def agent_toml(name, description):
         "developer_instructions = " + toml_multiline(header + contract_body(name))
     )
 
-example = load(os.path.join(agents, "config.json.example"))
-local = load(os.path.join(agents, "config.json"))
-registry = load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
-# The reader tier's launch config is a local path resolve_registry validates for
-# every entry, enabled or not. Generated here too, because this script runs
-# standalone on a fresh clone — where sync-mcp.sh has not written it yet.
-reader_config.write(agents)
-registry = resolve_registry(registry, repo, "sync-codex")
-toggles = {name: dict(value) for name, value in example.get("mcp", {}).get("servers", {}).items() if isinstance(value, dict)}
-local_servers = local.get("mcp", {}).get("servers", {})
-if isinstance(local_servers, dict):
-    for name, value in local_servers.items():
-        if isinstance(value, dict):
-            toggles.setdefault(name, {}).update(value)
+def codex_config():
+    """The .codex/config.toml body: the base file plus one record per server."""
+    example = load(os.path.join(agents, "config.json.example"))
+    local = load(os.path.join(agents, "config.json"))
+    registry = load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
+    # The reader tier's launch config is a local path resolve_registry validates
+    # for every entry, enabled or not. Generated here too, because this script
+    # runs standalone on a fresh clone — where sync-mcp.sh has not written it yet.
+    reader_config.write(agents)
+    registry = resolve_registry(registry, repo, "sync-codex")
+    toggles = {name: dict(value) for name, value in example.get("mcp", {}).get("servers", {}).items() if isinstance(value, dict)}
+    local_servers = local.get("mcp", {}).get("servers", {})
+    if isinstance(local_servers, dict):
+        for name, value in local_servers.items():
+            if isinstance(value, dict):
+                toggles.setdefault(name, {}).update(value)
+
+    config = open(os.path.join(agents, "codex", "config.toml"), encoding="utf-8").read().rstrip() + "\n"
+    for name in sorted(registry):
+        setting = toggles.get(name, {})
+        enabled = setting.get("enabled") is True and setting.get("codex_enabled", True) is True
+        server = registry[name]
+        server_type = server.get("type")
+        table = f'[mcp_servers.{quoted(name)}]'
+        if server_type not in ("stdio", "http"):
+            print(f"sync-codex: skipping {name}; Codex requires stdio or streamable HTTP", file=sys.stderr)
+            continue
+
+        url = server.get("url", "")
+        if server_type == "http" and enabled and "${" in url:
+            # Codex cannot interpolate the credential, so the server cannot run
+            # here. Mask it rather than omitting it: with no record at all, a
+            # same-name server from user or plugin config loads unmasked.
+            print(f"sync-codex: disabling {name} for Codex; it cannot interpolate URL credentials",
+                  file=sys.stderr)
+            enabled = False
+
+        config += "\n" + table + "\n"
+        config += f"enabled = {str(enabled).lower()}\n"
+
+        # Every record carries its transport, disabled ones included: Codex
+        # validates the merged entry, and a record with no transport is invalid
+        # unless some lower layer happens to supply one. Nothing guarantees that.
+        # debt: codex-mcp-transport-collision
+        if server_type == "stdio":
+            config += f"command = {quoted(server['command'])}\n"
+            if server.get("args"):
+                config += "args = [" + ", ".join(quoted(value) for value in server["args"]) + "]\n"
+            if server.get("cwd"):
+                config += f"cwd = {quoted(server['cwd'])}\n"
+            if server.get("env"):
+                config += f"\n[mcp_servers.{quoted(name)}.env]\n"
+                for key, value in sorted(server["env"].items()):
+                    config += f"{key} = {quoted(value)}\n"
+        else:
+            headers = server.get("headers", {})
+            auth = headers.get("Authorization") if isinstance(headers, dict) else None
+            config += f"url = {quoted(url)}\n"
+            if isinstance(auth, str) and auth.startswith("Bearer ${") and auth.endswith("}"):
+                config += f"bearer_token_env_var = {quoted(auth[9:-1])}\n"
+            elif headers:
+                print(f"sync-codex: skipping headers for {name}; only bearer environment headers are portable", file=sys.stderr)
+    return config
 
 failures = []
 link(os.path.join(codex, "hooks.json"), "../.agents/codex/hooks.json")
 link(os.path.join(codex, "hooks", "adapter.sh"), "../../.agents/codex/adapter.sh")
 link(os.path.join(codex, "hooks", "README.md"), "../../.agents/codex/README.md")
 
-config = open(os.path.join(agents, "codex", "config.toml"), encoding="utf-8").read().rstrip() + "\n"
-for name in sorted(registry):
-    setting = toggles.get(name, {})
-    enabled = setting.get("enabled") is True and setting.get("codex_enabled", True) is True
-    server = registry[name]
-    server_type = server.get("type")
-    table = f'[mcp_servers.{quoted(name)}]'
-    if server_type not in ("stdio", "http"):
-        print(f"sync-codex: skipping {name}; Codex requires stdio or streamable HTTP", file=sys.stderr)
-        continue
-
-    url = server.get("url", "")
-    if server_type == "http" and enabled and "${" in url:
-        # Codex cannot interpolate the credential, so the server cannot run
-        # here. Mask it rather than omitting it: with no record at all, a
-        # same-name server from user or plugin config loads unmasked.
-        print(f"sync-codex: disabling {name} for Codex; it cannot interpolate URL credentials",
-              file=sys.stderr)
-        enabled = False
-
-    config += "\n" + table + "\n"
-    config += f"enabled = {str(enabled).lower()}\n"
-
-    # Every record carries its transport, disabled ones included: Codex
-    # validates the merged entry, and a record with no transport is invalid
-    # unless some lower layer happens to supply one. Nothing guarantees that.
-    # debt: codex-mcp-transport-collision
-    if server_type == "stdio":
-        config += f"command = {quoted(server['command'])}\n"
-        if server.get("args"):
-            config += "args = [" + ", ".join(quoted(value) for value in server["args"]) + "]\n"
-        if server.get("cwd"):
-            config += f"cwd = {quoted(server['cwd'])}\n"
-        if server.get("env"):
-            config += f"\n[mcp_servers.{quoted(name)}.env]\n"
-            for key, value in sorted(server["env"].items()):
-                config += f"{key} = {quoted(value)}\n"
-    else:
-        headers = server.get("headers", {})
-        auth = headers.get("Authorization") if isinstance(headers, dict) else None
-        config += f"url = {quoted(url)}\n"
-        if isinstance(auth, str) and auth.startswith("Bearer ${") and auth.endswith("}"):
-            config += f"bearer_token_env_var = {quoted(auth[9:-1])}\n"
-        elif headers:
-            print(f"sync-codex: skipping headers for {name}; only bearer environment headers are portable", file=sys.stderr)
-
-write(os.path.join(codex, "config.toml"), config)
 write(os.path.join(codex, "agents", "researcher.toml"), agent_toml(
     "researcher",
     "Delegate research that depends on current or external facts. Return cited evidence with confidence and date.",
@@ -180,6 +188,14 @@ write(os.path.join(codex, "agents", "learning-reporter.toml"), agent_toml(
     "learning-reporter",
     "Create a learning-focused session report that links each engineering decision to the code that implements it.",
 ))
+
+# .codex/config.toml is the one output here that is gitignored: it derives from
+# the gitignored config.json, so no tracked baseline exists to compare it
+# against, and on a fresh clone it is absent entirely. --check gates committed
+# output, so it skips this — which is also what keeps --check read-only, since
+# building the config writes the reader tier's launch file.
+if not check:
+    write(os.path.join(codex, "config.toml"), codex_config())
 
 if failures:
     print("sync-codex: generated output is stale: " + ", ".join(failures), file=sys.stderr)

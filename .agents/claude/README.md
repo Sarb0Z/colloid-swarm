@@ -547,15 +547,25 @@ It is the only toggle that fails toward *disabled*.
 
 ### Model routing
 
-`.agents/config.json` → `.agents/sync-claude-agents.sh` → `.claude/agents/*.md`.
-Edit the model in one place, run the sync script, and the agent definitions are
-regenerated with the correct frontmatter. Do not hand-edit files in
-`.claude/agents/`.
+`.agents/config.json.example` → `.agents/sync-claude-agents.sh` →
+`.claude/agents/*.md`. Edit the model in one place, run the sync script, and the
+agent definitions are regenerated with the correct frontmatter. Do not hand-edit
+files in `.claude/agents/`.
+
+`models.*` is the one key the local `config.json` does not override. The
+frontmatter lands in a committed file, so reading a gitignored per-operator
+value would commit one machine's routing and make every other checkout read as
+drifted. Model routing is a repository decision; change it in the tracked
+`.example`.
 
 ```sh
 # Change researcher model to Opus
-jq '.models.researcher = "opus"' .agents/config.json > tmp && mv tmp .agents/config.json
+jq '.models.researcher = "opus"' .agents/config.json.example > tmp \
+  && mv tmp .agents/config.json.example
 .agents/sync-claude-agents.sh
+
+# Gate: exit 1 when a committed definition disagrees with its inputs
+.agents/sync-claude-agents.sh --check
 ```
 
 ## Native agents
