@@ -118,6 +118,20 @@ if "$fixture/.agents/sync-mcp.sh" >/dev/null 2>&1; then
   echo "test-mcp: enabled playwright-reader with no extension must fail closed" >&2
   exit 1
 fi
+# Failing closed also means leaving no residue. The exit code alone passes even
+# when the guard runs after the write, and that ordering ships a launch config
+# with no --load-extension while the operator reads the red exit as a no-op.
+python3 - "$fixture/.agents/.playwright-reader.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    launch = json.load(handle)["browser"]["launchOptions"]
+if not [a for a in launch.get("args", []) if a.startswith("--load-extension=")]:
+    raise SystemExit(
+        "the aborted sync rewrote the reader launch config without --load-extension: "
+        "the guard must run before reader_config.write")
+PY
 python3 - "$fixture/.agents/config.json" "$primary" <<'PY'
 import json
 import sys
