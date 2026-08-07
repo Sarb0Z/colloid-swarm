@@ -25,40 +25,14 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-cfg_path="$repo/.agents/config.json"
-switches="$(CFG_PATH="$cfg_path" python3 <<'PY'
-import json, os
-cfg = {}
-try:
-    with open(os.environ["CFG_PATH"], encoding="utf-8") as f: cfg = json.load(f)
-except Exception: pass
-if not isinstance(cfg, dict):
-    cfg = {}
-hooks = cfg.get("hooks", {})
-if not isinstance(hooks, dict):
-    hooks = {}
-for key in ("session_start", "learning_output_style"):
-    entry = hooks.get(key, {})
-    enabled = entry.get("enabled", True) if isinstance(entry, dict) else True
-    print("yes" if enabled is not False else "no")
-PY
-)"
+lib="$repo/.agents/hooks/lib"
+switches="$(python3 "$lib/config.py" "$repo/.agents/config.json" \
+  hooks.session_start.enabled=true hooks.learning_output_style.enabled=true)"
 session_start_enabled="$(printf '%s\n' "$switches" | sed -n '1p')"
 learning_enabled="$(printf '%s\n' "$switches" | sed -n '2p')"
 [[ "$session_start_enabled" == "no" && "$learning_enabled" == "no" ]] && exit 0
 
-input="$(cat)"
-
-# The adapter feeds normalizer-built JSON, so this parse cannot fail in practice.
-parsed="$(HOOK_INPUT="$input" python3 <<'PY'
-import json, os
-d = json.loads(os.environ["HOOK_INPUT"] or "{}")
-print(d.get("project_dir", ""))
-print(d.get("source", ""))
-print(d.get("session_id", ""))
-print(d.get("transcript_path", ""))
-PY
-)"
+parsed="$(python3 "$lib/payload.py" project_dir source session_id transcript_path)"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 start_source="$(printf '%s\n' "$parsed" | sed -n '2p')"
 session_id="$(printf '%s\n' "$parsed" | sed -n '3p')"
@@ -96,39 +70,10 @@ if [[ "$session_start_enabled" == "yes" && -f "$crumbs" ]]; then
 fi
 
 # Registry servers that are toggled off: surface them so the model knows they
-# exist and can switch them on mid-task. Toggle merge mirrors sync-mcp.sh
-# (example base, local per-server override).
+# exist and can switch them on mid-task. The merge rule is .agents/toggles.py.
 mcp_off=""
 if [[ "$session_start_enabled" == "yes" ]]; then
-  mcp_off="$(PROJ="$proj" python3 <<'PY'
-import json, os
-agents = os.path.join(os.environ["PROJ"], ".agents")
-def load(p):
-    try:
-        with open(p, encoding="utf-8") as f: value = json.load(f)
-        return value if isinstance(value, dict) else {}
-    except Exception: return {}
-registry = load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
-example = load(os.path.join(agents, "config.json.example"))
-local = load(os.path.join(agents, "config.json"))
-toggles = dict(example.get("mcp", {}).get("servers", {}))
-ls = local.get("mcp", {})
-if isinstance(ls, dict) and isinstance(ls.get("servers"), dict):
-    for name, entry in ls["servers"].items():
-        # Per-entry merge: a local {"enabled": ...} flip must not shadow the
-        # example's description.
-        base = toggles.get(name, {})
-        toggles[name] = {**base, **entry} if isinstance(entry, dict) else entry
-lines = []
-for name in sorted(registry):
-    t = toggles.get(name, {})
-    if not isinstance(t, dict) or t.get("enabled") is True:
-        continue
-    desc = t.get("description", "")
-    lines.append(f"- {name}" + (f" — {desc}" if desc else ""))
-print("\n".join(lines))
-PY
-)"
+  mcp_off="$(python3 "$lib/mcp-off.py" "$proj")"
 fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as
@@ -226,13 +171,5 @@ EOF
 
 [[ -z "$body" ]] && exit 0
 
-HOOK_BODY="$body" python3 <<'PY'
-import json, os
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": os.environ["HOOK_BODY"],
-    }
-}))
-PY
+printf '%s' "$body" | python3 "$lib/emit-context.py" SessionStart
 exit 0

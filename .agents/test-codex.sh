@@ -19,15 +19,13 @@ repo = Path(sys.argv[1])
 with (repo / ".codex/config.toml").open("rb") as config_file:
     servers = tomllib.load(config_file).get("mcp_servers", {})
 
-with (repo / ".agents/config.json.example").open(encoding="utf-8") as config_file:
-    toggles = json.load(config_file)["mcp"]["servers"]
-local_path = repo / ".agents/config.json"
-if local_path.exists():
-    with local_path.open(encoding="utf-8") as config_file:
-        local = json.load(config_file).get("mcp", {}).get("servers", {})
-    for name, setting in local.items():
-        if isinstance(setting, dict):
-            toggles.setdefault(name, {}).update(setting)
+# The merge rule has one implementation, .agents/toggles.py, and test-mcp.sh
+# asserts it against an explicit fixture table. Reimplementing it here would
+# only ever catch a divergence between two copies, never a bug in the rule.
+sys.path.insert(0, str(repo / ".agents"))
+import toggles as toggle_rules
+
+toggles = toggle_rules.resolve(str(repo / ".agents"))
 
 with (repo / ".agents/mcp.json").open(encoding="utf-8") as registry_file:
     registry = json.load(registry_file)["mcpServers"]

@@ -27,80 +27,16 @@
 
 set -euo pipefail
 
-# The shared policies use heredocs inside command substitution, which bash 3.2
-# (stock on macOS) cannot parse. Refuse loudly instead of failing per policy.
-if (( BASH_VERSINFO[0] < 4 )); then
-  echo "hooks: bash $BASH_VERSION is too old (need >= 4); policies are disabled." >&2
-  echo "hooks: install a modern bash (e.g. 'brew install bash') and reopen the session." >&2
-  exit 0
-fi
-
 policy="$1"; shift || true
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 policy_path="$repo/.agents/hooks/policy/$(basename "$policy")"
 [[ -x "$policy_path" ]] || exit 0
 
-input="$(cat)"
-
-sid="$(HOOK_INPUT="$input" python3 -c 'import json,os,re; s=json.loads(os.environ["HOOK_INPUT"] or "{}").get("session_id","nosession"); print(re.sub(r"[^A-Za-z0-9_-]","",s))')"
+normalizer="$repo/.kimi/hooks/normalize-hook.py"
+parsed="$(python3 "$normalizer" "$policy" "$repo")"
+sid="$(printf '%s\n' "$parsed" | sed -n '1p')"
+normalized="$(printf '%s\n' "$parsed" | tail -n +2)"
 pending="$repo/.agents/.kimi-pending-findings-$sid"
-
-normalized="$(HOOK_INPUT="$input" POLICY="$policy" REPO="$repo" python3 <<'PY'
-import json, os, sys
-
-src = json.loads(os.environ["HOOK_INPUT"] or "{}")
-ti = src.get("tool_input") or {}
-repo = os.environ["REPO"]
-policy = os.path.basename(os.environ["POLICY"])
-
-out = {"project_dir": src.get("cwd") or repo}
-
-if policy == "guard-destructive.sh":
-    out["command"] = ti.get("command", "")
-# colloid-only
-elif policy == "genome-guard.sh":
-    # Agent carries prompt; AgentSwarm carries prompt_template. Same guard.
-    prompt = ti.get("prompt", "") or ti.get("prompt_template", "")
-    out["prompt"] = prompt if isinstance(prompt, str) else ""
-    out["subagent_type"] = ti.get("subagent_type", "")
-# /colloid-only
-elif policy == "sources-capture.sh":
-    tool = src.get("tool_name") or ""
-    out["agent"] = "main"          # Kimi payloads carry no subagent tag
-    if tool == "WebSearch":
-        out["kind"], out["value"] = "search", ti.get("query", "")
-    else:                          # FetchURL
-        out["kind"], out["value"] = "fetch", ti.get("url", "")
-elif policy == "post-edit-check.sh":
-    files = []
-    for key in ("file_path", "path"):
-        v = ti.get(key)
-        if isinstance(v, str):
-            files.append(v)
-    out["files"] = files
-elif policy == "session-wrap.sh":
-    out["stop_hook_active"] = bool(src.get("stop_hook_active", False))
-    out["session_id"] = src.get("session_id", "")
-elif policy == "session-start.sh":
-    if src.get("hook_event_name") == "PostCompact":
-        out["source"] = "compact"
-    else:
-        out["source"] = src.get("source", "")
-    # Identity, for seeding session-wrap's baseline before turn 1 runs. Same
-    # session_id the Stop payload carries, so the seed lands in the file the wrap
-    # reads; empty would mean no seed and a baseline one turn late, not a wrong one.
-    out["session_id"] = src.get("session_id", "")
-elif policy == "research-prime.sh":
-    p = src.get("prompt")
-    if isinstance(p, list):        # Kimi: array of content parts
-        p = " ".join(x.get("text", "") for x in p if isinstance(x, dict))
-    out["prompt"] = p if isinstance(p, str) else ""
-elif policy == "pre-compact.sh":
-    out["trigger"] = src.get("trigger", "") or "auto"
-
-sys.stdout.write(json.dumps(out))
-PY
-)"
 
 run() { printf '%s' "$normalized" | "$policy_path"; }
 
@@ -124,8 +60,15 @@ post-edit-check.sh)
   findings="$(run 2>&1)"
   rc=$?
   set -e
-  if [[ $rc -eq 2 && -n "$findings" ]]; then
-    printf '%s\n' "$findings" >> "$pending"
+  # Both channels are buffered. The gate exits 2 with plain stderr; the fixer
+  # exits 0 and emits an additionalContext envelope, and dropping that would
+  # lose every tombstone, null-safety and reformatted notice on this engine.
+  if [[ -n "$findings" ]]; then
+    if [[ $rc -eq 2 ]]; then
+      printf '%s\n' "$findings" >> "$pending"
+    else
+      unwrap "$findings" >> "$pending"
+    fi
   fi
   exit 0
   ;;

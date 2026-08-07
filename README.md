@@ -67,13 +67,16 @@ Authoring rules live in `.github/instructions/README.md`.
 
 ### Enforcement hooks
 
-Nine policy scripts in `.agents/hooks/policy/`, engine-agnostic and written
-against a normalized payload:
+Eleven policy scripts in `.agents/hooks/policy/`, engine-agnostic and written
+against a normalized payload. Each owns the engine contract; the logic it needs
+lives beside it in `.agents/hooks/lib/`, reading the payload on stdin:
 
 | Policy | Purpose |
 | --- | --- |
-| `guard-destructive.sh` | Blocks irreversible commands — broad `rm -rf`, force-push, `reset --hard`, production mutation over SSH, destructive DDL, unrestricted `DELETE`/`UPDATE` |
-| `genome-guard.sh` | Requires a genome stamp on a subagent dispatch (this repository only) |
+| `guard-destructive.sh` | Blocks irreversible commands — broad `rm -rf`, force-push, `reset --hard`, `git clean`, production mutation over SSH, destructive DDL, unrestricted `DELETE`/`UPDATE`, cloud teardown |
+| `grader-lock.sh` | Refuses a spawned subagent any write to the standard, the gates, the transport that reaches a gate, or the tests that prove a gate fires — the party being graded does not edit its own grader (Claude only) |
+| `genome-inject.sh` | Stamps a spawned subagent with a genome (this repository only) |
+| `genome-guard.sh` | Requires that stamp where an engine cannot inject one (this repository only) |
 | `sources-capture.sh` | Records sources a session cited |
 | `research-prime.sh` | Primes research behavior on prompt submit |
 | `post-edit-check.sh` | Runs scoped checks after an edit |
@@ -225,9 +228,10 @@ This layer stays in this repository. The export removes it.
 
 - `colloid-constitution.md` — the base operating register.
 - `genomes.md` — a conserved strand plus eight genomes. `.agents/genome.sh`
-  parses it and stamps one personality per subagent dispatch by sortition;
-  `genome-guard.sh` enforces the stamp. The script fails closed on a malformed
-  strand.
+  parses it and draws one personality per subagent dispatch by sortition.
+  `genome-inject.sh` delivers it on `SubagentStart` where the engine supports
+  that; `genome-guard.sh` requires the orchestrator to prepend it where the
+  engine does not. The script fails closed on a malformed strand.
 - `panspermia.txt` — an exploration register. Its active arm is the mutagen:
   `.agents/mutagen.sh` rolls a mutation vector that rewrites a task before
   dispatch, so a fan-out explores the framing space and selects the fittest.

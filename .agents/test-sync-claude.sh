@@ -182,6 +182,51 @@ fi
 sync >/dev/null
 gate || fail 'the fixture must be repairable after the skills-directory cases'
 
+# --- Guards that no case above turns red -------------------------------------
+# Each of the three below survived removal with this suite still green, which is
+# what `test-mutation.py` reports. A guard nothing exercises is a guard nobody
+# can change safely.
+
+# --check compares against `git ls-files .claude`. Outside a work tree there is
+# no manifest, so refusing is the only honest answer: proceeding would grade
+# content against an empty path set and call a half-synced tree clean.
+nogit="$scratch/nogit"
+rm -rf "$nogit"
+cp -R "$fixture" "$nogit" || fail 'could not copy the fixture for the work-tree case'
+rm -rf "$nogit/.git"
+if ( cd "$nogit" && .agents/sync-claude-agents.sh --check >/dev/null 2>&1 ); then
+  fail '--check passed outside a git work tree, where it has no manifest'
+fi
+[[ "$( ( cd "$nogit" && .agents/sync-claude-agents.sh --check 2>&1 >/dev/null ) || true)" == *'work tree'* ]] \
+  || fail '--check refused outside a work tree without saying why'
+
+# The manifest's other direction: a skill added and synced, its links never
+# committed. Both links resolve, so no broken-link case sees it — only the
+# plan-minus-tracked comparison does.
+mkdir -p "$fixture/.agents/skills/newcomer"
+printf -- '---\nname: newcomer\ndescription: x\n---\n' > "$fixture/.agents/skills/newcomer/SKILL.md"
+printf '# Newcomer\n' > "$fixture/.agents/skills/newcomer/AGENTS.md"
+sync || fail 'the generator must emit links for a new skill'
+if gate; then fail '--check passed with generated links the tree does not track'; fi
+[[ "$(report || true)" == *'generated, not tracked'* ]] \
+  || fail '--check did not name the generated paths the tree does not track'
+commit_fixture newcomer
+gate || fail 'the gate must clear once the new skill links are committed'
+
+# A real directory where a link belongs. `ln -sfn` and os.symlink both place the
+# link *inside* it rather than replacing it, so the generator must refuse the
+# path instead of silently producing .claude/skills/<name>/<name>.
+rm -f "$fixture/.claude/skills/$skill"
+mkdir -p "$fixture/.claude/skills/$skill"
+if ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); then
+  fail 'the generator succeeded with a real directory at a generated link path'
+fi
+[[ "$( ( cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null ) || true)" == *'(directory)'* ]] \
+  || fail 'the generator did not name the directory that blocked it'
+rmdir "$fixture/.claude/skills/$skill"
+sync || fail 'the generator must repair once the directory is gone'
+gate || fail 'the gate must clear after the blocked-path case'
+
 # "What git can give back" means what git already holds. A tracked path the plan
 # does not emit, carrying an uncommitted edit, is not recoverable by deleting it
 # and running `git checkout --` — that restores the last commit, not the edit.

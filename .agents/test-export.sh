@@ -30,6 +30,7 @@ if [[ -n "$leaked" ]]; then
 fi
 
 for path in .agents/genome.sh .agents/mutagen.sh .agents/hooks/policy/genome-guard.sh \
+            .agents/hooks/policy/genome-inject.sh .agents/hooks/lib/genome-guard.py \
             .agents/skills/panspermia-mutation .agents/eval .agents/fixtures \
             .agents/breadcrumbs.md .agents/debt-log.md .agents/export-scaffold.py \
             .agents/test-export.sh .agents/knowledge/index.md \
@@ -40,7 +41,7 @@ done
 # A dispatch table naming a policy the export omits would fire on every matching
 # tool call and fail with "unknown or non-executable policy".
 for table in .agents/claude/settings.json .agents/codex/hooks.json; do
-  if grep -q 'genome-guard' "$workspace/kit/$table"; then
+  if grep -qE 'genome-(guard|inject)' "$workspace/kit/$table"; then
     fail "$table still dispatches a dropped policy"
   fi
 done
