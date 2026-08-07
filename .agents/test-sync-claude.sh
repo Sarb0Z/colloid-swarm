@@ -72,7 +72,6 @@ mutate 'deleted skill rule link'  rm -f "$fixture/.claude/rules/$skill.md"
 mutate 'deleted skill link'       rm -f "$fixture/.claude/skills/$skill"
 mutate 'deleted adapter link'     rm -f "$fixture/.claude/hooks/adapter.sh"
 mutate 'repointed link'           ln -sfn ../.agents/claude/README.md "$fixture/.claude/settings.json"
-mutate 'dangling skill link'      ln -sfn ../../.agents/skills/absent "$fixture/.claude/skills/ghost"
 
 # A path git tracks that the plan does not emit: a skill removed while its links
 # stayed committed. The manifest is the only thing that sees these — the first
@@ -94,6 +93,7 @@ orphan() {
   gate || fail "the generator did not repair: $name"
 }
 orphan 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
+orphan 'tracked dangling link'    ln -sfn ../../.agents/skills/absent "$fixture/.claude/skills/gone"
 orphan 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
 # Claude Code supports hand-written project subagents, so .claude/agents is not
 # exclusively generated. Ownership is the GENERATED banner, not tracking state:
@@ -194,6 +194,47 @@ sync >/dev/null 2>&1 || true
 git -C "$fixture" add -A >/dev/null 2>&1
 git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unextra >/dev/null 2>&1
 gate || fail 'the gate must clear once the pruned orphan is staged'
+
+# An operator subagent sharing a registry name. `researcher` is the name Claude
+# Code's own docs use in examples, so the collision is likely rather than
+# contrived, and the file is untracked — overwriting it destroys it outright.
+printf 'MY OWN RESEARCHER SUBAGENT\n' > "$fixture/.claude/agents/researcher.md"
+sync >/dev/null 2>&1 || true
+grep -q 'MY OWN RESEARCHER SUBAGENT' "$fixture/.claude/agents/researcher.md" \
+  || fail 'the generator overwrote an operator file at a generated name'
+git -C "$fixture" checkout -- .claude/agents/researcher.md >/dev/null 2>&1
+sync >/dev/null
+
+# An untracked broken link is the operator's work in progress; .agents/AGENTS.md
+# reads a broken link as a missing canonical file, not as a symlink to sweep.
+ln -sfn ../../my-local-skills/wip "$fixture/.claude/skills/wip"
+ln -sfn ../personas/draft.md "$fixture/.claude/agents/draft.md"
+sync >/dev/null 2>&1 || true
+[[ -L "$fixture/.claude/skills/wip" && -L "$fixture/.claude/agents/draft.md" ]] \
+  || fail 'the prune deleted an untracked dangling link the operator created'
+rm -f "$fixture/.claude/skills/wip" "$fixture/.claude/agents/draft.md"
+
+# ...but a link git already holds is still this script's to clean up.
+ln -sfn ../../.agents/skills/removed "$fixture/.claude/skills/removed"
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm removed >/dev/null 2>&1
+sync >/dev/null 2>&1 || true
+[[ -L "$fixture/.claude/skills/removed" ]] && fail 'a tracked dangling link must still be pruned'
+git -C "$fixture" add -A >/dev/null 2>&1
+git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unremoved >/dev/null 2>&1
+
+# A file the gate cannot read is not evidence that it is the operator's. Three
+# outcomes must not collapse onto the reassuring one. Skipped as root.
+if [[ "$(id -u)" != "0" ]]; then
+  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/unreadable.md"
+  git -C "$fixture" add -A >/dev/null 2>&1
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm unreadable >/dev/null 2>&1
+  chmod 000 "$fixture/.claude/agents/unreadable.md"
+  if gate; then chmod 644 "$fixture/.claude/agents/unreadable.md"; fail 'the gate went green on a tracked file it could not read'; fi
+  chmod 644 "$fixture/.claude/agents/unreadable.md"
+  git -C "$fixture" rm -q -f .claude/agents/unreadable.md >/dev/null 2>&1
+  git -C "$fixture" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -qm ununreadable >/dev/null 2>&1
+fi
 
 printf '\nTAMPERED\n' >> "$fixture/.claude/agents/researcher.md"
 if gate; then fail '--check passed on a hand-edited agent definition'; fi
