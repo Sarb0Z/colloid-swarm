@@ -463,10 +463,11 @@ configuration, boilerplate, or obvious work.
 When `hooks.session_start` is on, it surfaces this operational state:
 
 - **Breadcrumbs** — markdown `- ` bullets in `.agents/breadcrumbs.md` (deferred
-  non-blocking *work* — a queue) are re-shown at session start. Past ten items
-  the hook shows only the oldest ten, the head of the queue, and states the full
-  count. New items are appended, so the head is the work deferred longest; act
-  on it and delete those lines to expose the next ten. Silent when there are
+  non-blocking *work*) are re-shown at session start. Past ten items the hook
+  shows only the ten most recent and states the full count. Items are appended,
+  so those are what recent sessions found and deferred, and the most likely to
+  intersect the work in hand. Older items wait for a maintenance pass, which
+  reads the file directly rather than through this cap. Silent when there are
   none. Its sibling `.agents/debt-log.md` (standing tradeoffs and
   deferred *decisions*) is deliberately **not** surfaced here: it's a durable
   reference pulled just-in-time when code carrying a `debt: <id>` ref is touched,

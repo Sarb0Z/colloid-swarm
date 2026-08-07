@@ -148,18 +148,18 @@ write_crumbs() {
   done
 }
 
-# Past the cap the hook shows the head of the queue, not the tail. New items are
-# appended, so a tail would pin the oldest items below the cap permanently:
-# never surfaced, so never acted on, so never deleted.
+# Past the cap the hook shows the newest items. They are appended, so the tail
+# is what recent sessions found and deferred; older items wait for a maintenance
+# pass that reads the file directly.
 cap="$(make_fixture breadcrumb-cap)"
 write_config "$cap" true true
 write_crumbs "$cap" 12
 cap_context="$(context_of "$(run_policy "$cap")")"
-assert_contains "$cap_context" '(oldest 10 of 12 — the queue head; prune the file)'
-assert_contains "$cap_context" '- crumb-01'
-assert_contains "$cap_context" '- crumb-10'
-assert_not_contains "$cap_context" '- crumb-11'
-assert_not_contains "$cap_context" '- crumb-12'
+assert_contains "$cap_context" '(10 most recent of 12 — prune the file)'
+assert_contains "$cap_context" '- crumb-12'
+assert_contains "$cap_context" '- crumb-03'
+assert_not_contains "$cap_context" '- crumb-01'
+assert_not_contains "$cap_context" '- crumb-02'
 
 # At the cap exactly, every item shows and no truncation notice appears.
 exact="$(make_fixture breadcrumb-exact)"
