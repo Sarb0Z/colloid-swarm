@@ -14,13 +14,25 @@ trap 'rm -rf "$scratch"' EXIT
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-# A copy, never the repository: the mutations below delete tracked links.
+# A copy of the WORKING TREE, never the repository itself: the mutations below
+# delete tracked links. Copied rather than `git archive HEAD`, which would judge
+# the scripts under test against HEAD's inputs and HEAD's .claude/ — the defect
+# class already recorded against test-export.sh.
 fixture="$scratch/repo"
-git -C "$repo" archive HEAD | (mkdir -p "$fixture" && tar -x -C "$fixture")
-cp "$repo/.agents/sync-claude-agents.sh" "$fixture/.agents/sync-claude-agents.sh"
-cp "$repo/.agents/sync-mcp.sh" "$fixture/.agents/sync-mcp.sh"
-cp "$repo/.agents/sync-codex.sh" "$fixture/.agents/sync-codex.sh"
+mkdir -p "$fixture"
+tar -cf - -C "$repo" .agents .claude | tar -xf - -C "$fixture"
 git -C "$fixture" init -q
+
+# Whichever skill the repository actually installs. Satellites carry a different
+# set, and a hardcoded name turns a missing fixture into a false failure blaming
+# the gate.
+skill=""
+for d in "$fixture"/.agents/skills/*/; do
+  [[ -d "$d" ]] || continue
+  skill="$(basename "$d")"
+  break
+done
+[[ -n "$skill" ]] || fail 'no skill installed under .agents/skills — nothing to exercise'
 
 sync()  { ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); }
 gate()  { ( cd "$fixture" && .agents/sync-claude-agents.sh --check >/dev/null 2>&1 ); }
@@ -40,14 +52,49 @@ mutate() {
   gate || fail "the generator did not repair: $name"
 }
 
-mutate 'deleted skill rule link'  rm -f "$fixture/.claude/rules/pentesting.md"
-mutate 'deleted skill link'       rm -f "$fixture/.claude/skills/pentesting"
+mutate 'deleted skill rule link'  rm -f "$fixture/.claude/rules/$skill.md"
+mutate 'deleted skill link'       rm -f "$fixture/.claude/skills/$skill"
 mutate 'deleted adapter link'     rm -f "$fixture/.claude/hooks/adapter.sh"
 mutate 'repointed link'           ln -sfn ../.agents/claude/README.md "$fixture/.claude/settings.json"
 mutate 'dangling skill link'      ln -sfn ../../.agents/skills/absent "$fixture/.claude/skills/ghost"
+
+# Reported, never deleted. The emitted set is built by side effect of the link
+# loop, so an unreadable input yields an empty set — safe to report against,
+# unsafe to delete against. These stay until a human removes them.
+report_only() {
+  local name="$1"; shift
+  "$@" || fail "could not apply mutation: $name"
+  if gate; then fail "--check passed on drift: $name"; fi
+  sync >/dev/null || fail "the generator must still succeed: $name"
+  if gate; then fail "the generator silently deleted it instead of reporting: $name"; fi
+}
 # Resolves, so a broken-link test never sees it — only the emitted set does.
-mutate 'link to an unknown skill' ln -sfn ../../.agents/skills/pentesting "$fixture/.claude/skills/ghost"
-mutate 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
+report_only 'link to an unknown skill' ln -sfn "../../.agents/skills/$skill" "$fixture/.claude/skills/ghost"
+rm -f "$fixture/.claude/skills/ghost"
+report_only 'orphan agent definition'  cp "$fixture/.claude/agents/researcher.md" "$fixture/.claude/agents/orphan.md"
+rm -f "$fixture/.claude/agents/orphan.md"
+gate || fail 'removing the orphans by hand must clear the gate'
+
+# An operator's own subagent definition is not this script's to delete. It is
+# untracked, so a prune is unrecoverable.
+printf 'my own subagent\n' > "$fixture/.claude/agents/my-helper.md"
+sync >/dev/null || fail 'the generator must succeed alongside an operator file'
+[[ -f "$fixture/.claude/agents/my-helper.md" ]] \
+  || fail 'the generator deleted an untracked operator file in .claude/agents'
+rm -f "$fixture/.claude/agents/my-helper.md"
+
+# An unreadable skills directory must not read as "zero skills" and take every
+# link with it. Skipped as root, which ignores the mode bits.
+if [[ "$(id -u)" != "0" ]]; then
+  links_before="$(find "$fixture/.claude/skills" "$fixture/.claude/rules" -type l | wc -l | tr -d ' ')"
+  chmod 111 "$fixture/.agents/skills"
+  sync >/dev/null 2>&1 || true
+  chmod 755 "$fixture/.agents/skills"
+  links_after="$(find "$fixture/.claude/skills" "$fixture/.claude/rules" -type l | wc -l | tr -d ' ')"
+  [[ "$links_before" == "$links_after" ]] \
+    || fail "an unreadable .agents/skills deleted links: $links_before -> $links_after"
+  sync >/dev/null
+fi
 
 printf '\nTAMPERED\n' >> "$fixture/.claude/agents/researcher.md"
 if gate; then fail '--check passed on a hand-edited agent definition'; fi
