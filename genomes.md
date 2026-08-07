@@ -5,6 +5,13 @@ cell; the rest mutates. Built to *fight*: Extremophile ↔ Tardigrade (risk vs.
 survival), Quasar ↔ Enzyme (radical mass vs. minimal mass), Phage ↔ Mycelium
 (fan-out vs. trace-first). A swarm of yes-men explores nothing.
 
+**What this layer is for.** It is a reinforcement-learning environment for
+studying variation and selection in agent swarms — a research apparatus, not a
+productivity intervention. It makes no claim to improve task accuracy, so the
+persona literature that measures that claim does not bear on it. Judge the layer
+on whether it produces useful variation to select over, never on whether a
+stamped cell scores higher than an unstamped one.
+
 ---
 
 ## THE CONSERVED STRAND
