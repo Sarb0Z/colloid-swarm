@@ -82,19 +82,36 @@ fields, so it pays for capability it already owns.
 registry edit that buys no tool boundary, no memory, and no effort tier.
 Make cells cheap and capable, and the count corrects itself.
 
-**Stack-agnostic guidance cannot be concrete.** `millcrm`'s rules are
-checkable because they commit to a stack: a service object has one public
-method `#call`, returns `Data.define(:success, :data, :error)`, and wraps
-multi-model work in a transaction. None of that can be written without naming
-Rails. Colloid's scaffold is stack-agnostic so that it transplants anywhere,
-and that is exactly why what it transplants stays abstract. The two properties
-trade against each other; generality is bought with vagueness.
+**Guidance is concrete only when it commits to a stack.** `millcrm`'s rules are
+checkable because they name Rails: a service object has one public method
+`#call`, returns `Data.define(:success, :data, :error)`, and wraps multi-model
+work in a transaction. None of that can be written stack-neutrally.
 
-`ravi-travels` is the exception that proves it. Concrete guidance landed there
-because the repository already held a domain-grounded scaffold that was merged
-in, not because the export produced any. The current transplant therefore
-delivers concrete rules only by accident — when the target happens to supply
-them itself.
+Colloid transplants abstract guidance, and `ravi-travels` is the exception that
+proves the rule — concrete guidance landed there because the repository already
+held a domain-grounded scaffold that was merged in, not because the export
+produced any. The transplant delivers specificity only when the target supplies
+it.
+
+**But colloid is not stack-agnostic, and has not been for some time.** Measured
+in its own tree:
+
+| Surface | Stack it names |
+|---|---|
+| `mobile-responsive-web/SKILL.md` | Next.js, Tailwind, shadcn, Framer Motion |
+| `react-native-expert/SKILL.md` | Expo, Reanimated, FlashList, NativeWind |
+| `seo-geo-growth-audit/SKILL.md` | Next.js |
+| `security-audit/SKILL.md` | Expo, Next.js |
+| `config.json.example` MCP defaults | `playwright` on (browser), `appium-mcp` on (device) |
+
+So the scaffold already holds framework-level opinions and already ships them.
+It holds them **indiscriminately**: every satellite receives the Expo and
+Next.js skills whatever it runs, and pruning them is a hand call at transplant
+time — `react-native-expert` was dropped for `clearclaim` by a person, not by
+the pipeline.
+
+The constraint is therefore not "colloid must stay neutral". It is "colloid is
+opinionated and does not know it", which is the worse of the two states.
 
 ## Direction
 
@@ -131,30 +148,45 @@ Work items follow that order.
    disclosure over the transplanted scaffold and none over its own `app/` or
    `src/`. Two problems sit here, and the second is the harder one.
 
-   *Shape.* The export must seed correctly-globbed domain rules for the target
-   layout. The open design question is whether to detect that layout or to
-   prompt for it; prompting fails louder, because a wrong guess seeds rules that
-   silently never match.
+   *Shape.* The two disclosure mechanisms take different jobs, and that assigns
+   where each layer goes:
 
-   *Content.* An empty globbed rule is a filing cabinet, not guidance. Colloid
-   holds no stack-specific content to put in one, and cannot hold it without
-   giving up the stack-agnosticism that lets it transplant at all. Three ways
-   out, none free:
+   - **Scaffold layers → nested `AGENTS.md`.** Directory-shaped, and read
+     natively by Codex and Kimi, which know nothing about `.claude/rules/`.
+     Already correct; the export already carries these.
+   - **Domain layers → `.claude/rules/` with globs.** "Every `*.tsx` under
+     `app/frontend/pages`" is a pattern, not a directory, and a nested
+     `CLAUDE.md` structurally cannot express it. `millcrm`'s `services.md`
+     scopes to `app/services/**/*.rb` **and** `spec/services/**/*.rb` — one
+     rule spanning two trees, which only a glob can address.
 
-   - **Per-stack templates.** Keep a small library (`rails/`, `nextjs/`,
-     `expo/`, `nestjs/`) and copy the matching set. Concrete on arrival, but
-     colloid now owns opinions about stacks it does not run, and they rot
-     unobserved.
-   - **Draft from the target.** A transplant step reads the satellite's tree and
-     drafts rules from what the code already does, for the operator to edit.
-     Always on-stack and never stale, but the draft is only as good as the
-     conventions already present, and it costs a cell per transplant.
-   - **Seed the frame, require the fill.** Ship the globs and the section
-     headings with a lint that fails while a rule is still empty. Cheapest and
-     most honest; delivers nothing on day one.
+   So a domain layer cannot ride the mechanism the export already carries. It
+   needs `.claude/rules/` entries the pipeline has never written.
 
-   Prefer drafting from the target. It is the only option that produces
-   `millcrm`-grade specificity without colloid pretending to know Rails.
+   *Content.* An empty globbed rule is a filing cabinet, not guidance.
+
+   **Operator ruling: hold strong opinions and strip at transplant.** Colloid
+   must carry **stack packs** — concrete, opinionated domain rules per stack
+   (`rails/`, `nextjs/`, `expo/`, `nestjs/`), written at `millcrm`'s level of
+   specificity rather than hedged toward neutrality. The export must carry them
+   all and must not choose between them. The agent running the transplant strips
+   what the target does not run.
+
+   This adds no machinery, because the discretion already exists. Every
+   transplant on record is an adapt and never a copy: hooks get diffed in both
+   directions, prose gets de-genomed, and `react-native-expert` was dropped for
+   `clearclaim` by judgment. Stack packs give that judgment something worth
+   adapting instead of leaving it to invent guidance from nothing.
+
+   It also dissolves half the *shape* question above. The pipeline needs no
+   stack detection, because the agent reading the target repository **is** the
+   detection. Build `export-scaffold.py` to carry and to subtract; leave
+   selection to the transplant.
+
+   The failure mode to gate for is the inverse of today's: a pack left behind in
+   a repository that does not run that stack. That is drift, and it is
+   detectable — a pack whose globs match no file in the target should fail a
+   check.
 
 ## Open decision
 
