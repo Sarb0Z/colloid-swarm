@@ -113,12 +113,30 @@ HEADER = (
 )
 
 
-# Frontmatter keys this script emits, in the order Claude Code documents them.
-# `name` and `description` come from the registry above; these come from config
-# and each one omits its line when the value is null or absent. Adding a key the
-# platform does not support writes a line nothing reads, so a new entry here is
-# a documentation lookup first.
-CONFIGURED_FIELDS = ("tools", "model", "memory", "effort")
+# Config keys a persona may carry. `tier` is the one that does not reach the
+# frontmatter under its own name: it indexes cfg["tiers"] and emits `model:`.
+# Adding a key the platform does not support writes a line nothing reads, so a
+# new entry here is a documentation lookup first.
+CONFIGURED_FIELDS = ("tools", "tier", "memory", "effort")
+
+# Emission order, as Claude Code documents the frontmatter.
+EMITTED = {"tools": "tools", "tier": "model", "memory": "memory", "effort": "effort"}
+
+
+def resolve_tier(name, tier):
+    """The model a tier names. A tier nothing defines is a typo, not a default.
+
+    Personas name a tier and never a model, so one edit re-points every cell and
+    a satellite on a provider whose aliases differ corrects itself in one place.
+    Aliases beat pinned ids here: `sonnet` resolves to the latest Sonnet the
+    provider offers, and a pinned id is wrong the moment either side moves.
+    """
+    tiers = cfg.get("tiers", {})
+    if not isinstance(tiers, dict) or tier not in tiers:
+        raise SystemExit(f"sync-claude-agents: subagents.{name}.tier is {tier!r}, "
+                         f"which config.json.example tiers does not define "
+                         f"({', '.join(sorted(tiers)) or 'no tiers at all'})")
+    return tiers[tier]
 
 
 def definition(agent):
@@ -152,8 +170,11 @@ def definition(agent):
     front = ["---", f"name: {agent['name']}", f"description: {agent['description']}"]
     for field in CONFIGURED_FIELDS:
         value = settings.get(field)
-        if value:
-            front.append(f"{field}: {value}")
+        if not value:
+            continue                   # null or absent inherits the default
+        if field == "tier":
+            value = resolve_tier(agent["name"], value)
+        front.append(f"{EMITTED[field]}: {value}")
     front.append("---")
     # A persona mid-merge would otherwise be copied verbatim into a live system
     # prompt, and the gate would certify it: the comparison only asks whether the
