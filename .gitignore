@@ -40,3 +40,8 @@ __pycache__/
 # per-workspace scratch typecheck cache written by post-edit-check.sh
 **/.tsbuildinfo-claude
 .agents/eval/*/runs.tsv
+
+# Screenshots another tool writes into this root. Scoped to the root and to
+# that one prefix: a broad `*.png` rule would also swallow an image a document
+# here means to carry, and this repository's own images are none.
+/donezo-*.png
