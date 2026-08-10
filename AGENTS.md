@@ -158,11 +158,26 @@ Compression has four carve-outs. Expand at each, compress everywhere else.
 ## Subagent Delegation
 
 Hand off cross-domain or parallelizable work — architecture, bug investigation,
-research, discovery — as soon as it is identifiable, and give mundane work to a
-smaller minion. Name the cheapest tier that can finish the task in the dispatch
-call, since an omitted model inherits yours; step up only where a wrong answer
-costs more than the retry. Your own tier is for planning and hostile review. The
-floor: one grep or one file read is not a delegation.
+research, discovery — as soon as it is identifiable. The floor: one grep or one
+file read is not a delegation.
+
+**Every dispatch must name a model.** An omitted one inherits yours, which is
+the most expensive tier, selected by accident rather than by judgement.
+
+| Tier | Model | Takes | Effort |
+| --- | --- | --- | --- |
+| light | `haiku` | Mechanical work with one right answer: renames, moves, formatting, a lookup you could verify at a glance | none — `haiku` supports no effort levels |
+| medium | `sonnet` | Implementation against a settled plan, tests, migrations, refactors, single-surface debugging | `medium` |
+| heavy | yours | Planning, hostile review, and a task that already came back wrong from medium | inherit |
+
+**Start at medium.** Dropping to light needs only that the work is mechanical.
+Escalating to heavy needs a reason you can state in the dispatch — "already
+failed at medium" counts, "this feels important" does not. Effort defaults to
+`high` on every model that has levels, so a medium-tier dispatch that omits
+`effort` silently buys the expensive setting.
+
+The tiers are `tiers` in `.agents/config.json.example`, and a persona names a
+tier rather than a model. Re-point a tier there and every cell follows.
 
 A handoff carries decisions, affected paths, and the single next step — no raw
 logs, no quoted issue bodies. A subagent returns the same shape: conclusions and

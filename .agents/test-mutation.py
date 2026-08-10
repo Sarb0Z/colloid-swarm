@@ -121,6 +121,16 @@ ROWS = [
         "expect": "a subagent field the script cannot emit must stop the run",
     },
     {
+        "guard": "sync-claude/undefined-tier",
+        "file": ".agents/sync-claude-agents.sh",
+        "find": "    if not isinstance(tiers, dict) or tier not in tiers:\n",
+        "replace": "    if False:\n",
+        "test": ["bash", ".agents/test-sync-claude.sh"],
+        # An unguarded lookup raises KeyError, which also stops the run. The
+        # guard's product is the clean refusal, so that is what to require.
+        "expect": "the undefined-tier refusal must name the bad tier and the defined set",
+    },
+    {
         "guard": "sync-claude/dead-models-block",
         "file": ".agents/sync-claude-agents.sh",
         "find": 'if "models" in local:\n',

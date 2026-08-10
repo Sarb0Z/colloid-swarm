@@ -59,15 +59,20 @@
   "stack_packs": {
     "carrier": true
   },
+  "tiers": {
+    "heavy": "opus",
+    "medium": "sonnet",
+    "light": "haiku"
+  },
   "subagents": {
     "researcher": {
-      "model": "sonnet",
+      "tier": "medium",
       "effort": "medium",
       "tools": "Read, Grep, Glob, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__research-mcp__fetch_readable, mcp__research-mcp__resolve_open_access, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_close, mcp__playwright-reader__browser_navigate, mcp__playwright-reader__browser_snapshot, mcp__playwright-reader__browser_close",
       "memory": null
     },
     "learning-reporter": {
-      "model": null,
+      "tier": null,
       "effort": null,
       "tools": "Bash, Read, Grep, Glob, Write",
       "memory": null
