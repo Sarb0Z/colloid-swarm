@@ -103,11 +103,12 @@ Two paths carry that stamp into a cell, by engine:
   `.agents/hooks/policy/genome-inject.sh` draws and injects for every dispatch.
   The treatment applies whether or not the orchestrator remembers it, which is
   what makes an unstamped run a control arm rather than a failure.
-- **The membrane.** Where an engine has no such event, the orchestrator prepends
-  the stamp and `.agents/hooks/policy/genome-guard.sh` refuses an un-stamped
-  dispatch. Codex and Kimi run this path.
+- **By hand.** Where an engine has no such event, the orchestrator prepends the
+  stamp. Codex and Kimi run this path, and nothing checks that they did — a gate
+  demanding the stamp delivered one in 165 dispatches, because every block it
+  issued asked the orchestrator to do the injector's job.
 
-Both read one exemption list, `swarm.exempt_subagent_types`.
+The injector reads one exemption list, `swarm.exempt_subagent_types`.
 
 ```sh
 .agents/genome.sh                  # sortition (anti-repeat) + panspermia register

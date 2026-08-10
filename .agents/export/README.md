@@ -15,8 +15,16 @@ the config keys that describe one, and strips regions the source marks
 
 ## What the target repository decides
 
-The export is uniform. These four choices are per repository.
+The export is uniform. These six choices are per repository.
 
+- **Stack packs.** `.agents/rules/stack-*.md` carries concrete, opinionated
+  rules per stack, and the export carries every pack because it cannot know the
+  target. Read the target and `git rm` every pack it does not run. Then run
+  `.agents/check-stack-packs.py`: it fails and names each pack whose `detect:`
+  markers are absent, so a pack nobody deleted cannot ship quietly. Run it again
+  after the first sync — that check is the whole selection mechanism, and it is
+  off in colloid, where `stack_packs.carrier` marks the source that holds them
+  all.
 - **Skills.** Install what the repository can use and delete the rest. A React
   Native application has no use for `mobile-responsive-web`; an API serves no
   pages, so it needs neither that nor `seo-geo-growth-audit`.

@@ -27,9 +27,6 @@
 # PreCompact/PostCompact payload shapes are unverified (compaction can't be
 # forced in a short probe); both hooks fail open and the marker protocol
 # defaults trigger=auto.
-# colloid-only
-# SubagentStart is unused — genome-guard rides
-# PreToolUse on Agent|AgentSwarm, which is blockable and schema-verified.
 
 # MCP servers: the registry lives in .agents/mcp.json; per-repo toggles in
 # .agents/config.json (mcp.servers.<name>.enabled). .agents/sync-mcp.sh
@@ -54,13 +51,6 @@
 event = "PreToolUse"
 matcher = "Bash"
 command = ".kimi/hooks/adapter.sh guard-destructive.sh"
-timeout = 10
-
-[[hooks]]
-event = "PreToolUse"
-matcher = "Agent|AgentSwarm"
-command = ".kimi/hooks/adapter.sh genome-guard.sh"
-# /colloid-only
 timeout = 10
 
 # Two entries, split by whether the work rewrites the tree. The fixer runs

@@ -29,8 +29,8 @@ if [[ -n "$leaked" ]]; then
   fail "export leaked the dropped subsystem"
 fi
 
-for path in .agents/genome.sh .agents/mutagen.sh .agents/hooks/policy/genome-guard.sh \
-            .agents/hooks/policy/genome-inject.sh .agents/hooks/lib/genome-guard.py \
+for path in .agents/genome.sh .agents/mutagen.sh \
+            .agents/hooks/policy/genome-inject.sh .agents/hooks/lib/genome-exempt.py \
             .agents/skills/panspermia-mutation .agents/eval .agents/fixtures \
             .agents/breadcrumbs.md .agents/debt-log.md .agents/export-scaffold.py \
             .agents/test-export.sh .agents/knowledge/index.md \
@@ -48,6 +48,26 @@ done
 
 [[ -f "$workspace/kit/export/README.md" ]] || fail "export omitted its own transplant guide"
 [[ -x "$workspace/kit/export/drop-server.py" ]] || fail "export omitted drop-server.py"
+
+# --- Stack packs travel, and the gate that strips them arrives armed ---------
+# The export carries every pack and selects none. Two halves make that safe: the
+# packs arrive, and `stack_packs.carrier` does not -- an absent carrier key is
+# what turns check-stack-packs.py on in the target. Ship one without the other
+# and either the satellite gains no domain rules, or it keeps every pack with
+# nothing to say so.
+packs="$(find "$workspace/kit/.agents/rules" -name 'stack-*.md' 2>/dev/null | wc -l | tr -d ' ')"
+[[ "$packs" -ge 1 ]] || fail "export carries no stack packs; a satellite gains no domain rules"
+[[ -x "$workspace/kit/.agents/check-stack-packs.py" ]] || fail "export omitted check-stack-packs.py"
+if python3 -c 'import json,sys; sys.exit(0 if "stack_packs" in json.load(open(sys.argv[1])) else 1)' \
+     "$workspace/kit/.agents/config.json.example"; then
+  fail "export kept stack_packs.carrier; the target would never check its packs"
+fi
+
+# Every pack must declare `detect:`, or the gate cannot tell whether the stack
+# is present and passes a pack it should have flagged.
+for pack in "$workspace/kit/.agents/rules/"stack-*.md; do
+  grep -q '^detect:' "$pack" || fail "$(basename "$pack") declares no detect: markers"
+done
 
 # The knowledge store splits in two: the entries above are dropped as this
 # repository's content, but the contract must arrive or the satellite inherits

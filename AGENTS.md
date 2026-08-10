@@ -81,19 +81,6 @@ that solve the problem. Every line must justify itself under scrutiny —
 naming, control flow, failure modes, performance. The code is the proof;
 comments do not rescue it.
 
-### Jobs-grade UI
-Design like Steve Jobs: Highly scannable, visually harmonious, frictionless
-Typography, spacing, hierarchy, and micro-interactions are load-bearing, not
-decorative. Render and inspect the actual output before presenting it —
-fix collisions, clipping, and readability first; when the user supplies
-a reference, match its quality before showing yours.
-
-### Browser surface
-Playwright MCP is the only browser surface. Use it for every browser task —
-a local dev server, a static file, or a public page; layout inspection,
-screenshots, responsive checks, interaction tests, and any page `WebFetch`
-cannot parse.
-
 ### No backwards compatibility 
 Remove stubs and dead code completely. Don't preserve backwards compatibility
 for its own sake—if something is unused or being replaced, delete it outright.
@@ -159,71 +146,30 @@ brevity; dense is not minimal.
    command returned. A narrated count and a measured count drift apart in
    silence, and only the measured one is evidence.
 
-## Documentation
+Compression has four carve-outs. Expand at each, compress everywhere else.
 
-Write all documentation in ASD-STE100 Simplified Technical English. Naming the
-standard carries short sentences, active voice, and the imperative mood on its
-own. Two rules do not survive the abbreviation, because they are what drifts:
-
-1. **Approved vocabulary.** One term per concept; no synonym drift. Introduce a
-   project-specific name once, then reuse it verbatim.
-2. **Explicit modals.** "Must" for requirements, "should" for recommendations,
-   "may" for permissions. Never blend them.
+| Boundary | What expands |
+| --- | --- |
+| Security warning | The risk, the surface it reaches, and what happens if it is ignored |
+| Destructive-operation confirmation | What is removed, whether it is recoverable, and the exact command |
+| Multi-step sequence | Every step in order, and which one fails first if it fails |
+| Two readings of the request | Each reading you found, and which one you acted on |
 
 ## Subagent Delegation
 
-Hand off cross-domain or parallelizable work (architecture, bug 
-investigation, research/discovery) as soon as it's identifiable. Handoffs
-are dense: decisions, affected paths, single next step. No raw logs or
-quoted issue bodies. Spawn subagents for mundane and trivial work you're
-too smart for — give it to a smaller minion. Pick the cheapest tier that
-can be relied on to finish the task and name it in the dispatch call,
-since an omitted model inherits yours; step up a tier only where a wrong
-answer costs more than the retry. Your own tier is for planning and
-hostile review. The floor: a single tool call is not a delegation; when
-one grep or file read answers it, run it yourself rather than spinning
-up a context around it.
-Subagents return dense, distilled reports: conclusions, decisions, and
-evidence pointers, not transcripts. A subagent that changed files or
-state must return runnable acceptance — a command, or a checkable
-assertion for non-executable artifacts. Re-run it before relying on the
-result; its claim is never the only evidence.
+Hand off cross-domain or parallelizable work — architecture, bug investigation,
+research, discovery — as soon as it is identifiable, and give mundane work to a
+smaller minion. Name the cheapest tier that can finish the task in the dispatch
+call, since an omitted model inherits yours; step up only where a wrong answer
+costs more than the retry. Your own tier is for planning and hostile review. The
+floor: one grep or one file read is not a delegation.
 
-## Hierarchical Instructions
+A handoff carries decisions, affected paths, and the single next step — no raw
+logs, no quoted issue bodies. A subagent returns the same shape: conclusions and
+evidence pointers, not a transcript. One that changed files or state must return
+runnable acceptance, a command or a checkable assertion. Re-run it; its claim is
+never the only evidence.
 
-Scoped agent instructions live in canonical `AGENTS.md` files co-located
-with the code they govern. **When working in a subtree, read its local
-`AGENTS.md` first.** These files are the single source of truth — always
-edit the canonical file, never a symlink pointing to it.
-
-Canonical files carry dual YAML frontmatter: `applyTo:` (GitHub Copilot)
-and `paths:` (Claude Code). Both keys are load-bearing; Codex/Kimi read
-the file as plain AGENTS.md and treat the frontmatter as inert text. Do
-not "clean it up".
-
-Layers:
-
-| Scope | Canonical |
-| --- | --- |
-| Agent scaffold | `.agents/AGENTS.md` |
-| Claude adapter layer | `.claude/AGENTS.md` |
-| Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
-
-<!-- colloid-only -->
-| Scope | Canonical |
-| --- | --- |
-| Demo | `demo/AGENTS.md` |
-| Tensium trial | `tensium-trial/AGENTS.md` |
-<!-- /colloid-only -->
-
-A skill `AGENTS.md` governs *editing* the skill; `SKILL.md` governs
-*using* it.
-
-Tool fan-out (symlinks, do not edit directly):
-
-- Copilot: `.github/instructions/*.instructions.md` → canonical files
-- Claude Code: layer `CLAUDE.md` → sibling `AGENTS.md`;
-  `.claude/rules/<skill>.md` → skill canonicals
-
-Authoring rules for scoped instruction content are in
-`.github/instructions/README.md`.
+Scoped instructions load on demand and are not restated here. Read
+`.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md`
+before working in any subtree.

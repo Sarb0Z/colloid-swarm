@@ -346,7 +346,7 @@
             <li><b>Investigate assumptions.</b> External code is innocent until the investigation proves otherwise.</li>
             <li><b>Persist to completion.</b> Token pressure narrows remaining scope — it never stops work short.</li>
             <li><b>Estimate in tokens,</b> never wall-clock: "~30k tokens", not "about an hour".</li>
-            <li><b>Carmack-grade code, Jobs-grade UI.</b> Fewest layers that solve it; typography is load-bearing.</li>
+            <li><b>Carmack-grade code.</b> The fewest layers that solve it; every line justifies itself under scrutiny.</li>
             <li><b>No backwards compatibility.</b> Unused or replaced code is deleted outright.</li>
           </ul>
         </div>
@@ -356,8 +356,8 @@
         <article class="card" style="grid-column:1/-1">
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
-          <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 231 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+          <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 175 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production and must withstand hostile
 technical review — reviewer (Linus) rejects placeholder types, mock
@@ -395,26 +395,18 @@ Listed in priority order. Resolve conflicts top-down.
    front, even when the plan is skipped; state, for each, the one claim
    step 5&#x27;s review must independently reproduce. When unsure, classify
    as high-stakes; never downgrade.
-3. **Hostile-review the plan.** Dispatch a subagent to attack it — fit
-   against surrounding architecture, failure modes, edge cases, missing
-   steps. No justifying the plan; find what&#x27;s wrong. Findings are input,
-   not orders — disposition each one before coding: adopt it because
-   it&#x27;s right, decline it with a reason, file it (breadcrumbs or
-   debt-log) when valid but not this unit&#x27;s work, or escalate a
-   decision only the user can make. The burden of proof sits on the
-   finding, not the decline. State every disposition explicitly — a
-   silent drop is not a disposition.
+3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md`
+   with the plan as the artifact. Disposition every finding before you
+   write code.
 4. **Implement, then test.** If anything fails, diagnose and fix. If the fix
    forces a redesign, return to step 1.
-5. **Hostile-review the implementation.** Dispatch a subagent to review
-   the diff against the plan and the surrounding architecture. Same
-   reviewer ground rules: no justifying, find what&#x27;s wrong. You
-   disposition every finding the same way.
+5. **Hostile-review the implementation.** Run the same playbook with the
+   diff as the artifact.
 
-A review round is review → fix → re-review; &quot;don&#x27;t hold&quot; means the same
-defect returns. Three consecutive rounds where fixes don&#x27;t hold mean the
-shape is wrong — stop patching and take the architecture question to the
-user.
+The playbook is the reviewer contract, the disposition rules, and the
+stop condition. Read it; do not restate it here. It is also what
+`.agents/eval/review-harness` grades against, so a paraphrase in this
+file would ship one review and measure another.
 
 ## Behavior
 
@@ -448,19 +440,6 @@ that solve the problem. Every line must justify itself under scrutiny —
 naming, control flow, failure modes, performance. The code is the proof;
 comments do not rescue it.
 
-### Jobs-grade UI
-Design like Steve Jobs: Highly scannable, visually harmonious, frictionless
-Typography, spacing, hierarchy, and micro-interactions are load-bearing, not
-decorative. Render and inspect the actual output before presenting it —
-fix collisions, clipping, and readability first; when the user supplies
-a reference, match its quality before showing yours.
-
-### Browser surface
-Playwright MCP is the only browser surface. Use it for every browser task —
-a local dev server, a static file, or a public page; layout inspection,
-screenshots, responsive checks, interaction tests, and any page `WebFetch`
-cannot parse.
-
 ### No backwards compatibility 
 Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility
 for its own sake—if something is unused or being replaced, delete it outright.
@@ -475,6 +454,7 @@ The one date this permits is an observation&#x27;s own timestamp under
 What doesn&#x27;t belong inline has three homes. Two split by lifecycle:
 - **`.agents/breadcrumbs.md`** — deferred *work*: a queue. One line each; the
   SessionStart hook re-surfaces unaddressed items. Act on it, or delete the line.
+  Draining the queue is its own unit of work: `playbooks/breadcrumb-burndown.md`.
 - **`.agents/debt-log.md`** — standing tradeoffs and deferred *decisions*: the
   &quot;naive O(n³) here, fine until N&gt;10k, rework needs a spatial index&quot; record.
   Committed. Each entry is a `### &lt;id&gt;` heading (a kebab slug like
@@ -519,75 +499,101 @@ brevity; dense is not minimal.
    deliver sources: high-quality references, one-line notes on what each
    covers, no essay. A question asked with &quot;include sources&quot; is still a
    question — answer it and cite.
+5. **Counts are measured, never narrated.** Every number in a report — files
+   changed, tests passing, findings left — must come from a command that
+   produced it: `wc -l`, `grep -c`, the suite&#x27;s own tally. Report what the
+   command returned. A narrated count and a measured count drift apart in
+   silence, and only the measured one is evidence.
 
-## Documentation
+Compression has four carve-outs. Expand at each, compress everywhere else.
 
-Write all documentation in ASD-STE100 Simplified Technical English. Naming the
-standard carries short sentences, active voice, and the imperative mood on its
-own. Two rules do not survive the abbreviation, because they are what drifts:
-
-1. **Approved vocabulary.** One term per concept; no synonym drift. Introduce a
-   project-specific name once, then reuse it verbatim.
-2. **Explicit modals.** &quot;Must&quot; for requirements, &quot;should&quot; for recommendations,
-   &quot;may&quot; for permissions. Never blend them.
+| Boundary | What expands |
+| --- | --- |
+| Security warning | The risk, the surface it reaches, and what happens if it is ignored |
+| Destructive-operation confirmation | What is removed, whether it is recoverable, and the exact command |
+| Multi-step sequence | Every step in order, and which one fails first if it fails |
+| Two readings of the request | Each reading you found, and which one you acted on |
 
 ## Subagent Delegation
 
-Hand off cross-domain or parallelizable work (architecture, bug 
-investigation, research/discovery) as soon as it&#x27;s identifiable. Handoffs
-are dense: decisions, affected paths, single next step. No raw logs or
-quoted issue bodies. Spawn subagents for mundane and trivial work you&#x27;re
-too smart for — give it to a smaller minion. Pick the cheapest tier that
-can be relied on to finish the task and name it in the dispatch call,
-since an omitted model inherits yours; step up a tier only where a wrong
-answer costs more than the retry. Your own tier is for planning and
-hostile review. The floor: a single tool call is not a delegation; when
-one grep or file read answers it, run it yourself rather than spinning
-up a context around it.
-Subagents return dense, distilled reports: conclusions, decisions, and
-evidence pointers, not transcripts. A subagent that changed files or
-state must return runnable acceptance — a command, or a checkable
-assertion for non-executable artifacts. Re-run it before relying on the
-result; its claim is never the only evidence.
+Hand off cross-domain or parallelizable work — architecture, bug investigation,
+research, discovery — as soon as it is identifiable, and give mundane work to a
+smaller minion. Name the cheapest tier that can finish the task in the dispatch
+call, since an omitted model inherits yours; step up only where a wrong answer
+costs more than the retry. Your own tier is for planning and hostile review. The
+floor: one grep or one file read is not a delegation.
 
-## Hierarchical Instructions
+A handoff carries decisions, affected paths, and the single next step — no raw
+logs, no quoted issue bodies. A subagent returns the same shape: conclusions and
+evidence pointers, not a transcript. One that changed files or state must return
+runnable acceptance, a command or a checkable assertion. Re-run it; its claim is
+never the only evidence.
 
-Scoped agent instructions live in canonical `AGENTS.md` files co-located
-with the code they govern. **When working in a subtree, read its local
-`AGENTS.md` first.** These files are the single source of truth — always
-edit the canonical file, never a symlink pointing to it.
+Scoped instructions load on demand and are not restated here. Read
+`.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md`
+before working in any subtree.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Loads on demand</div><h3>frontend.md</h3><p>Rules the contract does not carry, because most sessions never touch a screen. Globbed to <code>*.tsx</code>, <code>*.css</code>, <code>*.html</code> — they arrive when an agent opens one of those and cost nothing when it does not.</p><div class="foot">Claude reads <code>paths:</code> · Copilot reads <code>applyTo:</code></div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 26 lines</span></summary><div class="srcpath">.agents/rules/frontend.md</div><pre><code>---
+applyTo: &#x27;**/*.tsx,**/*.jsx,**/*.vue,**/*.svelte,**/*.css,**/*.scss,**/*.html&#x27;
+paths:
+  - &#x27;**/*.tsx&#x27;
+  - &#x27;**/*.jsx&#x27;
+  - &#x27;**/*.vue&#x27;
+  - &#x27;**/*.svelte&#x27;
+  - &#x27;**/*.css&#x27;
+  - &#x27;**/*.scss&#x27;
+  - &#x27;**/*.html&#x27;
+---
 
-Canonical files carry dual YAML frontmatter: `applyTo:` (GitHub Copilot)
-and `paths:` (Claude Code). Both keys are load-bearing; Codex/Kimi read
-the file as plain AGENTS.md and treat the frontmatter as inert text. Do
-not &quot;clean it up&quot;.
+# Frontend and Browser Rules
 
-Layers:
+## Business Invariants
+- Design like Steve Jobs: highly scannable, visually harmonious, frictionless. Typography, spacing, hierarchy, and micro-interactions are load-bearing, not decorative.
+- Render and inspect the actual output before you present it. Fix collisions, clipping, and readability first.
+- When the user supplies a reference, match its quality before you show yours.
+- Playwright MCP is the only browser surface. Use it for every browser task: a local dev server, a static file, or a public page.
+- Use Playwright MCP for layout inspection, screenshots, responsive checks, interaction tests, and any page `WebFetch` cannot parse.
 
-| Scope | Canonical |
-| --- | --- |
-| Agent scaffold | `.agents/AGENTS.md` |
-| Claude adapter layer | `.claude/AGENTS.md` |
-| Skill (feature) | `.agents/skills/&lt;name&gt;/AGENTS.md` |
+## Abnormal Cases and Rationale
+- A page that renders through JavaScript returns markup with no content to `WebFetch`. The call succeeds and the content is absent, so the failure is silent. Playwright renders the page first, which is why it is the only surface and not the preferred one.
 
-&lt;!-- colloid-only --&gt;
-| Scope | Canonical |
-| --- | --- |
-| Demo | `demo/AGENTS.md` |
-| Tensium trial | `tensium-trial/AGENTS.md` |
-&lt;!-- /colloid-only --&gt;
+## Out of Scope
+- Do not restate a framework&#x27;s own conventions here. A stack rule under `.agents/rules/` owns those.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Stack pack</div><h3>stack-nextjs.md</h3><p>Concrete framework rules at a house-convention bar, not hedged toward neutrality. The scaffold carries a pack per stack and selects none — a transplant deletes what the target does not run, and a gate fails on the ones it missed.</p><div class="foot"><code>paths:</code> says when it loads · <code>detect:</code> says whether the stack is here</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 30 lines</span></summary><div class="srcpath">.agents/rules/stack-nextjs.md</div><pre><code>---
+applyTo: &#x27;**/app/**/*.tsx,**/app/**/*.ts,**/src/app/**/*.tsx,**/src/app/**/*.ts,**/next.config.*,**/middleware.ts&#x27;
+paths:
+  - &#x27;**/app/**/*.tsx&#x27;
+  - &#x27;**/app/**/*.ts&#x27;
+  - &#x27;**/src/app/**/*.tsx&#x27;
+  - &#x27;**/src/app/**/*.ts&#x27;
+  - &#x27;**/next.config.*&#x27;
+  - &#x27;**/middleware.ts&#x27;
+detect:
+  - &#x27;**/next.config.*&#x27;
+---
 
-A skill `AGENTS.md` governs *editing* the skill; `SKILL.md` governs
-*using* it.
+# Next.js App Router Rules
 
-Tool fan-out (symlinks, do not edit directly):
+## Business Invariants
+- A component is a Server Component until a file declares `&#x27;use client&#x27;`. Declare it at the entry point of an interactive subtree, never at the top of a shared leaf that server code also renders.
+- `&#x27;use client&#x27;` marks a boundary, not a file. Everything imported below it joins the client bundle, so a secret, a database client, or a server-only SDK reached from a client file ships to the browser.
+- Props that cross the boundary must serialize. Pass a promise into a Client Component and resolve it with `use()` inside a `&lt;Suspense&gt;` boundary rather than awaiting it in the parent and blocking the render.
+- `fetch` does not cache by default. State the intent on every call: `cache: &#x27;force-cache&#x27;` to reuse across requests, `next: { revalidate: &lt;seconds&gt; }` for a time bound, and nothing for a per-request read.
+- A Server Action mutates on the server and is reachable by any caller who can reach the route. Authorize inside the action itself. The component that renders the form is not the authorization boundary.
+- `middleware.ts` runs on every matched request. Keep it to routing and header work; a database call there pays its cost on every navigation.
+- Where the backend publishes an OpenAPI or Swagger document, generate the client from it — types, hooks, and validation schemas together — and regenerate on every backend change. `orval` covers this shape: it emits TypeScript models, React Query hooks, Zod schemas, and MSW mocks from one spec. A hand-written client holds a second copy of the contract, and the copies diverge at runtime rather than at build.
 
-- Copilot: `.github/instructions/*.instructions.md` → canonical files
-- Claude Code: layer `CLAUDE.md` → sibling `AGENTS.md`;
-  `.claude/rules/&lt;skill&gt;.md` → skill canonicals
+## Abnormal Cases and Rationale
+- A `&#x27;use client&#x27;` file that imports a server-only module fails at build with an unhelpful trace. Mark the module with `import &#x27;server-only&#x27;` so the error names the real boundary crossing.
+- An environment variable reaches the browser only through the `NEXT_PUBLIC_` prefix. A secret named with that prefix is published, and the build reports nothing.
 
-Authoring rules for scoped instruction content are in
-`.github/instructions/README.md`.
+## Out of Scope
+- Do not restate visual design rules here. `.agents/rules/frontend.md` owns those.
 </code></pre></details>
             </article>
       </div>
@@ -620,7 +626,7 @@ Authoring rules for scoped instruction content are in
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 238 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 175 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -647,40 +653,14 @@ Authoring rules for scoped instruction content are in
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
-cfg_path=&quot;$repo/.agents/config.json&quot;
-switches=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-if not isinstance(cfg, dict):
-    cfg = {}
-hooks = cfg.get(&quot;hooks&quot;, {})
-if not isinstance(hooks, dict):
-    hooks = {}
-for key in (&quot;session_start&quot;, &quot;learning_output_style&quot;):
-    entry = hooks.get(key, {})
-    enabled = entry.get(&quot;enabled&quot;, True) if isinstance(entry, dict) else True
-    print(&quot;yes&quot; if enabled is not False else &quot;no&quot;)
-PY
-)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+switches=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; \
+  hooks.session_start.enabled=true hooks.learning_output_style.enabled=true)&quot;
 session_start_enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$switches&quot; | sed -n &#x27;1p&#x27;)&quot;
 learning_enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$switches&quot; | sed -n &#x27;2p&#x27;)&quot;
 [[ &quot;$session_start_enabled&quot; == &quot;no&quot; &amp;&amp; &quot;$learning_enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-input=&quot;$(cat)&quot;
-
-# The adapter feeds normalizer-built JSON, so this parse cannot fail in practice.
-parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-print(d.get(&quot;project_dir&quot;, &quot;&quot;))
-print(d.get(&quot;source&quot;, &quot;&quot;))
-print(d.get(&quot;session_id&quot;, &quot;&quot;))
-print(d.get(&quot;transcript_path&quot;, &quot;&quot;))
-PY
-)&quot;
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; project_dir source session_id transcript_path)&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 start_source=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
 session_id=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
@@ -718,39 +698,10 @@ if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;
 fi
 
 # Registry servers that are toggled off: surface them so the model knows they
-# exist and can switch them on mid-task. Toggle merge mirrors sync-mcp.sh
-# (example base, local per-server override).
+# exist and can switch them on mid-task. The merge rule is .agents/toggles.py.
 mcp_off=&quot;&quot;
 if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; ]]; then
-  mcp_off=&quot;$(PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-agents = os.path.join(os.environ[&quot;PROJ&quot;], &quot;.agents&quot;)
-def load(p):
-    try:
-        with open(p, encoding=&quot;utf-8&quot;) as f: value = json.load(f)
-        return value if isinstance(value, dict) else {}
-    except Exception: return {}
-registry = load(os.path.join(agents, &quot;mcp.json&quot;)).get(&quot;mcpServers&quot;, {})
-example = load(os.path.join(agents, &quot;config.json.example&quot;))
-local = load(os.path.join(agents, &quot;config.json&quot;))
-toggles = dict(example.get(&quot;mcp&quot;, {}).get(&quot;servers&quot;, {}))
-ls = local.get(&quot;mcp&quot;, {})
-if isinstance(ls, dict) and isinstance(ls.get(&quot;servers&quot;), dict):
-    for name, entry in ls[&quot;servers&quot;].items():
-        # Per-entry merge: a local {&quot;enabled&quot;: ...} flip must not shadow the
-        # example&#x27;s description.
-        base = toggles.get(name, {})
-        toggles[name] = {**base, **entry} if isinstance(entry, dict) else entry
-lines = []
-for name in sorted(registry):
-    t = toggles.get(name, {})
-    if not isinstance(t, dict) or t.get(&quot;enabled&quot;) is True:
-        continue
-    desc = t.get(&quot;description&quot;, &quot;&quot;)
-    lines.append(f&quot;- {name}&quot; + (f&quot; — {desc}&quot; if desc else &quot;&quot;))
-print(&quot;\n&quot;.join(lines))
-PY
-)&quot;
+  mcp_off=&quot;$(python3 &quot;$lib/mcp-off.py&quot; &quot;$proj&quot;)&quot;
 fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as
@@ -848,15 +799,7 @@ EOF
 
 [[ -z &quot;$body&quot; ]] &amp;&amp; exit 0
 
-HOOK_BODY=&quot;$body&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-print(json.dumps({
-    &quot;hookSpecificOutput&quot;: {
-        &quot;hookEventName&quot;: &quot;SessionStart&quot;,
-        &quot;additionalContext&quot;: os.environ[&quot;HOOK_BODY&quot;],
-    }
-}))
-PY
+printf &#x27;%s&#x27; &quot;$body&quot; | python3 &quot;$lib/emit-context.py&quot; SessionStart
 exit 0
 </code></pre></details>
             </article>
@@ -870,7 +813,7 @@ exit 0
               <div class="top"><span class="id">research-prime</span><span class="badge context">context</span></div>
               <p class="what">When the prompt turns on a current or external fact, injects a non-blocking reminder to search and cite. Silent otherwise.</p>
               <div class="io"><b>in</b> {prompt} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 68 lines</span></summary><div class="srcpath">.agents/hooks/policy/research-prime.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 43 lines</span></summary><div class="srcpath">.agents/hooks/policy/research-prime.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: prime search-and-cite discipline on a research-shaped
 # prompt. A UserPromptSubmit *context* policy, never a gate — it fires before the
 # answer, when the user&#x27;s question looks like it turns on a current/external
@@ -886,28 +829,11 @@ exit 0
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
-cfg_path=&quot;$repo/.agents/config.json&quot;
-enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;research_prime&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
-PY
-)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.research_prime.enabled=true)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-prompt=&quot;$(HOOK_INPUT=&quot;$(cat)&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-try:
-    d = json.loads(os.environ.get(&quot;HOOK_INPUT&quot;) or &quot;{}&quot;)
-except Exception:
-    d = {}
-p = d.get(&quot;prompt&quot;)
-print((p if isinstance(p, str) else &quot;&quot;).replace(&quot;\n&quot;, &quot; &quot;))
-PY
-)&quot;
+prompt=&quot;$(python3 &quot;$lib/payload.py&quot; prompt | tr &#x27;\n&#x27; &#x27; &#x27;)&quot;
 
 [[ -z &quot;$prompt&quot; ]] &amp;&amp; exit 0
 
@@ -928,15 +854,7 @@ source for a single known fact, or delegate a researcher cell (the
 the URLs you actually used.
 EOF
 
-HOOK_BODY=&quot;$body&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-print(json.dumps({
-    &quot;hookSpecificOutput&quot;: {
-        &quot;hookEventName&quot;: &quot;UserPromptSubmit&quot;,
-        &quot;additionalContext&quot;: os.environ[&quot;HOOK_BODY&quot;].strip(),
-    }
-}))
-PY
+printf &#x27;%s&#x27; &quot;$body&quot; | python3 &quot;$lib/emit-context.py&quot; UserPromptSubmit
 exit 0
 </code></pre></details>
             </article>
@@ -950,7 +868,7 @@ exit 0
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 389 lines</span></summary><div class="srcpath">.agents/hooks/policy/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 411 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive, and say why.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;}
@@ -1126,11 +1044,25 @@ def parts(args):
 
 GLOB = &quot;*?[&quot;
 HOMES = (&quot;${HOME}&quot;, &quot;$HOME&quot;)
-BARE = {&quot;/&quot;, &quot;~&quot;, &quot;.&quot;, &quot;..&quot;, &quot;*&quot;, &quot;**&quot;, &quot;./*&quot;, &quot;../*&quot;, &quot;~/*&quot;}
+BARE = {&quot;/&quot;, &quot;~&quot;, &quot;.&quot;, &quot;..&quot;, &quot;*&quot;, &quot;**&quot;, &quot;./*&quot;, &quot;../*&quot;, &quot;~/*&quot;, &quot;.*&quot;, &quot;./.*&quot;, &quot;../.*&quot;}
+# Scratch roots. A path under one of these is throwaway by construction, which
+# is the whole reason a session writes there.
+SCRATCH = (&quot;/tmp&quot;, &quot;/var/tmp&quot;, &quot;/private/tmp&quot;, &quot;/private/var/tmp&quot;, &quot;/var/folders&quot;)
 
 
-def broad(operand):
-    &quot;&quot;&quot;True when the operand names a root, a home, or a top-level directory.&quot;&quot;&quot;
+def under(path, root):
+    &quot;&quot;&quot;True when path sits at least one component below root.&quot;&quot;&quot;
+    return bool(root) and path.startswith(root.rstrip(&quot;/&quot;) + &quot;/&quot;)
+
+
+def broad(operand, project=&quot;&quot;):
+    &quot;&quot;&quot;True when a recursive delete of this operand reaches past the agent&#x27;s work.
+
+    An absolute path is broad by default. Depth is not safety — `/Users/mac` is
+    two components and `/var/lib/postgresql` is three, and neither is this
+    session&#x27;s to delete. Only two carve-outs are narrow enough to name: inside
+    the project the agent is working in, and inside a scratch root.
+    &quot;&quot;&quot;
     path = operand.rstrip(&quot;/&quot;) or &quot;/&quot;
     for prefix in HOMES:
         if path == prefix or path.startswith(prefix + &quot;/&quot;):
@@ -1138,26 +1070,26 @@ def broad(operand):
             break
     if path in BARE:
         return True
-    if path.startswith(&quot;/&quot;):
-        names = [name for name in path.split(&quot;/&quot;) if name]
-    elif path.startswith(&quot;~/&quot;):
-        names = [name for name in path[2:].split(&quot;/&quot;) if name]
-    else:
-        # A relative path is the agent&#x27;s own working tree, and its own call.
+    if not (path.startswith(&quot;/&quot;) or path.startswith(&quot;~/&quot;)):
+        # A relative path is the agent&#x27;s own working tree, and its own call —
+        # unless the glob can match `..`, which reaches out of it.
+        name = path.rsplit(&quot;/&quot;, 1)[-1]
+        return name.startswith(&quot;.&quot;) and any(char in name for char in GLOB)
+    if path.startswith(&quot;~/&quot;):
+        path = os.path.expanduser(path)
+    if under(path, project) or any(under(path, root) for root in SCRATCH):
         return False
-    if len(names) &lt;= 1:
-        return True
-    return len(names) == 2 and any(char in names[-1] for char in GLOB)
+    return True
 
 
-def rule_rm(command):
+def rule_rm(command, project=&quot;&quot;):
     words = lead(command.words)
     if not words or base(words[0]) != &quot;rm&quot;:
         return None
     letters, longs, operands = parts(words[1:])
     if not ({&quot;r&quot;, &quot;R&quot;} &amp; letters or &quot;--recursive&quot; in longs):
         return None
-    if any(broad(operand) for operand in operands):
+    if any(broad(operand, project) for operand in operands):
         return (&quot;Recursive rm on a broad path. This is irreversible — confirm &quot;
                 &quot;with the user, or narrow the path.&quot;)
     return None
@@ -1181,7 +1113,7 @@ def git_verb(words):
     return None, []
 
 
-def rule_git(command):
+def rule_git(command, project=&quot;&quot;):
     words = lead(command.words)
     if not words or base(words[0]) != &quot;git&quot;:
         return None
@@ -1233,7 +1165,7 @@ def mutating(command):
     return any(target.startswith(&quot;/etc/&quot;) for target in command.targets)
 
 
-def rule_ssh(command):
+def rule_ssh(command, project=&quot;&quot;):
     words = lead(command.words)
     if not words or base(words[0]) != &quot;ssh&quot;:
         return None
@@ -1256,7 +1188,7 @@ UPDATE = re.compile(r&quot;\bUPDATE\s+\S+\s+SET\b&quot;, re.I)
 WHERE = re.compile(r&quot;\bWHERE\b&quot;, re.I)
 
 
-def rule_sql(command):
+def rule_sql(command, project=&quot;&quot;):
     words = lead(command.words)
     if not words or base(words[0]) not in SQL_CLIENTS:
         return None
@@ -1272,7 +1204,7 @@ def rule_sql(command):
     return None
 
 
-def rule_cloud(command):
+def rule_cloud(command, project=&quot;&quot;):
     words = lead(command.words)
     if not words:
         return None
@@ -1299,27 +1231,34 @@ def rule_cloud(command):
 RULES = (rule_rm, rule_git, rule_ssh, rule_sql, rule_cloud)
 
 
-def verdict(text):
+def verdict(text, project=&quot;&quot;):
     &quot;&quot;&quot;The reason to block, or None.&quot;&quot;&quot;
     for command in normalize(text):
         for rule in RULES:
-            reason = rule(command)
+            reason = rule(command, project)
             if reason:
                 return reason
     return None
 
 
 def enabled(repo):
+    &quot;&quot;&quot;The toggle, read the way config.py reads every other one.&quot;&quot;&quot;
     try:
         with open(os.path.join(repo, &quot;.agents&quot;, &quot;config.json&quot;), encoding=&quot;utf-8&quot;) as config:
             settings = json.load(config)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return True
-    return settings.get(&quot;hooks&quot;, {}).get(&quot;guard_destructive&quot;, {}).get(&quot;enabled&quot;, True) is not False
+    node = settings
+    for name in (&quot;hooks&quot;, &quot;guard_destructive&quot;, &quot;enabled&quot;):
+        if not isinstance(node, dict) or name not in node:
+            return True
+        node = node[name]
+    return node is not False
 
 
 def main():
-    repo = sys.argv[1] if len(sys.argv) &gt; 1 else &quot;.&quot;
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo = sys.argv[1] if len(sys.argv) &gt; 1 else os.path.dirname(os.path.dirname(os.path.dirname(here)))
     if not enabled(repo):
         return 0
     try:
@@ -1330,7 +1269,8 @@ def main():
     command = payload.get(&quot;command&quot;)
     if not isinstance(command, str) or not command.strip():
         return 0
-    reason = verdict(command)
+    project = payload.get(&quot;project_dir&quot;)
+    reason = verdict(command, project if isinstance(project, str) else repo)
     if not reason:
         return 0
     print(reason, file=sys.stderr)
@@ -1351,87 +1291,72 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 731 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 452 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
-# Output: exit 2 + stderr findings on issues; exit 0 otherwise.
+# Scoped strictly to the provided file list — never sweeps the repo. Every
+# external tool is optional: a missing binary is skipped silently.
 #
-# Scoped strictly to the provided file list — never sweeps the repo. Per
-# language: Python -&gt; ruff (lint+format) + pyright (types); TS/JS -&gt; eslint
-# (lint, autofix) + prettier (format) + tsc --noEmit (types, per workspace).
-# Plus advisory scans on the added lines: tombstone narration + null-safety.
-# Every external tool is optional: a missing binary is skipped silently.
+# Two modes, wired as two hook entries, split by whether the work rewrites the
+# tree. $POST_EDIT_MODE selects one:
+#
+#   write  — every fixer and formatter (ruff --fix, ruff format, prettier
+#            --write, eslint --fix), then the advisory scans on the added
+#            lines. Exits 0 always and reports through additionalContext, so an
+#            advisory never rides the channel that carries type failures.
+#            This entry MUST stay synchronous: a formatter running in the
+#            background can read a file, be overtaken by the agent&#x27;s next edit,
+#            and write the pre-edit content back over it.
+#   check  — gates that only report: ruff check, eslint, tsc --noEmit per workspace,
+#            pyright per environment, and the skill-format linter. Exits 2 with
+#            the findings on stderr. Nothing here rewrites a file the agent
+#            edited, so this is the entry that runs in the background under
+#            asyncRewake, where the slow typecheckers cost the session nothing.
+#
+# Default is `check`: an engine that wires one entry gets the gate, not the
+# formatter.
+#
+# The two entries run concurrently, so `check` can read a file `write` is still
+# formatting. Nothing is lost, because `check` rewrites nothing — but a file
+# caught mid-rewrite can be reported as a syntax error that does not exist. The
+# next edit clears it, and the alternative (serialising the entries) is not
+# something a hook can ask the host for.
 
 set -euo pipefail
 
+mode=&quot;${POST_EDIT_MODE:-check}&quot;
+if [[ &quot;$mode&quot; != &quot;write&quot; &amp;&amp; &quot;$mode&quot; != &quot;check&quot; ]]; then
+  echo &quot;post-edit-check: POST_EDIT_MODE must be &#x27;write&#x27; or &#x27;check&#x27;, got &#x27;$mode&#x27;&quot; &gt;&amp;2
+  exit 1
+fi
+
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
-cfg_path=&quot;$repo/.agents/config.json&quot;
-cfg=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-pe = cfg.get(&quot;hooks&quot;, {}).get(&quot;post_edit_check&quot;, {})
-print(&quot;yes&quot; if pe.get(&quot;enabled&quot;, True) else &quot;no&quot;)
-print(&quot;yes&quot; if pe.get(&quot;tombstone_check&quot;, True) else &quot;no&quot;)
-print(&quot;yes&quot; if pe.get(&quot;nullsafety_check&quot;, True) else &quot;no&quot;)
-PY
-)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+cfg=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; \
+  hooks.post_edit_check.enabled=true \
+  hooks.post_edit_check.tombstone_check=true \
+  hooks.post_edit_check.nullsafety_check=true)&quot;
 enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;1p&#x27;)&quot;
 tombstone_check=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;2p&#x27;)&quot;
 nullsafety_check=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;3p&#x27;)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
+# The payload is read once and piped onward. A single edit can carry hundreds of
+# kilobytes, and an environment past ARG_MAX aborts the hook with E2BIG — which
+# turns the gate off on exactly the largest changes.
 input=&quot;$(cat)&quot;
 
-proj=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-print(d.get(&quot;project_dir&quot;, &quot;&quot;))
-PY
-)&quot;
+proj=&quot;$(printf &#x27;%s&#x27; &quot;$input&quot; | python3 &quot;$lib/payload.py&quot; project_dir)&quot;
 
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
 cd &quot;$proj&quot;
 proj=&quot;$(pwd -P)&quot;
 
 # One place decides what counts as a file this hook checks, so the groupers
-# below never re-answer the question and never disagree about it.
-#
-# Engines send different shapes: Claude Code absolute paths, the Codex adapter
-# paths relative to the project. Both become absolute here, or the walk upward
-# starts nowhere and every checker resolves from the root.
-#
-# In scope means inside the repository either literally or after following
-# symlinks — a workspace symlinked out of the tree is still this repository&#x27;s to
-# check. The literal form travels onward, so the walk stays within the names the
-# agent actually edited rather than jumping to wherever they happen to live.
-files=&quot;$(HOOK_INPUT=&quot;$input&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-proj = os.environ[&quot;PROJ&quot;]
-real_proj = os.path.realpath(proj)
-seen = set()
-for p in d.get(&quot;files&quot;) or []:
-    if not isinstance(p, str) or not p:
-        continue
-    ap = os.path.abspath(os.path.join(proj, p))
-    if not ap.startswith(proj + os.sep):
-        # $proj is physical (pwd -P) while an engine may send the path through a
-        # symlink — /tmp for /private/tmp is the everyday one. Re-express it
-        # under $proj rather than dropping it, so that every walk upward below
-        # has a terminator it will actually reach.
-        rp = os.path.realpath(ap)
-        if not rp.startswith(real_proj + os.sep):
-            continue                   # outside the repo: not ours to check
-        ap = proj + rp[len(real_proj):]
-    if ap not in seen:
-        seen.add(ap)
-        print(ap)
-PY
-)&quot;
+# below never re-answer the question and never disagree about it. The rule and
+# its reasoning are in ../lib/edited-files.py.
+files=&quot;$(printf &#x27;%s&#x27; &quot;$input&quot; | python3 &quot;$lib/edited-files.py&quot; &quot;$proj&quot;)&quot;
 
 [[ -z &quot;$files&quot; ]] &amp;&amp; exit 0
 
@@ -1459,15 +1384,22 @@ in_repo() {
 # never changes across. PY_TOOL_DIR is the working directory the tool must run
 # in — pyright reads its interpreter and config from there, so a batch spanning
 # two packages needs one run per environment.
-declare -A py_tool_cache=()
+#
+# The cache is one `&lt;key&gt;\t&lt;dir&gt;\t&lt;bin&gt;` row per resolved key in a plain string,
+# not an associative array: stock macOS ships bash 3.2, which has neither. A
+# miss is cached too, as an empty binary — the walk that produced it is the
+# expensive part. Every lookup is parameter expansion, so it costs no fork.
+py_tool_cache=&quot;&quot;
 resolve_py_tool() {
-  local name=&quot;$1&quot; dir=&quot;$2&quot; candidate key
+  local name=&quot;$1&quot; dir=&quot;$2&quot; candidate key rest row
   PY_TOOL_DIR=&quot;&quot;; PY_TOOL_BIN=&quot;&quot;
   key=&quot;$name:$dir&quot;
-  if [[ -n &quot;${py_tool_cache[$key]+set}&quot; ]]; then
-    [[ -z &quot;${py_tool_cache[$key]}&quot; ]] &amp;&amp; return 1
-    PY_TOOL_DIR=&quot;${py_tool_cache[$key]%%$&#x27;\t&#x27;*}&quot;
-    PY_TOOL_BIN=&quot;${py_tool_cache[$key]#*$&#x27;\t&#x27;}&quot;
+  rest=&quot;${py_tool_cache#*$&#x27;\n&#x27;&quot;$key&quot;$&#x27;\t&#x27;}&quot;
+  if [[ &quot;$rest&quot; != &quot;$py_tool_cache&quot; ]]; then
+    row=&quot;${rest%%$&#x27;\n&#x27;*}&quot;
+    PY_TOOL_DIR=&quot;${row%%$&#x27;\t&#x27;*}&quot;
+    PY_TOOL_BIN=&quot;${row#*$&#x27;\t&#x27;}&quot;
+    [[ -z &quot;$PY_TOOL_BIN&quot; ]] &amp;&amp; return 1
     return 0
   fi
   while :; do
@@ -1476,7 +1408,7 @@ resolve_py_tool() {
     for candidate in .venv/bin venv/bin node_modules/.bin; do
       if [[ -x &quot;$dir/$candidate/$name&quot; ]] &amp;&amp; in_repo &quot;$dir/$candidate/$name&quot;; then
         PY_TOOL_DIR=&quot;$dir&quot;; PY_TOOL_BIN=&quot;$dir/$candidate/$name&quot;
-        py_tool_cache[$key]=&quot;$PY_TOOL_DIR&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_BIN&quot;
+        py_tool_cache+=$&#x27;\n&#x27;&quot;$key&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_DIR&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_BIN&quot;
         return 0
       fi
     done
@@ -1494,19 +1426,32 @@ resolve_py_tool() {
   elif command -v &quot;$name&quot; &gt;/dev/null 2&gt;&amp;1; then
     PY_TOOL_DIR=&quot;$proj&quot;; PY_TOOL_BIN=&quot;$name&quot;
   else
-    py_tool_cache[$key]=&quot;&quot;
+    py_tool_cache+=$&#x27;\n&#x27;&quot;$key&quot;$&#x27;\t&#x27;$&#x27;\t&#x27;
     return 1
   fi
-  py_tool_cache[$key]=&quot;$PY_TOOL_DIR&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_BIN&quot;
+  py_tool_cache+=$&#x27;\n&#x27;&quot;$key&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_DIR&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_BIN&quot;
   return 0
 }
 
 issues=&quot;&quot;
 ts_edited=&quot;&quot;      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=&quot;&quot;   # all JS/TS — linted by eslint, formatted by prettier
-reformatted=&quot;&quot;    # files prettier rewrote beyond the agent&#x27;s own edit
+reformatted=&quot;&quot;    # files a fixer rewrote beyond the agent&#x27;s own edit
 py_edited=&quot;&quot;      # .py — type-checked by pyright (ruff runs inline below)
 skills_edited=&quot;&quot;  # skills/&lt;name&gt;/*.md — frontmatter and layout, per skill
+
+# Every fixer rewrites files, and the agent&#x27;s next Edit carries an old_string
+# that predates the rewrite. Checksum around the whole pass rather than asking
+# each tool what it changed: ruff, prettier and eslint report that differently
+# or not at all, and one measurement cannot disagree with itself.
+sums() {
+  local f
+  while IFS= read -r f; do
+    [[ -f &quot;$f&quot; ]] &amp;&amp; printf &#x27;%s\t%s\n&#x27; &quot;$(cksum &lt; &quot;$f&quot;)&quot; &quot;$f&quot;
+  done &lt;&lt;&lt; &quot;$1&quot;
+}
+before_sums=&quot;&quot;
+[[ &quot;$mode&quot; == &quot;write&quot; ]] &amp;&amp; before_sums=&quot;$(sums &quot;$files&quot;)&quot;
 
 while IFS= read -r f; do
   [[ -z &quot;$f&quot; || ! -f &quot;$f&quot; ]] &amp;&amp; continue
@@ -1517,7 +1462,8 @@ while IFS= read -r f; do
   # failure would be swallowed, and the gate would pass having checked nothing.
   # Refuse the file loudly instead; a silent skip is the bug being avoided.
   if [[ &quot;$f&quot; == *$&#x27;\t&#x27;* ]]; then
-    issues+=$&#x27;\n&#x27;&quot;[skipped] no checker can run on this path — a tab in a filename splits every per-workspace grouping below. Rename it: $rel&quot;$&#x27;\n&#x27;
+    [[ &quot;$mode&quot; == &quot;check&quot; ]] &amp;&amp;
+      issues+=$&#x27;\n&#x27;&quot;[skipped] no checker can run on this path — a tab in a filename splits every per-workspace grouping below. Rename it: $rel&quot;$&#x27;\n&#x27;
     continue
   fi
 
@@ -1525,9 +1471,10 @@ while IFS= read -r f; do
     *.py)
       if resolve_py_tool ruff &quot;${f%/*}&quot;; then
         ruff_bin=&quot;$PY_TOOL_BIN&quot;
-        &quot;$ruff_bin&quot; check --fix --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
-        &quot;$ruff_bin&quot; format --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
-        if ! check_out=&quot;$(&quot;$ruff_bin&quot; check --force-exclude --quiet --output-format=concise &quot;$f&quot; 2&gt;&amp;1)&quot;; then
+        if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
+          &quot;$ruff_bin&quot; check --fix --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
+          &quot;$ruff_bin&quot; format --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
+        elif ! check_out=&quot;$(&quot;$ruff_bin&quot; check --force-exclude --quiet --output-format=concise &quot;$f&quot; 2&gt;&amp;1)&quot;; then
           issues+=$&#x27;\n&#x27;&quot;[ruff] $rel&quot;$&#x27;\n&#x27;&quot;$check_out&quot;$&#x27;\n&#x27;
         fi
       fi
@@ -1553,7 +1500,7 @@ done &lt;&lt;&lt; &quot;$files&quot;
 # Unlike the external toolchain above, a missing linter is NOT skipped: it is
 # repo-internal, so its absence means the gate did not run, which is a
 # different thing from the gate passing.
-if [[ -n &quot;$skills_edited&quot; ]]; then
+if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$skills_edited&quot; ]]; then
   linter=&quot;$proj/.agents/lint-skills.sh&quot;
   if [[ ! -x &quot;$linter&quot; ]]; then
     issues+=$&#x27;\n&#x27;&quot;[lint-skills] cannot run: $linter is missing or not executable.&quot;$&#x27;\n&#x27;&quot;Skill format was not validated. Restore it (chmod +x) rather than proceeding.&quot;$&#x27;\n&#x27;
@@ -1566,105 +1513,8 @@ fi
 # ancestor holding a tsconfig.json (apps/*, packages/*), never a single hardcoded
 # one. One tsc run per distinct workspace, errors scoped to the edited files.
 # A workspace without a resolvable tsc is skipped silently.
-if [[ -n &quot;$ts_edited&quot; ]]; then
-  workspaces=&quot;$(TS_FILES=&quot;$ts_edited&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os, re
-
-proj = os.path.realpath(os.environ[&quot;PROJ&quot;])
-
-
-def read_config(path):
-    &quot;&quot;&quot;tsconfig permits comments and trailing commas; json does not.&quot;&quot;&quot;
-    try:
-        with open(path, encoding=&quot;utf-8&quot;) as handle:
-            raw = handle.read()
-    except OSError:
-        return {}
-    raw = re.sub(r&quot;/\*.*?\*/&quot;, &quot;&quot;, raw, flags=re.S)
-    raw = re.sub(r&quot;(^|\s)//[^\n]*&quot;, r&quot;\1&quot;, raw)
-    raw = re.sub(r&quot;,(\s*[}\]])&quot;, r&quot;\1&quot;, raw)
-    try:
-        value = json.loads(raw)
-    except ValueError:
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def literal_prefix(pattern):
-    &quot;&quot;&quot;The leading path of an include pattern, up to its first wildcard.&quot;&quot;&quot;
-    return re.split(r&quot;[*?]&quot;, pattern, maxsplit=1)[0].rstrip(&quot;/&quot;)
-
-
-def covers(config_dir, config, target_file):
-    &quot;&quot;&quot;Length of the longest include prefix that claims the file, else None.&quot;&quot;&quot;
-    rel = os.path.relpath(target_file, config_dir)
-    if rel.startswith(os.pardir):
-        return None
-    for entry in config.get(&quot;files&quot;) or []:
-        if os.path.normpath(entry) == os.path.normpath(rel):
-            return len(rel)
-    for pattern in config.get(&quot;exclude&quot;) or []:
-        prefix = literal_prefix(pattern)
-        if prefix and (rel == prefix or rel.startswith(prefix + os.sep)):
-            return None
-    best = None
-    for pattern in config.get(&quot;include&quot;) or [&quot;**/*&quot;]:
-        prefix = literal_prefix(pattern)
-        if not prefix or rel == prefix or rel.startswith(prefix + os.sep):
-            best = max(best or 0, len(prefix))
-    return best
-
-
-def project_for(workspace, target_file):
-    &quot;&quot;&quot;Pick the tsconfig that actually typechecks this file.
-
-    A Vite or React workspace usually keeps `tsconfig.json` as a solution file
-    -- `{&quot;files&quot;: [], &quot;references&quot;: [...]}`. tsc run against it reads no source,
-    so the gate would report success having checked nothing. Where the nearest
-    config declares no inputs of its own, follow its references and take the
-    project whose include prefix claims the file most specifically.
-    &quot;&quot;&quot;
-    config_path = os.path.join(workspace, &quot;tsconfig.json&quot;)
-    config = read_config(config_path)
-    references = config.get(&quot;references&quot;) or []
-    if not references:
-        return &quot;tsconfig.json&quot;
-    if (config.get(&quot;files&quot;) or config.get(&quot;include&quot;)) and \
-            covers(workspace, config, target_file) is not None:
-        return &quot;tsconfig.json&quot;
-    best, best_score = None, -1
-    for reference in references:
-        path = reference.get(&quot;path&quot;) if isinstance(reference, dict) else None
-        if not isinstance(path, str):
-            continue
-        candidate = os.path.normpath(os.path.join(workspace, path))
-        if os.path.isdir(candidate):
-            candidate = os.path.join(candidate, &quot;tsconfig.json&quot;)
-        if not os.path.isfile(candidate):
-            continue
-        score = covers(os.path.dirname(candidate), read_config(candidate), target_file)
-        if score is not None and score &gt; best_score:
-            best, best_score = os.path.relpath(candidate, workspace), score
-    return best or &quot;tsconfig.json&quot;
-
-
-groups = {}
-for ap in os.environ[&quot;TS_FILES&quot;].splitlines():
-    if not ap:
-        continue                       # already absolute and already in scope
-    d = os.path.dirname(ap)
-    while True:
-        if os.path.isfile(os.path.join(d, &quot;tsconfig.json&quot;)):
-            groups.setdefault((d, project_for(d, ap)), []).append(os.path.relpath(ap, d))
-            break
-        if d == proj or d == os.path.dirname(d):
-            break                      # no tsconfig anywhere above: skip
-        d = os.path.dirname(d)
-
-for (ws, config), rels in groups.items():
-    print(&quot;\t&quot;.join([ws, config] + rels))
-PY
-)&quot;
+if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$ts_edited&quot; ]]; then
+  workspaces=&quot;$(printf &#x27;%s&#x27; &quot;$ts_edited&quot; | python3 &quot;$lib/ts-workspaces.py&quot; &quot;$proj&quot;)&quot;
 
   while IFS= read -r line; do
     [[ -z &quot;$line&quot; ]] &amp;&amp; continue
@@ -1681,18 +1531,22 @@ PY
       continue                         # no typechecker installed: silent skip
     fi
 
-    tsc_raw=&quot;$(cd &quot;$ws&quot; &amp;&amp; &quot;$tsc_bin&quot; --noEmit -p &quot;$ws_config&quot; --incremental --tsBuildInfoFile .tsbuildinfo-claude 2&gt;&amp;1 || true)&quot;
+    # No --incremental: two background checks from consecutive edits would
+    # write one build-info file concurrently, and a torn one makes the next run
+    # report errors that are not there. This entry is off the critical path, so
+    # a cold typecheck costs the session nothing.
+    tsc_raw=&quot;$(cd &quot;$ws&quot; &amp;&amp; &quot;$tsc_bin&quot; --noEmit -p &quot;$ws_config&quot; 2&gt;&amp;1 || true)&quot;
     [[ -z &quot;$tsc_raw&quot; ]] &amp;&amp; continue
 
-    scoped=&quot;$(HOOK_INPUT=&quot;$tsc_raw&quot; TS_RELS=&quot;$ws_rels&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import os
-raw = os.environ[&quot;HOOK_INPUT&quot;]
-rels = [r for r in os.environ[&quot;TS_RELS&quot;].split(&quot;\t&quot;) if r]
-# tsc reports paths relative to the tsconfig dir, which is also its cwd here.
-keep = [line for line in raw.splitlines() if any(r in line for r in rels)]
-print(&quot;\n&quot;.join(keep))
-PY
-)&quot;
+    # tsc reports paths relative to the tsconfig dir, which is also its cwd here.
+    ts_patterns=()
+    IFS=$&#x27;\t&#x27; read -r -a ts_rel_list &lt;&lt;&lt; &quot;$ws_rels&quot;
+    for ts_rel in &quot;${ts_rel_list[@]}&quot;; do
+      [[ -n &quot;$ts_rel&quot; ]] &amp;&amp; ts_patterns+=(-e &quot;$ts_rel&quot;)
+    done
+    scoped=&quot;&quot;
+    [[ ${#ts_patterns[@]} -gt 0 ]] &amp;&amp;
+      scoped=&quot;$(printf &#x27;%s\n&#x27; &quot;$tsc_raw&quot; | grep -F &quot;${ts_patterns[@]}&quot; || true)&quot;
 
     if [[ -n &quot;$scoped&quot; ]]; then
       ws_label=&quot;${ws#$proj/}/$ws_config&quot;
@@ -1701,11 +1555,12 @@ PY
   done &lt;&lt;&lt; &quot;$workspaces&quot;
 fi
 
-# Prettier + ESLint: the JS/TS analogue of the ruff pass above. Prettier --write
-# formats (like ruff format — deterministic, safe to apply). ESLint is
-# report-only: unlike ruff, its --fix reaches past formatting (import pruning,
-# let-&gt;const, plugin rewrites) and could rewrite the file under the agent
-# mid-edit, so we surface errors and let the agent fix them. Config resolution is
+# Prettier + ESLint: the JS/TS analogue of the ruff pass above. Both fix in
+# `write` mode and both report in `check` mode, which is the same rule ruff
+# follows — one policy for every tool, so no reader has to remember which of
+# them rewrites files. eslint --fix reaches past formatting (import pruning,
+# let-&gt;const, plugin rewrites), which is precisely why it belongs in the
+# synchronous entry rather than the background one. Config resolution is
 # eslint/prettier&#x27;s own job; this only has to find a binary that can run.
 if [[ -n &quot;$js_ts_edited&quot; ]]; then
   # bun and npm both install a workspace&#x27;s own devDependencies inside that
@@ -1715,95 +1570,54 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
   # node_modules/.bin holding the tool, and run one pass per binary; a file
   # with no binary above it is skipped, as before.
   js_groups() {
-    JS_FILES=&quot;$js_ts_edited&quot; PROJ=&quot;$proj&quot; TOOL=&quot;$1&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import os
-proj, tool = os.environ[&quot;PROJ&quot;], os.environ[&quot;TOOL&quot;]
-real_proj = os.path.realpath(proj)
-groups = {}
-for ap in os.environ[&quot;JS_FILES&quot;].splitlines():
-    if not ap:
-        continue                       # already absolute and already in scope
-    d = os.path.dirname(ap)
-    while True:
-        candidate = os.path.join(d, &quot;node_modules&quot;, &quot;.bin&quot;, tool)
-        # Same rule the shell&#x27;s in_repo applies: judge the directory holding the
-        # binary, never the binary&#x27;s own link target. A .bin entry is a symlink
-        # by construction and pnpm&#x27;s can point into a store outside the project,
-        # so following it would disarm the gate for every pnpm repository. What
-        # must stay inside the repository is the directory, because that is what
-        # a symlinked workspace can move. Keep climbing when it does not.
-        holder = os.path.realpath(os.path.dirname(candidate))
-        if os.access(candidate, os.X_OK) and (holder == real_proj or holder.startswith(real_proj + os.sep)):
-            groups.setdefault(candidate, []).append(ap)
-            break
-        if d == proj or d == os.path.dirname(d):
-            break                      # no install anywhere above: skip
-        d = os.path.dirname(d)
-for binary, files in groups.items():
-    print(&quot;\t&quot;.join([binary] + files))
-PY
+    printf &#x27;%s&#x27; &quot;$js_ts_edited&quot; | python3 &quot;$lib/js-groups.py&quot; &quot;$proj&quot; &quot;$1&quot;
   }
 
-  # A file that was already clean reformats to itself. A file that was not gets
-  # rewritten whole, and that diff can dwarf the edit the agent actually made —
-  # so record which files moved and say so, rather than changing them in silence.
-  while IFS= read -r line; do
-    [[ -z &quot;$line&quot; ]] &amp;&amp; continue
-    prettier_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
-    IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
-    # Stay in $proj. Prettier finds its config from each file&#x27;s own path, so the
-    # workspace&#x27;s .prettierrc applies either way — and --list-different prints
-    # relative to the working directory, so running elsewhere would label
-    # apps/web/src/a.js and apps/api/src/a.js both as src/a.js.
-    pre_dirty=&quot;$(&quot;$prettier_bin&quot; --list-different &quot;${jsfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
-    &quot;$prettier_bin&quot; --write --log-level silent &quot;${jsfiles[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
-    [[ -n &quot;$pre_dirty&quot; ]] &amp;&amp; reformatted+=&quot;$pre_dirty&quot;$&#x27;\n&#x27;
-  done &lt;&lt;&lt; &quot;$(js_groups prettier)&quot;
-  reformatted=&quot;${reformatted%$&#x27;\n&#x27;}&quot;
+  if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
+    while IFS= read -r line; do
+      [[ -z &quot;$line&quot; ]] &amp;&amp; continue
+      prettier_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
+      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
+      # Stay in $proj: prettier finds its config from each file&#x27;s own path, so
+      # the workspace&#x27;s .prettierrc applies either way.
+      &quot;$prettier_bin&quot; --write --log-level silent &quot;${jsfiles[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
+    done &lt;&lt;&lt; &quot;$(js_groups prettier)&quot;
 
-  # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for it
-  # exits 2 with an empty stdout — indistinguishable from &quot;no errors found&quot; to a
-  # reader that only greps stdout. json is core and stable across both majors.
-  while IFS= read -r line; do
-    [[ -z &quot;$line&quot; ]] &amp;&amp; continue
-    eslint_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
-    IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
-    # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
-    # resolve a config, which a stdout-only reader cannot tell apart from a
-    # clean run — the same trap the --format note above describes, one level up.
-    eslint_rc=0
-    eslint_raw=&quot;$(cd &quot;${eslint_bin%/node_modules/.bin/*}&quot; &amp;&amp; &quot;$eslint_bin&quot; --format json &quot;${jsfiles[@]}&quot; 2&gt;/dev/null)&quot; || eslint_rc=$?
-    if [[ &quot;$eslint_rc&quot; -ne 0 &amp;&amp; -z &quot;$eslint_raw&quot; ]]; then
-      issues+=$&#x27;\n&#x27;&quot;[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted.&quot;$&#x27;\n&#x27;
-      continue
-    fi
-    eslint_errs=&quot;$(HOOK_INPUT=&quot;$eslint_raw&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;EPY&#x27; || true
-import json, os
-try:
-    results = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;[]&quot;)
-except Exception:
-    raise SystemExit(0)
-proj = os.environ[&quot;PROJ&quot;]
-for r in results:
-    f = r.get(&quot;filePath&quot;, &quot;&quot;)
-    if f.startswith(proj + os.sep):
-        f = f[len(proj) + 1:]
-    for m in r.get(&quot;messages&quot;, []):
-        if m.get(&quot;severity&quot;) != 2:
-            continue
-        rule = m.get(&quot;ruleId&quot;) or &quot;parse-error&quot;
-        print(f&quot;{f}:{m.get(&#x27;line&#x27;, 0)}:{m.get(&#x27;column&#x27;, 0)}: {m.get(&#x27;message&#x27;, &#x27;&#x27;)} [{rule}]&quot;)
-EPY
-)&quot;
-    if [[ -n &quot;$eslint_errs&quot; ]]; then
-      issues+=$&#x27;\n&#x27;&quot;[eslint] (scoped to edited files; errors only)&quot;$&#x27;\n&#x27;&quot;$eslint_errs&quot;$&#x27;\n&#x27;
-    fi
-  done &lt;&lt;&lt; &quot;$(js_groups eslint)&quot;
+    while IFS= read -r line; do
+      [[ -z &quot;$line&quot; ]] &amp;&amp; continue
+      eslint_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
+      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
+      (cd &quot;${eslint_bin%/node_modules/.bin/*}&quot; &amp;&amp; &quot;$eslint_bin&quot; --fix &quot;${jsfiles[@]}&quot;) &gt;/dev/null 2&gt;&amp;1 || true
+    done &lt;&lt;&lt; &quot;$(js_groups eslint)&quot;
+  else
+    # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for
+    # it exits 2 with an empty stdout — indistinguishable from &quot;no errors found&quot;
+    # to a reader that only greps stdout. json is core and stable across both
+    # majors.
+    while IFS= read -r line; do
+      [[ -z &quot;$line&quot; ]] &amp;&amp; continue
+      eslint_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
+      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
+      # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
+      # resolve a config, which a stdout-only reader cannot tell apart from a
+      # clean run — the same trap the --format note above describes, one level up.
+      eslint_rc=0
+      eslint_raw=&quot;$(cd &quot;${eslint_bin%/node_modules/.bin/*}&quot; &amp;&amp; &quot;$eslint_bin&quot; --format json &quot;${jsfiles[@]}&quot; 2&gt;/dev/null)&quot; || eslint_rc=$?
+      if [[ &quot;$eslint_rc&quot; -ne 0 &amp;&amp; -z &quot;$eslint_raw&quot; ]]; then
+        issues+=$&#x27;\n&#x27;&quot;[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted.&quot;$&#x27;\n&#x27;
+        continue
+      fi
+      eslint_errs=&quot;$(printf &#x27;%s&#x27; &quot;$eslint_raw&quot; | python3 &quot;$lib/tool-errors.py&quot; eslint &quot;$proj&quot; || true)&quot;
+      if [[ -n &quot;$eslint_errs&quot; ]]; then
+        issues+=$&#x27;\n&#x27;&quot;[eslint] (scoped to edited files; errors only)&quot;$&#x27;\n&#x27;&quot;$eslint_errs&quot;$&#x27;\n&#x27;
+      fi
+    done &lt;&lt;&lt; &quot;$(js_groups eslint)&quot;
+  fi
 fi
 
 # Python type gate: ruff is lint/format only — it does no type inference, so
 # None-flow, wrong-arg-type, and missing-return bugs pass it. Pyright fills that.
-if [[ -n &quot;$py_edited&quot; ]]; then
+if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot; ]]; then
   # pyright takes its interpreter from the environment it runs in, so one binary
   # cannot serve a batch that spans two packages: run it against the wrong
   # virtualenv and every third-party import is reportMissingImports at error
@@ -1843,27 +1657,22 @@ if [[ -n &quot;$py_edited&quot; ]]; then
       pyright_raw=&quot;$(cd &quot;$py_ws&quot; &amp;&amp; &quot;$pyright_bin&quot; --outputjson &quot;${pyfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
     fi
     if [[ -n &quot;$pyright_raw&quot; ]]; then
-      scoped=&quot;$(HOOK_INPUT=&quot;$pyright_raw&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-try:
-    d = json.loads(os.environ[&quot;HOOK_INPUT&quot;])
-except Exception:
-    raise SystemExit(0)
-proj = os.environ[&quot;PROJ&quot;]
-for diag in d.get(&quot;generalDiagnostics&quot;, []):
-    if diag.get(&quot;severity&quot;) != &quot;error&quot;:
-        continue
-    f = diag.get(&quot;file&quot;, &quot;&quot;)
-    if f.startswith(proj + os.sep):
-        f = f[len(proj) + 1:]
-    line = diag.get(&quot;range&quot;, {}).get(&quot;start&quot;, {}).get(&quot;line&quot;, 0) + 1
-    msg = (diag.get(&quot;message&quot;, &quot;&quot;) or &quot;&quot;).splitlines()[0]
-    print(f&quot;{f}:{line}: {msg}&quot;)
-PY
-)&quot;
+      scoped=&quot;$(printf &#x27;%s&#x27; &quot;$pyright_raw&quot; | python3 &quot;$lib/tool-errors.py&quot; pyright &quot;$proj&quot;)&quot;
       [[ -n &quot;$scoped&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;[pyright] (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
     fi
   done &lt;&lt;&lt; &quot;$(printf &#x27;%s&#x27; &quot;$py_pairs&quot; | cut -f1,2 | sort -u)&quot;
+fi
+
+if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
+  after_sums=&quot;$(sums &quot;$files&quot;)&quot;
+  while IFS= read -r line; do
+    [[ -z &quot;$line&quot; ]] &amp;&amp; continue
+    case $&#x27;\n&#x27;&quot;$before_sums&quot;$&#x27;\n&#x27; in
+      *$&#x27;\n&#x27;&quot;$line&quot;$&#x27;\n&#x27;*) ;;                       # unchanged
+      *) reformatted+=&quot;${line#*$&#x27;\t&#x27;}&quot;$&#x27;\n&#x27; ;;
+    esac
+  done &lt;&lt;&lt; &quot;$after_sums&quot;
+  reformatted=&quot;${reformatted%$&#x27;\n&#x27;}&quot;
 fi
 
 # Tombstones: diary/changelog narration added in this edit. Advisory only —
@@ -1871,96 +1680,8 @@ fi
 # additions vs HEAD (no mid-session commits, by policy) so pre-existing history
 # comments aren&#x27;t re-flagged.
 tombstones=&quot;&quot;
-if [[ &quot;$tombstone_check&quot; == &quot;yes&quot; ]]; then
-  tombstones=&quot;$(FILES=&quot;$files&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27; || true
-import os, re, subprocess
-
-proj = os.environ[&quot;PROJ&quot;]
-files = [f for f in os.environ[&quot;FILES&quot;].splitlines() if f.strip()]
-
-# High-precision: phrasings that narrate a change rather than describe present
-# behavior. Kept tight on purpose — a false miss beats nagging on legit prose.
-PHRASES = re.compile(r&#x27;&#x27;&#x27;(?ix)
-    \b(
-      previously | formerly | no\s+longer |
-      used\s+to(\s+be)? |
-      was\s+(previously\s+|formerly\s+)?(refactored|renamed|removed|replaced|changed|moved|deprecated) |
-      refactored\s+(this|the|from|to|out|into) |
-      changed\s+(this|the|it|these)?\s*from |
-      renamed\s+(this|the|it|from) |
-      moved\s+(this|the|it)\s+(from|to|out) |
-      replaced\s+(the\s+)?old |
-      instead\s+of\s+the\s+old |
-      prior\s+to\s+this\s+(change|refactor) |
-      as\s+part\s+of\s+(the\s+)?refactor |
-      legacy\s+(behaviou?r|version|impl|code|path)
-    )\b
-    | \bTODO\b[^\n]*\b(19|20)\d\d\b
-&#x27;&#x27;&#x27;)
-
-# Only flag lines that read as comments (any line, in prose docs).
-CODE_COMMENT = re.compile(r&#x27;(^\s*(//|\#|\*|/\*|&lt;!--|--|;))|(//|/\*|&lt;!--|\#\s)&#x27;)
-DOC_EXT = (&quot;.md&quot;, &quot;.mdx&quot;, &quot;.markdown&quot;, &quot;.rst&quot;, &quot;.txt&quot;)
-
-# Files whose whole job is to narrate history — exempt, or they nag on every edit.
-SKIP_NAMES = re.compile(r&#x27;^(CHANGELOG|CHANGES|HISTORY|RELEASES?|NEWS|MIGRATION|UPGRADING)(\.|$)&#x27;, re.I)
-
-# The knowledge store holds dated observations of things outside this
-# repository. An entry reporting that a claim &quot;no longer&quot; holds describes a
-# source that moved, not a change to this code, so the rule does not reach it.
-SKIP_PATHS = re.compile(r&#x27;(^|/)\.agents/knowledge/&#x27;)
-
-# A banned phrase inside double-quotes/backticks is a citation (defining or
-# discussing the word), not narration — strip those spans before matching so this
-# rule and its own docs don&#x27;t trip it, while bare `// previously returned X`
-# still does. Apostrophes (it&#x27;s, user&#x27;s) are NOT treated as delimiters: prose
-# apostrophes far outnumber single-quoted comment strings, and a `&#x27;...&#x27;` pair
-# straddling a banned phrase would silently hide a real tombstone.
-QUOTED = re.compile(r&#x27;&quot;[^&quot;]*&quot;|`[^`]*`&#x27;)
-
-def rel_of(f):
-    return f[len(proj) + 1:] if f.startswith(proj + &quot;/&quot;) else f
-
-def added_lines(f):
-    rel = rel_of(f)
-    try:
-        d = subprocess.run([&quot;git&quot;, &quot;-C&quot;, proj, &quot;diff&quot;, &quot;HEAD&quot;, &quot;-U0&quot;, &quot;--&quot;, rel],
-                           capture_output=True, text=True, timeout=10)
-        if d.returncode == 0 and d.stdout.strip():
-            return [ln[1:] for ln in d.stdout.splitlines()
-                    if ln.startswith(&quot;+&quot;) and not ln.startswith(&quot;+++&quot;)]
-        if d.returncode == 0:
-            tracked = subprocess.run(
-                [&quot;git&quot;, &quot;-C&quot;, proj, &quot;ls-files&quot;, &quot;--error-unmatch&quot;, &quot;--&quot;, rel],
-                capture_output=True, text=True, timeout=10)
-            if tracked.returncode != 0:  # untracked new file: scan it whole
-                with open(f, encoding=&quot;utf-8&quot;, errors=&quot;replace&quot;) as fh:
-                    return fh.read().splitlines()
-    except Exception:
-        pass
-    return []
-
-hits, seen = [], set()
-for f in files:
-    if not os.path.isfile(f) or SKIP_NAMES.match(os.path.basename(f)):
-        continue
-    if SKIP_PATHS.search(rel_of(f)):
-        continue
-    is_doc = f.lower().endswith(DOC_EXT)
-    for ln in added_lines(f):
-        if not (is_doc or CODE_COMMENT.search(ln)):
-            continue
-        if not PHRASES.search(QUOTED.sub(&quot; &quot;, ln)):
-            continue
-        entry = f&quot;{rel_of(f)}: {ln.strip()[:120]}&quot;
-        if entry not in seen:
-            seen.add(entry)
-            hits.append(entry)
-
-for h in hits[:12]:
-    print(h)
-PY
-)&quot;
+if [[ &quot;$mode&quot; == &quot;write&quot; &amp;&amp; &quot;$tombstone_check&quot; == &quot;yes&quot; ]]; then
+  tombstones=&quot;$(printf &#x27;%s&#x27; &quot;$files&quot; | python3 &quot;$lib/added-scan.py&quot; tombstones &quot;$proj&quot; || true)&quot;
 fi
 
 # Null-safety: high-signal patterns tsc is blind to by construction — a cast
@@ -1968,119 +1689,59 @@ fi
 # the lines this edit added (like tombstones), so legit pre-existing casts don&#x27;t
 # nag. Deliberately narrow: false misses beat crying wolf on every `!`.
 nullsafety=&quot;&quot;
-if [[ &quot;$nullsafety_check&quot; == &quot;yes&quot; &amp;&amp; -n &quot;$js_ts_edited&quot; ]]; then
-  nullsafety=&quot;$(FILES=&quot;$js_ts_edited&quot; PROJ=&quot;$proj&quot; python3 &lt;&lt;&#x27;PY&#x27; || true
-import os, re, subprocess
-
-proj = os.environ[&quot;PROJ&quot;]
-files = [f for f in os.environ[&quot;FILES&quot;].splitlines() if f.strip()]
-
-PATS = [
-    (re.compile(r&#x27;\bas\s+(any|unknown)\b&#x27;),
-     &quot;cast to any/unknown launders the type — tsc can&#x27;t see past it&quot;),
-    (re.compile(r&#x27;[\w\)\]]\!(?=[.\[(])&#x27;),
-     &quot;non-null `!` assertion proves nothing at runtime — guard instead&quot;),
-    (re.compile(r&#x27;\b(JSON\.parse|await\s+[\w.]+\.json)\s*\(&#x27;),
-     &quot;parsed data is `any` — validate its shape before use&quot;),
-]
-
-# Strip quoted spans (double, single, backtick) before matching so a string
-# literal that merely mentions &quot;as any&quot; or &quot;JSON.parse(...)&quot; isn&#x27;t flagged as
-# real code — prettier may have rewritten &quot;…&quot; to &#x27;…&#x27;, so single quotes count too.
-# Safe here because comment-leading lines are already skipped above.
-QUOTED = re.compile(r&#x27;&quot;[^&quot;]*&quot;|`[^`]*`&#x27; + r&quot;|&#x27;[^&#x27;]*&#x27;&quot;)
-
-def rel_of(f):
-    return f[len(proj) + 1:] if f.startswith(proj + &quot;/&quot;) else f
-
-def added_lines(f):
-    rel = rel_of(f)
-    try:
-        d = subprocess.run([&quot;git&quot;, &quot;-C&quot;, proj, &quot;diff&quot;, &quot;HEAD&quot;, &quot;-U0&quot;, &quot;--&quot;, rel],
-                           capture_output=True, text=True, timeout=10)
-        if d.returncode == 0 and d.stdout.strip():
-            return [ln[1:] for ln in d.stdout.splitlines()
-                    if ln.startswith(&quot;+&quot;) and not ln.startswith(&quot;+++&quot;)]
-        if d.returncode == 0:
-            tracked = subprocess.run(
-                [&quot;git&quot;, &quot;-C&quot;, proj, &quot;ls-files&quot;, &quot;--error-unmatch&quot;, &quot;--&quot;, rel],
-                capture_output=True, text=True, timeout=10)
-            if tracked.returncode != 0:
-                with open(f, encoding=&quot;utf-8&quot;, errors=&quot;replace&quot;) as fh:
-                    return fh.read().splitlines()
-    except Exception:
-        pass
-    return []
-
-hits, seen = [], set()
-for f in files:
-    if not os.path.isfile(f):
-        continue
-    rel = rel_of(f)
-    for ln in added_lines(f):
-        s = ln.strip()
-        if s.startswith((&quot;//&quot;, &quot;*&quot;, &quot;/*&quot;)):
-            continue
-        probe = QUOTED.sub(&quot; &quot;, ln)
-        for pat, msg in PATS:
-            if pat.search(probe):
-                key = f&quot;{rel}: {msg}&quot;
-                if key not in seen:
-                    seen.add(key)
-                    hits.append((key, s[:100]))
-                break
-
-for key, src in hits[:10]:
-    print(f&quot;{key}\n    {src}&quot;)
-PY
-)&quot;
+if [[ &quot;$mode&quot; == &quot;write&quot; &amp;&amp; &quot;$nullsafety_check&quot; == &quot;yes&quot; &amp;&amp; -n &quot;$js_ts_edited&quot; ]]; then
+  nullsafety=&quot;$(printf &#x27;%s&#x27; &quot;$js_ts_edited&quot; | python3 &quot;$lib/added-scan.py&quot; nullsafety &quot;$proj&quot; || true)&quot;
 fi
 
-if [[ -n &quot;$issues&quot; ]]; then
+if [[ &quot;$mode&quot; == &quot;check&quot; ]]; then
+  [[ -z &quot;$issues&quot; ]] &amp;&amp; exit 0
   cat &gt;&amp;2 &lt;&lt;EOF
 Post-edit checks found issues — fix them before moving on. These are
 scoped to the files you just edited; pre-existing issues elsewhere are
 suppressed.
 $issues
 EOF
+  exit 2
 fi
 
-if [[ -n &quot;$tombstones&quot; ]]; then
-  cat &gt;&amp;2 &lt;&lt;EOF
+# write mode from here. Advisories never block: they leave through
+# additionalContext at exit 0, so the exit-2 channel carries type and lint
+# failures alone and keeps meaning what it says.
+advisories=&quot;&quot;
 
-Advisory (not a correctness gate) — possible tombstone comment(s) in your
-additions. Comments and docs describe the code as it is now, not its history;
-the diff already records the change. Move any standing rationale to
-.agents/debt-log.md and reference it inline as \`debt: &lt;id&gt;\`, then delete the
-narration. If a flagged line is legitimate present-tense prose, leave it and
-continue — this does not block.
+if [[ -n &quot;$tombstones&quot; ]]; then
+  advisories+=&quot;Advisory — possible tombstone comment(s) in your additions. Comments and docs
+describe the code as it is now, not its history; the diff already records the
+change. Move any standing rationale to .agents/debt-log.md and reference it
+inline as \`debt: &lt;id&gt;\`, then delete the narration. If a flagged line is
+legitimate present-tense prose, leave it and continue.
 $tombstones
-EOF
+&quot;
 fi
 
 if [[ -n &quot;$nullsafety&quot; ]]; then
-  cat &gt;&amp;2 &lt;&lt;EOF
-
-Advisory (not a correctness gate) — possible null-safety gaps in your additions.
-tsc is blind to these (a cast silences it; parsed JSON is \`any\`). Prefer
-validating the shape or narrowing the type over asserting it. If a flagged line
-is a deliberate, proven-safe assertion, leave it and continue — this does not block.
+  advisories+=&quot;
+Advisory — possible null-safety gaps in your additions. tsc is blind to these (a
+cast silences it; parsed JSON is \`any\`). Prefer validating the shape or
+narrowing the type over asserting it. If a flagged line is a deliberate,
+proven-safe assertion, leave it and continue.
 $nullsafety
-EOF
+&quot;
 fi
 
 if [[ -n &quot;$reformatted&quot; ]]; then
-  cat &gt;&amp;2 &lt;&lt;EOF
-
-Advisory (not a correctness gate) — prettier reformatted these files, which were
-not formatted before your edit. Their diff now contains changes you did not
-make. Check the diff before you describe it, and say so if the reformatting is
-larger than your own change.
+  advisories+=&quot;
+Advisory — a formatter rewrote these files after your edit (ruff, prettier or
+eslint --fix). Their contents no longer match what you wrote, so an Edit whose
+old_string predates this will fail. Re-read the file before your next edit,
+check the diff before you describe it, and say so if the reformatting is larger
+than your own change.
 $reformatted
-EOF
+&quot;
 fi
 
-[[ -n &quot;$issues&quot; || -n &quot;$tombstones&quot; || -n &quot;$nullsafety&quot; || -n &quot;$reformatted&quot; ]] &amp;&amp; exit 2
+[[ -z &quot;$advisories&quot; ]] &amp;&amp; exit 0
+printf &#x27;%s&#x27; &quot;$advisories&quot; | python3 &quot;$lib/emit-context.py&quot; PostToolUse
 exit 0
 </code></pre></details>
             </article>
@@ -2088,7 +1749,7 @@ exit 0
               <div class="top"><span class="id">sources-capture</span><span class="badge trail">trail</span></div>
               <p class="what">Logs every web search, fetch, or browse — the main agent's and any researcher cell's — as one row in the sources evidence ledger.</p>
               <div class="io"><b>in</b> {kind, value} &nbsp;→&nbsp; <b>out</b> ledger row &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 54 lines</span></summary><div class="srcpath">.agents/hooks/policy/sources-capture.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 19 lines</span></summary><div class="srcpath">.agents/hooks/policy/sources-capture.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: log every web lookup to the sources evidence trail.
 #
 # A PostToolUse capture hook — it observes search/fetch/browse calls (the main
@@ -2101,46 +1762,11 @@ exit 0
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
-cfg_path=&quot;$repo/.agents/config.json&quot;
-enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;sources_capture&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
-PY
-)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.sources_capture.enabled=true)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-HOOK_INPUT=&quot;$(cat)&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os, time
-
-try:
-    d = json.loads(os.environ.get(&quot;HOOK_INPUT&quot;) or &quot;{}&quot;)
-except Exception:
-    raise SystemExit(0)                      # unreadable payload -&gt; nothing to log
-
-def s(x, default=&quot;&quot;):                        # coerce: a non-string field is not a crash
-    return x if isinstance(x, str) else default
-
-value = s(d.get(&quot;value&quot;)).strip()
-if not value:
-    raise SystemExit(0)                      # no source to record
-
-proj = s(d.get(&quot;project_dir&quot;)) or os.environ.get(&quot;CLAUDE_PROJECT_DIR&quot;) or &quot;.&quot;
-ledger = os.path.join(proj, &quot;.agents&quot;, &quot;.sources-ledger&quot;)
-agent = s(d.get(&quot;agent&quot;), &quot;main&quot;).strip() or &quot;main&quot;
-kind = s(d.get(&quot;kind&quot;), &quot;fetch&quot;).strip() or &quot;fetch&quot;
-value = value.replace(&quot;\t&quot;, &quot; &quot;).replace(&quot;\n&quot;, &quot; &quot;)[:500]   # one clean row
-ts = time.strftime(&quot;%Y-%m-%dT%H:%M:%SZ&quot;, time.gmtime())
-
-try:
-    with open(ledger, &quot;a&quot;, encoding=&quot;utf-8&quot;) as f:
-        f.write(&quot;%s\t%s\t%s\t%s\n&quot; % (ts, agent, kind, value))
-except OSError:
-    pass                                     # a trail that can&#x27;t be written is not fatal
-PY
+python3 &quot;$lib/sources-ledger.py&quot;
 exit 0
 </code></pre></details>
             </article>
@@ -2154,7 +1780,7 @@ exit 0
               <div class="top"><span class="id">stop-investigate</span><span class="badge gate">gate</span></div>
               <p class="what">Blocks the hand-back when the last message hedges ("I can't"), declares work out of scope, or disclaims ownership of code it touched.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 222 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 148 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: block end-of-turn when the last assistant
 # message hedges, declares the task out of scope, or disclaims ownership
 # of code it touched.
@@ -2174,73 +1800,24 @@ exit 0
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
 cfg_path=&quot;$repo/.agents/config.json&quot;
-toggles=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-h = cfg.get(&quot;hooks&quot;, {}).get(&quot;stop_investigate&quot;, {})
-print(&quot;yes&quot; if h.get(&quot;enabled&quot;, True) else &quot;no&quot;)
-print(&quot;yes&quot; if h.get(&quot;ratchet_check&quot;, True) else &quot;no&quot;)
-PY
-)&quot;
+toggles=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; \
+  hooks.stop_investigate.enabled=true hooks.stop_investigate.ratchet_check=true)&quot;
 enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$toggles&quot; | sed -n &#x27;1p&#x27;)&quot;
 ratchet=&quot;$(printf &#x27;%s\n&#x27; &quot;$toggles&quot; | sed -n &#x27;2p&#x27;)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-input=&quot;$(cat)&quot;
+# One interpreter for all three fields. The message goes last because it is the
+# one field that may span lines.
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; stop_hook_active=false transcript_path last_assistant_message)&quot;
+stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+last_msg=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | tail -n +3)&quot;
 
-stop_active=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-print(str(d.get(&quot;stop_hook_active&quot;, False)).lower())
-PY
-)&quot;
-last_msg=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os, sys
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-msg = d.get(&quot;last_assistant_message&quot;, &quot;&quot;)
-sys.stdout.write(msg if isinstance(msg, str) else &quot;&quot;)
-PY
-)&quot;
-transcript=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-path = d.get(&quot;transcript_path&quot;, &quot;&quot;)
-print(path if isinstance(path, str) else &quot;&quot;)
-PY
-)&quot;
-
-[[ &quot;${stop_active:-false}&quot; == &quot;true&quot; ]] &amp;&amp; exit 0
-if [[ -z &quot;$last_msg&quot; &amp;&amp; -n &quot;${transcript:-}&quot; &amp;&amp; -f &quot;$transcript&quot; ]]; then
-last_msg=&quot;$(python3 - &quot;$transcript&quot; &lt;&lt;&#x27;PY&#x27;
-import json, sys
-path = sys.argv[1]
-last = &quot;&quot;
-with open(path, &quot;r&quot;, encoding=&quot;utf-8&quot;) as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        msg = row.get(&quot;message&quot;) or {}
-        if msg.get(&quot;role&quot;) != &quot;assistant&quot;:
-            continue
-        content = msg.get(&quot;content&quot;)
-        if isinstance(content, str):
-            last = content
-        elif isinstance(content, list):
-            parts = [b.get(&quot;text&quot;, &quot;&quot;) for b in content
-                     if isinstance(b, dict) and b.get(&quot;type&quot;) == &quot;text&quot;]
-            last = &quot;\n&quot;.join(parts)
-print(last)
-PY
-)&quot;
+[[ &quot;$stop_active&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
+if [[ -z &quot;$last_msg&quot; &amp;&amp; -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]]; then
+  last_msg=&quot;$(python3 &quot;$lib/last-message.py&quot; &quot;$transcript&quot;)&quot;
 fi
 
 [[ -z &quot;$last_msg&quot; ]] &amp;&amp; exit 0
@@ -2262,35 +1839,10 @@ fi
 [[ &quot;$ratchet&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
 # Two substrates, because the triggers and the disarm want opposite treatment of
-# markdown quoting. Both drop fenced blocks and blockquotes — bulk citation is
-# never a claim either way.
-#
-#   prose  (triggers) — inline code and quoted spans BLANKED. Quoting a banned
-#           phrase must not read as making it.
-#   ledger (disarm)   — the same spans UNWRAPPED, and whitespace flattened. A
-#           path is conventionally written `.agents/debt-log.md`; blanking inline
-#           code would delete the very evidence the disarm looks for, so a correct
-#           filing would block — and the block message asks the agent to name
-#           where it filed, so it would comply, backtick the path, and block
-#           again. Flattening lets the proximity check span a bulleted filing.
-#
-# Single quotes are deliberately NOT delimiters in either: apostrophes would make
-# the check contraction-dependent, eating the span between &quot;it&#x27;s&quot; and &quot;I&#x27;ve&quot;.
-both=&quot;$(LAST_MSG=&quot;$last_msg&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import os, re
-t = os.environ[&quot;LAST_MSG&quot;]
-t = re.sub(r&quot;```.*?```&quot;, &quot; &quot;, t, flags=re.S)
-t = re.sub(r&quot;(?m)^\s*&gt;.*$&quot;, &quot; &quot;, t)
-prose = re.sub(r&quot;`[^`\n]*`&quot;, &quot; &quot;, t)
-prose = re.sub(r&quot;\&quot;[^\&quot;\n]*\&quot;|“[^”\n]*”&quot;, &quot; &quot;, prose)
-ledger = re.sub(r&quot;\s+&quot;, &quot; &quot;, re.sub(r&quot;[`\&quot;“”]&quot;, &quot; &quot;, t))
-print(prose)
-print(&quot;&lt;&lt;&lt;RATCHET-SPLIT&gt;&gt;&gt;&quot;)
-print(ledger)
-PY
-)&quot;
-prose=&quot;${both%%&lt;&lt;&lt;RATCHET-SPLIT&gt;&gt;&gt;*}&quot;
-ledger=&quot;${both##*&lt;&lt;&lt;RATCHET-SPLIT&gt;&gt;&gt;}&quot;
+# markdown quoting. ../lib/ratchet-text.py states which and why.
+both=&quot;$(printf &#x27;%s&#x27; &quot;$last_msg&quot; | python3 &quot;$lib/ratchet-text.py&quot;)&quot;
+prose=&quot;${both%%---RATCHET-SPLIT---*}&quot;
+ledger=&quot;${both##*---RATCHET-SPLIT---}&quot;
 
 # Two-key gate, deliberately AGGRESSIVE. Provenance must sit within NEAR chars of
 # a second key — either an explicit declination (&quot;so I left it alone&quot;) or a plain
@@ -2382,7 +1934,7 @@ exit 0
               <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
               <p class="what">On magnitude escalation (none → trivial → diff → large) offers a clean-up + report wrap, and asks the user — full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 trigger | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 436 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 419 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool,
@@ -2436,29 +1988,21 @@ exit 0
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
 cfg_path=&quot;$repo/.agents/config.json&quot;
 wrap_dir=&quot;.agents/playbooks&quot;
 
-cfg=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-sw = cfg.get(&quot;hooks&quot;, {}).get(&quot;session_wrap&quot;, {})
-print(&quot;yes&quot; if sw.get(&quot;enabled&quot;, True) else &quot;no&quot;)
-print(sw.get(&quot;trivial_files&quot;, 2))
-print(sw.get(&quot;trivial_lines&quot;, 30))
-print(sw.get(&quot;review_files&quot;, 5))
-print(sw.get(&quot;review_lines&quot;, 150))
-print(sw.get(&quot;heavy_lines&quot;, 200))
-print(&quot;yes&quot; if sw.get(&quot;report_every_turn&quot;, False) else &quot;no&quot;)
-# Pairing mode is the one OPT-IN toggle: a missing or broken config must leave
-# it OFF, never silently on.
-lr = cfg.get(&quot;hooks&quot;, {}).get(&quot;learning_report&quot;, {})
-print(&quot;yes&quot; if lr.get(&quot;enabled&quot;, False) else &quot;no&quot;)
-PY
-)&quot;
+# learning_report is the one OPT-IN toggle: its `false` default leaves pairing
+# mode off unless the config says exactly `true`.
+cfg=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; \
+  hooks.session_wrap.enabled=true \
+  hooks.session_wrap.trivial_files=2 \
+  hooks.session_wrap.trivial_lines=30 \
+  hooks.session_wrap.review_files=5 \
+  hooks.session_wrap.review_lines=150 \
+  hooks.session_wrap.heavy_lines=200 \
+  hooks.session_wrap.report_every_turn=false \
+  hooks.learning_report.enabled=false)&quot;
 enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;1p&#x27;)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 cfg_trivial_files=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;2p&#x27;)&quot;
@@ -2469,22 +2013,13 @@ cfg_heavy_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;
 report_every_turn=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;7p&#x27;)&quot;
 learning_enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;8p&#x27;)&quot;
 
-input=&quot;$(cat)&quot;
-parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-print(str(d.get(&quot;stop_hook_active&quot;, False)).lower())
-print(d.get(&quot;project_dir&quot;, &quot;&quot;))
-print(d.get(&quot;transcript_path&quot;, &quot;&quot;))
-print(d.get(&quot;session_id&quot;, &quot;&quot;))
-PY
-)&quot;
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; stop_hook_active=false project_dir transcript_path session_id)&quot;
 stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
 transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
 session_id=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
 
-[[ &quot;${stop_active:-false}&quot; == &quot;true&quot; ]] &amp;&amp; exit 0
+[[ &quot;$stop_active&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
 cd &quot;$proj&quot;
 
@@ -2830,7 +2365,7 @@ exit 2
               <div class="top"><span class="id">pre-compact</span><span class="badge checkpoint">checkpoint</span></div>
               <p class="what">Records the compaction trigger to a marker file; session-start consumes it afterward to re-state policy. Control-only — never gates compaction.</p>
               <div class="io"><b>in</b> {trigger} &nbsp;→&nbsp; <b>out</b> .compaction-pending &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/hooks/policy/pre-compact.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 32 lines</span></summary><div class="srcpath">.agents/hooks/policy/pre-compact.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: record that a compaction is imminent.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;trigger&quot;: &quot;auto&quot;|&quot;manual&quot;}
@@ -2849,27 +2384,11 @@ exit 2
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
-cfg_path=&quot;$repo/.agents/config.json&quot;
-enabled=&quot;$(CFG_PATH=&quot;$cfg_path&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-cfg = {}
-try:
-    with open(os.environ[&quot;CFG_PATH&quot;], encoding=&quot;utf-8&quot;) as f: cfg = json.load(f)
-except Exception: pass
-print(&quot;yes&quot; if cfg.get(&quot;hooks&quot;, {}).get(&quot;pre_compact&quot;, {}).get(&quot;enabled&quot;, True) else &quot;no&quot;)
-PY
-)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.pre_compact.enabled=true)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-input=&quot;$(cat)&quot;
-
-parsed=&quot;$(HOOK_INPUT=&quot;$input&quot; python3 &lt;&lt;&#x27;PY&#x27;
-import json, os
-d = json.loads(os.environ[&quot;HOOK_INPUT&quot;] or &quot;{}&quot;)
-print(d.get(&quot;project_dir&quot;, &quot;&quot;))
-print(d.get(&quot;trigger&quot;, &quot;&quot;))
-PY
-)&quot;
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; project_dir trigger)&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 trigger=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
@@ -3016,9 +2535,9 @@ its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
 &lt;!-- colloid-only --&gt;
 
-Prepend the genome stamp to that prompt — `prompt=&#x27;[genome stamp] + [your
-research question]&#x27;`. The `genome-guard` hook still applies, and the stamp is in
-the prompt, so it passes.
+Under Claude Code the cell is stamped for you on `SubagentStart` — prepending a
+second stamp gives it two personalities. Under Codex or Kimi, which have no such
+event, prepend one: `prompt=&#x27;[genome stamp] + [your research question]&#x27;`.
 &lt;!-- /colloid-only --&gt;
 
 ### Other engines — generic dispatch
@@ -4054,7 +3573,7 @@ Commit fully to the distinctive vision and execute it without hedging.
           Cell / Protocol / Wrap labels below are grouping, not fields from the files.</p>
       </div>
       <div class="grid">
-        <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> on Claude Code</div>
+        <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> · <code>effort: medium</code> · no Write, no Edit</div>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 128 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code># Researcher contract
 
 &gt; **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
@@ -4290,16 +3809,21 @@ To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.m
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a subagent reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b>. The same practice the contract fires at workflow steps 3 and 5.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 162 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 198 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
-Dispatch a subagent to review the diff against the surrounding architecture.
+Dispatch a subagent to review an artifact against the surrounding architecture.
+The artifact is the plan before you write code, and the diff after.
 
 Paste the reviewer contract below verbatim. Do not paraphrase it — a
 paraphrase is an untested variant.
 &lt;!-- colloid-only --&gt;
 
-The dispatch must also carry a genome stamp or `genome-guard` will block it.
-Draw one and prepend its output above the contract:
+Under Claude Code, **prepend nothing**. `genome-inject.sh` stamps the cell on
+`SubagentStart`, and a second stamp gives the reviewer two conflicting
+personalities and burns two draws from the anti-repeat ledger.
+
+Under an engine with no such event — Codex, Kimi — draw one and prepend its
+output above the contract:
 
 ```sh
 .agents/genome.sh --register none
@@ -4385,6 +3909,37 @@ group with nothing to report.
 If you cannot read the catalogue, say so and stop. Do not review from memory —
 an unmeasurable review is worse than none.
 
+## Thresholds
+
+A number below is a **reporting trigger, not a verdict**. Crossing one obliges
+you to report the measure with the value you read; it does not decide the code
+is wrong. Under every trigger the axes still apply — a 20-line function can be
+unreadable, and a two-branch conditional can be incorrect.
+
+Report the value, never your impression of it. &quot;long&quot; is your taste; &quot;312 lines&quot;
+is a fact the next reader can check.
+
+| Measure | Report past | Read it with |
+| --- | --- | --- |
+| Lines in one file | 300 | `wc -l &lt;file&gt;` |
+| Lines in one function or method | 40 | last line minus first |
+| Nesting levels inside one function | 4 | count enclosing blocks at the deepest statement |
+| Parameters on one signature | 4 | count them |
+| Copies of one behaviour | 3 | name every call site |
+| Public entry points on one module or class | 12 | count the exported names |
+
+The structural triggers sit just past this repository&#x27;s own 95th percentile, so
+crossing one means unusual here rather than merely large. Re-derive them against
+the target tree when they stop matching it; a trigger that fires on the median
+file teaches a reviewer to ignore every trigger.
+
+Two numbers are not size measures and hold everywhere:
+
+- A third copy of one behaviour is the trigger to extract it. One caller is
+  never enough — a helper with a single caller is speculation.
+- An operation inside a loop needs three stated numbers: N today, cost per item,
+  and runs per day. Report any you cannot state. A missing N is the finding.
+
 ## When to reach past this review
 
 Two skills go deeper than a diff review. Reach for one on recognition, not on
@@ -4449,9 +4004,9 @@ it&#x27;s right, decline it with a reason, file it (breadcrumbs or debt-log)
 when valid but not this unit&#x27;s work, or escalate a decision only the
 user can make. The burden of proof sits on the finding, not the
 decline. State every disposition explicitly — a silent drop is not a
-disposition. Three consecutive rounds where fixes don&#x27;t hold mean the
-shape is wrong — stop patching and take the architecture question to the
-user.
+disposition. A review round is review → fix → re-review; &quot;don&#x27;t hold&quot; means the
+same defect returns. Three consecutive rounds where fixes don&#x27;t hold mean the
+shape is wrong — stop patching and take the architecture question to the user.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
@@ -4577,22 +4132,22 @@ The reporter is exempt from genome stamping — prepend NO stamp.
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 71 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 61 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
 
-- Kimi &gt;= 0.29 exposes SubagentStart — genome-guard could ride it instead of PreToolUse Agent/AgentSwarm matching; needs payload-shape verification. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+- The playbooks are long where they should be dense, and `hostile-review.md` is the worst of them: **1,611 words across 150 non-blank lines, 9% of which are list items** — against `diff-wrap.md` at 155 words and 50%, and millcrm&#x27;s `services.md` at 9 lines where every line is a constraint. Length is not the defect; payload per word is. Two measured causes. (1) **397 words never reach the reviewer** — the `# Hostile review` preamble (177w) and `## After the report` (220w) sit outside the ```` fence, so they are orchestrator guidance wrapped around a contract, and a reader of either cannot tell which they are in. (2) **Sections restate their own rationale**: `## Then work the axes` spends 79 words to say *read `review-axes.md`, finish a group before starting the next*; `## The question that comes first` takes 291; `## Thresholds` takes 289 to deliver a 6-row table and 2 rules. A trial rewrite of that last one held every rule at ~110 words, so the corpus figure to aim at is roughly 500 words for the contract, not 1,611. Do this as **its own change, never folded into work the standard is grading** — `.agents/AGENTS.md` says so, and `.agents/eval/review-harness` grades against this exact file (8 phase-0 runs plus `runs.tsv`), so a rewrite invalidates the baseline. The method that makes it measurable rather than a taste argument: run the harness on the same fixtures against both contracts and compare the mandatory-conformance-line rate. `review-axes.md` (847w, 17%) is the same defect one file down.
+- Kimi &gt;= 0.29 exposes SubagentStart, so `genome-inject.sh` could ride it and Kimi would stamp every dispatch the way Claude does; needs payload-shape verification (the adapter must map Kimi&#x27;s field for the spawned type onto `subagent_type`). Codex has no such event and stays hand-prepended. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
 - Expert-persona anchors applied to real work are an open user call: `pentesting/SKILL.md:109` opens &quot;You are a senior red-team engineer&quot;, and `AGENTS.md:4,86,92` anchor on Linus, Carmack and Jobs. Evidence says expert personas do not improve factual accuracy and domain-mismatched ones degrade it, while still shaping tone (arxiv.org/abs/2512.05858; arxiv.org/abs/2603.18507). Keep them as register, or drop the quality framing? (The genome layer is out of scope here — `genomes.md` states it is an RL environment for swarm research and makes no accuracy claim.)
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
 - Seed real invariants into the 5 content-free skill AGENTS.md files (frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — each ships `None recorded yet.` in one section. Open user decision: seed-on-demand vs delete-until-needed.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
-- `config.json` model routing has three dead keys: `models.explore`, `models.plan`, `models.default_subagent`. Only `researcher` and `learning_reporter` are read (`sync-claude-agents.sh` AGENTS registry); the other three route nothing, and no runtime knob exists for a default ad-hoc subagent model — the tier rule in AGENTS.md carries it instead. Delete the three keys from `config.json.example` + live configs, and drop the &quot;(etc.)&quot; claim in `.agents/README.md:71`.
 - `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.
 - Codex hook commands bootstrap through `$(git rev-parse --show-toplevel)`, so from a submodule, a worktree, or an unrelated repo the adapter is missing and every command exits 127 — Codex treats non-2 as `Failed` and continues, so `guard-destructive` silently stops guarding. `.claude`/`.kimi` resolve structure-relative from `${BASH_SOURCE[0]}`; Codex exposes no project-dir variable, and the payload&#x27;s `cwd` arrives too late to locate the adapter. Needs a CWD-independent root or a deliberate exit 0.
-- The agent registry is hardcoded twice — `sync-claude-agents.sh:39-52` and `sync-codex.sh:141-148` — and the researcher description has already drifted between them. `sync-codex.sh` has no model handling, so `config.json.models.researcher` is honoured on Claude and silently dropped on Codex, though Codex custom agents do accept `model`. One registry read by both syncs.
+- The agent registry is hardcoded twice — `sync-claude-agents.sh` `AGENTS` and the `outputs` list in `sync-codex.sh` — and the researcher description has already drifted between them. The gap widened: `config.json.example` `subagents.&lt;name&gt;` now carries `tools`, `model`, `memory` and `effort`, all four honoured on Claude and none read by `sync-codex.sh`, though Codex custom agents accept `model` and a tool boundary. The `researcher` therefore runs without Write on Claude and with it on Codex. One registry read by both syncs.
+- `grader-lock.sh` has never blocked a real subagent write: a join of every `~/.claude/projects/*/*.jsonl` tool_result back to the tool_use that drew it finds 0 genuine firings (both textual hits are the source being grepped). It was wired recently, so that is not yet evidence it earns its place — re-measure after a month of subagent work, and if it is still 0, ask whether the rule is carried by the personas instead. `guard-destructive.sh` over the same corpus has real catches in `mailstation`, so the method distinguishes.
 - `.agents/test-codex.sh` fixtures are hand-authored from the same assumptions as `normalize-hook.py`, so they cannot disagree with it; 5 of the 8 wired policies (guard-destructive, session-start, research-prime, pre-compact, session-wrap) are never driven end-to-end. Codex also has dedicated SubagentStart/SubagentStop events — the same upgrade the Kimi breadcrumb above proposes, and `SubagentStart` accepts plain stdout as subagent context, which is what genome stamping would need.
-- `stop-investigate.sh` spawns three python interpreters to read three scalars (~422ms on every turn end, on top of `session-wrap.sh` on the same event); printing the multi-line field last and reading it back with `sed -n 1p`/`2p`/`tail -n +3` removes the positional coupling at one interpreter. The transcript parser itself stays: Codex declares `last_assistant_message` as `string | null`, &quot;if available&quot; (learn.chatgpt.com/docs/hooks), so the fallback covers a real case rather than a hypothetical one.
 - `trust-hooks.py` read-modify-writes `~/.codex/config.toml`, which Codex itself also writes when the operator toggles a setting. `os.replace` prevents a torn file but not a lost update, and nothing serialises the two writers. Narrow window, no observed loss; a lockfile would close it if Codex ever writes that file on a schedule rather than on operator action.
 - `trust-hooks.py` writes the project trust entry before it checks whether `codex` exists, so a machine without Codex still gets a modified `~/.codex/config.toml`; make command availability precede the first store and test the no-op contract.
 - `trust-hooks.py` reports a declared/discovered hook count mismatch but still trusts the returned subset and exits 0; fail before the hook-state write and test that partial discovery cannot disarm omitted hooks silently.
@@ -4608,27 +4163,13 @@ Surfaced at session start by `session-start.sh`.
 - The root `AGENTS.md` Layers table names `.claude/AGENTS.md` as the Claude adapter layer&#x27;s canonical file, but that path is a symlink to `.agents/claude/AGENTS.md` — and the same paragraph says never to edit through a symlink. Fixed by hand in automata-pos; the source table still says it.
 - `post-edit-check.sh` reads its file list newline-delimited, so a path containing a newline splits into two names that do not exist and is dropped by the `! -f` test — silently, which is the outcome the tab guard beside it exists to prevent. A tab is refused loudly; a newline is not. Closing it means a NUL-delimited list end to end (JSON emitter, the dispatch loop, and both groupers).
 - `.agents/knowledge/index.md` is markdown, but it is the store&#x27;s one record-shaped file and the one meant to be scanned. Benchmarks split: YAML beat markdown on nested retrieval for 2 of 3 models tested, while a 9,649-trial study found no aggregate format effect and markdown costs fewer tokens. Reasoning and the flip trigger are in `debt: colloid-knowledge-index-markdown`; revisit when the index passes a few dozen entries.
-- Claude Code `SubagentStart` accepts `hookSpecificOutput.additionalContext`, delivered into the subagent&#x27;s own transcript before its first prompt — so `genome-guard.sh`&#x27;s header premise (&quot;a hook cannot inject context into a spawned subagent&quot;) is stale on all three engines, not just Kimi/Codex. Injecting beats blocking: no exit 2, no wasted round-trip, and it covers dispatches the orchestrator forgets. For an RL environment that matters twice over — injection applies the treatment deterministically, where a guard only rejects a dispatch that omitted it, so unstamped runs currently fail rather than being recorded as a control arm. `PreToolUse.updatedInput` is a second path. See `2026-08-07-frontier-context-management-and-agent-scaffolding` in `knowledge/`.
-- `guard-destructive.sh` misses the idiomatic destructive forms: `rm -Rf`, `rm -r -f`, `rm -rf --`, `rm -rf &quot;$HOME&quot;`, `rm -rf ./*`, `git -C . reset --hard` (a `-C` defeats all three git rules), `git clean -fdx`, `git commit -n`, `TRUNCATE users` (no `TABLE`), `DELETE FROM users` (no trailing `;`), and the whole cloud class (`terraform destroy`, `aws s3 rm --recursive`, `kubectl delete namespace`). Fix is one normalizer: split on `;`/`&amp;&amp;`/`|`, strip a quote layer, match on tokens not substrings.
-- `guard-destructive.sh` false-positives block real work: any absolute path counts as broad (`rm -rf /tmp/scratch` blocks), and the `ssh`/mutation greps run over the whole multi-line string so unrelated lines pair up. It also self-blocks a command that merely quotes a pattern, which is why the guard has no tests.
-- `.agents/claude/adapter.sh` `--agent main` gating reads only `agent_type == &quot;&quot;`, but that field is also set when the session is launched with `claude --agent &lt;name&gt;` — so a launch flag silently disables session-start, research-prime, pre-compact, stop-investigate and session-wrap for the whole session. Distinguish top-level `--agent` from a real subagent via `agent_id`.
 - Files written through `Bash` heredocs or `sed -i` skip the post-edit lint gate entirely: `post-edit-check.sh` runs on `Edit|Write|MultiEdit|NotebookEdit`, and a shell redirect is none of them. Either widen the PostToolUse matcher to the shell tools and derive the touched paths from the command, or state that the gate covers editor writes only.
-- `post-edit-check.sh` runs `ruff check --fix`, `ruff format` and `prettier --write`, mutating the file the agent just edited — the exact hazard its own comment refuses for eslint. A following `Edit` whose `old_string` predates the reformat fails. Pick one policy: report-only (`--diff`/`--check`) or mutate uniformly.
-- `post-edit-check.sh` routes advisory findings (tombstones, nullsafety, reformatted) through the same exit 2 as real type errors, training the model to discount the channel that carries type failures. Advisories should exit 0.
 - `stop-investigate.sh`&#x27;s hedge regex fires on `could you clarify|confirm|specify` and blocks the turn — which bans the prose escalation `AGENTS.md` § &quot;Verify with user&quot; mandates, leaving `AskUserQuestion` as the only legal way to ask. Exempt an explicit escalation marker, or drop the question-shaped alternations and keep the give-up ones.
-- The whole hook payload travels through the environment (`HOOK_INPUT=&quot;$(cat)&quot;`), so a payload past macOS `ARG_MAX` (1 MB — reachable by writing a ~500 KB file) aborts the hook with `E2BIG`: post-edit-check stops gating exactly the largest edits. `.agents/codex/adapter.sh` already pipes stdin instead; port that shape.
-- `sources-capture.sh` never prunes `.sources-ledger` (82 KB / 785 rows and growing forever). Rows are atomic appends so there is no corruption — it just grows. Cap it, or roll it, where the append happens. `SessionEnd` now exists as the natural home.
 - The `sources-capture` matcher misses the plugin-prefixed MCP twins actually installed (`mcp__plugin_playwright_playwright__*`, `mcp__plugin_exa_exa__*`) and both `context7` tools, so those lookups are never logged as sources.
-- `AGENTS.md` steps 3 and 5 mandate hostile review but never reference `.agents/playbooks/hostile-review.md`; they carry a 74-word paraphrase of it instead, and the playbook itself says &quot;do not paraphrase it — a paraphrase is an untested variant&quot;. The only pointer fires from `session-wrap.sh:366` at tier `large`, after the work. Meanwhile `eval/review-harness` grades against the playbook, so the measured artifact is not the shipped one.
-- `.agents/AGENTS.md:17` requires skill descriptions &quot;in third person&quot; but `lint-skills.sh:165` only rejects SECOND person; five descriptions are imperative and pass clean. Make the prose and the linter agree.
-- `frontend-design` and `thermo-nuclear-code-quality-review` are shadowed by copies in `~/.claude/skills/`, which win over project scope — so the repo&#x27;s own versions never load in their own repo, and the bodies have already diverged. The personal `thermo-nuclear` even carries `disable-model-invocation`, which the repo copy lacks.
 - No skill uses any of `allowed-tools`, `disallowed-tools`, `context: fork`, `model`, `effort`, or `paths`, all of which are supported. `context: fork` fits the heavyweight skills (pentesting, security-audit, seo-geo-growth-audit); `disallowed-tools` would express security-skill tool scope declaratively instead of leaning on the Bash guard.
-- Post-compaction skill re-injection truncates at 5,000 tokens per skill / 25,000 total, keeping the START of the file — so a `SKILL.md` must front-load its load-bearing instructions. Nothing in the skill authoring rules says this; `market-researcher` (441 lines) is the one most exposed.
-- `eval/review-harness/runs.tsv` marks both rows `pending` while its `README.md:31` narrates eight completed runs with results. The ledger and the narrative disagree about what has been measured.
 - `test-export.sh` validates HEAD, not your working tree: `export-scaffold.py:126` reads `.agents/` via `git archive HEAD`, so uncommitted edits are invisible to the suite&#x27;s leak grep — its strongest assertion. Verified: canaries appended to `sync-mcp.sh` and `.agents/README.md` never reached the kit and never tripped the grep. Fail hard when `git status --porcelain -- .agents .kimi AGENTS.md` is non-empty instead of only warning.
 - `export-scaffold.py` mixes HEAD and the working tree: `:126` reads `.agents/` from `git archive HEAD`, but `:310` copytrees `.agents/export/` and `:195` reads `debt-log.md` from the live tree, contradicting the &quot;as tracked by git&quot; claim in its own docstring at `:20-22`. `test-export.sh:25` then excludes `--exclude-dir=export` from the leak grep, so the one worktree-sourced directory is also the one exempt from leak checking.
 - Four `sync-mcp.sh` behaviors have zero coverage in `test-mcp.sh`: Kimi env expansion and skip-on-unset (`:175-219`), the `0600` mode on the secret-bearing `.kimi-code/mcp.json` (`:227`), the `settings.local.json` union-merge that preserves foreign entries (`:229-244`), and the `.github/lsp.json` fan-out (`:246-255`). All four verified correct by hand — but a regression, including writing an expanded API key world-readable, would ship green.
-- The toggle-merge rule (&quot;example is the base, `config.json` overrides per key&quot;) is implemented three times — `sync-mcp.sh:130-149`, `sync-codex.sh:108-121`, and `test-codex.sh:19-27`. The test computes its `expected` from a parallel reimplementation, so it can only catch a divergence between two copies, never a bug in the shared rule. Extract to a `toggles.py` beside `mcp_registry.py` and assert against an explicit fixture table.
 - `test-export.sh:81` sends each nested suite to `/dev/null 2&gt;&amp;1`, so a failure inside a posture reports only the suite name — in the slowest suite (127 s) that runs four others twice.
 - `mcp_registry.py:75-76` binds its only `os.X_OK` check to `command`, which is the literal `&quot;node&quot;` for both repository-owned servers, so the guard is structurally dead for the entries it reads as protecting; `dist/server.js` is checked for existence only (`:68-73`).
 - `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe: esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility with a symlinked `node_modules` yields a spurious mismatch.
@@ -4644,17 +4185,21 @@ Surfaced at session start by `session-start.sh`.
 - `sync-claude-agents.sh` file-kind writes have no already-correct short-circuit the way link-kind writes do, so `generated .claude/agents/*.md` prints on every run and carries no signal. The prune also unlinks leaf paths only, leaving empty parent directories behind after a nested removal.
 - `lint-skills.sh` keys &quot;is a skill&quot; on `.agents/skills/*/SKILL.md`; `sync-claude-agents.sh` keys it on &quot;is a directory&quot;. A directory with no `SKILL.md` — `__pycache__`, a half-created skill — gets a `.claude/rules/&lt;name&gt;.md` that dangles forever, which `--check` reports and the generator cannot repair, while lint calls the tree clean. Make both use one predicate.
 - The `GENERATED` banner is matched anywhere in the first 4096 characters, so operator content that merely documents the convention (a `.claude/agents/AGENTS.md` quoting it) is claimed as generated and pruned. The banner is emitted at a known position — the line after the closing `---` — so match it positionally. Note `read(4096)` counts characters where the docs say bytes.
-- Five guards in `sync-claude-agents.sh` turn nothing red when removed: the `known is None` refusal in `--check` (which `9f39b7c` claims to have fixed), the `set(plan) - known` loop (the only local check that catches &quot;added a skill, never committed its links&quot; — deleting it is a gate going blind with a green suite), the `rel in plan` skip in the dangling prune, the `blocked` branch for a real directory at a link destination, and a dead `lexists` check that `ours()` already covers.
+- `test-mutation.py`&#x27;s `ROWS` is hand-curated, so a guard with no row is invisible and &quot;one row per guard&quot; is an aspiration the harness cannot check on itself — the same green-light-wired-to-nothing it exists to catch, one level up. The check that closes it: every `.agents/hooks/policy/*.sh` must name at least one row. It would go red immediately (11 policies, 2 covered), so it lands with the ~9 rows, not before them.
+- A `grader-lock.sh` block leaves no record the operator sees: exit 2 feeds the subagent&#x27;s model, and if that cell drops the proposed edit, nobody learns the standard was nearly amended. It also makes `debt: colloid-grader-lock-blocks-honest-test-work` unmeasurable — its trigger is a rate nothing counts. `sources-capture.sh` is the precedent: one line per block to a gitignored ledger, surfaced at SessionStart beside the breadcrumbs.
+- Two guards in `sync-claude-agents.sh` still turn nothing red when removed: the `rel in plan` skip in the dangling prune, and a dead `lexists` check that `ours()` already covers. Neither carries a `test-mutation.py` row, because neither has a firing test yet and the harness reports a guard nothing covers rather than guessing at one. Attempt a firing case for each; a guard for which no case can be written is dead and comes out. (The other three of the original five — the `known is None` refusal, the `set(plan) - known` loop, and the `blocked` branch for a real directory — carry rows and cases now.)
 - `sync-claude-agents.sh` refuses a symlinked `.agents/skills` but not symlinked *output* directories: `ln -s /elsewhere .claude/rules` makes the sync write 14 links outside the repository at exit 0, because `os.makedirs(exist_ok=True)` and `os.unlink` both resolve through it.
 - Requiring `AGENTS.md` per skill is a fleet migration, not the no-op `d0ed7aa` claims: `claude-code-boilerplate` (23 of 24 skills), `writing-coach-wt-bulk-export` (8 of 8) and `career-ops` (1 of 1) have none, so `lint-skills.sh` will red-light their whole lint run and block the post-edit hook at the next transplant. Decide whether that forcing function is wanted, and seed the files or scope the rule if not.
 - `test-sync-claude.sh` runs `git init` in its fixture, which inherits the operator&#x27;s `init.templateDir`; a global commit hook would then run inside the fixture and abort the suite under `set -e` with no diagnostic. Pass `-c core.hooksPath=/dev/null` on the fixture commits.
+- `post-edit-check.sh`&#x27;s `check` entry runs under `asyncRewake` with no per-session cap, so a burst of edits can leave several `tsc --noEmit` and `pyright` processes resident at once. Dropping `--incremental` removed the shared-file corruption but not the process count, and the diff cannot state N. Measure a real 200-edit session before adding a cap — a cap that fires wrongly is a gate that stops gating.
+- Scaffold audit, six ordered items in `docs/handoff/2026-08-08-scaffold-audit.md`: split `AGENTS.md` (11,397 bytes, ~3,800 of it conditional), widen the persona registry past `model:` to `tools:`/`effort:`/`memory:` (3 of 16 fields used; `researcher` inherits Write), put numeric thresholds in `hostile-review.md` (168 lines, zero — and the eval harness grades against it), add the compress/expand carve-out table to `## Communication`, drain this file from 55, and make `export-scaffold.py` additive so a satellite gains domain rules instead of only losing the genome. Open ruling recorded there: does the genome layer stay? Measure which of the 11 hook policies have ever fired before deciding — that answer reshapes the last item.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 68 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 74 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -4681,11 +4226,17 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Trigger** — anyone proposing the guard as a control against a hostile operator or a prompt-injected agent, or a satellite repository citing it as one.
 - **Rework** — none available at this layer; the honest fix is to state the threat model in the header and in `README.md`&#x27;s &quot;The invariant&quot; section. Real containment needs a permission layer or a sandbox, not a pattern list. Separately, the *honest-mistake* set is closeable and is filed as work in `breadcrumbs.md`.
 
-### colloid-bash4-policy-layer-silent-off
+### colloid-grader-lock-claude-only
 
-- **Condition** — five of nine policy scripts use `x=&quot;$(python3 &lt;&lt;&#x27;PY&#x27; … PY)&quot;`, a heredoc nested in command substitution that bash 3.2 mis-scans, so they fail to parse there. All four adapters guard on `BASH_VERSINFO[0] &lt; 4` and exit 0 with two stderr lines, so nothing breaks — but on a stock macOS machine with no newer bash the entire enforcement layer is off. Acceptable: the guard is loud on stderr, the direction is fail-open rather than fail-closed, and `README.md` states `bash` as a requirement.
-- **Trigger** — an operator running on stock macOS discovering mid-session that no guard has been active, or a satellite transplant onto a machine without Homebrew bash.
-- **Rework** — either rewrite the 33 nested-heredoc sites to pipe stdin into `python3` (also closes the `E2BIG` ceiling filed in `breadcrumbs.md`), or have the SessionStart path emit `additionalContext` announcing that the policy layer is disabled, so the model knows its guards are absent rather than assuming they hold. The second is ~10 lines and buys most of the value.
+- **Condition** — `grader-lock.sh` is wired on Claude alone, through the adapter&#x27;s `--agent subagent` selector. The Codex and Kimi adapters take no selector: `.agents/codex/adapter.sh` and `.kimi/hooks/adapter.sh` accept a policy name and nothing else, so the same wiring there would run for the *main* session and lock the operator out of every gate — strictly worse than no lock. Acceptable: the lock&#x27;s threat model is a delegated cell writing the rules by accident, Claude is where this repository delegates, and a subagent on the other two engines still faces review. The gap is invisible from the settings files, which is the part that bites.
+- **Trigger** — routine delegation on Codex or Kimi, or a satellite that runs its fan-out on one of them.
+- **Rework** — teach both adapters the selector (parse `--agent`, gate on the payload&#x27;s subagent identity, exit 0 on no match) and add each engine&#x27;s `grader-lock.sh` branch to its `normalize-hook.py`; the Codex branch also needs the `apply_patch` command string parsed into a path list, since that engine names N files in one payload rather than one file per call. ~60 lines across four files, plus a fixture per engine.
+
+### colloid-grader-lock-blocks-honest-test-work
+
+- **Condition** — the lock refuses a subagent every write under `.agents/hooks/`, `.agents/test-*`, and the playbooks, without asking why the write is happening. A cell dispatched in good faith to add a hook test hits the same refusal as one quietly softening its own grader, and must hand the edit back to the main session. Acceptable: intent is not in the payload, the refusal is one turn and names the way forward, and the alternative — a warning a cell can walk past — is not a gate. This is the same tradeoff `stop-investigate.sh` documents for its provenance ratchet.
+- **Trigger** — the handback becoming routine rather than rare: several dispatches a week losing a turn to it, or operators disabling `hooks.grader_lock` to get work done.
+- **Rework** — none at this layer that keeps the guarantee. The honest options are to narrow the set (drop the tests, keep the standard and the gates) or to move gate-test authoring to the main session by convention so the refusal never fires; both are policy changes, not code.
 
 ### colloid-wrap-concurrent-attribution
 
@@ -4761,7 +4312,9 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
             <tr><td>post_edit_check.tombstone_check</td><td>flag history-narrating comments</td><td>true</td></tr>
             <tr><td>stop_investigate.ratchet_check</td><td>catch silent punts</td><td>true</td></tr>
             <tr><td>learning_report.enabled</td><td>pairing-mode inline reports</td><td>false</td></tr>
-            <tr><td>models.researcher</td><td>model pin for the research cell</td><td>sonnet</td></tr>
+            <tr><td>subagents.researcher.model</td><td>model pin for the research cell</td><td>sonnet</td></tr>
+            <tr><td>subagents.researcher.tools</td><td>tool allowlist — the boundary, not a preference</td><td>no Write/Edit</td></tr>
+            <tr><td>stack_packs.carrier</td><td>marks the repo that holds every pack</td><td>true (source only)</td></tr>
           </tbody>
         </table>
       </div>
@@ -4854,8 +4407,8 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
         <p>The <strong>genome</strong> and <strong>mutagen</strong> layer — sortition personalities, the conserved
           strand, and the framing mutagen that mutates a task before a blind fan-out — is the creative half of
           Colloid Swarm, excluded here on purpose. It has its own runnable demo: <code>bash demo/demo.sh</code>.
-          One <code>PreToolUse</code> hook, <code>genome-guard</code>, belongs to that layer and is omitted above
-          for the same reason.</p>
+          One <code>SubagentStart</code> hook, <code>genome-inject</code>, belongs to that layer and is omitted
+          above for the same reason.</p>
       </div>
     </div>
   </section>

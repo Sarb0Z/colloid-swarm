@@ -188,21 +188,29 @@ Work items follow that order.
    detectable — a pack whose globs match no file in the target should fail a
    check.
 
-## Open decision
+## The genome ruling
 
-**Does the genome layer stay?**
+**Keep injection, drop enforcement.**
 
-It covers `genome-guard.sh`, `genome-inject.sh`, `grader-lock.sh`, the `swarm`
-block in `config.json.example`, the `panspermia-mutation` skill, and stamp
-prose in every persona. `export-scaffold.py` drops it wholesale, so no satellite
-has ever carried it. `.agents/breadcrumbs.md` records that `genome-guard.sh` is
-unwired on Claude and that nothing detects a double stamp.
+The measurement came first. A join of every `~/.claude/projects/*/*.jsonl`
+tool_result back to the tool_use that drew it — the only way to tell a firing
+from a transcript that merely printed the guard's source:
 
-Every other item above is cheaper if this layer goes. Nobody has ruled on it.
+| Policy | Genuine blocks | Read |
+|---|---|---|
+| `guard-destructive` | ~8, across 2 projects | Real catches in `mailstation`. Earns its keep. |
+| `genome-guard` | 14, all in colloid | Every one is "the orchestrator forgot the stamp". |
+| `grader-lock` | 0 since wiring | Both textual hits are self-reference. |
 
-A cheap measurement should come first either way: **count which of the 11 hook
-policies have ever fired.** If the answer is low, the correct move is deletion
-rather than routing, and item 6 gets smaller.
+Against **165** `Task`/`Agent` dispatches in colloid's transcripts, **1** carried
+a genome stamp. The layer blocked fourteen times and delivered once, because a
+gate can only reject a dispatch that omitted the treatment — it cannot apply it.
+
+So `genome-guard.sh` and its lib module are gone, and `genome-inject.sh` is the
+whole layer. Codex and Kimi lose their only genome path with it: both wired the
+guard on `PreToolUse` and neither wires the injector. Restoring them means
+riding Kimi's `SubagentStart` (≥ 0.29) and Codex's own — both breadcrumbed, both
+needing payload-shape verification.
 
 ## Verified mechanism facts
 
