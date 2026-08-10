@@ -44,6 +44,8 @@ MANIFEST = {
     "frontend-design":                    ".agents/skills/frontend-design/SKILL.md",
     # contract / tracking / config
     "AGENTS.md":       "AGENTS.md",
+    "frontend.md":     ".agents/rules/frontend.md",
+    "stack-nextjs.md": ".agents/rules/stack-nextjs.md",
     "breadcrumbs.md":  ".agents/breadcrumbs.md",
     "debt-log.md":     ".agents/debt-log.md",
     "config.json":     ".agents/config.json",

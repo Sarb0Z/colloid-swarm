@@ -19,6 +19,7 @@ Scoped instructions are co-located with the code they govern:
 | Demo | `demo/AGENTS.md` |
 | trial-co trial | `trial-project/AGENTS.md` |
 | Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
+| Path-scoped domain rule | `.agents/rules/<name>.md` |
 
 Skills: `frontend-design`, `market-researcher`, `mobile-responsive-web`,
 `panspermia-mutation`, `pentesting`, `perf-budget`, `react-native-expert`,

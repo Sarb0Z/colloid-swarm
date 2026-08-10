@@ -56,21 +56,28 @@
       }
     }
   },
-  "models": {
-    "researcher": "sonnet",
-    "learning_reporter": null,
-    "explore": null,
-    "plan": null,
-    "default_subagent": null
+  "stack_packs": {
+    "carrier": true
+  },
+  "subagents": {
+    "researcher": {
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": "Read, Grep, Glob, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__research-mcp__fetch_readable, mcp__research-mcp__resolve_open_access, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_close, mcp__playwright-reader__browser_navigate, mcp__playwright-reader__browser_snapshot, mcp__playwright-reader__browser_close",
+      "memory": null
+    },
+    "learning-reporter": {
+      "model": null,
+      "effort": null,
+      "tools": "Bash, Read, Grep, Glob, Write",
+      "memory": null
+    }
   },
   "hooks": {
     "guard_destructive": {
       "enabled": true
     },
     "grader_lock": {
-      "enabled": true
-    },
-    "genome_guard": {
       "enabled": true
     },
     "genome_inject": {

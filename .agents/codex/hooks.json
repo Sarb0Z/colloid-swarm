@@ -9,15 +9,6 @@
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" guard-destructive.sh"
           }
         ]
-      },
-      {
-        "matcher": "spawn_agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" genome-guard.sh"
-          }
-        ]
       }
     ],
     "PostToolUse": [

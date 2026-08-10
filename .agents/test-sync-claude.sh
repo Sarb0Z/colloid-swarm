@@ -358,15 +358,43 @@ gate || fail 'the gate must pass before the read-only check'
 after="$(snapshot)"
 [[ "$before" == "$after" ]] || fail '--check modified .claude/'
 
-# Model routing comes from the tracked example. A local config.json cannot
+# Subagent routing comes from the tracked example. A local config.json cannot
 # override it, and silence there reads as "my edit worked".
+python3 - "$fixture/.agents/config.json" <<'PY'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({"subagents": {"researcher": {"model": "opus"}}}, f)
+PY
+warning="$(cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null)"
+[[ "$warning" == *"researcher"* ]] || fail 'an ignored config.json subagent must warn'
+
+# A `models` block is the shape every config.json predating the `subagents` key
+# still has. Nothing reads it, and a file that overrides the example per key
+# gives an operator every reason to believe otherwise.
 python3 - "$fixture/.agents/config.json" <<'PY'
 import json, sys
 with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump({"models": {"researcher": "opus"}}, f)
 PY
 warning="$(cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null)"
-[[ "$warning" == *"researcher"* ]] || fail 'an ignored config.json model must warn'
+[[ "$warning" == *"models"* ]] || fail 'a dead config.json models block must warn'
+printf '{}' > "$fixture/.agents/config.json"
+
+# A frontmatter key the script cannot emit is silent otherwise: it sits in
+# config, no line is written, and the cell runs on the default.
+python3 - "$fixture/.agents/config.json.example" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+data.setdefault("subagents", {}).setdefault("researcher", {})["maxTurns"] = 5
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+PY
+if ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); then
+  fail 'a subagent field the script cannot emit must stop the run'
+fi
+git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
+  || fail 'could not restore the fixture config'
 grep -q 'model: sonnet' "$fixture/.claude/agents/researcher.md" \
   || fail 'routing must follow config.json.example, not the local config'
 

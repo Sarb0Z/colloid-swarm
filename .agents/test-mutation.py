@@ -112,6 +112,57 @@ ROWS = [
         # The guard's product is the clean refusal, so that is what to require.
         "expect": "the generator did not name the directory that blocked it",
     },
+    {
+        "guard": "sync-claude/unknown-subagent-field",
+        "file": ".agents/sync-claude-agents.sh",
+        "find": "    unknown = sorted(set(settings) - set(CONFIGURED_FIELDS))\n",
+        "replace": "    unknown = []\n",
+        "test": ["bash", ".agents/test-sync-claude.sh"],
+        "expect": "a subagent field the script cannot emit must stop the run",
+    },
+    {
+        "guard": "sync-claude/dead-models-block",
+        "file": ".agents/sync-claude-agents.sh",
+        "find": 'if "models" in local:\n',
+        "replace": "if False:\n",
+        "test": ["bash", ".agents/test-sync-claude.sh"],
+        "expect": "a dead config.json models block must warn",
+    },
+    {
+        "guard": "stack-packs/detect-required",
+        "file": ".agents/check-stack-packs.py",
+        "find": "        if not marks:\n",
+        "replace": "        if False:\n",
+        "test": ["bash", ".agents/test-stack-packs.sh"],
+        "expect": "a missing detect: must be refused, not reported as a stale pack",
+    },
+    {
+        "guard": "stack-packs/paths-required",
+        "file": ".agents/check-stack-packs.py",
+        "find": '        if not globs(pack, "paths"):\n',
+        "replace": "        if False:\n",
+        "test": ["bash", ".agents/test-stack-packs.sh"],
+        "expect": "a missing paths: must be refused, not reported as a stale pack",
+    },
+    {
+        "guard": "stack-packs/carrier-exemption",
+        "file": ".agents/check-stack-packs.py",
+        "find": "    if carrier():\n",
+        "replace": "    if False:\n",
+        "test": ["bash", ".agents/test-stack-packs.sh"],
+        "expect": "the carrier must pass with every pack and no matching file",
+    },
+    {
+        "guard": "stack-packs/detect-decides-presence",
+        "file": ".agents/check-stack-packs.py",
+        # Read `paths:` instead of `detect:` and the gate passes stack-expo in a
+        # Next.js repository: both own `app/**/*.tsx`. This is the row that says
+        # the two keys answer different questions.
+        "find": '        marks = globs(pack, "detect")\n',
+        "replace": '        marks = globs(pack, "paths")\n',
+        "test": ["bash", ".agents/test-stack-packs.sh"],
+        "expect": "the report must name stack-expo.md",
+    },
 ]
 
 

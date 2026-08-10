@@ -12,8 +12,13 @@
 # control arm and a failed run.
 #
 # Read-only utility types (Explore/Plan/...) carry no personality — a genome on
-# a search that cannot write is noise — so they are exempt. `genome-guard.sh`
-# reads the same exemption list, and both are the same `swarm` config key.
+# a search that cannot write is noise — so they are exempt. The list is the
+# `swarm.exempt_subagent_types` config key.
+#
+# Injection is the whole layer. Nothing checks that a dispatch carries a stamp,
+# because the host supplies it: a gate the orchestrator can forget delivered one
+# stamp in 165 dispatches, and every block it issued was the orchestrator being
+# told to do the injector's job.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -22,8 +27,7 @@ cfg_path="$repo/.agents/config.json"
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.genome_inject.enabled=true)"
 [[ "$enabled" == "no" ]] && exit 0
 
-# genome-guard.py owns the exemption list for both policies.
-exempt="$(python3 "$lib/genome-guard.py" "$cfg_path" --exempt)"
+exempt="$(python3 "$lib/genome-exempt.py" "$cfg_path")"
 [[ "$exempt" == "yes" ]] && exit 0
 
 # Sortition with the ledger's anti-repeat, so sequential cells in one fan-out

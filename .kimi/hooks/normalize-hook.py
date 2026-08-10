@@ -25,13 +25,6 @@ def normalize(payload, policy, repo):
 
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
-    # colloid-only
-    elif policy == "genome-guard.sh":
-        # Agent carries prompt; AgentSwarm carries prompt_template. Same guard.
-        prompt = tool_input.get("prompt", "") or tool_input.get("prompt_template", "")
-        out["prompt"] = prompt if isinstance(prompt, str) else ""
-        out["subagent_type"] = tool_input.get("subagent_type", "")
-    # /colloid-only
     elif policy == "sources-capture.sh":
         tool = payload.get("tool_name") or ""
         out["agent"] = "main"                  # Kimi payloads carry no subagent tag

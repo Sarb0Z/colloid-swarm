@@ -75,9 +75,8 @@ its web calls.
 <!-- colloid-only -->
 
 Under Claude Code the cell is stamped for you on `SubagentStart` — prepending a
-second stamp gives it two personalities. Under an engine that runs
-`genome-guard` instead, prepend one: `prompt='[genome stamp] + [your research
-question]'`.
+second stamp gives it two personalities. Under Codex or Kimi, which have no such
+event, prepend one: `prompt='[genome stamp] + [your research question]'`.
 <!-- /colloid-only -->
 
 ### Other engines — generic dispatch
