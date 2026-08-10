@@ -11,9 +11,8 @@ Under Claude Code, **prepend nothing**. `genome-inject.sh` stamps the cell on
 `SubagentStart`, and a second stamp gives the reviewer two conflicting
 personalities and burns two draws from the anti-repeat ledger.
 
-Under an engine that runs `genome-guard` instead, the dispatch must carry a
-stamp or the guard blocks it — draw one and prepend its output above the
-contract:
+Under an engine with no such event — Codex, Kimi — draw one and prepend its
+output above the contract:
 
 ```sh
 .agents/genome.sh --register none
@@ -98,6 +97,37 @@ group with nothing to report.
 
 If you cannot read the catalogue, say so and stop. Do not review from memory —
 an unmeasurable review is worse than none.
+
+## Thresholds
+
+A number below is a **reporting trigger, not a verdict**. Crossing one obliges
+you to report the measure with the value you read; it does not decide the code
+is wrong. Under every trigger the axes still apply — a 20-line function can be
+unreadable, and a two-branch conditional can be incorrect.
+
+Report the value, never your impression of it. "long" is your taste; "312 lines"
+is a fact the next reader can check.
+
+| Measure | Report past | Read it with |
+| --- | --- | --- |
+| Lines in one file | 300 | `wc -l <file>` |
+| Lines in one function or method | 40 | last line minus first |
+| Nesting levels inside one function | 4 | count enclosing blocks at the deepest statement |
+| Parameters on one signature | 4 | count them |
+| Copies of one behaviour | 3 | name every call site |
+| Public entry points on one module or class | 12 | count the exported names |
+
+The structural triggers sit just past this repository's own 95th percentile, so
+crossing one means unusual here rather than merely large. Re-derive them against
+the target tree when they stop matching it; a trigger that fires on the median
+file teaches a reviewer to ignore every trigger.
+
+Two numbers are not size measures and hold everywhere:
+
+- A third copy of one behaviour is the trigger to extract it. One caller is
+  never enough — a helper with a single caller is speculation.
+- An operation inside a loop needs three stated numbers: N today, cost per item,
+  and runs per day. Report any you cannot state. A missing N is the finding.
 
 ## When to reach past this review
 

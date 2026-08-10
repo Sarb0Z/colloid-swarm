@@ -14,6 +14,12 @@ files that can be dropped whole, in JSON keys that can be named, or inside
 them. A `SUBSTITUTIONS` entry is the escape hatch for the few places a marker
 cannot reach, and each one fails loudly when its target moves.
 
+Subtraction is the mechanism, not the ambition. `.agents/rules/` travels whole,
+stack packs included, so a satellite gains concrete domain guidance rather than
+only losing the genome. The export carries every pack and selects none: the
+agent running the transplant reads the target and deletes what it does not run,
+and `check-stack-packs.py` fails on a pack that agent missed.
+
 Usage:
     .agents/export-scaffold.py <target-dir>
 
@@ -40,9 +46,8 @@ DROPPED_PATHS = (
     ".agents/genome.sh",
     ".agents/mutagen.sh",
     ".agents/mutagen.md",
-    ".agents/hooks/policy/genome-guard.sh",
     ".agents/hooks/policy/genome-inject.sh",
-    ".agents/hooks/lib/genome-guard.py",
+    ".agents/hooks/lib/genome-exempt.py",
     ".agents/skills/panspermia-mutation",
     ".agents/eval",
     ".agents/fixtures",
@@ -66,11 +71,17 @@ DROPPED_PATHS = (
 # Policy files the export omits. Any hook entry naming one is removed from every
 # engine's dispatch table, so the tables need no marking of their own -- they
 # derive from this list.
-DROPPED_POLICIES = ("genome-guard.sh", "genome-inject.sh")
+DROPPED_POLICIES = ("genome-inject.sh",)
 
-# Config keys that describe a dropped subsystem. Dotted paths, per file.
+# Config keys that describe a dropped subsystem, plus the one key that marks
+# this repository as the pack carrier. Dotted paths, per file.
+#
+# `stack_packs.carrier` is the whole selection mechanism. Colloid holds every
+# pack and chooses between none; dropping the key flips check-stack-packs.py on
+# in the target, where a pack matching no file is a pack the transplant should
+# have deleted. Subtraction reaches it, so no new machinery does.
 DROPPED_KEYS = {
-    ".agents/config.json.example": ("swarm", "hooks.genome_guard", "hooks.genome_inject"),
+    ".agents/config.json.example": ("swarm", "hooks.genome_inject", "stack_packs"),
 }
 
 # The escape hatch: places where the colloid-only material is a fragment of a

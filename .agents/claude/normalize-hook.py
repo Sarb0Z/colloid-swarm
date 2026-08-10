@@ -57,10 +57,6 @@ def normalize(payload, policy, repo):
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
     # colloid-only
-    elif policy == "genome-guard.sh":
-        # Task/Agent dispatch input: the subagent's prompt and its type.
-        out["prompt"] = tool_input.get("prompt", "")
-        out["subagent_type"] = tool_input.get("subagent_type", "")
     elif policy == "genome-inject.sh":
         # SubagentStart fires inside the spawned cell, which names its own type
         # at the top level rather than in a tool input.

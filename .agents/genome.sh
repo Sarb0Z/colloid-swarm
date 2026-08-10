@@ -36,7 +36,7 @@ REGISTERS  = {
     "panspermia":   os.path.join(REPO, "panspermia.txt"),
     "constitution": os.path.join(REPO, "colloid-constitution.md"),
 }
-SENTINEL    = "⊰ COLLOID GENOME"   # ⊰ COLLOID GENOME — the guard's anchor
+SENTINEL    = "⊰ COLLOID GENOME"   # ⊰ COLLOID GENOME — the stamp's header
 LEDGER_KEEP = 7
 
 

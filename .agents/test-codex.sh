@@ -173,25 +173,6 @@ if json.loads(os.environ["ACTUAL"]) != json.loads(os.environ["EXPECTED"]):
 PY
 }
 
-# colloid-only
-stamp="⊰ COLLOID GENOME · THE test"
-missing='{"cwd":"'"$repo"'","tool_input":{"message":"review this","agent_type":"worker"}}'
-stamped='{"cwd":"'"$repo"'","tool_input":{"message":"'"$stamp"'\nreview this","agent_type":"worker"}}'
-duplicate='{"cwd":"'"$repo"'","tool_input":{"message":"'"$stamp"'\n'"$stamp"'\nreview this","agent_type":"worker"}}'
-exempt='{"cwd":"'"$repo"'","tool_input":{"message":"review this","agent_type":"learning-reporter"}}'
-
-for payload in "$missing" "$stamped" "$duplicate" "$exempt"; do
-  set +e
-  printf '%s' "$payload" | "$repo/.codex/hooks/adapter.sh" genome-guard.sh >/dev/null 2>&1
-  rc=$?
-  set -e
-  case "$payload" in
-    "$missing"|"$duplicate") [[ $rc -eq 2 ]] ;;
-    *) [[ $rc -eq 0 ]] ;;
-  esac
-done
-# /colloid-only
-
 assert_json \
   '{"cwd":"/repo","tool_input":{"command":"*** Add File: plain.py\n*** Update File: \"dir/file name.ts\"\n*** Delete File: old.py\n*** Move to: moved.py"}}' \
   post-edit-check.sh \
