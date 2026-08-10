@@ -618,14 +618,19 @@ value would commit one machine's routing and make every other checkout read as
 drifted. Subagent routing is a repository decision; change it in the tracked
 `.example`.
 
-Each entry emits `tools:`, `model:`, `memory:` and `effort:`, and omits any line
-whose value is null. The script refuses a key outside that set, because an
-unsupported frontmatter key writes nothing and leaves the cell on the default
-with no diagnostic.
+An entry carries `tools`, `tier`, `memory` and `effort`, and omits any line whose
+value is null. The script refuses a key outside that set, because an unsupported
+frontmatter key writes nothing and leaves the cell on the default with no
+diagnostic.
+
+`tier` is the one key that does not reach the frontmatter under its own name: it
+indexes the `tiers` map and emits `model:`. A tier the map does not define stops
+the run, because the alternative is a persona with no `model:` line — which
+reads as "inherit the parent", the most expensive tier, reached by typo.
 
 ```sh
-# Change researcher model to Opus
-jq '.subagents.researcher.model = "opus"' .agents/config.json.example > tmp \
+# Re-point the medium tier — every persona on it follows
+jq '.tiers.medium = "opus"' .agents/config.json.example > tmp \
   && mv tmp .agents/config.json.example
 .agents/sync-claude-agents.sh
 

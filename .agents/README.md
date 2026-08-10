@@ -121,7 +121,7 @@ One file, `.agents/config.json`, controls the whole scaffold:
   connect at session start, so an enable takes effect on the next session.
 - **Thresholds** — `session_wrap.trivial_files/lines/heavy_lines` (env vars still
   override).
-- **Subagent frontmatter** — `subagents.<name>.{tools,model,memory,effort}` drives
+- **Subagent frontmatter** — `subagents.<name>.{tools,tier,memory,effort}` drives
   `.agents/sync-claude-agents.sh`, which regenerates `.claude/agents/*.md` with
   those lines. A null field omits its line, so the cell inherits the default.
   Read from the tracked `config.json.example`, not the local `config.json`: the

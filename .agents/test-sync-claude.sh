@@ -395,6 +395,36 @@ if ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); then
 fi
 git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
   || fail 'could not restore the fixture config'
+
+# A tier the map does not define must stop the run. Defaulting would emit a
+# persona with no `model:` line, which reads as "inherit the parent" -- the
+# most expensive tier, reached by typo.
+python3 - "$fixture/.agents/config.json.example" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+data["subagents"]["researcher"]["tier"] = "mediun"
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+PY
+if ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); then
+  fail 'an undefined tier must stop the run'
+fi
+# Stopping is not the guard's product -- an unguarded lookup raises KeyError and
+# also stops. The product is the clean refusal that names the bad tier and the
+# set it could have been, so require that or the row certifies a crash.
+tier_error="$(cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null || true)"
+[[ "$tier_error" == *"mediun"* && "$tier_error" == *"medium"* ]] \
+  || fail 'the undefined-tier refusal must name the bad tier and the defined set'
+git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
+  || fail 'could not restore the fixture config'
+
+# The tier resolves to the alias the map names, not to the tier word itself.
+( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 )
+grep -q '^model: sonnet$' "$fixture/.claude/agents/researcher.md" \
+  || fail 'tier medium must emit the alias the tiers map names'
+grep -q '^tier:' "$fixture/.claude/agents/researcher.md" \
+  && fail 'tier is a config key, never a frontmatter line'
 grep -q 'model: sonnet' "$fixture/.claude/agents/researcher.md" \
   || fail 'routing must follow config.json.example, not the local config'
 
