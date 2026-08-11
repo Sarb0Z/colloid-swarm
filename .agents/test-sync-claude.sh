@@ -368,6 +368,14 @@ PY
 warning="$(cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null)"
 [[ "$warning" == *"researcher"* ]] || fail 'an ignored config.json subagent must warn'
 
+python3 - "$fixture/.agents/config.json" <<'PY'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({"tiers": {"light": {"claude": "opus"}}}, f)
+PY
+warning="$(cd "$fixture" && .agents/sync-claude-agents.sh 2>&1 >/dev/null)"
+[[ "$warning" == *"light"* ]] || fail 'an ignored config.json tier must warn'
+
 # A `models` block is the shape every config.json predating the `subagents` key
 # still has. Nothing reads it, and a file that overrides the example per key
 # gives an operator every reason to believe otherwise.
@@ -386,13 +394,37 @@ python3 - "$fixture/.agents/config.json.example" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     data = json.load(f)
-data.setdefault("subagents", {}).setdefault("researcher", {})["maxTurns"] = 5
+data.setdefault("subagents", {}).setdefault("researcher", {})["not_a_claude_field"] = 5
 with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
 PY
 if ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 ); then
   fail 'a subagent field the script cannot emit must stop the run'
 fi
+git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
+  || fail 'could not restore the fixture config'
+
+# Every supported field must reach the generated definition with Claude's
+# documented spelling. Otherwise a config knob looks live while the agent
+# silently inherits an expensive or permissive default.
+python3 - "$fixture/.agents/config.json.example" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+agent = data["subagents"]["researcher"]
+agent.update({"max_turns": 7, "permission_mode": "plan", "skills": ["search-and-cite"],
+              "background": False, "isolation": "worktree", "color": "blue",
+              "initial_prompt": "Read the task first."})
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+PY
+sync || fail 'supported frontmatter fields must generate'
+for line in 'maxTurns: 7' 'permissionMode: "plan"' 'skills: ["search-and-cite"]' \
+            'background: false' 'isolation: "worktree"' 'color: "blue"' \
+            'initialPrompt: "Read the task first."'; do
+  grep -Fqx "$line" "$fixture/.claude/agents/researcher.md" \
+    || fail "supported field missing from generated definition: $line"
+done
 git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
   || fail 'could not restore the fixture config'
 
@@ -421,12 +453,54 @@ git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
 
 # The tier resolves to the alias the map names, not to the tier word itself.
 ( cd "$fixture" && .agents/sync-claude-agents.sh >/dev/null 2>&1 )
-grep -q '^model: sonnet$' "$fixture/.claude/agents/researcher.md" \
+grep -q '^model: "sonnet"$' "$fixture/.claude/agents/researcher.md" \
   || fail 'tier medium must emit the alias the tiers map names'
 grep -q '^tier:' "$fixture/.claude/agents/researcher.md" \
   && fail 'tier is a config key, never a frontmatter line'
-grep -q 'model: sonnet' "$fixture/.claude/agents/researcher.md" \
+grep -q 'model: "sonnet"' "$fixture/.claude/agents/researcher.md" \
   || fail 'routing must follow config.json.example, not the local config'
+
+# The named work cells are the routing product, not decorative config.
+grep -Fqx 'model: "sonnet"' "$fixture/.claude/agents/implementer.md" \
+  || fail 'implementer must use the medium tier'
+grep -Fqx 'effort: "medium"' "$fixture/.claude/agents/qa-verifier.md" \
+  || fail 'QA verifier must use medium effort'
+grep -Fqx 'model: "haiku"' "$fixture/.claude/agents/mechanic.md" \
+  || fail 'mechanic must use the light tier'
+grep -Fqx 'model: "haiku"' "$fixture/.claude/agents/explorer.md" \
+  || fail 'explorer must use the light tier'
+grep -q '^effort:' "$fixture/.claude/agents/explorer.md" \
+  && fail 'light Claude explorer must not emit unsupported effort'
+grep -Fqx 'tools: ["Read", "Glob", "Grep"]' "$fixture/.claude/agents/explorer.md" \
+  || fail 'explorer must be read-only by capability'
+grep -Fqx 'model: "opus"' "$fixture/.claude/agents/reviewer.md" \
+  || fail 'reviewer must use the heavy tier'
+grep -Fqx 'tools: ["Read", "Glob", "Grep", "Bash", "mcp__playwright__*"]' "$fixture/.claude/agents/qa-verifier.md" \
+  || fail 'QA verifier must have browser evidence tools without direct edit tools'
+grep -Fqx 'mcpServers: ["playwright"]' "$fixture/.claude/agents/qa-verifier.md" \
+  || fail 'QA verifier must load only the Playwright MCP server'
+grep -Fqx 'tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "mcp__context7__*", "mcp__research-mcp__*"]' "$fixture/.claude/agents/researcher.md" \
+  || fail 'researcher must expose only research tools'
+grep -Fqx 'mcpServers: ["context7", "research-mcp"]' "$fixture/.claude/agents/researcher.md" \
+  || fail 'researcher must load only research MCP servers'
+grep -q '^memory:' "$fixture/.claude/agents/implementer.md" \
+  && fail 'implementer must not carry persistent memory by default'
+grep -Fqx 'tools: ["Bash", "Read", "Write"]' "$fixture/.claude/agents/learning-reporter.md" \
+  || fail 'learning reporter must expose only report production tools'
+
+# The root routing rule needs both runtime mappings; missing Codex routing
+# would otherwise silently leave a manual dispatch on its parent model.
+python3 - "$fixture/.agents/config.json.example" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+del data["tiers"]["medium"]["codex"]
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+PY
+if sync; then fail 'a tier without Codex routing must stop the sync'; fi
+git -C "$fixture" checkout -- .agents/config.json.example 2>/dev/null \
+  || fail 'could not restore the fixture config'
 
 # A persona mid-merge would be copied verbatim into a live system prompt, and
 # the gate would certify it: the output does match the input.

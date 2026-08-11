@@ -139,12 +139,28 @@ ROWS = [
         "expect": "a dead config.json models block must warn",
     },
     {
+        "guard": "sync-claude/local-tier-warning",
+        "file": ".agents/sync-claude-agents.sh",
+        "find": "if isinstance(local_tiers, dict):\n",
+        "replace": "if False:\n",
+        "test": ["bash", ".agents/test-sync-claude.sh"],
+        "expect": "an ignored config.json tier must warn",
+    },
+    {
         "guard": "stack-packs/detect-required",
         "file": ".agents/check-stack-packs.py",
         "find": "        if not marks:\n",
         "replace": "        if False:\n",
         "test": ["bash", ".agents/test-stack-packs.sh"],
         "expect": "a missing detect: must be refused, not reported as a stale pack",
+    },
+    {
+        "guard": "mcp/persona-bound-defaults",
+        "file": ".agents/config.json.example",
+        "find": '      "appium-mcp": {\n        "enabled": false,\n',
+        "replace": '      "appium-mcp": {\n        "enabled": true,\n',
+        "test": ["bash", ".agents/test-mcp.sh"],
+        "expect": "default-enabled MCP set must equal persona-bound set",
     },
     {
         "guard": "stack-packs/paths-required",

@@ -70,23 +70,57 @@ if isinstance(local_subagents, dict):
               "these config.json keys are ignored: " + ", ".join(ignored),
               file=sys.stderr)
 
+local_tiers = local.get("tiers", {})
+if isinstance(local_tiers, dict):
+    ignored_tiers = sorted(key for key, value in local_tiers.items()
+                           if cfg.get("tiers", {}).get(key) != value)
+    if ignored_tiers:
+        print("sync-claude-agents: tier routing comes from config.json.example; "
+              "these config.json tiers are ignored: " + ", ".join(ignored_tiers),
+              file=sys.stderr)
+
 # `models` is a key nothing reads, sitting in a file whose contract is "overrides
 # the example per key" -- so it reads as live config and is not. Every existing
 # config.json has one, satellites included, and silence there is the same defect
 # the dead `models.explore`/`models.plan` keys were: a knob wired to nothing.
 if "models" in local:
     print("sync-claude-agents: config.json carries a `models` block that nothing "
-          "reads; subagent routing is `subagents.<name>.{tools,model,memory,"
-          "effort}` in config.json.example. Delete the block.", file=sys.stderr)
+          "reads; subagent routing is `subagents.<name>` in config.json.example. "
+          "Delete the block.", file=sys.stderr)
 
 # Agent registry: one entry per generated definition. `name` indexes
 # cfg["subagents"], whose fields become frontmatter; a null or absent field
 # omits its line, which is how a definition inherits the parent's value.
 AGENTS = [
     {
+        "name": "implementer",
+        "source": "implementer.md",
+        "description": "Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.",
+    },
+    {
+        "name": "mechanic",
+        "source": "mechanic.md",
+        "description": "Delegate mechanical, bounded edits with one obvious result: renames, formatting, straightforward moves, or a narrow verified fix.",
+    },
+    {
+        "name": "explorer",
+        "source": "explorer.md",
+        "description": "Trace codebase structure, definitions, callers, data flow, and tests for one bounded question without editing.",
+    },
+    {
+        "name": "qa-verifier",
+        "source": "qa-verifier.md",
+        "description": "Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.",
+    },
+    {
+        "name": "reviewer",
+        "source": "reviewer.md",
+        "description": "Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.",
+    },
+    {
         "name": "researcher",
         "source": "researcher.md",
-        "description": "Delegate research tasks that turn on current or external facts — library APIs, version compatibility, best practices, security implications, anything load-bearing where a wrong answer changes shipped code. Invoked via Task(subagent_type='researcher', prompt='[genome stamp] + [research question]').",
+        "description": "Research current or external facts with primary sources, confidence, dates, and explicit evidence gaps.",
     },
     {
         "name": "learning-reporter",
@@ -113,14 +147,30 @@ HEADER = (
 )
 
 
-# Config keys a persona may carry. `tier` is the one that does not reach the
-# frontmatter under its own name: it indexes cfg["tiers"] and emits `model:`.
-# Adding a key the platform does not support writes a line nothing reads, so a
-# new entry here is a documentation lookup first.
-CONFIGURED_FIELDS = ("tools", "tier", "memory", "effort")
+# Canonical keys are snake_case; this map is the complete Claude frontmatter
+# surface this scaffold supports. Unsupported config must fail instead of
+# looking configured while silently inheriting a costly default.
+CONFIGURED_FIELDS = (
+    "tools", "tier", "memory", "effort", "max_turns", "permission_mode",
+    "skills", "mcp_servers", "hooks", "background", "isolation", "color",
+    "initial_prompt",
+)
+EMITTED = {
+    "tools": "tools", "tier": "model", "memory": "memory", "effort": "effort",
+    "max_turns": "maxTurns", "permission_mode": "permissionMode", "skills": "skills",
+    "mcp_servers": "mcpServers", "hooks": "hooks", "background": "background",
+    "isolation": "isolation", "color": "color", "initial_prompt": "initialPrompt",
+}
 
-# Emission order, as Claude Code documents the frontmatter.
-EMITTED = {"tools": "tools", "tier": "model", "memory": "memory", "effort": "effort"}
+
+def yaml_value(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, (str, list, dict)):
+        return json.dumps(value, ensure_ascii=False)
+    raise SystemExit("sync-claude-agents: frontmatter values must be JSON-compatible")
 
 
 def resolve_tier(name, tier):
@@ -136,7 +186,12 @@ def resolve_tier(name, tier):
         raise SystemExit(f"sync-claude-agents: subagents.{name}.tier is {tier!r}, "
                          f"which config.json.example tiers does not define "
                          f"({', '.join(sorted(tiers)) or 'no tiers at all'})")
-    return tiers[tier]
+    setting = tiers[tier]
+    if (not isinstance(setting, dict) or not isinstance(setting.get("claude"), str)
+            or not isinstance(setting.get("codex"), str)
+            or not isinstance(setting.get("codex_effort"), str)):
+        raise SystemExit(f"sync-claude-agents: tiers.{tier} must name Claude and Codex model/effort")
+    return setting["claude"]
 
 
 def definition(agent):
@@ -170,11 +225,11 @@ def definition(agent):
     front = ["---", f"name: {agent['name']}", f"description: {agent['description']}"]
     for field in CONFIGURED_FIELDS:
         value = settings.get(field)
-        if not value:
+        if value is None:
             continue                   # null or absent inherits the default
         if field == "tier":
             value = resolve_tier(agent["name"], value)
-        front.append(f"{EMITTED[field]}: {value}")
+        front.append(f"{EMITTED[field]}: {yaml_value(value)}")
     front.append("---")
     # A persona mid-merge would otherwise be copied verbatim into a live system
     # prompt, and the gate would certify it: the comparison only asks whether the
