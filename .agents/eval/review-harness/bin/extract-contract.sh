@@ -16,7 +16,7 @@ awk '/^````$/ { n++; next } n == 1' "$src" > "$dst"
 
 lines=$(wc -l < "$dst" | tr -d ' ')
 [[ "$lines" -gt 20 ]] || { echo "extracted only $lines lines — fence markers moved?" >&2; exit 1; }
-for want in '## Then work the axes' '## How to report' 'one line on conformance' \
+for want in '## Authority' '## Static sweep' 'CONFORMANCE:' \
             'AMBIGUITY:' 'review-axes.md'; do
   grep -q "$want" "$dst" || { echo "extract is missing: $want" >&2; exit 1; }
 done
@@ -26,8 +26,8 @@ axes="$here/../../playbooks/review-axes.md"
 [[ -s "$axes" ]] || { echo "contract references $axes, which is missing" >&2; exit 1; }
 groups=$(grep -cE '^## [0-9]\. ' "$axes")
 count=$(grep -cE '^- \*\*' "$axes")
-[[ "$groups" -eq 4 ]] || { echo "catalogue has $groups groups, expected 4" >&2; exit 1; }
-[[ "$count" -ge 12 ]] || { echo "catalogue has $count axes, expected 12 or more" >&2; exit 1; }
+[[ "$groups" -eq 3 ]] || { echo "catalogue has $groups groups, expected 3" >&2; exit 1; }
+[[ "$count" -ge 9 ]] || { echo "catalogue has $count axes, expected 9 or more" >&2; exit 1; }
 
 echo "contract: $lines lines -> $dst"
 echo "axes:     $count across $groups groups"

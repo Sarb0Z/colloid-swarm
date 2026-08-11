@@ -18,7 +18,7 @@ format or location) pointing back here. Edit things here, once.
 | `hooks/policy/*.sh` | Engine-agnostic hook policies | `.claude/settings.json` + adapter | `.kimi/config.toml` + adapter | `.codex/hooks.json` + adapter |
 | `hooks/lib/*.py` | The logic a policy shells out to; the payload arrives on stdin | called by the policy | called by the policy | called by the policy |
 | `config.json` | Scaffold toggles and thresholds (model routing lives in `config.json.example`, which `sync-claude-agents.sh` reads) | read by every hook | read by wired hooks | read by `sync-codex.sh` and shared policies |
-| `personas/researcher.md` | Researcher-cell contract (search ladder + cited evidence) | `.claude/agents/researcher.md` → native agent (`model: sonnet`); `sources-capture` logs its web calls | dispatched natively (no capture) | `.codex/agents/researcher.toml` — generated native agent |
+| `personas/*.md` | Cached hot paths for implementation, mechanical work, exploration, QA, review, research, and learning reports; generic delegation remains valid | `.claude/agents/*.md` → native agents; `sources-capture` logs research calls | generic or named dispatch; model and effort are manual and host-specific | `.codex/agents/*.toml` for native Codex contracts |
 | `fixtures/review-episodes/` | Real hostile-review episodes (artifact + intent + findings with the lead's dispositions) for A/B-testing review prompts; `verify.sh` checks integrity | data, not auto-loaded | data, not auto-loaded | data, not auto-loaded |
 | `breadcrumbs.md` | Deferred non-blocking *work* (a queue) | surfaced by the SessionStart hook | — | surfaced by the SessionStart hook |
 | `debt-log.md` | Standing tradeoffs & deferred *decisions*, `debt: <id>` refs from code | committed; pulled on demand, not auto-surfaced | — | committed; pulled on demand |
@@ -107,26 +107,27 @@ One file, `.agents/config.json`, controls the whole scaffold:
   server from a user or plugin config. Codex still loads unknown server names from those configs because
   project config is an overlay, not an allowlist. Set `codex_enabled` to
   `false` when another tool can use a server that Codex cannot represent
-  safely. Progressive disclosure
-  carries the schema cost (Claude
-  `ENABLE_TOOL_SEARCH=auto:5`, Kimi `tool-select` — see
-  `.kimi/config.toml.example`), so unkeyed servers default ON: their tools
-  defer until searched. Default-off is for servers that cannot work as shipped:
-  keyed ones (greptile, exa) with no credentials, `security-mcp` which needs an
-  authorized target, and `playwright-reader` which needs an operator-installed
-  extension (`.agents/fetch-extension.sh ublock-lite`). The session-start
+  safely. Progressive disclosure defers schemas but does not remove capability
+  inventory, so default-enabled servers are exactly those assigned to cached
+  personas: `context7`, `playwright`, and `research-mcp`. Every other server is
+  on-demand, including Appium and issue trackers; keyed servers additionally
+  need credentials, `security-mcp` needs an authorized target, and
+  `playwright-reader` needs an operator-installed extension
+  (`.agents/fetch-extension.sh ublock-lite`). The session-start
   hook advertises whatever is off (name + description), and
   `.agents/sync-mcp.sh enable <name>` / `disable <name>` flips a toggle
   (writing a minimal override into `config.json`) and regenerates. MCP servers
-  connect at session start, so an enable takes effect on the next session.
+  connect at session start, so an enable takes effect on the next session. A
+  fresh Codex checkout must first run `.agents/sync-codex.sh` without
+  `--no-trust`; Codex ignores project configuration until the project is
+  trusted, while `sync-mcp.sh` deliberately does not alter trust state.
 - **Thresholds** — `session_wrap.trivial_files/lines/heavy_lines` (env vars still
   override).
-- **Subagent frontmatter** — `subagents.<name>.{tools,tier,memory,effort}` drives
-  `.agents/sync-claude-agents.sh`, which regenerates `.claude/agents/*.md` with
-  those lines. A null field omits its line, so the cell inherits the default.
-  Read from the tracked `config.json.example`, not the local `config.json`: the
-  frontmatter lands in a committed file, so the routing is a repository
-  decision. `.agents/sync-claude-agents.sh --check` gates the result.
+- **Subagent routing** — `subagents.<name>` holds the documented Claude
+  frontmatter fields, in canonical snake_case; `tier` selects the per-runtime
+  model map. Claude definitions are generated and gated. Codex dispatches pass
+  the tier's `gpt-5.6-*` model and effort explicitly because Codex does not use
+  Claude frontmatter.
 <!-- colloid-only -->
 - **Swarm behavior** — `swarm.genome_stamping`, `swarm.exempt_subagent_types`,
   `swarm.default_register`.
