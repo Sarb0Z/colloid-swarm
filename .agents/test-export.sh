@@ -43,6 +43,16 @@ for path in \
 done
 
 python3 "$kit/.agents/check-layout.py" >/dev/null
+mkdir -p "$kit/apps/example"
+touch "$kit/apps/example/AGENTS.md"
+ln -s ../../apps/example/AGENTS.md "$kit/.claude/rules/example.md"
+ln -s ../../apps/example/AGENTS.md "$kit/.github/instructions/example.instructions.md"
+python3 "$kit/.agents/check-layout.py" >/dev/null
+ln -s ../../.agents/rules/removed.md "$kit/.claude/rules/removed.md"
+if python3 "$kit/.agents/check-layout.py" >/dev/null 2>&1; then
+  fail "layout accepted a stale scaffold-owned link"
+fi
+rm "$kit/.claude/rules/removed.md"
 "$kit/.agents/lint-skills.sh" >/dev/null
 "$kit/.agents/test-mcp.sh" >/dev/null
 
