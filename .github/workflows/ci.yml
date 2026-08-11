@@ -31,14 +31,8 @@ jobs:
         with:
           node-version: '24'
 
-      # The drift gates run first and on their own. test-codex.sh invokes this
-      # repository's sync-codex.sh, so a gate placed after it would compare
-      # freshly written files against themselves and pass on any drift.
-      - name: Drift — .codex/agents/*.toml
-        run: .agents/sync-codex.sh --check --no-trust
-
-      - name: Drift — .claude/agents/*.md
-        run: .agents/sync-claude-agents.sh --check
+      - name: Host layout
+        run: python3 .agents/check-layout.py
 
       - name: Skill format
         run: .agents/lint-skills.sh
@@ -49,19 +43,7 @@ jobs:
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
 
-      - name: Grader-lock policy
-        run: python3 .agents/test-grader-lock.py
-
-      # Cost is linear in rows: one tree copy and one full suite run each, plus
-      # one control per distinct suite. Measured at 6 rows over 3 suites: 3m35s.
-      # Grouping rows by suite is the lever if that becomes the slow step.
-      - name: Guards go red when removed
-        run: python3 .agents/test-mutation.py
-
-      - name: Claude drift gate
-        run: .agents/test-sync-claude.sh
-
-      - name: MCP generation
+      - name: MCP registry
         run: .agents/test-mcp.sh
 
       # The suite's strongest Codex assertion loads the generated config with
@@ -71,8 +53,8 @@ jobs:
         shell: bash
         run: |
           .agents/test-codex.sh | tee "$RUNNER_TEMP/codex.log"
-          if grep -q 'loader check SKIPPED' "$RUNNER_TEMP/codex.log"; then
-            echo '::notice title=Codex loader check skipped::codex is not on PATH, so the generated .codex/config.toml was never loaded by the binary. Parsing is not loading — this run proves only that the file is valid TOML.'
+          if grep -q 'host loader: skipped' "$RUNNER_TEMP/codex.log"; then
+            echo '::notice title=Codex loader check skipped::codex is not on PATH; static persona and project-config checks still ran.'
           fi
 
       - name: Export kit

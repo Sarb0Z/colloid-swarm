@@ -2,8 +2,7 @@
 # Colloid Swarm — live demo of the scaffold's mechanical layer.
 #
 # Runs the scaffold's cores against real inputs and prints their real output:
-# the genome emitter (personality sortition + fan-out), the mutagen roller
-# (framing mutation), and the destructive-command guard (the membrane). Then
+# static personas, the layout checker, and the destructive-command guard (the membrane). Then
 # verifies the progressive-disclosure fan-out, proves the satellite export
 # subtracted what it claims, and speaks the real MCP handshake to both
 # repository-owned servers. No mocks — every line is the real thing.
@@ -20,27 +19,17 @@ rule() { printf '%s\n' "${dim}────────────────�
 sec()  { printf '\n%s▸ %s%s\n' "$bold" "$1" "$rst"; }
 
 printf '%s⊰ COLLOID SWARM — scaffold demo ⊱%s\n' "$bold" "$rst"
-printf '%sengine-agnostic agent OS: genomes · mutagen · membrane · export · MCP%s\n' "$dim" "$rst"
+printf '%sengine-agnostic agent OS: personas · layout · membrane · export · MCP%s\n' "$dim" "$rst"
 
-# ── 1. Genome emitter ───────────────────────────────────────────────────────
-sec "1. Genome emitter — one personality per subagent"
+# ── 1. Static personas ──────────────────────────────────────────────────────
+sec "1. Static personas — explicit role and model per subagent"
 rule
-printf '%s$ genome.sh --check%s\n' "$dim" "$rst"
-.agents/genome.sh --check
-printf '\n%s$ genome.sh --seed 42 phage%s   %s(reproducible: seed pins the draw)%s\n' "$dim" "$rst" "$dim" "$rst"
-.agents/genome.sh --seed 42 phage 2>/dev/null | sed 's/^/  /'
-printf '\n%s$ genome.sh --count 5%s   %s(fan-out: guaranteed-distinct stamps)%s\n' "$dim" "$rst" "$dim" "$rst"
-.agents/genome.sh --count 5 2>/dev/null | grep '⊰ COLLOID' | sed 's/^/  /'
+find .agents/personas -maxdepth 1 -type f -name '*.md' -print | sort | sed 's/^/  /'
 
-# ── 2. Mutagen roller ───────────────────────────────────────────────────────
-sec "2. Mutagen — mutate the framing before a blind fan-out"
+# ── 2. Layout check ──────────────────────────────────────────────────────────
+sec "2. Layout check — canonical files and fan-out paths"
 rule
-printf '%s$ mutagen.sh --check%s\n' "$dim" "$rst"
-.agents/mutagen.sh --check
-printf '\n%s$ mutagen.sh --cost cheap --seed 7%s   %s(cheap-to-verify -> a BOLD axis)%s\n' "$dim" "$rst" "$dim" "$rst"
-.agents/mutagen.sh --cost cheap --seed 7 2>/dev/null | grep -A2 'MUTATION VECTOR' | sed 's/^/  /'
-printf '\n%s$ mutagen.sh --cost expensive --seed 3%s   %s(expensive -> a GENTLE axis)%s\n' "$dim" "$rst" "$dim" "$rst"
-.agents/mutagen.sh --cost expensive --seed 3 2>/dev/null | grep -A2 'MUTATION VECTOR' | sed 's/^/  /'
+python3 .agents/check-layout.py
 
 # ── 3. The membrane ─────────────────────────────────────────────────────────
 sec "3. The membrane — guard-destructive.sh (fail-closed floor)"

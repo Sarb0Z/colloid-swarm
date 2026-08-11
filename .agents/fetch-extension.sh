@@ -9,7 +9,7 @@
 #   .agents/fetch-extension.sh ublock-lite [version]
 #
 # Then enable the reader tier and restart the session:
-#   .agents/sync-mcp.sh enable playwright-reader
+#   python3 .agents/mcp.py enable playwright-reader
 #
 # Only Manifest V3 extensions load. Chromium removed the last MV2 code paths at
 # milestone 151, which is what Playwright bundles.
@@ -76,4 +76,4 @@ mkdir -p "$(dirname "$dest")"
 rm -rf "$dest"
 mv "$work/unpacked" "$dest"
 echo "fetch-extension: installed $dest"
-echo "next: .agents/sync-mcp.sh enable playwright-reader   (then restart the session)"
+echo "next: python3 .agents/mcp.py enable playwright-reader   (then restart the session)"

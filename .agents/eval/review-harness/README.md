@@ -121,9 +121,7 @@ were lost this way.
 
 The prompt must also ask for text, not a file. A report the harness has to go
 find is one that can be missing, half-written, or written where the grader does
-not look; the returned text is the artifact. Nothing stops a reviewer from
-writing a file — `grader-lock.sh` refuses a subagent only the governing set, and
-a report is not in it.
+not look; the returned text is the artifact.
 
 ## Intent files
 

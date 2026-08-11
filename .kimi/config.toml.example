@@ -28,8 +28,7 @@
 # forced in a short probe); both hooks fail open and the marker protocol
 # defaults trigger=auto.
 
-# MCP servers: the registry lives in .agents/mcp.json; per-repo toggles in
-# .agents/config.json (mcp.servers.<name>.enabled). .agents/sync-mcp.sh
+# MCP servers and their project state live in .agents/mcp.json. .agents/mcp.py
 # generates .kimi-code/mcp.json (Kimi's native project-level path — Kimi
 # 0.29+ auto-discovers it, no launch flag) and .mcp.json for Claude.
 # Both are gitignored build output — never hand-edit them.
