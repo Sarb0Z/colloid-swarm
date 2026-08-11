@@ -104,7 +104,7 @@ def strip_markers(text, path):
             raise SystemExit(f"export: nested colloid-only marker at {path}:{number}")
     if depth:
         raise SystemExit(f"export: unclosed colloid-only marker at {path}:{opener[2]}")
-    return "".join(out)
+    return "".join(out).rstrip() + "\n"
 
 
 def prune_hook_entries(node):
