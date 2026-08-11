@@ -90,10 +90,6 @@ DROPPED_KEYS = {
 SUBSTITUTIONS = {
     ".agents/sync-claude-agents.sh": (
         (
-            "prompt='[genome stamp] + [research question]')",
-            "prompt='[research question]')",
-        ),
-        (
             " Exempt from genome stamping — prepend no stamp.",
             "",
         ),

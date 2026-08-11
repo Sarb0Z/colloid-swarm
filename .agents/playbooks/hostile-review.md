@@ -1,198 +1,60 @@
 # Hostile review
 
-Dispatch a subagent to review an artifact against the surrounding architecture.
-The artifact is the plan before you write code, and the diff after.
-
-Paste the reviewer contract below verbatim. Do not paraphrase it — a
-paraphrase is an untested variant.
+Dispatch the independent `reviewer` cell for the plan before implementation and
+the diff after it. Supply the ask verbatim, the plan, and the artifact. Use the
+heavy tier for the runtime.
 <!-- colloid-only -->
-
-Under Claude Code, **prepend nothing**. `genome-inject.sh` stamps the cell on
-`SubagentStart`, and a second stamp gives the reviewer two conflicting
-personalities and burns two draws from the anti-repeat ledger.
-
-Under an engine with no such event — Codex, Kimi — draw one and prepend its
-output above the contract:
-
-```sh
-.agents/genome.sh --register none
-```
+Under Claude do not prepend a genome because the hook injects one. Other
+engines prepend exactly one fresh stamp.
 <!-- /colloid-only -->
 
-With it, supply the artifact and the intent the reviewer will grade against:
-the ask in the requester's own words, the plan you wrote, and where the report
-goes. Quote the ask; do not summarise it. A summary is your reading of the ask,
-and handing the reviewer your reading is what makes it agree with you.
-
-If you cannot supply the ask, say so in the dispatch rather than leaving the
-reviewer to infer it.
+Send the contract below verbatim with the artifact to review. Do not paraphrase
+it.
 
 ## Reviewer contract
 
 ````
-You are reviewing an artifact against the surrounding architecture. Ground
-rules: no justifying the change, no praise, no filler. If you are not sure, say
-you are not sure. Do not make up a finding to fill space — a short honest
-report beats a padded one.
+Review this artifact against the repository, not against its own claims. No
+praise, filler, or invented findings. State uncertainty plainly.
 
-## The question that comes first
+## Authority
 
-Does the code do what it was supposed to do? That needs a source of truth, and
-the diff is not one. Establish it before you grade anything against it.
+Read, in order: applicable `AGENTS.md`; the stated ask; the plan; artifact
+claims. A lower source cannot override a higher one. Report disagreement or
+missing intent; do not infer a specification from code. For a high-stakes
+change, verify that QA independently reproduced the named claim and that its
+evidence supports it; do not substitute static inference for missing execution.
 
-Read these, in descending authority:
+## Static sweep
 
-1. **Standing rules** — the repository's instruction files: root `AGENTS.md`
-   and any scoped file whose globs match the changed paths. These are
-   invariants about the business, the data, and the product. A change that
-   breaks one is wrong even if the ask requested it.
-2. **The stated ask** — what the user, ticket, or issue asked for, in their own
-   words where you have them.
-3. **The plan** — what the implementer said they would do. The plan is derived
-   from the ask, so a plan that quietly widened, narrowed, or reinterpreted the
-   ask is itself the finding.
-4. **The artifact's own claims** — commit message, docstrings, tests, comments.
-   Lowest authority: the same hand wrote them and the code, so they are wrong
-   together.
+Read `.agents/playbooks/review-axes.md`; if it is unavailable, stop and report
+that blocker. Work each applicable group. This is a static review: inspect
+contract, state, security, scale, and structure. Do not claim runtime behavior
+you did not execute. If changed observable behavior lacks QA evidence, report
+that as a coverage gap and hand it to `qa-verifier`.
 
-Then trace the change against that, and against the inputs and edge cases it
-must handle, and prove it correct — or pinpoint exactly where it does the wrong
-thing. A clean-looking diff that doesn't do its job is the worst defect. For
-changes classified high-stakes, independently reproduce the claim the plan
-named — the review is incomplete without it.
+Report these measurements when crossed: file >300 lines; function >40 lines;
+nesting >4; signature >4 parameters; module >12 public entries; third copy of
+behavior. For loop work, report N, per-item cost, and runs/day; a missing value
+is a finding, not an assumption.
 
-**When the sources disagree, the disagreement is the finding.** Do not pick the
-one that makes the code look correct and grade against that.
+## Report
 
-**When intent is missing, say so; do not supply it.** A specification inferred
-from the code makes this check circular — code always satisfies a spec read off
-itself. Report that you could not establish intent, review everything else, and
-leave the conformance question open for the operator.
-
-## Underspecified and ambiguous requirements
-
-A requirement that admits two readings is a defect in the requirement, not in
-the code, and this review is the last cheap place to catch it. Report it instead
-of choosing a reading and grading against your own choice.
-
-Report each one on its own line:
+Open with `CONFORMANCE: yes|no|unknown — <reason>`. Then one numbered list,
+each item `file:line — defect; consequence; fix`, ordered by cost to leave.
+Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
-AMBIGUITY: <requirement> — reads as (a) <...> or (b) <...>; the code does
-<a|b|neither>. To settle: <what you need, and from whom>.
+AMBIGUITY: <requirement> — (a) <reading>; (b) <reading>; code: <a|b|neither>.
+HANDOFF: qa-verifier — <missing executable evidence>
+HANDOFF: scalability-audit — <unresolved system-scale trigger>
 ```
 
-Report it even when the code's reading looks reasonable. "Reasonable" is you
-deciding, which is the thing to avoid. Silence here is how an unasked product
-decision ships as an implementation detail.
-
-## Then work the axes
-
-The axis catalogue is `.agents/playbooks/review-axes.md`. Read it. It holds
-four groups of three or four axes.
-
-Work one group at a time and finish it before starting the next. A group you
-did not work is a group you did not review, and it is not the same thing as a
-group with nothing to report.
-
-If you cannot read the catalogue, say so and stop. Do not review from memory —
-an unmeasurable review is worse than none.
-
-## Thresholds
-
-A number below is a **reporting trigger, not a verdict**. Crossing one obliges
-you to report the measure with the value you read; it does not decide the code
-is wrong. Under every trigger the axes still apply — a 20-line function can be
-unreadable, and a two-branch conditional can be incorrect.
-
-Report the value, never your impression of it. "long" is your taste; "312 lines"
-is a fact the next reader can check.
-
-| Measure | Report past | Read it with |
-| --- | --- | --- |
-| Lines in one file | 300 | `wc -l <file>` |
-| Lines in one function or method | 40 | last line minus first |
-| Nesting levels inside one function | 4 | count enclosing blocks at the deepest statement |
-| Parameters on one signature | 4 | count them |
-| Copies of one behaviour | 3 | name every call site |
-| Public entry points on one module or class | 12 | count the exported names |
-
-The structural triggers sit just past this repository's own 95th percentile, so
-crossing one means unusual here rather than merely large. Re-derive them against
-the target tree when they stop matching it; a trigger that fires on the median
-file teaches a reviewer to ignore every trigger.
-
-Two numbers are not size measures and hold everywhere:
-
-- A third copy of one behaviour is the trigger to extract it. One caller is
-  never enough — a helper with a single caller is speculation.
-- An operation inside a loop needs three stated numbers: N today, cost per item,
-  and runs per day. Report any you cannot state. A missing N is the finding.
-
-## When to reach past this review
-
-Two skills go deeper than a diff review. Reach for one on recognition, not on
-suspicion: you should be able to name the thing you saw.
-
-**thermo-nuclear-code-quality-review** — run it yourself, on the code you are
-already reading. Reach for it when:
-
-- the change reads sloppy enough that you re-read it to trust it;
-- it touches a core or critical path — auth, money, deletion, the module
-  everything imports;
-- it grows a file or function that was already too big;
-- the same defect keeps recurring in different places, so the real fix is a
-  redesign rather than the four patches you were about to write.
-
-**scalability-audit** — flag it, never run it: its sweep needs live system data
-a diff does not carry. The axes already tell you what to look for; reach for the
-skill when you find it and the diff cannot settle it — a hot table whose row
-count you cannot see, an N you cannot state, a reservoir whose drain you cannot
-find, a ceiling you cannot measure the distance to, or a shape that will be
-expensive to redesign around once it is built.
-
-End the report with `HANDOFF: scalability-audit — <trigger>`. Name what you
-saw, not the axis: "per-domain external call inside a fleet loop with no cap",
-never "scalability".
-
-## How to report
-
-Open with one line on conformance: does the change do what its intent requires?
-Say it plainly, before anything else. If it does not, say where. If you could
-not establish intent, say that instead. This line is mandatory in every case.
-
-Then report your findings as a single numbered list. For each, give `file:line`,
-what is wrong, why it bites, and the fix.
-
-Order the list by what you would have the implementer fix first. You do not
-need to rank every axis against every other: put anything that breaks
-conformance or destroys data at the top, then order the rest by what it costs
-to leave in. Ties do not matter.
-
-Name the groups you worked and any group you could not finish.
-
-Close with any `AMBIGUITY:` lines, then any `HANDOFF:` line. Omit either
-heading when it has nothing under it.
+No ambiguity means no `AMBIGUITY:` line. Do not run a scalability audit from a
+diff; hand it off only when the diff exposes an unresolved live-data question.
 ````
 
-## After the report
-
-An `AMBIGUITY:` line is not yours to close. It escalates — take both readings
-to the user and let them pick. Deciding it yourself is the failure the line
-exists to prevent, and "the code's reading was reasonable" is not a
-disposition. The one exception: the ask itself already settles it and the
-reviewer missed that, in which case quote the line that settles it.
-
-A `HANDOFF:` line is a finding like any other and gets a disposition: run the
-skill now, file it for later, or decline it with a reason. Running it is a
-separate unit of work with its own budget — do not fold a system sweep into the
-current change without saying so.
-
-Findings are input, not orders — disposition each one: adopt it because
-it's right, decline it with a reason, file it (breadcrumbs or debt-log)
-when valid but not this unit's work, or escalate a decision only the
-user can make. The burden of proof sits on the finding, not the
-decline. State every disposition explicitly — a silent drop is not a
-disposition. A review round is review → fix → re-review; "don't hold" means the
-same defect returns. Three consecutive rounds where fixes don't hold mean the
-shape is wrong — stop patching and take the architecture question to the user.
+Disposition every finding: adopt, decline with reason, file as a breadcrumb or
+debt, or escalate a user decision. Fixes receive re-review. After three rounds
+where the same shape returns, stop patching and bring the architecture decision
+to the user.

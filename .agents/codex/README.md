@@ -6,6 +6,13 @@ The script creates `.codex/`. It uses symlinks for this adapter, this file, and
 `hooks.json`. It generates `config.toml` and custom-agent TOML files because
 Codex requires different formats for these files.
 
+Custom agents are cached contracts, not a dispatch allowlist. When one fits,
+select it and pass the tier's model and reasoning effort explicitly. Otherwise
+dispatch `agent_type=default` with a task-specific brief and the cheapest tier
+that can solve and verify the work. Codex does not currently consume Claude's
+per-agent tools, MCP, skills, memory, or hooks frontmatter; sandboxing and the
+dispatch brief are the remaining boundary.
+
 Codex merges project config over user and plugin config by MCP server name.
 The generated config includes a record for each compatible registry server that
 is off. This record blocks a same-name lower config entry. It cannot block an

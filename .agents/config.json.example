@@ -25,8 +25,8 @@
         "description": "reading tier — Chrome for Testing with content blocking, for research fetches (~24 tools; run .agents/fetch-extension.sh ublock-lite first)"
       },
       "appium-mcp": {
-        "enabled": true,
-        "description": "mobile app automation — drive the app, inspect the UI, verify on device/simulator (~31 tools)"
+        "enabled": false,
+        "description": "on-demand mobile app automation — drive the app, inspect the UI, verify on device/simulator (~31 tools)"
       },
       "security-mcp": {
         "enabled": false,
@@ -37,13 +37,13 @@
         "description": "repository-owned web reading — article/PDF extraction and open-access resolution (2 tools; set RESEARCH_MCP_CONTACT_EMAIL to enable Unpaywall)"
       },
       "linear": {
-        "enabled": true,
-        "description": "Linear issue tracking (HTTP, OAuth login on first use)"
+        "enabled": false,
+        "description": "on-demand Linear issue tracking (HTTP, OAuth login on first use)"
       },
       "atlassian": {
-        "enabled": true,
+        "enabled": false,
         "codex_enabled": false,
-        "description": "Jira, Confluence, Bitbucket via Atlassian Rovo MCP (SSE, OAuth login on first use)"
+        "description": "on-demand Jira, Confluence, Bitbucket via Atlassian Rovo MCP (SSE, OAuth login on first use)"
       },
       "greptile": {
         "enabled": false,
@@ -60,21 +60,66 @@
     "carrier": true
   },
   "tiers": {
-    "heavy": "opus",
-    "medium": "sonnet",
-    "light": "haiku"
+    "heavy": {
+      "claude": "opus",
+      "codex": "gpt-5.6-sol",
+      "codex_effort": "high"
+    },
+    "medium": {
+      "claude": "sonnet",
+      "codex": "gpt-5.6-terra",
+      "codex_effort": "medium"
+    },
+    "light": {
+      "claude": "haiku",
+      "codex": "gpt-5.6-luna",
+      "codex_effort": "low"
+    }
   },
   "subagents": {
+    "implementer": {
+      "tier": "medium",
+      "effort": "medium",
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+      "permission_mode": "acceptEdits",
+      "max_turns": 30
+    },
+    "mechanic": {
+      "tier": "light",
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+      "permission_mode": "acceptEdits",
+      "max_turns": 12
+    },
+    "explorer": {
+      "tier": "light",
+      "tools": ["Read", "Glob", "Grep"],
+      "max_turns": 16
+    },
+    "qa-verifier": {
+      "tier": "medium",
+      "effort": "medium",
+      "tools": ["Read", "Glob", "Grep", "Bash", "mcp__playwright__*"],
+      "mcp_servers": ["playwright"],
+      "max_turns": 20
+    },
+    "reviewer": {
+      "tier": "heavy",
+      "effort": "high",
+      "tools": ["Read", "Glob", "Grep", "Bash"],
+      "max_turns": 24
+    },
     "researcher": {
       "tier": "medium",
       "effort": "medium",
-      "tools": "Read, Grep, Glob, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__research-mcp__fetch_readable, mcp__research-mcp__resolve_open_access, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_close, mcp__playwright-reader__browser_navigate, mcp__playwright-reader__browser_snapshot, mcp__playwright-reader__browser_close",
+      "tools": ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "mcp__context7__*", "mcp__research-mcp__*"],
+      "mcp_servers": ["context7", "research-mcp"],
+      "max_turns": 20,
       "memory": null
     },
     "learning-reporter": {
       "tier": null,
       "effort": null,
-      "tools": "Bash, Read, Grep, Glob, Write",
+      "tools": ["Bash", "Read", "Write"],
       "memory": null
     }
   },

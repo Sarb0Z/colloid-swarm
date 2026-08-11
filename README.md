@@ -98,14 +98,14 @@ from a submodule or an unrelated repository.
 
 ### Skills
 
-Fourteen skills in `.agents/skills/`, each with a `SKILL.md` (how to use it) and
+Fifteen skills in `.agents/skills/`, each with a `SKILL.md` (how to use it) and
 a scoped `AGENTS.md` (how to edit it):
 
 - **Security** — `security-audit` (source-only review), `dynamic-security-scan`
   (authorized live target), `security-scan` (commit-time secret and dependency
   gate), `pentesting` (adversarial red-team method)
 - **Quality** — `thermo-nuclear-code-quality-review`, `scalability-audit`,
-  `perf-budget`
+  `perf-budget`, `qa-verifier`
 - **Frontend** — `frontend-design`, `mobile-responsive-web`,
   `react-native-expert`, `seo-geo-growth-audit`
 - **Research** — `search-and-cite`, `market-researcher`
@@ -144,11 +144,11 @@ accepts only stdio or streamable HTTP.
 | `context7` | stdio | on |
 | `playwright` | stdio | on |
 | `playwright-reader` | stdio | off — needs `.agents/fetch-extension.sh ublock-lite` |
-| `appium-mcp` | stdio | on — needs `ANDROID_HOME` for Android targets |
+| `appium-mcp` | stdio | off — on-demand; needs `ANDROID_HOME` for Android targets |
 | `research-mcp` | stdio | on — repository-owned |
 | `security-mcp` | stdio | off — repository-owned; needs an authorized target |
-| `linear` | HTTP | on — OAuth on first use |
-| `atlassian` | SSE | on — OAuth on first use |
+| `linear` | HTTP | off — on-demand; OAuth on first use |
+| `atlassian` | SSE | off — on-demand; OAuth on first use |
 | `greptile` | HTTP | off — needs `GREPTILE_API_KEY` |
 | `exa` | HTTP | off — needs `EXA_API_KEY` |
 

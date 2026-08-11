@@ -4,6 +4,31 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Default capability is persona-bound. A registry server not named by a cached
+# persona is available on request, not resident in every main session.
+python3 - "$repo/.agents/config.json.example" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    config = json.load(source)
+persona_servers = {
+    name
+    for agent in config.get("subagents", {}).values()
+    for name in (agent.get("mcp_servers") or [])
+}
+enabled_servers = {
+    name
+    for name, setting in config.get("mcp", {}).get("servers", {}).items()
+    if setting.get("enabled") is True
+}
+if enabled_servers != persona_servers:
+    raise SystemExit(
+        "default-enabled MCP set must equal persona-bound set: "
+        f"enabled={sorted(enabled_servers)}, personas={sorted(persona_servers)}"
+    )
+PY
+
 # The subject is repository-owned server handling, not one named server. A
 # repository may carry only research-mcp, so drive whichever are installed and
 # let the single-server cases use the first.

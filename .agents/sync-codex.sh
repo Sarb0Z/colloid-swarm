@@ -188,6 +188,26 @@ def codex_config():
 # precondition rather than an output: resolve_registry validates its path, and
 # it derives from nothing but the extensions directory.
 outputs = [
+    (os.path.join(codex, "agents", "implementer.toml"), agent_toml(
+        "implementer",
+        "Delegate one bounded implementation unit after the plan is settled.",
+    )),
+    (os.path.join(codex, "agents", "mechanic.toml"), agent_toml(
+        "mechanic",
+        "Delegate mechanical bounded edits with one obvious result.",
+    )),
+    (os.path.join(codex, "agents", "explorer.toml"), agent_toml(
+        "explorer",
+        "Trace codebase structure and evidence for one bounded question without editing.",
+    )),
+    (os.path.join(codex, "agents", "qa-verifier.toml"), agent_toml(
+        "qa-verifier",
+        "Verify changed tests, APIs, and web behavior with executable evidence.",
+    )),
+    (os.path.join(codex, "agents", "reviewer.toml"), agent_toml(
+        "reviewer",
+        "Independently review a plan or diff against repository rules and stated intent.",
+    )),
     (os.path.join(codex, "agents", "researcher.toml"), agent_toml(
         "researcher",
         "Delegate research that depends on current or external facts. Return cited evidence with confidence and date.",
