@@ -54,10 +54,10 @@ its natural genome (trace every source, three hops out, impossible to surprise):
 ```
 <!-- /colloid-only -->
 
-### Claude Code — use the native researcher agent (Sonnet)
+### Claude Code — use the native researcher agent (Claude Sonnet 5)
 
 When running under Claude Code, delegate research via the dedicated
-`researcher` subagent so it runs on **Sonnet** instead of inheriting the parent
+`researcher` subagent so it runs on **Claude Sonnet 5** instead of inheriting the parent
 model:
 
 ```
@@ -67,9 +67,9 @@ Task(
 )
 ```
 
-The `.claude/agents/researcher.md` definition is generated from `.agents/config.json`
-by `.agents/sync-claude-agents.sh`; the `model:` frontmatter pins whatever model
-you configured (`sonnet` by default). The agent loads the researcher contract as
+`.claude/agents/researcher.md` links directly to
+`.agents/personas/researcher.md`; its frontmatter pins `claude-sonnet-5`. The
+agent loads the researcher contract as
 its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
 <!-- colloid-only -->

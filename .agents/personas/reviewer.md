@@ -1,3 +1,12 @@
+---
+name: reviewer
+description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
+tools: ["Read", "Glob", "Grep", "Bash"]
+model: "claude-opus-5"
+effort: "high"
+maxTurns: 24
+---
+
 # Reviewer contract
 
 Review a supplied plan or diff independently. Read the supplied ask, plan,

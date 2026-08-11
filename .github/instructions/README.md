@@ -16,15 +16,11 @@ Scoped instructions are co-located with the code they govern:
 | Repo-wide behavior | `AGENTS.md` (root) |
 | Agent scaffold | `.agents/AGENTS.md` |
 | Claude adapter layer | `.claude/AGENTS.md` |
-| Demo | `demo/AGENTS.md` |
-| Tensium trial | `tensium-trial/AGENTS.md` |
 | Skill (feature) | `.agents/skills/<name>/AGENTS.md` |
 | Path-scoped domain rule | `.agents/rules/<name>.md` |
 
-Skills: `frontend-design`, `market-researcher`, `mobile-responsive-web`,
-`panspermia-mutation`, `pentesting`, `perf-budget`, `react-native-expert`,
-`scalability-audit`, `search-and-cite`, `security-audit`, `security-scan`,
-`seo-geo-growth-audit`, `thermo-nuclear-code-quality-review`.
+Every directory containing `SKILL.md` is a skill; inventory is derived from the
+tree rather than repeated here.
 
 ## Tool Fan-Out
 

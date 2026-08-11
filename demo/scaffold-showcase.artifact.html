@@ -357,181 +357,74 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 175 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 68 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
-Every change ships to production and must withstand hostile
-technical review — reviewer (Linus) rejects placeholder types, mock
-fallbacks, suppression comments, MVP shortcuts, and temporary hacks on
-sight. Ship at the bar that survives that review, first time.
+Every change ships to production and must withstand hostile technical review — reviewer (Linus) rejects placeholder types, mock fallbacks, suppression comments, MVP shortcuts, and temporary hacks on sight. Ship at the bar that survives that review, first time.
 
 ## Principles
 
 Listed in priority order. Resolve conflicts top-down.
 
-1. **Gall&#x27;s Law.** Build one working thing at a time. &quot;Complete&quot; means the
-   current unit works end-to-end — not that future phases are scaffolded.
-2. **YAGNI.** Implement only what&#x27;s needed now. Resist the pull toward
-   building for hypothetical future callers. YAGNI scopes *what* is built;
-   the production-quality bar governs *how well*.
+1. **Gall&#x27;s Law.** Build one working thing at a time. &quot;Complete&quot; means the current unit works end-to-end — not that future phases are scaffolded.
+2. **YAGNI.** Implement only what&#x27;s needed now. Resist the pull toward building for hypothetical future callers. YAGNI scopes *what* is built; the production-quality bar governs *how well*.
 3. **Unix Philosophy.** Small, focused modules. One responsibility each.
-4. **DRY, after YAGNI.** Shared operations belong somewhere broadly
-   accessible — but never extract a helper with a single caller on
-   speculation.
+4. **DRY, after YAGNI.** Shared operations belong somewhere broadly accessible — but never extract a helper with a single caller on speculation.
 
 ## Workflow
 
-1. **Research.** Ground new work in current sources, not memory: the
-   `search-and-cite` skill draws the line between a quick lookup and
-   delegating a researcher cell; the `market-researcher` skill covers
-   competitor, demand, and gap research when building a new feature. Do
-   not reinvent the wheel — find what practitioners and power users
-   already learned about the problem.
-2. **Plan.** For non-trivial work, use plan mode tool; outline the approach
-   before touching code: affected modules, constraints, and the one or two
-   options worth considering. Skip for trivial edits. Use the ask questions
-   tool where applicable, otherwise ask one focused question directly. Use the
-   question to clarify ambiguities or select between multiple valid approaches.
-   Classify high-stakes changes (auth, data loss, money, prod config) up
-   front, even when the plan is skipped; state, for each, the one claim
-   step 5&#x27;s review must independently reproduce. When unsure, classify
-   as high-stakes; never downgrade.
-3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md`
-   with the plan as the artifact. Disposition every finding before you
-   write code.
-4. **Implement, then test.** If anything fails, diagnose and fix. If the fix
-   forces a redesign, return to step 1.
-5. **Hostile-review the implementation.** Run the same playbook with the
-   diff as the artifact.
+1. **Research.** Ground new work in current sources, not memory: the `search-and-cite` skill draws the line between a quick lookup and delegating a researcher cell; the `market-researcher` skill covers competitor, demand, and gap research when building a new feature. Do not reinvent the wheel — find what practitioners and power users already learned about the problem.
+2. **Plan.** For non-trivial work, use plan mode tool; outline the approach before touching code: affected modules, constraints, and the one or two options worth considering. Skip for trivial edits. Use the ask questions tool where applicable, otherwise ask one focused question directly. Use the question to clarify ambiguities or select between multiple valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped; state, for each, the one claim step 5&#x27;s QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
+3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` with the plan as the artifact. Disposition every finding before you write code.
+4. **Implement, then test.** If anything fails, diagnose and fix. If the fix forces a redesign, return to step 1.
+5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always run it for a high-stakes claim. Fix failures and re-run the failed scenario.
+6. **Hostile-review the implementation.** Run the same playbook with the diff as the artifact.
 
-The playbook is the reviewer contract, the disposition rules, and the
-stop condition. Read it; do not restate it here. It is also what
-`.agents/eval/review-harness` grades against, so a paraphrase in this
-file would ship one review and measure another.
+The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here. It is also what `.agents/eval/review-harness` grades against, so a paraphrase in this file would ship one review and measure another.
 
 ## Behavior
 
 ### Verify with user
-Go to the user when a blocker is genuinely theirs to resolve: their
-stated targets disagree with what you found, a reference could mean two
-things, or defensible paths trade off in ways only they can weigh.
-Reconcile those before acting, and present out-of-scope discoveries as
-findings awaiting a ruling rather than absorbing them into the work. A
-question the session can answer itself — a check to run, an execution
-path to attempt — is not a blocker: attempt it and bring the result,
-even a failed one.
+Go to the user when a blocker is genuinely theirs to resolve: their stated targets disagree with what you found, a reference could mean two things, or defensible paths trade off in ways only they can weigh. Reconcile those before acting, and present out-of-scope discoveries as findings awaiting a ruling rather than absorbing them into the work. A question the session can answer itself — a check to run, an execution path to attempt — is not a blocker: attempt it and bring the result, even a failed one.
 
-When you ask, make the decision cheap. Use one focused question that carries
-what you found, the options, and your recommendation with its trade-offs. Use
-the ask questions tool where applicable.
+When you ask, make the decision cheap. Use one focused question that carries what you found, the options, and your recommendation with its trade-offs. Use the ask questions tool where applicable.
 
 ### Persist to completion
-Work until the task is end-to-end done. Iterate, test, and resolve follow-ups
-in the same session. Uncertainty, partial context, and token pressure are not
-reasons to stop short — they are reasons to narrow the remaining scope and
-finish it.
+Work until the task is end-to-end done. Iterate, test, and resolve follow-ups in the same session. Uncertainty, partial context, and token pressure are not reasons to stop short — they are reasons to narrow the remaining scope and finish it.
 
 ### Estimate in tokens, not time
-Size work and effort in tokens (context/output budget), never wall-clock
-time. &quot;~30k tokens&quot; or &quot;a few hundred lines&quot;, not &quot;about an hour&quot;.
+Size work and effort in tokens (context/output budget), never wall-clock time. &quot;~30k tokens&quot; or &quot;a few hundred lines&quot;, not &quot;about an hour&quot;.
 
 ### Carmack-grade engineering
-Build as John Carmack would: simple, fast, measurable, with the fewest layers
-that solve the problem. Every line must justify itself under scrutiny —
-naming, control flow, failure modes, performance. The code is the proof;
-comments do not rescue it.
+Build as John Carmack would: simple, fast, measurable, with the fewest layers that solve the problem. Every line must justify itself under scrutiny — naming, control flow, failure modes, performance. The code is the proof; comments do not rescue it.
 
 ### No backwards compatibility 
-Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility
-for its own sake—if something is unused or being replaced, delete it outright.
+Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility for its own sake—if something is unused or being replaced, delete it outright.
 
 ### Tracking, not tombstones
-Comments and docs describe the code **as it is now**, never its history. The
-diff is the history — don&#x27;t narrate it. Never write &quot;previously&quot;, &quot;used to&quot;,
-&quot;was refactored&quot;, &quot;changed from&quot;, dates, or changelog notes in code or docs.
-The one date this permits is an observation&#x27;s own timestamp under
-`.agents/knowledge/`, which scopes the claim rather than narrating a change.
-
-What doesn&#x27;t belong inline has three homes. Two split by lifecycle:
-- **`.agents/breadcrumbs.md`** — deferred *work*: a queue. One line each; the
-  SessionStart hook re-surfaces unaddressed items. Act on it, or delete the line.
-  Draining the queue is its own unit of work: `playbooks/breadcrumb-burndown.md`.
-- **`.agents/debt-log.md`** — standing tradeoffs and deferred *decisions*: the
-  &quot;naive O(n³) here, fine until N&gt;10k, rework needs a spatial index&quot; record.
-  Committed. Each entry is a `### &lt;id&gt;` heading (a kebab slug like
-  `colloid-07-naive-scan`) with one line each for the condition, the trigger that
-  would justify fixing it, and the rework cost. Reference it from code as
-  `debt: &lt;id&gt;` — the pointer goes inline, never the reasoning. Not auto-surfaced;
-  pulled on demand when you touch that code.
-
-The third sits on a different axis — not deferred internal work, but what the
-repository cannot tell you about itself:
-- **`.agents/knowledge/`** — dated observations from outside the repository:
-  competitor teardowns, prior art, benchmark numbers, and human transcripts.
-  The test is whether deleting the entry loses anything an agent could rebuild
-  by reading the tree. Read `index.md`, not the folder. `README.md` there is
-  the contract. A finding that also produces work gets a breadcrumb line too.
-
-When a subproject surfaces mid-task, classify before acting: **blocking** (A
-can&#x27;t complete without it) → checkpoint A and re-scope to it; **non-blocking**
-(optimization, cleanup, future work) → file one line (work → breadcrumbs,
-standing tradeoff → debt-log) and return to A; **trivial** (&lt;15 min, file
-already open) → inline. The full policy is re-stated after a compaction.
+Describe the present, not change history. Put deferred work in `breadcrumbs.md`; standing tradeoffs in `debt-log.md` (`### &lt;id&gt;`, condition, trigger, rework cost; code says `debt: &lt;id&gt;`); external observations in `knowledge/`. For a newly discovered subproject: checkpoint and re-scope if blocking; file one line and return if non-blocking; fix inline only when trivial and already open. The knowledge entry may carry its observation date.
 
 ### Latest stable by default
-New technology enters at the latest stable version the project&#x27;s existing
-constraints admit (runtime, peer deps). When a constraint forces an older
-version, say which one and why. Never write a version number from memory —
-if you don&#x27;t know the current stable, search for it.
+Use the latest stable version allowed by existing constraints; state the constraint when it forces older, and verify versions rather than recalling them.
 
 ## Communication
 
-Applies to every reply, to the user or a dispatching agent. Candor outranks
-brevity; dense is not minimal.
-
-1. **Lead with the answer.** Answer the question asked, directly; supporting
-   detail follows only where it changes what the reader does next.
-2. **Short over long.** If a short answer suffices, give the short answer.
-   Trade-offs, risks, and viable alternatives are signal, not padding;
-   everything else beyond the ask is spam.
-3. **Candid always.** Report failures, risks, and partial results plainly;
-   never dress them up as done.
-4. **Sources are the deliverable.** When asked to find or collect sources,
-   deliver sources: high-quality references, one-line notes on what each
-   covers, no essay. A question asked with &quot;include sources&quot; is still a
-   question — answer it and cite.
-5. **Counts are measured, never narrated.** Every number in a report — files
-   changed, tests passing, findings left — must come from a command that
-   produced it: `wc -l`, `grep -c`, the suite&#x27;s own tally. Report what the
-   command returned. A narrated count and a measured count drift apart in
-   silence, and only the measured one is evidence.
-
-Compression has four carve-outs. Expand at each, compress everywhere else.
-
-| Boundary | What expands |
-| --- | --- |
-| Security warning | The risk, the surface it reaches, and what happens if it is ignored |
-| Destructive-operation confirmation | What is removed, whether it is recoverable, and the exact command |
-| Multi-step sequence | Every step in order, and which one fails first if it fails |
-| Two readings of the request | Each reading you found, and which one you acted on |
+Lead with the answer. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Expand only for security warnings, destructive confirmation, multi-step sequences, or competing readings of the request.
 
 ## Subagent Delegation
 
-Hand off cross-domain or parallelizable work — architecture, bug investigation,
-research, discovery — as soon as it is identifiable, and give mundane work to a
-smaller minion. Name the cheapest tier that can finish the task in the dispatch
-call, since an omitted model inherits yours; step up only where a wrong answer
-costs more than the retry. Your own tier is for planning and hostile review. The
-floor: one grep or one file read is not a delegation.
+Delegate when specialization, parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
 
-A handoff carries decisions, affected paths, and the single next step — no raw
-logs, no quoted issue bodies. A subagent returns the same shape: conclusions and
-evidence pointers, not a transcript. One that changed files or state must return
-runnable acceptance, a command or a checkable assertion. Re-run it; its claim is
-never the only evidence.
+| Tier | Claude | Codex | Use |
+| --- | --- | --- | --- |
+| light | `haiku` | `gpt-5.6-luna` / `low` | mechanical or bounded read-only work |
+| medium | `claude-sonnet-5` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
+| heavy | `claude-opus-5` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
 
-Scoped instructions load on demand and are not restated here. Read
-`.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md`
-before working in any subtree.
+Choose the lowest tier that can solve and verify the task. Claude generic cells use `general-purpose` with explicit model; use a named persona when effort must be fixed. Codex generic cells use `agent_type=default` with explicit `model` and `reasoning_effort`. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
+
+Persona files name these defaults directly. Where a host cannot narrow tools, constrain the handoff and retain the sandbox boundary.
+
+Scoped instructions load on demand and aren&#x27;t restated here. Read `.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md` before working in any subtree.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Loads on demand</div><h3>frontend.md</h3><p>Rules the contract does not carry, because most sessions never touch a screen. Globbed to <code>*.tsx</code>, <code>*.css</code>, <code>*.html</code> — they arrive when an agent opens one of those and cost nothing when it does not.</p><div class="foot">Claude reads <code>paths:</code> · Copilot reads <code>applyTo:</code></div>
@@ -626,7 +519,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 175 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 174 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -642,7 +535,7 @@ detect:
 #   - Unaddressed .agents/breadcrumbs.md items (markdown &quot;- &quot; bullets), capped
 #     at the 10 most recent.
 #   - Registry MCP servers that are toggled off (name + description), with the
-#     sync-mcp.sh enable/disable incantation — the model learns they exist and
+#     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
@@ -697,8 +590,7 @@ if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;
   items=&quot;$(grep -E &#x27;^[[:space:]]*-[[:space:]]&#x27; &quot;$crumbs&quot; 2&gt;/dev/null || true)&quot;
 fi
 
-# Registry servers that are toggled off: surface them so the model knows they
-# exist and can switch them on mid-task. The merge rule is .agents/toggles.py.
+# Surface disabled registry servers so the model can request only what it needs.
 mcp_off=&quot;&quot;
 if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; ]]; then
   mcp_off=&quot;$(python3 &quot;$lib/mcp-off.py&quot; &quot;$proj&quot;)&quot;
@@ -793,7 +685,7 @@ EOF
     [[ -n &quot;$learning_body&quot; || &quot;$is_compact&quot; == &quot;true&quot; || -n &quot;$items&quot; ]] &amp;&amp; echo
     echo &quot;Registry MCP servers currently OFF (not connected; the description says why):&quot;
     printf &#x27;%s\n&#x27; &quot;$mcp_off&quot;
-    echo &#x27;If the task needs one: run `.agents/sync-mcp.sh enable &lt;name&gt;`, then ask the user to restart the session (MCP servers connect at startup). Turn it back off with `.agents/sync-mcp.sh disable &lt;name&gt;`.&#x27;
+    echo &#x27;If the task needs one: run `python3 .agents/mcp.py enable &lt;name&gt;`, then restart the session. Turn it off with `python3 .agents/mcp.py disable &lt;name&gt;`.&#x27;
   fi
 )&quot;
 
@@ -2515,10 +2407,10 @@ its natural genome (trace every source, three hops out, impossible to surprise):
 ```
 &lt;!-- /colloid-only --&gt;
 
-### Claude Code — use the native researcher agent (Sonnet)
+### Claude Code — use the native researcher agent (Claude Sonnet 5)
 
 When running under Claude Code, delegate research via the dedicated
-`researcher` subagent so it runs on **Sonnet** instead of inheriting the parent
+`researcher` subagent so it runs on **Claude Sonnet 5** instead of inheriting the parent
 model:
 
 ```
@@ -2528,9 +2420,9 @@ Task(
 )
 ```
 
-The `.claude/agents/researcher.md` definition is generated from `.agents/config.json`
-by `.agents/sync-claude-agents.sh`; the `model:` frontmatter pins whatever model
-you configured (`sonnet` by default). The agent loads the researcher contract as
+`.claude/agents/researcher.md` links directly to
+`.agents/personas/researcher.md`; its frontmatter pins `claude-sonnet-5`. The
+agent loads the researcher contract as
 its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
 &lt;!-- colloid-only --&gt;
@@ -3573,223 +3465,602 @@ Commit fully to the distinctive vision and execute it without hedging.
           Cell / Protocol / Wrap labels below are grouping, not fields from the files.</p>
       </div>
       <div class="grid">
+        <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 96 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
+
+from pathlib import Path
+import os
+import sys
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def expected_links() -&gt; dict[Path, str]:
+    links = {
+        Path(&quot;.claude/AGENTS.md&quot;): &quot;../.agents/claude/AGENTS.md&quot;,
+        Path(&quot;.claude/CLAUDE.md&quot;): &quot;AGENTS.md&quot;,
+        Path(&quot;.claude/settings.json&quot;): &quot;../.agents/claude/settings.json&quot;,
+        Path(&quot;.claude/hooks/adapter.sh&quot;): &quot;../../.agents/claude/adapter.sh&quot;,
+        Path(&quot;.claude/hooks/README.md&quot;): &quot;../../.agents/claude/README.md&quot;,
+        Path(&quot;.codex/hooks.json&quot;): &quot;../.agents/codex/hooks.json&quot;,
+        Path(&quot;.codex/hooks/adapter.sh&quot;): &quot;../../.agents/codex/adapter.sh&quot;,
+        Path(&quot;.codex/hooks/README.md&quot;): &quot;../../.agents/codex/README.md&quot;,
+        Path(&quot;.github/copilot-instructions.md&quot;): &quot;../AGENTS.md&quot;,
+        Path(&quot;.github/instructions/agents.instructions.md&quot;): &quot;../../.agents/AGENTS.md&quot;,
+        Path(&quot;.github/instructions/claude.instructions.md&quot;): &quot;../../.claude/AGENTS.md&quot;,
+        Path(&quot;.github/lsp.json&quot;): &quot;../.agents/lsp.json&quot;,
+    }
+    for persona in sorted((ROOT / &quot;.agents/personas&quot;).glob(&quot;*.md&quot;)):
+        links[Path(&quot;.claude/agents&quot;) / persona.name] = (
+            f&quot;../../.agents/personas/{persona.name}&quot;
+        )
+    skills = sorted(
+        path for path in (ROOT / &quot;.agents/skills&quot;).iterdir()
+        if path.is_dir() and (path / &quot;SKILL.md&quot;).is_file()
+    )
+    rules = sorted((ROOT / &quot;.agents/rules&quot;).glob(&quot;*.md&quot;))
+    collisions = {path.name for path in skills} &amp; {path.stem for path in rules}
+    if collisions:
+        raise SystemExit(f&quot;layout: skill/rule name collision: {sorted(collisions)}&quot;)
+    for skill in skills:
+        links[Path(&quot;.claude/skills&quot;) / skill.name] = f&quot;../../.agents/skills/{skill.name}&quot;
+        links[Path(&quot;.claude/rules&quot;) / f&quot;{skill.name}.md&quot;] = (
+            f&quot;../../.agents/skills/{skill.name}/AGENTS.md&quot;
+        )
+        links[Path(&quot;.github/instructions&quot;) / f&quot;00-{skill.name}.instructions.md&quot;] = (
+            f&quot;../../.agents/skills/{skill.name}/AGENTS.md&quot;
+        )
+    for rule in rules:
+        links[Path(&quot;.claude/rules&quot;) / rule.name] = f&quot;../../.agents/rules/{rule.name}&quot;
+        links[Path(&quot;.github/instructions&quot;) / f&quot;01-{rule.stem}.instructions.md&quot;] = (
+            f&quot;../../.agents/rules/{rule.name}&quot;
+        )
+    for name in (&quot;demo&quot;, &quot;tensium-trial&quot;):
+        if (ROOT / name / &quot;AGENTS.md&quot;).is_file():
+            links[Path(&quot;.github/instructions&quot;) / f&quot;{name}.instructions.md&quot;] = (
+                f&quot;../../{name}/AGENTS.md&quot;
+            )
+    return links
+
+
+def main() -&gt; int:
+    expected = expected_links()
+    failures = []
+    for relative, target in expected.items():
+        path = ROOT / relative
+        if not path.is_symlink():
+            failures.append(f&quot;{relative}: expected symlink&quot;)
+        elif os.readlink(path) != target:
+            failures.append(f&quot;{relative}: points to {os.readlink(path)!r}, expected {target!r}&quot;)
+        elif not path.exists():
+            failures.append(f&quot;{relative}: target is missing&quot;)
+
+    owned_roots = (
+        Path(&quot;.claude/agents&quot;), Path(&quot;.claude/skills&quot;), Path(&quot;.claude/rules&quot;),
+        Path(&quot;.github/instructions&quot;),
+    )
+    for directory in owned_roots:
+        root = ROOT / directory
+        if not root.is_dir():
+            failures.append(f&quot;{directory}: directory is missing&quot;)
+            continue
+        for path in root.iterdir():
+            relative = path.relative_to(ROOT)
+            if path.is_symlink() and relative not in expected:
+                failures.append(f&quot;{relative}: stale scaffold symlink&quot;)
+
+    if failures:
+        print(&quot;layout: invalid host integration&quot;, file=sys.stderr)
+        for failure in failures:
+            print(f&quot;  {failure}&quot;, file=sys.stderr)
+        return 1
+    print(f&quot;layout: {len(expected)} scaffold links valid&quot;)
+    return 0
+
+
+if __name__ == &quot;__main__&quot;:
+    sys.exit(main())
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 277 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Build native MCP configuration from the tracked registry.
+
+Usage: mcp.py [sync] | enable NAME... | disable NAME...
+&quot;&quot;&quot;
+
+import json
+import os
+import re
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT_TOKEN = &quot;${REPO_ROOT}&quot;
+META = {&quot;description&quot;, &quot;enabled&quot;, &quot;codex_enabled&quot;, &quot;kimi_enabled&quot;}
+FIELDS = META | {&quot;type&quot;, &quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;, &quot;env&quot;, &quot;url&quot;, &quot;headers&quot;}
+ENV = re.compile(r&quot;\$\{([A-Za-z_][A-Za-z0-9_]*)\}&quot;)
+
+
+def _fail(message):
+    raise SystemExit(f&quot;mcp: {message}&quot;)
+
+
+def _write_json(path, value, mode=None):
+    if mode is None:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(&quot;w&quot;, dir=path.parent, delete=False) as output:
+        json.dump(value, output, indent=2)
+        output.write(&quot;\n&quot;)
+        temp = Path(output.name)
+    temp.chmod(mode)
+    temp.replace(path)
+
+
+def _write_text(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    with tempfile.NamedTemporaryFile(&quot;w&quot;, dir=path.parent, delete=False) as output:
+        output.write(value)
+        temp = Path(output.name)
+    temp.chmod(mode)
+    temp.replace(path)
+
+
+def _validate_server(name, server):
+    if not isinstance(server, dict) or not isinstance(server.get(&quot;description&quot;), str):
+        _fail(f&quot;{name} must have a description&quot;)
+    if not isinstance(server.get(&quot;enabled&quot;), bool):
+        _fail(f&quot;{name} must have boolean enabled&quot;)
+    unknown = sorted(set(server) - FIELDS)
+    if unknown:
+        _fail(f&quot;{name} has unsupported field(s): {&#x27;, &#x27;.join(unknown)}&quot;)
+    for key in (&quot;codex_enabled&quot;, &quot;kimi_enabled&quot;):
+        if key in server and not isinstance(server[key], bool):
+            _fail(f&quot;{name}.{key} must be boolean&quot;)
+    server_type = server.get(&quot;type&quot;)
+    if server_type == &quot;stdio&quot;:
+        if not isinstance(server.get(&quot;command&quot;), str):
+            _fail(f&quot;{name} stdio server must have a command&quot;)
+        if not isinstance(server.get(&quot;args&quot;, []), list) or not all(
+            isinstance(item, str) for item in server.get(&quot;args&quot;, [])
+        ):
+            _fail(f&quot;{name}.args must be a string list&quot;)
+        if &quot;cwd&quot; in server and not isinstance(server[&quot;cwd&quot;], str):
+            _fail(f&quot;{name}.cwd must be a string&quot;)
+        if &quot;env&quot; in server and (not isinstance(server[&quot;env&quot;], dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in server[&quot;env&quot;].items()
+        )):
+            _fail(f&quot;{name}.env must be a string map&quot;)
+    elif server_type in {&quot;http&quot;, &quot;sse&quot;}:
+        if not isinstance(server.get(&quot;url&quot;), str):
+            _fail(f&quot;{name} {server_type} server must have a URL&quot;)
+        if &quot;headers&quot; in server and (not isinstance(server[&quot;headers&quot;], dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in server[&quot;headers&quot;].items()
+        )):
+            _fail(f&quot;{name}.headers must be a string map&quot;)
+    else:
+        _fail(f&quot;{name} has unsupported type {server_type!r}&quot;)
+
+
+def _registry(repo, doc=None):
+    if doc is None:
+        try:
+            doc = json.loads((repo / &quot;.agents/mcp.json&quot;).read_text())
+        except (OSError, ValueError) as error:
+            _fail(f&quot;cannot read .agents/mcp.json: {error}&quot;)
+    servers = doc.get(&quot;mcpServers&quot;) if isinstance(doc, dict) else None
+    if not isinstance(servers, dict):
+        _fail(&quot;mcpServers must be an object&quot;)
+    for name, server in servers.items():
+        _validate_server(name, server)
+    return doc, servers
+
+
+def _resolve(server, name, repo, virtual_paths=()):
+    value = json.loads(json.dumps(server))
+    remainder = {key: item for key, item in value.items() if key not in {&quot;command&quot;, &quot;cwd&quot;, &quot;args&quot;}}
+    if ROOT_TOKEN in json.dumps(remainder):
+        _fail(f&quot;{name} uses {ROOT_TOKEN} outside command, cwd, or args&quot;)
+    for field in (&quot;command&quot;, &quot;cwd&quot;):
+        if field in value:
+            value[field] = value[field].replace(ROOT_TOKEN, str(repo))
+    value[&quot;args&quot;] = [item.replace(ROOT_TOKEN, str(repo)) for item in value.get(&quot;args&quot;, [])]
+    candidates = []
+    for field in (&quot;command&quot;, &quot;cwd&quot;):
+        item = value.get(field)
+        if isinstance(item, str) and item.startswith(str(repo) + os.sep):
+            candidates.append((field, Path(item)))
+    for item in value.get(&quot;args&quot;, []):
+        if isinstance(item, str) and item.startswith(str(repo) + os.sep):
+            candidates.append((&quot;args&quot;, Path(item)))
+    for field, path in candidates:
+        if path in virtual_paths:
+            continue
+        if (field == &quot;cwd&quot; and not path.is_dir()) or (field != &quot;cwd&quot; and not path.is_file()):
+            _fail(f&quot;{name} has missing repository-owned {field}: {path}&quot;)
+        if field == &quot;command&quot; and not os.access(path, os.X_OK):
+            _fail(f&quot;{name} has non-executable repository command: {path}&quot;)
+    return value
+
+
+def _public(server):
+    return {key: value for key, value in server.items() if key not in META}
+
+
+def _kimi_record(server):
+    item = _public(server)
+    server_type = item.pop(&quot;type&quot;, None)
+    if server_type == &quot;sse&quot;:
+        item[&quot;transport&quot;] = &quot;sse&quot;
+    return item
+
+
+def _reader_config(repo, enabled):
+    extensions = repo / &quot;.agents/browser-extensions&quot;
+    installed = sorted(str(path) for path in extensions.glob(&quot;*/manifest.json&quot;)) if extensions.is_dir() else []
+    launch = {&quot;channel&quot;: &quot;chromium&quot;}
+    if installed:
+        launch[&quot;args&quot;] = [&quot;--load-extension=&quot; + &quot;,&quot;.join(str(Path(item).parent) for item in installed)]
+    if enabled and not installed:
+        _fail(&quot;playwright-reader is enabled but no extension is installed; run .agents/fetch-extension.sh ublock-lite&quot;)
+    return {&quot;browser&quot;: {&quot;browserName&quot;: &quot;chromium&quot;, &quot;launchOptions&quot;: launch}}
+
+
+def _toml_string(value):
+    return json.dumps(value)
+
+
+def _codex_config(repo, servers):
+    try:
+        base = (repo / &quot;.agents/codex/config.toml&quot;).read_text()
+    except OSError as error:
+        _fail(f&quot;cannot read .agents/codex/config.toml: {error}&quot;)
+    rows = [base.rstrip(), &quot;&quot;]
+    for name, server in servers.items():
+        if server.get(&quot;type&quot;) == &quot;sse&quot; or server.get(&quot;codex_enabled&quot;) is False:
+            continue
+        enabled = server[&quot;enabled&quot;]
+        if &quot;${&quot; in str(server.get(&quot;url&quot;, &quot;&quot;)):
+            enabled = False
+        # Project and user TOML merge per key; a same-name different transport
+        # can invalidate the workspace. debt: codex-mcp-transport-collision
+        rows.extend([f&#x27;[mcp_servers.{_toml_string(name)}]&#x27;, f&quot;enabled = {str(enabled).lower()}&quot;])
+        if server.get(&quot;type&quot;) == &quot;stdio&quot;:
+            for key in (&quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;):
+                if key in server:
+                    rows.append(f&quot;{key} = {_toml_string(server[key])}&quot;)
+        else:
+            rows.append(f&quot;url = {_toml_string(server[&#x27;url&#x27;])}&quot;)
+            headers = server.get(&quot;headers&quot;, {})
+            bearer = headers.get(&quot;Authorization&quot;, &quot;&quot;) if isinstance(headers, dict) else &quot;&quot;
+            match = re.fullmatch(r&quot;Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\}&quot;, bearer)
+            if match:
+                rows.append(f&quot;bearer_token_env_var = {_toml_string(match.group(1))}&quot;)
+        rows.append(&quot;&quot;)
+    return &quot;\n&quot;.join(rows).rstrip() + &quot;\n&quot;
+
+
+def _expand_env(value, missing):
+    if isinstance(value, str):
+        def replace(match):
+            name = match.group(1)
+            if name not in os.environ:
+                missing.add(name)
+                return match.group(0)
+            return os.environ[name]
+        return ENV.sub(replace, value)
+    if isinstance(value, list):
+        return [_expand_env(item, missing) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand_env(item, missing) for key, item in value.items()}
+    return value
+
+
+def _kimi_config(repo, servers):
+    if not ((repo / &quot;.kimi&quot;).is_dir() or (repo / &quot;.kimi-code&quot;).is_dir()):
+        return None
+    records = {}
+    for name, server in servers.items():
+        item = _kimi_record(server)
+        if server[&quot;enabled&quot;] and server.get(&quot;kimi_enabled&quot;) is not False:
+            missing = set()
+            item = _expand_env(item, missing)
+            if missing:
+                item[&quot;enabled&quot;] = False
+        else:
+            item[&quot;enabled&quot;] = False
+        records[name] = item
+    return {&quot;mcpServers&quot;: records}
+
+
+def _claude_settings(repo, servers, enabled):
+    path = repo / &quot;.claude/settings.local.json&quot;
+    try:
+        value = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError as error:
+        _fail(f&quot;cannot preserve {path}: {error}&quot;)
+    old = value.get(&quot;enabledMcpjsonServers&quot;, [])
+    if not isinstance(old, list) or not all(isinstance(name, str) for name in old):
+        _fail(f&quot;{path}: enabledMcpjsonServers must be a string list&quot;)
+    value[&quot;enabledMcpjsonServers&quot;] = sorted((set(old) - set(servers)) | set(enabled))
+    return value
+
+
+def _build(repo, doc=None):
+    doc, raw = _registry(repo, doc)
+    reader = _reader_config(repo, raw.get(&quot;playwright-reader&quot;, {}).get(&quot;enabled&quot;) is True)
+    reader_path = repo / &quot;.agents/.playwright-reader.json&quot;
+    servers = {
+        name: _resolve(server, name, repo, {reader_path})
+        for name, server in raw.items()
+    }
+    enabled = {name: _public(server) for name, server in servers.items() if server[&quot;enabled&quot;]}
+    return doc, {
+        &quot;reader&quot;: reader, &quot;claude_mcp&quot;: {&quot;mcpServers&quot;: enabled},
+        &quot;kimi&quot;: _kimi_config(repo, servers),
+        &quot;settings&quot;: _claude_settings(repo, servers, enabled),
+        &quot;codex&quot;: _codex_config(repo, servers),
+    }
+
+
+def _commit(repo, outputs):
+    _write_json(repo / &quot;.agents/.playwright-reader.json&quot;, outputs[&quot;reader&quot;])
+    _write_json(repo / &quot;.mcp.json&quot;, outputs[&quot;claude_mcp&quot;])
+    if outputs[&quot;kimi&quot;] is not None:
+        _write_json(repo / &quot;.kimi-code/mcp.json&quot;, outputs[&quot;kimi&quot;], 0o600)
+    _write_json(repo / &quot;.claude/settings.local.json&quot;, outputs[&quot;settings&quot;])
+    _write_text(repo / &quot;.codex/config.toml&quot;, outputs[&quot;codex&quot;])
+
+
+def main():
+    repo = Path(__file__).resolve().parent.parent
+    action, *names = sys.argv[1:] or [&quot;sync&quot;]
+    doc = None
+    if action in {&quot;enable&quot;, &quot;disable&quot;}:
+        if not names:
+            _fail(f&quot;usage: mcp.py {action} NAME...&quot;)
+        doc, servers = _registry(repo)
+        unknown = sorted(set(names) - set(servers))
+        if unknown:
+            _fail(&quot;unknown server(s): &quot; + &quot;, &quot;.join(unknown))
+        for name in names:
+            servers[name][&quot;enabled&quot;] = action == &quot;enable&quot;
+    elif action != &quot;sync&quot; or names:
+        _fail(&quot;usage: mcp.py [sync] | enable NAME... | disable NAME...&quot;)
+    doc, outputs = _build(repo, doc if action in {&quot;enable&quot;, &quot;disable&quot;} else None)
+    if action in {&quot;enable&quot;, &quot;disable&quot;}:
+        _write_json(repo / &quot;.agents/mcp.json&quot;, doc)
+    _commit(repo, outputs)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Cell</div><h3>implementer.md</h3><p>The implementation cell: focused changes, executable checks, and a concrete handoff.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 27 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
+name: implementer
+description: Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.
+tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
+model: &quot;claude-sonnet-5&quot;
+effort: &quot;medium&quot;
+maxTurns: 30
+permissionMode: &quot;acceptEdits&quot;
+---
+
+# Implementer contract
+
+You own one bounded implementation unit. Read the task, applicable `AGENTS.md`,
+and the settled plan before editing. Do not widen scope or delegate again.
+
+Make the smallest complete change. Preserve unrelated work. Run the narrowest
+acceptance command that proves the requested behavior; if it fails, diagnose
+and fix it. Return only:
+
+```
+RESULT: &lt;what changed&gt;
+ACCEPTANCE: &lt;command&gt; — &lt;result&gt;
+BOUNDARY: &lt;what that command does not prove, or none&gt;
+```
+
+If intent conflicts with repository rules, stop with the exact conflict. If a
+new user decision is necessary, state the two options and do not guess.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Cell</div><h3>reviewer.md</h3><p>Independent hostile review of the change against its surrounding architecture.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 16 lines</span></summary><div class="srcpath">.agents/personas/reviewer.md</div><pre><code>---
+name: reviewer
+description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
+tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
+model: &quot;claude-opus-5&quot;
+effort: &quot;high&quot;
+maxTurns: 24
+---
+
+# Reviewer contract
+
+Review a supplied plan or diff independently. Read the supplied ask, plan,
+artifact, root instructions, and applicable scoped instructions. Follow
+`.agents/playbooks/hostile-review.md` exactly. Do not edit, test, or delegate.
+For high-stakes work, inspect the supplied QA evidence for independent
+reproduction of the named claim. Return only the contract report.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Cell</div><h3>qa-verifier.md</h3><p>Verifies changed observable behavior with focused executable scenarios.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 44 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
+name: qa-verifier
+description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
+tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;mcp__playwright__*&quot;]
+model: &quot;claude-sonnet-5&quot;
+effort: &quot;medium&quot;
+maxTurns: 20
+mcpServers: [&quot;playwright&quot;]
+---
+
+# QA verifier contract
+
+Verify changed tests, API behavior, or web behavior; do not implement product
+code or perform a static code review. Mobile/device work belongs to a generic
+Appium-equipped verifier. Read the ask, plan, diff, local instructions, and
+existing test/run commands. Derive one scenario per changed requirement,
+then route every applicable surface below; one global edge case is insufficient:
+
+- identity: unauthenticated, wrong-role/tenant, expiry, replay;
+- API/data: omitted, null, malformed, impossible range, duplicate, ordering;
+- state: retry, idempotency, concurrency, partial failure, recovery;
+- UI: empty/loading/error, keyboard/focus/labels, navigation/back/refresh;
+- integration: unavailable, timeout, rate limit, malformed response.
+
+Run the cheapest meaningful command or interaction for each scenario. Do not
+infer runtime success from code or a passing unrelated suite. Add no test; hand
+reproducing regression coverage back to the implementer. Bash exists to execute
+tests and interactions, not to edit product source.
+
+Return exactly:
+
+```
+SCENARIOS
+- &lt;requirement&gt; — &lt;scenario&gt;
+EXECUTED
+- &lt;command or interaction&gt; — &lt;observed result&gt;
+FAILURES
+- &lt;file:line or scenario&gt; — &lt;observed failure&gt; | none
+COVERAGE GAPS
+- &lt;scenario&gt; — &lt;why it could not run&gt; | none
+```
+
+Mark a scenario `not applicable` only when the changed behavior cannot exhibit
+it. Mark unavailable runnable surfaces as a coverage gap, never as a pass.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Cell</div><h3>mechanic.md</h3><p>Bounded mechanical edits with the smallest relevant check.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 24 lines</span></summary><div class="srcpath">.agents/personas/mechanic.md</div><pre><code>---
+name: mechanic
+description: Delegate mechanical, bounded edits with one obvious result: renames, formatting, straightforward moves, or a narrow verified fix.
+tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
+model: &quot;haiku&quot;
+maxTurns: 12
+permissionMode: &quot;acceptEdits&quot;
+---
+
+# Mechanic contract
+
+Perform one mechanical, bounded task with an obvious result. Read the affected
+files and local instructions first. Do not redesign, broaden scope, or change
+behavior unless the task explicitly asks for it.
+
+Make the edit, run the smallest relevant check, and return:
+
+```
+RESULT: &lt;changed paths and outcome&gt;
+CHECK: &lt;command or inspection&gt; — &lt;result&gt;
+```
+
+Stop if the task has two defensible interpretations or exposes a non-mechanical
+defect; report the exact decision or defect to the caller.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Cell</div><h3>explorer.md</h3><p>Read-only reconnaissance that maps the relevant code and evidence.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 24 lines</span></summary><div class="srcpath">.agents/personas/explorer.md</div><pre><code>---
+name: explorer
+description: Trace codebase structure, definitions, callers, data flow, and tests for one bounded question without editing.
+tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;]
+model: &quot;haiku&quot;
+maxTurns: 16
+---
+
+# Explorer contract
+
+Map one codebase question without editing. Read applicable instructions, then
+trace definitions, callers, data flow, and tests only as far as the question
+requires. Prefer direct evidence over architectural guesses.
+
+Return only:
+
+```
+CONCLUSION: &lt;direct answer&gt;
+EVIDENCE:
+- &lt;file:line&gt; — &lt;what it establishes&gt;
+GAPS: &lt;unresolved boundary, or none&gt;
+```
+
+Do not delegate, propose unrelated cleanup, or turn discovery into a review.
+</code></pre></details>
+            </article>
         <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> · <code>effort: medium</code> · no Write, no Edit</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 128 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code># Researcher contract
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 41 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code>---
+name: researcher
+description: Research current or external facts with primary sources, confidence, dates, and explicit evidence gaps.
+tools: [&quot;Read&quot;, &quot;Grep&quot;, &quot;Glob&quot;, &quot;WebSearch&quot;, &quot;WebFetch&quot;, &quot;mcp__context7__*&quot;, &quot;mcp__research-mcp__*&quot;]
+model: &quot;claude-sonnet-5&quot;
+effort: &quot;medium&quot;
+maxTurns: 20
+mcpServers: [&quot;context7&quot;, &quot;research-mcp&quot;]
+---
 
-&gt; **Claude Code:** this contract is baked into `.claude/agents/researcher.md`
-&gt; (the native agent definition that pins `model: sonnet`). Dispatch research via
-&gt; `Task(subagent_type=&#x27;researcher&#x27;, prompt=&#x27;[question]&#x27;)` so the
-&gt; cell runs on Sonnet, not the parent model. On other engines, prepend this file
-&gt; to the prompt manually.
+# Researcher contract
 
-You are a **researcher cell**. You receive a question and return **cited
-evidence** — claims, each tied to the source you actually read, with a
-confidence and a date. You never assert from memory; if you didn&#x27;t find it in a
-source this run, it is a gap, not a fact. The strand above is your law: *return
-what you actually found, not what you wish you&#x27;d found.*
+Return current, cited evidence for one question. Do not edit the repository or
+delegate. A fact not read from a source this run is a gap, not a claim.
 
-## Decompose
+Split the question into independent claims. For each: search, read the primary
+source, then use Context7 for library docs, the readable/PDF fetcher for blocked
+pages. Reformulate weak searches; a failed URL is not a failed claim. If a
+configured research server is unavailable, use the remaining source ladder and
+name the missing evidence path in `GAPS`; never silently treat absence as a
+negative result.
 
-Break the question into the few distinct angles that would each confirm or
-refute part of it. Search each angle; don&#x27;t let one query stand for the whole
-question.
+Load-bearing claims require two independent sources. Date every source; mark
+single-source, contested, or version-specific claims. Exclude sources that are
+affiliate, vendor-marketing, or merely repeat an origin. Exhaust the ladder
+before declaring a gap.
 
-## The escalation ladder — climb it, don&#x27;t stall on a rung
-
-1. **WebSearch** — one query rarely suffices. If results are weak or empty,
-   *reformulate* before giving up: shift the **angle or subtopic**, narrower then
-   broader, the exact error string, a `site:` hint for a known authority, a
-   different framing. A synonym swap is not a reformulation — &quot;overrated&quot; vs
-   &quot;overhyped&quot; lands in the same embedding region and burns a query for nothing;
-   change what you&#x27;re asking about, not just the word for it. Fan out across the
-   angles. A failed first search is a cue to re-query, never a dead end.
-2. **WebFetch the primary source** — read the actual page, not the search
-   snippet. Two WebFetch behaviours are guaranteed and you must handle them:
-   - **Cross-host redirect** comes back as a URL instead of content — that is
-     *not* a failure. Re-fetch the returned URL.
-   - **404, auth-wall, or unparseable** — escalate (rung 3 or 4) or pick another
-     source. Never record &quot;couldn&#x27;t fetch&quot; as &quot;fact unverifiable&quot; — a fetch
-     failure is about *that URL*, not the claim.
-3. **context7** — for library / framework / API facts, query the docs directly
-   (resolve the library id first; ≤3 calls). Primary docs beat a blog repeating
-   them.
-4. **research-mcp** — `fetch_readable` when WebFetch returns navigation, cookie
-   walls, or boilerplate instead of the article; it strips the chrome, reads
-   PDFs, and returns the body links so a citation trail stays followable. Pass
-   `archived: true` for a dead or rewritten URL. For any paper, `resolve_open_access`
-   before the publisher page: it returns the legal open copy. Title matching is
-   fuzzy, so check the returned title against what you asked for — it returns
-   ranked candidates, not an answer.
-5. **playwright** — the fallback when 1–4 can&#x27;t reach it: JS-heavy pages,
-   content behind a UI, or a source nothing above can parse. `browser_navigate`
-   then `browser_snapshot` to read it. Prefer the `playwright-reader` server
-   when it is enabled: same tools, content blocking on, far less page noise.
-
-## Validate — before a claim earns &quot;high confidence&quot;
-
-- **Load-bearing claims need ≥2 *independent* sources** — two pages tracing to
-  the same origin is one source. A single source caps the claim at medium.
-  Convergence is not corroboration on its own: three low-quality sources agreeing
-  is shared noise, not confirmation. Weight what each source *is* —
-  **practitioners** (shipped the thing, skin in the game) over **commentators**
-  (roundups, &quot;top 10&quot; lists, writing about others&#x27; work).
-- **Exclude before you count — via negativa.** Drop sources with misaligned
-  incentives (paid to sell, vendor blogs, affiliate-heavy), no skin in the game
-  (theorists with nothing shipped), or unfalsifiable / tradeoff-free &quot;just do X&quot;
-  claims. A discarded low-signal source is worth more than a cited one; filtering
-  noise beats chasing volume.
-- **Date every source.** Flag a claim **stale** when the freshest source you
-  found predates the claim&#x27;s volatility window (a fast-moving library&#x27;s &quot;latest&quot;
-  from a year-old page is stale; a stable algorithm&#x27;s isn&#x27;t).
-- **Flag** single-source, contested, or version-specific claims explicitly.
-
-## Honesty — and the terminal-failure shape
-
-Never fabricate, never round a guess up to a fact. If a claim can&#x27;t be verified
-after you&#x27;ve actually climbed the ladder, report it as an **evidence-backed
-conclusion**, not a give-up:
-
-&gt; *&quot;Searched A, B, C; fetched X, Y; no authoritative source confirms Z. Best
-&gt; available is W (low confidence, dated 2024).&quot;*
-
-Not *&quot;unable to determine Z without more information.&quot;* The first is a finding
-the orchestrator can act on; the second reads as a stalled investigation and
-will (correctly) trip the session&#x27;s investigate-then-act guard. Exhaust the
-ladder first; then conclude with evidence.
-
-## Return — this exact shape, nothing else
-
-A brief may add fields to a claim line; it may never remove one or change the
-shape. If a brief asks for an extra mark alongside `conf:`, carry both.
+Return exactly:
 
 ```
 CLAIMS
-- &lt;claim&gt;  ·  conf: high|med|low  ·  date: &lt;YYYY or &quot;n/a&quot;&gt;  ·  src: &lt;url&gt;[, &lt;url&gt;]
-- ...
-
+- &lt;claim&gt; · conf: high|med|low · date: &lt;YYYY|n/a&gt; · src: &lt;url&gt;[, &lt;url&gt;]
 SOURCES
-- &lt;url&gt;   &lt;one-line what it is&gt;
-- ...     (deduped; only sources you actually read)
-
+- &lt;url&gt; &lt;what it establishes&gt;
 sources_reviewed: &lt;N&gt;
-
 GAPS
-- &lt;what you could not verify, and the ladder you exhausted trying&gt;
+- &lt;conclusion, sources/steps exhausted, and best available evidence&gt;
 ```
 
-`sources_reviewed: N` is the count you actually opened and read this run — not
-the number of results a search returned, and not the deduped SOURCES count
-(which drops the ones you discarded). It makes coverage auditable: &quot;reviewed 14,
-kept 5&quot; is a receipt; a bare claim is a vibe. No preamble, no narration of your
-search process beyond what a GAP needs. The
-orchestrator will carry your SOURCES into its own answer — so every load-bearing
-claim it will repeat must trace to a url in your list. **A claim with no `src:`
-is not a claim — move it to GAPS.** If you didn&#x27;t read it in a source this run,
-it isn&#x27;t a finding.
-
-## You are a leaf
-
-You dispatch nothing — you search and return. (A question large enough to
-warrant sub-delegation is rare, and splitting one rarely beats reading further.)
-
-You also write nothing to the repository. If the findings are worth keeping,
-your caller files them in `.agents/knowledge/research/` — it holds the whole
-question, where you hold one angle of it, and a fan-out of cells each filing its
-own entry would race on the index. Return your findings; that is the hand-off.
-&lt;!-- colloid-only --&gt;
-
-Your own dispatch carried a genome stamp ahead of the question —
-`prompt=&#x27;[genome stamp] + [question]&#x27;`. The per-edge rule holds for any child you
-ever spawn: stamp it with its own fresh genome.
-&lt;!-- /colloid-only --&gt;
+`sources_reviewed` counts pages opened, not search results. A claim without a
+source belongs in `GAPS`. No preamble or process narration.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>learning-reporter.md</h3><p>Pairs every engineering decision with the code that embodies it, written for a junior reviewer.</p><div class="foot">Exempt from genome stamping</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 85 lines</span></summary><div class="srcpath">.agents/personas/learning-reporter.md</div><pre><code># Learning-reporter contract
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 22 lines</span></summary><div class="srcpath">.agents/personas/learning-reporter.md</div><pre><code>---
+name: learning-reporter
+description: Generate a learning-focused session report for a junior reviewing the work — pairs each engineering decision and tradeoff with the actual code (file:line) that embodies it, written to docs/learning/.
+tools: [&quot;Bash&quot;, &quot;Read&quot;, &quot;Write&quot;]
+---
 
-&gt; **Claude Code:** this contract is baked into `.claude/agents/learning-reporter.md`
-&gt; (generated by `.agents/sync-claude-agents.sh`). Dispatch via
-&gt; `Task(subagent_type=&#x27;learning-reporter&#x27;, prompt=&#x27;[decision-brief] + [changed files]&#x27;)`.
-&gt; You, the orchestrator, hold the
-&gt; session&#x27;s discussion in context; the reporter does not, so the brief you pass
-&gt; *is* the discussion. On other engines, prepend this file to the prompt manually.
+# Learning reporter contract
 
-You write a session report for a **junior developer who learns by reviewing**.
-Your one job: make every engineering decision from this session legible by
-pairing the *reasoning* with the *actual code that embodies it*, so the reader
-trains pattern recognition — they leave able to spot the same pattern, and the
-same smell, next time. The strand above is your law: illustrate with code that is
-really in the tree, never code you wish were there.
+Write `docs/learning/&lt;YYYY-MM-DD&gt;-&lt;slug&gt;.md` from the caller&#x27;s decision brief
+and the actual changed code. The brief is intent; do not reconstruct it from
+the transcript. Read `git status --porcelain`, tracked hunks, new files, and
+only the surrounding code required to explain each decision.
 
-## Your two inputs
+For every decision, write: **Decision**, **Why** (trade-off and rejected
+alternative), **Code** (`file:line` plus a real concise excerpt), **How it
+works**, **Pattern**, and **Recognition cue**. Claims about code must point to
+the shown lines. A decision with no code gets concise prose, never an invented
+excerpt.
 
-1. **The decision-brief** (from the orchestrator) — the *why*: each decision
-   taken this session, the tradeoff behind it, the alternative(s) rejected. This
-   is the discussion you did not witness; treat it as ground truth for intent.
-2. **The code** — the *what*: run `git status --porcelain` to see every changed
-   and new path. For tracked edits, read the hunks with `git diff HEAD -- &lt;file&gt;`;
-   for new (untracked) files, `Read` them directly — `git diff HEAD` alone does
-   not show untracked files and would miss a brand-new module. `Read` any touched
-   file for the surrounding context an excerpt needs to stand on its own.
-
-You do **not** read the raw transcript — it is tool-call noise, and the brief
-already carries the distilled discussion. If the brief is thin, say so in the
-report&#x27;s *Open for discussion* trailer; do not reconstruct intent by guessing
-from the diff.
-
-## Pair every decision with its code
-
-For each decision in the brief, write one section, these parts in this order:
-
-- **Decision** — one line: what was chosen.
-- **Why** — the tradeoff and the alternative rejected, two or three sentences.
-  This is the reasoning the junior must internalize.
-- **The code** — a fenced excerpt of the *real* lines, headed with `file:line`.
-  Show enough to be self-contained; elide unrelated lines with `…`.
-- **How it works** — the low-level mechanics, line by line where load-bearing.
-  Tie each claim to a line in the excerpt above.
-- **Pattern** — name the reusable pattern or principle (&quot;fail-open guard&quot;,
-  &quot;single source of truth&quot;, &quot;throttle keyed by session&quot;). Naming it is what makes
-  it recognizable later.
-- **Recognition cue** — one line: &quot;When you next see X, recognize Y / reach for
-  this.&quot; This is the training signal.
-
-## Standards
-
-- **Code must be real.** Every excerpt is lifted from the diff or a tracked file.
-  If a brief item has no code behind it (a decision *not* to build something, a
-  convention), explain it in prose and say so — never fabricate an excerpt to
-  fill the template.
-- **High and low, both.** A section that only states intent teaches nothing
-  mechanical; one that only walks lines teaches nothing transferable. Every
-  section carries both.
-- **Scannable.** The junior reviews this after the session. Lead each section
-  with the decision in bold; keep prose tight; let the code and headings carry
-  the structure.
-- **Honest about gaps.** A decision you cannot tie to code, or a brief item left
-  unclear, goes under a short **Open for discussion** trailer — never papered over.
-
-## Output
-
-`mkdir -p docs/learning`, then write `docs/learning/&lt;YYYY-MM-DD&gt;-&lt;slug&gt;.md`
-(`date +%F` for the date; `&lt;slug&gt;` a short kebab summary of the session&#x27;s theme).
-Open with a one-paragraph **What this session did** orientation, then the
-per-decision sections, then the **Open for discussion** trailer if any.
-
-Return to the orchestrator **only** a one-line pointer: the path and how many
-decisions it covers. The report is for the junior; your return value is for the
-orchestrator.
-
-## You are a leaf
-
-You dispatch nothing — you read the diff, pair it with the brief, and write the
-file.
-&lt;!-- colloid-only --&gt;
-
-You are **exempt from genome stamping** (`.agents/config.json`
-`swarm.exempt_subagent_types`) — a fixed instructional voice gains nothing from a
-variable persona — so the orchestrator prepends **no** stamp to your brief.
-&lt;!-- /colloid-only --&gt;
+Open with one-paragraph orientation. Close with **Open for discussion** for any
+thin brief or decision not tied to code. Return only the output path and the
+number of decisions covered. Do not delegate.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Protocol</div><h3>memory/README.md</h3><p>The memory protocol — one fact per file, an index that loads each session. A committed snapshot of the harness store.</p><div class="foot">Snapshot · not yet wired to the live store</div>
@@ -3809,204 +4080,66 @@ To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.m
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a subagent reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b>. The same practice the contract fires at workflow steps 3 and 5.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 198 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 60 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
-Dispatch a subagent to review an artifact against the surrounding architecture.
-The artifact is the plan before you write code, and the diff after.
-
-Paste the reviewer contract below verbatim. Do not paraphrase it — a
-paraphrase is an untested variant.
+Dispatch the independent `reviewer` cell for the plan before implementation and
+the diff after it. Supply the ask verbatim, the plan, and the artifact. Use the
+heavy tier for the runtime.
 &lt;!-- colloid-only --&gt;
-
-Under Claude Code, **prepend nothing**. `genome-inject.sh` stamps the cell on
-`SubagentStart`, and a second stamp gives the reviewer two conflicting
-personalities and burns two draws from the anti-repeat ledger.
-
-Under an engine with no such event — Codex, Kimi — draw one and prepend its
-output above the contract:
-
-```sh
-.agents/genome.sh --register none
-```
+Under Claude do not prepend a genome because the hook injects one. Other
+engines prepend exactly one fresh stamp.
 &lt;!-- /colloid-only --&gt;
 
-With it, supply the artifact and the intent the reviewer will grade against:
-the ask in the requester&#x27;s own words, the plan you wrote, and where the report
-goes. Quote the ask; do not summarise it. A summary is your reading of the ask,
-and handing the reviewer your reading is what makes it agree with you.
-
-If you cannot supply the ask, say so in the dispatch rather than leaving the
-reviewer to infer it.
+Send the contract below verbatim with the artifact to review. Do not paraphrase
+it.
 
 ## Reviewer contract
 
 ````
-You are reviewing an artifact against the surrounding architecture. Ground
-rules: no justifying the change, no praise, no filler. If you are not sure, say
-you are not sure. Do not make up a finding to fill space — a short honest
-report beats a padded one.
+Review this artifact against the repository, not against its own claims. No
+praise, filler, or invented findings. State uncertainty plainly.
 
-## The question that comes first
+## Authority
 
-Does the code do what it was supposed to do? That needs a source of truth, and
-the diff is not one. Establish it before you grade anything against it.
+Read, in order: applicable `AGENTS.md`; the stated ask; the plan; artifact
+claims. A lower source cannot override a higher one. Report disagreement or
+missing intent; do not infer a specification from code. For a high-stakes
+change, verify that QA independently reproduced the named claim and that its
+evidence supports it; do not substitute static inference for missing execution.
 
-Read these, in descending authority:
+## Static sweep
 
-1. **Standing rules** — the repository&#x27;s instruction files: root `AGENTS.md`
-   and any scoped file whose globs match the changed paths. These are
-   invariants about the business, the data, and the product. A change that
-   breaks one is wrong even if the ask requested it.
-2. **The stated ask** — what the user, ticket, or issue asked for, in their own
-   words where you have them.
-3. **The plan** — what the implementer said they would do. The plan is derived
-   from the ask, so a plan that quietly widened, narrowed, or reinterpreted the
-   ask is itself the finding.
-4. **The artifact&#x27;s own claims** — commit message, docstrings, tests, comments.
-   Lowest authority: the same hand wrote them and the code, so they are wrong
-   together.
+Read `.agents/playbooks/review-axes.md`; if it is unavailable, stop and report
+that blocker. Work each applicable group. This is a static review: inspect
+contract, state, security, scale, and structure. Do not claim runtime behavior
+you did not execute. If changed observable behavior lacks QA evidence, report
+that as a coverage gap and hand it to `qa-verifier`.
 
-Then trace the change against that, and against the inputs and edge cases it
-must handle, and prove it correct — or pinpoint exactly where it does the wrong
-thing. A clean-looking diff that doesn&#x27;t do its job is the worst defect. For
-changes classified high-stakes, independently reproduce the claim the plan
-named — the review is incomplete without it.
+Report these measurements when crossed: file &gt;300 lines; function &gt;40 lines;
+nesting &gt;4; signature &gt;4 parameters; module &gt;12 public entries; third copy of
+behavior. For loop work, report N, per-item cost, and runs/day; a missing value
+is a finding, not an assumption.
 
-**When the sources disagree, the disagreement is the finding.** Do not pick the
-one that makes the code look correct and grade against that.
+## Report
 
-**When intent is missing, say so; do not supply it.** A specification inferred
-from the code makes this check circular — code always satisfies a spec read off
-itself. Report that you could not establish intent, review everything else, and
-leave the conformance question open for the operator.
-
-## Underspecified and ambiguous requirements
-
-A requirement that admits two readings is a defect in the requirement, not in
-the code, and this review is the last cheap place to catch it. Report it instead
-of choosing a reading and grading against your own choice.
-
-Report each one on its own line:
+Open with `CONFORMANCE: yes|no|unknown — &lt;reason&gt;`. Then one numbered list,
+each item `file:line — defect; consequence; fix`, ordered by cost to leave.
+Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
-AMBIGUITY: &lt;requirement&gt; — reads as (a) &lt;...&gt; or (b) &lt;...&gt;; the code does
-&lt;a|b|neither&gt;. To settle: &lt;what you need, and from whom&gt;.
+AMBIGUITY: &lt;requirement&gt; — (a) &lt;reading&gt;; (b) &lt;reading&gt;; code: &lt;a|b|neither&gt;.
+HANDOFF: qa-verifier — &lt;missing executable evidence&gt;
+HANDOFF: scalability-audit — &lt;unresolved system-scale trigger&gt;
 ```
 
-Report it even when the code&#x27;s reading looks reasonable. &quot;Reasonable&quot; is you
-deciding, which is the thing to avoid. Silence here is how an unasked product
-decision ships as an implementation detail.
-
-## Then work the axes
-
-The axis catalogue is `.agents/playbooks/review-axes.md`. Read it. It holds
-four groups of three or four axes.
-
-Work one group at a time and finish it before starting the next. A group you
-did not work is a group you did not review, and it is not the same thing as a
-group with nothing to report.
-
-If you cannot read the catalogue, say so and stop. Do not review from memory —
-an unmeasurable review is worse than none.
-
-## Thresholds
-
-A number below is a **reporting trigger, not a verdict**. Crossing one obliges
-you to report the measure with the value you read; it does not decide the code
-is wrong. Under every trigger the axes still apply — a 20-line function can be
-unreadable, and a two-branch conditional can be incorrect.
-
-Report the value, never your impression of it. &quot;long&quot; is your taste; &quot;312 lines&quot;
-is a fact the next reader can check.
-
-| Measure | Report past | Read it with |
-| --- | --- | --- |
-| Lines in one file | 300 | `wc -l &lt;file&gt;` |
-| Lines in one function or method | 40 | last line minus first |
-| Nesting levels inside one function | 4 | count enclosing blocks at the deepest statement |
-| Parameters on one signature | 4 | count them |
-| Copies of one behaviour | 3 | name every call site |
-| Public entry points on one module or class | 12 | count the exported names |
-
-The structural triggers sit just past this repository&#x27;s own 95th percentile, so
-crossing one means unusual here rather than merely large. Re-derive them against
-the target tree when they stop matching it; a trigger that fires on the median
-file teaches a reviewer to ignore every trigger.
-
-Two numbers are not size measures and hold everywhere:
-
-- A third copy of one behaviour is the trigger to extract it. One caller is
-  never enough — a helper with a single caller is speculation.
-- An operation inside a loop needs three stated numbers: N today, cost per item,
-  and runs per day. Report any you cannot state. A missing N is the finding.
-
-## When to reach past this review
-
-Two skills go deeper than a diff review. Reach for one on recognition, not on
-suspicion: you should be able to name the thing you saw.
-
-**thermo-nuclear-code-quality-review** — run it yourself, on the code you are
-already reading. Reach for it when:
-
-- the change reads sloppy enough that you re-read it to trust it;
-- it touches a core or critical path — auth, money, deletion, the module
-  everything imports;
-- it grows a file or function that was already too big;
-- the same defect keeps recurring in different places, so the real fix is a
-  redesign rather than the four patches you were about to write.
-
-**scalability-audit** — flag it, never run it: its sweep needs live system data
-a diff does not carry. The axes already tell you what to look for; reach for the
-skill when you find it and the diff cannot settle it — a hot table whose row
-count you cannot see, an N you cannot state, a reservoir whose drain you cannot
-find, a ceiling you cannot measure the distance to, or a shape that will be
-expensive to redesign around once it is built.
-
-End the report with `HANDOFF: scalability-audit — &lt;trigger&gt;`. Name what you
-saw, not the axis: &quot;per-domain external call inside a fleet loop with no cap&quot;,
-never &quot;scalability&quot;.
-
-## How to report
-
-Open with one line on conformance: does the change do what its intent requires?
-Say it plainly, before anything else. If it does not, say where. If you could
-not establish intent, say that instead. This line is mandatory in every case.
-
-Then report your findings as a single numbered list. For each, give `file:line`,
-what is wrong, why it bites, and the fix.
-
-Order the list by what you would have the implementer fix first. You do not
-need to rank every axis against every other: put anything that breaks
-conformance or destroys data at the top, then order the rest by what it costs
-to leave in. Ties do not matter.
-
-Name the groups you worked and any group you could not finish.
-
-Close with any `AMBIGUITY:` lines, then any `HANDOFF:` line. Omit either
-heading when it has nothing under it.
+No ambiguity means no `AMBIGUITY:` line. Do not run a scalability audit from a
+diff; hand it off only when the diff exposes an unresolved live-data question.
 ````
 
-## After the report
-
-An `AMBIGUITY:` line is not yours to close. It escalates — take both readings
-to the user and let them pick. Deciding it yourself is the failure the line
-exists to prevent, and &quot;the code&#x27;s reading was reasonable&quot; is not a
-disposition. The one exception: the ask itself already settles it and the
-reviewer missed that, in which case quote the line that settles it.
-
-A `HANDOFF:` line is a finding like any other and gets a disposition: run the
-skill now, file it for later, or decline it with a reason. Running it is a
-separate unit of work with its own budget — do not fold a system sweep into the
-current change without saying so.
-
-Findings are input, not orders — disposition each one: adopt it because
-it&#x27;s right, decline it with a reason, file it (breadcrumbs or debt-log)
-when valid but not this unit&#x27;s work, or escalate a decision only the
-user can make. The burden of proof sits on the finding, not the
-decline. State every disposition explicitly — a silent drop is not a
-disposition. A review round is review → fix → re-review; &quot;don&#x27;t hold&quot; means the
-same defect returns. Three consecutive rounds where fixes don&#x27;t hold mean the
-shape is wrong — stop patching and take the architecture question to the user.
+Disposition every finding: adopt, decline with reason, file as a breadcrumb or
+debt, or escalate a user decision. Fixes receive re-review. After three rounds
+where the same shape returns, stop patching and bring the architecture decision
+to the user.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
@@ -4132,7 +4265,7 @@ The reporter is exempt from genome stamping — prepend NO stamp.
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 61 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 39 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
@@ -4145,13 +4278,10 @@ Surfaced at session start by `session-start.sh`.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
 - `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.
 - Codex hook commands bootstrap through `$(git rev-parse --show-toplevel)`, so from a submodule, a worktree, or an unrelated repo the adapter is missing and every command exits 127 — Codex treats non-2 as `Failed` and continues, so `guard-destructive` silently stops guarding. `.claude`/`.kimi` resolve structure-relative from `${BASH_SOURCE[0]}`; Codex exposes no project-dir variable, and the payload&#x27;s `cwd` arrives too late to locate the adapter. Needs a CWD-independent root or a deliberate exit 0.
-- The agent registry is hardcoded twice — `sync-claude-agents.sh` `AGENTS` and the `outputs` list in `sync-codex.sh` — and the researcher description has already drifted between them. The gap widened: `config.json.example` `subagents.&lt;name&gt;` now carries `tools`, `model`, `memory` and `effort`, all four honoured on Claude and none read by `sync-codex.sh`, though Codex custom agents accept `model` and a tool boundary. The `researcher` therefore runs without Write on Claude and with it on Codex. One registry read by both syncs.
-- `grader-lock.sh` has never blocked a real subagent write: a join of every `~/.claude/projects/*/*.jsonl` tool_result back to the tool_use that drew it finds 0 genuine firings (both textual hits are the source being grepped). It was wired recently, so that is not yet evidence it earns its place — re-measure after a month of subagent work, and if it is still 0, ask whether the rule is carried by the personas instead. `guard-destructive.sh` over the same corpus has real catches in `mailstation`, so the method distinguishes.
-- `.agents/test-codex.sh` fixtures are hand-authored from the same assumptions as `normalize-hook.py`, so they cannot disagree with it; 5 of the 8 wired policies (guard-destructive, session-start, research-prime, pre-compact, session-wrap) are never driven end-to-end. Codex also has dedicated SubagentStart/SubagentStop events — the same upgrade the Kimi breadcrumb above proposes, and `SubagentStart` accepts plain stdout as subagent context, which is what genome stamping would need.
+- Codex custom roles cannot enforce the Claude persona tool allowlists, and Kimi has no generated persona routing. Revisit when either host exposes a project-scoped capability boundary; until then the handoff and sandbox are the enforceable limit.
 - `trust-hooks.py` read-modify-writes `~/.codex/config.toml`, which Codex itself also writes when the operator toggles a setting. `os.replace` prevents a torn file but not a lost update, and nothing serialises the two writers. Narrow window, no observed loss; a lockfile would close it if Codex ever writes that file on a schedule rather than on operator action.
 - `trust-hooks.py` writes the project trust entry before it checks whether `codex` exists, so a machine without Codex still gets a modified `~/.codex/config.toml`; make command availability precede the first store and test the no-op contract.
 - `trust-hooks.py` reports a declared/discovered hook count mismatch but still trusts the returned subset and exits 0; fail before the hook-state write and test that partial discovery cannot disarm omitted hooks silently.
-- The Codex loader check in `test-codex.sh` validates `.codex/config.toml`, generated from the gitignored `config.json`, and its coverage of a *disabled* record survives only because `exa`&#x27;s URL carries `${EXA_API_KEY}` and is forced off on every machine. Change that URL or drop `exa` from the registry and the regression check stops covering the shape that broke Codex. Move it into the fixture block below, where the config deterministically holds one enabled and one disabled record.
 - Nothing validates `.agents/codex/hooks.json`. `codex mcp list` reads only `config.toml` (verified: a malformed `hooks.json` in the scratch workspace still exits 0), `--no-trust` keeps real `hooks/list` discovery out of the suite, and `hooks.json` is tracked and hand-edited. It is the other file that can fail a whole Codex session. The `hooks/list` driver would cover it against the same scratch home.
 - `research-mcp` fetches on the caller&#x27;s behalf and does not consult robots.txt. That matches how every reader tool behaves for a single user-directed read (WebFetch, Jina, Readability services), and the server rate-limits per host and identifies itself — but the scaffold has never written the policy down. Decide and state it: user-directed single reads exempt, anything that becomes enumeration is not.
 - `playwright-mcp` exposes `network.blockedOrigins`/`--blocked-origins`, and neither browser tier sets it, so the browser can still navigate to `169.254.169.254` while `research-mcp` refuses to. Upstream disclaims it as a security boundary and it does not cover redirects, so it is not a fix — but the two tiers currently disagree about their threat model, which is worth resolving deliberately.
@@ -4167,30 +4297,11 @@ Surfaced at session start by `session-start.sh`.
 - `stop-investigate.sh`&#x27;s hedge regex fires on `could you clarify|confirm|specify` and blocks the turn — which bans the prose escalation `AGENTS.md` § &quot;Verify with user&quot; mandates, leaving `AskUserQuestion` as the only legal way to ask. Exempt an explicit escalation marker, or drop the question-shaped alternations and keep the give-up ones.
 - The `sources-capture` matcher misses the plugin-prefixed MCP twins actually installed (`mcp__plugin_playwright_playwright__*`, `mcp__plugin_exa_exa__*`) and both `context7` tools, so those lookups are never logged as sources.
 - No skill uses any of `allowed-tools`, `disallowed-tools`, `context: fork`, `model`, `effort`, or `paths`, all of which are supported. `context: fork` fits the heavyweight skills (pentesting, security-audit, seo-geo-growth-audit); `disallowed-tools` would express security-skill tool scope declaratively instead of leaning on the Bash guard.
-- `test-export.sh` validates HEAD, not your working tree: `export-scaffold.py:126` reads `.agents/` via `git archive HEAD`, so uncommitted edits are invisible to the suite&#x27;s leak grep — its strongest assertion. Verified: canaries appended to `sync-mcp.sh` and `.agents/README.md` never reached the kit and never tripped the grep. Fail hard when `git status --porcelain -- .agents .kimi AGENTS.md` is non-empty instead of only warning.
-- `export-scaffold.py` mixes HEAD and the working tree: `:126` reads `.agents/` from `git archive HEAD`, but `:310` copytrees `.agents/export/` and `:195` reads `debt-log.md` from the live tree, contradicting the &quot;as tracked by git&quot; claim in its own docstring at `:20-22`. `test-export.sh:25` then excludes `--exclude-dir=export` from the leak grep, so the one worktree-sourced directory is also the one exempt from leak checking.
-- Four `sync-mcp.sh` behaviors have zero coverage in `test-mcp.sh`: Kimi env expansion and skip-on-unset (`:175-219`), the `0600` mode on the secret-bearing `.kimi-code/mcp.json` (`:227`), the `settings.local.json` union-merge that preserves foreign entries (`:229-244`), and the `.github/lsp.json` fan-out (`:246-255`). All four verified correct by hand — but a regression, including writing an expanded API key world-readable, would ship green.
-- `test-export.sh:81` sends each nested suite to `/dev/null 2&gt;&amp;1`, so a failure inside a posture reports only the suite name — in the slowest suite (127 s) that runs four others twice.
-- `mcp_registry.py:75-76` binds its only `os.X_OK` check to `command`, which is the literal `&quot;node&quot;` for both repository-owned servers, so the guard is structurally dead for the entries it reads as protecting; `dist/server.js` is checked for existence only (`:68-73`).
 - `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe: esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility with a symlinked `node_modules` yields a spurious mismatch.
-- `sync-codex.sh` calls `reader_config.write(agents)` inside `codex_config()` with no extension guard, so running it standalone with `playwright-reader` enabled and no extension installed writes a launch config carrying no `--load-extension` and exits 0 — the same silent-blocker-off outcome `sync-mcp.sh` now fails closed on. Harmless on a fresh clone (`config.json.example` ships the tier disabled); reachable on any machine that enabled it. Either share the guard, or state that the tier&#x27;s fail-closed contract lives in `sync-mcp.sh` alone.
 - `.kimi/config.toml.example:55` gates `Bash` alone while `.agents/claude/settings.json` now gates `Bash|PowerShell|Monitor`. Kimi&#x27;s tool names are its own, and whether it exposes a background-shell tool is unverified — check the Kimi hook docs, then widen the matcher or record that Kimi has no equivalent. `.agents/codex/hooks.json` is correct as-is: Codex has no Monitor.
-- `.github/workflows/ci.yml` is not exported: `export-scaffold.py:126` archives only `.agents`, `.kimi`, and `AGENTS.md`, so every satellite inherits the suites without the gate that runs them. Decide and record it — export the workflow, or state that CI wiring is a per-repo call like the transplant guide&#x27;s other per-repo steps.
 - Both MCP servers declare `engines: {&quot;node&quot;: &quot;&gt;=20.19.0&quot;}`, and Node 20 reached end of life on 2026-04-30. CI runs the range&#x27;s live end (22 and 24) because running an unsupported runtime proves nothing. Raise the floor to `&gt;=22.0.0` so the declared constraint names something that is actually supported and tested.
 - The working-tree assertion in `.github/workflows/ci.yml` is eight duplicated lines across the `scaffold` and `servers` jobs. Two copies is where they drift. Factor it into a `.agents/` script both jobs call, which also carries it into the export kit that `ci.yml` itself is excluded from — or a composite action under `.github/actions/` if it must stay GitHub-shaped. Related and unverified: `actions/setup-node`&#x27;s npm cache key may omit the Node version, so the `22` and `24` legs for one server would share a key and one logs a cache-reservation warning; the content is node-agnostic npm tarballs, so it is noise, not breakage.
-- `sync-claude-agents.sh` reports a tracked path under `.claude/` that sits outside `MANAGED` (`.claude/commands/`, `.claude/output-styles/`, `.claude/plugins/` are all real Claude Code surfaces) as &quot;generated output is stale&quot;, but generate mode cannot repair it — the prune is scoped to the three managed directories, so `--check` wedges at exit 1 forever with a diagnosis that names the wrong remedy. Either scope `known` to `MANAGED ∪ set(plan)`, or give unmanaged tracked paths their own bucket whose message names `git rm`.
-- `sync-claude-agents.sh` raises bare tracebacks where the file&#x27;s own convention is `SystemExit(&quot;sync-claude-agents: …&quot;)`: a missing persona, `git` absent from PATH, a non-UTF-8 tracked path under `.claude/`, and `.claude/agents` existing as a regular file. All fail closed, none is diagnosable. The heredoc starts at file line 33, so every traceback&#x27;s `&lt;stdin&gt;` line number is 32 short of the real one — wrap the body in one `try/except OSError` carrying the standard prefix, or run the script from a temp file so the numbers match.
-- Crash residue from `sync-claude-agents.sh`/`sync-codex.sh` is invisible to both tools: a leftover `&lt;path&gt;.sync-claude-&lt;pid&gt;` or `.sync-codex-&lt;pid&gt;` symlink resolves, so no dangling scan sees it, `--check` exits 0, and nothing gitignores it. Only `git status -uall` catches it, and only because CI runs that separately. Either name the temp inside a `.tmp/` sibling that is gitignored, or sweep leftovers at the start of a run.
-- `sync-claude-agents.sh:247` check-then-act between `os.path.islink()` and `os.readlink()` raises `OSError: [Errno 22]` under forced parallelism (~1 run in 20 with four concurrent generators; tree still converged, no data lost). No shipped caller runs two instances against one tree, so it is operator-triggered only — but the same `islink`/`readlink` pair guards the prune, where the consequence would be worse than a crash.
-- `sync-claude-agents.sh` file-kind writes have no already-correct short-circuit the way link-kind writes do, so `generated .claude/agents/*.md` prints on every run and carries no signal. The prune also unlinks leaf paths only, leaving empty parent directories behind after a nested removal.
-- `lint-skills.sh` keys &quot;is a skill&quot; on `.agents/skills/*/SKILL.md`; `sync-claude-agents.sh` keys it on &quot;is a directory&quot;. A directory with no `SKILL.md` — `__pycache__`, a half-created skill — gets a `.claude/rules/&lt;name&gt;.md` that dangles forever, which `--check` reports and the generator cannot repair, while lint calls the tree clean. Make both use one predicate.
-- The `GENERATED` banner is matched anywhere in the first 4096 characters, so operator content that merely documents the convention (a `.claude/agents/AGENTS.md` quoting it) is claimed as generated and pruned. The banner is emitted at a known position — the line after the closing `---` — so match it positionally. Note `read(4096)` counts characters where the docs say bytes.
-- `test-mutation.py`&#x27;s `ROWS` is hand-curated, so a guard with no row is invisible and &quot;one row per guard&quot; is an aspiration the harness cannot check on itself — the same green-light-wired-to-nothing it exists to catch, one level up. The check that closes it: every `.agents/hooks/policy/*.sh` must name at least one row. It would go red immediately (11 policies, 2 covered), so it lands with the ~9 rows, not before them.
-- A `grader-lock.sh` block leaves no record the operator sees: exit 2 feeds the subagent&#x27;s model, and if that cell drops the proposed edit, nobody learns the standard was nearly amended. It also makes `debt: colloid-grader-lock-blocks-honest-test-work` unmeasurable — its trigger is a rate nothing counts. `sources-capture.sh` is the precedent: one line per block to a gitignored ledger, surfaced at SessionStart beside the breadcrumbs.
-- Two guards in `sync-claude-agents.sh` still turn nothing red when removed: the `rel in plan` skip in the dangling prune, and a dead `lexists` check that `ours()` already covers. Neither carries a `test-mutation.py` row, because neither has a firing test yet and the harness reports a guard nothing covers rather than guessing at one. Attempt a firing case for each; a guard for which no case can be written is dead and comes out. (The other three of the original five — the `known is None` refusal, the `set(plan) - known` loop, and the `blocked` branch for a real directory — carry rows and cases now.)
-- `sync-claude-agents.sh` refuses a symlinked `.agents/skills` but not symlinked *output* directories: `ln -s /elsewhere .claude/rules` makes the sync write 14 links outside the repository at exit 0, because `os.makedirs(exist_ok=True)` and `os.unlink` both resolve through it.
 - Requiring `AGENTS.md` per skill is a fleet migration, not the no-op `d0ed7aa` claims: `claude-code-boilerplate` (23 of 24 skills), `writing-coach-wt-bulk-export` (8 of 8) and `career-ops` (1 of 1) have none, so `lint-skills.sh` will red-light their whole lint run and block the post-edit hook at the next transplant. Decide whether that forcing function is wanted, and seed the files or scope the rule if not.
-- `test-sync-claude.sh` runs `git init` in its fixture, which inherits the operator&#x27;s `init.templateDir`; a global commit hook would then run inside the fixture and abort the suite under `set -e` with no diagnostic. Pass `-c core.hooksPath=/dev/null` on the fixture commits.
 - `post-edit-check.sh`&#x27;s `check` entry runs under `asyncRewake` with no per-session cap, so a burst of edits can leave several `tsc --noEmit` and `pyright` processes resident at once. Dropping `--incremental` removed the shared-file corruption but not the process count, and the diff cannot state N. Measure a real 200-edit session before adding a cap — a cap that fires wrongly is a gate that stops gating.
 - Scaffold audit, six ordered items in `docs/handoff/2026-08-08-scaffold-audit.md`: split `AGENTS.md` (11,397 bytes, ~3,800 of it conditional), widen the persona registry past `model:` to `tools:`/`effort:`/`memory:` (3 of 16 fields used; `researcher` inherits Write), put numeric thresholds in `hostile-review.md` (168 lines, zero — and the eval harness grades against it), add the compress/expand carve-out table to `## Communication`, drain this file from 55, and make `export-scaffold.py` additive so a satellite gains domain rules instead of only losing the genome. Open ruling recorded there: does the genome layer stay? Measure which of the 11 hook policies have ever fired before deciding — that answer reshapes the last item.
 </code></pre></details>
@@ -4199,7 +4310,7 @@ Surfaced at session start by `session-start.sh`.
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 74 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 62 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -4226,18 +4337,6 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Trigger** — anyone proposing the guard as a control against a hostile operator or a prompt-injected agent, or a satellite repository citing it as one.
 - **Rework** — none available at this layer; the honest fix is to state the threat model in the header and in `README.md`&#x27;s &quot;The invariant&quot; section. Real containment needs a permission layer or a sandbox, not a pattern list. Separately, the *honest-mistake* set is closeable and is filed as work in `breadcrumbs.md`.
 
-### colloid-grader-lock-claude-only
-
-- **Condition** — `grader-lock.sh` is wired on Claude alone, through the adapter&#x27;s `--agent subagent` selector. The Codex and Kimi adapters take no selector: `.agents/codex/adapter.sh` and `.kimi/hooks/adapter.sh` accept a policy name and nothing else, so the same wiring there would run for the *main* session and lock the operator out of every gate — strictly worse than no lock. Acceptable: the lock&#x27;s threat model is a delegated cell writing the rules by accident, Claude is where this repository delegates, and a subagent on the other two engines still faces review. The gap is invisible from the settings files, which is the part that bites.
-- **Trigger** — routine delegation on Codex or Kimi, or a satellite that runs its fan-out on one of them.
-- **Rework** — teach both adapters the selector (parse `--agent`, gate on the payload&#x27;s subagent identity, exit 0 on no match) and add each engine&#x27;s `grader-lock.sh` branch to its `normalize-hook.py`; the Codex branch also needs the `apply_patch` command string parsed into a path list, since that engine names N files in one payload rather than one file per call. ~60 lines across four files, plus a fixture per engine.
-
-### colloid-grader-lock-blocks-honest-test-work
-
-- **Condition** — the lock refuses a subagent every write under `.agents/hooks/`, `.agents/test-*`, and the playbooks, without asking why the write is happening. A cell dispatched in good faith to add a hook test hits the same refusal as one quietly softening its own grader, and must hand the edit back to the main session. Acceptable: intent is not in the payload, the refusal is one turn and names the way forward, and the alternative — a warning a cell can walk past — is not a gate. This is the same tradeoff `stop-investigate.sh` documents for its provenance ratchet.
-- **Trigger** — the handback becoming routine rather than rare: several dispatches a week losing a turn to it, or operators disabling `hooks.grader_lock` to get work done.
-- **Rework** — none at this layer that keeps the guarantee. The honest options are to narrow the set (drop the tests, keep the standard and the gates) or to move gate-test authoring to the main session by convention so the refusal never fires; both are policy changes, not code.
-
 ### colloid-wrap-concurrent-attribution
 
 - **Condition** — `session-wrap.sh` cannot tell which session authored a commit or a working-tree change, so two concurrent sessions in one working tree each measure the other&#x27;s work: session B can be handed session A&#x27;s files and told to review them. Acceptable: one working tree per session is the normal shape, both measures already read shared state (the tree, HEAD), and the wrap is a skippable prompt.
@@ -4258,9 +4357,9 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 
 ### codex-mcp-transport-collision
 
-- **Condition** — `sync-codex.sh` emits every MCP record with its transport, because Codex rejects a record that carries none unless a lower layer supplies one. Codex merges the TOML layers — user, project, and `-c` overrides — per key, so when another TOML layer declares the same server name with the other transport, the merged entry holds both a `command` and a `url` and Codex refuses to load the entire workspace configuration — every server, every hook, every setting. Enabled records carry the same hazard, so no emit shape avoids it. A configured server replaces a same-name plugin catalog entry outright, so plugins cannot produce this. Acceptable: it needs a same-name server with a different transport in the operator&#x27;s own user config, `check-mcp-conflicts.py` warns on every sync when that condition holds, and `test-codex.sh` catches the missing-transport failure by running `codex mcp list` against the generated file.
-- **Trigger** — a real workspace fails to load because a user or plugin config declares one of the registry names with a different transport.
-- **Rework** — either drop the record when the merged result would conflict, which needs the generator to read `~/.codex/config.toml` and every plugin&#x27;s config and re-check on each change, or a managed MCP allowlist if Codex grows one.
+- **Condition** — Codex merges user and project MCP records per key. If the same name uses stdio in one layer and HTTP in another, the merged record carries both transports and Codex rejects the workspace configuration. Project output cannot safely predict every user or plugin layer. Acceptable: every project record carries an explicit transport, `test-codex.sh` loads the effective configuration with a timeout, and the transplant guide makes that loader check mandatory.
+- **Trigger** — `codex mcp list` rejects a workspace because another layer declares one of the project registry names with a different transport.
+- **Rework** — add a read-only preflight over the effective user/plugin configuration when Codex exposes a stable enumeration API, or adopt a managed machine-wide allowlist.
 
 ### research-01-duplicate-ssrf-tables
 
@@ -4387,7 +4486,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
   &quot;mcp&quot;: {
     &quot;servers&quot;: {
       &quot;playwright-reader&quot;: {
-        &quot;enabled&quot;: true
+        &quot;enabled&quot;: false
       }
     }
   }

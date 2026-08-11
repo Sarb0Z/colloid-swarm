@@ -69,7 +69,7 @@ def ask_codex(repo):
     reply = None
     try:
         send({"id": 0, "method": "initialize",
-              "params": {"clientInfo": {"name": "colloid-sync-codex", "version": "1"}}})
+              "params": {"clientInfo": {"name": "scaffold-trust-hooks", "version": "1"}}})
         send({"method": "initialized"})
         send({"id": 1, "method": "hooks/list", "params": {"cwds": [repo]}})
         deadline = time.monotonic() + TIMEOUT
@@ -112,9 +112,9 @@ def ask_codex(repo):
         if not isinstance(entry, dict):
             continue
         for note in entry.get("warnings") or []:
-            print(f"sync-codex: Codex warns: {note}", file=sys.stderr)
+            print(f"trust-hooks: Codex warns: {note}", file=sys.stderr)
         for note in entry.get("errors") or []:
-            print(f"sync-codex: Codex error: {note}", file=sys.stderr)
+            print(f"trust-hooks: Codex error: {note}", file=sys.stderr)
         for hook in entry.get("hooks") or []:
             key, digest = hook.get("key"), hook.get("currentHash")
             if isinstance(key, str) and isinstance(digest, str) and key.startswith(prefix):
@@ -222,13 +222,13 @@ def main():
 
         found = ask_codex(repo)
         if found is None:
-            print("sync-codex: codex not on PATH — hooks left untrusted", file=sys.stderr)
+            print("trust-hooks: codex not on PATH — hooks left untrusted", file=sys.stderr)
             return 0
         if not found:
             raise Fault("Codex discovered no hooks for this repository")
         want = declared(repo)
         if want is not None and want != len(found):
-            print(f"sync-codex: Codex discovered {len(found)} hook(s), "
+            print(f"trust-hooks: Codex discovered {len(found)} hook(s), "
                   f"hooks.json declares {want}", file=sys.stderr)
 
         text = load(config)
@@ -239,7 +239,7 @@ def main():
             store(config, after, dry_run)
             print(f"trusted {len(found)} Codex hook(s)")
     except Fault as error:
-        print(f"sync-codex: {error}", file=sys.stderr)
+        print(f"trust-hooks: {error}", file=sys.stderr)
         return 1
     return 0
 

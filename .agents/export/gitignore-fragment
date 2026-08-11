@@ -1,7 +1,6 @@
 # --- agent scaffold ---------------------------------------------------------
 # Generated from .agents/ by the sync scripts, or machine-local. Regenerate
-# with .agents/sync-claude-agents.sh (which also runs sync-mcp.sh) and
-# .agents/sync-codex.sh. Everything else under .agents/ is tracked source.
+# with python3 .agents/mcp.py. Everything else under .agents/ is tracked source.
 /.mcp.json
 /.kimi-code/mcp.json
 /.codex/config.toml

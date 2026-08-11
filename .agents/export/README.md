@@ -1,99 +1,70 @@
-# Transplanting the scaffold into a satellite
+# Transplant guide
 
-Satellite repositories vendor their own copy of this scaffold. They never
-symlink across repositories, and none of them carries the genome layer.
-`.agents/export-scaffold.py` emits the copy they receive.
+The kit is a reviewed snapshot, not an installer. Merge it into the target's
+current branch after inspecting that repository's stack, existing instructions,
+dirty state, host configuration, and tracked symlinks.
+
+## Preserve first
+
+Back up or inventory existing `AGENTS.md`, `CLAUDE.md`, `.agents/`, `.claude/`,
+`.codex/`, `.kimi/`, `.kimi-code/`, `.mcp.json`, and Copilot instruction paths.
+Do not overwrite untracked operator state. Keep unrelated host features such as
+commands, plugins, output styles, or project-specific agent definitions.
+
+## Adapt the kit
+
+1. Merge the target's real codebase rules into root and scoped `AGENTS.md`
+   files. Generic scaffold rules do not replace framework, architecture, or
+   product invariants.
+2. Delete every `stack-*.md` whose `detect:` markers the target does not have.
+   Keep all stacks it genuinely runs, including multiple stacks in a monorepo.
+3. Delete skills the target cannot use. Preserve specialized target skills and
+   their existing host links.
+4. Keep repository-owned MCP bundles only when their tools make sense. If a
+   bundle is removed, run `export/drop-server.py <repo> <name>` so the registry
+   does not point at a missing executable.
+5. Set `.agents/mcp.json` to the target's requested project defaults. The base
+   posture is `context7`, `playwright`, and `research-mcp` on; everything else
+   off.
+6. Keep `.kimi/` only when the target uses Kimi. Preserve existing CI and adapt
+   its checks rather than copying this repository's workflow blindly.
+7. Merge `export/debt-log-entry.md` into the target's debt log when it contains
+   entries, then remove the `export/` directory.
+
+## Materialize host state
+
+The kit already carries static Claude/Codex/Copilot links and persona files.
+After merging:
 
 ```sh
-.agents/export-scaffold.py /tmp/kit      # writes .agents/ + .kimi/ + export/
+python3 .agents/check-layout.py
+python3 .agents/mcp.py
 ```
 
-The export is a subtraction of this repository, not a rewrite of it. It drops
-the genome subsystem, drops every hook entry that names a dropped policy, drops
-the config keys that describe one, and strips regions the source marks
-`colloid-only`. Read the module docstring for why it may not do anything else.
+Inspect `.agents/codex/hooks.json`, then establish project and hook trust:
 
-## What the target repository decides
+```sh
+python3 .agents/codex/trust-hooks.py "$(pwd)"
+```
 
-The export is uniform. These six choices are per repository.
+Run trust one repository at a time because it updates the user's Codex config.
+Start a new Claude/Codex/Kimi session after MCP state changes.
 
-- **Stack packs.** `.agents/rules/stack-*.md` carries concrete, opinionated
-  rules per stack, and the export carries every pack because it cannot know the
-  target. Read the target and `git rm` every pack it does not run. Then run
-  `.agents/check-stack-packs.py`: it fails and names each pack whose `detect:`
-  markers are absent, so a pack nobody deleted cannot ship quietly. Run it again
-  after the first sync — that check is the whole selection mechanism, and it is
-  off in colloid, where `stack_packs.carrier` marks the source that holds them
-  all.
-- **Skills.** Install what the repository can use and delete the rest. A React
-  Native application has no use for `mobile-responsive-web`; an API serves no
-  pages, so it needs neither that nor `seo-geo-growth-audit`.
-- **Repository-owned MCP servers.** `research-mcp` suits every repository.
-  `security-mcp` needs an authorized live HTTP target, so it belongs only where
-  one exists. To omit a server, delete `.agents/mcp-servers/<name>/` **and** run
-  `export/drop-server.py <repo> <name>`. Both halves are required:
-  `mcp_registry.resolve_registry` validates the local paths of every registry
-  entry before any enabled or disabled filter runs, so a registry entry whose
-  bundle is absent makes every sync script exit non-zero.
-- **MCP servers that need a surface the repository lacks.** `appium-mcp` drives a
-  mobile app on a device or simulator, so it is ~31 tools of schema for nothing
-  in a repository with no native app. Disable it there rather than removing the
-  registry entry: a disabled entry still masks a same-named user-level server,
-  which is what the off-state is for. Set the flag in `config.json.example` as
-  well as `config.json` wherever `config.json` is gitignored — the tracked
-  example is then the only place a fresh clone reads a toggle from.
-- **Engines.** Install `.kimi/` only where Kimi is wired. `sync-mcp.sh` writes
-  Kimi's project file only when `.kimi/` or `.kimi-code/` exists, so a
-  repository with neither gets no Kimi output and needs no further pruning.
-  Codex needs nothing beyond running the sync.
-- **`.gitignore`.** Merge `export/gitignore-fragment` **before** the first sync
-  run. The sync writes `.kimi-code/mcp.json` at mode 0600 with environment
-  variables already expanded, and every generated file left untracked and
-  unignored also makes `session-wrap.sh` read the tree as dirty on every Stop
-  hook.
+## Verify in the target
 
-  Watch for an unanchored `dist/` or `package-lock.json` rule already in the
-  repository. Either one also matches inside `.agents/mcp-servers/`, which drops
-  the bundle the registry points at: the repository looks fine locally and a
-  fresh clone fails `resolve_registry`, so every sync script exits non-zero. The
-  fragment ends with the re-includes that repair it. Confirm with plain
-  `git check-ignore .agents/mcp-servers/research-mcp/dist/server.js` — not the
-  `-v` form, which prints the matching `!` rule while still exiting non-zero, so
-  it reads as "ignored" for a path that is not. The definitive check is that the
-  bundle appears in `git diff --cached --name-only` before you commit.
+```sh
+python3 .agents/check-layout.py
+.agents/lint-skills.sh
+python3 .agents/check-stack-packs.py
+.agents/test-session-start.sh
+python3 .agents/test-guard-destructive.py
+.agents/test-mcp.sh
+.agents/test-codex.sh
+```
 
-## Order that matters
+Then run the target's own focused checks. Drive one deployed hook through its
+host adapter and verify the host sees the intended personas and project MCP
+records. A parsed file proves syntax; it does not prove host discovery.
 
-1. Back up every dirty or untracked scaffold file first. The sync scripts unlink
-   and re-link their targets, so an uncommitted change under `.agents/`,
-   `.claude/`, `.codex/` or `.mcp.json` is lost with no way back.
-2. Merge the `.gitignore` fragment.
-3. Merge `export/debt-log-entry.md` into the repository's `.agents/debt-log.md`.
-   `session-wrap.sh` carries an inline `debt: wrap-01-concurrent-attribution`
-   pointer, and a pointer with no entry is a dangling reference.
-4. Run `.agents/sync-claude-agents.sh`. It chains `sync-mcp.sh`, which chains
-   `sync-codex.sh --no-trust`.
-5. Run `.agents/sync-codex.sh` on its own, once, **one repository at a time**.
-   Only the bare form reaches `trust-hooks.py`, which read-modify-writes the
-   global `~/.codex/config.toml` with no lock. Concurrent runs lose updates and
-   leave an unpredictable subset of repositories with silently disarmed hooks.
-
-## Committing
-
-Stage scaffold paths explicitly, never `-A`, and untrack whatever the new ignore
-rules turn into generated output. Then commit with **no pathspec**:
-`git commit -- <paths>` is a partial commit that takes the working-tree state of
-those paths and ignores the index, so every `git rm --cached` silently reverts
-and the file lands in the commit again. Read `git status --porcelain` first and
-confirm nothing outside the scaffold is staged — that check is what makes a
-pathspec-free commit safe.
-
-## Proving it works
-
-Run the scaffold's own suites in the target: `lint-skills.sh`,
-`test-session-start.sh`, `test-mcp.sh`, `test-codex.sh`. Then drive the
-**deployed** adapter rather than a policy directly, and confirm the typecheck
-gate is alive by feeding it a scratch file with a deliberate type error and
-checking for exit 2. Name that file without a leading dot: TypeScript's
-`include` globs skip dot-prefixed filenames, so a `.probe.ts` is never checked
-and a dead gate reads as a passing one.
+Review `git status --porcelain --untracked-files=all` before staging. Stage only
+the intended scaffold and target-instruction paths.

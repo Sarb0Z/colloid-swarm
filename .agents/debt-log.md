@@ -25,18 +25,6 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — anyone proposing the guard as a control against a hostile operator or a prompt-injected agent, or a satellite repository citing it as one.
 - **Rework** — none available at this layer; the honest fix is to state the threat model in the header and in `README.md`'s "The invariant" section. Real containment needs a permission layer or a sandbox, not a pattern list. Separately, the *honest-mistake* set is closeable and is filed as work in `breadcrumbs.md`.
 
-### colloid-grader-lock-claude-only
-
-- **Condition** — `grader-lock.sh` is wired on Claude alone, through the adapter's `--agent subagent` selector. The Codex and Kimi adapters take no selector: `.agents/codex/adapter.sh` and `.kimi/hooks/adapter.sh` accept a policy name and nothing else, so the same wiring there would run for the *main* session and lock the operator out of every gate — strictly worse than no lock. Acceptable: the lock's threat model is a delegated cell writing the rules by accident, Claude is where this repository delegates, and a subagent on the other two engines still faces review. The gap is invisible from the settings files, which is the part that bites.
-- **Trigger** — routine delegation on Codex or Kimi, or a satellite that runs its fan-out on one of them.
-- **Rework** — teach both adapters the selector (parse `--agent`, gate on the payload's subagent identity, exit 0 on no match) and add each engine's `grader-lock.sh` branch to its `normalize-hook.py`; the Codex branch also needs the `apply_patch` command string parsed into a path list, since that engine names N files in one payload rather than one file per call. ~60 lines across four files, plus a fixture per engine.
-
-### colloid-grader-lock-blocks-honest-test-work
-
-- **Condition** — the lock refuses a subagent every write under `.agents/hooks/`, `.agents/test-*`, and the playbooks, without asking why the write is happening. A cell dispatched in good faith to add a hook test hits the same refusal as one quietly softening its own grader, and must hand the edit back to the main session. Acceptable: intent is not in the payload, the refusal is one turn and names the way forward, and the alternative — a warning a cell can walk past — is not a gate. This is the same tradeoff `stop-investigate.sh` documents for its provenance ratchet.
-- **Trigger** — the handback becoming routine rather than rare: several dispatches a week losing a turn to it, or operators disabling `hooks.grader_lock` to get work done.
-- **Rework** — none at this layer that keeps the guarantee. The honest options are to narrow the set (drop the tests, keep the standard and the gates) or to move gate-test authoring to the main session by convention so the refusal never fires; both are policy changes, not code.
-
 ### colloid-wrap-concurrent-attribution
 
 - **Condition** — `session-wrap.sh` cannot tell which session authored a commit or a working-tree change, so two concurrent sessions in one working tree each measure the other's work: session B can be handed session A's files and told to review them. Acceptable: one working tree per session is the normal shape, both measures already read shared state (the tree, HEAD), and the wrap is a skippable prompt.
@@ -57,9 +45,9 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 
 ### codex-mcp-transport-collision
 
-- **Condition** — `sync-codex.sh` emits every MCP record with its transport, because Codex rejects a record that carries none unless a lower layer supplies one. Codex merges the TOML layers — user, project, and `-c` overrides — per key, so when another TOML layer declares the same server name with the other transport, the merged entry holds both a `command` and a `url` and Codex refuses to load the entire workspace configuration — every server, every hook, every setting. Enabled records carry the same hazard, so no emit shape avoids it. A configured server replaces a same-name plugin catalog entry outright, so plugins cannot produce this. Acceptable: it needs a same-name server with a different transport in the operator's own user config, `check-mcp-conflicts.py` warns on every sync when that condition holds, and `test-codex.sh` catches the missing-transport failure by running `codex mcp list` against the generated file.
-- **Trigger** — a real workspace fails to load because a user or plugin config declares one of the registry names with a different transport.
-- **Rework** — either drop the record when the merged result would conflict, which needs the generator to read `~/.codex/config.toml` and every plugin's config and re-check on each change, or a managed MCP allowlist if Codex grows one.
+- **Condition** — Codex merges user and project MCP records per key. If the same name uses stdio in one layer and HTTP in another, the merged record carries both transports and Codex rejects the workspace configuration. Project output cannot safely predict every user or plugin layer. Acceptable: every project record carries an explicit transport, `test-codex.sh` loads the effective configuration with a timeout, and the transplant guide makes that loader check mandatory.
+- **Trigger** — `codex mcp list` rejects a workspace because another layer declares one of the project registry names with a different transport.
+- **Rework** — add a read-only preflight over the effective user/plugin configuration when Codex exposes a stable enumeration API, or adopt a managed machine-wide allowlist.
 
 ### research-01-duplicate-ssrf-tables
 

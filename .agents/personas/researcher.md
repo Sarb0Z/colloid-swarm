@@ -1,3 +1,13 @@
+---
+name: researcher
+description: Research current or external facts with primary sources, confidence, dates, and explicit evidence gaps.
+tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "mcp__context7__*", "mcp__research-mcp__*"]
+model: "claude-sonnet-5"
+effort: "medium"
+maxTurns: 20
+mcpServers: ["context7", "research-mcp"]
+---
+
 # Researcher contract
 
 Return current, cited evidence for one question. Do not edit the repository or

@@ -1,268 +1,128 @@
 # Colloid Swarm
 
-An engine-agnostic agent scaffold: one canonical instruction tree, one set of
-enforcement hooks, and one MCP registry, fanned out to Claude Code, Codex, Kimi,
-and GitHub Copilot. Drop it into a repository and the four engines read the same
-rules and run the same guards.
+A portable agent scaffold for Claude Code, Codex, Kimi, and GitHub Copilot.
+Canonical instructions, skills, hook policies, personas, and MCP definitions
+live under `.agents/`; host directories contain direct links or thin adapters.
 
-The scaffold is the portable part. This repository also carries a creative layer
-— operating registers and personality genomes — that no other repository
-receives. The two layers are separable by design, and the export tool performs
-the separation.
+This repository also carries an experimental genome layer. Exports remove it.
 
-## Requirements
+## Install
 
-| Component | Needs |
-| --- | --- |
-| Hooks, sync scripts, demo | `bash`, `python3` (standard library only) |
-| `research-mcp`, `security-mcp` | Node.js `>=20.19.0` |
-| Everything else | nothing — the instruction tree is Markdown and symlinks |
-
-## Install into your repository
+Requirements are Bash, Python 3, and Node.js 22+ for the two repository-owned
+MCP servers.
 
 ```sh
 git clone https://github.com/Sarb0Z/colloid-swarm.git
 cd colloid-swarm
-.agents/export-scaffold.py /tmp/kit      # target must be empty or absent
+.agents/export-scaffold.py /tmp/scaffold-kit
 ```
 
-The export refuses a non-empty target, so it cannot write straight into an
-existing repository. Emit the kit to a fresh directory, review it, then copy
-`.agents/`, `.kimi/`, and `AGENTS.md` into your repository.
+The exporter reads the current Git commit and refuses a non-empty destination.
+Review the kit, then follow `export/README.md` to merge it into a target. It
+includes `.agents/`, static `.claude/` and `.codex/` integration, Kimi config,
+Copilot links, root instructions, and the transplant guide. Dirty or ignored
+local state does not travel.
 
-The export writes `.agents/`, `.kimi/`, `AGENTS.md`, and `export/`, and works by
-subtraction: it drops the genome subsystem, drops each hook entry that names a
-dropped policy, drops the config keys that describe one, and strips regions
-marked `colloid-only`. It never rewrites prose, so it cannot silently corrupt
-reworded canon.
+## Architecture
 
-The export copies files **as tracked by git**. A dirty working tree, a local
-`.agents/config.json`, the runtime ledgers, and `browser-extensions/` never
-travel.
+- `AGENTS.md`: operating contract and delegation policy.
+- `.agents/personas/`: Claude-native cached roles; `.claude/agents/` links here.
+- `.codex/agents/`: static Codex roles with exact invocation model/effort.
+- `.agents/skills/`: reusable, progressively disclosed workflows.
+- `.agents/rules/`: scoped codebase and framework guidance.
+- `.agents/hooks/`: engine-neutral policies plus host payload adapters.
+- `.agents/mcp.json`: server definitions and project on/off state.
+- `.agents/playbooks/`: focused review, QA, wrap, and reporting procedures.
 
-Read `.agents/export/README.md` for the transplant method and the four choices
-each target repository must make.
+Run `python3 .agents/check-layout.py` after changing scaffold inventory. It
+checks committed links without generating or pruning files.
 
-## Layout
+## Delegation defaults
 
-### The instruction tree
-
-`AGENTS.md` at the repository root is the operating contract: principles in
-priority order, the research → plan → hostile-review → implement → hostile-review
-workflow, behavioral rules, and the delegation policy.
-
-Scoped `AGENTS.md` files sit next to the code they govern, so an engine loads a
-module's rules only when it works in that module. This repository holds 19
-canonical files and 82 fan-out symlinks. Canonical files carry dual
-`applyTo:` (Copilot) and `paths:` (Claude Code) YAML frontmatter; other engines
-read the file as plain Markdown and ignore the frontmatter.
-
-Always edit the canonical file. The symlinks are generated fan-out:
-
-- `CLAUDE.md` → sibling `AGENTS.md`
-- `.claude/rules/<skill>.md` → the skill's canonical `AGENTS.md`
-- `.github/instructions/*.instructions.md` → canonical files
-
-Authoring rules live in `.github/instructions/README.md`.
-
-### Enforcement hooks
-
-Eleven policy scripts in `.agents/hooks/policy/`, engine-agnostic and written
-against a normalized payload. Each owns the engine contract; the logic it needs
-lives beside it in `.agents/hooks/lib/`, reading the payload on stdin:
-
-| Policy | Purpose |
-| --- | --- |
-| `guard-destructive.sh` | Blocks irreversible commands — broad `rm -rf`, force-push, `reset --hard`, `git clean`, production mutation over SSH, destructive DDL, unrestricted `DELETE`/`UPDATE`, cloud teardown |
-| `grader-lock.sh` | Refuses a spawned subagent any write to the standard, the gates, the transport that reaches a gate, or the tests that prove a gate fires — the party being graded does not edit its own grader (Claude only) |
-| `genome-inject.sh` | Stamps a spawned subagent with a genome (this repository only) |
-| `sources-capture.sh` | Records sources a session cited |
-| `research-prime.sh` | Primes research behavior on prompt submit |
-| `post-edit-check.sh` | Runs scoped checks after an edit |
-| `session-start.sh` | Surfaces breadcrumbs and MCP state at session start |
-| `session-wrap.sh` | Wraps up session state |
-| `stop-investigate.sh` | Inspects the stop payload's last assistant message |
-| `pre-compact.sh` | Restates policy that a compaction would drop |
-
-Each engine supplies a thin adapter that normalizes its own hook I/O into these
-scripts:
-
-```
-settings.json → adapter.sh [--agent <sel>] <policy>.sh → .agents/hooks/policy/
-```
-
-The adapter resolves the repository root relative to its own location, so the
-scaffold works wherever you drop it. Codex hook commands are the exception: they
-resolve the Git root from the working directory first, so they find no adapter
-from a submodule or an unrelated repository.
-
-### Skills
-
-Fifteen skills in `.agents/skills/`, each with a `SKILL.md` (how to use it) and
-a scoped `AGENTS.md` (how to edit it):
-
-- **Security** — `security-audit` (source-only review), `dynamic-security-scan`
-  (authorized live target), `security-scan` (commit-time secret and dependency
-  gate), `pentesting` (adversarial red-team method)
-- **Quality** — `thermo-nuclear-code-quality-review`, `scalability-audit`,
-  `perf-budget`, `qa-verifier`
-- **Frontend** — `frontend-design`, `mobile-responsive-web`,
-  `react-native-expert`, `seo-geo-growth-audit`
-- **Research** — `search-and-cite`, `market-researcher`
-- **Dispatch** — `panspermia-mutation` (this repository's genome layer)
-
-Install what your repository can use and delete the rest. An API serves no pages,
-so it needs neither `mobile-responsive-web` nor `seo-geo-growth-audit`.
-
-`.agents/lint-skills.sh` validates skill format.
-
-### MCP registry
-
-`.agents/mcp.json` is the single source of truth for ten servers. Toggle each per
-repository in `.agents/config.json` (`mcp.servers.<name>.enabled`), or use the
-subcommand, which flips the toggle and regenerates in one step:
-
-```sh
-.agents/sync-mcp.sh enable  research-mcp
-.agents/sync-mcp.sh disable exa
-```
-
-`sync-mcp.sh` generates every file a tool actually consumes: `.mcp.json`,
-`.kimi-code/mcp.json`, `.codex/config.toml` (through `sync-codex.sh`), the
-`enabledMcpjsonServers` key in `.claude/settings.local.json`, and the
-`.github/lsp.json` LSP fan-out. The generated files are gitignored; the registry
-and the toggles are not.
-
-MCP servers connect at session start, so restart the session after a toggle.
-
-A server may also carry `codex_enabled: false`, which keeps it out of the Codex
-config while it stays on elsewhere. `atlassian` and `exa` use this, because Codex
-accepts only stdio or streamable HTTP.
-
-| Server | Transport | Default |
+| Work | Claude | Codex |
 | --- | --- | --- |
-| `context7` | stdio | on |
-| `playwright` | stdio | on |
-| `playwright-reader` | stdio | off — needs `.agents/fetch-extension.sh ublock-lite` |
-| `appium-mcp` | stdio | off — on-demand; needs `ANDROID_HOME` for Android targets |
-| `research-mcp` | stdio | on — repository-owned |
-| `security-mcp` | stdio | off — repository-owned; needs an authorized target |
-| `linear` | HTTP | off — on-demand; OAuth on first use |
-| `atlassian` | SSE | off — on-demand; OAuth on first use |
-| `greptile` | HTTP | off — needs `GREPTILE_API_KEY` |
-| `exa` | HTTP | off — needs `EXA_API_KEY` |
+| Mechanical or bounded exploration | Haiku | `gpt-5.6-luna` / low |
+| Implementation, QA, research | Claude Sonnet 5 | `gpt-5.6-terra` / medium |
+| Planning or independent hostile review | Claude Opus 5 | `gpt-5.6-sol` / high |
 
-Two servers are repository-owned and ship their source in
-`.agents/mcp-servers/`:
+The cached personas cover common work but do not restrict generic delegation.
+The driver chooses the cheapest tier that can solve and verify the task, and
+grants only the capabilities that task needs.
 
-- **`research-mcp`** — article and PDF extraction (`fetch_readable`) and
-  open-access resolution (`resolve_open_access`). Set
-  `RESEARCH_MCP_CONTACT_EMAIL` to enable the Unpaywall path.
-- **`security-mcp`** — authorized security scanning, three tools.
+## MCP capabilities
 
-`.agents/lsp.json` is the LSP registry, fanned out to `.github/lsp.json` for
-Copilot CLI. Claude Code uses its own LSP plugins; Kimi has no LSP support.
-
-### Personas and playbooks
-
-- `.agents/personas/` — dispatchable cell definitions: `researcher.md` (an
-  escalation ladder from search to fetch to `context7` to browser, with
-  cross-checked and cited evidence) and `learning-reporter.md`.
-- `.agents/playbooks/` — reusable procedures a session loads on demand:
-  `hostile-review.md`, `review-axes.md`, `diff-wrap.md`, and the report formats
-  for investigations and implementations.
-- `.agents/memory/README.md` — the memory protocol. Project memories are not
-  included.
-
-### Deferred-work files
-
-Two files split by lifecycle, and the split is load-bearing:
-
-- `.agents/breadcrumbs.md` — deferred *work*, a queue. One line each, re-surfaced
-  by `session-start.sh`. Act on the line, or delete it.
-- `.agents/debt-log.md` — standing tradeoffs and deferred *decisions*. Each entry
-  is a `### <id>` heading with the condition, the trigger that would justify a
-  fix, and the rework cost. Code references it as `debt: <id>`.
-
-## Engine support
-
-| | Claude Code | Codex | Kimi | Copilot |
-| --- | --- | --- | --- | --- |
-| Instructions | `CLAUDE.md` → `AGENTS.md` | `AGENTS.md` | `AGENTS.md` | `.github/instructions/` |
-| Hooks | 6 events | `.codex/hooks.json` | `.kimi/hooks/` | — |
-| MCP | `.mcp.json` | `.codex/config.toml` | `.kimi-code/mcp.json` | — |
-| LSP | own plugins | — | — | `.github/lsp.json` |
-| Subagents | `.claude/agents/` | `.codex/agents/` | — | — |
-
-Claude Code wires `PreToolUse`, `PostToolUse`, `Stop`, `SessionStart`,
-`UserPromptSubmit`, and `PreCompact`.
-
-## Tests
+The tracked registry directly owns state. Defaults are Context7, Playwright,
+and the repository-owned research server; mobile automation, live security
+scanning, issue trackers, and keyed search services remain off until requested.
 
 ```sh
-.agents/test-mcp.sh            # MCP registry and generated connection files
-.agents/test-codex.sh          # Codex config generation and loader behavior
-.agents/test-export.sh         # scaffold export correctness
-.agents/test-session-start.sh  # session-start hook output
-.agents/test-sync-claude.sh    # the .claude/ drift gate, both directions
-.agents/lint-skills.sh         # skill format
+python3 .agents/mcp.py
+python3 .agents/mcp.py enable appium-mcp
+python3 .agents/mcp.py disable appium-mcp
 ```
 
-Two drift gates cover the generated output that is committed. Run each on its
-own — after the generator it compares fresh writes against themselves:
+The command writes `.mcp.json`, `.codex/config.toml`, optional
+`.kimi-code/mcp.json`, Claude's enabled-server list, and the reader browser
+config. Restart the session after a state change.
+
+| Server | Default | Purpose |
+| --- | --- | --- |
+| `context7` | on | current library documentation |
+| `playwright` | on | browser QA |
+| `research-mcp` | on | readable web/PDF research |
+| `playwright-reader` | off | browser reading with an installed blocker |
+| `appium-mcp` | off | mobile device/simulator QA |
+| `security-mcp` | off | authorized live-target scanning |
+| `linear`, `atlassian` | off | issue and knowledge systems |
+| `greptile`, `exa` | off | keyed external services |
+
+User- and plugin-level host configuration may still add unknown capabilities.
+Project records mask only the same server names; this is not a machine-wide
+allowlist.
+
+## Hooks
+
+Policies under `.agents/hooks/policy/` receive normalized JSON on stdin. The
+active set covers destructive-command refusal, focused post-edit checks,
+research/source context, compaction recovery, session start/wrap, and stop
+inspection. Host adapters translate payloads; policies own behavior.
+
+Codex hook declarations are hash-trusted. After changing them, review the file
+and run:
 
 ```sh
-.agents/sync-codex.sh --check --no-trust  # .codex/agents/*.toml match their personas
-.agents/sync-claude-agents.sh --check     # .claude/agents/*.md match theirs
+python3 .agents/codex/trust-hooks.py "$(pwd)"
 ```
 
-Each repository-owned MCP server also has `npm run check`.
-`.github/workflows/ci.yml` runs every command above on push and pull request.
-CI carries no `codex` binary, so `test-codex.sh` skips its loader check there
-and the run emits a notice; run that suite on a machine with Codex to cover it.
-
-## The genome layer
-
-This layer stays in this repository. The export removes it.
-
-- `colloid-constitution.md` — the base operating register.
-- `genomes.md` — a conserved strand plus eight genomes. `.agents/genome.sh`
-  parses it and draws one personality per subagent dispatch by sortition.
-  `genome-inject.sh` delivers it on `SubagentStart` where the engine supports
-  that; the orchestrator prepends it where the engine does not. The script fails
-  closed on a malformed strand.
-- `panspermia.txt` — an exploration register. Its active arm is the mutagen:
-  `.agents/mutagen.sh` rolls a mutation vector that rewrites a task before
-  dispatch, so a fan-out explores the framing space and selects the fittest.
-  Driven by the `panspermia-mutation` skill.
+## Verification
 
 ```sh
-bash demo/demo.sh
+python3 .agents/check-layout.py
+.agents/lint-skills.sh
+.agents/test-session-start.sh
+python3 .agents/test-guard-destructive.py
+.agents/test-mcp.sh
+.agents/test-codex.sh
+.agents/test-export.sh
 ```
 
-The demo prints live output from six beats: the genome emitter, the mutagen,
-`guard-destructive.sh`, the disclosure fan-out, the scaffold export and its
-subtraction assertions, and a real MCP handshake against both repository-owned
-servers. It runs offline. Beat 6 needs Node and prints a SKIP notice without it.
-See `demo/README.md`.
+Each repository-owned MCP server also runs `npm run check`. CI runs the static
+and focused behavior suites; local `test-codex.sh` additionally proves that the
+installed Codex binary loads the project MCP records.
 
-## The invariant
+## Deferred work and evidence
 
-One rule is conserved across every register, genome, and hook: safety, law, and
-consent; no destructive shortcuts; read-only production inspection; honest
-hand-back. `guard-destructive.sh` is the mechanical floor. The rest is judgment.
+- `.agents/breadcrumbs.md`: deferred work, surfaced at SessionStart.
+- `.agents/debt-log.md`: standing tradeoffs referenced as `debt: <id>`.
+- `.agents/knowledge/`: dated external observations indexed on demand.
 
-## What this repository does not carry
+## Experimental genome layer
 
-Secrets and operator knowledge stay out by design: `.env*`, `settings.local.json`,
-the local `.agents/config.json`, project memories, and the runtime ledgers. Copy
-`.agents/config.json.example` and tune it locally.
+Colloid alone carries `genomes.md`, `.agents/genome.sh`, the mutagen, and the
+`panspermia-mutation` skill. The export removes those files, their hooks, config
+keys, and links. Run `bash demo/demo.sh` for the offline scaffold demonstration.
 
 ## License
 
-Not yet licensed. No license file means default copyright — all rights reserved
-— so this code is not yet open for reuse. A license decision is pending.
-
-`.agents/playbooks/learning-output-style.md` is adapted from an Apache-2.0 source;
-see `.agents/playbooks/learning-output-style.NOTICE.md` and
-`.agents/licenses/learning-output-style-APACHE-2.0.txt`.
+No repository-wide license has been selected. The learning-output-style
+playbook has its own Apache-2.0 notice under `.agents/licenses/`.

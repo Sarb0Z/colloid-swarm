@@ -75,9 +75,7 @@ def normalize(payload, policy, repo):
             out["kind"], out["value"] = "fetch", tool_input.get("url", "")
         else:                                  # browser_navigate carries a url
             out["kind"], out["value"] = "browse", tool_input.get("url", "")
-    elif policy in ("post-edit-check.sh", "grader-lock.sh"):
-        # One reads them after the write, the other decides before it; both need
-        # every path the tool input names.
+    elif policy == "post-edit-check.sh":
         out["files"] = written_paths(tool_input)
     elif policy == "session-wrap.sh":
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))

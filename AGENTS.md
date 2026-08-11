@@ -58,9 +58,11 @@ Delegate when specialization, parallelism, context isolation, or independent ver
 | Tier | Claude | Codex | Use |
 | --- | --- | --- | --- |
 | light | `haiku` | `gpt-5.6-luna` / `low` | mechanical or bounded read-only work |
-| medium | `sonnet` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
-| heavy | `opus` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
+| medium | `claude-sonnet-5` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
+| heavy | `claude-opus-5` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
 
 Choose the lowest tier that can solve and verify the task. Claude generic cells use `general-purpose` with explicit model; use a named persona when effort must be fixed. Codex generic cells use `agent_type=default` with explicit `model` and `reasoning_effort`. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
+
+Persona files name these defaults directly. Where a host cannot narrow tools, constrain the handoff and retain the sandbox boundary.
 
 Scoped instructions load on demand and aren't restated here. Read `.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md` before working in any subtree.
