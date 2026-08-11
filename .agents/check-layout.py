@@ -57,6 +57,18 @@ def expected_links() -> dict[Path, str]:
     return links
 
 
+def scaffold_owns(path: Path, expected: dict[Path, str]) -> bool:
+    relative = path.relative_to(ROOT)
+    if relative in expected:
+        return True
+    target = (path.parent / os.readlink(path)).resolve(strict=False)
+    try:
+        target.relative_to(ROOT / ".agents")
+        return True
+    except ValueError:
+        return False
+
+
 def main() -> int:
     expected = expected_links()
     failures = []
@@ -80,7 +92,7 @@ def main() -> int:
             continue
         for path in root.iterdir():
             relative = path.relative_to(ROOT)
-            if path.is_symlink() and relative not in expected:
+            if path.is_symlink() and scaffold_owns(path, expected) and relative not in expected:
                 failures.append(f"{relative}: stale scaffold symlink")
 
     if failures:
