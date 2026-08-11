@@ -42,6 +42,8 @@ MANIFEST = {
     "thermo-nuclear-code-quality-review": ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
     "seo-geo-growth-audit":               ".agents/skills/seo-geo-growth-audit/SKILL.md",
     "frontend-design":                    ".agents/skills/frontend-design/SKILL.md",
+    "check-layout.py":                    ".agents/check-layout.py",
+    "mcp.py":                             ".agents/mcp.py",
     # contract / tracking / config
     "AGENTS.md":       "AGENTS.md",
     "frontend.md":     ".agents/rules/frontend.md",
@@ -51,6 +53,11 @@ MANIFEST = {
     "config.json":     ".agents/config.json",
     # contracts
     "researcher.md":            ".agents/personas/researcher.md",
+    "implementer.md":           ".agents/personas/implementer.md",
+    "reviewer.md":              ".agents/personas/reviewer.md",
+    "qa-verifier.md":           ".agents/personas/qa-verifier.md",
+    "mechanic.md":              ".agents/personas/mechanic.md",
+    "explorer.md":              ".agents/personas/explorer.md",
     "learning-reporter.md":     ".agents/personas/learning-reporter.md",
     "memory/README.md":         ".agents/memory/README.md",
     "diff-wrap.md":             ".agents/playbooks/diff-wrap.md",

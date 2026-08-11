@@ -11,15 +11,11 @@ prints what they actually emit. Every beat runs offline.
 
 ## The beats
 
-1. **Genome emitter** (`.agents/genome.sh`) — stamps one of 8 personalities on
-   a subagent dispatch. `--check` validates `genomes.md`; `--seed` pins a
-   reproducible draw; `--count 5` returns guaranteed-distinct stamps for a
-   parallel fan-out. `genomes.md` is the single source of truth — the script
-   parses it and fails closed on a malformed strand.
-2. **Mutagen** (`.agents/mutagen.sh`) — rolls a mutation vector that rewrites a
-   task's framing before a blind fan-out, so the swarm explores the framing
-   space and selection keeps the fittest. The eval-cost dial picks the pool:
-   `--cost cheap` → a BOLD axis, `--cost expensive` → a GENTLE one.
+1. **Static personas** (`.agents/personas/`) — explicit researcher,
+   implementer, reviewer, QA-verifier, mechanic, explorer, and reporter
+   contracts. Each dispatch names its model and role directly.
+2. **Layout check** (`.agents/check-layout.py`) — validates canonical files and
+   engine fan-out paths against the current tree.
 3. **The membrane** (`.agents/hooks/policy/guard-destructive.sh`) — the
    fail-closed floor. Six destructive commands get blocked (exit 2 + reason);
    two safe ones pass. Same script both engines' adapters call.
@@ -33,7 +29,7 @@ prints what they actually emit. Every beat runs offline.
    `colloid-only` marker line survives, and the genome config keys are gone. The
    assertions read the export's own drop lists, so a new entry is checked here
    the moment it is added.
-6. **Repository-owned MCP** (`.agents/mcp-servers/`) — speaks the real MCP
+6. **Repository-owned MCP** (`.agents/mcp.py`, `.agents/mcp-servers/`) — speaks the real MCP
    handshake to both committed bundles over stdio, lists the tools each
    registers, then calls the two guards. `security-mcp` allows loopback and
    refuses a public host and a cloud-metadata address; `research-mcp` refuses

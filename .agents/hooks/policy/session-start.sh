@@ -14,7 +14,7 @@
 #   - Unaddressed .agents/breadcrumbs.md items (markdown "- " bullets), capped
 #     at the 10 most recent.
 #   - Registry MCP servers that are toggled off (name + description), with the
-#     sync-mcp.sh enable/disable incantation — the model learns they exist and
+#     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
@@ -69,8 +69,7 @@ if [[ "$session_start_enabled" == "yes" && -f "$crumbs" ]]; then
   items="$(grep -E '^[[:space:]]*-[[:space:]]' "$crumbs" 2>/dev/null || true)"
 fi
 
-# Registry servers that are toggled off: surface them so the model knows they
-# exist and can switch them on mid-task. The merge rule is .agents/toggles.py.
+# Surface disabled registry servers so the model can request only what it needs.
 mcp_off=""
 if [[ "$session_start_enabled" == "yes" ]]; then
   mcp_off="$(python3 "$lib/mcp-off.py" "$proj")"
@@ -165,7 +164,7 @@ EOF
     [[ -n "$learning_body" || "$is_compact" == "true" || -n "$items" ]] && echo
     echo "Registry MCP servers currently OFF (not connected; the description says why):"
     printf '%s\n' "$mcp_off"
-    echo 'If the task needs one: run `.agents/sync-mcp.sh enable <name>`, then ask the user to restart the session (MCP servers connect at startup). Turn it back off with `.agents/sync-mcp.sh disable <name>`.'
+    echo 'If the task needs one: run `python3 .agents/mcp.py enable <name>`, then restart the session. Turn it off with `python3 .agents/mcp.py disable <name>`.'
   fi
 )"
 

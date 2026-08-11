@@ -1,3 +1,9 @@
+---
+name: learning-reporter
+description: Generate a learning-focused session report for a junior reviewing the work — pairs each engineering decision and tradeoff with the actual code (file:line) that embodies it, written to docs/learning/.
+tools: ["Bash", "Read", "Write"]
+---
+
 # Learning reporter contract
 
 Write `docs/learning/<YYYY-MM-DD>-<slug>.md` from the caller's decision brief

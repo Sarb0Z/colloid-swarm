@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Remove an MCP server from a repository's registry and toggle template.
+"""Remove an uninstalled MCP server from a repository registry.
 
-`mcp_registry.resolve_registry` validates the local paths of *every* registry
-entry before any enabled/disabled filter runs, so a registry entry whose bundle
-was not installed makes each sync script exit non-zero. A repository that does
-not carry `.agents/mcp-servers/<name>/` must therefore not name it either.
+`mcp.py` validates repository-owned paths before writing host configuration, so
+a target that omits a bundled server must omit its registry record too.
 
 Usage:  drop-server.py <repo> <server-name>
 """
@@ -36,15 +34,8 @@ def main() -> None:
     agents = repo / ".agents"
     if (agents / "mcp-servers" / name).is_dir():
         raise SystemExit(f"drop-server: {name} is installed in {repo}; refusing to unregister it")
-    changed = [
-        label
-        for label, path, keys in (
-            ("mcp.json", agents / "mcp.json", ("mcpServers", name)),
-            ("config.json.example", agents / "config.json.example", ("mcp", "servers", name)),
-            ("config.json", agents / "config.json", ("mcp", "servers", name)),
-        )
-        if path.exists() and drop(path, *keys)
-    ]
+    path = agents / "mcp.json"
+    changed = ["mcp.json"] if path.exists() and drop(path, "mcpServers", name) else []
     print(f"drop-server: removed {name} from {', '.join(changed) if changed else 'nothing'}")
 
 

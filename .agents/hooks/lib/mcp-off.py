@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List the registry MCP servers that are toggled off.
+"""List disabled project MCP servers.
 
 Usage: mcp-off.py <project-dir>
 
@@ -8,25 +8,24 @@ name what exists but is not connected. A server absent from the registry is not
 listed: the registry states what the repository offers.
 """
 
-import os
+import json
+from pathlib import Path
 import sys
-
-# .agents/hooks/lib/ -> .agents/, where toggles.py states the one merge rule.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-import toggles  # noqa: E402  (the path above must be set first)
 
 
 def main():
-    agents = os.path.join(sys.argv[1] if len(sys.argv) > 1 else ".", ".agents")
-    registry = toggles.load(os.path.join(agents, "mcp.json")).get("mcpServers", {})
+    root = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
+    path = root / ".agents/mcp.json"
+    try:
+        registry = json.loads(path.read_text(encoding="utf-8")).get("mcpServers", {})
+    except (OSError, json.JSONDecodeError):
+        return 0
     if not isinstance(registry, dict):
         return 0
-    table = toggles.resolve(agents)
-    for name in sorted(registry):
-        if toggles.enabled(table, name):
+    for name, server in sorted(registry.items()):
+        if not isinstance(server, dict) or server.get("enabled") is not False:
             continue
-        description = table.get(name, {}).get("description", "")
+        description = server.get("description", "")
         print(f"- {name}" + (f" — {description}" if description else ""))
     return 0
 

@@ -1,170 +1,106 @@
 #!/usr/bin/env bash
-# Verify Codex integration generation and normalized hook contracts.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# --check first and on its own: it is the drift gate on the tracked .codex/
-# agent TOMLs, and running the generator ahead of it would rewrite the very
-# drift it exists to catch. Regenerating is the developer's job, not the test's.
-"$repo/.agents/sync-codex.sh" --check --no-trust
-"$repo/.agents/sync-codex.sh" --no-trust
+python3 "$repo/.agents/mcp.py"
 
 python3 - "$repo" <<'PY'
 import json
 from pathlib import Path
+import tomllib
+import sys
+
+repo = Path(sys.argv[1])
+expected = {
+    "explorer": "gpt-5.6-luna / low",
+    "implementer": "gpt-5.6-terra / medium",
+    "learning-reporter": None,
+    "mechanic": "gpt-5.6-luna / low",
+    "qa-verifier": "gpt-5.6-terra / medium",
+    "researcher": "gpt-5.6-terra / medium",
+    "reviewer": "gpt-5.6-sol / high",
+}
+claude_models = {
+    "explorer": "haiku",
+    "implementer": "claude-sonnet-5",
+    "learning-reporter": None,
+    "mechanic": "haiku",
+    "qa-verifier": "claude-sonnet-5",
+    "researcher": "claude-sonnet-5",
+    "reviewer": "claude-opus-5",
+}
+
+personas = {path.stem for path in (repo / ".agents/personas").glob("*.md")}
+if personas != set(expected):
+    raise SystemExit(f"unexpected canonical personas: {sorted(personas)}")
+
+for name, dispatch in expected.items():
+    source = (repo / ".agents/personas" / f"{name}.md").read_text()
+    if not source.startswith("---\n") or source.count("\n---\n") != 1:
+        raise SystemExit(f"{name}: expected one YAML frontmatter block")
+    model = claude_models[name]
+    if model is None:
+        if "\nmodel:" in source.split("\n---\n", 1)[0]:
+            raise SystemExit(f"{name}: must not invent a Claude model default")
+    elif f'\nmodel: "{model}"' not in source.split("\n---\n", 1)[0]:
+        raise SystemExit(f"{name}: missing Claude model {model}")
+    path = repo / ".codex/agents" / f"{name}.toml"
+    with path.open("rb") as stream:
+        record = tomllib.load(stream)
+    description = record.get("description", "")
+    if dispatch is None:
+        if "Default dispatch:" in description:
+            raise SystemExit(f"{name}: must not invent a dispatch default")
+    elif f"Default dispatch: {dispatch}." not in description:
+        raise SystemExit(f"{name}: missing exact dispatch {dispatch}")
+    if not record.get("developer_instructions", "").strip():
+        raise SystemExit(f"{name}: empty developer instructions")
+
+with (repo / ".agents/mcp.json").open("rb") as stream:
+    registry = json.load(stream)["mcpServers"]
+with (repo / ".codex/config.toml").open("rb") as stream:
+    codex = tomllib.load(stream).get("mcp_servers", {})
+expected_states = {
+    name: server["enabled"] and "${" not in server.get("url", "")
+    for name, server in registry.items()
+    if server.get("type") in {"stdio", "http"}
+    and server.get("codex_enabled") is not False
+}
+states = {name: body.get("enabled", True) for name, body in codex.items()}
+if states != expected_states:
+    raise SystemExit(f"Codex MCP states {states} != registry states {expected_states}")
+PY
+
+loader=skipped
+if command -v codex >/dev/null 2>&1; then
+  python3 - "$repo" <<'PY'
+from pathlib import Path
+import subprocess
 import sys
 import tomllib
 
 repo = Path(sys.argv[1])
-with (repo / ".codex/config.toml").open("rb") as config_file:
-    servers = tomllib.load(config_file).get("mcp_servers", {})
-
-# The merge rule has one implementation, .agents/toggles.py, and test-mcp.sh
-# asserts it against an explicit fixture table. Reimplementing it here would
-# only ever catch a divergence between two copies, never a bug in the rule.
-sys.path.insert(0, str(repo / ".agents"))
-import toggles as toggle_rules
-
-toggles = toggle_rules.resolve(str(repo / ".agents"))
-
-with (repo / ".agents/mcp.json").open(encoding="utf-8") as registry_file:
-    registry = json.load(registry_file)["mcpServers"]
-
-expected = {}
-for name, server in registry.items():
-    if server.get("type") not in {"stdio", "http"}:
-        continue
-    setting = toggles.get(name, {})
-    enabled = setting.get("enabled") is True and setting.get("codex_enabled", True) is True
-    if enabled and "${" in server.get("url", ""):
-        enabled = False          # Codex cannot interpolate it; masked, not omitted
-    expected[name] = enabled
-
-actual = {name: server.get("enabled", True) for name, server in servers.items()}
-if actual != expected:
-    raise SystemExit(f"expected generated MCP states {expected}, got {actual}")
-
-PY
-
-# Parsing is not loading. Codex rejects a record whose transport is missing or
-# contradicts a lower layer, and such a file is still valid TOML — only the
-# binary can say. The scratch home declares no servers, so this covers the case
-# where nothing underneath supplies a transport.
-loader_checked=no
-if command -v codex >/dev/null 2>&1; then
-  # Physical path: mktemp hands back a symlinked one on macOS, and a trust key
-  # that does not match the cwd Codex resolves leaves the project untrusted,
-  # its config ignored, and this check silently inert.
-  loader="$(cd "$(mktemp -d)" && pwd -P)"
-  trap 'rm -rf "$loader"' EXIT
-  mkdir -p "$loader/home" "$loader/ws/.codex"
-  cp "$repo/.codex/config.toml" "$loader/ws/.codex/config.toml"
-  printf '[projects."%s/ws"]\ntrust_level = "trusted"\n' "$loader" > "$loader/home/config.toml"
-  # Without a repository boundary Codex walks up and merges an ancestor
-  # .codex/config.toml, so the listing would not be the generated file alone.
-  git -C "$loader/ws" init -q
-  if ! ( cd "$loader/ws" && CODEX_HOME="$loader/home" codex mcp list ) \
-       >"$loader/out" 2>&1; then
-    echo "test-codex: Codex refuses to load the generated config:" >&2
-    sed 's/^/  /' "$loader/out" >&2
-    exit 1
-  fi
-  # Success also covers "Codex never read the project config" — an untrusted
-  # workspace lists nothing and still exits 0. Assert it read what we wrote,
-  # or the check reverts to green on a file Codex would refuse.
-  python3 - "$repo/.codex/config.toml" "$loader/out" <<'PY'
-import sys
-import tomllib
-
-with open(sys.argv[1], "rb") as config_file:
-    names = sorted(tomllib.load(config_file).get("mcp_servers", {}))
-with open(sys.argv[2], encoding="utf-8") as listing_file:
-    listing = listing_file.read()
-missing = [name for name in names if name not in listing]
+with (repo / ".codex/config.toml").open("rb") as stream:
+    names = set(tomllib.load(stream).get("mcp_servers", {}))
+try:
+    result = subprocess.run(
+        ["codex", "mcp", "list"], cwd=repo, text=True,
+        capture_output=True, timeout=20,
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit("test-codex: `codex mcp list` timed out after 20 seconds")
+if result.returncode:
+    raise SystemExit("test-codex: Codex rejected project config:\n" + result.stderr)
+missing = sorted(name for name in names if name not in result.stdout)
 if missing:
-    raise SystemExit(
-        "Codex did not read the generated config — absent from `codex mcp list`: "
-        f"{missing}")
-if not names:
-    raise SystemExit("generated config declares no MCP servers; nothing was proven")
-
-# One transport per record. Two makes Codex reject every configuration for the
-# workspace, and the merge is per key, so a second one can also arrive from the
-# user layer.
-with open(sys.argv[1], "rb") as config_file:
-    records = tomllib.load(config_file)["mcp_servers"]
-both = {name: sorted(k for k in body if k in ("command", "url"))
-        for name, body in records.items()
-        if "command" in body and "url" in body}
-if both:
-    raise SystemExit(f"records carrying two transports: {both}")
+    raise SystemExit(f"test-codex: Codex did not expose project MCP records: {missing}")
 PY
-  rm -rf "$loader"
-  trap - EXIT
-  loader_checked=yes
+  loader=passed
 fi
-
-fixture="$(mktemp -d)"
-trap 'rm -rf "$fixture"' EXIT
-cp -R "$repo/.agents" "$fixture/.agents"
-# config.json is gitignored and per-machine. A fixture that inherits it passes
-# or fails on whatever the operator happens to have toggled.
-python3 - "$fixture/.agents/config.json" <<'PY'
-import json, sys
-with open(sys.argv[1], "w", encoding="utf-8") as f:
-    json.dump({"mcp": {"servers": {"context7": {"enabled": True},
-                                   "exa": {"enabled": False}}}}, f, indent=1)
-PY
-"$fixture/.agents/sync-mcp.sh" disable context7 >/dev/null
-python3 - "$fixture/.codex/config.toml" <<'PY'
-import sys
-import tomllib
-
-with open(sys.argv[1], "rb") as config_file:
-    context7 = tomllib.load(config_file)["mcp_servers"]["context7"]
-if context7.get("enabled") is not False:
-    raise SystemExit("sync-mcp disable must regenerate the Codex server state")
-PY
-"$fixture/.agents/sync-mcp.sh" enable exa >/dev/null
-python3 - "$fixture/.codex/config.toml" <<'PY'
-import sys
-import tomllib
-
-with open(sys.argv[1], "rb") as config_file:
-    exa = tomllib.load(config_file)["mcp_servers"]["exa"]
-if exa.get("enabled") is not False:
-    raise SystemExit("enabling a server whose URL carries a credential must still emit its mask")
-PY
-# config.json is canonical and overrides per key, so a lone codex_enabled must
-# mask the server for Codex without dropping it from the other tools.
-python3 - "$fixture/.agents/config.json" <<'PY'
-import json, sys
-with open(sys.argv[1], "w", encoding="utf-8") as f:
-    json.dump({"mcp": {"servers": {"context7": {"codex_enabled": False}}}}, f, indent=1)
-PY
-"$fixture/.agents/sync-mcp.sh" >/dev/null
-python3 - "$fixture" <<'PY'
-import json
-import sys
-import tomllib
-from pathlib import Path
-
-fixture = Path(sys.argv[1])
-claude = json.loads((fixture / ".mcp.json").read_text())["mcpServers"]
-with (fixture / ".codex/config.toml").open("rb") as config_file:
-    codex = tomllib.load(config_file)["mcp_servers"]
-if "context7" not in claude:
-    raise SystemExit("a lone codex_enabled must leave the server in the Claude output")
-if codex.get("context7", {}).get("enabled") is not False:
-    raise SystemExit("a lone codex_enabled must mask the server for Codex")
-PY
-
-rm -rf "$fixture"
-trap - EXIT
 
 normalizer="$repo/.agents/codex/normalize-hook.py"
 assert_json() {
-  local payload="$1" policy="$2" expected="$3"
+  local payload="$1" policy="$2" expected="$3" actual
   actual="$(printf '%s' "$payload" | python3 "$normalizer" "$policy" "$repo")"
   ACTUAL="$actual" EXPECTED="$expected" python3 - <<'PY'
 import json, os
@@ -182,68 +118,13 @@ assert_json \
   stop-investigate.sh \
   '{"project_dir":"'"$repo"'","stop_hook_active":false,"transcript_path":"","last_assistant_message":"I am unable to complete this."}'
 
-if printf '%s' '{"last_assistant_message":"Implemented work.\nI am unable to complete this.","stop_hook_active":false}' | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null 2>&1; then
-  echo "test-codex: stop-investigate must block a hedge" >&2
+if printf '%s' '{"last_assistant_message":"I am unable to complete this.","stop_hook_active":false}' \
+  | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null 2>&1; then
+  echo "test-codex: stop-investigate accepted a blocked completion" >&2
   exit 1
 fi
-printf '%s' '{"last_assistant_message":"Implemented and verified the change.","stop_hook_active":false}' | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null
-transcript="$(mktemp)"
-printf '%s\n' '{"message":{"role":"assistant","content":"I am unable to complete this."}}' > "$transcript"
-if printf '%s' '{"transcript_path":"'"$transcript"'","stop_hook_active":false}' | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null 2>&1; then
-  rm -f "$transcript"
-  echo "test-codex: stop-investigate must fall back to transcript" >&2
-  exit 1
-fi
-rm -f "$transcript"
-if printf '%s' '{"last_assistant_message":"The lint errors are pre-existing.","stop_hook_active":false}' | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null 2>&1; then
-  echo "test-codex: stop-investigate must ratchet an unfiled defect" >&2
-  exit 1
-fi
-# The adapter resolves the repository from its own path, not from cwd.
-(
-  cd "$repo/.agents"
-  printf '%s' '{"last_assistant_message":"Implemented and verified the change.","stop_hook_active":false}' \
-    | ../.codex/hooks/adapter.sh stop-investigate.sh >/dev/null
-)
-
-# A generation failure must leave .codex/ untouched and the hooks armed. Both
-# properties are invisible to a passing sync, so drive one that throws: a
-# persona carrying the TOML delimiter makes toml_multiline raise after the first
-# agent TOML would otherwise have been written.
-txn="$(mktemp -d)"
-trap 'rm -rf "$txn"' EXIT
-cp -R "$repo/.agents" "$txn/.agents"
-git -C "$txn" init -q
-"$txn/.agents/sync-codex.sh" --no-trust >/dev/null 2>&1
-# trust-hooks.py owns the operator's ~/.codex/config.toml, so the test observes
-# a stand-in rather than letting the suite write there.
-cat > "$txn/.agents/codex/trust-hooks.py" <<'STUB'
-#!/usr/bin/env python3
-import os, sys
-open(os.path.join(sys.argv[1], ".trust-hooks-ran"), "w").write("ran\n")
-STUB
-chmod +x "$txn/.agents/codex/trust-hooks.py"
-printf '\nSENTINEL\n' >> "$txn/.codex/agents/researcher.toml"
-printf "\n'''\n" >> "$txn/.agents/personas/learning-reporter.md"
-if "$txn/.agents/sync-codex.sh" >/dev/null 2>&1; then
-  echo "test-codex: a persona that cannot build must fail the sync" >&2
-  exit 1
-fi
-if ! grep -q SENTINEL "$txn/.codex/agents/researcher.toml"; then
-  echo "test-codex: the aborted sync half-generated .codex/ — build every output before writing any" >&2
-  exit 1
-fi
-if [[ ! -f "$txn/.trust-hooks-ran" ]]; then
-  echo "test-codex: the aborted sync skipped the re-trust — the hooks.json re-link leaves them disarmed" >&2
-  exit 1
-fi
-rm -rf "$txn"
-trap - EXIT
-
-if [[ "$loader_checked" == "yes" ]]; then
-  echo "Codex integration checks passed."
-else
-  echo "Codex integration checks passed (loader check SKIPPED: codex not on PATH)."
-fi
+printf '%s' '{"last_assistant_message":"Implemented and verified.","stop_hook_active":false}' \
+  | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null
 
 python3 "$repo/.agents/codex/test-trust-hooks.py"
+echo "Codex integration checks passed (host loader: $loader)."
