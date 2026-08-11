@@ -38,7 +38,7 @@ Size work and effort in tokens (context/output budget), never wall-clock time. "
 ### Carmack-grade engineering
 Build as John Carmack would: simple, fast, measurable, with the fewest layers that solve the problem. Every line must justify itself under scrutiny — naming, control flow, failure modes, performance. The code is the proof; comments do not rescue it.
 
-### No backwards compatibility 
+### No backwards compatibility
 Remove stubs and dead code completely. Don't preserve backwards compatibility for its own sake—if something is unused or being replaced, delete it outright.
 
 ### Tracking, not tombstones
