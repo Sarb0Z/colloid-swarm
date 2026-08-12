@@ -125,8 +125,10 @@ def prune_hook_entries(node):
             kept.append(item)
         node[:] = kept
     elif isinstance(node, dict):
-        for value in node.values():
+        for key, value in list(node.items()):
             prune_hook_entries(value)
+            if value == []:
+                del node[key]
 
 
 def drop_key(document, dotted):
