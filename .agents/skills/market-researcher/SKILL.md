@@ -18,6 +18,12 @@ ordinary turn, use `search-and-cite` instead — that skill draws the line betwe
 a quick inline lookup and a delegated cell, and this one assumes you have
 already crossed it.
 
+<!-- colloid-only -->
+**Every delegated researcher receives exactly one genome.** Claude Code and
+Codex inject it through `SubagentStart`; Kimi's start event is observation-only,
+so prepend one generated stamp to the Kimi dispatch prompt. Never combine both.
+<!-- /colloid-only -->
+
 ## Workflow
 
 Copy this checklist and track progress:
@@ -370,16 +376,17 @@ Scope first:
   unmetered searches, and a sweep nobody reads costs the same as one that lands.
 <!-- colloid-only -->
 
-Researchers are cells like any other — stamp each with a genome and dispatch:
+For Kimi, generate the required stamp before dispatch:
 
 ```sh
 .agents/genome.sh mycelium --register none      # single sweep: trace every source
 .agents/genome.sh --count 4 --register none     # fan-out: N distinct stamps
 ```
 
-**Mycelium** is the natural genome for a single sweep — it traces provenance three
-hops out and is hard to surprise. For a fan-out, `--count N` draws distinct
-stamps so the targets are not all read through the same lens.
+**Mycelium** is the natural genome for a single Kimi sweep — it traces provenance
+three hops out and is hard to surprise. For a Kimi fan-out, `--count N` draws
+distinct stamps so the targets are not all read through the same lens. The
+Claude Code and Codex lifecycle hooks perform their own sortition.
 
 `--register none` is load-bearing on both lines. `--register` defaults to
 `panspermia`, which instructs a cell to *"dream weirder"* and prefer wild
@@ -392,16 +399,16 @@ subagent mechanism, use it; where it does not, work the targets in sequence in
 this session against the same contract. The method does not change — only whether
 the sweeps run concurrently in isolated context.
 
+<!-- colloid-only -->
 | Engine | Dispatch |
 |---|---|
-| Claude Code | `Task(subagent_type='researcher', prompt='[brief]')` — pins the cell to Sonnet instead of the parent model |
-| Kimi CLI | the `Agent` tool; prepend `.agents/personas/researcher.md` to the prompt |
-| Codex, or any engine with no subagent primitive | apply `.agents/personas/researcher.md` yourself, then work each target in sequence |
-<!-- colloid-only -->
+| Claude Code | `Task(subagent_type='researcher', prompt='[brief]')` — pins the cell to Sonnet; `SubagentStart` injects its genome |
+| Codex | dispatch the `researcher` agent; `SubagentStart` injects its genome |
+| Kimi CLI | the `Agent` tool; prepend one genome and `.agents/personas/researcher.md` to the prompt |
+| Engine with no subagent primitive | apply `.agents/personas/researcher.md` yourself, then work each target in sequence |
 
-Every dispatch carries its stamp ahead of the brief — under Claude Code,
-`prompt='[stamp] + [brief]'`. Kimi CLI also exposes `AgentSwarm`, which fits the
-broad-sweep fan-out better than one `Agent` call per target.
+Kimi receives `prompt='[stamp] + [brief]'`. Kimi CLI also exposes `AgentSwarm`,
+which fits the broad-sweep fan-out better than one `Agent` call per target.
 <!-- /colloid-only -->
 
 `.agents/personas/researcher.md` is the engine-neutral contract and already

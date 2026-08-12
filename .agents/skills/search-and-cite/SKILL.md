@@ -46,11 +46,12 @@ engine-neutral contract: the escalation ladder, the corroboration rules, and the
 `CLAIMS / SOURCES / GAPS` return shape.
 <!-- colloid-only -->
 
-It's a cell like any other — stamp it with a genome first. The **Mycelium** is
-its natural genome (trace every source, three hops out, impossible to surprise):
+It's a cell like any other. The **Mycelium** is its natural genome (trace every
+source, three hops out, impossible to surprise). Generate it explicitly only
+on a host without context-injecting `SubagentStart`:
 
 ```sh
-.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/personas/researcher.md + the question
+.agents/genome.sh mycelium --register none   # Kimi: prepend to the dispatch prompt
 ```
 <!-- /colloid-only -->
 
@@ -74,9 +75,9 @@ its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
 <!-- colloid-only -->
 
-Under Claude Code the cell is stamped for you on `SubagentStart` — prepending a
-second stamp gives it two personalities. Under Codex or Kimi, which have no such
-event, prepend one: `prompt='[genome stamp] + [your research question]'`.
+Claude Code and Codex stamp the cell on `SubagentStart`; prepending another gives
+it two personalities. Kimi's event is observation-only, so prepend one there:
+`prompt='[genome stamp] + [your research question]'`.
 <!-- /colloid-only -->
 
 ### Other engines — generic dispatch
@@ -88,9 +89,9 @@ playwright for hard pages), cross-checks load-bearing claims, and returns
 `CLAIMS / SOURCES / GAPS` — what it found, not what it wishes it found.
 <!-- colloid-only -->
 
-Prepend the genome stamp here too — `[genome stamp] +
-[.agents/personas/researcher.md] + [your research question]`. The stamp means the
-cell carries the membrane and the honesty clause.
+On Kimi, prepend the genome stamp here too — `[genome stamp] +
+[.agents/personas/researcher.md] + [your research question]`. Claude and Codex
+inject it automatically.
 <!-- /colloid-only -->
 
 ## Consume the evidence — carry the sources through
@@ -112,10 +113,11 @@ The researcher's `SOURCES` are now **your** sources. When you write the answer:
 
 ## The evidence trail
 
-Every `WebSearch` / `WebFetch` / `browser_navigate` / `fetch_readable` /
-`resolve_open_access` — yours and the
-researcher's — is logged to `.agents/.sources-ledger` (`ts · agent · kind ·
-value`) by the `sources-capture` hook. It's the operator's audit trail and a
+Observable `WebSearch` / `WebFetch` / Context7 / `browser_navigate` /
+`fetch_readable` / `resolve_open_access` calls are logged to
+`.agents/.sources-ledger` (`ts · agent · kind · value`) by the
+`sources-capture` hook. Codex hosted web search bypasses local tool hooks; its
+MCP calls are captured. It's the operator's audit trail and a
 backstop for the URLs you actually read (`fetch`/`browse` rows are real URLs;
 `search` rows hold the query, not the result link). Transient and gitignored;
 safe to delete.
@@ -141,9 +143,7 @@ answer rather than a fragment.
 ## On other engines
 
 `researcher.md` and this skill are engine-neutral — the researcher cell and the
-inline/delegate discipline work anywhere the engine has web tools. The
-mechanical pieces are Claude-wired: the `sources-capture` ledger needs the
-engine's web-tool names, and the `research-prime` reminder needs a prompt-submit
-hook. Under an engine without those (e.g. Kimi today), you get the researcher
-and the discipline, but no automatic trail and no prime — the honesty is then
-entirely yours.
+inline/delegate discipline work anywhere the engine has web tools. The hook
+adapters map each host's observable tool names into one shared source trail and
+wire the prompt-submit reminder. Hosted calls outside a host's hook path remain
+an explicit coverage gap; the honesty membrane does not depend on the ledger.

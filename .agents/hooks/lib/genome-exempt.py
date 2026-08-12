@@ -16,6 +16,7 @@ import json
 import sys
 
 EXEMPT = ["explore", "plan", "claude-code-guide", "statusline-setup", "learning-reporter"]
+TYPE_ALIASES = {"explorer": "explore"}
 
 
 def main():
@@ -38,6 +39,7 @@ def main():
     # Coerce: a non-string type must stamp rather than crash.
     kind = payload.get("subagent_type")
     kind = (kind if isinstance(kind, str) else "").strip().lower()
+    kind = TYPE_ALIASES.get(kind, kind)
 
     exempt = set(settings.get("swarm", {}).get("exempt_subagent_types", EXEMPT))
     print("yes" if kind in exempt else "no")

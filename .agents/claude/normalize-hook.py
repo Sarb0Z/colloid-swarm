@@ -63,18 +63,10 @@ def normalize(payload, policy, repo):
         out["subagent_type"] = payload.get("agent_type", "")
     # /colloid-only
     elif policy == "sources-capture.sh":
-        # Web lookup -> evidence trail. Map the tool to a kind and the source
-        # value; agent_type tags a researcher cell's rows apart from the main
-        # agent's.
-        tool = payload.get("tool_name") or ""
         agent = payload.get("agent_type")
         out["agent"] = (agent if isinstance(agent, str) else "main").strip() or "main"
-        if tool == "WebSearch" or tool.endswith("__resolve_open_access"):
-            out["kind"], out["value"] = "search", tool_input.get("query", "")
-        elif tool == "WebFetch" or tool.endswith("__fetch_readable"):
-            out["kind"], out["value"] = "fetch", tool_input.get("url", "")
-        else:                                  # browser_navigate carries a url
-            out["kind"], out["value"] = "browse", tool_input.get("url", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
     elif policy == "post-edit-check.sh":
         out["files"] = written_paths(tool_input)
     elif policy == "session-wrap.sh":

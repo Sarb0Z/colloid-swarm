@@ -26,12 +26,9 @@ def normalize(payload, policy, repo):
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
     elif policy == "sources-capture.sh":
-        tool = payload.get("tool_name") or ""
-        out["agent"] = "main"                  # Kimi payloads carry no subagent tag
-        if tool == "WebSearch":
-            out["kind"], out["value"] = "search", tool_input.get("query", "")
-        else:                                  # FetchURL
-            out["kind"], out["value"] = "fetch", tool_input.get("url", "")
+        out["agent"] = "unknown"               # Tool payloads carry no agent tag.
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
     elif policy == "post-edit-check.sh":
         files = []
         for key in ("file_path", "path"):

@@ -88,6 +88,58 @@ for name, server in registry.items():
     timeout = server.get("codex_startup_timeout_sec")
     if timeout is not None and codex[name].get("startup_timeout_sec") != timeout:
         raise SystemExit(f"Codex MCP timeout for {name} was not generated")
+
+with (repo / ".agents/codex/hooks.json").open(encoding="utf-8") as stream:
+    codex_hooks = json.load(stream)["hooks"]
+# colloid-only
+starts = codex_hooks.get("SubagentStart", [])
+if len(starts) != 1 or "genome-inject.sh" not in json.dumps(starts[0]):
+    raise SystemExit("Codex must inject one genome from native SubagentStart")
+# /colloid-only
+source_group = next(
+    (group for group in codex_hooks["PostToolUse"]
+     if "sources-capture.sh" in json.dumps(group)), None,
+)
+if source_group is None:
+    raise SystemExit("Codex source-capture hook is missing")
+codex_matcher = source_group["matcher"]
+for tool in (
+    "mcp__playwright__browser_navigate",
+    "mcp__research-mcp__fetch_readable",
+    "mcp__research-mcp__resolve_open_access",
+    "mcp__context7__resolve-library-id",
+    "mcp__context7__query-docs",
+    "mcp__plugin_exa_exa__web_search_exa",
+):
+    import re
+    if re.fullmatch(codex_matcher, tool) is None:
+        raise SystemExit(f"Codex source matcher misses {tool}")
+
+with (repo / ".agents/claude/settings.json").open(encoding="utf-8") as stream:
+    claude_hooks = json.load(stream)["hooks"]
+claude_source = next(
+    group for group in claude_hooks["PostToolUse"]
+    if "sources-capture.sh" in json.dumps(group)
+)
+for tool in ("WebSearch", "WebFetch", "mcp__context7__query-docs"):
+    if re.fullmatch(claude_source["matcher"], tool) is None:
+        raise SystemExit(f"Claude source matcher misses {tool}")
+
+kimi_config_text = (repo / ".kimi/config.toml.example").read_text()
+# colloid-only
+if "adapter.sh genome-inject.sh" in kimi_config_text:
+    raise SystemExit("Kimi must not register an output-discarding genome hook")
+# /colloid-only
+with (repo / ".kimi/config.toml.example").open("rb") as stream:
+    kimi_config = tomllib.load(stream)
+kimi_source = next(
+    hook for hook in kimi_config["hooks"]
+    if "sources-capture.sh" in hook["command"]
+)
+for tool in ("WebSearch", "FetchURL", "mcp__research-mcp__fetch_readable",
+             "mcp__plugin_exa_exa__web_search_exa"):
+    if re.fullmatch(kimi_source["matcher"], tool) is None:
+        raise SystemExit(f"Kimi source matcher misses {tool}")
 PY
 
 loader=skipped
@@ -136,6 +188,96 @@ assert_json \
   '{"last_assistant_message":"I am unable to complete this.","stop_hook_active":false}' \
   stop-investigate.sh \
   '{"project_dir":"'"$repo"'","stop_hook_active":false,"transcript_path":"","last_assistant_message":"I am unable to complete this."}'
+# colloid-only
+assert_json \
+  '{"cwd":"/repo","agent_id":"child-1","agent_type":"reviewer"}' \
+  genome-inject.sh \
+  '{"project_dir":"/repo","subagent_type":"reviewer"}'
+# /colloid-only
+assert_json \
+  '{"cwd":"/repo","tool_name":"mcp__context7__query-docs","tool_input":{"query":"hook contracts","libraryId":"/openai/codex"}}' \
+  sources-capture.sh \
+  '{"project_dir":"/repo","agent":"unknown","tool_name":"mcp__context7__query-docs","tool_input":{"query":"hook contracts","libraryId":"/openai/codex"}}'
+
+python3 - "$repo" <<'PY'
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+repo = Path(sys.argv[1])
+source_path = repo / ".agents/hooks/lib/sources-ledger.py"
+spec = importlib.util.spec_from_file_location("sources_ledger", source_path)
+sources = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sources)
+
+cases = [
+    ({"tool_name": "WebSearch", "tool_input": {"query": "codex hooks"}},
+     ("search", "codex hooks")),
+    ({"tool_name": "FetchURL", "tool_input": {"url": "https://example.test/a"}},
+     ("fetch", "https://example.test/a")),
+    ({"tool_name": "mcp__playwright__browser_navigate", "tool_input": {"url": "https://example.test/b"}},
+     ("browse", "https://example.test/b")),
+    ({"tool_name": "mcp__research-mcp__resolve_open_access", "tool_input": {"query": "paper doi"}},
+     ("search", "paper doi")),
+    ({"tool_name": "mcp__context7__query-docs", "tool_input": {"query": "hook schema"}},
+     ("search", "hook schema")),
+    ({"tool_name": "mcp__plugin_exa_exa__get_code_context_exa", "tool_input": {"query": "source"}},
+     ("search", "source")),
+    ({"tool_name": "mcp__plugin_exa_exa__web_search_exa", "tool_input": {"url": "https://example.test/c"}},
+     ("fetch", "https://example.test/c")),
+]
+for payload, expected in cases:
+    actual = sources.source_row(payload)
+    if actual != expected:
+        raise SystemExit(f"source classifier: expected {expected}, got {actual}")
+if sources.source_row({"tool_name": "apply_patch", "tool_input": {}}) is not None:
+    raise SystemExit("source classifier recorded an unsupported tool")
+
+adapter = repo / ".codex/hooks/adapter.sh"
+
+def run(policy, payload):
+    return subprocess.run(
+        [adapter, policy], input=json.dumps(payload), text=True,
+        capture_output=True, cwd=repo,
+    )
+
+# colloid-only
+injected = run("genome-inject.sh", {"cwd": str(repo), "agent_type": "reviewer"})
+if injected.returncode:
+    raise SystemExit(f"Codex genome adapter failed: {injected.stderr}")
+context = json.loads(injected.stdout)["hookSpecificOutput"]
+if context["hookEventName"] != "SubagentStart":
+    raise SystemExit("Codex genome adapter emitted the wrong hook event")
+if context["additionalContext"].count("⊰ COLLOID GENOME ·") != 1:
+    raise SystemExit("Codex genome adapter did not inject exactly one stamp")
+
+exempt = run("genome-inject.sh", {"cwd": str(repo), "agent_type": "explorer"})
+if exempt.returncode or exempt.stdout:
+    raise SystemExit("Codex explorer alias must be exempt from genome injection")
+# /colloid-only
+
+blocked = run("guard-destructive.sh", {
+    "cwd": str(repo), "tool_input": {"command": "rm -rf /"},
+})
+if blocked.returncode != 2 or "irreversible" not in blocked.stderr:
+    raise SystemExit("Codex destructive-command adapter did not block")
+
+with tempfile.TemporaryDirectory() as project:
+    Path(project, ".agents").mkdir()
+    captured = run("sources-capture.sh", {
+        "cwd": project,
+        "tool_name": "mcp__context7__query-docs",
+        "tool_input": {"query": "native policy firing"},
+    })
+    if captured.returncode:
+        raise SystemExit(f"Codex source adapter failed: {captured.stderr}")
+    rows = Path(project, ".agents/.sources-ledger").read_text().splitlines()
+    if len(rows) != 1 or rows[0].split("\t")[1:] != ["unknown", "search", "native policy firing"]:
+        raise SystemExit(f"Codex source adapter wrote the wrong row: {rows}")
+PY
 
 if printf '%s' '{"last_assistant_message":"I am unable to complete this.","stop_hook_active":false}' \
   | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null 2>&1; then

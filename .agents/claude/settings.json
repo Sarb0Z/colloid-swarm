@@ -40,7 +40,7 @@
         ]
       },
       {
-        "matcher": "WebSearch|WebFetch|mcp__playwright__browser_navigate|mcp__playwright-reader__browser_navigate|mcp__research-mcp__fetch_readable|mcp__research-mcp__resolve_open_access",
+        "matcher": "WebSearch|WebFetch|mcp__playwright__browser_navigate|mcp__playwright-reader__browser_navigate|mcp__plugin_playwright_playwright__browser_navigate|mcp__research-mcp__fetch_readable|mcp__research-mcp__resolve_open_access|mcp__context7__(resolve-library-id|query-docs)|mcp__plugin_context7_context7__(resolve-library-id|query-docs)|mcp__plugin_exa_exa__.*",
         "hooks": [
           {
             "type": "command",
