@@ -264,8 +264,18 @@ if exempt.returncode or exempt.stdout:
 blocked = run("guard-destructive.sh", {
     "cwd": str(repo), "tool_input": {"command": "rm -rf /"},
 })
-if blocked.returncode != 2 or "irreversible" not in blocked.stderr:
-    raise SystemExit("Codex destructive-command adapter did not block")
+try:
+    local_config = json.loads((repo / ".agents/config.json").read_text())
+except (OSError, ValueError):
+    local_config = {}
+hooks = local_config.get("hooks") if isinstance(local_config, dict) else {}
+guard = hooks.get("guard_destructive") if isinstance(hooks, dict) else {}
+guard_enabled = guard.get("enabled") is not False if isinstance(guard, dict) else True
+if guard_enabled:
+    if blocked.returncode != 2 or "irreversible" not in blocked.stderr:
+        raise SystemExit("Codex destructive-command adapter did not block")
+elif blocked.returncode != 0:
+    raise SystemExit("Codex destructive-command adapter ignored the disabled guard")
 
 with tempfile.TemporaryDirectory() as project:
     Path(project, ".agents").mkdir()
