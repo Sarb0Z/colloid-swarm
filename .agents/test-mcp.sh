@@ -10,7 +10,7 @@ work = Path(tempfile.mkdtemp(prefix="mcp-test-"))
 try:
     agents = work / ".agents"
     agents.mkdir()
-    for relative in ("mcp.py", "mcp.json", "codex/config.toml"):
+    for relative in ("mcp.py", "mcp_codex.py", "mcp.json", "codex/config.toml"):
         destination = agents / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / ".agents" / relative, destination)
@@ -32,13 +32,19 @@ try:
     assert defaults == {"context7", "playwright", "research-mcp"}, defaults
     claude = json.loads((work / ".mcp.json").read_text())["mcpServers"]
     assert set(claude) == defaults and all("description" not in item and item["type"] in {"stdio", "http"} for item in claude.values())
+    assert all("codex_startup_timeout_sec" not in item for item in claude.values())
     assert json.loads((work / ".claude/settings.local.json").read_text())["enabledMcpjsonServers"] == ["context7", "outside", "playwright", "research-mcp"]
     assert (agents / ".playwright-reader.json").is_file()
     kimi = work / ".kimi-code/mcp.json"
     assert stat.S_IMODE(kimi.stat().st_mode) == 0o600
-    assert json.loads(kimi.read_text())["mcpServers"]["security-mcp"]["enabled"] is False
+    kimi_records = json.loads(kimi.read_text())["mcpServers"]
+    assert kimi_records["security-mcp"]["enabled"] is False
+    assert all("codex_startup_timeout_sec" not in item for item in kimi_records.values())
     codex = tomllib.loads((work / ".codex/config.toml").read_text())["mcp_servers"]
     assert codex["context7"]["enabled"] is True and codex["security-mcp"]["enabled"] is False
+    assert codex["context7"]["startup_timeout_sec"] == 30
+    assert codex["playwright"]["startup_timeout_sec"] == 30
+    assert "startup_timeout_sec" not in codex["research-mcp"]
     assert "atlassian" not in codex and "exa" not in codex and codex["greptile"]["bearer_token_env_var"] == "GREPTILE_API_KEY"
     original_registry = (agents / "mcp.json").read_bytes()
     document = json.loads(original_registry)
@@ -53,6 +59,7 @@ try:
     for field, value, message in (
         ("command", "curl", "incompatible field"),
         ("headers", {"X-Fixture": "value"}, "cannot be represented by Codex"),
+        ("codex_startup_timeout_sec", 0, "must be a positive integer"),
     ):
         document = json.loads(original_registry)
         document["mcpServers"]["linear"][field] = value

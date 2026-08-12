@@ -3,6 +3,7 @@
     "context7": {
       "description": "Current library and framework documentation.",
       "enabled": true,
+      "codex_startup_timeout_sec": 30,
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"]
@@ -10,6 +11,7 @@
     "playwright": {
       "description": "Browser automation and UI verification.",
       "enabled": true,
+      "codex_startup_timeout_sec": 30,
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "@playwright/mcp@0.0.78"]

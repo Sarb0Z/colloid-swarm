@@ -49,6 +49,12 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — `codex mcp list` rejects a workspace because another layer declares one of the project registry names with a different transport.
 - **Rework** — add a read-only preflight over the effective user/plugin configuration when Codex exposes a stable enumeration API, or adopt a managed machine-wide allowlist.
 
+### codex-network-proxy-fd-leak
+
+- **Condition** — Codex 0.147.0 retains managed HTTP/SOCKS loopback listeners and MCP children across completed work in a long-lived process. One observed process held 170 listeners and reached numeric descriptor 255 under macOS's inherited soft limit of 256; hooks, child-process startup, and transcript persistence then failed with `Too many open files`. Acceptable only with containment: `repo-autonomous` is network-off by default, while `repo-localhost` enables exact loopback access for a short, explicitly selected QA session.
+- **Trigger** — qualify each candidate Codex release once before adoption: run 200 sequential local-QA commands at the measured current cost of one HTTP/SOCKS listener pair per command and require the descriptor count to return to baseline after every command. This is one qualification run per candidate release, not a daily gate (runs/day: 0 normally; 1 on a qualification day).
+- **Rework** — remove the profile split only after that regression passes on the supported Codex version; until then, exit the entire opt-in QA thread when its local-network work completes. Raising `ulimit` is headroom, not rework.
+
 ### research-01-duplicate-ssrf-tables
 
 - **Condition** — `research-mcp/src/core/url-policy.ts` carries its own copy of the blocked-subnet tables and its own pinned-lookup transport, duplicating `security-mcp/src/core/policy/target-policy.ts` and `.../scanner/http-client.ts`. The verdicts genuinely differ — the scanner *requires* loopback or an allowlisted staging host, the reader *refuses* anything non-public — so only the address tables and the pinning technique are shared, not the policy. Acceptable: two callers, each server bundles to a self-contained `dist/`, and a shared package would have to be built and versioned for both.

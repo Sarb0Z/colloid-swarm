@@ -1,3 +1,7 @@
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+default_permissions = "repo-autonomous"
+
 [shell_environment_policy]
 inherit = "core"
 
@@ -10,3 +14,27 @@ ENABLE_TOOL_SEARCH = "auto:5"
 # mode` and falls back to asking in prose. Under development upstream.
 [features]
 default_mode_request_user_input = true
+# Available to the opt-in repo-localhost profile. Keep network disabled in the
+# default profile until Codex releases per-command listeners. debt: codex-network-proxy-fd-leak
+network_proxy = true
+
+[permissions.repo-autonomous]
+description = "Autonomous work inside the repository; external access stays gated."
+extends = ":workspace"
+
+[permissions.repo-autonomous.filesystem.":workspace_roots"]
+".git" = "write"
+".agents" = "write"
+".codex" = "write"
+
+[permissions.repo-localhost]
+description = "Repository autonomy plus literal loopback access for short local QA sessions."
+extends = "repo-autonomous"
+
+[permissions.repo-localhost.network]
+enabled = true
+allow_upstream_proxy = false
+
+[permissions.repo-localhost.network.domains]
+"localhost" = "allow"
+"127.0.0.1" = "allow"
