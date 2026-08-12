@@ -125,21 +125,23 @@ for tool in ("WebSearch", "WebFetch", "mcp__context7__query-docs"):
     if re.fullmatch(claude_source["matcher"], tool) is None:
         raise SystemExit(f"Claude source matcher misses {tool}")
 
-kimi_config_text = (repo / ".kimi/config.toml.example").read_text()
-# colloid-only
-if "adapter.sh genome-inject.sh" in kimi_config_text:
-    raise SystemExit("Kimi must not register an output-discarding genome hook")
-# /colloid-only
-with (repo / ".kimi/config.toml.example").open("rb") as stream:
-    kimi_config = tomllib.load(stream)
-kimi_source = next(
-    hook for hook in kimi_config["hooks"]
-    if "sources-capture.sh" in hook["command"]
-)
-for tool in ("WebSearch", "FetchURL", "mcp__research-mcp__fetch_readable",
-             "mcp__plugin_exa_exa__web_search_exa"):
-    if re.fullmatch(kimi_source["matcher"], tool) is None:
-        raise SystemExit(f"Kimi source matcher misses {tool}")
+kimi_path = repo / ".kimi/config.toml.example"
+if kimi_path.is_file():
+    kimi_config_text = kimi_path.read_text()
+    # colloid-only
+    if "adapter.sh genome-inject.sh" in kimi_config_text:
+        raise SystemExit("Kimi must not register an output-discarding genome hook")
+    # /colloid-only
+    with kimi_path.open("rb") as stream:
+        kimi_config = tomllib.load(stream)
+    kimi_source = next(
+        hook for hook in kimi_config["hooks"]
+        if "sources-capture.sh" in hook["command"]
+    )
+    for tool in ("WebSearch", "FetchURL", "mcp__research-mcp__fetch_readable",
+                 "mcp__plugin_exa_exa__web_search_exa"):
+        if re.fullmatch(kimi_source["matcher"], tool) is None:
+            raise SystemExit(f"Kimi source matcher misses {tool}")
 PY
 
 loader=skipped
