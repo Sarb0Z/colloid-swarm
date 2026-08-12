@@ -17,7 +17,8 @@
 #   genome.sh --check                 validate genomes.md, emit nothing
 #
 # Selection name/number are mutually exclusive with --count. Engine-neutral:
-# Claude and Kimi both call it via the orchestrator protocol (see genomes.md).
+# Claude and Codex call it from SubagentStart; Kimi calls it in the dispatch
+# protocol because its start hook cannot add context (see genomes.md).
 # Diagnostics (which genome was issued, parse errors) go to STDERR so STDOUT
 # stays a clean, paste-ready stamp. Fails closed (non-zero) on a malformed
 # genomes.md rather than emitting a half-formed personality.

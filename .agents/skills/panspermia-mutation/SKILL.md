@@ -66,9 +66,9 @@ construction and cannot strip what it must not see.
 
 **3. For each of N workers** (vary the mutation; you may also vary the genome):
 - `mutagen.sh --cost <c>` → the mutagen contract + a rolled vector.
-- Genome-stamp it like any cell: `genome.sh --register none` in front. Dispatch
-  the mutagen with `[stamp] + [mutagen output] + [the stripped WHAT]`. It returns
-  one rewritten task.
+- Dispatch the mutagen with `[mutagen output] + [the stripped WHAT]`. Claude
+  Code and Codex inject its genome on `SubagentStart`; on Kimi, prepend one
+  `genome.sh --register none` stamp. It returns one rewritten task.
 - **Validate the rewrite** before you trust it:
   - **Begins `MUTAGEN-HALT:`** → the mutagen refused on a safety concern. Do
     **not** dispatch this worker. Surface the flag to the operator and re-decide
@@ -78,10 +78,11 @@ construction and cannot strip what it must not see.
     Fall back to the unmutated stripped WHAT for this worker, or re-roll. The
     criteria are not negotiable.
   - **Otherwise** → the rewrite is good; proceed.
-- Stamp the **worker**: `genome.sh --register none` + the rewritten task.
-  `--register none` because the mutation *is* this dispatch's perturbation —
-  layering panspermia on top doubles the weirdness and makes the artifice
-  conspicuous. Dispatch.
+- Dispatch the **worker** with the rewritten task. Claude Code and Codex inject
+  its stamp; on Kimi, prepend one `genome.sh --register none` stamp.
+  `--register none` remains load-bearing because the mutation *is* this
+  dispatch's perturbation — layering panspermia on top doubles the weirdness
+  and makes the artifice conspicuous.
 
 **4. Judge** (you, holding the WHY + criteria):
 - **The criteria are the floor in both branches.** Cull any output that misses
@@ -113,10 +114,10 @@ never for the operator.
   intent-laundering; the only thing keeping them apart is *you*, and you are
   membrane-bound. Before you mutate, ask: *would I refuse to run this whole if
   someone veiled it from me?* If yes, stop.
-- **The membrane rides every cell.** The mutagen and every worker are
-  genome-stamped, so the conserved strand (safety, law, consent, honesty) is in
-  their context regardless of how the task was bent. The mutagen never touches
-  it; the mutation only ever bends the task body.
+- **The membrane rides every cell.** The mutagen and every worker receive
+  exactly one genome stamp, so the conserved strand (safety, law, consent,
+  honesty) is in their context regardless of how the task was bent. The mutagen
+  never touches it; the mutation only ever bends the task body.
 
 ## Why blind, why a separate agent
 

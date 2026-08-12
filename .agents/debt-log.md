@@ -66,3 +66,15 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — the `playwright-reader` MCP entry runs Chrome for Testing, not branded Chrome, because Chrome removed `--load-extension` from branded builds at milestone 137 and now discards it silently (verified: uBO Lite blocks 0/4 trackers under Chrome 150, 2/4 under Chrome for Testing 151). Content blocking and the branded-Chrome fingerprint are therefore mutually exclusive, and the scaffold ships both tiers side by side so the agent picks per task. Acceptable: the plain `playwright` entry still runs branded Chrome, so nothing is lost — it costs a second browser server's tool surface in context.
 - **Trigger** — bot-gating on the reader tier often enough that the reading win stops paying for the weaker fingerprint, or Chrome restoring extension side-loading to branded builds.
 - **Rework** — either drop one tier and accept its loss, or drive a single browser and load the extension over CDP (`Extensions.loadUnpacked`, which needs a flag the MCP server does not expose today); the one-tier route is a registry edit, the CDP route needs upstream support.
+
+### codex-tool-hooks-no-subagent-identity
+
+- **Condition** — Codex `SubagentStart` and `SubagentStop` now carry `agent_id` and `agent_type`, so lifecycle context and exemptions work natively. Ordinary `PreToolUse` and `PostToolUse` payloads still omit both fields, and subagent hooks reuse the parent's `session_id`. Acceptable: safety and post-edit policies intentionally apply to every caller; source rows without identity say `unknown`. Only a future main/subagent-specific tool policy would be blocked.
+- **Trigger** — a tool policy needs different main/subagent behavior, or Codex adds stable agent identity to ordinary tool-hook payloads.
+- **Rework** — add the identity field to the normalized raw tool contract and only then implement a Claude-shaped selector; no transcript or environment correlation fallback. Roughly 30 lines once the upstream field exists.
+
+### kimi-subagent-start-cannot-inject-context
+
+- **Condition** — Kimi 0.31.1 exposes `SubagentStart`, but documents it as observation-only and discards its hook output before constructing the child's prompt. Wiring `genome-inject.sh` would therefore report success without treating the subagent. Acceptable: Kimi dispatch instructions prepend exactly one genome; Claude and Codex inject automatically.
+- **Trigger** — Kimi documents and ships model-visible context from `SubagentStart`.
+- **Rework** — map `agent_name` to `subagent_type`, register `genome-inject.sh`, remove Kimi's manual-prepend instructions, and verify the child transcript rather than hook stdout; roughly 15 lines plus native QA.

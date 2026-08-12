@@ -8,7 +8,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | --- | --- |
 | `guard-destructive.sh` | `project_dir`, `command` |
 | `post-edit-check.sh` | `project_dir`, `files` |
-| `sources-capture.sh` | `project_dir`, `agent`, `kind`, `value` |
+| `sources-capture.sh` | `project_dir`, `agent`, `tool_name`, `tool_input` |
 | `session-start.sh` | `project_dir`, `source`, `session_id`, `transcript_path` |
 | `session-wrap.sh` | `project_dir`, `stop_hook_active`, `session_id`, `transcript_path` |
 | `stop-investigate.sh` | `project_dir`, `stop_hook_active`, `last_assistant_message`, `transcript_path` |
@@ -20,6 +20,20 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 
 The adapter fails closed on an unknown or non-executable policy. Policies own
 their behavior and exit contract; do not duplicate that logic here.
+
+`sources-capture.sh` deliberately receives the raw tool name and input. The
+shared `sources-ledger.py` classifies native search/fetch, Context7, readable
+fetch, open-access resolution, and browser navigation calls, so each host does
+not carry a separate mapping. Unsupported or empty tool shapes write no row.
+
+| Tool shape | Ledger row |
+| --- | --- |
+| `WebSearch` with `query` | `search`, query |
+| `WebFetch`, `FetchURL`, or `*__fetch_readable` with `url` | `fetch`, URL |
+| `*__browser_navigate` with `url` | `browse`, URL |
+| `*__resolve_open_access` with `query` | `search`, query |
+| Context7 `*__resolve-library-id` / `*__query-docs` with `query` | `search`, query |
+| plugin Exa with `url`, otherwise `query` | `fetch` URL, otherwise `search` query |
 
 ## Personas
 

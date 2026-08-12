@@ -4,8 +4,8 @@ Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and the artifact. Use the
 heavy tier for the runtime.
 <!-- colloid-only -->
-Under Claude do not prepend a genome because the hook injects one. Other
-engines prepend exactly one fresh stamp.
+Claude and Codex inject a genome on `SubagentStart`; do not prepend another.
+Kimi discards start-hook output, so prepend exactly one fresh stamp there.
 <!-- /colloid-only -->
 
 Send the contract below verbatim with the artifact to review. Do not paraphrase

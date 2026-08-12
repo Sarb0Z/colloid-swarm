@@ -3,7 +3,8 @@
 
 Usage: sources-ledger.py           # payload on stdin
 
-Reads {"project_dir", "agent", "kind", "value"} and appends
+Reads {"project_dir", "agent", "tool_name", "tool_input"}, classifies a
+supported lookup, and appends
 `ts \t agent \t kind \t value` to .agents/.sources-ledger.
 
 The trail is capped rather than unbounded. Rolling at the append is the only
@@ -28,6 +29,28 @@ def text(value, default=""):
     return value if isinstance(value, str) else default
 
 
+def source_row(payload):
+    """Return (kind, value) for a supported lookup, or None."""
+    tool = text(payload.get("tool_name"))
+    raw_input = payload.get("tool_input")
+    tool_input = raw_input if isinstance(raw_input, dict) else {}
+
+    if tool == "WebSearch":
+        return "search", text(tool_input.get("query"))
+    if tool in {"WebFetch", "FetchURL"} or tool.endswith("__fetch_readable"):
+        return "fetch", text(tool_input.get("url"))
+    if tool.endswith("__browser_navigate"):
+        return "browse", text(tool_input.get("url"))
+    if tool.endswith("__resolve_open_access"):
+        return "search", text(tool_input.get("query"))
+    if tool.endswith(("__resolve-library-id", "__query-docs")):
+        return "search", text(tool_input.get("query"))
+    if tool.startswith("mcp__plugin_exa_exa__"):
+        url = text(tool_input.get("url"))
+        return ("fetch", url) if url else ("search", text(tool_input.get("query")))
+    return None
+
+
 def main():
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -36,14 +59,17 @@ def main():
     if not isinstance(payload, dict):
         return 0
 
-    value = text(payload.get("value")).strip()
+    row = source_row(payload)
+    if row is None:
+        return 0
+    kind, value = row
+    value = value.strip()
     if not value:
         return 0
 
     project = text(payload.get("project_dir")) or os.environ.get("CLAUDE_PROJECT_DIR") or "."
     ledger = os.path.join(project, ".agents", ".sources-ledger")
-    agent = text(payload.get("agent"), "main").strip() or "main"
-    kind = text(payload.get("kind"), "fetch").strip() or "fetch"
+    agent = text(payload.get("agent"), "unknown").strip() or "unknown"
     value = value.replace("\t", " ").replace("\n", " ")[:500]
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 

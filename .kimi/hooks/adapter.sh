@@ -21,6 +21,10 @@
 # - PostCompact maps to session-start.sh with source=compact: Kimi
 #   compacts in-session, so the post-compaction re-prime rides the
 #   PostCompact event rather than a SessionStart(source=compact).
+# colloid-only
+# - SubagentStart is observation-only and discards output, so genome context
+#   must stay in the Agent/AgentSwarm dispatch prompt.
+# /colloid-only
 # - A policy absent from this repo's .agents/hooks/policy/ exits 0
 #   silently — the global ~/.kimi-code/config.toml registers the full
 #   fleet of hooks, and repos vendor only the policies they carry.

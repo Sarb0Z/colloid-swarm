@@ -6,7 +6,7 @@
 # one row to .agents/.sources-ledger. It is a *trail*, never a gate: it always
 # exits 0 and never blocks a tool.
 #
-# Input  (stdin JSON): {"project_dir": "...", "agent": "...", "kind": "search|fetch|browse", "value": "<query-or-url>"}
+# Input  (stdin JSON): {"project_dir": "...", "agent": "...", "tool_name": "...", "tool_input": {...}}
 # Output: none; side effect is the appended ledger row `ts \t agent \t kind \t value`.
 set -euo pipefail
 
