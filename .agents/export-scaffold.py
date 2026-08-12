@@ -28,6 +28,7 @@ DROPPED_PATHS = (
     ".agents/fixtures",
     ".agents/export-scaffold.py",
     ".agents/test-export.sh",
+    ".agents/test-stack-packs.sh",
     ".agents/breadcrumbs.md",
     ".agents/debt-log.md",
     ".agents/knowledge/index.md",
