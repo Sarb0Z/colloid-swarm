@@ -98,15 +98,14 @@ header + conserved strand + one genome + a register).
 
 Two paths carry that stamp into a cell, by engine:
 
-- **Injection.** Claude Code delivers `SubagentStart` context into the spawned
-  cell's own transcript before its first prompt, so
+- **Injection.** Claude Code and Codex deliver `SubagentStart` context into the
+  spawned cell's own transcript before its first prompt, so
   `.agents/hooks/policy/genome-inject.sh` draws and injects for every dispatch.
   The treatment applies whether or not the orchestrator remembers it, which is
   what makes an unstamped run a control arm rather than a failure.
 - **By hand.** Where an engine has no such event, the orchestrator prepends the
-  stamp. Codex and Kimi run this path, and nothing checks that they did — a gate
-  demanding the stamp delivered one in 165 dispatches, because every block it
-  issued asked the orchestrator to do the injector's job.
+  stamp. Kimi runs this path because its `SubagentStart` event discards hook
+  output, and nothing checks that the orchestrator stamped the child.
 
 The injector reads one exemption list, `swarm.exempt_subagent_types`.
 

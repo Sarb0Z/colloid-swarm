@@ -41,6 +41,21 @@ reduces descriptor growth; it does not repair Codex's process cleanup. Exit the
 whole opt-in thread when QA finishes. See `debt: codex-network-proxy-fd-leak`.
 Start a new thread after changing either profile.
 
+## Hook coverage
+
+<!-- colloid-only -->
+Codex `SubagentStart` carries `agent_id` and `agent_type`, so the native hook
+injects one genome before a non-exempt subagent's first prompt. Do not prepend a
+second genome when dispatching from Codex. `PreToolUse` and `PostToolUse` do not
+carry those fields; safety and post-edit policies therefore run without
+main/subagent selectors.
+<!-- /colloid-only -->
+
+The source trail observes MCP Context7, research, Exa, and browser calls through
+`PostToolUse`. Codex hosted tools such as native web search do not enter the
+local tool-hook path and cannot be captured here. When tool payloads omit agent
+identity, the ledger records `unknown` rather than inventing `main`.
+
 ## MCP loading
 
 `.agents/mcp.py` emits all Codex-compatible project records with explicit state.

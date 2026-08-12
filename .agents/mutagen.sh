@@ -2,9 +2,9 @@
 # Mutagen roller — roll one mutation vector and emit a mutagen-agent prompt.
 #
 # Prints the mutagen contract (mutagen.md) + a rolled MUTATION VECTOR + a slot
-# for the base task. The orchestrator genome-stamps this like any dispatch
-# (`genome.sh --register none` in front — the mutagen is a cell, it carries the
-# membrane), appends the purpose-stripped base task, and dispatches it. The
+# for the base task. The orchestrator appends the purpose-stripped base task and
+# dispatches it. Claude Code and Codex inject the cell's genome at
+# SubagentStart; Kimi dispatches prepend `genome.sh --register none`. The
 # mutagen returns only a rewritten task.
 #
 # The eval-cost dial picks the pool: cheap-to-verify -> a BOLD axis (push hard,

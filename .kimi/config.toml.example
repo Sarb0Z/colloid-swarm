@@ -6,8 +6,9 @@
 # missing-policy guard. One global registration serves the whole fleet.
 #
 # Matchers are regexes over Kimi's tool names (Kimi >= 0.29: Bash, Write,
-# Edit, Agent, AgentSwarm, WebSearch, FetchURL — the pre-0.29 names
-# Shell/WriteFile/StrReplaceFile match nothing).
+# Edit, Agent, AgentSwarm, WebSearch, FetchURL, plus MCP names shaped as
+# mcp__<server>__<tool> — the pre-0.29 names Shell/WriteFile/StrReplaceFile
+# match nothing).
 #
 # Hook policy lives in .agents/hooks/policy/ (engine-agnostic).
 # .kimi/hooks/adapter.sh normalizes Kimi's stdin into the policy contract —
@@ -27,6 +28,13 @@
 # PreCompact/PostCompact payload shapes are unverified (compaction can't be
 # forced in a short probe); both hooks fail open and the marker protocol
 # defaults trigger=auto.
+#
+# colloid-only
+# Kimi 0.31 exposes SubagentStart, but it is observation-only: the runtime
+# discards hook output before constructing the child's prompt. Genome stamping
+# therefore stays in the Agent/AgentSwarm dispatch prompt; wiring an injector
+# here would emit text that never reaches the child.
+# /colloid-only
 
 # MCP servers and their project state live in .agents/mcp.json. .agents/mcp.py
 # generates .kimi-code/mcp.json (Kimi's native project-level path — Kimi
@@ -68,7 +76,7 @@ timeout = 30
 
 [[hooks]]
 event = "PostToolUse"
-matcher = "WebSearch|FetchURL"
+matcher = "WebSearch|FetchURL|mcp__playwright__browser_navigate|mcp__playwright-reader__browser_navigate|mcp__plugin_playwright_playwright__browser_navigate|mcp__research-mcp__fetch_readable|mcp__research-mcp__resolve_open_access|mcp__context7__(resolve-library-id|query-docs)|mcp__plugin_context7_context7__(resolve-library-id|query-docs)|mcp__plugin_exa_exa__.*"
 command = ".kimi/hooks/adapter.sh sources-capture.sh"
 timeout = 10
 

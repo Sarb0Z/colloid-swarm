@@ -52,6 +52,14 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
 
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
+    # colloid-only
+    elif policy == "genome-inject.sh":
+        out["subagent_type"] = text(source, "agent_type")
+    # /colloid-only
+    elif policy == "sources-capture.sh":
+        out["agent"] = text(source, "agent_type") or "unknown"
+        out["tool_name"] = text(source, "tool_name")
+        out["tool_input"] = tool_input
     elif policy == "post-edit-check.sh":
         files, warnings = patch_paths(tool_input.get("command"))
         out["files"] = files
