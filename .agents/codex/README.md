@@ -16,6 +16,31 @@ These are defaults, not a closed taxonomy. A generic cell may use any tier the
 task needs. Codex cannot enforce Claude persona tool/MCP/skill frontmatter; the
 sandbox and task handoff remain the capability boundary.
 
+The project selects the `repo-autonomous` permission profile. It writes
+throughout the repository, including `.git`, `.agents`, and `.codex`, with
+network access disabled. Auto-review handles eligible requests that still cross
+that boundary; MCP, browser, and connector tools keep their own controls.
+
+Use `repo-localhost` only for a short local-QA session. It adds exact
+`localhost` and `127.0.0.1` access, keeps public hosts blocked, and refuses an
+upstream proxy. Select it for one command with:
+
+```sh
+codex sandbox --permission-profile repo-localhost -C "$(pwd)" -- command
+```
+
+For a new interactive QA thread, override the project default at launch:
+
+```sh
+codex -C "$(pwd)" -c 'default_permissions="repo-localhost"'
+```
+
+The network proxy is experimental. Codex 0.147.0 was observed retaining its
+per-command listener pairs, so the default profile leaves it off. The split
+reduces descriptor growth; it does not repair Codex's process cleanup. Exit the
+whole opt-in thread when QA finishes. See `debt: codex-network-proxy-fd-leak`.
+Start a new thread after changing either profile.
+
 ## MCP loading
 
 `.agents/mcp.py` emits all Codex-compatible project records with explicit state.
