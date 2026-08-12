@@ -12,8 +12,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+from mcp_codex import META_FIELDS as CODEX_META_FIELDS
+from mcp_codex import render as render_codex
+from mcp_codex import validate_metadata as validate_codex_metadata
+
 ROOT_TOKEN = "${REPO_ROOT}"
-META = {"description", "enabled", "codex_enabled", "kimi_enabled"}
+META = {"description", "enabled", "kimi_enabled"} | CODEX_META_FIELDS
 FIELDS = META | {"type", "command", "args", "cwd", "env", "url", "headers"}
 ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -84,9 +88,9 @@ def _validate_server(name, server):
     unknown = sorted(set(server) - FIELDS)
     if unknown:
         _fail(f"{name} has unsupported field(s): {', '.join(unknown)}")
-    for key in ("codex_enabled", "kimi_enabled"):
-        if key in server and not isinstance(server[key], bool):
-            _fail(f"{name}.{key} must be boolean")
+    if "kimi_enabled" in server and not isinstance(server["kimi_enabled"], bool):
+        _fail(f"{name}.kimi_enabled must be boolean")
+    validate_codex_metadata(name, server, _fail)
     if server.get("type") == "stdio":
         _validate_stdio(name, server)
     elif server.get("type") in {"http", "sse"}:
@@ -159,45 +163,6 @@ def _reader_config(repo, enabled):
     return {"browser": {"browserName": "chromium", "launchOptions": launch}}
 
 
-def _toml_string(value):
-    return json.dumps(value)
-
-
-def _codex_config(repo, servers):
-    try:
-        base = (repo / ".agents/codex/config.toml").read_text()
-    except OSError as error:
-        _fail(f"cannot read .agents/codex/config.toml: {error}")
-    rows = [base.rstrip(), ""]
-    for name, server in servers.items():
-        if server.get("type") == "sse" or server.get("codex_enabled") is False:
-            continue
-        enabled = server["enabled"]
-        if "${" in str(server.get("url", "")):
-            enabled = False
-        # Project and user TOML merge per key; a same-name different transport
-        # can invalidate the workspace. debt: codex-mcp-transport-collision
-        rows.extend([f'[mcp_servers.{_toml_string(name)}]', f"enabled = {str(enabled).lower()}"])
-        if server.get("type") == "stdio":
-            for key in ("command", "args", "cwd"):
-                if key in server:
-                    rows.append(f"{key} = {_toml_string(server[key])}")
-            if server.get("env"):
-                rows.append("")
-                rows.append(f'[mcp_servers.{_toml_string(name)}.env]')
-                for key, value in sorted(server["env"].items()):
-                    rows.append(f"{key} = {_toml_string(value)}")
-        else:
-            rows.append(f"url = {_toml_string(server['url'])}")
-            headers = server.get("headers", {})
-            bearer = headers.get("Authorization", "") if isinstance(headers, dict) else ""
-            match = re.fullmatch(r"Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\}", bearer)
-            if match:
-                rows.append(f"bearer_token_env_var = {_toml_string(match.group(1))}")
-        rows.append("")
-    return "\n".join(rows).rstrip() + "\n"
-
-
 def _expand_env(value, missing):
     if isinstance(value, str):
         def replace(match):
@@ -257,7 +222,7 @@ def _build(repo, doc=None):
         "reader": reader, "claude_mcp": {"mcpServers": enabled},
         "kimi": _kimi_config(repo, servers),
         "settings": _claude_settings(repo, servers, enabled),
-        "codex": _codex_config(repo, servers),
+        "codex": render_codex(repo, servers),
     }
 
 

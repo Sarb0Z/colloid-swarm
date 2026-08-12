@@ -59,7 +59,22 @@ for name, dispatch in expected.items():
 with (repo / ".agents/mcp.json").open("rb") as stream:
     registry = json.load(stream)["mcpServers"]
 with (repo / ".codex/config.toml").open("rb") as stream:
-    codex = tomllib.load(stream).get("mcp_servers", {})
+    config = tomllib.load(stream)
+codex = config.get("mcp_servers", {})
+assert config["approval_policy"] == "on-request"
+assert config["approvals_reviewer"] == "auto_review"
+assert config["default_permissions"] == "repo-autonomous"
+assert config["features"]["network_proxy"] is True
+default_profile = config["permissions"]["repo-autonomous"]
+assert default_profile["extends"] == ":workspace"
+workspace = default_profile["filesystem"][":workspace_roots"]
+assert workspace == {".git": "write", ".agents": "write", ".codex": "write"}
+assert "network" not in default_profile
+localhost_profile = config["permissions"]["repo-localhost"]
+assert localhost_profile["extends"] == "repo-autonomous"
+assert localhost_profile["network"]["enabled"] is True
+assert localhost_profile["network"]["allow_upstream_proxy"] is False
+assert localhost_profile["network"]["domains"] == {"localhost": "allow", "127.0.0.1": "allow"}
 expected_states = {
     name: server["enabled"] and "${" not in server.get("url", "")
     for name, server in registry.items()
@@ -69,6 +84,10 @@ expected_states = {
 states = {name: body.get("enabled", True) for name, body in codex.items()}
 if states != expected_states:
     raise SystemExit(f"Codex MCP states {states} != registry states {expected_states}")
+for name, server in registry.items():
+    timeout = server.get("codex_startup_timeout_sec")
+    if timeout is not None and codex[name].get("startup_timeout_sec") != timeout:
+        raise SystemExit(f"Codex MCP timeout for {name} was not generated")
 PY
 
 loader=skipped

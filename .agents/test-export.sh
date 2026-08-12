@@ -36,7 +36,7 @@ for path in \
 done
 
 for path in \
-  .agents/AGENTS.md .agents/check-layout.py .agents/mcp.py \
+  .agents/AGENTS.md .agents/check-layout.py .agents/mcp.py .agents/mcp_codex.py \
   .claude/agents/implementer.md .codex/agents/implementer.toml \
   .codex/hooks.json .github/lsp.json export/README.md export/drop-server.py; do
   [[ -e "$kit/$path" ]] || fail "export omitted $path"
