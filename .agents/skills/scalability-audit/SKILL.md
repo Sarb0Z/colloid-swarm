@@ -1,6 +1,6 @@
 ---
 name: scalability-audit
-description: Find where a growing system breaks before it breaks. Eight failure laws with detection questions, an eight-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, or when asking what breaks next as N grows.
+description: Find where a growing system breaks before it breaks. Nine failure laws with detection questions, a nine-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, pool saturation or concurrency review, or when asking what breaks next as N grows.
 ---
 
 # Scalability Audit
@@ -29,7 +29,7 @@ reproduce another system's numbers — gather your own as you go.
 A hostile review flags the axis. This skill runs the sweep. Do not run both on
 the same diff — the review covers a change, this covers a system.
 
-## §1 The eight laws
+## §1 The nine laws
 
 ### Law 1 — Cost follows N, not intent
 
@@ -43,7 +43,10 @@ five-minute beat is 288 runs a day. Both numbers get chosen from intuition, not
 arithmetic.
 
 **Detection.** For any operation, state N today, cost per item, and frequency.
-Multiply. If you cannot state the product, you have not designed it.
+Multiply. If you cannot state the product, you have not designed it. Split cost
+per item into the part paid once per connection or session and the part paid
+per item. Work priced as though setup were free is priced wrong the moment
+every item pays for it again.
 
 ### Law 2 — The system moves; the numbers do not
 
@@ -89,7 +92,35 @@ reports success while doing it.
 **Detection.** List every store. For each, name the source, the drain, and the
 steady state they imply. A missing answer is a scheduled incident.
 
-### Law 5 — Blast radius is nobody's property
+### Law 5 — Occupancy is arrival rate times holding time
+
+A finite resource is not spent by how often you use it. It is spent by how long
+each use lasts. Arrival rate and holding time set occupancy between them, so a
+resource sized against arrival rate alone saturates the first time holding time
+moves — a slower dependency, a longer timeout, a retry that waits before it
+gives up.
+
+Law 4 asks whether a reservoir fills or empties. This one asks how many
+occupants sit in it at once while the level stays flat. A pool pinned at its
+limit with a healthy source, a healthy drain and a steady level is not idle
+capacity; it is a queue nobody measured. Holding time is also the term that
+moves under stress, and it is the term nobody sizes against.
+
+The arithmetic is Little's Law, and it is unusually general: it holds for any
+arrival pattern, any service-time distribution, any queueing discipline. It
+gives long-run averages only. It says nothing about variance or the tail, and
+its assumption of a steady state is exactly what a burst, a deploy or a ramp
+breaks. A resource that passes on the mean can still exhaust on the peak.
+
+**Detection.** For every finite resource, state arrival rate and mean holding
+time. Multiply. Compare the product against the resource's size. Then ask what
+holding time becomes when the slowest dependency on that path is slow, because
+that is the number that moves. A resource whose holding time nobody can state
+is sized by accident. Do not adopt a fixed utilization threshold as the pass
+line: the knee in the queueing curve is not a portable number, and a system
+that has one does not have it where folklore puts it.
+
+### Law 6 — Blast radius is nobody's property
 
 Automated remediation gets designed one entity at a time, and that logic is
 correct. It is then scaled by iteration. No line in that path asks what
@@ -104,7 +135,7 @@ applies a destructive action to all of them.
 one run can change. If the answer is all of them, it needs a per-run cap and a
 second corroborating signal. Duration limits are not blast-radius limits.
 
-### Law 6 — Correlation is the multiplier
+### Law 7 — Correlation is the multiplier
 
 Independent failures average out. Correlated failures sum. Any dimension held
 constant across the fleet turns one incident into a fleet-wide one — and the
@@ -120,7 +151,7 @@ many entities go down with it. Provisioning that optimises for unit cost —
 cheapest supplier, same template, least-loaded host — manufactures correlation
 as a side effect, because uncorrelated identity is nobody's owned metric.
 
-### Law 7 — A signal that cannot escape does not exist
+### Law 8 — A signal that cannot escape does not exist
 
 A failure logged but not raised, counted but not paged, or returned in a
 payload nobody inspects is indistinguishable from success. Error handling gets
@@ -136,7 +167,7 @@ If the trace ends at a log line, a return value, or a 200 response, the failure
 is invisible. Ask how long a fully broken component would run before anyone
 noticed.
 
-### Law 8 — The binding constraint is usually someone else's
+### Law 9 — The binding constraint is usually someone else's
 
 Past a certain size the limit that stops you is not in your code. It is a
 provider's rate cap, a protocol's field length, a quota, a concurrency ceiling,
@@ -163,14 +194,20 @@ produces an artefact; a step with nothing to show means it was not run.
    timeout. Record the value, when it was chosen, and what N was then.
 4. **Reservoir census.** Every store, with source, drain, and implied steady
    state. Flag missing drains and missing sources separately.
-5. **Blast-radius census.** Every automated mutation, with the maximum
+5. **Simultaneous-hold census.** Trace one request end to end and list every
+   finite resource it holds at the same time: pools, slots, locks,
+   reservations, sockets, and any external ceiling it waits on while those
+   holds are open. Record the smallest link — that one, not the sum, is the
+   path's real concurrency limit. Run it on the most expensive path as well as
+   the common one.
+6. **Blast-radius census.** Every automated mutation, with the maximum
    entities one run can change, and whether a cap and a corroborating signal
    exist.
-6. **Correlation map.** Every resource shared across N, with the count of
+7. **Correlation map.** Every resource shared across N, with the count of
    entities that fail with it.
-7. **Boundary register.** Every external ceiling, with current usage, distance
+8. **Boundary register.** Every external ceiling, with current usage, distance
    to the wall, and whether the wall degrades or fails.
-8. **Signal trace.** Every failure mode, with the path from exception to human,
+9. **Signal trace.** Every failure mode, with the path from exception to human,
    and the time a fully broken component would run unnoticed.
 
 ### Turning findings into tripwires
@@ -226,6 +263,16 @@ Give every source a drain and every drain a source. Retention needs an owner
 and a schedule. A depleting reservoir needs an alarm on its level, not on its
 consumption.
 
+### Occupancy
+
+Holding time carries more slack than arrival rate, so cap it deliberately
+instead of inheriting it. A timeout is the limit on how long one occupant may
+hold a slot, which makes an unset or generous timeout a capacity decision taken
+by default. Release a reservation before slow work that does not need to hold
+it. Where one path must not starve another, give them separate pools rather
+than one pool sized for the sum — the bulkhead shape, which trades some
+efficiency for the guarantee that exhaustion stays local.
+
 ## §4 Preflight
 
 Before shipping a change, answer these. An unanswerable question is the
@@ -236,6 +283,8 @@ finding.
 - Does any new check return a verdict that can hide its own failure?
 - Does any new constant have a recorded basis?
 - Does anything new accumulate or deplete?
+- Does anything new hold a finite resource, and for how long when the slowest
+  thing it depends on is slow?
 - Can one run of anything new mutate an unbounded number of entities?
 - Does any new failure mode reach a human?
 - Does this move usage closer to an external ceiling?
