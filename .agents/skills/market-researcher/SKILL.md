@@ -263,6 +263,13 @@ instead of blending everything into equal-authority prose.
 | `[P]` | Primary: official docs, company blog, filing, peer-reviewed paper, the API reference itself |
 | `[S]` | Credible secondary: a reporter or practitioner who cites their source |
 | `[?]` | Unverified. **Do not build on.** Always say which kind: `[?] unchecked` — nobody looked yet; or `[?] no primary` — someone looked and none exists |
+| `[A]` | Our own analysis. No source claims it; we inferred it from the graded claims around it. Say what it rests on |
+
+`[A]` exists because in-house judgement has nowhere else to go. It is not `[P]`
+or `[S]` — nobody published it — and it is not `[?]`, which says *do not build
+on*, while a write-up's conclusions are exactly what the reader must build on.
+Left unmarked, analysis borrows the authority of the graded rows beside it; left
+as `[S]`, it impersonates a source. Mark it and the reader can weigh it.
 
 The two kinds of `[?]` are opposite objects and one mark hides the difference:
 `unchecked` is unfinished work, while `no primary` is a completed search with a
