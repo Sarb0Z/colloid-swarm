@@ -405,7 +405,7 @@ Size work and effort in tokens (context/output budget), never wall-clock time. &
 ### Carmack-grade engineering
 Build as John Carmack would: simple, fast, measurable, with the fewest layers that solve the problem. Every line must justify itself under scrutiny — naming, control flow, failure modes, performance. The code is the proof; comments do not rescue it.
 
-### No backwards compatibility 
+### No backwards compatibility
 Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility for its own sake—if something is unused or being replaced, delete it outright.
 
 ### Tracking, not tombstones
@@ -1657,7 +1657,7 @@ exit 0
 # one row to .agents/.sources-ledger. It is a *trail*, never a gate: it always
 # exits 0 and never blocks a tool.
 #
-# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;agent&quot;: &quot;...&quot;, &quot;kind&quot;: &quot;search|fetch|browse&quot;, &quot;value&quot;: &quot;&lt;query-or-url&gt;&quot;}
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;agent&quot;: &quot;...&quot;, &quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...}}
 # Output: none; side effect is the appended ledger row `ts \t agent \t kind \t value`.
 set -euo pipefail
 
@@ -2407,11 +2407,12 @@ engine-neutral contract: the escalation ladder, the corroboration rules, and the
 `CLAIMS / SOURCES / GAPS` return shape.
 &lt;!-- colloid-only --&gt;
 
-It&#x27;s a cell like any other — stamp it with a genome first. The **Mycelium** is
-its natural genome (trace every source, three hops out, impossible to surprise):
+It&#x27;s a cell like any other. The **Mycelium** is its natural genome (trace every
+source, three hops out, impossible to surprise). Generate it explicitly only
+on a host without context-injecting `SubagentStart`:
 
 ```sh
-.agents/genome.sh mycelium --register none   # stamp; then prepend .agents/personas/researcher.md + the question
+.agents/genome.sh mycelium --register none   # Kimi: prepend to the dispatch prompt
 ```
 &lt;!-- /colloid-only --&gt;
 
@@ -2435,9 +2436,9 @@ its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
 &lt;!-- colloid-only --&gt;
 
-Under Claude Code the cell is stamped for you on `SubagentStart` — prepending a
-second stamp gives it two personalities. Under Codex or Kimi, which have no such
-event, prepend one: `prompt=&#x27;[genome stamp] + [your research question]&#x27;`.
+Claude Code and Codex stamp the cell on `SubagentStart`; prepending another gives
+it two personalities. Kimi&#x27;s event is observation-only, so prepend one there:
+`prompt=&#x27;[genome stamp] + [your research question]&#x27;`.
 &lt;!-- /colloid-only --&gt;
 
 ### Other engines — generic dispatch
@@ -2449,9 +2450,9 @@ playwright for hard pages), cross-checks load-bearing claims, and returns
 `CLAIMS / SOURCES / GAPS` — what it found, not what it wishes it found.
 &lt;!-- colloid-only --&gt;
 
-Prepend the genome stamp here too — `[genome stamp] +
-[.agents/personas/researcher.md] + [your research question]`. The stamp means the
-cell carries the membrane and the honesty clause.
+On Kimi, prepend the genome stamp here too — `[genome stamp] +
+[.agents/personas/researcher.md] + [your research question]`. Claude and Codex
+inject it automatically.
 &lt;!-- /colloid-only --&gt;
 
 ## Consume the evidence — carry the sources through
@@ -2473,10 +2474,11 @@ The researcher&#x27;s `SOURCES` are now **your** sources. When you write the ans
 
 ## The evidence trail
 
-Every `WebSearch` / `WebFetch` / `browser_navigate` / `fetch_readable` /
-`resolve_open_access` — yours and the
-researcher&#x27;s — is logged to `.agents/.sources-ledger` (`ts · agent · kind ·
-value`) by the `sources-capture` hook. It&#x27;s the operator&#x27;s audit trail and a
+Observable `WebSearch` / `WebFetch` / Context7 / `browser_navigate` /
+`fetch_readable` / `resolve_open_access` calls are logged to
+`.agents/.sources-ledger` (`ts · agent · kind · value`) by the
+`sources-capture` hook. Codex hosted web search bypasses local tool hooks; its
+MCP calls are captured. It&#x27;s the operator&#x27;s audit trail and a
 backstop for the URLs you actually read (`fetch`/`browse` rows are real URLs;
 `search` rows hold the query, not the result link). Transient and gitignored;
 safe to delete.
@@ -2502,12 +2504,10 @@ answer rather than a fragment.
 ## On other engines
 
 `researcher.md` and this skill are engine-neutral — the researcher cell and the
-inline/delegate discipline work anywhere the engine has web tools. The
-mechanical pieces are Claude-wired: the `sources-capture` ledger needs the
-engine&#x27;s web-tool names, and the `research-prime` reminder needs a prompt-submit
-hook. Under an engine without those (e.g. Kimi today), you get the researcher
-and the discipline, but no automatic trail and no prime — the honesty is then
-entirely yours.
+inline/delegate discipline work anywhere the engine has web tools. The hook
+adapters map each host&#x27;s observable tool names into one shared source trail and
+wire the prompt-submit reminder. Hosted calls outside a host&#x27;s hook path remain
+an explicit coverage gap; the honesty membrane does not depend on the ledger.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
@@ -2819,10 +2819,10 @@ For deep dives on specific vulnerability classes, read:
 These are loaded only when needed to keep context lean.
 </code></pre></details>
             </article>
-        <article class="card"><div class="kicker">Assurance</div><h3>scalability-audit</h3><p>Eight laws that predict where a growing system breaks, each with a detection question, plus an eight-step audit that finds the next failure before it bills you.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 251 lines</span></summary><div class="srcpath">.agents/skills/scalability-audit/SKILL.md</div><pre><code>---
+        <article class="card"><div class="kicker">Assurance</div><h3>scalability-audit</h3><p>Nine laws that predict where a growing system breaks, each with a detection question, plus a nine-step audit that finds the next failure before it bills you.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 300 lines</span></summary><div class="srcpath">.agents/skills/scalability-audit/SKILL.md</div><pre><code>---
 name: scalability-audit
-description: Find where a growing system breaks before it breaks. Eight failure laws with detection questions, an eight-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, or when asking what breaks next as N grows.
+description: Find where a growing system breaks before it breaks. Nine failure laws with detection questions, a nine-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, pool saturation or concurrency review, or when asking what breaks next as N grows.
 ---
 
 # Scalability Audit
@@ -2851,7 +2851,7 @@ reproduce another system&#x27;s numbers — gather your own as you go.
 A hostile review flags the axis. This skill runs the sweep. Do not run both on
 the same diff — the review covers a change, this covers a system.
 
-## §1 The eight laws
+## §1 The nine laws
 
 ### Law 1 — Cost follows N, not intent
 
@@ -2865,7 +2865,10 @@ five-minute beat is 288 runs a day. Both numbers get chosen from intuition, not
 arithmetic.
 
 **Detection.** For any operation, state N today, cost per item, and frequency.
-Multiply. If you cannot state the product, you have not designed it.
+Multiply. If you cannot state the product, you have not designed it. Split cost
+per item into the part paid once per connection or session and the part paid
+per item. Work priced as though setup were free is priced wrong the moment
+every item pays for it again.
 
 ### Law 2 — The system moves; the numbers do not
 
@@ -2911,7 +2914,35 @@ reports success while doing it.
 **Detection.** List every store. For each, name the source, the drain, and the
 steady state they imply. A missing answer is a scheduled incident.
 
-### Law 5 — Blast radius is nobody&#x27;s property
+### Law 5 — Occupancy is arrival rate times holding time
+
+A finite resource is not spent by how often you use it. It is spent by how long
+each use lasts. Arrival rate and holding time set occupancy between them, so a
+resource sized against arrival rate alone saturates the first time holding time
+moves — a slower dependency, a longer timeout, a retry that waits before it
+gives up.
+
+Law 4 asks whether a reservoir fills or empties. This one asks how many
+occupants sit in it at once while the level stays flat. A pool pinned at its
+limit with a healthy source, a healthy drain and a steady level is not idle
+capacity; it is a queue nobody measured. Holding time is also the term that
+moves under stress, and it is the term nobody sizes against.
+
+The arithmetic is Little&#x27;s Law, and it is unusually general: it holds for any
+arrival pattern, any service-time distribution, any queueing discipline. It
+gives long-run averages only. It says nothing about variance or the tail, and
+its assumption of a steady state is exactly what a burst, a deploy or a ramp
+breaks. A resource that passes on the mean can still exhaust on the peak.
+
+**Detection.** For every finite resource, state arrival rate and mean holding
+time. Multiply. Compare the product against the resource&#x27;s size. Then ask what
+holding time becomes when the slowest dependency on that path is slow, because
+that is the number that moves. A resource whose holding time nobody can state
+is sized by accident. Do not adopt a fixed utilization threshold as the pass
+line: the knee in the queueing curve is not a portable number, and a system
+that has one does not have it where folklore puts it.
+
+### Law 6 — Blast radius is nobody&#x27;s property
 
 Automated remediation gets designed one entity at a time, and that logic is
 correct. It is then scaled by iteration. No line in that path asks what
@@ -2926,7 +2957,7 @@ applies a destructive action to all of them.
 one run can change. If the answer is all of them, it needs a per-run cap and a
 second corroborating signal. Duration limits are not blast-radius limits.
 
-### Law 6 — Correlation is the multiplier
+### Law 7 — Correlation is the multiplier
 
 Independent failures average out. Correlated failures sum. Any dimension held
 constant across the fleet turns one incident into a fleet-wide one — and the
@@ -2942,7 +2973,7 @@ many entities go down with it. Provisioning that optimises for unit cost —
 cheapest supplier, same template, least-loaded host — manufactures correlation
 as a side effect, because uncorrelated identity is nobody&#x27;s owned metric.
 
-### Law 7 — A signal that cannot escape does not exist
+### Law 8 — A signal that cannot escape does not exist
 
 A failure logged but not raised, counted but not paged, or returned in a
 payload nobody inspects is indistinguishable from success. Error handling gets
@@ -2958,7 +2989,7 @@ If the trace ends at a log line, a return value, or a 200 response, the failure
 is invisible. Ask how long a fully broken component would run before anyone
 noticed.
 
-### Law 8 — The binding constraint is usually someone else&#x27;s
+### Law 9 — The binding constraint is usually someone else&#x27;s
 
 Past a certain size the limit that stops you is not in your code. It is a
 provider&#x27;s rate cap, a protocol&#x27;s field length, a quota, a concurrency ceiling,
@@ -2985,14 +3016,20 @@ produces an artefact; a step with nothing to show means it was not run.
    timeout. Record the value, when it was chosen, and what N was then.
 4. **Reservoir census.** Every store, with source, drain, and implied steady
    state. Flag missing drains and missing sources separately.
-5. **Blast-radius census.** Every automated mutation, with the maximum
+5. **Simultaneous-hold census.** Trace one request end to end and list every
+   finite resource it holds at the same time: pools, slots, locks,
+   reservations, sockets, and any external ceiling it waits on while those
+   holds are open. Record the smallest link — that one, not the sum, is the
+   path&#x27;s real concurrency limit. Run it on the most expensive path as well as
+   the common one.
+6. **Blast-radius census.** Every automated mutation, with the maximum
    entities one run can change, and whether a cap and a corroborating signal
    exist.
-6. **Correlation map.** Every resource shared across N, with the count of
+7. **Correlation map.** Every resource shared across N, with the count of
    entities that fail with it.
-7. **Boundary register.** Every external ceiling, with current usage, distance
+8. **Boundary register.** Every external ceiling, with current usage, distance
    to the wall, and whether the wall degrades or fails.
-8. **Signal trace.** Every failure mode, with the path from exception to human,
+9. **Signal trace.** Every failure mode, with the path from exception to human,
    and the time a fully broken component would run unnoticed.
 
 ### Turning findings into tripwires
@@ -3048,6 +3085,16 @@ Give every source a drain and every drain a source. Retention needs an owner
 and a schedule. A depleting reservoir needs an alarm on its level, not on its
 consumption.
 
+### Occupancy
+
+Holding time carries more slack than arrival rate, so cap it deliberately
+instead of inheriting it. A timeout is the limit on how long one occupant may
+hold a slot, which makes an unset or generous timeout a capacity decision taken
+by default. Release a reservation before slow work that does not need to hold
+it. Where one path must not starve another, give them separate pools rather
+than one pool sized for the sum — the bulkhead shape, which trades some
+efficiency for the guarantee that exhaustion stays local.
+
 ## §4 Preflight
 
 Before shipping a change, answer these. An unanswerable question is the
@@ -3058,6 +3105,8 @@ finding.
 - Does any new check return a verdict that can hide its own failure?
 - Does any new constant have a recorded basis?
 - Does anything new accumulate or deplete?
+- Does anything new hold a finite resource, and for how long when the slowest
+  thing it depends on is slow?
 - Can one run of anything new mutate an unbounded number of entities?
 - Does any new failure mode reach a human?
 - Does this move usage closer to an external ceiling?
@@ -3474,7 +3523,7 @@ Commit fully to the distinctive vision and execute it without hedging.
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 96 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 108 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
 
 from pathlib import Path
@@ -3533,6 +3582,18 @@ def expected_links() -&gt; dict[Path, str]:
     return links
 
 
+def scaffold_owns(path: Path, expected: dict[Path, str]) -&gt; bool:
+    relative = path.relative_to(ROOT)
+    if relative in expected:
+        return True
+    target = (path.parent / os.readlink(path)).resolve(strict=False)
+    try:
+        target.relative_to(ROOT / &quot;.agents&quot;)
+        return True
+    except ValueError:
+        return False
+
+
 def main() -&gt; int:
     expected = expected_links()
     failures = []
@@ -3556,7 +3617,7 @@ def main() -&gt; int:
             continue
         for path in root.iterdir():
             relative = path.relative_to(ROOT)
-            if path.is_symlink() and relative not in expected:
+            if path.is_symlink() and scaffold_owns(path, expected) and relative not in expected:
                 failures.append(f&quot;{relative}: stale scaffold symlink&quot;)
 
     if failures:
@@ -3573,7 +3634,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 277 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 260 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Build native MCP configuration from the tracked registry.
 
 Usage: mcp.py [sync] | enable NAME... | disable NAME...
@@ -3587,8 +3648,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+from mcp_codex import META_FIELDS as CODEX_META_FIELDS
+from mcp_codex import render as render_codex
+from mcp_codex import validate_metadata as validate_codex_metadata
+
 ROOT_TOKEN = &quot;${REPO_ROOT}&quot;
-META = {&quot;description&quot;, &quot;enabled&quot;, &quot;codex_enabled&quot;, &quot;kimi_enabled&quot;}
+META = {&quot;description&quot;, &quot;enabled&quot;, &quot;kimi_enabled&quot;} | CODEX_META_FIELDS
 FIELDS = META | {&quot;type&quot;, &quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;, &quot;env&quot;, &quot;url&quot;, &quot;headers&quot;}
 ENV = re.compile(r&quot;\$\{([A-Za-z_][A-Za-z0-9_]*)\}&quot;)
 
@@ -3619,6 +3684,38 @@ def _write_text(path, value):
     temp.replace(path)
 
 
+def _validate_stdio(name, server):
+    incompatible = sorted(set(server) &amp; {&quot;url&quot;, &quot;headers&quot;})
+    if incompatible:
+        _fail(f&quot;{name} stdio server has incompatible field(s): {&#x27;, &#x27;.join(incompatible)}&quot;)
+    if not isinstance(server.get(&quot;command&quot;), str):
+        _fail(f&quot;{name} stdio server must have a command&quot;)
+    if not isinstance(server.get(&quot;args&quot;, []), list) or not all(isinstance(item, str) for item in server.get(&quot;args&quot;, [])):
+        _fail(f&quot;{name}.args must be a string list&quot;)
+    if &quot;cwd&quot; in server and not isinstance(server[&quot;cwd&quot;], str):
+        _fail(f&quot;{name}.cwd must be a string&quot;)
+    if &quot;env&quot; in server and (not isinstance(server[&quot;env&quot;], dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in server[&quot;env&quot;].items())):
+        _fail(f&quot;{name}.env must be a string map&quot;)
+
+
+def _validate_remote(name, server):
+    server_type = server[&quot;type&quot;]
+    incompatible = sorted(set(server) &amp; {&quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;, &quot;env&quot;})
+    if incompatible:
+        _fail(f&quot;{name} {server_type} server has incompatible field(s): {&#x27;, &#x27;.join(incompatible)}&quot;)
+    if not isinstance(server.get(&quot;url&quot;), str):
+        _fail(f&quot;{name} {server_type} server must have a URL&quot;)
+    headers = server.get(&quot;headers&quot;, {})
+    if not isinstance(headers, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in headers.items()):
+        _fail(f&quot;{name}.headers must be a string map&quot;)
+    bearer = headers.get(&quot;Authorization&quot;, &quot;&quot;)
+    if server_type == &quot;http&quot; and server.get(&quot;codex_enabled&quot;) is not False and headers and (
+        set(headers) != {&quot;Authorization&quot;}
+        or re.fullmatch(r&quot;Bearer \$\{[A-Za-z_][A-Za-z0-9_]*\}&quot;, bearer) is None
+    ):
+        _fail(f&quot;{name}.headers cannot be represented by Codex&quot;)
+
+
 def _validate_server(name, server):
     if not isinstance(server, dict) or not isinstance(server.get(&quot;description&quot;), str):
         _fail(f&quot;{name} must have a description&quot;)
@@ -3627,34 +3724,15 @@ def _validate_server(name, server):
     unknown = sorted(set(server) - FIELDS)
     if unknown:
         _fail(f&quot;{name} has unsupported field(s): {&#x27;, &#x27;.join(unknown)}&quot;)
-    for key in (&quot;codex_enabled&quot;, &quot;kimi_enabled&quot;):
-        if key in server and not isinstance(server[key], bool):
-            _fail(f&quot;{name}.{key} must be boolean&quot;)
-    server_type = server.get(&quot;type&quot;)
-    if server_type == &quot;stdio&quot;:
-        if not isinstance(server.get(&quot;command&quot;), str):
-            _fail(f&quot;{name} stdio server must have a command&quot;)
-        if not isinstance(server.get(&quot;args&quot;, []), list) or not all(
-            isinstance(item, str) for item in server.get(&quot;args&quot;, [])
-        ):
-            _fail(f&quot;{name}.args must be a string list&quot;)
-        if &quot;cwd&quot; in server and not isinstance(server[&quot;cwd&quot;], str):
-            _fail(f&quot;{name}.cwd must be a string&quot;)
-        if &quot;env&quot; in server and (not isinstance(server[&quot;env&quot;], dict) or not all(
-            isinstance(key, str) and isinstance(value, str)
-            for key, value in server[&quot;env&quot;].items()
-        )):
-            _fail(f&quot;{name}.env must be a string map&quot;)
-    elif server_type in {&quot;http&quot;, &quot;sse&quot;}:
-        if not isinstance(server.get(&quot;url&quot;), str):
-            _fail(f&quot;{name} {server_type} server must have a URL&quot;)
-        if &quot;headers&quot; in server and (not isinstance(server[&quot;headers&quot;], dict) or not all(
-            isinstance(key, str) and isinstance(value, str)
-            for key, value in server[&quot;headers&quot;].items()
-        )):
-            _fail(f&quot;{name}.headers must be a string map&quot;)
+    if &quot;kimi_enabled&quot; in server and not isinstance(server[&quot;kimi_enabled&quot;], bool):
+        _fail(f&quot;{name}.kimi_enabled must be boolean&quot;)
+    validate_codex_metadata(name, server, _fail)
+    if server.get(&quot;type&quot;) == &quot;stdio&quot;:
+        _validate_stdio(name, server)
+    elif server.get(&quot;type&quot;) in {&quot;http&quot;, &quot;sse&quot;}:
+        _validate_remote(name, server)
     else:
-        _fail(f&quot;{name} has unsupported type {server_type!r}&quot;)
+        _fail(f&quot;{name} has unsupported type {server.get(&#x27;type&#x27;)!r}&quot;)
 
 
 def _registry(repo, doc=None):
@@ -3721,40 +3799,6 @@ def _reader_config(repo, enabled):
     return {&quot;browser&quot;: {&quot;browserName&quot;: &quot;chromium&quot;, &quot;launchOptions&quot;: launch}}
 
 
-def _toml_string(value):
-    return json.dumps(value)
-
-
-def _codex_config(repo, servers):
-    try:
-        base = (repo / &quot;.agents/codex/config.toml&quot;).read_text()
-    except OSError as error:
-        _fail(f&quot;cannot read .agents/codex/config.toml: {error}&quot;)
-    rows = [base.rstrip(), &quot;&quot;]
-    for name, server in servers.items():
-        if server.get(&quot;type&quot;) == &quot;sse&quot; or server.get(&quot;codex_enabled&quot;) is False:
-            continue
-        enabled = server[&quot;enabled&quot;]
-        if &quot;${&quot; in str(server.get(&quot;url&quot;, &quot;&quot;)):
-            enabled = False
-        # Project and user TOML merge per key; a same-name different transport
-        # can invalidate the workspace. debt: codex-mcp-transport-collision
-        rows.extend([f&#x27;[mcp_servers.{_toml_string(name)}]&#x27;, f&quot;enabled = {str(enabled).lower()}&quot;])
-        if server.get(&quot;type&quot;) == &quot;stdio&quot;:
-            for key in (&quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;):
-                if key in server:
-                    rows.append(f&quot;{key} = {_toml_string(server[key])}&quot;)
-        else:
-            rows.append(f&quot;url = {_toml_string(server[&#x27;url&#x27;])}&quot;)
-            headers = server.get(&quot;headers&quot;, {})
-            bearer = headers.get(&quot;Authorization&quot;, &quot;&quot;) if isinstance(headers, dict) else &quot;&quot;
-            match = re.fullmatch(r&quot;Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\}&quot;, bearer)
-            if match:
-                rows.append(f&quot;bearer_token_env_var = {_toml_string(match.group(1))}&quot;)
-        rows.append(&quot;&quot;)
-    return &quot;\n&quot;.join(rows).rstrip() + &quot;\n&quot;
-
-
 def _expand_env(value, missing):
     if isinstance(value, str):
         def replace(match):
@@ -3814,7 +3858,7 @@ def _build(repo, doc=None):
         &quot;reader&quot;: reader, &quot;claude_mcp&quot;: {&quot;mcpServers&quot;: enabled},
         &quot;kimi&quot;: _kimi_config(repo, servers),
         &quot;settings&quot;: _claude_settings(repo, servers, enabled),
-        &quot;codex&quot;: _codex_config(repo, servers),
+        &quot;codex&quot;: render_codex(repo, servers),
     }
 
 
@@ -4094,8 +4138,8 @@ Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and the artifact. Use the
 heavy tier for the runtime.
 &lt;!-- colloid-only --&gt;
-Under Claude do not prepend a genome because the hook injects one. Other
-engines prepend exactly one fresh stamp.
+Claude and Codex inject a genome on `SubagentStart`; do not prepend another.
+Kimi discards start-hook output, so prepend exactly one fresh stamp there.
 &lt;!-- /colloid-only --&gt;
 
 Send the contract below verbatim with the artifact to review. Do not paraphrase
@@ -4273,13 +4317,12 @@ The reporter is exempt from genome stamping — prepend NO stamp.
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 39 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 40 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
 
-- The playbooks are long where they should be dense, and `hostile-review.md` is the worst of them: **1,611 words across 150 non-blank lines, 9% of which are list items** — against `diff-wrap.md` at 155 words and 50%, and millcrm&#x27;s `services.md` at 9 lines where every line is a constraint. Length is not the defect; payload per word is. Two measured causes. (1) **397 words never reach the reviewer** — the `# Hostile review` preamble (177w) and `## After the report` (220w) sit outside the ```` fence, so they are orchestrator guidance wrapped around a contract, and a reader of either cannot tell which they are in. (2) **Sections restate their own rationale**: `## Then work the axes` spends 79 words to say *read `review-axes.md`, finish a group before starting the next*; `## The question that comes first` takes 291; `## Thresholds` takes 289 to deliver a 6-row table and 2 rules. A trial rewrite of that last one held every rule at ~110 words, so the corpus figure to aim at is roughly 500 words for the contract, not 1,611. Do this as **its own change, never folded into work the standard is grading** — `.agents/AGENTS.md` says so, and `.agents/eval/review-harness` grades against this exact file (8 phase-0 runs plus `runs.tsv`), so a rewrite invalidates the baseline. The method that makes it measurable rather than a taste argument: run the harness on the same fixtures against both contracts and compare the mandatory-conformance-line rate. `review-axes.md` (847w, 17%) is the same defect one file down.
-- Kimi &gt;= 0.29 exposes SubagentStart, so `genome-inject.sh` could ride it and Kimi would stamp every dispatch the way Claude does; needs payload-shape verification (the adapter must map Kimi&#x27;s field for the spawned type onto `subagent_type`). Codex has no such event and stays hand-prepended. https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+- Make `session-wrap.sh` non-interactive under `codex exec`: the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt.
 - Expert-persona anchors applied to real work are an open user call: `pentesting/SKILL.md:109` opens &quot;You are a senior red-team engineer&quot;, and `AGENTS.md:4,86,92` anchor on Linus, Carmack and Jobs. Evidence says expert personas do not improve factual accuracy and domain-mismatched ones degrade it, while still shaping tone (arxiv.org/abs/2512.05858; arxiv.org/abs/2603.18507). Keep them as register, or drop the quality framing? (The genome layer is out of scope here — `genomes.md` states it is an RL environment for swarm research and makes no accuracy claim.)
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
 - Seed real invariants into the 5 content-free skill AGENTS.md files (frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — each ships `None recorded yet.` in one section. Open user decision: seed-on-demand vs delete-until-needed.
@@ -4303,7 +4346,6 @@ Surfaced at session start by `session-start.sh`.
 - `.agents/knowledge/index.md` is markdown, but it is the store&#x27;s one record-shaped file and the one meant to be scanned. Benchmarks split: YAML beat markdown on nested retrieval for 2 of 3 models tested, while a 9,649-trial study found no aggregate format effect and markdown costs fewer tokens. Reasoning and the flip trigger are in `debt: colloid-knowledge-index-markdown`; revisit when the index passes a few dozen entries.
 - Files written through `Bash` heredocs or `sed -i` skip the post-edit lint gate entirely: `post-edit-check.sh` runs on `Edit|Write|MultiEdit|NotebookEdit`, and a shell redirect is none of them. Either widen the PostToolUse matcher to the shell tools and derive the touched paths from the command, or state that the gate covers editor writes only.
 - `stop-investigate.sh`&#x27;s hedge regex fires on `could you clarify|confirm|specify` and blocks the turn — which bans the prose escalation `AGENTS.md` § &quot;Verify with user&quot; mandates, leaving `AskUserQuestion` as the only legal way to ask. Exempt an explicit escalation marker, or drop the question-shaped alternations and keep the give-up ones.
-- The `sources-capture` matcher misses the plugin-prefixed MCP twins actually installed (`mcp__plugin_playwright_playwright__*`, `mcp__plugin_exa_exa__*`) and both `context7` tools, so those lookups are never logged as sources.
 - No skill uses any of `allowed-tools`, `disallowed-tools`, `context: fork`, `model`, `effort`, or `paths`, all of which are supported. `context: fork` fits the heavyweight skills (pentesting, security-audit, seo-geo-growth-audit); `disallowed-tools` would express security-skill tool scope declaratively instead of leaning on the Bash guard.
 - `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe: esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility with a symlinked `node_modules` yields a spurious mismatch.
 - `.kimi/config.toml.example:55` gates `Bash` alone while `.agents/claude/settings.json` now gates `Bash|PowerShell|Monitor`. Kimi&#x27;s tool names are its own, and whether it exposes a background-shell tool is unverified — check the Kimi hook docs, then widen the matcher or record that Kimi has no equivalent. `.agents/codex/hooks.json` is correct as-is: Codex has no Monitor.
@@ -4312,13 +4354,16 @@ Surfaced at session start by `session-start.sh`.
 - Requiring `AGENTS.md` per skill is a fleet migration, not the no-op `d0ed7aa` claims: `claude-code-boilerplate` (23 of 24 skills), `writing-coach-wt-bulk-export` (8 of 8) and `career-ops` (1 of 1) have none, so `lint-skills.sh` will red-light their whole lint run and block the post-edit hook at the next transplant. Decide whether that forcing function is wanted, and seed the files or scope the rule if not.
 - `post-edit-check.sh`&#x27;s `check` entry runs under `asyncRewake` with no per-session cap, so a burst of edits can leave several `tsc --noEmit` and `pyright` processes resident at once. Dropping `--incremental` removed the shared-file corruption but not the process count, and the diff cannot state N. Measure a real 200-edit session before adding a cap — a cap that fires wrongly is a gate that stops gating.
 - Scaffold audit, six ordered items in `docs/handoff/2026-08-08-scaffold-audit.md`: split `AGENTS.md` (11,397 bytes, ~3,800 of it conditional), widen the persona registry past `model:` to `tools:`/`effort:`/`memory:` (3 of 16 fields used; `researcher` inherits Write), put numeric thresholds in `hostile-review.md` (168 lines, zero — and the eval harness grades against it), add the compress/expand carve-out table to `## Communication`, drain this file from 55, and make `export-scaffold.py` additive so a satellite gains domain rules instead of only losing the genome. Open ruling recorded there: does the genome layer stay? Measure which of the 11 hook policies have ever fired before deciding — that answer reshapes the last item.
+- `scalability-audit` has no law for positive feedback under degradation — load rising as capacity falls, so the system stays broken after the trigger clears. The class is real and well-sourced (metastable failure: HotOS &#x27;21, OSDI &#x27;22, HotOS &#x27;25) and the mechanisms, taxonomy and remedies are all citable; see `.agents/knowledge/research/2026-08-13-occupancy-and-metastable-failure.md`. It was held for one reason: no ex-ante detection question exists, and the literature calls that an open problem as of 2025. The knowledge entry carries the full argument for why measurement is not the bar. Ship it when there is a heuristic worth standing behind — not before, because a law without a detection question is a slogan.
+- `demo/scaffold-showcase.html:282` hero lede says &quot;eight enforcement hooks, eight skills&quot;; counted, it is 15 skills (`.agents/skills/*/`) and 9 hook policies (`.agents/hooks/policy/*.sh`). The lede is hand-authored prose outside any `data-gen=&quot;1&quot;` block, so `embed-src.py` will never repair it — same defect class as the per-card blurbs, which is why those needed a manual fix too. The repo also disagrees with itself on the hook count: an earlier line in this file says &quot;11 hook policies&quot;. Reconcile the hook number against what actually exists, then fix the lede; consider whether counts belong in hand-authored demo prose at all, given both known instances went stale.
+- The `[A]` grade (our own analysis) was added to `market-researcher/SKILL.md` and `knowledge/README.md` after in-house judgement had nowhere legal to sit. Two existing entries predate it and need a sweep, not a rewrite — knowledge entries are dated observations and must not be revised to match later facts, so correct these by writing the grade fix into whatever entry supersedes them: `2026-08-06-agent-knowledge-base-patterns.md:29` grades an in-house inference as `[S]` (&quot;inferred from the &#x27;nightly notes&#x27; annotation&quot;), which is the exact laundering `[A]` exists to stop. Separately, the scale&#x27;s &quot;always say which kind&quot; rule for `[?]` is already unenforced at `2026-08-06-...:74` and `2026-08-07-...:52,:58` — the scale&#x27;s rules are under-enforced generally, and nothing checks them.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 62 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 80 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -4369,6 +4414,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Trigger** — `codex mcp list` rejects a workspace because another layer declares one of the project registry names with a different transport.
 - **Rework** — add a read-only preflight over the effective user/plugin configuration when Codex exposes a stable enumeration API, or adopt a managed machine-wide allowlist.
 
+### codex-network-proxy-fd-leak
+
+- **Condition** — Codex 0.147.0 retains managed HTTP/SOCKS loopback listeners and MCP children across completed work in a long-lived process. One observed process held 170 listeners and reached numeric descriptor 255 under macOS&#x27;s inherited soft limit of 256; hooks, child-process startup, and transcript persistence then failed with `Too many open files`. Acceptable only with containment: `repo-autonomous` is network-off by default, while `repo-localhost` enables exact loopback access for a short, explicitly selected QA session.
+- **Trigger** — qualify each candidate Codex release once before adoption: run 200 sequential local-QA commands at the measured current cost of one HTTP/SOCKS listener pair per command and require the descriptor count to return to baseline after every command. This is one qualification run per candidate release, not a daily gate (runs/day: 0 normally; 1 on a qualification day).
+- **Rework** — remove the profile split only after that regression passes on the supported Codex version; until then, exit the entire opt-in QA thread when its local-network work completes. Raising `ulimit` is headroom, not rework.
+
 ### research-01-duplicate-ssrf-tables
 
 - **Condition** — `research-mcp/src/core/url-policy.ts` carries its own copy of the blocked-subnet tables and its own pinned-lookup transport, duplicating `security-mcp/src/core/policy/target-policy.ts` and `.../scanner/http-client.ts`. The verdicts genuinely differ — the scanner *requires* loopback or an allowlisted staging host, the reader *refuses* anything non-public — so only the address tables and the pinning technique are shared, not the policy. Acceptable: two callers, each server bundles to a self-contained `dist/`, and a shared package would have to be built and versioned for both.
@@ -4380,6 +4431,18 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — the `playwright-reader` MCP entry runs Chrome for Testing, not branded Chrome, because Chrome removed `--load-extension` from branded builds at milestone 137 and now discards it silently (verified: uBO Lite blocks 0/4 trackers under Chrome 150, 2/4 under Chrome for Testing 151). Content blocking and the branded-Chrome fingerprint are therefore mutually exclusive, and the scaffold ships both tiers side by side so the agent picks per task. Acceptable: the plain `playwright` entry still runs branded Chrome, so nothing is lost — it costs a second browser server&#x27;s tool surface in context.
 - **Trigger** — bot-gating on the reader tier often enough that the reading win stops paying for the weaker fingerprint, or Chrome restoring extension side-loading to branded builds.
 - **Rework** — either drop one tier and accept its loss, or drive a single browser and load the extension over CDP (`Extensions.loadUnpacked`, which needs a flag the MCP server does not expose today); the one-tier route is a registry edit, the CDP route needs upstream support.
+
+### codex-tool-hooks-no-subagent-identity
+
+- **Condition** — Codex `SubagentStart` and `SubagentStop` now carry `agent_id` and `agent_type`, so lifecycle context and exemptions work natively. Ordinary `PreToolUse` and `PostToolUse` payloads still omit both fields, and subagent hooks reuse the parent&#x27;s `session_id`. Acceptable: safety and post-edit policies intentionally apply to every caller; source rows without identity say `unknown`. Only a future main/subagent-specific tool policy would be blocked.
+- **Trigger** — a tool policy needs different main/subagent behavior, or Codex adds stable agent identity to ordinary tool-hook payloads.
+- **Rework** — add the identity field to the normalized raw tool contract and only then implement a Claude-shaped selector; no transcript or environment correlation fallback. Roughly 30 lines once the upstream field exists.
+
+### kimi-subagent-start-cannot-inject-context
+
+- **Condition** — Kimi 0.31.1 exposes `SubagentStart`, but documents it as observation-only and discards its hook output before constructing the child&#x27;s prompt. Wiring `genome-inject.sh` would therefore report success without treating the subagent. Acceptable: Kimi dispatch instructions prepend exactly one genome; Claude and Codex inject automatically.
+- **Trigger** — Kimi documents and ships model-visible context from `SubagentStart`.
+- **Rework** — map `agent_name` to `subagent_type`, register `genome-inject.sh`, remove Kimi&#x27;s manual-prepend instructions, and verify the child transcript rather than hook stdout; roughly 15 lines plus native QA.
 </code></pre></details>
             </article>
         <article class="card">
