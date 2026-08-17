@@ -1,8 +1,9 @@
 # Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
-the diff after it. Supply the ask verbatim, the plan, and the artifact. Use the
-heavy tier for the runtime.
+the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
+pasted content, a diff or tree digest, or an authorized commit. Never commit
+merely to make a review checkpoint. Use the heavy tier for the runtime.
 <!-- colloid-only -->
 Claude and Codex inject a genome on `SubagentStart`; do not prepend another.
 Kimi discards start-hook output, so prepend exactly one fresh stamp there.
@@ -40,8 +41,13 @@ is a finding, not an assumption.
 
 ## Report
 
-Open with `CONFORMANCE: yes|no|unknown — <reason>`. Then one numbered list,
-each item `file:line — defect; consequence; fix`, ordered by cost to leave.
+Open with `CONFORMANCE: yes|no|unknown — <reason>`, then `EFFECTS: <observed
+scarce, privileged, or irreversible actions, none, or unknown>`. Do not infer a
+runtime effect from source. Follow with one numbered list using this exact
+decision schema, ordered by cost to leave:
+
+`[P0|P1|P2 / <class>] <file:line|artifact:section> — evidence:<reproduced|live|inspection|theoretical>; recurrence:<observed:evidence|not-found:sources|unknown:gap>; trigger:<state or event>; risk:<worst credible consequence>; fix:<narrow correction>; next:<operation and authorization>; residual:<remaining uncertainty>; cost:<implementation/review cost>; recommendation:<fix|accept|defer|redesign|stop>`
+
 Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
@@ -52,9 +58,22 @@ HANDOFF: scalability-audit — <unresolved system-scale trigger>
 
 No ambiguity means no `AMBIGUITY:` line. Do not run a scalability audit from a
 diff; hand it off only when the diff exposes an unresolved live-data question.
+Ask for one verdict only when the user must decide. Never bundle authorization
+for the current correction with a later live, privileged, destructive, or
+scarce operation.
 ````
 
-Disposition every finding: adopt, decline with reason, file as a breadcrumb or
-debt, or escalate a user decision. Fixes receive re-review. After three rounds
-where the same shape returns, stop patching and bring the architecture decision
-to the user.
+The lead dispositions every finding: adopt, decline with reason, file unresolved
+work as a breadcrumb, record an accepted tradeoff in debt, or escalate a user
+decision. External evidence alone belongs in knowledge; create no parallel
+review ledger. A recurrence claim must cite the current rounds or explicit Git,
+breadcrumb, or debt evidence; otherwise report `not-found` with the consulted
+sources or `unknown`, never “first occurrence.”
+
+Do not repeat a completed review in the active context while the ask, plan, and
+artifact are unchanged and every finding is dispositioned. A changed artifact
+or new evidence reopens review. Fixes receive re-review. When the same class
+recurs, identify the shared subsystem and compare cumulative patch complexity
+with redesign; separate deadline containment from the long-term architecture.
+After three rounds where the same shape returns, stop patching and bring that
+decision to the user.
