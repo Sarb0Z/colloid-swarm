@@ -39,9 +39,15 @@ done
 for path in \
   .agents/AGENTS.md .agents/check-layout.py .agents/mcp.py .agents/mcp_codex.py \
   .claude/agents/implementer.md .codex/agents/implementer.toml \
-  .codex/hooks.json .github/lsp.json export/README.md export/drop-server.py; do
+  .codex/hooks.json .github/lsp.json CLAUDE.md export/README.md export/drop-server.py; do
   [[ -e "$kit/$path" ]] || fail "export omitted $path"
 done
+
+[[ -L "$kit/CLAUDE.md" ]] || fail "exported CLAUDE.md is not a link"
+[[ "$(readlink "$kit/CLAUDE.md")" == "AGENTS.md" ]] \
+  || fail "exported CLAUDE.md does not target AGENTS.md"
+cmp -s "$kit/CLAUDE.md" "$kit/AGENTS.md" \
+  || fail "exported Claude root authority differs from AGENTS.md"
 
 python3 "$kit/.agents/check-layout.py" >/dev/null
 mkdir -p "$kit/apps/example"

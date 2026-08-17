@@ -24,8 +24,13 @@ is a finding, not an assumption.
 
 ## Report
 
-Open with `CONFORMANCE: yes|no|unknown — <reason>`. Then one numbered list,
-each item `file:line — defect; consequence; fix`, ordered by cost to leave.
+Open with `CONFORMANCE: yes|no|unknown — <reason>`, then `EFFECTS: <observed
+scarce, privileged, or irreversible actions, none, or unknown>`. Do not infer a
+runtime effect from source. Follow with one numbered list using this exact
+decision schema, ordered by cost to leave:
+
+`[P0|P1|P2 / <class>] <file:line|artifact:section> — evidence:<reproduced|live|inspection|theoretical>; recurrence:<observed:evidence|not-found:sources|unknown:gap>; trigger:<state or event>; risk:<worst credible consequence>; fix:<narrow correction>; next:<operation and authorization>; residual:<remaining uncertainty>; cost:<implementation/review cost>; recommendation:<fix|accept|defer|redesign|stop>`
+
 Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
@@ -36,3 +41,6 @@ HANDOFF: scalability-audit — <unresolved system-scale trigger>
 
 No ambiguity means no `AMBIGUITY:` line. Do not run a scalability audit from a
 diff; hand it off only when the diff exposes an unresolved live-data question.
+Ask for one verdict only when the user must decide. Never bundle authorization
+for the current correction with a later live, privileged, destructive, or
+scarce operation.
