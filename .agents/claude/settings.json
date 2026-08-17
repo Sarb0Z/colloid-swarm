@@ -12,6 +12,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh guard-destructive.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Monitor|Artifact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh guard-publish.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [

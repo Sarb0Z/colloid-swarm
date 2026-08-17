@@ -7,6 +7,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | Policy | Normalized fields |
 | --- | --- |
 | `guard-destructive.sh` | `project_dir`, `command` |
+| `guard-publish.sh` | `project_dir`, `tool_name`, `tool_input` |
 | `post-edit-check.sh` | `project_dir`, `files` |
 | `sources-capture.sh` | `project_dir`, `agent`, `tool_name`, `tool_input` |
 | `session-start.sh` | `project_dir`, `source`, `session_id`, `transcript_path` |

@@ -8,8 +8,9 @@ paths:
 # Thermo-Nuclear-Code-Quality-Review Skill Rules
 
 ## Business Invariants
-- Keep the `description` naming the phrases that should reach this skill — "thermo-nuclear", "thermonuclear", "deep code quality audit", "harsh maintainability review". The description is the only routing signal, so a phrase missing from it is a phrase that never arrives.
+- The skill is explicit-invocation-only: `disable-model-invocation: true` matches upstream and keeps the most expensive review in the set from firing on model discretion. The `description` names the trigger phrases — "thermo-nuclear", "thermonuclear", "deep code quality audit", "harsh maintainability review" — so the operator and docs know what to type; it does not route autonomously.
 - Keep the approval bar strict. This is the harshest and most expensive review in the set; softening it removes the reason to have a separate skill at all.
+- The body stays byte-identical to upstream (`cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md`). Local edits orphan the copy from upstream updates; see `knowledge/research/2026-08-17-thermo-nuclear-skill-provenance.md` before proposing one.
 
 ## Abnormal Cases and Rationale
 - None recorded yet.

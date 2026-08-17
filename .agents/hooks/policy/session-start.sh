@@ -17,7 +17,7 @@
 #     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
 #   - Compaction (source=compact): the full Discovered Subprojects policy
-#     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
+#     (AGENTS.md carries only a one-line copy) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
 #     marker is consumed (deleted) here; source=compact is the trigger, not
 #     the marker's existence.
@@ -114,8 +114,9 @@ discovered subproject, checkpoint the current unit now — update the todo list,
 note the file/line — and consider recommending a fresh session rather than
 working from the compacted summary.
 
-Discovered Subprojects policy (relocated from AGENTS.md; re-stated here since
-it is no longer always-loaded):
+Discovered Subprojects policy (AGENTS.md keeps a one-line compressed copy for
+the pre-compaction window; this hook re-states the full policy because a
+compacted summary may have dropped it):
 
 Mid-session, a new subproject (B) may surface while working on the current
 unit (A). Classify it immediately — never drift into B unscoped.

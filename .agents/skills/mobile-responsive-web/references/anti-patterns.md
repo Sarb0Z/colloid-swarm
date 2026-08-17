@@ -2,6 +2,12 @@
 
 Fast lookup. If you catch any of these in a diff, fix before shipping.
 
+## Contents
+
+- Anti-pattern table (below)
+- [Behavioural anti-patterns](#behavioural-anti-patterns)
+- [Cross-viewport trap case studies](#cross-viewport-trap-case-studies-stack-specific-tailwind--shadcnui)
+
 | Anti-pattern | Why it breaks | Fix |
 |--------------|---------------|-----|
 | `min-h-screen` / `h-[100vh]` on heroes | Overflows behind iOS address bar on first paint | `min-h-[100svh]` |
@@ -41,3 +47,112 @@ Fast lookup. If you catch any of these in a diff, fix before shipping.
   Settings → Display → Text Size max.
 - **"I'll optimise images later"** — Later never comes and LCP regresses
   immediately. Do it in the same PR as the layout change.
+
+## Cross-viewport trap case studies (stack-specific: Tailwind + shadcn/ui)
+
+Worked fixes for bugs where the naive mobile fix breaks desktop. Each shows
+the correct scoped repair.
+
+### `overflow-hidden` on Card / container components
+
+A Card with `overflow-hidden` clips any `absolute` positioned child (dropdown,
+popover, tooltip) that tries to spill outside. The fix is usually to remove
+`overflow-hidden` from the Card — inner content rarely needs it when the Card
+already has padding. If you truly need clipping for decorative elements, apply
+`overflow-hidden` to a dedicated inner wrapper, not the Card itself.
+
+```tsx
+// ❌ Clips absolute dropdowns
+<Card className="overflow-hidden p-6">
+  <LocationAutocomplete /> {/* dropdown is clipped */}
+</Card>
+
+// ✅ Dropdown spills outside correctly
+<Card className="p-6">
+  <LocationAutocomplete />
+</Card>
+```
+
+### Sidebar → Bottom Sheet on Mobile
+
+A sidebar that stacks full-width above results on mobile forces users to scroll
+through 800–1200 px of filters before seeing a single content item. The fix:
+
+1. **Hide the sidebar on mobile** (`hidden lg:block` on the sidebar container)
+2. **Add a filter button** that opens a bottom sheet with the same filter content
+3. **Show an active-filter badge** on the button so users know filters are applied
+
+```tsx
+// In the results header — filter button visible only on mobile/tablet
+<Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+  <SheetTrigger asChild>
+    <Button variant="outline" size="sm" className="lg:hidden">
+      <SlidersHorizontal className="mr-2 h-4 w-4" />
+      Filters
+      {activeFiltersCount > 0 && (
+        <Badge variant="secondary" className="ml-2 text-xs">{activeFiltersCount}</Badge>
+      )}
+    </Button>
+  </SheetTrigger>
+  <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl">
+    <SheetHeader className="border-b pb-4">
+      <SheetTitle>Filters</SheetTitle>
+      {activeFiltersCount > 0 && (
+        <Button variant="ghost" size="sm" onClick={handleClearFilters}>
+          <X className="mr-1 h-3 w-3" /> Clear all
+        </Button>
+      )}
+    </SheetHeader>
+    <div className="overflow-y-auto px-4 py-4">
+      <FacetedNavigation ... />
+    </div>
+  </SheetContent>
+</Sheet>
+
+// Sidebar — desktop only
+<div className="hidden space-y-6 lg:col-span-1 lg:block">
+  <SavedSearches />
+  <FacetedNavigation ... />
+</div>
+```
+
+**Never** delete the sidebar code — hide it with `hidden lg:block` so desktop
+keeps the full sidebar experience.
+
+### Duplicate content when grid columns stack
+
+When a parent layout shows a count/title and a child component also shows the
+same count (e.g., "10 trips found"), they may sit side-by-side on desktop but
+stack redundantly on mobile:
+
+```
+Desktop:  [Parent: 10 trips found]        [Child: 10 trips found + Sort]
+Mobile:   [Parent: 10 trips found]
+          [Child:  10 trips found + Sort]   ← duplicate!
+```
+
+Fix: Hide the outer count on mobile since the inner one comes with controls:
+
+```tsx
+// Parent — hide on mobile, child already shows count + sort
+<div className="hidden sm:block">
+  <h2>10 trips found</h2>
+</div>
+```
+
+### Button groups must wrap
+
+Groups of filter buttons, rating buttons, or view toggles that fit on desktop
+will overflow on mobile. Always use `flex-wrap`:
+
+```tsx
+// ❌ Overflow on narrow screens
+<div className="flex gap-2">
+  {[1, 2, 3, 4, 5].map(r => <Button …>{r}+</Button>)}
+</div>
+
+// ✅ Wraps naturally on mobile
+<div className="flex flex-wrap gap-2">
+  {[1, 2, 3, 4, 5].map(r => <Button …>{r}+</Button>)}
+</div>
+```

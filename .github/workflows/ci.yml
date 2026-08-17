@@ -43,6 +43,9 @@ jobs:
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
 
+      - name: Publish-gate policy
+        run: python3 .agents/test-guard-publish.py
+
       - name: MCP registry
         run: .agents/test-mcp.sh
 
