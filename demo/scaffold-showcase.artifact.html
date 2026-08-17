@@ -343,10 +343,10 @@
         <div class="panel">
           <h3>Behavior standards</h3>
           <ul>
-            <li><b>Investigate assumptions.</b> External code is innocent until the investigation proves otherwise.</li>
+            <li><b>Observed evidence first.</b> Inspect artifacts, logs, and the execution path before proposing a change.</li>
             <li><b>Persist to completion.</b> Token pressure narrows remaining scope — it never stops work short.</li>
             <li><b>Estimate in tokens,</b> never wall-clock: "~30k tokens", not "about an hour".</li>
-            <li><b>Carmack-grade code.</b> The fewest layers that solve it; every line justifies itself under scrutiny.</li>
+            <li><b>External actions gated.</b> Outward mutations — publish, deploy, push, message — need explicit session approval.</li>
             <li><b>No backwards compatibility.</b> Unused or replaced code is deleted outright.</li>
           </ul>
         </div>
@@ -357,51 +357,56 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 68 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 73 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
-Every change ships to production and must withstand hostile technical review — reviewer (Linus) rejects placeholder types, mock fallbacks, suppression comments, MVP shortcuts, and temporary hacks on sight. Ship at the bar that survives that review, first time.
+Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
 ## Principles
 
-Listed in priority order. Resolve conflicts top-down.
+In priority order. Resolve conflicts top-down.
 
 1. **Gall&#x27;s Law.** Build one working thing at a time. &quot;Complete&quot; means the current unit works end-to-end — not that future phases are scaffolded.
-2. **YAGNI.** Implement only what&#x27;s needed now. Resist the pull toward building for hypothetical future callers. YAGNI scopes *what* is built; the production-quality bar governs *how well*.
-3. **Unix Philosophy.** Small, focused modules. One responsibility each.
+2. **YAGNI.** Implement only what is needed now. YAGNI scopes *what* is built; the production bar governs *how well*.
+3. **Unix Philosophy.** Small, focused modules. One responsibility each. The fewest layers that solve the problem.
 4. **DRY, after YAGNI.** Shared operations belong somewhere broadly accessible — but never extract a helper with a single caller on speculation.
 
 ## Workflow
 
-1. **Research.** Ground new work in current sources, not memory: the `search-and-cite` skill draws the line between a quick lookup and delegating a researcher cell; the `market-researcher` skill covers competitor, demand, and gap research when building a new feature. Do not reinvent the wheel — find what practitioners and power users already learned about the problem.
-2. **Plan.** For non-trivial work, use plan mode tool; outline the approach before touching code: affected modules, constraints, and the one or two options worth considering. Skip for trivial edits. Use the ask questions tool where applicable, otherwise ask one focused question directly. Use the question to clarify ambiguities or select between multiple valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped; state, for each, the one claim step 5&#x27;s QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
+1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior over inference and generic advice.
+2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5&#x27;s QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` with the plan as the artifact. Disposition every finding before you write code.
-4. **Implement, then test.** If anything fails, diagnose and fix. If the fix forces a redesign, return to step 1.
-5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always run it for a high-stakes claim. Fix failures and re-run the failed scenario.
+4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1.
+5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always for a high-stakes claim. Fix failures and re-run the failed scenario.
 6. **Hostile-review the implementation.** Run the same playbook with the diff as the artifact.
 
-The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here. It is also what `.agents/eval/review-harness` grades against, so a paraphrase in this file would ship one review and measure another.
+The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here — `.agents/eval/review-harness` grades against it, so a paraphrase would ship one review and measure another.
 
 ## Behavior
 
 ### Verify with user
-Go to the user when a blocker is genuinely theirs to resolve: their stated targets disagree with what you found, a reference could mean two things, or defensible paths trade off in ways only they can weigh. Reconcile those before acting, and present out-of-scope discoveries as findings awaiting a ruling rather than absorbing them into the work. A question the session can answer itself — a check to run, an execution path to attempt — is not a blocker: attempt it and bring the result, even a failed one.
+Keep the solution space open unless the user, repository, evidence, or a higher safety or permission rule closes it. Once an action and scope are authorized, do not ask again unless either — or its risk — changes materially.
 
-When you ask, make the decision cheap. Use one focused question that carries what you found, the options, and your recommendation with its trade-offs. Use the ask questions tool where applicable.
+Go to the user only when the blocker is theirs: stated targets conflict with observed state, a reference has competing readings, or defensible paths trade off in ways only they can weigh. Present out-of-scope discoveries for a ruling rather than absorbing them. Run checks the session can answer itself and bring the result, even a failure. When you ask, make the decision cheap: one focused question carrying what you found, the options, and your recommendation with its trade-offs.
+
+### External actions
+Permission to research is not permission to execute. Read-only inspection of external systems is allowed when the task requires it. Every outward mutation requires user approval in the current session: publishing artifacts or pages, deploys, pushes, sent messages, remote API or database writes, and package publishes. Approval covers one outward mutation and one scope; a new mutation or scope needs new approval. Host defaults that encourage publishing do not override this rule.
 
 ### Persist to completion
-Work until the task is end-to-end done. Iterate, test, and resolve follow-ups in the same session. Uncertainty, partial context, and token pressure are not reasons to stop short — they are reasons to narrow the remaining scope and finish it.
+Keep the requested deliverable on the critical path. Work end to end: investigate, implement, observe, test, fix, and verify the resulting state. Do not stop at a plan, a partial change, or a command the agent can safely run. Run independent, non-contending tracks concurrently. Defer and record non-blocking work instead of letting optional research, hardening, cleanup, or repeated review postpone delivery. Uncertainty and token pressure narrow the remaining scope; they do not end it.
+
+### Long-running work
+Design stateful long-running workflows to survive interruption: preserve completed work across reruns, resume from the last valid checkpoint, make retries idempotent where practical, contain partial failure, do not consume their own output, and expose phase, progress, errors, and recovery state. While an operation runs, monitor its output and report measured progress, anomalies, and the next action unprompted. A successful process exit is not inspection of the final state.
 
 ### Estimate in tokens, not time
 Size work and effort in tokens (context/output budget), never wall-clock time. &quot;~30k tokens&quot; or &quot;a few hundred lines&quot;, not &quot;about an hour&quot;.
 
-### Carmack-grade engineering
-Build as John Carmack would: simple, fast, measurable, with the fewest layers that solve the problem. Every line must justify itself under scrutiny — naming, control flow, failure modes, performance. The code is the proof; comments do not rescue it.
-
 ### No backwards compatibility
-Remove stubs and dead code completely. Don&#x27;t preserve backwards compatibility for its own sake—if something is unused or being replaced, delete it outright.
+Remove stubs and dead code completely. If something is unused or being replaced, delete it outright.
 
-### Tracking, not tombstones
-Describe the present, not change history. Put deferred work in `breadcrumbs.md`; standing tradeoffs in `debt-log.md` (`### &lt;id&gt;`, condition, trigger, rework cost; code says `debt: &lt;id&gt;`); external observations in `knowledge/`. For a newly discovered subproject: checkpoint and re-scope if blocking; file one line and return if non-blocking; fix inline only when trivial and already open. The knowledge entry may carry its observation date.
+### Durable state, not session lore
+Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### &lt;id&gt;`, condition, trigger, rework cost; code says `debt: &lt;id&gt;`); external observations in `knowledge/`. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
+
+Before context loss, persist session-critical commands, evidence, decisions, limitations, and next steps in the smallest existing owner above. When another session must continue, or the user requests a handoff, write a self-contained repository-local document: objective, current state, completed work, evidence, decisions, limitations, relevant paths, remaining gates, and the exact next action with any authorization it needs. A fresh session must not depend on the chat.
 
 ### Latest stable by default
 Use the latest stable version allowed by existing constraints; state the constraint when it forces older, and verify versions rather than recalling them.
@@ -519,7 +524,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 174 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 175 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -538,7 +543,7 @@ detect:
 #     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
 #   - Compaction (source=compact): the full Discovered Subprojects policy
-#     (relocated here from AGENTS.md) + a checkpoint nudge tailored to the
+#     (AGENTS.md carries only a one-line copy) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
 #     marker is consumed (deleted) here; source=compact is the trigger, not
 #     the marker&#x27;s existence.
@@ -635,8 +640,9 @@ discovered subproject, checkpoint the current unit now — update the todo list,
 note the file/line — and consider recommending a fresh session rather than
 working from the compacted summary.
 
-Discovered Subprojects policy (relocated from AGENTS.md; re-stated here since
-it is no longer always-loaded):
+Discovered Subprojects policy (AGENTS.md keeps a one-line compressed copy for
+the pre-compaction window; this hook re-states the full policy because a
+compacted summary may have dropped it):
 
 Mid-session, a new subproject (B) may surface while working on the current
 unit (A). Classify it immediately — never drift into B unscoped.
@@ -2503,7 +2509,7 @@ an explicit coverage gap; the honesty membrane does not depend on the ledger.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 306 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 294 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
 name: security-audit
 description: &gt;
   Comprehensive source-only adversarial security review of a full-stack codebase. Use this skill
@@ -2516,8 +2522,7 @@ description: &gt;
 
 # Security Audit Skill
 
-A systematic, adversarial, full-stack security audit. The goal is to think like an attacker, 
-cover every layer, document everything found, and not stop until the entire codebase has been reviewed.
+A systematic, adversarial, full-stack security audit covering every layer, from Phase 1 through Phase 10.
 
 ---
 
@@ -2531,6 +2536,78 @@ Before writing any audit output:
 5. Build a **feature map**: list every route, controller, model, and role you can find before auditing
 
 Document your findings in `security-audit-report.md` from the very first step and **keep updating it continuously** throughout the audit. Never batch findings at the end.
+
+---
+
+## Execution Contract
+
+Read this before starting Phase 1 — it defines how findings get recorded, not just what to look for.
+
+### Work feature by feature, not file by file
+
+For each feature:
+1. Identify the frontend components / pages
+2. Trace to the API endpoint(s)
+3. Trace to the controller / service
+4. Trace to the DB query
+5. Apply the relevant checklists from Phases 1–10
+6. Record every finding in `security-audit-report.md` immediately
+
+### Finding severity levels
+
+Use these consistently in the report:
+
+| Level | Meaning |
+|-------|---------|
+| 🔴 CRITICAL | Direct unauthorized data access, auth bypass, RCE |
+| 🟠 HIGH | Privilege escalation, persistent XSS, IDOR |
+| 🟡 MEDIUM | Rate limit missing on sensitive endpoint, info disclosure |
+| 🔵 LOW | Minor info leak, missing security header, UX-only issue |
+| ⚪ INFO | Best practice gap, not exploitable but worth fixing |
+
+### Report Format
+
+Keep `security-audit-report.md` updated continuously. Use this structure:
+
+```markdown
+# Security Audit Report — [Project Name]
+**Date:** [date]  
+**Auditor:** Claude  
+**Stack:** [detected stack]
+
+## Summary
+- 🔴 Critical: N
+- 🟠 High: N  
+- 🟡 Medium: N
+- 🔵 Low: N
+- ⚪ Info: N
+
+## Findings
+
+### [SEVERITY] [Short Title]
+**File/Location:** `path/to/file.js:42`  
+**Description:** What the issue is and why it matters.  
+**Reproduction:** How to trigger it (request, UI steps, etc.)  
+**Recommendation:** Concrete fix with code snippet if helpful.  
+**Status:** Open
+
+---
+[repeat for each finding]
+
+## Coverage Log
+[List each feature/module audited and the date/time it was completed]
+```
+
+---
+
+## Standing Invariant — Never Trust the Client
+
+Every security-relevant decision — role, auth state, ownership, input validity — must be
+enforced server-side. A client-side equivalent (hidden button, disabled field, browser
+validation, a role read from `localStorage`) is a UX convenience, not a control. The
+checklists below apply this per phase; where a phase names a specific vector (role in a
+request payload, token storage, unvalidated input), that is the concrete check — this
+invariant is why it matters.
 
 ---
 
@@ -2561,12 +2638,11 @@ Search for session creation/destruction code and trace what happens when `is_act
 - [ ] Roles are assigned at login and attached to the session — not re-fetched from a client-supplied param
 - [ ] Privilege escalation: can a regular user create an admin user?
 - [ ] Horizontal privilege escalation: can User A access User B&#x27;s data by changing an ID in the URL/body?
-- [ ] Admin-only pages/APIs protected on both frontend (UI hidden) AND backend (API guard)?
-- [ ] Role checks done server-side, never trust `role` from client payload
+- [ ] Every hidden or disabled UI element (admin pages, role-gated buttons/fields) is matched by a server-side block on the same action?
+- [ ] Role checks enforced server-side (not from a client-supplied `role` field)?
 - [ ] Insecure Direct Object Reference (IDOR): `GET /api/invoice/:id` — does it check ownership?
 - [ ] Soft-deleted / disabled records: can they still be fetched via direct ID lookup?
 - [ ] Role hierarchy enforced: can a manager grant permissions above their own level?
-- [ ] UI: buttons/fields hidden for unauthorized roles AND the underlying API also blocks the action?
 
 ### How to verify
 Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth middleware is applied, check that the ownership/role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user/org.
@@ -2603,7 +2679,7 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 ## Phase 5 — Input Validation &amp; Injection
 
 ### Checklist
-- [ ] All user input validated and sanitized server-side (never trust client-only validation)
+- [ ] All user input validated and sanitized server-side?
 - [ ] SQL injection: raw queries with string interpolation? ORM used everywhere? Parameterized queries?
 - [ ] NoSQL injection: `{ $where: userInput }` patterns?
 - [ ] XSS: user content rendered as raw HTML? `dangerouslySetInnerHTML`? `v-html`? `innerHTML`?
@@ -2648,7 +2724,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Secrets (API keys, service credentials) in frontend bundle? (`grep -r &quot;sk-&quot; src/`)
 - [ ] Hardcoded URLs, IDs, or credentials in source?
 - [ ] Route guards: protected routes redirect unauthenticated users?
-- [ ] Role-based UI: hidden elements for wrong role AND underlying actions blocked?
 - [ ] Field validation runs on both client AND server?
 - [ ] Invalid/disabled actions: buttons disabled appropriately (can&#x27;t submit a form in wrong state)?
 - [ ] Dead-end routes: pages with no back button / navigation?
@@ -2688,7 +2763,7 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 
 ## Phase 10 — Business Logic &amp; User Flows
 
-This is where real-world bugs hide that automated scanners miss. Think like a user trying to abuse the system.
+This is where real-world bugs hide that automated scanners miss.
 
 ### Key questions per feature
 - Can a user take an action they shouldn&#x27;t at this point in the workflow?
@@ -2710,94 +2785,12 @@ This is where real-world bugs hide that automated scanners miss. Think like a us
 
 ---
 
-## Execution Strategy
-
-### Work feature by feature, not file by file
-
-For each feature:
-1. Identify the frontend components / pages
-2. Trace to the API endpoint(s)
-3. Trace to the controller / service
-4. Trace to the DB query
-5. Apply the relevant checklists from Phases 1–10
-6. Record every finding in `security-audit-report.md` immediately
-
-### Finding severity levels
-Use these consistently in the report:
-
-| Level | Meaning |
-|-------|---------|
-| 🔴 CRITICAL | Direct unauthorized data access, auth bypass, RCE |
-| 🟠 HIGH | Privilege escalation, persistent XSS, IDOR |
-| 🟡 MEDIUM | Rate limit missing on sensitive endpoint, info disclosure |
-| 🔵 LOW | Minor info leak, missing security header, UX-only issue |
-| ⚪ INFO | Best practice gap, not exploitable but worth fixing |
-
----
-
-## Report Format
-
-Keep `security-audit-report.md` updated continuously. Use this structure:
-
-```markdown
-# Security Audit Report — [Project Name]
-**Date:** [date]  
-**Auditor:** Claude  
-**Stack:** [detected stack]
-
-## Summary
-- 🔴 Critical: N
-- 🟠 High: N  
-- 🟡 Medium: N
-- 🔵 Low: N
-- ⚪ Info: N
-
-## Findings
-
-### [SEVERITY] [Short Title]
-**File/Location:** `path/to/file.js:42`  
-**Description:** What the issue is and why it matters.  
-**Reproduction:** How to trigger it (request, UI steps, etc.)  
-**Recommendation:** Concrete fix with code snippet if helpful.  
-**Status:** Open
-
----
-[repeat for each finding]
-
-## Coverage Log
-[List each feature/module audited and the date/time it was completed]
-```
-
----
-
 ## Tools to Use During Audit
 
-Run these as appropriate for the stack:
-
-```bash
-# Dependency vulnerabilities
-npm audit --audit-level=moderate
-pip-audit
-bundler-audit
-
-# Secret scanning
-grep -rn &quot;password\s*=&quot; --include=&quot;*.js&quot; --include=&quot;*.ts&quot; --include=&quot;*.py&quot; src/
-grep -rn &quot;sk-\|api_key\|secret\|token&quot; --include=&quot;*.env*&quot; .
-
-# Hardcoded values
-grep -rn &quot;localhost\|127.0.0.1\|hardcoded&quot; --include=&quot;*.js&quot; src/
-
-# Find all routes (Express example)
-grep -rn &quot;router\.\(get\|post\|put\|delete\|patch\)&quot; --include=&quot;*.js&quot; src/
-
-# Find auth middleware usage
-grep -rn &quot;authenticate\|authorize\|requireAuth\|@login_required\|middleware&quot; --include=&quot;*.js&quot; src/
-
-# Find raw SQL
-grep -rn &quot;query(\`\|\.query(\&quot;&quot; --include=&quot;*.js&quot; src/
-```
-
-Adapt grep patterns to the detected language/framework.
+Run `npm audit`/`pip-audit`/`bundler-audit` (or the stack equivalent) plus targeted greps for
+secrets, hardcoded values, routes, auth middleware, and raw SQL — see
+`references/grep-patterns.md` for starting commands and how to adapt their globs to the
+detected language.
 
 ---
 
@@ -2807,12 +2800,13 @@ For deep dives on specific vulnerability classes, read:
 - `references/owasp-top10.md` — OWASP Top 10 with detection patterns
 - `references/rbac-patterns.md` — Common RBAC implementation flaws
 - `references/api-checklist.md` — API-specific security checklist
+- `references/grep-patterns.md` — starting grep commands for dependency, secret, and route discovery
 
 These are loaded only when needed to keep context lean.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>scalability-audit</h3><p>Nine laws that predict where a growing system breaks, each with a detection question, plus a nine-step audit that finds the next failure before it bills you.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 300 lines</span></summary><div class="srcpath">.agents/skills/scalability-audit/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 164 lines</span></summary><div class="srcpath">.agents/skills/scalability-audit/SKILL.md</div><pre><code>---
 name: scalability-audit
 description: Find where a growing system breaks before it breaks. Nine failure laws with detection questions, a nine-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, pool saturation or concurrency review, or when asking what breaks next as N grows.
 ---
@@ -2822,7 +2816,7 @@ description: Find where a growing system breaks before it breaks. Nine failure l
 Predict where a growing system breaks, then find the breaks you have not hit
 yet.
 
-The laws below explain failures a system has already had. The audit in §2 finds
+The laws in §2 explain failures a system has already had. The audit in §1 finds
 the ones it has not. The audit does not require knowing the failure in advance,
 which is the whole point of running it.
 
@@ -2836,166 +2830,14 @@ reproduce another system&#x27;s numbers — gather your own as you go.
 | Situation | Read |
 | --- | --- |
 | Shipping a change today | §4 |
-| Looking for the next incident | §2 |
-| Explaining why something broke | §1 |
+| Looking for the next incident | §1 |
+| Explaining why something broke | §2 |
 | Fixing one you found | §3 |
 
 A hostile review flags the axis. This skill runs the sweep. Do not run both on
 the same diff — the review covers a change, this covers a system.
 
-## §1 The nine laws
-
-### Law 1 — Cost follows N, not intent
-
-Code is written for the case in front of you, and it is correct. It is then
-reused for the fleet by wrapping it in a loop, which is also correct. Neither
-step prices the result. The loop inherits the body&#x27;s cost and multiplies it by
-whatever N happens to be that day.
-
-Cadence obeys the same law. True cost is cost per run times runs per day. A
-five-minute beat is 288 runs a day. Both numbers get chosen from intuition, not
-arithmetic.
-
-**Detection.** For any operation, state N today, cost per item, and frequency.
-Multiply. If you cannot state the product, you have not designed it. Split cost
-per item into the part paid once per connection or session and the part paid
-per item. Work priced as though setup were free is priced wrong the moment
-every item pays for it again.
-
-### Law 2 — The system moves; the numbers do not
-
-Every constant is a fossil of the moment someone chose it. Thresholds, caps,
-retention windows, batch sizes, cadences, timeouts — each was calibrated
-against a snapshot, and each stays fixed while the snapshot rots.
-
-The subtler half is denominator drift. A control that reads a slice of traffic
-was calibrated against that slice&#x27;s share of the whole. The share moves without
-telling the control, which then goes quietly blind instead of failing loudly.
-
-**Detection.** For every constant that gates behaviour, ask what N was when it
-was chosen and what N is now. For every ratio, ask what fraction of the system
-its denominator covers today.
-
-### Law 3 — Two states cannot carry three outcomes
-
-Any check against something that can fail has three outcomes, not two: genuine
-yes, genuine no, and the check did not complete. A boolean or an empty list
-holds two. The third collapses into the falsy one, which is almost always the
-reassuring one — clean, not listed, no record, absent.
-
-The system then acts on a verdict nobody rendered. This is the most expensive
-class, because the failure is silent and the action taken is often destructive.
-
-**Detection.** For every function returning a verdict, ask whether it can tell
-&quot;no&quot; from &quot;I could not tell&quot;. Follow the `except` clauses. A bare
-`except Exception: return False` is the signature.
-
-### Law 4 — Every reservoir needs a source and a drain
-
-Anything that accumulates or depletes is a reservoir: table rows, log files,
-open alerts, queue depth, held locks, budget reservations, connection slots, a
-pool of recipients.
-
-A source with no drain grows until it hits a physical limit. A drain with no
-source empties until the feature depending on it quietly stops working. Both
-are the same oversight: the feature is the flow one way, and the other way is
-nobody&#x27;s job. The depleting case is worse, because a shrinking reservoir
-usually has no alarm — the system keeps running on an unrepresentative pool and
-reports success while doing it.
-
-**Detection.** List every store. For each, name the source, the drain, and the
-steady state they imply. A missing answer is a scheduled incident.
-
-### Law 5 — Occupancy is arrival rate times holding time
-
-A finite resource is not spent by how often you use it. It is spent by how long
-each use lasts. Arrival rate and holding time set occupancy between them, so a
-resource sized against arrival rate alone saturates the first time holding time
-moves — a slower dependency, a longer timeout, a retry that waits before it
-gives up.
-
-Law 4 asks whether a reservoir fills or empties. This one asks how many
-occupants sit in it at once while the level stays flat. A pool pinned at its
-limit with a healthy source, a healthy drain and a steady level is not idle
-capacity; it is a queue nobody measured. Holding time is also the term that
-moves under stress, and it is the term nobody sizes against.
-
-The arithmetic is Little&#x27;s Law, and it is unusually general: it holds for any
-arrival pattern, any service-time distribution, any queueing discipline. It
-gives long-run averages only. It says nothing about variance or the tail, and
-its assumption of a steady state is exactly what a burst, a deploy or a ramp
-breaks. A resource that passes on the mean can still exhaust on the peak.
-
-**Detection.** For every finite resource, state arrival rate and mean holding
-time. Multiply. Compare the product against the resource&#x27;s size. Then ask what
-holding time becomes when the slowest dependency on that path is slow, because
-that is the number that moves. A resource whose holding time nobody can state
-is sized by accident. Do not adopt a fixed utilization threshold as the pass
-line: the knee in the queueing curve is not a portable number, and a system
-that has one does not have it where folklore puts it.
-
-### Law 6 — Blast radius is nobody&#x27;s property
-
-Automated remediation gets designed one entity at a time, and that logic is
-correct. It is then scaled by iteration. No line in that path asks what
-fraction of the fleet one run is about to mutate, because the question belongs
-to no single entity.
-
-Combine with Law 3 and you get the defining incident shape: a shared signal
-fails, every entity independently evaluates to bad, and the loop faithfully
-applies a destructive action to all of them.
-
-**Detection.** For every automated mutation, ask the maximum number of entities
-one run can change. If the answer is all of them, it needs a per-run cap and a
-second corroborating signal. Duration limits are not blast-radius limits.
-
-### Law 7 — Correlation is the multiplier
-
-Independent failures average out. Correlated failures sum. Any dimension held
-constant across the fleet turns one incident into a fleet-wide one — and the
-dimensions that matter are the ones your dependency or your adversary clusters
-on, not the ones you think of as your architecture.
-
-One proxy in front of every outbound call, one resolver, one credential, one
-region, one template. Each is shared fate wearing the costume of a shared
-resource.
-
-**Detection.** Draw what is shared across N. For each shared thing, ask how
-many entities go down with it. Provisioning that optimises for unit cost —
-cheapest supplier, same template, least-loaded host — manufactures correlation
-as a side effect, because uncorrelated identity is nobody&#x27;s owned metric.
-
-### Law 8 — A signal that cannot escape does not exist
-
-A failure logged but not raised, counted but not paged, or returned in a
-payload nobody inspects is indistinguishable from success. Error handling gets
-written to keep the worker alive rather than to inform an operator, and the
-cheapest shape that achieves that passes review, because no test and no
-dashboard asserts a failure count.
-
-The corollary governs batches. One bad item must not destroy the batch, and it
-must also not vanish.
-
-**Detection.** For each failure mode, trace the path from exception to human.
-If the trace ends at a log line, a return value, or a 200 response, the failure
-is invisible. Ask how long a fully broken component would run before anyone
-noticed.
-
-### Law 9 — The binding constraint is usually someone else&#x27;s
-
-Past a certain size the limit that stops you is not in your code. It is a
-provider&#x27;s rate cap, a protocol&#x27;s field length, a quota, a concurrency ceiling,
-a licence. These are invisible in development because a single-item test never
-approaches them, and they get discovered by crossing them in production.
-
-They do not scale with spending or cleverness, and several are hard walls
-rather than slopes. You do not degrade; you fail.
-
-**Detection.** Register every external dependency with its documented ceiling,
-current usage, and what happens at 100 percent. Convert each into distance: how
-many units of growth until you arrive?
-
-## §2 The audit
+## §1 The audit
 
 A fixed procedure over the whole system. Work through every step. Each one
 produces an artefact; a step with nothing to show means it was not run.
@@ -3030,6 +2872,32 @@ A finding you cannot detect again is a finding you will re-earn. For each one,
 add the cheapest thing that would have caught it: an assertion, a counter, a
 query in a dashboard, a scheduled check. Prefer a tripwire that fails toward
 alerting.
+
+## Output
+
+Report findings as a numbered list, ordered by product at 10x, not by how
+interesting they are. For each: the law it violates, the location, the
+arithmetic or census entry that proves it, the distance to the wall, and the
+cheapest tripwire that would catch it again.
+
+State which audit steps you ran and which you could not. A sweep that silently
+skipped steps reads as coverage it does not have.
+
+## §2 The nine laws
+
+Full mechanism and evidence for each: `references/laws.md`.
+
+| Law | Detection question |
+| --- | --- |
+| 1. Cost follows N, not intent | Can you state N, cost per item, and frequency, and multiply them? |
+| 2. The system moves; the numbers do not | What was N when this constant was chosen, and what is N now? |
+| 3. Two states cannot carry three outcomes | Can this verdict-returning function tell &quot;no&quot; from &quot;I could not tell&quot;? |
+| 4. Every reservoir needs a source and a drain | Does this store have a named source, a named drain, and a steady state? |
+| 5. Occupancy is arrival rate times holding time | What is arrival rate times mean holding time against this resource&#x27;s size, and what does holding time become when the slowest dependency is slow? |
+| 6. Blast radius is nobody&#x27;s property | What is the maximum number of entities one run of this automation can mutate? |
+| 7. Correlation is the multiplier | What is shared across N, and how many entities go down with it? |
+| 8. A signal that cannot escape does not exist | Does the path from this exception to a human end anywhere but a log line? |
+| 9. The binding constraint is usually someone else&#x27;s | What is this dependency&#x27;s documented ceiling, current usage, and distance to it? |
 
 ## §3 Remedy shapes
 
@@ -3102,22 +2970,13 @@ finding.
 - Can one run of anything new mutate an unbounded number of entities?
 - Does any new failure mode reach a human?
 - Does this move usage closer to an external ceiling?
-
-## Output
-
-Report findings as a numbered list, ordered by product at 10x, not by how
-interesting they are. For each: the law it violates, the location, the
-arithmetic or census entry that proves it, the distance to the wall, and the
-cheapest tripwire that would catch it again.
-
-State which audit steps you ran and which you could not. A sweep that silently
-skipped steps reads as coverage it does not have.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>thermo-nuclear-code-quality-review</h3><p>An extremely strict maintainability review — abstraction quality, giant files, spaghetti conditionals.</p><div class="foot">Manual only · <code>disable-model-invocation</code></div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 191 lines</span></summary><div class="srcpath">.agents/skills/thermo-nuclear-code-quality-review/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 192 lines</span></summary><div class="srcpath">.agents/skills/thermo-nuclear-code-quality-review/SKILL.md</div><pre><code>---
 name: thermo-nuclear-code-quality-review
 description: Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for a thermo-nuclear code quality review, thermonuclear review, deep code quality audit, or especially harsh maintainability review.
+disable-model-invocation: true
 ---
 
 # Thermo-Nuclear Code Quality Review
@@ -4124,11 +3983,12 @@ To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.m
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a subagent reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b>. The same practice the contract fires at workflow steps 3 and 5.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 60 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 79 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
-the diff after it. Supply the ask verbatim, the plan, and the artifact. Use the
-heavy tier for the runtime.
+the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
+pasted content, a diff or tree digest, or an authorized commit. Never commit
+merely to make a review checkpoint. Use the heavy tier for the runtime.
 &lt;!-- colloid-only --&gt;
 Claude and Codex inject a genome on `SubagentStart`; do not prepend another.
 Kimi discards start-hook output, so prepend exactly one fresh stamp there.
@@ -4166,8 +4026,13 @@ is a finding, not an assumption.
 
 ## Report
 
-Open with `CONFORMANCE: yes|no|unknown — &lt;reason&gt;`. Then one numbered list,
-each item `file:line — defect; consequence; fix`, ordered by cost to leave.
+Open with `CONFORMANCE: yes|no|unknown — &lt;reason&gt;`, then `EFFECTS: &lt;observed
+scarce, privileged, or irreversible actions, none, or unknown&gt;`. Do not infer a
+runtime effect from source. Follow with one numbered list using this exact
+decision schema, ordered by cost to leave:
+
+`[P0|P1|P2 / &lt;class&gt;] &lt;file:line|artifact:section&gt; — evidence:&lt;reproduced|live|inspection|theoretical&gt;; recurrence:&lt;observed:evidence|not-found:sources|unknown:gap&gt;; trigger:&lt;state or event&gt;; risk:&lt;worst credible consequence&gt;; fix:&lt;narrow correction&gt;; next:&lt;operation and authorization&gt;; residual:&lt;remaining uncertainty&gt;; cost:&lt;implementation/review cost&gt;; recommendation:&lt;fix|accept|defer|redesign|stop&gt;`
+
 Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
@@ -4178,12 +4043,25 @@ HANDOFF: scalability-audit — &lt;unresolved system-scale trigger&gt;
 
 No ambiguity means no `AMBIGUITY:` line. Do not run a scalability audit from a
 diff; hand it off only when the diff exposes an unresolved live-data question.
+Ask for one verdict only when the user must decide. Never bundle authorization
+for the current correction with a later live, privileged, destructive, or
+scarce operation.
 ````
 
-Disposition every finding: adopt, decline with reason, file as a breadcrumb or
-debt, or escalate a user decision. Fixes receive re-review. After three rounds
-where the same shape returns, stop patching and bring the architecture decision
-to the user.
+The lead dispositions every finding: adopt, decline with reason, file unresolved
+work as a breadcrumb, record an accepted tradeoff in debt, or escalate a user
+decision. External evidence alone belongs in knowledge; create no parallel
+review ledger. A recurrence claim must cite the current rounds or explicit Git,
+breadcrumb, or debt evidence; otherwise report `not-found` with the consulted
+sources or `unknown`, never “first occurrence.”
+
+Do not repeat a completed review in the active context while the ask, plan, and
+artifact are unchanged and every finding is dispositioned. A changed artifact
+or new evidence reopens review. Fixes receive re-review. When the same class
+recurs, identify the shared subsystem and compare cumulative patch complexity
+with redesign; separate deadline containment from the long-term architecture.
+After three rounds where the same shape returns, stop patching and bring that
+decision to the user.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
@@ -4309,13 +4187,13 @@ The reporter is exempt from genome stamping — prepend NO stamp.
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 40 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 43 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
 
 - Make `session-wrap.sh` non-interactive under `codex exec`: the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt.
-- Expert-persona anchors applied to real work are an open user call: `pentesting/SKILL.md:109` opens &quot;You are a senior red-team engineer&quot;, and `AGENTS.md:4,86,92` anchor on Linus, Carmack and Jobs. Evidence says expert personas do not improve factual accuracy and domain-mismatched ones degrade it, while still shaping tone (arxiv.org/abs/2512.05858; arxiv.org/abs/2603.18507). Keep them as register, or drop the quality framing? (The genome layer is out of scope here — `genomes.md` states it is an RL environment for swarm research and makes no accuracy claim.)
+- Expert-persona anchors applied to real work: `pentesting/SKILL.md:109` opens &quot;You are a senior red-team engineer&quot; — keep as register, or drop? Evidence says expert personas do not improve factual accuracy and domain-mismatched ones degrade it, while still shaping tone (arxiv.org/abs/2512.05858; arxiv.org/abs/2603.18507). (The genome layer stays out of scope — `genomes.md` states it is an RL environment for swarm research and makes no accuracy claim.)
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
 - Seed real invariants into the 5 content-free skill AGENTS.md files (frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — each ships `None recorded yet.` in one section. Open user decision: seed-on-demand vs delete-until-needed.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
@@ -4349,6 +4227,9 @@ Surfaced at session start by `session-start.sh`.
 - `scalability-audit` has no law for positive feedback under degradation — load rising as capacity falls, so the system stays broken after the trigger clears. The class is real and well-sourced (metastable failure: HotOS &#x27;21, OSDI &#x27;22, HotOS &#x27;25) and the mechanisms, taxonomy and remedies are all citable; see `.agents/knowledge/research/2026-08-13-occupancy-and-metastable-failure.md`. It was held for one reason: no ex-ante detection question exists, and the literature calls that an open problem as of 2025. The knowledge entry carries the full argument for why measurement is not the bar. Ship it when there is a heuristic worth standing behind — not before, because a law without a detection question is a slogan.
 - `demo/scaffold-showcase.html:282` hero lede says &quot;eight enforcement hooks, eight skills&quot;; counted, it is 15 skills (`.agents/skills/*/`) and 9 hook policies (`.agents/hooks/policy/*.sh`). The lede is hand-authored prose outside any `data-gen=&quot;1&quot;` block, so `embed-src.py` will never repair it — same defect class as the per-card blurbs, which is why those needed a manual fix too. The repo also disagrees with itself on the hook count: an earlier line in this file says &quot;11 hook policies&quot;. Reconcile the hook number against what actually exists, then fix the lede; consider whether counts belong in hand-authored demo prose at all, given both known instances went stale.
 - The `[A]` grade (our own analysis) was added to `market-researcher/SKILL.md` and `knowledge/README.md` after in-house judgement had nowhere legal to sit. Two existing entries predate it and need a sweep, not a rewrite — knowledge entries are dated observations and must not be revised to match later facts, so correct these by writing the grade fix into whatever entry supersedes them: `2026-08-06-agent-knowledge-base-patterns.md:29` grades an in-house inference as `[S]` (&quot;inferred from the &#x27;nightly notes&#x27; annotation&quot;), which is the exact laundering `[A]` exists to stop. Separately, the scale&#x27;s &quot;always say which kind&quot; rule for `[?]` is already unenforced at `2026-08-06-...:74` and `2026-08-07-...:52,:58` — the scale&#x27;s rules are under-enforced generally, and nothing checks them.
+- `AGENTS.md` §External actions is enforced on Claude only: `guard-publish.sh` forces the permission prompt on publish-shaped Bash/Artifact calls (git/gh/npm-family/docker and the vercel/netlify/wrangler/firebase/fly/railway deploy CLIs). Kimi and Codex sessions remain instruction-only — neither host exposes an ask-equivalent PreToolUse decision. Wire them when one does.
+- Two live checks the publish gate still needs, neither runnable headlessly: (1) confirm `permissionDecision: &quot;ask&quot;` overrides a `settings.local.json` allowlist entry for a gated command — if it does not, the gate is decorative for allowlisting operators; (2) time both PreToolUse hooks together (each measured ~430ms solo) to learn whether Claude runs matcher groups in parallel or serial; if serial, merge the two matcher entries.
+- `demo/scaffold-showcase.html` hand-maintained workflow card still shows a 5-step pipeline and &quot;workflow steps 3 and 5&quot; while `AGENTS.md` ships 6 steps with QA at 5. Hand-authored prose outside `data-gen` regions; `embed-src.py` cannot repair it. Refresh the card or stop hand-authoring counts in it.
 </code></pre></details>
             </article>
         <article class="card">
@@ -4486,7 +4367,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 68 lines</span></summary><div class="srcpath">.agents/config.json</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 71 lines</span></summary><div class="srcpath">.agents/config.json</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -4507,6 +4388,9 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
   },
   &quot;hooks&quot;: {
     &quot;guard_destructive&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;guard_publish&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;genome_guard&quot;: {

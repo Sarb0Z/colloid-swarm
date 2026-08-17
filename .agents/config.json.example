@@ -17,6 +17,9 @@
     "guard_destructive": {
       "enabled": true
     },
+    "guard_publish": {
+      "enabled": true
+    },
     "genome_inject": {
       "enabled": true
     },

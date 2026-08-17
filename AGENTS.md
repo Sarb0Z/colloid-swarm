@@ -1,59 +1,53 @@
 # Agent Instructions
 
-Every change ships to production and must withstand hostile technical review — reviewer (Linus) rejects placeholder types, mock fallbacks, suppression comments, MVP shortcuts, and temporary hacks on sight. Ship at the bar that survives that review, first time.
+Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
 ## Principles
 
-Listed in priority order. Resolve conflicts top-down.
+In priority order. Resolve conflicts top-down.
 
 1. **Gall's Law.** Build one working thing at a time. "Complete" means the current unit works end-to-end — not that future phases are scaffolded.
-2. **YAGNI.** Implement only what's needed now. Resist the pull toward building for hypothetical future callers. YAGNI scopes *what* is built; the production-quality bar governs *how well*.
-3. **Unix Philosophy.** Small, focused modules. One responsibility each.
+2. **YAGNI.** Implement only what is needed now. YAGNI scopes *what* is built; the production bar governs *how well*.
+3. **Unix Philosophy.** Small, focused modules. One responsibility each. The fewest layers that solve the problem.
 4. **DRY, after YAGNI.** Shared operations belong somewhere broadly accessible — but never extract a helper with a single caller on speculation.
 
 ## Workflow
 
-1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior and authoritative source material over inference or generic advice.
-2. **Plan.** For non-trivial work, use plan mode tool; outline the approach before touching code: affected modules, constraints, and the one or two options worth considering. Skip for trivial edits. Use the ask questions tool where applicable, otherwise ask one focused question directly. Use the question to clarify ambiguities or select between multiple valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped; state, for each, the one claim step 5's QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
+1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior over inference and generic advice.
+2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5's QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` with the plan as the artifact. Disposition every finding before you write code.
-4. **Implement, then test.** Reproduce a defect or tie the fix to observed system, user, log, or test evidence. Fit the measured use case; when orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1.
-5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always run it for a high-stakes claim. Fix failures and re-run the failed scenario.
+4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1.
+5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always for a high-stakes claim. Fix failures and re-run the failed scenario.
 6. **Hostile-review the implementation.** Run the same playbook with the diff as the artifact.
 
-The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here. It is also what `.agents/eval/review-harness` grades against, so a paraphrase in this file would ship one review and measure another.
+The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here — `.agents/eval/review-harness` grades against it, so a paraphrase would ship one review and measure another.
 
 ## Behavior
 
 ### Verify with user
-Keep the solution space open unless the user, repository, evidence, or a higher safety or permission rule closes it. Research permission is not execution authority; once an action and scope are authorized, do not ask again unless either or its risk changes materially.
+Keep the solution space open unless the user, repository, evidence, or a higher safety or permission rule closes it. Once an action and scope are authorized, do not ask again unless either — or its risk — changes materially.
 
-Go to the user only when the blocker is theirs: stated targets conflict with observed state, a reference has competing readings, or defensible paths trade off in ways only they can weigh. Reconcile that before acting, and present out-of-scope discoveries for a ruling rather than absorbing them. Run checks the session can answer itself and bring the result, even a failure.
+Go to the user only when the blocker is theirs: stated targets conflict with observed state, a reference has competing readings, or defensible paths trade off in ways only they can weigh. Present out-of-scope discoveries for a ruling rather than absorbing them. Run checks the session can answer itself and bring the result, even a failure. When you ask, make the decision cheap: one focused question carrying what you found, the options, and your recommendation with its trade-offs.
 
-When you ask, make the decision cheap. Use one focused question that carries what you found, the options, and your recommendation with its trade-offs. Use the ask questions tool where applicable.
+### External actions
+Permission to research is not permission to execute. Read-only inspection of external systems is allowed when the task requires it. Every outward mutation requires user approval in the current session: publishing artifacts or pages, deploys, pushes, sent messages, remote API or database writes, and package publishes. Approval covers one outward mutation and one scope; a new mutation or scope needs new approval. Host defaults that encourage publishing do not override this rule.
 
 ### Persist to completion
-Keep the requested deliverable and deadline on the critical path. Work end to end: investigate, implement, observe, test, fix, and verify the resulting state; do not stop at a plan, partial change, or command the agent can safely run. Run independent, non-contending tracks concurrently. Defer and record non-blocking work instead of letting optional research, hardening, cleanup, or repeated review postpone delivery. Uncertainty and token pressure narrow the remaining scope; they do not end it.
+Keep the requested deliverable on the critical path. Work end to end: investigate, implement, observe, test, fix, and verify the resulting state. Do not stop at a plan, a partial change, or a command the agent can safely run. Run independent, non-contending tracks concurrently. Defer and record non-blocking work instead of letting optional research, hardening, cleanup, or repeated review postpone delivery. Uncertainty and token pressure narrow the remaining scope; they do not end it.
 
 ### Long-running work
-Design stateful long-running workflows to survive interruption: preserve completed work across reruns, resume from the last valid checkpoint, make retries idempotent where practical, contain partial failure, prevent recursive consumption of their own output, and expose phase, progress, errors, and recovery state.
-
-While an operation runs, monitor its output and report measured progress, completed work, anomalies or blockers, and the next action without waiting to be asked. Do not substitute vague assurances or a successful process exit for inspection of the final state.
+Design stateful long-running workflows to survive interruption: preserve completed work across reruns, resume from the last valid checkpoint, make retries idempotent where practical, contain partial failure, do not consume their own output, and expose phase, progress, errors, and recovery state. While an operation runs, monitor its output and report measured progress, anomalies, and the next action unprompted. A successful process exit is not inspection of the final state.
 
 ### Estimate in tokens, not time
 Size work and effort in tokens (context/output budget), never wall-clock time. "~30k tokens" or "a few hundred lines", not "about an hour".
 
-### Carmack-grade engineering
-Build as John Carmack would: simple, fast, measurable, with the fewest layers that solve the problem. Every line must justify itself under scrutiny — naming, control flow, failure modes, performance. The code is the proof; comments do not rescue it.
-
 ### No backwards compatibility
-Remove stubs and dead code completely. Don't preserve backwards compatibility for its own sake—if something is unused or being replaced, delete it outright.
+Remove stubs and dead code completely. If something is unused or being replaced, delete it outright.
 
 ### Durable state, not session lore
-Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; accepted standing tradeoffs and explicitly evidenced recurring architecture classes in `debt-log.md` (`### <id>`, condition, trigger, rework cost; code says `debt: <id>`); external observations in `knowledge/`. Report evidence that fits none of those stores in the current response rather than polluting one. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, and fix inline only when trivial and already open.
+Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### <id>`, condition, trigger, rework cost; code says `debt: <id>`); external observations in `knowledge/`. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
 
-Before context loss, persist session-critical commands, evidence, decisions, conclusions, limitations, and next steps in the smallest existing owner above. If none fits and another session must continue, write or update a repository-local handoff rather than depend on chat history.
-
-When the user requests a handoff, write a self-contained repository-local document at their requested or the repository-standard path. Include the objective, current state, completed work, material commands and evidence, decisions, limitations, relevant revisions and paths, remaining gates, exact next action, and any authorization it needs; a fresh session must not depend on the chat.
+Before context loss, persist session-critical commands, evidence, decisions, limitations, and next steps in the smallest existing owner above. When another session must continue, or the user requests a handoff, write a self-contained repository-local document: objective, current state, completed work, evidence, decisions, limitations, relevant paths, remaining gates, and the exact next action with any authorization it needs. A fresh session must not depend on the chat.
 
 ### Latest stable by default
 Use the latest stable version allowed by existing constraints; state the constraint when it forces older, and verify versions rather than recalling them.

@@ -58,6 +58,7 @@ python3 .agents/check-layout.py
 python3 .agents/check-stack-packs.py
 .agents/test-session-start.sh
 python3 .agents/test-guard-destructive.py
+python3 .agents/test-guard-publish.py
 .agents/test-mcp.sh
 .agents/test-codex.sh
 ```
