@@ -75,7 +75,7 @@ def tracked_export(destination):
             subprocess.run(
                 [
                     "git", "-C", str(REPO), "archive", "HEAD",
-                    ".agents", ".claude", ".codex", ".kimi", "AGENTS.md",
+                    ".agents", ".claude", ".codex", ".kimi", "AGENTS.md", "CLAUDE.md",
                     ".github/lsp.json", ".github/copilot-instructions.md",
                     ".github/instructions",
                 ],
@@ -192,7 +192,7 @@ def warn_dirty():
         [
             "git", "-C", str(REPO), "status", "--porcelain", "--",
             ".agents", ".claude", ".codex", ".kimi", ".github/lsp.json",
-            ".github/instructions", ".github/copilot-instructions.md", "AGENTS.md",
+            ".github/instructions", ".github/copilot-instructions.md", "AGENTS.md", "CLAUDE.md",
         ],
         capture_output=True, text=True, check=True,
     ).stdout.strip()

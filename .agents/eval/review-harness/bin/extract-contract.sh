@@ -16,9 +16,12 @@ awk '/^````$/ { n++; next } n == 1' "$src" > "$dst"
 
 lines=$(wc -l < "$dst" | tr -d ' ')
 [[ "$lines" -gt 20 ]] || { echo "extracted only $lines lines — fence markers moved?" >&2; exit 1; }
-for want in '## Authority' '## Static sweep' 'CONFORMANCE:' \
-            'AMBIGUITY:' 'review-axes.md'; do
-  grep -q "$want" "$dst" || { echo "extract is missing: $want" >&2; exit 1; }
+for want in '## Authority' '## Static sweep' 'CONFORMANCE:' 'EFFECTS:' \
+            '[P0|P1|P2 / <class>]' 'evidence:' 'recurrence:' 'trigger:' \
+            'risk:' 'fix:' 'next:' 'residual:' 'cost:' 'recommendation:' \
+            'AMBIGUITY:' 'HANDOFF: qa-verifier' 'HANDOFF: scalability-audit' \
+            'review-axes.md'; do
+  grep -Fq -- "$want" "$dst" || { echo "extract is missing: $want" >&2; exit 1; }
 done
 
 # The contract points at the catalogue by path, so the two files must agree.
