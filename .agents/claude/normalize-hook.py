@@ -56,6 +56,9 @@ def normalize(payload, policy, repo):
 
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
+    elif policy == "guard-publish.sh":
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
     # colloid-only
     elif policy == "genome-inject.sh":
         # SubagentStart fires inside the spawned cell, which names its own type

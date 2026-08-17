@@ -11,8 +11,7 @@ description: >
 
 # Security Audit Skill
 
-A systematic, adversarial, full-stack security audit. The goal is to think like an attacker, 
-cover every layer, document everything found, and not stop until the entire codebase has been reviewed.
+A systematic, adversarial, full-stack security audit covering every layer, from Phase 1 through Phase 10.
 
 ---
 
@@ -26,6 +25,78 @@ Before writing any audit output:
 5. Build a **feature map**: list every route, controller, model, and role you can find before auditing
 
 Document your findings in `security-audit-report.md` from the very first step and **keep updating it continuously** throughout the audit. Never batch findings at the end.
+
+---
+
+## Execution Contract
+
+Read this before starting Phase 1 — it defines how findings get recorded, not just what to look for.
+
+### Work feature by feature, not file by file
+
+For each feature:
+1. Identify the frontend components / pages
+2. Trace to the API endpoint(s)
+3. Trace to the controller / service
+4. Trace to the DB query
+5. Apply the relevant checklists from Phases 1–10
+6. Record every finding in `security-audit-report.md` immediately
+
+### Finding severity levels
+
+Use these consistently in the report:
+
+| Level | Meaning |
+|-------|---------|
+| 🔴 CRITICAL | Direct unauthorized data access, auth bypass, RCE |
+| 🟠 HIGH | Privilege escalation, persistent XSS, IDOR |
+| 🟡 MEDIUM | Rate limit missing on sensitive endpoint, info disclosure |
+| 🔵 LOW | Minor info leak, missing security header, UX-only issue |
+| ⚪ INFO | Best practice gap, not exploitable but worth fixing |
+
+### Report Format
+
+Keep `security-audit-report.md` updated continuously. Use this structure:
+
+```markdown
+# Security Audit Report — [Project Name]
+**Date:** [date]  
+**Auditor:** Claude  
+**Stack:** [detected stack]
+
+## Summary
+- 🔴 Critical: N
+- 🟠 High: N  
+- 🟡 Medium: N
+- 🔵 Low: N
+- ⚪ Info: N
+
+## Findings
+
+### [SEVERITY] [Short Title]
+**File/Location:** `path/to/file.js:42`  
+**Description:** What the issue is and why it matters.  
+**Reproduction:** How to trigger it (request, UI steps, etc.)  
+**Recommendation:** Concrete fix with code snippet if helpful.  
+**Status:** Open
+
+---
+[repeat for each finding]
+
+## Coverage Log
+[List each feature/module audited and the date/time it was completed]
+```
+
+---
+
+## Standing Invariant — Never Trust the Client
+
+Every security-relevant decision — role, auth state, ownership, input validity — must be
+enforced server-side. A client-side equivalent (hidden button, disabled field, browser
+validation, a role read from `localStorage`) is a UX convenience, not a control. The
+checklists below apply this per phase; where a phase names a specific vector (role in a
+request payload, token storage, unvalidated input), that is the concrete check — this
+invariant is why it matters.
 
 ---
 
@@ -56,12 +127,11 @@ Search for session creation/destruction code and trace what happens when `is_act
 - [ ] Roles are assigned at login and attached to the session — not re-fetched from a client-supplied param
 - [ ] Privilege escalation: can a regular user create an admin user?
 - [ ] Horizontal privilege escalation: can User A access User B's data by changing an ID in the URL/body?
-- [ ] Admin-only pages/APIs protected on both frontend (UI hidden) AND backend (API guard)?
-- [ ] Role checks done server-side, never trust `role` from client payload
+- [ ] Every hidden or disabled UI element (admin pages, role-gated buttons/fields) is matched by a server-side block on the same action?
+- [ ] Role checks enforced server-side (not from a client-supplied `role` field)?
 - [ ] Insecure Direct Object Reference (IDOR): `GET /api/invoice/:id` — does it check ownership?
 - [ ] Soft-deleted / disabled records: can they still be fetched via direct ID lookup?
 - [ ] Role hierarchy enforced: can a manager grant permissions above their own level?
-- [ ] UI: buttons/fields hidden for unauthorized roles AND the underlying API also blocks the action?
 
 ### How to verify
 Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth middleware is applied, check that the ownership/role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user/org.
@@ -98,7 +168,7 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 ## Phase 5 — Input Validation & Injection
 
 ### Checklist
-- [ ] All user input validated and sanitized server-side (never trust client-only validation)
+- [ ] All user input validated and sanitized server-side?
 - [ ] SQL injection: raw queries with string interpolation? ORM used everywhere? Parameterized queries?
 - [ ] NoSQL injection: `{ $where: userInput }` patterns?
 - [ ] XSS: user content rendered as raw HTML? `dangerouslySetInnerHTML`? `v-html`? `innerHTML`?
@@ -143,7 +213,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Secrets (API keys, service credentials) in frontend bundle? (`grep -r "sk-" src/`)
 - [ ] Hardcoded URLs, IDs, or credentials in source?
 - [ ] Route guards: protected routes redirect unauthenticated users?
-- [ ] Role-based UI: hidden elements for wrong role AND underlying actions blocked?
 - [ ] Field validation runs on both client AND server?
 - [ ] Invalid/disabled actions: buttons disabled appropriately (can't submit a form in wrong state)?
 - [ ] Dead-end routes: pages with no back button / navigation?
@@ -183,7 +252,7 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 
 ## Phase 10 — Business Logic & User Flows
 
-This is where real-world bugs hide that automated scanners miss. Think like a user trying to abuse the system.
+This is where real-world bugs hide that automated scanners miss.
 
 ### Key questions per feature
 - Can a user take an action they shouldn't at this point in the workflow?
@@ -205,94 +274,12 @@ This is where real-world bugs hide that automated scanners miss. Think like a us
 
 ---
 
-## Execution Strategy
-
-### Work feature by feature, not file by file
-
-For each feature:
-1. Identify the frontend components / pages
-2. Trace to the API endpoint(s)
-3. Trace to the controller / service
-4. Trace to the DB query
-5. Apply the relevant checklists from Phases 1–10
-6. Record every finding in `security-audit-report.md` immediately
-
-### Finding severity levels
-Use these consistently in the report:
-
-| Level | Meaning |
-|-------|---------|
-| 🔴 CRITICAL | Direct unauthorized data access, auth bypass, RCE |
-| 🟠 HIGH | Privilege escalation, persistent XSS, IDOR |
-| 🟡 MEDIUM | Rate limit missing on sensitive endpoint, info disclosure |
-| 🔵 LOW | Minor info leak, missing security header, UX-only issue |
-| ⚪ INFO | Best practice gap, not exploitable but worth fixing |
-
----
-
-## Report Format
-
-Keep `security-audit-report.md` updated continuously. Use this structure:
-
-```markdown
-# Security Audit Report — [Project Name]
-**Date:** [date]  
-**Auditor:** Claude  
-**Stack:** [detected stack]
-
-## Summary
-- 🔴 Critical: N
-- 🟠 High: N  
-- 🟡 Medium: N
-- 🔵 Low: N
-- ⚪ Info: N
-
-## Findings
-
-### [SEVERITY] [Short Title]
-**File/Location:** `path/to/file.js:42`  
-**Description:** What the issue is and why it matters.  
-**Reproduction:** How to trigger it (request, UI steps, etc.)  
-**Recommendation:** Concrete fix with code snippet if helpful.  
-**Status:** Open
-
----
-[repeat for each finding]
-
-## Coverage Log
-[List each feature/module audited and the date/time it was completed]
-```
-
----
-
 ## Tools to Use During Audit
 
-Run these as appropriate for the stack:
-
-```bash
-# Dependency vulnerabilities
-npm audit --audit-level=moderate
-pip-audit
-bundler-audit
-
-# Secret scanning
-grep -rn "password\s*=" --include="*.js" --include="*.ts" --include="*.py" src/
-grep -rn "sk-\|api_key\|secret\|token" --include="*.env*" .
-
-# Hardcoded values
-grep -rn "localhost\|127.0.0.1\|hardcoded" --include="*.js" src/
-
-# Find all routes (Express example)
-grep -rn "router\.\(get\|post\|put\|delete\|patch\)" --include="*.js" src/
-
-# Find auth middleware usage
-grep -rn "authenticate\|authorize\|requireAuth\|@login_required\|middleware" --include="*.js" src/
-
-# Find raw SQL
-grep -rn "query(\`\|\.query(\"" --include="*.js" src/
-```
-
-Adapt grep patterns to the detected language/framework.
+Run `npm audit`/`pip-audit`/`bundler-audit` (or the stack equivalent) plus targeted greps for
+secrets, hardcoded values, routes, auth middleware, and raw SQL — see
+`references/grep-patterns.md` for starting commands and how to adapt their globs to the
+detected language.
 
 ---
 
@@ -302,5 +289,6 @@ For deep dives on specific vulnerability classes, read:
 - `references/owasp-top10.md` — OWASP Top 10 with detection patterns
 - `references/rbac-patterns.md` — Common RBAC implementation flaws
 - `references/api-checklist.md` — API-specific security checklist
+- `references/grep-patterns.md` — starting grep commands for dependency, secret, and route discovery
 
 These are loaded only when needed to keep context lean.
