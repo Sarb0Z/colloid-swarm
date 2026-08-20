@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -52,6 +53,19 @@ ASK = [
     ("Bash", {"command": "yarn npm publish"}),
     ("Bash", {"command": "vercel"}),
     ("Bash", {"command": "vercel deploy --prod"}),
+    ("Bash", {"command": "vercel --prod"}),
+    ("Bash", {"command": "vercel --cwd /tmp deploy --prod"}),
+    ("Bash", {"command": "vercel -t TOKEN"}),
+    ("Bash", {"command": "vercel --target production"}),
+    ("Bash", {"command": "vercel --target=production"}),
+    ("Bash", {"command": "vercel -S myteam"}),
+    ("Bash", {"command": "vercel --prod -t TOK"}),
+    ("Bash", {"command": "vercel -A vercel.json"}),
+    ("Bash", {"command": "vercel -d"}),
+    ("Bash", {"command": "npx vercel --scope myteam"}),
+    ("Bash", {"command": "npx -p vercel vercel --prod"}),
+    ("Bash", {"command": "npx -c 'git push origin main'"}),
+    ("Bash", {"command": "npx --call \"vercel --prod\""}),
     ("Bash", {"command": "vercel promote dpl_123"}),
     ("Bash", {"command": "npx vercel --prod deploy"}),
     ("Bash", {"command": "netlify deploy --prod"}),
@@ -81,6 +95,13 @@ PASS = [
     ("Bash", {"command": "npm run publish-report"}),
     ("Bash", {"command": "vercel ls"}),
     ("Bash", {"command": "vercel inspect dpl_123"}),
+    ("Bash", {"command": "vercel --help"}),
+    ("Bash", {"command": "vercel --version"}),
+    ("Bash", {"command": "vercel --cwd /tmp ls"}),
+    ("Bash", {"command": "vercel --scope=myteam ls"}),
+    ("Bash", {"command": "vercel -t TOK ls --debug"}),
+    ("Bash", {"command": "npx -y vercel ls"}),
+    ("Bash", {"command": "npx -c 'ls -la'"}),
     ("Bash", {"command": "git push --dry-run"}),
     ("Bash", {"command": "git push -n origin main"}),
     ("Bash", {"command": "npx create-react-app my-app"}),
@@ -123,8 +144,91 @@ check("entry point is silent on a quiet call",
       result.returncode == 0 and result.stdout.strip() == "")
 
 result = run("not json")
-check("entry point exits 0 on unreadable input",
-      result.returncode == 0 and result.stdout.strip() == "")
+out = json.loads(result.stdout)
+check("entry point asks on unreadable input",
+      result.returncode == 0
+      and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+
+with tempfile.TemporaryDirectory() as tmp:
+    isolated = pathlib.Path(tmp) / "guard-publish.py"
+    shutil.copy2(policy, isolated)
+    result = subprocess.run(
+        [sys.executable, str(isolated)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        capture_output=True, text=True, env=env)
+    out = json.loads(result.stdout)
+    check("entry point asks when the shell parser is missing",
+          result.returncode == 0
+          and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+    result = subprocess.run(
+        [sys.executable, str(isolated)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls -la"}}),
+        capture_output=True, text=True, env=env)
+    check("a missing shell parser leaves a non-publish command quiet",
+          result.returncode == 0 and result.stdout.strip() == "")
+
+adapter = here / "claude" / "adapter.sh"
+claude_payload = {"session_id": "t", "hook_event_name": "PreToolUse", "cwd": str(here.parent),
+                  "tool_name": "Bash", "tool_input": {"command": "git push origin main"}}
+result = subprocess.run(
+    [str(adapter), "guard-publish.sh"], input=json.dumps(claude_payload),
+    capture_output=True, text=True, env=dict(env, CLAUDE_PROJECT_DIR=str(here.parent)))
+out = json.loads(result.stdout)
+check("the wired Claude adapter path asks on git push",
+      result.returncode == 0 and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+result = subprocess.run(
+    [str(adapter), "guard-publish-missing.sh"], input=json.dumps(claude_payload),
+    capture_output=True, text=True, env=dict(env, CLAUDE_PROJECT_DIR=str(here.parent)))
+out = json.loads(result.stdout)
+check("the adapter asks when a PreToolUse policy file is missing",
+      result.returncode == 0 and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+
+with tempfile.TemporaryDirectory() as tmp:
+    wrapper = pathlib.Path(tmp) / ".agents" / "hooks" / "policy" / "guard-publish.sh"
+    wrapper.parent.mkdir(parents=True)
+    shutil.copy2(here / "hooks" / "policy" / "guard-publish.sh", wrapper)
+    result = subprocess.run(
+        [str(wrapper)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        capture_output=True, text=True, env=env)
+    out = json.loads(result.stdout)
+    check("policy wrapper asks when its decision library is missing",
+          result.returncode == 0
+          and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = pathlib.Path(tmp)
+    wrapper = root / ".agents" / "hooks" / "policy" / "guard-publish.sh"
+    decision = root / ".agents" / "hooks" / "lib" / "guard-publish.py"
+    wrapper.parent.mkdir(parents=True)
+    decision.parent.mkdir(parents=True)
+    shutil.copy2(here / "hooks" / "policy" / "guard-publish.sh", wrapper)
+    shutil.copy2(policy, decision)
+    path_dir = root / "path"
+    path_dir.mkdir()
+    os.symlink(shutil.which("dirname"), path_dir / "dirname")
+    os.symlink(shutil.which("cat"), path_dir / "cat")
+    missing_env = dict(env, PATH=str(path_dir))
+    result = subprocess.run(
+        ["/bin/bash", str(wrapper)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        capture_output=True, text=True, env=missing_env)
+    out = json.loads(result.stdout)
+    check("policy wrapper asks when python3 is unavailable",
+          result.returncode == 0
+          and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+
+    fake_python = path_dir / "python3"
+    fake_python.write_text("#!/bin/sh\nexit 23\n")
+    fake_python.chmod(0o755)
+    result = subprocess.run(
+        ["/bin/bash", str(wrapper)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        capture_output=True, text=True, env=missing_env)
+    out = json.loads(result.stdout)
+    check("policy wrapper asks when the evaluator exits nonzero",
+          result.returncode == 0
+          and out["hookSpecificOutput"]["permissionDecision"] == "ask")
 
 with tempfile.TemporaryDirectory() as tmp:
     agents = pathlib.Path(tmp) / ".agents"

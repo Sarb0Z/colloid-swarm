@@ -43,6 +43,18 @@ for path in \
   [[ -e "$kit/$path" ]] || fail "export omitted $path"
 done
 
+python3 - "$kit/.claude/settings.json" "$kit/.codex/hooks.json" <<'PY'
+import json, sys
+for path in sys.argv[1:]:
+    hooks = json.load(open(path, encoding="utf-8")).get("hooks", {})
+    for event, groups in hooks.items():
+        if not groups:
+            raise SystemExit(f"export left {path} event {event} with no matcher groups")
+        for group in groups:
+            if not group.get("hooks"):
+                raise SystemExit(f"export left {path} event {event} a matcher group with no commands: {group}")
+PY
+
 [[ -L "$kit/CLAUDE.md" ]] || fail "exported CLAUDE.md is not a link"
 [[ "$(readlink "$kit/CLAUDE.md")" == "AGENTS.md" ]] \
   || fail "exported CLAUDE.md does not target AGENTS.md"
