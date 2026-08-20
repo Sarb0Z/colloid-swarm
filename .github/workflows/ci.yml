@@ -40,6 +40,12 @@ jobs:
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
+      - name: Done-prime policy
+        run: .agents/test-done-prime.sh
+
+      - name: UI gate policy
+        run: .agents/test-ui-gate.sh
+
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
 

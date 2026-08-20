@@ -299,5 +299,14 @@ fi
 printf '%s' '{"last_assistant_message":"Implemented and verified.","stop_hook_active":false}' \
   | "$repo/.codex/hooks/adapter.sh" stop-investigate.sh >/dev/null
 
+python3 - "$repo" <<'PY'
+import pathlib, sys, tomllib
+repo = pathlib.Path(sys.argv[1])
+style = (repo / ".agents/claude/output-style.md").read_text().split("---\n", 2)[2].strip()
+codex = tomllib.loads((repo / ".agents/codex/config.toml").read_text())["developer_instructions"].strip()
+if style != codex:
+    raise SystemExit("test-codex: developer_instructions in .agents/codex/config.toml has drifted from .agents/claude/output-style.md")
+PY
+
 python3 "$repo/.agents/codex/test-trust-hooks.py"
 echo "Codex integration checks passed (host loader: $loader)."

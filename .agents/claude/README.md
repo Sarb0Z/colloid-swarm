@@ -14,10 +14,14 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | `session-wrap.sh` | `project_dir`, `stop_hook_active`, `session_id`, `transcript_path` |
 | `stop-investigate.sh` | `project_dir`, `stop_hook_active`, `last_assistant_message`, `transcript_path` |
 | `research-prime.sh` | `project_dir`, `prompt` |
+| `done-prime.sh` | `project_dir`, `prompt` |
+| `ui-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `files`, `stop_hook_active` |
 | `pre-compact.sh` | `project_dir`, `trigger` |
 <!-- colloid-only -->
 | `genome-inject.sh` | `project_dir`, `subagent_type` |
 <!-- /colloid-only -->
+
+`.claude/output-styles/colloid.md` links to `output-style.md`, and `settings.json` selects it with `outputStyle`. With `keep-coding-instructions: true` it appends to the system prompt of the main conversation without replacing the host's coding instructions; subagents do not receive it. `.agents/codex/config.toml` mirrors the same text as `developer_instructions`, and `test-codex.sh` fails when the two drift. An operator who wants another style sets `outputStyle` in `.claude/settings.local.json`.
 
 The adapter fails closed on an unknown or non-executable policy. Policies own
 their behavior and exit contract; do not duplicate that logic here.

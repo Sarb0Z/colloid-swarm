@@ -49,7 +49,7 @@ def normalize(payload, policy, repo):
         # wrap reads; empty would mean no seed and a baseline one turn late,
         # not a wrong one.
         out["session_id"] = payload.get("session_id", "")
-    elif policy == "research-prime.sh":
+    elif policy in ("research-prime.sh", "done-prime.sh"):
         prompt = payload.get("prompt")
         if isinstance(prompt, list):           # Kimi: array of content parts
             prompt = " ".join(part.get("text", "") for part in prompt

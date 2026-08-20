@@ -29,6 +29,12 @@
     "research_prime": {
       "enabled": true
     },
+    "done_prime": {
+      "enabled": true
+    },
+    "ui_gate": {
+      "enabled": true
+    },
     "post_edit_check": {
       "enabled": true,
       "tombstone_check": true,

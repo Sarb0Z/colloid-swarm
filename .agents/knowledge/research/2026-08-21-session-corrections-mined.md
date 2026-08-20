@@ -126,6 +126,10 @@ Ladder: (1) `AGENTS.md` edit · (2) system-prompt append · (3) a
    product's segment that solves the same shape, and say whether it
    transfers. The only lever in the corpus that has produced surprise.
 
+## Measurement used by `done-prime.sh`
+
+`[A]` The reminder's regex (an implementation verb — implement, build out, wire up, refactor, migrate, revamp, redesign, rewrite, integrate, overhaul, rework, scaffold — or add/create/build/make/fix/finish/complete within 40 characters of an object such as page, screen, form, endpoint, component, migration) matched 209 of 3,065 human prompts in this corpus (7%) after dropping injected rows; a broad verb list matched 19%, a verb-at-start form 1%. An independent re-count over 1,522 de-duplicated Claude prompts gave 6.6%; over the raw stream including scheduled-job text, 14.5% — the rate depends on the filter, which is why the corpus definition in `## Method` matters.
+
 ## Sources
 
 - ~/.claude/projects/*/*.jsonl — 1,105 files, 1,254 human turns after filtering (read via extractor; quotes verified by hand)

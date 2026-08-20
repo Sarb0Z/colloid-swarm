@@ -64,6 +64,8 @@ Run the narrow checks for the surface changed:
 python3 .agents/check-layout.py
 .agents/lint-skills.sh
 .agents/test-session-start.sh
+.agents/test-done-prime.sh
+.agents/test-ui-gate.sh
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-guard-publish.py
 .agents/test-mcp.sh
