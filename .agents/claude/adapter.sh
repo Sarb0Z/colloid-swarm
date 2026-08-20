@@ -33,12 +33,19 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 policy_path="$repo/.agents/hooks/policy/$(basename "$policy")"
 normalizer="$repo/.agents/claude/normalize-hook.py"
-if [[ ! -x "$policy_path" ]]; then
-  echo "adapter: unknown or non-executable policy '$policy'" >&2
-  exit 1
-fi
 
 raw="$(cat)"
+
+if [[ ! -x "$policy_path" ]]; then
+  echo "adapter: unknown or non-executable policy '$policy'" >&2
+  # A missing PreToolUse policy is a missing gate. Exit 1 would let the tool
+  # run; force the permission prompt instead so the loss is visible.
+  if grep -Eq '"hook_event_name" *: *"PreToolUse"' <<<"$raw"; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"The %s policy is missing from this checkout, so its gate cannot run."}}\n' "$(basename "$policy")"
+    exit 0
+  fi
+  exit 1
+fi
 
 # Exit 3 is the gate's deliberate "this policy does not run for this agent".
 # Every other failure falls through to running the policy: a broken gate must

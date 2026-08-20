@@ -117,9 +117,10 @@ def prune_hook_entries(node):
                 command = item.get("command")
                 if isinstance(command, str) and any(p in command for p in DROPPED_POLICIES):
                     continue
+                had_hooks = "hooks" in item
                 prune_hook_entries(item)
-                if item.get("hooks") == []:
-                    continue
+                if had_hooks and not item.get("hooks"):
+                    continue       # a matcher group whose every command was dropped
             else:
                 prune_hook_entries(item)
             kept.append(item)
@@ -127,7 +128,7 @@ def prune_hook_entries(node):
     elif isinstance(node, dict):
         for key, value in list(node.items()):
             prune_hook_entries(value)
-            if value == []:
+            if value == [] or (key == "hooks" and value == {}):
                 del node[key]
 
 
@@ -269,8 +270,8 @@ def finalize(target, sections):
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: export-scaffold.py <target-dir>")
+    if len(sys.argv) != 2 or sys.argv[1].startswith("-"):
+        raise SystemExit("usage: export-scaffold.py <target-dir>  (an empty or absent directory)")
     target = pathlib.Path(sys.argv[1]).resolve()
     if target.exists() and any(target.iterdir()):
         raise SystemExit(f"export: {target} exists and is not empty")
