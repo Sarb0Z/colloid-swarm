@@ -2,6 +2,7 @@
   "env": {
     "ENABLE_TOOL_SEARCH": "auto:5"
   },
+  "outputStyle": "colloid",
   "hooks": {
     "PreToolUse": [
       {
@@ -45,6 +46,10 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh post-edit-check.sh",
             "asyncRewake": true
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh ui-gate.sh"
           }
         ]
       },
@@ -56,6 +61,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh sources-capture.sh"
           }
         ]
+      },
+      {
+        "matcher": "mcp__playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__playwright-reader__browser_take_screenshot|mcp__claude-in-chrome__.*screenshot.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh ui-gate.sh"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -64,6 +78,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main stop-investigate.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main ui-gate.sh"
           },
           {
             "type": "command",
@@ -88,6 +106,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main research-prime.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main done-prime.sh"
           }
         ]
       }

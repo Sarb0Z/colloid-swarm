@@ -9,6 +9,7 @@
 .agents/.sources-ledger
 .agents/.compaction-pending
 .agents/.wrap-state-*
+.agents/.ui-pending-*
 .agents/browser-extensions/
 .claude/settings.local.json
 **/__pycache__/

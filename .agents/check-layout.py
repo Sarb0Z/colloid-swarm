@@ -14,6 +14,7 @@ def expected_links() -> dict[Path, str]:
         Path(".claude/AGENTS.md"): "../.agents/claude/AGENTS.md",
         Path(".claude/CLAUDE.md"): "AGENTS.md",
         Path(".claude/settings.json"): "../.agents/claude/settings.json",
+        Path(".claude/output-styles/colloid.md"): "../../.agents/claude/output-style.md",
         Path(".claude/hooks/adapter.sh"): "../../.agents/claude/adapter.sh",
         Path(".claude/hooks/README.md"): "../../.agents/claude/README.md",
         Path(".codex/hooks.json"): "../.agents/codex/hooks.json",

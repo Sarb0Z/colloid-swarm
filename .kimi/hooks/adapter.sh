@@ -87,7 +87,7 @@ session-wrap.sh)
   fi
   run
   ;;
-session-start.sh|research-prime.sh)
+session-start.sh|research-prime.sh|done-prime.sh)
   set +e
   out="$(run)"
   rc=$?

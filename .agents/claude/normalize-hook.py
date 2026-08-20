@@ -86,8 +86,14 @@ def normalize(payload, policy, repo):
         # Identity, for seeding session-wrap's baseline before turn 1 runs.
         out["session_id"] = payload.get("session_id", "")
         out["transcript_path"] = payload.get("transcript_path", "")
-    elif policy == "research-prime.sh":
+    elif policy in ("research-prime.sh", "done-prime.sh"):
         out["prompt"] = payload.get("prompt", "")
+    elif policy == "ui-gate.sh":
+        out["event"] = payload.get("hook_event_name", "")
+        out["session_id"] = payload.get("session_id", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["files"] = written_paths(tool_input)
+        out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "")
     return out

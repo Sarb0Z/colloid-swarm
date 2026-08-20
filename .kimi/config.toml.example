@@ -91,6 +91,15 @@ command = ".kimi/hooks/adapter.sh research-prime.sh"
 timeout = 10
 
 [[hooks]]
+event = "UserPromptSubmit"
+command = ".kimi/hooks/adapter.sh done-prime.sh"
+timeout = 10
+
+# ui-gate.sh is not wired: its PostToolUse half records UI edits and injects a
+# reminder, and Kimi discards PostToolUse output, so the Stop half would block
+# on edits the model was never told about.
+
+[[hooks]]
 event = "PreCompact"
 command = ".kimi/hooks/adapter.sh pre-compact.sh"
 timeout = 10
