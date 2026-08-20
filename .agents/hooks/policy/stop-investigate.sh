@@ -6,8 +6,8 @@
 # Input  (stdin JSON): {"last_assistant_message": "...", "transcript_path": "...", "stop_hook_active": bool}
 # Output: exit 2 + stderr reason on a match; exit 0 otherwise.
 #
-# Two pattern classes share one hook because a second Stop hook would race
-# this one's stderr. They are otherwise distinct: hedging is about capability
+# Two pattern classes share one hook because both read the same message and
+# their reasons must not interleave on stderr. They are otherwise distinct: hedging is about capability
 # ("I can't"), disclaiming is about ownership ("not mine"). Hedges are checked
 # first — a give-up is the harder failure — so a message doing both shows only
 # the hedge reason.

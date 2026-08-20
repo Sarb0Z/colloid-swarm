@@ -75,8 +75,17 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         out["source"] = text(source, "source")
         out["session_id"] = text(source, "session_id")
         out["transcript_path"] = text(source, "transcript_path")
-    elif policy == "research-prime.sh":
+    elif policy in {"research-prime.sh", "done-prime.sh"}:
         out["prompt"] = text(source, "prompt")
+    elif policy == "ui-gate.sh":
+        event = text(source, "hook_event_name")
+        # An unlabeled payload is judged a Stop only when nothing tool-shaped is
+        # present; guessing Stop on a tool event would block mid-tool.
+        out["event"] = event or ("Stop" if not (source.get("tool_name") or tool_input) else "PostToolUse")
+        out["session_id"] = text(source, "session_id")
+        out["tool_name"] = text(source, "tool_name")
+        out["files"] = patch_paths(tool_input.get("command"))[0]
+        out["stop_hook_active"] = bool(source.get("stop_hook_active", False))
     elif policy == "pre-compact.sh":
         out["trigger"] = text(source, "trigger")
     return out

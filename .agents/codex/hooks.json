@@ -32,6 +32,10 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" post-edit-check.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" ui-gate.sh"
           }
         ]
       },
@@ -41,6 +45,15 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" sources-capture.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__playwright-reader__browser_take_screenshot",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" ui-gate.sh"
           }
         ]
       }
@@ -71,6 +84,10 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" research-prime.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" done-prime.sh"
           }
         ]
       }
@@ -81,6 +98,10 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" stop-investigate.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" ui-gate.sh"
           },
           {
             "type": "command",
