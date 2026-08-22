@@ -35,6 +35,10 @@ MANIFEST = {
     "stop-investigate":  ".agents/hooks/policy/stop-investigate.sh",
     "session-wrap":      ".agents/hooks/policy/session-wrap.sh",
     "pre-compact":       ".agents/hooks/policy/pre-compact.sh",
+    "done-prime":        ".agents/hooks/policy/done-prime.sh",
+    "guard-publish":     ".agents/hooks/policy/guard-publish.sh",
+    "ui-gate":           ".agents/hooks/policy/ui-gate.sh",
+    "genome-inject":     ".agents/hooks/policy/genome-inject.sh",
     # skills (SKILL.md only)
     "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",
     "search-and-cite":                    ".agents/skills/search-and-cite/SKILL.md",
@@ -42,6 +46,16 @@ MANIFEST = {
     "thermo-nuclear-code-quality-review": ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
     "seo-geo-growth-audit":               ".agents/skills/seo-geo-growth-audit/SKILL.md",
     "frontend-design":                    ".agents/skills/frontend-design/SKILL.md",
+    "workloop":                           ".agents/skills/workloop/SKILL.md",
+    "panspermia-mutation":                ".agents/skills/panspermia-mutation/SKILL.md",
+    "qa-verifier":                        ".agents/skills/qa-verifier/SKILL.md",
+    "pentesting":                         ".agents/skills/pentesting/SKILL.md",
+    "security-scan":                      ".agents/skills/security-scan/SKILL.md",
+    "dynamic-security-scan":              ".agents/skills/dynamic-security-scan/SKILL.md",
+    "perf-budget":                        ".agents/skills/perf-budget/SKILL.md",
+    "market-researcher":                  ".agents/skills/market-researcher/SKILL.md",
+    "mobile-responsive-web":              ".agents/skills/mobile-responsive-web/SKILL.md",
+    "react-native-expert":                ".agents/skills/react-native-expert/SKILL.md",
     "check-layout.py":                    ".agents/check-layout.py",
     "mcp.py":                             ".agents/mcp.py",
     # contract / tracking / config
@@ -65,6 +79,9 @@ MANIFEST = {
     "report-investigation.md":  ".agents/playbooks/report-investigation.md",
     "hostile-review.md":        ".agents/playbooks/hostile-review.md",
     "learning-report.md":       ".agents/playbooks/learning-report.md",
+    "review-axes.md":           ".agents/playbooks/review-axes.md",
+    "breadcrumb-burndown.md":   ".agents/playbooks/breadcrumb-burndown.md",
+    "learning-output-style.md": ".agents/playbooks/learning-output-style.md",
 }
 
 ARTICLE = re.compile(r'(<article class="(?:hook|card)"[^>]*>)(.*?)(</article>)', re.S)

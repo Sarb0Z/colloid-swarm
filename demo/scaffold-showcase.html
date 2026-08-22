@@ -279,16 +279,16 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, eight enforcement hooks, eight skills, and an evidence trail —
+      A hostile-review workflow, twelve enforcement hooks, sixteen skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">Research → plan → attack → implement → attack. Principles, communication, delegation.</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">4 gates · 2 context injectors · 1 evidence trail · 1 checkpoint, on the session lifecycle.</span><span class="m-n">8 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">6 gates · 4 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">12 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
-      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Plans, parallel dispatch, citations, security audit, code-quality review, SEO, UI.</span><span class="m-n">8 playbooks</span></a>
-      <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Researcher and reporter contracts, wrap checklists, the hostile-review dispatch.</span><span class="m-n">8 files</span></a>
+      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">16 skills</span></a>
+      <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
       <a href="#tracking"><span class="m-name">tracking</span><span class="m-desc">No tombstone comments — deferred work and standing tradeoffs get typed ledgers.</span><span class="m-n">2 ledgers</span></a>
       <a href="#config"><span class="m-name">config</span><span class="m-desc">Every hook, threshold, and behavior is a switch in one committed file.</span><span class="m-n">config.json</span></a>
     </div>
@@ -314,9 +314,10 @@
         <div class="step"><div class="s-n">2 · Plan</div><div class="s-t">Outline first</div><div class="s-d">Affected modules, constraints, the one or two options worth considering. Plan mode for anything non-trivial.</div></div>
         <div class="step attack"><div class="s-n">3 · Attack</div><div class="s-t">Hostile-review the plan</div><div class="s-d">A subagent attacks it: architecture fit, failure modes, edge cases, missing steps. No justifying.</div></div>
         <div class="step"><div class="s-n">4 · Implement</div><div class="s-t">Build, then test</div><div class="s-d">Diagnose and fix failures. If the fix forces a redesign — back to step 1.</div></div>
-        <div class="step attack"><div class="s-n">5 · Attack</div><div class="s-t">Hostile-review the diff</div><div class="s-d">A second subagent reviews the diff against the plan and surrounding architecture. Findings fold in.</div></div>
+        <div class="step"><div class="s-n">5 · QA</div><div class="s-t">Verify what changed</div><div class="s-d">Executable scenarios against observable behavior. Always for a high-stakes claim.</div></div>
+        <div class="step attack"><div class="s-n">6 · Attack</div><div class="s-t">Hostile-review the diff</div><div class="s-d">A second cell reviews the diff against the plan and surrounding architecture. Findings fold in.</div></div>
       </div>
-      <p class="pipe-note"><b>The plan is attacked before code exists; the diff is attacked after.</b> Both reviews run under one rule: find what's wrong, never defend the work.</p>
+      <p class="pipe-note"><b>The plan is attacked before code exists; the diff is attacked after.</b> Each runs once for the slice. <code>P0</code> and <code>P1</code> block the round; <code>P2</code> is filed and does not. A review that finds nothing writes <code>FINDINGS: none</code> — padding a clean review costs the lead more time than it saves.</p>
 
       <div class="panelgrid">
         <div class="panel">
@@ -343,7 +344,7 @@
           <h3>When subagents fire</h3>
           <ul>
             <li><b>Cross-domain or parallelizable</b> work — handed off as soon as it's identifiable.</li>
-            <li><b>Hostile review</b> — the plan and the diff each get a fresh attacker (workflow steps 3 and 5).</li>
+            <li><b>Hostile review</b> — the plan and the diff each get a fresh attacker, once per slice (workflow steps 3 and 6).</li>
             <li><b>Mundane work</b> — trivia the orchestrator is too smart for goes to a smaller minion. The floor: a single tool call is never a delegation.</li>
             <li><b>Dense handoffs</b> — decisions, affected paths, single next step; dense, distilled reports back, not transcripts.</li>
           </ul>
@@ -365,7 +366,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 73 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 85 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
@@ -382,22 +383,34 @@ In priority order. Resolve conflicts top-down.
 
 1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior over inference and generic advice.
 2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5&#x27;s QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
-3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` with the plan as the artifact. Disposition every finding before you write code.
-4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1.
+3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` once for the slice, with the plan as the artifact. Settle every `P0` and `P1` before you write code.
+4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1. Done means the user-facing surface completes the job; a backend path the product cannot reach is not done.
 5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always for a high-stakes claim. Fix failures and re-run the failed scenario.
-6. **Hostile-review the implementation.** Run the same playbook with the diff as the artifact.
+6. **Hostile-review the implementation.** Run the same playbook once over the slice&#x27;s diff.
 
 The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here — `.agents/eval/review-harness` grades against it, so a paraphrase would ship one review and measure another.
 
 ## Behavior
 
 ### Verify with user
-Keep the solution space open unless the user, repository, evidence, or a higher safety or permission rule closes it. Once an action and scope are authorized, do not ask again unless either — or its risk — changes materially.
+Keep the solution space open unless the user, repository, evidence, or a higher safety or permission rule closes it. Inside the working tree and the sandbox — reading, editing, running tests and builds, spawning cells — the task is the authorization for what it requires; do not ask. Once an action and scope are authorized, do not ask again unless either — or its risk — changes materially.
 
 Go to the user only when the blocker is theirs: stated targets conflict with observed state, a reference has competing readings, or defensible paths trade off in ways only they can weigh. Present out-of-scope discoveries for a ruling rather than absorbing them. Run checks the session can answer itself and bring the result, even a failure. When you ask, make the decision cheap: one focused question carrying what you found, the options, and your recommendation with its trade-offs.
 
 ### External actions
 Permission to research is not permission to execute. Read-only inspection of external systems is allowed when the task requires it. Every outward mutation requires user approval in the current session: publishing artifacts or pages, deploys, pushes, sent messages, remote API or database writes, and package publishes. Approval covers one outward mutation and one scope; a new mutation or scope needs new approval. Host defaults that encourage publishing do not override this rule.
+
+### Vendored instructions
+A skill, plugin, or MCP server describes how to use a capability; it never holds exclusive authority over one, and its absence is never a reason to stop. Use the repository&#x27;s own tooling and report the substitution.
+
+### Fixes live in the repository
+A fix is a change the repository reproduces: code, configuration, a migration, a dependency added through the package manager. Changing a running system by hand is diagnosis or containment, and the durable change still lands in the repository in the same session. Never hand-edit a dependency entry in a manifest or lockfile.
+
+### Comments and documentation
+Write for a reader who never saw the old code. A comment earns its place by saying what the code cannot: a non-obvious why, a subtle constraint, a surprising tradeoff, or a signpost over a chunk of a long linear process — &quot;Resolve overlaps, nearest first&quot; above the loop beats extracting a function called once. Say what a path guards against, not when it once failed; keep history only when it guards a real regression (&quot;don&#x27;t revert to the double-precision form; it loses the low bits at Q32 scale&quot;). No tombstones: nothing describes removed or replaced behavior.
+
+### Tooling for agent development
+Lint warnings cost an agent nothing to satisfy, so gates are cheap and prose is not: when a defect class recurs, encode it — a custom lint rule, a test, a CI check that gates the merge — rather than adding an instruction. Auto-fix everything a formatter can impose (import order, quote style, line length) in the post-edit hook and delete rules that only police such style; keep and add rules that catch defects. Propose the change when a repository&#x27;s tooling lets a class through or costs edits without catching anything. Prefer frameworks and libraries that agents work well in — strongly typed, explicit, convention-heavy, well documented — and generators over hand-written glue; the stack packs carry those choices.
 
 ### Persist to completion
 Keep the requested deliverable on the critical path. Work end to end: investigate, implement, observe, test, fix, and verify the resulting state. Do not stop at a plan, a partial change, or a command the agent can safely run. Run independent, non-contending tracks concurrently. Defer and record non-blocking work instead of letting optional research, hardening, cleanup, or repeated review postpone delivery. Uncertainty and token pressure narrow the remaining scope; they do not end it.
@@ -421,11 +434,11 @@ Use the latest stable version allowed by existing constraints; state the constra
 
 ## Communication
 
-Lead with the answer. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Expand only for security warnings, destructive confirmation, multi-step sequences, or competing readings of the request.
+Lead with the answer. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Name things in the user&#x27;s words, the code&#x27;s identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see; a question that asks the user to decide must read cold, saying what each option concretely changes. Expand only for security warnings, destructive confirmation, multi-step sequences, or competing readings of the request.
 
 ## Subagent Delegation
 
-Delegate when specialization, parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
+Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator&#x27;s own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator&#x27;s own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
 
 | Tier | Claude | Codex | Use |
 | --- | --- | --- | --- |
@@ -761,6 +774,105 @@ the URLs you actually used.
 EOF
 
 printf &#x27;%s&#x27; &quot;$body&quot; | python3 &quot;$lib/emit-context.py&quot; UserPromptSubmit
+exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="context">
+              <div class="top"><span class="id">done-prime</span><span class="badge context">context</span></div>
+              <p class="what">States the definition of done when a prompt asks for a change. Matches an implementation verb near an object &mdash; about 7% of real prompts, measured &mdash; so it needs no throttle and no session state.</p>
+              <div class="io"><b>in</b> {prompt} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 40 lines</span></summary><div class="srcpath">.agents/hooks/policy/done-prime.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: state the definition of done when a prompt asks for a
+# change. A UserPromptSubmit *context* policy, never a gate — it lands before
+# the model answers, where additionalContext is non-blocking.
+#
+# The prose rule already exists in AGENTS.md; this restates it at the moment it
+# applies, because adherence to session-start text decays over a long session.
+# The signals match an implementation verb near an object (&quot;add a settings
+# page&quot;, &quot;implement xp&quot;, &quot;wire up the endpoint&quot;) and fire on roughly 7% of the
+# operator&#x27;s real prompts (measured in knowledge/research/2026-08-21-session-
+# corrections-mined.md), so there is no throttle and no session state.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;prompt&quot;: &quot;&lt;user prompt&gt;&quot;}
+# Output (STDOUT): a JSON object carrying hookSpecificOutput.additionalContext,
+#   or nothing. Always exit 0; never blocks.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.done_prime.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+prompt=&quot;$(python3 &quot;$lib/payload.py&quot; prompt | tr &#x27;\n&#x27; &#x27; &#x27;)&quot;
+[[ -z &quot;$prompt&quot; ]] &amp;&amp; exit 0
+
+verbs=&#x27;\b(implement|build out|wire up|refactor|migrate|revamp|redesign|rewrite|integrate|overhaul|rework|scaffold)\b&#x27;
+verb_object=&#x27;\b(add|create|build|make|fix|finish|complete)\b.{0,40}\b(page|screen|form|flow|feature|endpoint|route|component|module|ui|api|crud|dashboard|table|modal|button|migration|model|schema|service|hook|job|pipeline|integration|tests?)\b&#x27;
+
+printf &#x27;%s&#x27; &quot;$prompt&quot; | grep -Eqi &quot;$verbs|$verb_object&quot; || exit 0
+
+read -r -d &#x27;&#x27; body &lt;&lt;&#x27;EOF_BODY&#x27; || true
+This prompt asks for a change. Done means: the user-facing surface completes
+the job — a backend path the product cannot reach is not done; you ran it and
+saw the result rather than inferring it; every item in the request, not the
+first; the fix lives in the repository, not in a hand-changed system; and
+before you call a UI done, render it and look.
+EOF_BODY
+
+printf &#x27;%s&#x27; &quot;$body&quot; | python3 &quot;$lib/emit-context.py&quot; UserPromptSubmit
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">SubagentStart</div>
+          <div class="ev-when">A cell is spawned, before its first prompt.</div>
+          <div class="hooks">
+            <article class="hook" data-t="context">
+              <div class="top"><span class="id">genome-inject</span><span class="badge context">context</span></div>
+              <p class="what">Stamps a spawned cell with a genome. The host delivers it into the cell&#x27;s own transcript, so the treatment reaches every dispatch instead of being demanded of the orchestrator and forgotten. Read-only utility cells are exempt.</p>
+              <div class="io"><b>in</b> {subagent_type} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 41 lines</span></summary><div class="srcpath">.agents/hooks/policy/genome-inject.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: stamp a spawned subagent with a genome.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;subagent_type&quot;: &quot;...&quot;}
+# Output (STDOUT): a JSON object carrying hookSpecificOutput.additionalContext,
+#   or nothing. Always exit 0; never blocks.
+#
+# A SubagentStart *context* policy. The host delivers additionalContext into the
+# spawned cell&#x27;s own transcript before its first prompt, so the treatment is
+# applied to every dispatch rather than demanded of the orchestrator and refused
+# when it forgets. For an RL environment that is the difference between a
+# control arm and a failed run.
+#
+# Read-only utility types (Explore/Plan/...) carry no personality — a genome on
+# a search that cannot write is noise — so they are exempt. The list is the
+# `swarm.exempt_subagent_types` config key.
+#
+# Injection is the whole layer. Nothing checks that a dispatch carries a stamp,
+# because the host supplies it: a gate the orchestrator can forget delivered one
+# stamp in 165 dispatches, and every block it issued was the orchestrator being
+# told to do the injector&#x27;s job.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; hooks.genome_inject.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+exempt=&quot;$(python3 &quot;$lib/genome-exempt.py&quot; &quot;$cfg_path&quot;)&quot;
+[[ &quot;$exempt&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
+
+# Sortition with the ledger&#x27;s anti-repeat, so sequential cells in one fan-out
+# condense as different selves. A failure here emits nothing rather than a
+# half-formed personality: genome.sh already fails closed on a malformed
+# genomes.md, and a cell with no stamp beats a cell with a broken one.
+stamp=&quot;$(&quot;$repo/.agents/genome.sh&quot; 2&gt;/dev/null)&quot; || exit 0
+[[ -z &quot;$stamp&quot; ]] &amp;&amp; exit 0
+
+printf &#x27;%s&#x27; &quot;$stamp&quot; | python3 &quot;$lib/emit-context.py&quot; SubagentStart
 exit 0
 </code></pre></details>
             </article>
@@ -1185,6 +1297,66 @@ def main():
 
 if __name__ == &quot;__main__&quot;:
     sys.exit(main())
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">guard-publish</span><span class="badge gate">gate</span></div>
+              <p class="what">Forces the permission prompt on an outward mutation &mdash; publish, deploy, push, package release. It asks rather than denies: a publish is legitimate exactly when the user approves it in this session. Fails closed when it cannot decide. Wired for Claude only.</p>
+              <div class="io"><b>in</b> {tool_name, tool_input} &nbsp;→&nbsp; <b>out</b> permissionDecision "ask" | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 54 lines</span></summary><div class="srcpath">.agents/hooks/policy/guard-publish.sh</div><pre><code>#!/usr/bin/env bash
+# Claude-scoped policy: force the permission prompt on outward mutations.
+#
+# Input  (stdin JSON): {&quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...}}
+# Output: exit 0 always. Stdout carries Claude&#x27;s PreToolUse envelope with
+# permissionDecision &quot;ask&quot; on a publish-shaped call, and also whenever the
+# evaluator cannot run or decide (fail closed); silence otherwise.
+#
+# This enforces `AGENTS.md` §External actions. It asks rather than denies:
+# a publish is legitimate exactly when the user approves it in this session,
+# so the correct enforcement is the dialog, not exit 2. guard-destructive
+# stays the deny path for irreversible commands.
+#
+# Scope: wired for Claude Code only. Kimi and Codex do not register this
+# policy; their sessions rely on the instruction until either host exposes an
+# ask-equivalent decision.
+#
+# The decision lives in ../lib/guard-publish.py. This half owns the engine
+# contract: locate the repository, hand the payload over on stdin, and emit a
+# static ask decision if the evaluator cannot complete.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+decide=&quot;$repo/.agents/hooks/lib/guard-publish.py&quot;
+
+ask_failure() {
+  local diagnostic=&quot;$1&quot;
+  local reason=&quot;$2&quot;
+  echo &quot;guard-publish: $diagnostic&quot; &gt;&amp;2
+  printf &#x27;{&quot;hookSpecificOutput&quot;:{&quot;hookEventName&quot;:&quot;PreToolUse&quot;,&quot;permissionDecision&quot;:&quot;ask&quot;,&quot;permissionDecisionReason&quot;:&quot;%s AGENTS.md §External actions: outward mutations need in-session user approval.&quot;}}\n&#x27; &quot;$reason&quot;
+  exit 0
+}
+
+if [[ ! -f &quot;$decide&quot; ]]; then
+  ask_failure &quot;$decide is missing; the guard cannot run.&quot; \
+    &quot;The publish guard decision library is missing.&quot;
+fi
+
+if ! payload=&quot;$(cat)&quot;; then
+  ask_failure &quot;input read failed; the guard cannot decide safely.&quot; \
+    &quot;The publish guard could not read the hook payload.&quot;
+fi
+
+if output=&quot;$(python3 &quot;$decide&quot; &quot;$repo&quot; &lt;&lt;&lt;&quot;$payload&quot;)&quot;; then
+  if [[ -n &quot;$output&quot; ]]; then
+    printf &#x27;%s\n&#x27; &quot;$output&quot;
+  fi
+  exit 0
+else
+  status=$?
+  ask_failure &quot;evaluator exited $status; the guard cannot decide safely.&quot; \
+    &quot;The publish guard evaluator failed.&quot;
+fi
 </code></pre></details>
             </article>
           </div>
@@ -1676,6 +1848,114 @@ python3 &quot;$lib/sources-ledger.py&quot;
 exit 0
 </code></pre></details>
             </article>
+            <article class="hook" data-t="checkpoint">
+              <div class="top"><span class="id">ui-gate</span><span class="badge checkpoint">checkpoint</span></div>
+              <p class="what">Records an edit to a client-rendered UI file in a per-session pending file, and injects a reminder on the first edit of a batch. A screenshot tool call clears it: every recorded edit happened before the look.</p>
+              <div class="io"><b>in</b> {tool_name, tool_input} &nbsp;→&nbsp; <b>out</b> .agents/.ui-pending-&lt;session&gt; &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 102 lines</span></summary><div class="srcpath">.agents/hooks/policy/ui-gate.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: a UI change must be looked at before the turn ends.
+#
+# Two events share one policy because they share one state file:
+#   PostToolUse  — an edit to a client-rendered UI file records the path in
+#                  .agents/.ui-pending-&lt;session&gt;; the first such edit in a batch
+#                  also injects a reminder. A screenshot tool call clears the
+#                  file: every recorded edit happened before it.
+#   Stop         — a non-empty pending file blocks the stop once (exit 2) with
+#                  the file list, then marks itself so later stops pass until a
+#                  screenshot clears the file.
+#                  A one-shot is accepted deliberately: the host caps repeated
+#                  blocks anyway, and a second block teaches nothing new.
+#
+# Scope: client-rendered UI (tsx, jsx, vue, svelte, css, scss, html). Server
+# templates are not covered. A screenshot of the wrong page still clears the
+# gate — no host ties a screenshot to a route — so the gate guarantees a look,
+# not the right look. Subagent edits record under the parent session on hosts
+# that share the id. Kimi is not wired: its PostToolUse output is discarded.
+#
+# Input (stdin JSON): {&quot;project_dir&quot;, &quot;event&quot;: &quot;PostToolUse&quot;|&quot;Stop&quot;, &quot;session_id&quot;,
+#   &quot;files&quot;: [...], &quot;tool_name&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
+# Output: PostToolUse — an additionalContext object on the first pending edit,
+#   exit 0. Stop — exit 2 + stderr reason on a block, exit 0 otherwise.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.ui_gate.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+# One interpreter for every field plus the UI-file filter: this runs on every
+# edit, so each extra process is paid thousands of times a session.
+read -r -d &#x27;&#x27; parse &lt;&lt;&#x27;PY&#x27; || true
+import json, re, sys
+try:
+    p = json.loads(sys.stdin.read() or &quot;{}&quot;)
+except ValueError:
+    p = {}
+p = p if isinstance(p, dict) else {}
+s = lambda k: v if isinstance((v := p.get(k)), str) else &quot;&quot;
+ui = re.compile(r&quot;\.(tsx|jsx|vue|svelte|css|scss|html)$&quot;)
+skip = re.compile(r&quot;(\.test\.|\.spec\.|\.stories\.|/__tests__/|/node_modules/|/dist/|/build/)&quot;)
+hits = [f for f in (p.get(&quot;files&quot;) or []) if isinstance(f, str) and ui.search(f) and not skip.search(f)]
+print(s(&quot;project_dir&quot;)); print(s(&quot;event&quot;)); print(re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, s(&quot;session_id&quot;)))
+print(s(&quot;tool_name&quot;)); print(&quot;yes&quot; if p.get(&quot;stop_hook_active&quot;) else &quot;no&quot;); print(&quot;\n&quot;.join(hits))
+PY
+parsed=&quot;$(python3 -c &quot;$parse&quot;)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+event=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+session=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+tool=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
+stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;5p&#x27;)&quot;
+hits=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | tail -n +6 | grep . || true)&quot;
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$repo&quot;
+
+# No session identity means no state to key on; do nothing rather than share
+# one file across every session.
+[[ -z &quot;$session&quot; ]] &amp;&amp; exit 0
+pending=&quot;$proj/.agents/.ui-pending-$session&quot;
+
+screenshot=&#x27;^(mcp__playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__playwright-reader__browser_take_screenshot|mcp__claude-in-chrome__.*screenshot.*)$&#x27;
+
+case &quot;$event&quot; in
+PostToolUse)
+  if [[ -n &quot;$tool&quot; ]] &amp;&amp; printf &#x27;%s&#x27; &quot;$tool&quot; | grep -Eq &quot;$screenshot&quot;; then
+    rm -f &quot;$pending&quot;
+    exit 0
+  fi
+  [[ -z &quot;$hits&quot; ]] &amp;&amp; exit 0
+  first=&quot;no&quot;
+  [[ -s &quot;$pending&quot; ]] || first=&quot;yes&quot;
+  mkdir -p &quot;$proj/.agents&quot;
+  printf &#x27;%s\n&#x27; &quot;$hits&quot; &gt;&gt; &quot;$pending&quot;
+  [[ &quot;$first&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+  printf &#x27;%s&#x27; &quot;UI changed: $(printf &#x27;%s&#x27; &quot;$hits&quot; | head -n1). Before you report it done, render the route and take a screenshot (a browser_take_screenshot call clears this gate); fix what you see.&quot; \
+    | python3 &quot;$lib/emit-context.py&quot; PostToolUse
+  exit 0
+  ;;
+Stop)
+  find &quot;$proj/.agents&quot; -maxdepth 1 -name &#x27;.ui-pending-*&#x27; -mtime +7 -delete 2&gt;/dev/null || true
+  [[ -s &quot;$pending&quot; ]] || exit 0
+  # A sibling Stop hook may have blocked; the host flag says so. Pass without
+  # clearing, so the next stop still gets judged on the same edits.
+  [[ &quot;$stop_active&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
+  if grep -qx &#x27;#blocked&#x27; &quot;$pending&quot;; then
+    exit 0
+  fi
+  paths=&quot;$(grep -v &#x27;^#&#x27; &quot;$pending&quot; | awk &#x27;!seen[$0]++&#x27;)&quot;
+  count=&quot;$(printf &#x27;%s\n&#x27; &quot;$paths&quot; | grep -c . || true)&quot;
+  printf &#x27;#blocked\n&#x27; &gt;&gt; &quot;$pending&quot;
+  {
+    printf &#x27;You changed %s UI file(s) this session and never looked at the rendered result:\n&#x27; &quot;$count&quot;
+    printf &#x27;%s\n&#x27; &quot;$paths&quot; | sed &#x27;s/^/  - /&#x27;
+    printf &#x27;Render the route you changed and take a screenshot (browser_take_screenshot) before reporting it done; fix what you see. This gate blocks once per session, until a screenshot clears it.\n&#x27;
+  } &gt;&amp;2
+  exit 2
+  ;;
+*)
+  exit 0
+  ;;
+esac
+</code></pre></details>
+            </article>
           </div>
         </div>
         <div class="event">
@@ -1694,8 +1974,8 @@ exit 0
 # Input  (stdin JSON): {&quot;last_assistant_message&quot;: &quot;...&quot;, &quot;transcript_path&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
 # Output: exit 2 + stderr reason on a match; exit 0 otherwise.
 #
-# Two pattern classes share one hook because a second Stop hook would race
-# this one&#x27;s stderr. They are otherwise distinct: hedging is about capability
+# Two pattern classes share one hook because both read the same message and
+# their reasons must not interleave on stderr. They are otherwise distinct: hedging is about capability
 # (&quot;I can&#x27;t&quot;), disclaiming is about ownership (&quot;not mine&quot;). Hedges are checked
 # first — a give-up is the harder failure — so a message doing both shows only
 # the hedge reason.
@@ -2259,6 +2539,114 @@ fi
 [[ -z &quot;$sections&quot; ]] &amp;&amp; exit 0
 printf &#x27;%s&#x27; &quot;$sections&quot; &gt;&amp;2
 exit 2
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">ui-gate</span><span class="badge gate">gate</span></div>
+              <p class="what">Blocks the stop once when UI edits are still unseen, naming the files, then marks itself so later stops pass until a screenshot clears them. One shot is deliberate &mdash; a second block teaches nothing new.</p>
+              <div class="io"><b>in</b> {session_id} &nbsp;→&nbsp; <b>out</b> exit 2 + file list | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 102 lines</span></summary><div class="srcpath">.agents/hooks/policy/ui-gate.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: a UI change must be looked at before the turn ends.
+#
+# Two events share one policy because they share one state file:
+#   PostToolUse  — an edit to a client-rendered UI file records the path in
+#                  .agents/.ui-pending-&lt;session&gt;; the first such edit in a batch
+#                  also injects a reminder. A screenshot tool call clears the
+#                  file: every recorded edit happened before it.
+#   Stop         — a non-empty pending file blocks the stop once (exit 2) with
+#                  the file list, then marks itself so later stops pass until a
+#                  screenshot clears the file.
+#                  A one-shot is accepted deliberately: the host caps repeated
+#                  blocks anyway, and a second block teaches nothing new.
+#
+# Scope: client-rendered UI (tsx, jsx, vue, svelte, css, scss, html). Server
+# templates are not covered. A screenshot of the wrong page still clears the
+# gate — no host ties a screenshot to a route — so the gate guarantees a look,
+# not the right look. Subagent edits record under the parent session on hosts
+# that share the id. Kimi is not wired: its PostToolUse output is discarded.
+#
+# Input (stdin JSON): {&quot;project_dir&quot;, &quot;event&quot;: &quot;PostToolUse&quot;|&quot;Stop&quot;, &quot;session_id&quot;,
+#   &quot;files&quot;: [...], &quot;tool_name&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
+# Output: PostToolUse — an additionalContext object on the first pending edit,
+#   exit 0. Stop — exit 2 + stderr reason on a block, exit 0 otherwise.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.ui_gate.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+# One interpreter for every field plus the UI-file filter: this runs on every
+# edit, so each extra process is paid thousands of times a session.
+read -r -d &#x27;&#x27; parse &lt;&lt;&#x27;PY&#x27; || true
+import json, re, sys
+try:
+    p = json.loads(sys.stdin.read() or &quot;{}&quot;)
+except ValueError:
+    p = {}
+p = p if isinstance(p, dict) else {}
+s = lambda k: v if isinstance((v := p.get(k)), str) else &quot;&quot;
+ui = re.compile(r&quot;\.(tsx|jsx|vue|svelte|css|scss|html)$&quot;)
+skip = re.compile(r&quot;(\.test\.|\.spec\.|\.stories\.|/__tests__/|/node_modules/|/dist/|/build/)&quot;)
+hits = [f for f in (p.get(&quot;files&quot;) or []) if isinstance(f, str) and ui.search(f) and not skip.search(f)]
+print(s(&quot;project_dir&quot;)); print(s(&quot;event&quot;)); print(re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, s(&quot;session_id&quot;)))
+print(s(&quot;tool_name&quot;)); print(&quot;yes&quot; if p.get(&quot;stop_hook_active&quot;) else &quot;no&quot;); print(&quot;\n&quot;.join(hits))
+PY
+parsed=&quot;$(python3 -c &quot;$parse&quot;)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+event=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+session=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+tool=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
+stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;5p&#x27;)&quot;
+hits=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | tail -n +6 | grep . || true)&quot;
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$repo&quot;
+
+# No session identity means no state to key on; do nothing rather than share
+# one file across every session.
+[[ -z &quot;$session&quot; ]] &amp;&amp; exit 0
+pending=&quot;$proj/.agents/.ui-pending-$session&quot;
+
+screenshot=&#x27;^(mcp__playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__playwright-reader__browser_take_screenshot|mcp__claude-in-chrome__.*screenshot.*)$&#x27;
+
+case &quot;$event&quot; in
+PostToolUse)
+  if [[ -n &quot;$tool&quot; ]] &amp;&amp; printf &#x27;%s&#x27; &quot;$tool&quot; | grep -Eq &quot;$screenshot&quot;; then
+    rm -f &quot;$pending&quot;
+    exit 0
+  fi
+  [[ -z &quot;$hits&quot; ]] &amp;&amp; exit 0
+  first=&quot;no&quot;
+  [[ -s &quot;$pending&quot; ]] || first=&quot;yes&quot;
+  mkdir -p &quot;$proj/.agents&quot;
+  printf &#x27;%s\n&#x27; &quot;$hits&quot; &gt;&gt; &quot;$pending&quot;
+  [[ &quot;$first&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+  printf &#x27;%s&#x27; &quot;UI changed: $(printf &#x27;%s&#x27; &quot;$hits&quot; | head -n1). Before you report it done, render the route and take a screenshot (a browser_take_screenshot call clears this gate); fix what you see.&quot; \
+    | python3 &quot;$lib/emit-context.py&quot; PostToolUse
+  exit 0
+  ;;
+Stop)
+  find &quot;$proj/.agents&quot; -maxdepth 1 -name &#x27;.ui-pending-*&#x27; -mtime +7 -delete 2&gt;/dev/null || true
+  [[ -s &quot;$pending&quot; ]] || exit 0
+  # A sibling Stop hook may have blocked; the host flag says so. Pass without
+  # clearing, so the next stop still gets judged on the same edits.
+  [[ &quot;$stop_active&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
+  if grep -qx &#x27;#blocked&#x27; &quot;$pending&quot;; then
+    exit 0
+  fi
+  paths=&quot;$(grep -v &#x27;^#&#x27; &quot;$pending&quot; | awk &#x27;!seen[$0]++&#x27;)&quot;
+  count=&quot;$(printf &#x27;%s\n&#x27; &quot;$paths&quot; | grep -c . || true)&quot;
+  printf &#x27;#blocked\n&#x27; &gt;&gt; &quot;$pending&quot;
+  {
+    printf &#x27;You changed %s UI file(s) this session and never looked at the rendered result:\n&#x27; &quot;$count&quot;
+    printf &#x27;%s\n&#x27; &quot;$paths&quot; | sed &#x27;s/^/  - /&#x27;
+    printf &#x27;Render the route you changed and take a screenshot (browser_take_screenshot) before reporting it done; fix what you see. This gate blocks once per session, until a screenshot clears it.\n&#x27;
+  } &gt;&amp;2
+  exit 2
+  ;;
+*)
+  exit 0
+  ;;
+esac
 </code></pre></details>
             </article>
           </div>
@@ -3366,6 +3754,1726 @@ Match implementation complexity to the aesthetic vision. Maximalist designs need
 Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
+        <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Durable, bounded parallel implementation and review lanes. The controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 97 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+name: workloop
+description: Coordinates durable, bounded parallel implementation and review lanes through a portable evidence-backed controller.
+---
+
+# Workloop
+
+Use for long-running work with two or more independent implementation lanes,
+parallel reviewer feedback, or a handoff that must survive compaction. Do not
+use it for a small, one-shot edit.
+
+The controller is a portable coordination surface, not an agent launcher. The
+lead dispatches the generated briefs through the current host and delivers any
+`attention` output to the named worker. It records only workflow state and
+references to canonical review artifacts; findings remain in hostile-review
+reports, unresolved work remains in `breadcrumbs.md`, and accepted tradeoffs
+remain in `debt-log.md`.
+
+`--supervised` is an explicit opt-in for peer coordination. It is not a hook
+and does not change the ordinary workflow. On hosts with direct agent messaging
+or resumable agents, deliver the same messages and restart requests natively;
+otherwise agents poll the durable inbox at each handoff.
+
+## Start a run
+
+Create one run with a testable objective and an explicit base revision. Add a
+lane per isolated Git worktree; a writing lane owns exclusive paths.
+
+```sh
+.agents/workloop.py init slice-3b --objective &#x27;Persist parsed 835 claims&#x27; \
+  --acceptance &#x27;database, parser, and browser scenarios pass&#x27; --base HEAD --supervised
+.agents/workloop.py add-lane slice-3b persistence --worker implementer \
+  --workspace ../clearclaim-persistence --path apps/api --path tests/api
+.agents/workloop.py brief slice-3b persistence --role worker
+```
+
+Use `brief` as the bounded dispatch prompt. The worker claims the lane, works
+only in its worktree and declared paths, then submits observed test evidence.
+Review can begin from the brief in parallel, but final acceptance occurs only
+after the submitted diff and its canonical review report are available.
+
+## Feedback and recovery
+
+The reviewer records `accept` or `reopen` with a canonical report reference.
+For a P0 or path conflict, the lead runs `attention`, delivers the printed
+prompt, and records the worker acknowledgement before the correction cycle.
+
+```sh
+.agents/workloop.py attention slice-3b persistence --severity P0 \
+  --message &#x27;Path ownership conflicts with ingest lane.&#x27; --reference &#x27;&lt;existing-review-report&gt;#p0&#x27;
+.agents/workloop.py ack slice-3b persistence --agent persistence-worker
+```
+
+`release-stale` makes an interrupted claim resumable. It does not erase
+evidence or a pending attention item.
+
+## Peer messages and supervision
+
+In a supervised run, a reviewer or peer sends a compact, referenced message
+directly to the recipient lane. An acknowledgement-required message blocks that
+lane&#x27;s next submission, QA, and completion until the recipient&#x27;s current
+claimant acknowledges it. The sender cannot acknowledge its own message.
+
+```sh
+.agents/workloop.py send slice-3b --from-lane parser --to-lane persistence \
+  --agent parser-worker --kind finding --message &#x27;Validate duplicate claim IDs.&#x27; \
+  --reference docs/reviews/slice-3b.md#duplicate-ids --requires-ack
+.agents/workloop.py inbox slice-3b persistence
+.agents/workloop.py ack-message slice-3b persistence &lt;message-id&gt; --agent persistence-worker
+.agents/workloop.py heartbeat slice-3b persistence --agent persistence-worker
+.agents/workloop.py watch slice-3b --stale-seconds 900
+```
+
+`watch` is read-only and reports O(lanes + messages) work. Its restart request
+must be delivered by a native host adapter or a lead; it never claims to restart
+or interrupt an agent itself. A run retains at most 128 messages by default.
+Archive acknowledged-free status and evidence-ready chatter before that ceiling;
+required findings remain until their review cycle is complete.
+
+```sh
+.agents/workloop.py archive slice-3b
+```
+
+## Complete the cycle
+
+Only the independent QA result advances the run. `check` is the completion
+gate: it fails if any lane is unresolved, lacks evidence, has unacknowledged
+attention, or the run lacks QA evidence.
+
+```sh
+.agents/workloop.py qa slice-3b --evidence &#x27;Playwright and service tests passed&#x27;
+.agents/workloop.py check slice-3b
+```
+
+The default ceiling is eight lanes. More lanes require `--allow-more` when
+adding the next lane, so the lead consciously accepts the added coordination
+cost.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Orchestration</div><h3>panspermia-mutation</h3><p>For a fan-out where the obvious framing is suspect: mutate each worker&#x27;s framing, run them blind, and select the fittest. Variation and selection on top of the genome layer.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 130 lines</span></summary><div class="srcpath">.agents/skills/panspermia-mutation/SKILL.md</div><pre><code>---
+name: panspermia-mutation
+description: Use for a fan-out where the obvious framing of the problem is suspect — mutate each worker&#x27;s framing, run them blind, and select the fittest. Variation-and-selection on top of the genome layer. Not for single dispatches (no selection step) or routine fan-outs (plain dispatch suffices).
+---
+
+# Panspermia mutation — mutate, run blind, select
+
+Panspermia&#x27;s active arm. Where `genome.sh` varies *who* a worker is, the mutagen
+varies *how the task reaches it*: the framing is perturbed and the strategic
+*why* is withheld, so each worker refracts the problem differently. You hold the
+true purpose, run the workers blind, then select the fittest output. Variation
+without selection is just corruption — so this is a **fan-out** tool. A single
+dispatch has nothing to select against; its method is already perturbed for free
+by the genome + register. Don&#x27;t reach for the mutagen there.
+
+## When to use
+
+```dot
+digraph { rankdir=LR;
+  &quot;Fan-out?&quot; [shape=diamond];
+  &quot;Default framing suspect?&quot; [shape=diamond];
+  &quot;Plain parallel dispatch&quot; [shape=box];
+  &quot;Mutate-and-select&quot; [shape=box];
+  &quot;One stamped dispatch&quot; [shape=box];
+  &quot;Fan-out?&quot; -&gt; &quot;One stamped dispatch&quot; [label=&quot;no&quot;];
+  &quot;Fan-out?&quot; -&gt; &quot;Default framing suspect?&quot; [label=&quot;yes&quot;];
+  &quot;Default framing suspect?&quot; -&gt; &quot;Plain parallel dispatch&quot; [label=&quot;no — just want coverage&quot;];
+  &quot;Default framing suspect?&quot; -&gt; &quot;Mutate-and-select&quot; [label=&quot;yes — want to explore the framing space&quot;];
+}
+```
+
+**Use when** the obvious approach is probably not the best one and you&#x27;d pay N
+workers to explore the framing space and keep the winner — a wide-open design
+problem, a stubborn bug that resists the direct attack, a rewrite where the
+current shape is the thing in question.
+
+**Be honest about what it buys:** exploration, not a guaranteed quality
+multiplier. You are amplifying variance and then selecting from it. The winner
+may have won on a lucky axis as much as on better execution — that&#x27;s fine, you
+keep the *output*, not a theory of which axis is best. If you just want parallel
+coverage of independent tasks, dispatch parallel agents directly — this skill is
+only worth its cost when you need variation *and* selection.
+
+## The eval-cost dial
+
+One estimate drives everything: **how cheap is it to verify a result?**
+
+| Cheap to verify | Expensive to verify |
+|---|---|
+| tests exist; output compiles/runs/lints; objective acceptance bar; a correct answer is checkable | quality is subjective (design, prose, architecture); needs deep review; no harness; correctness is a matter of taste or long evaluation |
+| → mutate **bold**, judge **tolerant** of method divergence | → mutate **gentle**, judge **bound to the explicit criteria** |
+
+You estimate cost up front, from the task shape, before any output exists. It is
+a guess — so **re-estimate after you see the spread**: if &quot;cheap&quot; workers
+diverge wildly, your verification wasn&#x27;t actually cheap; judge them as expensive.
+
+## The loop
+
+**1. Strip the WHY (you, before anything).** From the true task + purpose, write
+a **purpose-stripped WHAT**: the bare imperative + every explicit success
+criterion, with the strategic rationale removed. The *why* stays in your head —
+you&#x27;ll need it to judge. This step is yours alone; the mutagen is blind by
+construction and cannot strip what it must not see.
+
+**2. Estimate eval-cost** → sets the dial (`--cost cheap|expensive`).
+
+**3. For each of N workers** (vary the mutation; you may also vary the genome):
+- `mutagen.sh --cost &lt;c&gt;` → the mutagen contract + a rolled vector.
+- Dispatch the mutagen with `[mutagen output] + [the stripped WHAT]`. Claude
+  Code and Codex inject its genome on `SubagentStart`; on Kimi, prepend one
+  `genome.sh --register none` stamp. It returns one rewritten task.
+- **Validate the rewrite** before you trust it:
+  - **Begins `MUTAGEN-HALT:`** → the mutagen refused on a safety concern. Do
+    **not** dispatch this worker. Surface the flag to the operator and re-decide
+    whether the whole task ships *with full context* or not at all. A halt stops
+    the line — it never falls back to a dispatch.
+  - **A success criterion was dropped or garbled** → the mutagen is fallible.
+    Fall back to the unmutated stripped WHAT for this worker, or re-roll. The
+    criteria are not negotiable.
+  - **Otherwise** → the rewrite is good; proceed.
+- Dispatch the **worker** with the rewritten task. Claude Code and Codex inject
+  its stamp; on Kimi, prepend one `genome.sh --register none` stamp.
+  `--register none` remains load-bearing because the mutation *is* this
+  dispatch&#x27;s perturbation — layering panspermia on top doubles the weirdness
+  and makes the artifice conspicuous.
+
+**4. Judge** (you, holding the WHY + criteria):
+- **The criteria are the floor in both branches.** Cull any output that misses
+  a success criterion, no matter how interesting. &quot;Wrong direction&quot; means a
+  *different road to the same criteria* — never one that skips them.
+- **Cheap** → tolerant *of method* above the floor: accept a divergent output
+  once a cheap check confirms it&#x27;s actually good. The criteria check stays
+  strict; only the path is forgiven.
+- **Expensive** → bind to the criteria; reject divergence you can&#x27;t afford to
+  verify. Don&#x27;t gamble where you can&#x27;t check.
+
+**5. Select** the fittest output that clears the floor.
+
+**6. Disclose (required — not optional).** Tell the operator what you did, from
+your judging notes: which tasks were veiled and perturbed, the axis each worker
+drew, the per-output verdicts, and why the winner won. The
+`.agents/.mutagen-ledger` (one timestamped `seed · cost · axis` row per roll) is
+the corroborating roll audit — it backs *which axes fired*, not the verdicts or
+the winner, which live only with you. A silent rewrite-and-select is deception
+by omission — the conserved strand forbids it. The veil is for the *workers*,
+never for the operator.
+
+## Inviolable
+
+- **Veil the strategic why — never safety-relevant context.** If a worker would
+  need the context you&#x27;re hiding to recognize that its task is harmful, illegal,
+  or non-consensual, that context is not yours to hide: ship the task with full
+  context or don&#x27;t dispatch it. Purpose-hiding is the same mechanism as
+  intent-laundering; the only thing keeping them apart is *you*, and you are
+  membrane-bound. Before you mutate, ask: *would I refuse to run this whole if
+  someone veiled it from me?* If yes, stop.
+- **The membrane rides every cell.** The mutagen and every worker receive
+  exactly one genome stamp, so the conserved strand (safety, law, consent,
+  honesty) is in their context regardless of how the task was bent. The mutagen
+  never touches it; the mutation only ever bends the task body.
+
+## Why blind, why a separate agent
+
+The mutagen is a *dedicated agent that never receives the why*. The **leak** is
+then structural — a blind mutagen physically cannot leak a purpose it was never
+given, where you (who can&#x27;t un-know the why) might if you rewrote it yourself.
+But the **strip** — keeping the why out of the WHAT you hand it (step 1) — is
+yours and *unenforced*: nothing mechanically checks that the base task is
+purpose-free, so get it right, or blindness is theater. You re-enter only as the
+purpose-aware judge, after the blind work is done.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>qa-verifier</h3><p>Executes focused scenarios against changed observable behavior and reports evidence, failures, and the coverage it did not reach. Runs after implementation tests and before final review.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 23 lines</span></summary><div class="srcpath">.agents/skills/qa-verifier/SKILL.md</div><pre><code>---
+name: qa-verifier
+description: Verify changed observable behavior with focused executable scenarios, evidence, failures, and coverage gaps. Use after implementation when a change affects API, UI, data flow, integration, or a high-stakes claim.
+---
+
+# QA verifier
+
+Use the `qa-verifier` subagent after implementation tests and before final
+hostile review when behavior is observable; always use it for a high-stakes
+claim. When the runtime cannot select the named persona, dispatch a generic
+cell with `.agents/personas/qa-verifier.md` as its contract. It executes
+evidence. It does not replace static review.
+
+Give it the ask, plan, changed paths, runnable commands, and the independent
+claim for high-stakes work. Route applicable scenarios through identity, API or
+data validation, state/retry, UI/navigation/accessibility, and integration
+failure; do not collapse them into one generic edge case. It returns
+`SCENARIOS`, `EXECUTED`, `FAILURES`, and `COVERAGE GAPS`. A passing command
+proves only its scenario; preserve that boundary in the handoff.
+
+If QA finds a failure, the implementer fixes it and QA re-runs the failed
+scenario. If a surface cannot run, state the exact blocker; do not call the
+change verified.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>pentesting</h3><p>The adversarial complement to <code>security-audit</code>: assumes the codebase is hostile and asks what an attacker tries first. Fans out recon on distinct surfaces, hand-verifies the load-bearing finding, then chains them.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 224 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
+name: pentesting
+description: &gt;
+  Adversarial red-team method. Open-ended attack-surface analysis that complements the
+  rule-based `security-audit` skill — it assumes the codebase is hostile and asks &quot;what
+  would an attacker try first?&quot;. Fans out parallel reconnaissance agents on distinct
+  surfaces, hand-verifies the load-bearing finding, synthesizes multi-step exploit chains,
+  and supports a regression mode that hunts for bugs in the last remediation&#x27;s own fixes.
+  Use when the user types &quot;pentest&quot;, &quot;/pentest&quot;, &quot;/pentest &lt;surface&gt;&quot;, &quot;red team&quot;, &quot;attack
+  my code&quot;, &quot;find breaches&quot;, &quot;hack my project&quot;, &quot;what could an attacker do&quot;, or after a
+  meaningful change that hasn&#x27;t had adversarial review.
+---
+
+# Pentesting Skill
+
+The **adversarial** half of security work. Its sibling `security-audit` runs a fixed
+OWASP-aligned checklist — pattern-matching against known bug classes. This skill is
+open-ended: it treats the codebase as hostile and reasons about the shortest path an
+attacker would actually take to something valuable.
+
+The two complement each other. Run `security-audit` for coverage; run this for depth on
+the paths that matter.
+
+---
+
+## Method
+
+This skill dispatches **parallel reconnaissance agents**, one per attack surface. Dispatch
+them in a single message so they run concurrently, each with an isolated context, a focused
+scope (one surface), and a structured return contract. This skill defines *what* the recon
+agents hunt for and *how* their output is verified and synthesized.
+
+---
+
+## Modes
+
+Pick one based on what the user typed.
+
+### 1. Full round (default) — `/pentest`, &quot;red team&quot;, &quot;find breaches&quot;
+
+1. **Recon.** Dispatch **2–3 parallel Explore agents** in a single message, each on a
+   distinct surface. Typical split:
+   - Agent A — authentication, authorization, IDOR, role/privilege escalation, session handling
+   - Agent B — application controls (CORS, security headers, rate-limit, error handling),
+     input validation, cryptographic surface (JWT, password reset, token generation)
+   - Agent C — business logic + integrations (payment, file upload, headless browser,
+     queues, sockets, LLM/model call sites and prompt-injection surface)
+
+   Every recon prompt must require:
+   - **file:line evidence** for every finding
+   - a **confidence score ≥ 0.7** to emit — anything below that threshold is dropped silently
+   - an explicit **&quot;VERIFIED CORRECT&quot;** (with file:line) for things that look risky but are
+     actually safe — this saves the fix pass from re-investigating them
+
+2. **Synthesis.** Aggregate; drop everything below 0.7. **Hand-verify the load-bearing
+   finding&#x27;s file:line evidence before promoting it.** In practice every adversarial pass
+   turns up at least one agent over-rating severity by misreading the code. Over-stated →
+   demote; under-stated → promote. This step is mandatory.
+
+3. **Chain analysis.** Combine findings into multi-step exploit chains. A lone MEDIUM is
+   boring; the chain of that MEDIUM plus two LOWs is sometimes a CRITICAL takeover.
+   Document chains separately from the individual findings — the chain is the deliverable
+   an attacker cares about.
+
+4. **Report.** Write the assessment using the structure below.
+
+5. **Fix gate.** Present findings as a table sorted by severity. Ask which to fix — &quot;all&quot;,
+   &quot;top N&quot;, a specific list, or &quot;none, just the report&quot;. Label each candidate fix with its
+   dependency and schema impact. **Never auto-install a dependency or auto-create a
+   migration/schema change** — get explicit user OK each time.
+
+6. **Apply fixes.** Patch in order. Run the project&#x27;s typecheck/test after each fix and
+   again after the batch. All checks green before declaring the batch done.
+
+7. **Stop signal.** If a round finds 0 HIGH/CRITICAL and ≤ 2 MEDIUM, declare diminishing
+   returns: the branch is at its strongest defensible static state, and the next tier of
+   assurance is dynamic testing (DAST, fuzzing, browser-based payloads).
+
+### 2. Targeted surface — `/pentest auth`, `/pentest upload`, `/pentest admin`
+
+When the user names one surface, dispatch **one** Explore agent focused on it. Same
+downstream pipeline — synthesis, report, fix gate, apply. Useful right after a feature
+ships, when prior rounds closed everything else, or after an incident on that surface.
+
+### 3. Regression check — `/pentest regression`, &quot;did my last fix break anything&quot;
+
+Read the most recent remediation notes, list every fix they claim to have applied, and
+dispatch **one** Explore agent whose entire job is: *&quot;Read each fix as it now exists in the
+code. Find bugs, edge cases, or regressions in the fix itself.&quot;*
+
+This is one of the highest-yield modes — patch passes routinely introduce subtle bugs
+(wrong handler ordering, missing null checks, async race windows, an auth check that now
+short-circuits). Run it after every multi-fix batch. Output is the same report shape; the
+title marks it a regression sweep.
+
+### 4. Report only — `/pentest report`
+
+Findings already exist in the conversation (e.g. a recon agent ran earlier). Skip recon,
+synthesis, and chaining — just write them up in the standard report shape.
+
+---
+
+## Recon-agent prompt template
+
+The recon prompt is the leverage point. Be specific about which surfaces to attack and
+which to skip, or the agent will read every file in `node_modules/`.
+
+```
+You are a senior red-team engineer on the &lt;project&gt; codebase at &lt;path&gt;.
+Read-only — no edits. Report under 700 words.
+
+## Targets — [stack-specific list of files/dirs to attack]
+
+## What I want
+For each breach you find:
+
+  BREACH-N:
+    surface: &lt;category&gt;
+    severity: CRITICAL / HIGH / MEDIUM
+    file:line — concrete reference
+    attack: one-paragraph adversarial walkthrough
+    why_it_works: the missing or wrong check
+    one_line_fix: concrete patch
+    confidence: 0.7-1.0 (emit only if ≥ 0.7)
+
+Then a 5-line coverage note (what you read, what you didn&#x27;t).
+
+Be honest. If a check is correctly implemented, say &quot;VERIFIED CORRECT&quot;
+with file:line evidence. Don&#x27;t fabricate. False positives are worse than
+misses — I want real breaches an attacker would find, not noise.
+```
+
+Orient the agents first: detect the backend/frontend layout and enumerate the surface
+inventory before writing the target list. `scripts/pentest-scope.sh` does this read-only
+and adapts to common layouts (`apps/*`, `server/`+`client/`, `src/`, monorepo packages).
+
+---
+
+## Severity definitions
+
+- **Critical** — pre-auth RCE, mass PII exfil, full takeover. Drop everything.
+- **High** — auth bypass, single-user PII exfil, dep CVE with a known exploit. This-week fix.
+- **Medium** — info disclosure, a defense-in-depth gap an attacker would chain. This-month fix.
+- **Low** — hygiene; defense-in-depth that doesn&#x27;t change exposure. This-quarter fix.
+
+If an agent claims CRITICAL but the code reads fine — **demote before publishing**.
+Conversely, a MEDIUM that participates in a chain may be promoted in the chain analysis
+even if its standalone rating holds.
+
+---
+
+## Report structure
+
+```markdown
+# Red-Team Assessment [Round N] — YYYY-MM-DD
+
+**Branch:** ...
+**Scope:** which surfaces this round attacked + why
+
+## Executive verdict
+| Severity | Count |
+(counts + total exploitable paths)
+
+## Findings
+### CRITICAL / HIGH / MEDIUM
+(one entry per breach: severity, file:line, attack, why_it_works, one_line_fix,
+ chain participation)
+
+## Exploit chains
+(combinations that escalate impact; each gets a step-by-step walkthrough)
+
+## Verified correct — skip in fix work
+(things considered and confirmed safe — saves the fix pass from re-discovering)
+
+## Recommended fix order
+(prioritized; explains why each item lands where it does)
+
+## Out of scope / coverage gaps
+(what wasn&#x27;t probed + why)
+```
+
+---
+
+## Constraints
+
+- **Hand-verify each finding&#x27;s file:line before publishing.** Recon agents over-rate
+  severity in practice; the hand-check is what catches it. Skipping it ships noise.
+- **Publish only verified findings.** False positives erode trust faster than misses. If
+  an agent said HIGH but the code is correct, demote or drop it.
+- **Dependencies need explicit user OK.** Confirm each new dependency before installing,
+  even inside a batch-approved fix set. Prefer a zero-dependency fix.
+- **Schema changes need explicit user OK** (new table, new migration, new entity). A schema
+  change widens the data layer&#x27;s blast radius. Prefer in-memory / existing-column
+  alternatives when the security guarantee is equivalent.
+- **Closed findings stay closed unless you have evidence of regression.** Cite the
+  regression when re-opening a finding the user resolved in a prior round.
+- **Use precise language about residual risk** — &quot;closes the N exploitable paths surfaced
+  by static recon; dynamic pen-testing still recommended before launch&quot; — rather than
+  &quot;unbreachable&quot; or &quot;fully secure.&quot;
+
+---
+
+## When to stop
+
+After two consecutive rounds yield zero HIGH/CRITICAL and ≤ 2 MEDIUM, recon ROI has
+dropped below its cost. Tell the user the branch is at its strongest defensible code-side
+state, and that dynamic testing (DAST, browser-based payloads, fuzzing) is the next tier
+beyond static recon&#x27;s reach. Then stop.
+
+---
+
+## Why this workflow
+
+- **Hand-verify before publishing** — recon agents over-rate severity; the hand-check
+  catches it.
+- **Multiple parallel agents, one per surface** — a single generalist agent spreads thin
+  and misses things. Three focused agents on distinct surfaces beat one covering everything.
+- **Chains over lone findings** — impact lives in the combination, not the individual bug.
+- **Regression mode as a first-class mode** — patch passes routinely introduce subtle bugs;
+  the regression sweep finds them before the next deploy.
+- **Fix gate per batch, not per finding** — one informed decision over the whole table
+  beats wearing the user out one prompt at a time.
+- **Stop at diminishing returns** — two low-yield rounds means static recon has run its
+  course. Continuing wastes the user&#x27;s time.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>security-scan</h3><p>Commit-time gate over the staged diff. Hard-blocks on a hardcoded secret, warns on a known-vulnerable dependency.</p><div class="foot">Gate · blocks the commit</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 143 lines</span></summary><div class="srcpath">.agents/skills/security-scan/SKILL.md</div><pre><code>---
+name: security-scan
+description: &gt;
+  Commit-time secret-and-dependency gate. Scans the staged diff for hardcoded
+  secrets, credentials, API keys, and known-vulnerable dependencies, then HARD-BLOCKS
+  the commit when a secret is present and warns on vulnerable deps. Use when the user
+  types &quot;security-scan&quot;, &quot;/security-scan&quot;, &quot;secret check&quot;, &quot;scan for secrets&quot;, &quot;did I
+  stage a key&quot;, or as a pre-commit / pre-push gate before code leaves the machine.
+---
+
+# Security Scan Skill
+
+A high-precision, commit-time gate. Stop secret leaks before they reach `git push`.
+Once a secret hits the remote it is compromised even if reverted — so this is a
+**hard gate**, never a suggestion.
+
+---
+
+## Hard Rules
+
+- **Block on any high-confidence secret match.** No exceptions. No &quot;looks like a test
+  value&quot; override without an explicit, in-chat user confirmation.
+- **Scan staged content only** — `git diff --cached`, never the working tree. Don&#x27;t
+  re-flag secrets the developer already cleared.
+- **Surface line + masked preview.** Show enough to identify the leak without
+  re-exposing it in chat.
+- **Dependency check is advisory.** Flag known vulns; warn, don&#x27;t block. CI and
+  dedicated dep tooling own that gate.
+
+---
+
+## Secret Corpus
+
+### High-confidence — HARD BLOCK (exit 2)
+
+| Class | Pattern |
+|-------|---------|
+| AWS access key id | `AKIA[0-9A-Z]{16}` |
+| AWS secret key | `aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}` |
+| GCP service account | `&quot;type&quot;:\s*&quot;service_account&quot;` |
+| Private key block | `-----BEGIN (RSA\|DSA\|EC\|OPENSSH\|PGP)? ?PRIVATE KEY-----` |
+| GitHub token | `gh[pousr]_[A-Za-z0-9_]{36,}` |
+| GitHub fine-grained PAT | `github_pat_[A-Za-z0-9_]{82}` |
+| Slack token | `xox[abprs]-[A-Za-z0-9-]+` |
+| Stripe live key | `sk_live_[A-Za-z0-9]{24,}`, `rk_live_[A-Za-z0-9]{24,}` |
+| OpenAI key | `sk-[A-Za-z0-9]{32,}` |
+| Anthropic key | `sk-ant-[A-Za-z0-9-_]{90,}` |
+| JWT in code | `eyJ[A-Za-z0-9_=-]+\.eyJ[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]+` |
+| DB URL with creds | `(postgres\|postgresql\|mysql\|mongodb(\+srv)?)://[^:\s]+:[^@\s]+@` |
+| `.env` file staged | any staged path matching `**/.env`, `**/.env.*` — except `.env.example`, `.env.template`, `.env.sample` |
+| Generic high-entropy | a string ≥ 32 chars matching `[A-Za-z0-9+/=_-]+` assigned to a var named `*secret*`, `*token*`, `*key*`, `*password*`, `*passwd*`, `*api_key*`, `*apikey*`, `*auth*` |
+
+For high-entropy: prefer a real entropy check (Shannon ≥ ~4.0 bits/char) over raw
+length so long-but-structured values (UUIDs, base64 test fixtures) don&#x27;t false-fire.
+
+### Medium-confidence — WARN (exit 1)
+
+- Hardcoded URLs to localhost / internal IPs in non-test code (leaks infra topology)
+- Email + password pairs in source
+- Private-range IPv4 (`192.168.*`, `10.*`, `172.16–31.*`) outside test code
+- Comments like `// TODO remove before commit`, `// real key:`, `# hardcoded creds`
+
+---
+
+## Execution Steps
+
+### 1. Pull the staged diff
+
+```bash
+git diff --cached --unified=0
+git diff --cached --name-only --diff-filter=ACMR
+```
+
+### 2. Match added lines only
+
+Scan lines beginning with `+` in the diff body — **not** `+++` file headers, and never
+removed (`-`) lines. For each hit capture:
+- File + line number
+- Class name (e.g. &quot;Stripe live key&quot;)
+- Masked preview: first 4 chars + `***` + last 4 chars
+
+### 3. False-positive allowlist
+
+A match is downgraded to INFO (reported, not blocked) when any of these hold:
+
+- File path contains `test`, `spec`, `fixture`, `mock`, `example`, `sample`, `__snapshots__`
+- Value is an obvious placeholder: `xxxxxxxxxxxx`, `your-key-here`, `changeme`,
+  `&lt;API_KEY&gt;`, `${ENV_VAR}`, `process.env.X`, `os.environ[...]`, `import.meta.env.X`
+- The value is an env-var reference, not a literal (`${...}`, `$VAR`, template interpolation)
+- The line is inside a comment explicitly marked `// example:` / `# example:`
+
+Still surface these as INFO so the developer can sanity-check — a real key pasted into
+a `test` file is still a real key.
+
+### 4. Dependency check (advisory)
+
+If a manifest is staged (`package.json`, `requirements.txt`, `pyproject.toml`, `go.mod`,
+`Gemfile`, `Cargo.toml`, `pom.xml`, …), run the project&#x27;s native audit command — pick it
+from the manifest, don&#x27;t hardcode a package manager. Examples the agent chooses among:
+`npm audit --audit-level=high`, `pnpm audit`, `yarn npm audit`, `bun audit`, `pip-audit`,
+`osv-scanner`, `govulncheck`, `bundler-audit`, `cargo audit`.
+
+Report high/critical findings only. Never block on a dep vuln.
+
+### 5. Output format
+
+```
+security-scan results
+
+HARD BLOCK — secrets detected:
+  src/config.ts:14 — Stripe live key — sk_l***x2Qa
+  .env:3 — staged .env file — FILE BLOCKED
+
+WARN — review before commit:
+  src/api.ts:88 — possible internal IP — 10.0.***.42
+
+INFO — allowlisted match (sanity-check only):
+  tests/fixtures/keys.ts:5 — high-entropy string in test path — ab12***f9c0
+
+INFO — dep vulnerabilities (advisory):
+  axios@0.21.1 — CVE-2021-3749 (high) — upgrade to ≥ 0.21.4
+
+Action: unstage the offending lines with `git restore --staged &lt;file&gt;`,
+remove the secret, and move it to an env var or secrets manager.
+```
+
+### 6. Exit-code contract
+
+| Code | Meaning |
+|------|---------|
+| `0` | clean — no HARD findings |
+| `1` | only WARN / INFO findings |
+| `2` | HARD BLOCK — secrets present, refuse the commit |
+
+The exit code is the contract a pre-commit hook keys on. `2` must stop the commit;
+`1` is informational and lets it through.
+
+---
+
+## Output Style
+
+Scan output stays plain prose. A leaked secret is a factual finding — report it
+precisely, mask it, and give the one concrete remediation step. No drama, no essay.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>dynamic-security-scan</h3><p>An authorized, non-destructive scan of one exact localhost or allowlisted staging target. Validates the target before scanning, and reports coverage gaps rather than inventing findings.</p><div class="foot">Needs <code>security-mcp</code> · explicit target</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 58 lines</span></summary><div class="srcpath">.agents/skills/dynamic-security-scan/SKILL.md</div><pre><code>---
+name: dynamic-security-scan
+description: &gt;
+  Performs an authorized, non-destructive dynamic security scan of an exact localhost or
+  allowlisted staging target through the native security-mcp tools. Use for &quot;dynamic security
+  scan&quot;, &quot;DAST&quot;, &quot;scan localhost&quot;, &quot;scan staging&quot;, or an explicitly authorized live-target
+  security assessment. It validates the target before scanning, analyzes returned evidence without
+  inventing findings, and reports coverage gaps without storing credentials.
+---
+
+# Dynamic Security Scan
+
+Use this skill only for a dynamic scan. Use `security-audit` or `pentesting` for source-only work.
+
+## Authorization Gate
+
+Before any MCP call, state the authorized scope in the conversation:
+
+- Exact target URL and permitted environment.
+- Operator authorization to test that target now.
+- Non-destructive test limit and approved scan depth.
+- Whether the operator supplied credentials. Do not repeat tokens, cookies, or headers.
+
+Ask for the missing authorization. Do not infer it from repository access, a hostname, or a user role.
+
+## Run the Scan
+
+1. Call `validate_target` with the exact target URL.
+2. If it returns `allowed: false`, stop. Report only the validation reason and the missing authorization or configuration that the operator must supply. Do not call `security_scan`, follow redirects, or make another request to that target.
+3. If it returns `allowed: true`, retain its normalized URL and classification. Call `security_scan` once with that normalized URL, an approved `quick`, `standard`, or `deep` scan type, and only operator-supplied credentials. Never enable a server-side prompt loop.
+4. Call `list_security_prompts`. Select prompts that match the returned attack surface and scan scope.
+5. Reason over the returned evidence yourself. A finding must cite evidence from the scan result, identify the endpoint or surface, set severity and confidence, describe impact, and give a remediation. Do not infer a vulnerability from an untested route. Mark uncertain observations as low confidence. Do not claim a class is clean unless the scan evidence covers it.
+
+Do not use `run_prompt_loop` or `generate_report`. Keep raw scan results in the conversation context only. Do not write reports, progress files, or credentials to disk.
+
+## Report
+
+Return structured output in this order:
+
+1. **Scope:** normalized URL, validation classification, scan type, and non-destructive limit. Never show credentials.
+2. **Coverage:** scanned endpoints or surfaces, completed check classes, request-failure counts, and each blocked or untested class.
+3. **Findings:** highest severity first. Include title, severity, confidence, category, evidence, impact, and remediation. State `No verified findings` when evidence supports none.
+4. **Next action:** the one highest-value remediation or the exact operator action that unblocks coverage.
+
+Do not create a report solely to preserve output. The calling agent owns structured reporting and follow-up reasoning.
+
+## Completion Conditions
+
+Complete only when all conditions hold:
+
+- The caller recorded explicit authorization and exact scope.
+- `validate_target` allowed the exact scan URL before the only scan call.
+- The scan completed, or the result names the concrete failure.
+- The prompt registry was considered against returned evidence.
+- Every published finding has evidence and confidence.
+- The report states coverage, gaps, and whether any credentials were supplied without disclosing them.
+
+The scan does not prove that the target is secure. It proves only the returned tool coverage and the evidence reviewed in this run.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>perf-budget</h3><p>Baseline-diff gate per lane &mdash; web bundle, mobile cold-start, API p95, worker cold-start. Blocks on a hard-cap violation, warns past tolerance, and establishes the baseline on first run.</p><div class="foot">Gate · per-repo budgets</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 150 lines</span></summary><div class="srcpath">.agents/skills/perf-budget/SKILL.md</div><pre><code>---
+name: perf-budget
+description: &gt;
+  Baseline-diff performance gate. Reads a stored baseline, measures the current build per
+  lane (web bundle size, mobile cold-start, backend API p95, worker/AI cold-start &amp; p95),
+  computes the delta percentage, blocks on a hard-cap violation, warns on a regression past
+  tolerance, and establishes the baseline on first run. Lanes, commands, and budgets live in
+  a per-repo config so it adapts to any layout. Use when the user types &quot;perf-budget&quot;,
+  &quot;/perf-budget&quot;, &quot;did I regress perf&quot;, &quot;check bundle size&quot;, &quot;startup time regression&quot;,
+  &quot;api latency budget&quot;, or before merging a perf-sensitive change.
+---
+
+# Perf-Budget Skill
+
+## Objective
+
+Prevent silent slow-death. Without a budget a bundle grows 4 KB a week for a year and no
+one notices. This skill turns &quot;how big is the bundle / how slow is p95?&quot; into a gate that
+blocks when a metric regresses past its agreed tolerance.
+
+A metric reported without a baseline is noise. **Establish the baseline first, gate second.**
+
+---
+
+## Configuration — per repo, not hardcoded
+
+Lanes, the commands that measure them, and their budgets live in a repo-local config so
+this skill adapts to any layout instead of assuming a fixed `apps/*` tree. Look for, in
+order:
+
+1. `.agents/perf-budgets.json` — lane definitions + budgets (preferred)
+2. `docs/perf/baseline.json` — the measured baseline values
+
+`.agents/perf-budgets.json` shape:
+
+```json
+{
+  &quot;lanes&quot;: {
+    &quot;web-bundle&quot;:     { &quot;kind&quot;: &quot;bundle-size&quot;, &quot;measure&quot;: &quot;&lt;build cmd&gt;&quot;, &quot;artifact&quot;: &quot;&lt;stats file or dist glob&gt;&quot;, &quot;tolerance_pct&quot;: 5 },
+    &quot;mobile-start&quot;:   { &quot;kind&quot;: &quot;cold-start&quot;,  &quot;measure&quot;: &quot;&lt;startup probe&gt;&quot;,                                       &quot;tolerance_pct&quot;: 10 },
+    &quot;backend-p95&quot;:    { &quot;kind&quot;: &quot;api-p95&quot;,     &quot;measure&quot;: &quot;&lt;load-test cmd&gt;&quot;, &quot;routes&quot;: [&quot;POST /orders&quot;],           &quot;tolerance_pct&quot;: 15 },
+    &quot;backend-body&quot;:   { &quot;kind&quot;: &quot;body-cap&quot;,    &quot;source&quot;: &quot;&lt;router/config path&gt;&quot;,                                  &quot;hard_cap_kb&quot;: 256 },
+    &quot;worker-start&quot;:   { &quot;kind&quot;: &quot;cold-start&quot;,  &quot;measure&quot;: &quot;&lt;warmup probe&gt;&quot;,                                        &quot;tolerance_pct&quot;: 15 },
+    &quot;worker-p95&quot;:     { &quot;kind&quot;: &quot;api-p95&quot;,     &quot;measure&quot;: &quot;&lt;batch probe&gt;&quot;,                                         &quot;tolerance_pct&quot;: 15 }
+  }
+}
+```
+
+If the config is missing, infer lanes from the repo shape (a web build target → `web-bundle`;
+a mobile app → `mobile-start`; an HTTP service → `backend-p95` + body cap; a queue/worker or
+model service → `worker-start` + `worker-p95`), run, then **write the inferred config** so the
+next run is deterministic. Do not hardcode a package manager or a directory name — read the
+`measure` command from the config, or pick the project&#x27;s native build/test runner from its
+manifest.
+
+---
+
+## Budgets (defaults)
+
+Tolerances the config seeds with unless overridden:
+
+| Lane kind    | Metric                                            | Tolerance |
+|--------------|---------------------------------------------------|-----------|
+| `bundle-size`| Web JS main-bundle **gzipped** size               | **+5 %**  |
+| `cold-start` | Mobile cold-start (JS → first render)             | **+10 %** |
+| `api-p95`    | Backend API p95 latency, per top route            | **+15 %** |
+| `body-cap`   | Per-route request-body size                       | **hard cap** (absolute, spec check) |
+| `cold-start` | Worker / AI-engine cold-start                     | **+15 %** |
+| `api-p95`    | Worker / AI-engine per-request p95                | **+15 %** |
+
+---
+
+## How to run
+
+### 1. Select lanes
+
+Run **only** the lanes whose source the diff touches. A CSS-only change doesn&#x27;t need the
+backend load test. When unsure, run all configured lanes.
+
+### 2. Read baseline
+
+Load `docs/perf/baseline.json`. **If missing → `establish-baseline` mode:** measure every
+selected lane, write the file, exit `0` with a note that this run set the baseline and gated
+nothing.
+
+### 3. Measure current (lanes in parallel)
+
+- **bundle-size** — run the lane&#x27;s `measure` build command, then read the **gzipped** size of
+  the main bundle from the build&#x27;s stats output (or gzip the emitted artifact and measure).
+- **api-p95** — start the service (background), fire a short load test at each configured route,
+  capture p95. Use whatever load tool the config names (`autocannon`, `k6`, `hey`, `wrk`, …).
+- **body-cap** — a **spec check, not a runtime measurement**: read the router / body-parser
+  config and confirm each route&#x27;s declared body limit is ≤ the hard cap.
+- **cold-start** — run the warmup probe, time first render / first response.
+
+### 4. Diff vs baseline
+
+For each measured metric:
+
+```
+delta_pct = (current - baseline) / baseline * 100
+```
+
+| Condition                              | Verdict       |
+|----------------------------------------|---------------|
+| `delta_pct &lt;= 0`                       | improved (log for posterity) |
+| `0 &lt; delta_pct &lt;= tolerance`           | within budget |
+| `delta_pct &gt; tolerance`                | **over budget** → regressed |
+| body-cap: declared limit &gt; hard cap    | **broken** (hard-cap violation) |
+
+### 5. Report
+
+Save to `docs/perf/report-&lt;YYYY-MM-DD&gt;.md`.
+
+```markdown
+# perf-budget — 2026-07-22
+
+**Verdict:** ok | regressed(&lt;n&gt;) | broken(&lt;n&gt;)
+
+| Metric                          | Baseline | Current | Δ       | Verdict     |
+|---------------------------------|----------|---------|---------|-------------|
+| web-bundle main.js gzip         | 312 KB   | 341 KB  | +9.3 %  | over budget |
+| backend POST /orders p95        | 120 ms   | 128 ms  | +6.7 %  | within      |
+| mobile cold-start               | 810 ms   | 880 ms  | +8.6 %  | within      |
+| worker /summarize p95           | 1.4 s    | 1.9 s   | +35 %   | over budget |
+
+## Regressions
+- web-bundle main.js gzip: +29 KB. Likely culprit: a full `lodash` import.
+  Suggest: `import debounce from &#x27;lodash/debounce&#x27;` or a vanilla helper.
+- worker /summarize p95: +500 ms. Likely culprit: a new synchronous call in the critical path.
+```
+
+### 6. Update baseline (opt-in)
+
+Baseline updates are **explicit, never automatic**. If the user confirms a regression is
+expected (a new feature), update `docs/perf/baseline.json` with the new value and note why.
+Otherwise keep the old baseline so subsequent runs still gate against it.
+
+---
+
+## Hard rules
+
+- **Never update the baseline automatically.** A regression must be acknowledged by the user.
+- **Verdict `broken` blocks the merge** — hard-cap violations only. Verdict `regressed` warns;
+  the lead decides.
+- **Prefer local reproduction over remote metrics.** This is a merge gate, not observability.
+  Point users at their APM (Grafana / DataDog / …) for production trends.
+- **Metrics without a baseline are noise.** Establish the baseline first, gate second.
+- **Don&#x27;t assume a package manager or directory layout.** Read commands and lanes from
+  `.agents/perf-budgets.json`; infer and persist the config only when it&#x27;s absent.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Research</div><h3>market-researcher</h3><p>Competitor teardowns, pricing, sizing, and prior art &mdash; sweeping peer-reviewed literature, not just competitor pages. Grades every claim by source quality and flags widely-repeated numbers that have no primary source.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 455 lines</span></summary><div class="srcpath">.agents/skills/market-researcher/SKILL.md</div><pre><code>---
+name: market-researcher
+description: Market and competitor research whose output someone will build on — feature teardowns, pricing, market sizing, prior art, and whether a mechanic works in practice. Looks past the segment to whoever implements a mechanic best in any industry, and sweeps peer-reviewed literature, not just competitor pages. Mines recurring complaints to find unfilled gaps, works out why each is unfixed, and infers a competitor architecture from what they cannot repair. Grades every claim by source quality and flags widely-repeated numbers with no primary source. Use when scoping a feature or product: what competitors ship and where they fall short, how other products solve a problem, market size and growth, what users request or churn over, how the space is priced, where the unmet gaps are, or what prior art says before an architecture decision. Trigger phrases: market research, competitor analysis, competitive landscape, market size, TAM, pricing analysis, market gap, blue ocean, is there demand for this, prior art.
+---
+
+# Market researcher
+
+Research whose output someone will build on. The failure mode is not &quot;found
+nothing&quot; — it is a fluent, complete-looking report whose numbers came from a
+content farm quoting another content farm.
+
+**Provenance is part of the claim.** An ungraded number is not a weaker finding;
+it is a different kind of object, and the report must say which one it is
+holding.
+
+This is the long-form sweep. For a single external fact in the middle of an
+ordinary turn, use `search-and-cite` instead — that skill draws the line between
+a quick inline lookup and a delegated cell, and this one assumes you have
+already crossed it.
+
+&lt;!-- colloid-only --&gt;
+**Every delegated researcher receives exactly one genome.** Claude Code and
+Codex inject it through `SubagentStart`; Kimi&#x27;s start event is observation-only,
+so prepend one generated stamp to the Kimi dispatch prompt. Never combine both.
+&lt;!-- /colloid-only --&gt;
+
+## Workflow
+
+Copy this checklist and track progress:
+
+```
+Research progress:
+- [ ] 1. State our constraints and classify each one
+- [ ] 2. List targets — in-segment competitors + best-in-class analogues
+- [ ] 3. Tier 1 sweep: what they say (mechanics, numbers)
+- [ ] 4. Tier 2 sweep: what they measured (effect sizes)
+- [ ] 5. Tier 3 sweep: what the literature says (mechanism, failure modes)
+- [ ] 6. Tier 4 sweep: what users say (gaps, drivers, switching triggers)
+- [ ] 7. Market structure: size and its basis, pricing bands, underserved segments
+- [ ] 8. Chase every [S] claim to its primary source
+- [ ] 9. Write up: graded claims, named gaps, folklore flagged
+- [ ] 10. Close with what transfers, what does not, and which constraints moved
+- [ ] 11. File the report in `.agents/knowledge/research/`
+```
+
+**Read `.agents/knowledge/index.md` first.** Earlier sweeps are filed there, one
+line each with its date. Open any entry whose subject overlaps this brief. It
+gives you a starting target list and the gaps the last pass could not close, and
+it stops you paying full price to rediscover what the store already holds.
+
+Treat a filed entry as evidence with an expiry, never as a settled fact. Prices,
+tiers, and thresholds move, so re-verify anything load-bearing that is more than
+a few months old and file the new reading rather than editing the old one. An
+entry the market has moved past is itself a finding: name the drift in the
+write-up.
+
+### 1. State our constraints
+
+Write down what actually binds us before looking at anything: team size,
+infrastructure we have and lack, what the data model already commits to, what is
+gated or paid, policy positions, and what we have deliberately chosen not to
+build.
+
+**Constraints are a research input, not a filter applied to the results.** They
+change the question — *&quot;how does this mechanic work&quot;* and *&quot;how does this
+mechanic work without push notifications&quot;* return different sources, and only the
+second is usable. They also change what &quot;best&quot; means: the best implementation for
+a team with a data science function is not the best one for us. Ask who solved
+this **under constraints like ours**; the scrappier answer usually fits better
+than the market leader&#x27;s.
+
+Then classify each, because most stated constraints are not the kind that binds:
+
+| Kind | Test | What to do |
+|---|---|---|
+| **Hard** | Physics, platform policy, money that does not exist | Design around it |
+| **Assumed** | &quot;We can&#x27;t do X&quot; — has anyone actually checked? | Verify before designing around it |
+| **Expiring** | True now, dissolving on a known timeline | Design for after, ship for now |
+| **Self-imposed** | A choice we made and could unmake | Revisitable — but price the reversal |
+| **Capacity** | We do not know how, or have no time | A scope or learning question, not an architecture one |
+
+Research is how you find out which kind each one is. A constraint that survives a
+deliberate search for counterexamples is real; one that dissolves on contact was
+quietly costing us options. Search for both — someone shipping this under our
+constraint, and someone for whom the constraint has already expired.
+
+**The symmetry that matters:** a constraint binding us and not them explains why
+their solution will not transfer. A constraint binding them and not us is an
+opening (see [finding-gaps.md](finding-gaps.md)). Most of the strategy lives in
+that difference, so state both sides explicitly rather than only ours.
+
+### 2. List targets
+
+Two axes. They answer different questions, and using only one is the most common
+way this research goes wrong.
+
+**In-segment competitors** — what the market expects, pricing, table stakes, and
+where the gaps are. For *facts about the category*, one verified datapoint from a
+product in the exact category outweighs a pile of material from a household name
+in a different one. Include the **indirect** ones: the spreadsheet, the agency,
+and the adjacent tool people use instead are competitors that never appear on a
+comparison page, and they hold the honest answer to &quot;what do they do today&quot;. Note
+each target&#x27;s position — leader, challenger, or niche — because it changes how to
+read their choices. A leader&#x27;s pricing defends a base; a challenger&#x27;s buys share.
+
+**Best-in-class by mechanic, any domain** — how to design the thing well.
+Competitors copy each other, so a segment converges on a local optimum. Decompose
+the feature to its abstract mechanic and find whoever does that best regardless
+of industry — reverse bidding is solved by freelance marketplaces and by freight
+brokers and construction tendering, and the unlike pair teaches more than either
+alone. See [finding-analogues.md](finding-analogues.md).
+
+Searching only in-segment produces a product that matches its competitors and
+beats nobody. Searching only cross-domain produces a mechanic that is elegant and
+ignores what the market already demands.
+
+### 3–6. Sweep four tiers
+
+| Tier | Source | Yields |
+|---|---|---|
+| 1. What they say | Docs, help centre, official blog, pricing page | Exact thresholds, tiers, caps, prices |
+| 2. What they measured | Published experiments, engineering posts, earnings calls | Effect sizes, adoption numbers |
+| 3. What the literature says | Peer-reviewed work on the underlying mechanism | Failure modes nobody in the space advertises |
+| 4. What users say | Store reviews, Reddit, support forums, changelogs | Unfilled gaps and the constraints behind them; why users stay, and why they switch |
+
+Budget for tiers 3 and 4. Tier 3 is where the finding lives that contradicts what
+every competitor page implies. Tier 4 is where the openings are — and where a
+recurring complaint that survives for years reveals an architectural boundary the
+competitor cannot move.
+
+**Tier 4 has its own method: see [finding-gaps.md](finding-gaps.md).** Recurring
+complaint → why it is unfixed → whether we can fill it. The middle step is the one
+that pays, and skipping it turns a moat into a roadmap.
+
+#### Tier 3 questions that pay
+
+Every competitor shipping a mechanic is evidence that it is popular, not that it
+works. Ask the literature:
+
+- **Does it work for everyone, or does the average hide a harmed subgroup?**
+  Aggregate effects routinely conceal opposite-signed subgroup effects, and the
+  people a feature helps most are often not the people it is aimed at. Always
+  look for results broken out by baseline engagement, experience, or intensity —
+  this is the single highest-yield question in the tier.
+- **How big is the effect, honestly?** &quot;Statistically significant&quot; and &quot;worth
+  building&quot; are different claims. Get the number and judge it.
+- **Does it decay?** Many engagement effects fade within weeks of onboarding. A
+  result measured at two weeks and a result measured at six months are different
+  findings.
+- **What is the documented failure mode?** Anything widely shipped has one; the
+  vendors will not be the ones to publish it.
+
+These are what turn &quot;competitors all have X&quot; into a decision about whether *we*
+should.
+
+#### Why they stay, and why they leave
+
+Tier 4&#x27;s other half. Complaints tell you what is broken; they do not tell you
+what is load-bearing. Both halves come from the same corpus and most sweeps
+collect only the negative one.
+
+- **Satisfaction drivers** — what users praise unprompted, and what they say they
+  would not give up. This is the category&#x27;s real table stakes, which is rarely
+  the same list as its marketed features. Anything here is something we must
+  match or consciously decide to lose.
+- **Switching triggers** — what made someone actually move, in their own words.
+  The strongest signal in competitive research, because it is revealed preference
+  rather than a stated wish. Search for migration posts, &quot;moved from X to Y&quot;, and
+  the comparison threads users write for each other.
+- **Churn reasons** — why they left and did *not* arrive anywhere. Different from
+  switching: it usually means the category failed them, not the product, and it
+  bounds how much of the market is actually addressable.
+
+A requested feature and a switching trigger are different objects. Feature
+requests are cheap to voice and routinely go unused when shipped; a switching
+trigger already cost someone the effort of migrating. When the two disagree,
+weight the trigger and say so.
+
+### 7. Market structure
+
+Size, price, and segments. All three ride the same tiers and the same grading,
+and all three are where an unsourced number does the most damage.
+
+#### Sizing the market
+
+Market size, growth rate, and segment breakdown ride the same tiers, but they are
+the **most folklore-prone class of claim in this skill** — a single paid industry
+report gets summarised by a dozen blogs, and the summaries cite each other until
+the number looks like consensus. Treat every headline TAM as `[?]` until the
+primary is open.
+
+| Want | Go to | Grade reality |
+|---|---|---|
+| Market size, CAGR | The report&#x27;s own methodology page or press release; regulator and statistics-office data | The blog quoting a paywalled report is `[S]` at best, and often `[?]` |
+| Segment breakdown | Public filings and earnings decks of listed players | `[P]`, and usually the only honest segment numbers available |
+| Growth direction | Funding rounds, job-posting volume, new entrants | Directional evidence, never a size figure |
+
+State the **basis and the geography** of any size number. Basis: top-down from an
+analyst&#x27;s total, or bottom-up from price × observable users — the two disagree
+routinely, and a report that does not say which it used cannot be checked.
+Geography: &quot;$4.2B market&quot; is a different claim for global, US, and EMEA, and the
+folklore chain this section exists to break routinely launders one into another.
+A figure with neither is uncheckable twice over. Where the primary is paywalled,
+that is a finding: *&quot;figure traces to a paid report; methodology not public&quot;* is
+worth more than repeating the number.
+
+#### Reading the pricing structure
+
+Tier 1 collects the numbers off the pricing page. The structure behind them is
+the finding.
+
+- **The list price is not the paid price.** Annual discounts, promotional rates,
+  and negotiated enterprise deals all sit below the published figure, and in B2B
+  the published figure may be fiction. Treat a pricing page as `[P]` for *what
+  they advertise* and `[?]` for *what anyone actually pays*.
+- **The paywall boundary is a statement of belief.** What sits in the free tier
+  is their acquisition strategy; the first thing behind the wall is what they
+  believe is worth money. That boundary moves more than prices do — track where
+  it has moved.
+- **Model distribution is a category convention.** Count how many competitors
+  price per seat, per usage, flat, or hybrid. A convention is what buyers are
+  set up to approve; deviating from it is a real cost, and it needs a reason
+  stronger than &quot;ours is fairer&quot;.
+- **Bands, not points.** Where does the category cluster at the low, mid, and
+  premium ends, and what capability marks each jump? A recommendation is a band
+  plus the differentiator that justifies sitting where it sits.
+
+A positioning recommendation that names a price without naming what makes it
+defensible is not a finding.
+
+#### Underserved segments and &quot;blue ocean&quot;
+
+Segment-level gaps, as distinct from the feature-level ones in
+[finding-gaps.md](finding-gaps.md) — and the same base rate applies, harder. **An
+unserved segment is usually unserved because it does not pay.** A market with no
+competitors is far more often no market than an open one.
+
+Separate two things the phrase &quot;blue ocean&quot; runs together:
+
+| | Signal | Verdict |
+|---|---|---|
+| **Underserved** | They pay today, for a tool built for someone else, and complain about the fit | The real opportunity class |
+| **Unserved** | Nobody sells to them; no adjacent spend visible | Usually not a market. Prove demand before believing it. |
+
+The evidence that separates them is **existing spend and existing workarounds**.
+A segment cobbling together a spreadsheet and two tools has already told you the
+budget exists and the job is real. A segment doing nothing has told you nothing.
+Look for: adjacent tools they already buy, agencies or consultants serving them
+manually, and templates or scripts they share with each other — the last is the
+strongest, because someone built it without being paid.
+
+Report an opportunity as: who they are, what they do today instead, what they
+already spend, and what evidence says they would move. Missing the third and
+fourth turns the section back into the wish-list this skill exists to avoid.
+
+### 8. Chase secondary claims
+
+Grade every claim inline. This single habit forces a provenance check per claim
+instead of blending everything into equal-authority prose.
+
+| Mark | Means |
+|---|---|
+| `[P]` | Primary: official docs, company blog, filing, peer-reviewed paper, the API reference itself |
+| `[S]` | Credible secondary: a reporter or practitioner who cites their source |
+| `[?]` | Unverified. **Do not build on.** Always say which kind: `[?] unchecked` — nobody looked yet; or `[?] no primary` — someone looked and none exists |
+| `[A]` | Our own analysis. No source claims it; we inferred it from the graded claims around it. Say what it rests on |
+
+`[A]` exists because in-house judgement has nowhere else to go. It is not `[P]`
+or `[S]` — nobody published it — and it is not `[?]`, which says *do not build
+on*, while a write-up&#x27;s conclusions are exactly what the reader must build on.
+Left unmarked, analysis borrows the authority of the graded rows beside it; left
+as `[S]`, it impersonates a source. Mark it and the reader can weigh it.
+
+The two kinds of `[?]` are opposite objects and one mark hides the difference:
+`unchecked` is unfinished work, while `no primary` is a completed search with a
+negative result — the very finding this skill exists to produce. Collapsing them
+is how a real result gets re-opened as a to-do, or worse, quietly re-added.
+
+**Provenance is not confidence.** The researcher contract already returns
+`conf: high|med|low`, which tracks corroboration; this mark tracks where the claim
+came from. They are different axes and both belong on the line. A number repeated
+by six independent secondaries with no primary behind it is high-agreement
+folklore — high `conf`, still `[?]`, and the most dangerous shape a finding takes.
+
+If everything comes out `[S]`, the sweep is not finished. Open the source each
+`[S]` claims to quote. Either it says what was claimed — promote to `[P]` — or it
+does not, which is a finding:
+
+&gt; ⚠️ &quot;Leagues → +25% lesson completion&quot; is uncited folklore. The company blog
+&gt; confirms completions rose but publishes no percentage. Do not use it.
+
+**A widely-repeated number with no primary source is a result, not a dead end.**
+Name it so nobody re-adds it later.
+
+### 9. Write up
+
+Structure (adapt sections to the subject):
+
+```markdown
+## Scope note
+Which sections are solid, which are thin. Up front, not buried.
+
+## &lt;Target 1&gt; — &lt;in-segment, or the analogue&#x27;s source domain&gt;
+Mechanics in tables, numbers not adjectives. [P]/[S]/[?] on every claim.
+URLs inline. For an out-of-segment analogue, name the domain it came
+from and how far the analogy stretches.
+
+## Design theory / underlying evidence
+Tier 3. Including what argues against the obvious approach.
+
+## Market structure
+Size with its basis and grade, pricing bands and the paywall boundary,
+segment breakdown. Underserved segments with the spend that proves them.
+
+## Gaps and constraints
+Tier 4. Recurring complaints, why each is unfixed, what that implies
+about their architecture, and which are real openings versus traps.
+Alongside them: what users refuse to give up, and what made switchers
+actually move.
+
+## Could not verify
+Every open question, named.
+
+## Sources
+One line per source on what it covers.
+```
+
+**Never pad a gap.** State it in one line and move on:
+
+&gt; **This section is thin.** No verified data on the three smaller entrants.
+
+Under a heading with nothing beneath it, the default pull is to write plausible
+prose. A visible gap is cheap; a papered-over gap costs whatever gets built on it.
+
+### 10. Close with transfer analysis
+
+Opinionated, concrete about structural differences between their context and ours.
+This is the deliverable — a data dump is not. Say what to copy, what to invert,
+and what to ignore.
+
+**The further a source sits from our segment, the more this section has to
+carry.** An in-segment finding mostly transfers by default; a cross-domain
+mechanic transfers only where the structural dimensions match, and inverts where
+they do not. Work through the mismatches named in
+[finding-analogues.md](finding-analogues.md) rather than asserting the analogy
+holds.
+
+**Report back on the constraints from step 1.** For each one, say what the
+research did to it: confirmed as hard, dissolved by a counterexample, found to be
+expiring on a known timeline, or untested. A constraint that turned out not to
+bind is often the most valuable finding in the report, because it reopens options
+that were already written off — and a recommendation that quietly assumes a
+constraint away must say so out loud.
+
+**Correct the brief.** If the request named a source, person, or premise that does
+not check out, say so plainly. Research that only confirms its own framing is
+worth nothing.
+
+### 11. File the report
+
+Write the report to `.agents/knowledge/research/YYYY-MM-DD-&lt;subject&gt;.md`, then
+add its line to `.agents/knowledge/index.md`. The entry contract — frontmatter
+fields, index line shape, and why an entry is never revised in place — is in
+`.agents/knowledge/README.md`. Read it once; do not restate it here.
+
+File the report you wrote, whole. The grades, the thin-section warnings, and the
+&quot;Could not verify&quot; list are what make it re-readable months later; a version
+trimmed to conclusions is a set of unsourced assertions, which is the object
+this skill exists to avoid producing.
+
+Answer the caller in the same turn. The file is the record, not the reply.
+
+## Delegating
+
+Scope first:
+
+- **Bounded question, one known target** — do it inline. No cell.
+- **3–6 targets** — one researcher, prioritised list, single time-box.
+- **Broad sweep** — one researcher per target, **capped at eight**. Split by
+  **target**, never by dimension: sources cluster by organisation, so a
+  per-dimension split makes every researcher re-find the same pages. Past eight,
+  prioritise the target list rather than widening the fan — each cell runs
+  unmetered searches, and a sweep nobody reads costs the same as one that lands.
+&lt;!-- colloid-only --&gt;
+
+For Kimi, generate the required stamp before dispatch:
+
+```sh
+.agents/genome.sh mycelium --register none      # single sweep: trace every source
+.agents/genome.sh --count 4 --register none     # fan-out: N distinct stamps
+```
+
+**Mycelium** is the natural genome for a single Kimi sweep — it traces provenance
+three hops out and is hard to surprise. For a Kimi fan-out, `--count N` draws
+distinct stamps so the targets are not all read through the same lens. The
+Claude Code and Codex lifecycle hooks perform their own sortition.
+
+`--register none` is load-bearing on both lines. `--register` defaults to
+`panspermia`, which instructs a cell to *&quot;dream weirder&quot;* and prefer wild
+conjecture over a safe answer — the exact opposite of a contract whose first rule
+is never to assert what it did not read in a source this run.
+&lt;!-- /colloid-only --&gt;
+
+**Delegation is an accelerant, not a dependency.** Where the engine exposes a
+subagent mechanism, use it; where it does not, work the targets in sequence in
+this session against the same contract. The method does not change — only whether
+the sweeps run concurrently in isolated context.
+
+&lt;!-- colloid-only --&gt;
+| Engine | Dispatch |
+|---|---|
+| Claude Code | `Task(subagent_type=&#x27;researcher&#x27;, prompt=&#x27;[brief]&#x27;)` — pins the cell to Sonnet; `SubagentStart` injects its genome |
+| Codex | dispatch the `researcher` agent; `SubagentStart` injects its genome |
+| Kimi CLI | the `Agent` tool; prepend one genome and `.agents/personas/researcher.md` to the prompt |
+| Engine with no subagent primitive | apply `.agents/personas/researcher.md` yourself, then work each target in sequence |
+
+Kimi receives `prompt=&#x27;[stamp] + [brief]&#x27;`. Kimi CLI also exposes `AgentSwarm`,
+which fits the broad-sweep fan-out better than one `Agent` call per target.
+&lt;!-- /colloid-only --&gt;
+
+`.agents/personas/researcher.md` is the engine-neutral contract and already
+carries the escalation ladder, the corroboration rules, and the
+`CLAIMS / SOURCES / GAPS` return shape — the brief does not restate them. It
+carries the market-research-specific part: see
+[brief-template.md](brief-template.md), plus [finding-gaps.md](finding-gaps.md)
+when the target includes a gap sweep.
+
+**Synthesis never delegates.** Researchers return graded findings; the caller
+writes the transfer analysis.
+
+## Failure modes
+
+**A cell that stalls waiting for a hand-off.** A researcher that decomposes its
+job and waits for input that is never coming waits forever and delivers nothing.
+The cell contract already forbids it from dispatching, so the recovery is the
+orchestrator&#x27;s: **resume the stalled cell with the instruction it is missing —
+*&quot;you are the only agent on this; compile from your own work&quot;* — rather than
+restarting it.** A restart discards everything it had already found. Fan-out
+makes this more likely, not less, because a stall is easy to miss among cells
+that returned.
+
+**Laundering secondary into primary.** A blog citing &quot;their data&quot; is `[S]`. It
+becomes `[P]` on opening their post and seeing the number.
+
+**Equal weight to unequal sources.** Rendering a meta-analysis and a listicle in
+the same voice is the most damaging thing a report can do.
+
+**Answering the brief&#x27;s framing instead of the question.** If the brief assumes a
+daily mechanic and the evidence says weekly, lead with that.
+
+**Freshness drift.** Thresholds, prices, and tiers change. Prefer the primary page
+over any summary of it, and note what was read directly.
+
+**Treating a size figure as a fact.** See *Sizing the market* — the headline
+number is the least verified thing in most reports.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Craft</div><h3>mobile-responsive-web</h3><p>Mobile-first correctness with a premium feel: viewport units, container queries, fluid type, touch targets, safe-area insets, Core Web Vitals, and mandatory real-device testing.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 257 lines</span></summary><div class="srcpath">.agents/skills/mobile-responsive-web/SKILL.md</div><pre><code>---
+name: mobile-responsive-web
+description: &gt;
+  Make web pages and components fully mobile responsive with a premium,
+  mobile-first feel. Use when the user reports mobile layout issues
+  (text overflow, truncation, cramped spacing, poor touch targets,
+  broken grids, hero cut off behind the address bar, layout shift,
+  sluggish taps), asks to &quot;make it mobile friendly/responsive&quot;,
+  optimise Core Web Vitals on mobile, or when building new pages /
+  components that must work cleanly across breakpoints, notched
+  devices, and 200% font scale. Tuned for Next.js 15 + React +
+  Tailwind CSS + Framer Motion + shadcn/ui. Covers viewport units
+  (svh/dvh/lvh), container queries, fluid typography with clamp(),
+  responsive images (Next Image, picture, srcset, AVIF/WebP), touch
+  targets and hover/pointer media queries, safe-area insets,
+  Core Web Vitals (LCP/INP/CLS), and mandatory real-device testing.
+---
+
+# Mobile Responsive Web Skill
+
+Design constraint-aware components: a card, form, or hero must render
+correctly in a sidebar, a modal, a full-bleed section, or the main column.
+
+## Principles (The Foundation)
+
+These are non-negotiable. Full detail and examples in
+[references/modern-css.md](./references/modern-css.md).
+
+1. **Mobile-first CSS.** Author base styles for the smallest viewport;
+   layer `sm:` / `md:` / `lg:` on top. `max-width` queries are banned.
+2. **`svh` for heroes, `dvh` for bottom-anchored.** Never `100vh` /
+   `min-h-screen` — it overflows behind the iOS address bar.
+3. **Fluid typography via `clamp()`.** Not breakpoint ladders. Pair
+   with `break-words`; never `text-balance` on long headings.
+4. **Container queries for reusable components.** When a card lives in
+   multiple slots, switch from media queries to container queries.
+5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2 sets 24 px as
+   the floor; this project uses 48 px as the standard.
+6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)`
+   / Tailwind `hover:*`, and never hide critical info behind hover.
+7. **Safe-area insets on notched devices.** `viewport-fit=cover` +
+   `env(safe-area-inset-*)` for fixed bars and full-bleed content.
+8. **No input `font-size &lt; 16px`.** iOS Safari zooms on focus below 16 px.
+9. **CWV is a design constraint.** LCP, INP, and CLS are evaluated on
+   the mobile crawl; they are not a post-launch audit.
+
+## Core Workflow
+
+Follow this 5-step process for every responsive fix:
+
+### 1. Audit — Screenshot Current State
+
+Capture the page at mobile viewport **before touching any code**.
+
+```typescript
+const viewports = [
+  { width: 390, height: 844, name: &#x27;iPhone-14&#x27; },    // Modern iPhone
+  { width: 375, height: 667, name: &#x27;iPhone-SE&#x27; },    // Small phone
+  { width: 768, height: 1024, name: &#x27;iPad-Mini&#x27; },   // Tablet
+]
+```
+
+Take full-page + hero + scrolled section screenshots. Identify: text
+overflow, truncation, cramped spacing, collapsed images, overlapping
+elements, lazy sections that never load, jank on address-bar show/hide.
+
+### 2. Fix Hero &amp; Above-the-Fold First
+
+Highest-impact area; also the LCP element. See
+[references/component-patterns.md](./references/component-patterns.md)
+for hero patterns and [references/performance-cwv.md](./references/performance-cwv.md)
+for LCP rules.
+
+### 3. Fix Content Sections Top-to-Bottom
+
+Work through [references/audit-checklist.md](./references/audit-checklist.md).
+
+### 4. Fix Navigation &amp; Fixed Elements
+
+Bottom bars, scroll indicators, and sticky CTAs must clear the home
+indicator via safe-area padding.
+
+### 5. Verify — Screenshots + Mandatory Scenarios
+
+Re-screenshot, then run through the mandatory test scenarios in
+[references/viewport-testing.md](./references/viewport-testing.md)
+(portrait, landscape, landscape + keyboard, 200% font scale, notched
+device, Slow 4G Lighthouse). Run `bun run typecheck` and `bun run lint`.
+
+## Codebase Conventions
+
+### Tailwind Breakpoints
+
+| Breakpoint | Width | Use for |
+|-----------|-------|---------|
+| `sm:` | 640px | Minor adjustments |
+| `md:` | 768px | Major layout shifts (2-col → 1-col) |
+| `lg:` | 1024px | Desktop layouts |
+
+**Always mobile-first**: start with the mobile style, add `md:` / `lg:` for
+larger screens.
+
+### Container
+
+The `Container` component wraps with `mx-auto px-4` only — it does **not**
+constrain inner content width. Pair it with your own `max-w-5xl`,
+`max-w-2xl`, etc.
+
+### Spacing Scale
+
+Progressive padding — never a single-step value:
+
+```tsx
+&lt;section className=&#x27;py-10 md:py-16&#x27;&gt;        {/* sections */}
+&lt;div     className=&#x27;p-3 sm:p-6&#x27;&gt;             {/* cards */}
+&lt;ul      className=&#x27;grid gap-3 sm:gap-6&#x27;&gt;    {/* grids */}
+&lt;h2      className=&#x27;mb-3 sm:mb-4 md:mb-6&#x27;&gt;   {/* headings */}
+```
+
+Use `gap-*` on containers, not margins on children.
+
+### Typography
+
+```tsx
+// Section heading — Tailwind step progression is fine here
+&lt;h2 className=&#x27;text-2xl font-bold sm:text-3xl md:text-4xl&#x27;&gt;
+
+// Hero — use clamp() so it scales smoothly and never breaks mid-word
+&lt;h1
+  className=&#x27;break-words font-bold leading-tight&#x27;
+  style={{ fontSize: &#x27;clamp(1.375rem, 4vw + 0.5rem, 4rem)&#x27; }}
+&gt;
+```
+
+### Hero Height
+
+```tsx
+// ✅ Stable, no first-paint overflow
+&lt;section className=&#x27;relative min-h-[100svh]&#x27;&gt;
+
+// ❌ Overflows behind iOS address bar
+&lt;section className=&#x27;relative min-h-screen&#x27;&gt;
+```
+
+### Form Inputs
+
+```tsx
+// Mobile-premium: label hidden, placeholder + icon
+&lt;div className=&#x27;relative&#x27;&gt;
+  &lt;MapPin className=&#x27;absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 md:hidden&#x27; /&gt;
+  &lt;Input
+    placeholder=&#x27;Where do you want to go?&#x27;
+    className=&#x27;min-h-11 rounded-xl pl-10 text-base md:text-sm&#x27;
+  /&gt;
+&lt;/div&gt;
+
+&lt;FormLabel className=&#x27;hidden md:block&#x27;&gt;Destination&lt;/FormLabel&gt;
+```
+
+`text-base` (16 px) on mobile input prevents iOS focus-zoom.
+
+### Safe-Area Insets
+
+```tsx
+// Fixed bottom CTA bar clears the home indicator
+&lt;nav className=&#x27;fixed inset-x-0 bottom-0 pb-[max(env(safe-area-inset-bottom),1rem)]&#x27;&gt;
+
+// Full-bleed hero clears the notch
+&lt;section className=&#x27;pt-[max(env(safe-area-inset-top),1rem)]&#x27;&gt;
+```
+
+Requires `&lt;meta name=&#x27;viewport&#x27; content=&#x27;width=device-width, initial-scale=1, viewport-fit=cover&#x27;&gt;`
+in the root layout.
+
+### Z-Index Hierarchy
+
+```
+z-[100] — Mobile scroll indicator (above everything)
+z-50    — Header, mobile menu panel
+z-40    — Backdrops, overlays
+z-30    — Ribbons, badges
+z-20    — Floating action buttons
+z-10    — Card overlays, gradients
+```
+
+## Quick Reference
+
+| Problem | Fix |
+|---------|-----|
+| Hero cut off behind address bar | `min-h-[100svh]`, not `min-h-screen` |
+| Modal / bottom sheet jumps on scroll | `dvh` on that element only |
+| Text breaks mid-word | `break-words` + reduce `clamp()` minimum |
+| iOS zooms when tapping input | `text-base` (16 px) on the input |
+| `py-16` too much on mobile | `py-10 md:py-16` |
+| Trust badge text truncates | Vertical mobile layout, `break-words`, smaller text |
+| Card image collapses when row re-stacks | `aspect-[16/10] md:aspect-auto` |
+| Card reused in narrow + wide slots | Container query (`@container` + `@md:*`) |
+| Search form feels basic | Remove labels, `rounded-xl`, `min-h-11`, hover shadows |
+| Menu feels cheap | Full-screen slide-from-right panel, staggered items |
+| Hover tooltip hides mobile info | Make it tap-to-reveal, gate hover with `@media (hover)` |
+| Scroll indicator hidden on light bg | `z-[100]`, strong shadow, solid `bg-white` |
+| Lazy content not loading in test | Smooth scroll (not jump) to trigger observer |
+| Dropdown / popover clipped by parent | Remove `overflow-hidden` from ancestor Card/container |
+| Sidebar stacks above content on mobile | Move to bottom sheet (see pattern below) |
+| Duplicate count/label when columns stack | Hide one with `hidden sm:block` on the outer element |
+| Button group overflows on mobile | `flex flex-wrap gap-2`, never bare `flex gap-2` |
+| Tap targets feel small | `min-h-11` minimum, `pointer-coarse:min-h-12` |
+| Bottom CTA clipped on iPhone | `pb-[max(env(safe-area-inset-bottom),1rem)]` |
+| LCP &gt; 2.5 s on mobile | `priority` + `fetchPriority=&#x27;high&#x27;` + correct `sizes` on LCP image only |
+| INP &gt; 200 ms | Defer third-party scripts, split long tasks, trim DOM |
+| CLS &gt; 0.1 | Set `width`/`height` on every image; size skeletons to final dims |
+
+## Critical Cross-Viewport Traps
+
+### A mobile fix must never break desktop (and vice versa)
+
+When fixing a mobile-specific bug, always verify the same interaction still works
+on desktop. Common breakage patterns:
+
+| Mobile bug | Naive fix | Desktop breakage |
+|-----------|-----------|------------------|
+| Dropdown auto-reopens after selection | Block `onFocus` + `useEffect` with a ref | Desktop user can&#x27;t click back into input to see suggestions |
+| `overflow-hidden` clips dropdown on mobile | Add `overflow-visible` only on mobile | Inconsistent stacking contexts, z-index bugs |
+| Touch targets too small | Increase padding globally | Desktop layout shifts, forms look bloated |
+| Sidebar → drawer on mobile | Move filters into sheet, delete sidebar code | Desktop loses sidebar entirely |
+
+**Rule**: Test the *exact same user flow* on both viewports after any interaction
+fix. The fix in this codebase for the dropdown auto-reopen was to block *only*
+the `useEffect` auto-open path (which fires when GraphQL results return), while
+leaving `onFocus` (manual user intent) untouched. A ref named `suppressAutoOpenRef`
+makes this intent explicit — it does NOT suppress manual reopen.
+
+Worked case studies for this trap class (Card `overflow-hidden` clipping,
+sidebar → bottom sheet, stacked duplicate content, button-group wrap) live in
+[references/anti-patterns.md](./references/anti-patterns.md) under
+&quot;Cross-viewport trap case studies&quot;.
+
+## Resources
+
+- **[references/modern-css.md](./references/modern-css.md)** — Mobile-first
+  architecture, `svh`/`dvh`/`lvh`, container queries, fluid `clamp()`,
+  hover/pointer queries, safe-area insets.
+- **[references/responsive-images.md](./references/responsive-images.md)** —
+  Next.js `&lt;Image&gt;`, `&lt;picture&gt;` art direction, srcset/sizes, AVIF/WebP,
+  DPR cap, CLS prevention.
+- **[references/performance-cwv.md](./references/performance-cwv.md)** —
+  LCP/INP/CLS optimisation focused on mobile and on this project&#x27;s stack.
+- **[references/component-patterns.md](./references/component-patterns.md)** —
+  Codebase-specific component shapes (hero, search form, card grids,
+  mobile menu, scroll indicator).
+- **[references/audit-checklist.md](./references/audit-checklist.md)** —
+  Full pre-ship checklist grouped by concern.
+- **[references/viewport-testing.md](./references/viewport-testing.md)** —
+  Playwright flows and mandatory test scenarios (orientation, 200% font,
+  safe area, Lighthouse).
+- **[references/anti-patterns.md](./references/anti-patterns.md)** — Fast
+  lookup table of what will get flagged in review.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Craft</div><h3>react-native-expert</h3><p>React Native and Expo patterns: rendering safety, list performance, navigation, platform divergence, Reanimated, React Compiler compatibility, and Expo monorepo build configuration.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 153 lines</span></summary><div class="srcpath">.agents/skills/react-native-expert/SKILL.md</div><pre><code>---
+name: react-native-expert
+description: &quot;React Native and Expo engineering patterns: modular-monolith architecture, rendering safety, component and list performance, navigation, platform-specific code, image handling, native UI primitives, animations with Reanimated, React Compiler compatibility, state, fonts, monorepos, storage, and testing. Use when building or reviewing React Native or Expo code, when a mobile screen crashes on render or drops frames in a long list, when navigation or deep linking needs wiring, when platform behaviour diverges between iOS and Android, when a component must be made compiler-safe, or when an Expo native dependency needs monorepo or build configuration. Trigger terms: react-native, react native, expo, mobile, iOS, Android, NativeWind, Reanimated, FlatList, FlashList, React Navigation, safe area, native module, Expo fonts, monorepo.&quot;
+---
+
+# React Native Expert Skill
+
+Expert-level React Native patterns, mobile-specific optimizations, navigation, and platform handling.
+
+---
+
+## Project Structure
+
+Organize by **feature module**, not by technical layer. A tree of
+`components/`, `screens/`, and `services/` couples every feature to every
+other one and stops any of them being deletable.
+
+```
+src/
+├── app/                  # Routes and composition only
+├── modules/              # Self-contained feature modules
+│   └── &lt;feature&gt;/        # Owns its screens, components, hooks,
+│                         # services, types, stores, validations
+└── shared/               # Primitives used by 2+ modules
+```
+
+A module must be deletable without breaking unrelated features, and must not
+import from another module — promote the shared thing to `src/shared/` on the
+second consumer. Module boundaries, the promotion rule, and the dependency
+direction are in [architecture.md](architecture.md).
+
+Below a handful of screens, a flat layer tree is not yet wrong; the module
+split is what carries an app past that point, so start there rather than
+migrating later.
+
+---
+
+## Rendering Safety (CRITICAL)
+
+### Render text only inside `&lt;Text&gt;`
+
+Every string and text node must be a descendant of `&lt;Text&gt;`. React Native does
+not permit bare text inside `&lt;View&gt;`, `&lt;Pressable&gt;`, or another non-text
+component. See the [React Native Text
+documentation](https://reactnative.dev/docs/text).
+
+```tsx
+// ❌ BAD - a text node is a direct child of View
+&lt;View&gt;Hello&lt;/View&gt;
+
+// ✅ GOOD
+&lt;View&gt;&lt;Text&gt;Hello&lt;/Text&gt;&lt;/View&gt;
+```
+
+### Never use `&amp;&amp;` with potentially-falsy values
+
+Never write `{value &amp;&amp; &lt;Component /&gt;}` when `value` could be `0` or an empty
+string. Those are falsy but **JSX-renderable** — React Native tries to render the
+bare `0` or `&quot;&quot;` outside a `&lt;Text&gt;`, causing a **hard crash in production**. This
+is one of the most common React Native production crashes.
+
+```tsx
+// ❌ BAD - `count &amp;&amp; ...` renders a bare `0` when count is 0 → hard crash.
+// (`name &amp;&amp; ...` with name === &quot;&quot; renders nothing rather than crashing, but is
+// still a leak-prone smell — coerce it too.)
+function Profile({ name, count }: { name: string; count: number }) {
+  return (
+    &lt;View&gt;
+      {name &amp;&amp; &lt;Text&gt;{name}&lt;/Text&gt;}
+      {count &amp;&amp; &lt;Text&gt;{count} items&lt;/Text&gt;}
+    &lt;/View&gt;
+  );
+}
+// count === 0 renders a bare `0` outside &lt;Text&gt; → crash
+
+// ✅ GOOD - ternary with null
+function Profile({ name, count }: { name: string; count: number }) {
+  return (
+    &lt;View&gt;
+      {name ? &lt;Text&gt;{name}&lt;/Text&gt; : null}
+      {count ? &lt;Text&gt;{count} items&lt;/Text&gt; : null}
+    &lt;/View&gt;
+  );
+}
+
+// ✅ GOOD - explicit boolean coercion
+{!!name &amp;&amp; &lt;Text&gt;{name}&lt;/Text&gt;}
+{!!count &amp;&amp; &lt;Text&gt;{count} items&lt;/Text&gt;}
+
+// ✅ BEST - early return, then unconditional render
+function Profile({ name, count }: { name: string; count: number }) {
+  if (!name) return null;
+  return (
+    &lt;View&gt;
+      &lt;Text&gt;{name}&lt;/Text&gt;
+      {count &gt; 0 ? &lt;Text&gt;{count} items&lt;/Text&gt; : null}
+    &lt;/View&gt;
+  );
+}
+```
+
+**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react` to
+catch this automatically.
+
+---
+
+## Reference
+
+Read the file for the area in hand; each is self-contained.
+
+| Area | File |
+|---|---|
+| Module boundaries, dependency rules, promotion to `shared/` | [architecture.md](architecture.md) |
+| Component patterns, list performance, native UI primitives | [components-and-lists.md](components-and-lists.md) |
+| React Navigation, deep linking | [navigation.md](navigation.md) |
+| `Platform.select`, safe area, platform divergence | [platform.md](platform.md) |
+| `expo-image`, galleries, caching | [images.md](images.md) |
+| Reanimated, React Compiler compatibility | [animations.md](animations.md) |
+| Derived state, functional updates, local overrides | [state.md](state.md) |
+| Expo font integration | [fonts.md](fonts.md) |
+| Expo workspaces, native dependency alignment | [monorepos.md](monorepos.md) |
+| SecureStore, AsyncStorage, persistence | [storage.md](storage.md) |
+| React Native Testing Library | [testing.md](testing.md) |
+
+---
+
+## Quick Reference
+
+```toon
+checklist[20]{area,best_practice}:
+  Text,Render strings and text nodes only inside &lt;Text&gt;
+  Rendering,Never {falsy &amp;&amp; &lt;JSX&gt;} — use ternary or !! (0/&quot;&quot; crashes)
+  Lists,Default to LegendList or FlashList over FlatList
+  Images,expo-image (react-native-fast-image is deprecated)
+  Galleries,Galeria for lightbox and pinch-to-zoom
+  Menus,Zeego native dropdown and context menus
+  Modals,Native Modal formSheet over JS bottom sheets
+  Navigation,Type-safe with RootStackParamList
+  Architecture,Modular monolith — deletable src/modules/&lt;feature&gt;
+  Routing,src/app is routes and composition only
+  Logic,Business logic in hooks screens stay presentational
+  Styling,Detect project approach (NativeWind/StyleSheet)
+  Platform,Use Platform.select for differences
+  Animations,GestureDetector Gesture.Tap for press states
+  React Compiler,Use Reanimated 4 get/set only with Compiler and New Architecture
+  State,Derive presentation values and use functional setters for dependent updates
+  Fonts,Use the Expo font config plugin for native builds
+  Monorepos,Declare imports per workspace and deduplicate native modules
+  Storage,SecureStore for tokens AsyncStorage for prefs
+  Testing,React Native Testing Library
+```
+
+Source provenance is in [UPSTREAM.json](UPSTREAM.json).
+</code></pre></details>
+            </article>
       </div>
     </div>
   </section>
@@ -3382,7 +5490,7 @@ Commit fully to the distinctive vision and execute it without hedging.
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 108 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 109 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
 
 from pathlib import Path
@@ -3398,6 +5506,7 @@ def expected_links() -&gt; dict[Path, str]:
         Path(&quot;.claude/AGENTS.md&quot;): &quot;../.agents/claude/AGENTS.md&quot;,
         Path(&quot;.claude/CLAUDE.md&quot;): &quot;AGENTS.md&quot;,
         Path(&quot;.claude/settings.json&quot;): &quot;../.agents/claude/settings.json&quot;,
+        Path(&quot;.claude/output-styles/colloid.md&quot;): &quot;../../.agents/claude/output-style.md&quot;,
         Path(&quot;.claude/hooks/adapter.sh&quot;): &quot;../../.agents/claude/adapter.sh&quot;,
         Path(&quot;.claude/hooks/README.md&quot;): &quot;../../.agents/claude/README.md&quot;,
         Path(&quot;.codex/hooks.json&quot;): &quot;../.agents/codex/hooks.json&quot;,
@@ -3990,8 +6099,8 @@ is a manual snapshot until we set up the symlink/adapter wiring (canonical
 To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.md` here.
 </code></pre></details>
             </article>
-        <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a subagent reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b>. The same practice the contract fires at workflow steps 3 and 5.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 79 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+        <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a cell reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b> — with a severity floor so a speculative note cannot block the round. Fired at workflow steps 3 and 6.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 92 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
@@ -4041,6 +6150,17 @@ decision schema, ordered by cost to leave:
 
 `[P0|P1|P2 / &lt;class&gt;] &lt;file:line|artifact:section&gt; — evidence:&lt;reproduced|live|inspection|theoretical&gt;; recurrence:&lt;observed:evidence|not-found:sources|unknown:gap&gt;; trigger:&lt;state or event&gt;; risk:&lt;worst credible consequence&gt;; fix:&lt;narrow correction&gt;; next:&lt;operation and authorization&gt;; residual:&lt;remaining uncertainty&gt;; cost:&lt;implementation/review cost&gt;; recommendation:&lt;fix|accept|defer|redesign|stop&gt;`
 
+`P0` and `P1` block the round. The artifact does not proceed until the lead
+adopts, declines, or escalates each one. `P2` does not block. File it and
+continue. Fix a `P2` only when the lead already changes that code.
+
+Severity states the worst credible consequence. It does not state your
+confidence. A finding with `evidence:theoretical` must not exceed `P2`.
+
+A review that finds nothing is a result. Write `FINDINGS: none` in place of the
+list. Do not add a `P2` observation to a clean review. A finding you cannot
+defend costs the lead more time than it saves.
+
 Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
@@ -4065,8 +6185,10 @@ sources or `unknown`, never “first occurrence.”
 
 Do not repeat a completed review in the active context while the ask, plan, and
 artifact are unchanged and every finding is dispositioned. A changed artifact
-or new evidence reopens review. Fixes receive re-review. When the same class
-recurs, identify the shared subsystem and compare cumulative patch complexity
+or new evidence reopens review. Review a slice one time. A fix re-enters review
+only when it resolves a `P0`, or when it lands in a subsystem the round did not
+cover. A `P2` fix does not reopen a round. When the same class recurs,
+identify the shared subsystem and compare cumulative patch complexity
 with redesign; separate deadline containment from the long-term architecture.
 After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
@@ -4177,6 +6299,140 @@ The reporter is exempt from genome stamping — prepend NO stamp.
 &lt;!-- /colloid-only --&gt;
 </code></pre></details>
             </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>review-axes.md</h3><p>The catalogue the reviewer works: nine axes in three groups &mdash; contract and exposure, state and failure, system shape. The contract reads it by path and stops if it is missing, so the two files must ship together.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 33 lines</span></summary><div class="srcpath">.agents/playbooks/review-axes.md</div><pre><code># Static review axes
+
+Hostile review inspects source and intent. QA executes scenarios. Skip an axis
+that the artifact cannot exhibit; name every group you worked.
+
+## 1. Contract and exposure
+
+- **Intent and ambiguity** — the ask, plan, and artifact agree; two plausible
+  readings are reported, never chosen silently.
+- **Authority and abuse** — server-side authorization, privilege changes,
+  unmetered or replayable actions, unsafe input, injection, secrets, and delete
+  paths resist a hostile caller.
+- **External contract** — public API, persistence, and UI changes preserve the
+  stated contract or deliberately update every affected consumer.
+
+## 2. State and failure
+
+- **Data integrity** — races, check-then-act, non-atomic updates, ordering
+  assumptions, and duplicate processing cannot corrupt or lose state.
+- **Failure semantics** — an unavailable check is distinct from a negative;
+  errors reach an owner and batch-item failures are counted rather than hidden.
+- **Boundary ownership** — validation, normalization, and business rules live
+  at the boundary that can enforce them; no client-only or type-only invariant.
+
+## 3. System shape
+
+- **Cost and ceilings** — pagination, loop work, N+1 queries, reservoirs,
+  provider limits, and per-run blast radius have stated bounds or a finding.
+- **Structure** — dependencies point the right way, one source owns each fact,
+  duplication is justified below three callers, and abstractions match reality.
+- **Operability** — changes leave a diagnosable failure path, a usable rollback
+  or containment boundary where mutation is broad, and an executable QA target
+  or an explicit coverage gap.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Wrap</div><h3>breadcrumb-burndown.md</h3><p>Turns the deferred-work ledger back into action: each line gets acted on, refiled with what changed, or deleted.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 61 lines</span></summary><div class="srcpath">.agents/playbooks/breadcrumb-burndown.md</div><pre><code># Breadcrumb burndown
+
+`breadcrumbs.md` is a queue. A queue that only grows is a list, and the
+SessionStart hook shows ten of it. This playbook drains the queue.
+
+Run it when the operator asks, or when the count has grown for several sessions
+with nothing coming out. It is its own unit of work with its own budget — never
+fold it into the change that happened to add the last line.
+
+## Open with the count
+
+```sh
+grep -c &#x27;^- &#x27; .agents/breadcrumbs.md
+```
+
+That number is the receipt, before and after. Report both. A burndown that
+cannot state what it removed did not happen.
+
+## Classify every line
+
+Read the whole file once. Give each line exactly one disposition, with one line
+of reasoning. Classify from the line alone — a breadcrumb states its own case,
+and opening the code for all of them costs more than the queue is worth. Open
+the code only for what you are about to fix.
+
+| Disposition | Meaning | Where it goes |
+|---|---|---|
+| **Fix now** | Bounded work, and the line still describes the tree | Its own change; the line comes out with the fix |
+| **Convert** | Not work but a standing tradeoff — a condition, a trigger, a rework cost | A `### &lt;id&gt;` entry in `debt-log.md`; the line comes out |
+| **Delete** | Already done, no longer true, or refused | Straight out, with the reason in the burndown report |
+| **Escalate** | The line names an open operator decision | Stays, and the report asks the question |
+
+Three of these remove the line. &quot;Escalate&quot; is the only disposition that leaves
+one behind, and it must carry the question the operator has to answer — a line
+that has been re-read for months without a question attached is a **delete**,
+not an escalation.
+
+A line that would be fixed but is not bounded is not a fix — convert it, or
+escalate it. Do not leave it as a breadcrumb with a note.
+
+## One fix, one change
+
+Every **fix now** ships as its own change with its own verification. A burndown
+that lands twelve unrelated fixes in one commit cannot be reviewed and cannot be
+reverted. The line comes out in the same change as the fix, never before it.
+
+## A pattern across lines indicts a rule
+
+Several lines describing the same defect in different places are not N fixes.
+Name the rule, the missing test, or the shape that produced them, fix that, and
+close every line it covers in one change that cites the cause. Recurring
+breadcrumbs are the cheapest evidence the scaffold generates about itself:
+group the file by the path each line names, and a path holding many lines is
+describing a shape rather than a backlog.
+
+## Close with the count
+
+Report the starting count, the count now, and the per-disposition tally, each
+from a command. Then state what is left and why — the escalations, with their
+questions. An operator reading only the last paragraph must learn what they now
+have to decide.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Protocol</div><h3>learning-output-style.md</h3><p>The teaching register this repository runs in &mdash; explain the tradeoff next to the code that applies it, and offer a real decision rather than boilerplate. A vendored adaptation; its NOTICE file carries the license.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 31 lines</span></summary><div class="srcpath">.agents/playbooks/learning-output-style.md</div><pre><code>[learning-output-style:v1]
+
+# Learning output style
+
+Teach while you complete the task.
+
+- Explain each meaningful implementation choice near the work that it affects.
+  Focus on the trade-off, the repository constraint, and the code that applies
+  the choice. Do not explain routine setup.
+- Before and after a code change, use a short `★ Insight` block with two or
+  three facts that are specific to that change. Put the block in the
+  conversation, not in the repository.
+- At a genuine decision point, offer one focused contribution of 5-10
+  meaningful lines. Use a non-blocking question with a default to continue when
+  the host supports it. If the host cannot ask without stopping, state the
+  opportunity and continue with the recommended implementation.
+- When the user accepts the offer, prepare the surrounding code first. The
+  contribution must decide business logic, error behavior, an algorithm, data
+  shape, user experience, or architecture. State the options and their
+  trade-offs.
+- Do not hand off boilerplate, configuration, repetitive work, or an obvious
+  implementation. Do not create an unfinished placeholder before the user
+  accepts the offer. If the user declines or does not answer, complete the
+  recommended implementation and continue.
+- Keep the explanation concise. The task outcome remains the primary
+  deliverable.
+
+## Modified-source notice
+
+This playbook is a repository adaptation. See
+`learning-output-style.NOTICE.md` for source and license details.
+</code></pre></details>
+            </article>
       </div>
     </div>
   </section>
@@ -4195,7 +6451,7 @@ The reporter is exempt from genome stamping — prepend NO stamp.
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 43 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 50 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. One line each. Act on it, or delete the line.
 Surfaced at session start by `session-start.sh`.
@@ -4205,7 +6461,7 @@ Surfaced at session start by `session-start.sh`.
 - No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
 - Seed real invariants into the 5 content-free skill AGENTS.md files (frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — each ships `None recorded yet.` in one section. Open user decision: seed-on-demand vs delete-until-needed.
 - Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
-- `demo/scaffold-showcase.html` cards are hand-maintained while `embed-src.py` only refreshes the embedded source panels — add or remove a skill and the card must be edited by hand, or the page advertises something that does not exist. Consider generating the cards from the same manifest.
+- `demo/scaffold-showcase.html` cards are still hand-written: `embed-src.py` refreshes the source panel inside a card that exists and is silent about one that does not. `demo/check-inventory.py` now fails CI on the gap, so drift is caught rather than shipped, but adding a hook or skill still costs a hand-authored card plus a `MANIFEST` line. Generating the card from the manifest would close it.
 - Codex hook commands bootstrap through `$(git rev-parse --show-toplevel)`, so from a submodule, a worktree, or an unrelated repo the adapter is missing and every command exits 127 — Codex treats non-2 as `Failed` and continues, so `guard-destructive` silently stops guarding. `.claude`/`.kimi` resolve structure-relative from `${BASH_SOURCE[0]}`; Codex exposes no project-dir variable, and the payload&#x27;s `cwd` arrives too late to locate the adapter. Needs a CWD-independent root or a deliberate exit 0.
 - Codex custom roles cannot enforce the Claude persona tool allowlists, and Kimi has no generated persona routing. Revisit when either host exposes a project-scoped capability boundary; until then the handoff and sandbox are the enforceable limit.
 - `trust-hooks.py` read-modify-writes `~/.codex/config.toml`, which Codex itself also writes when the operator toggles a setting. `os.replace` prevents a torn file but not a lost update, and nothing serialises the two writers. Narrow window, no observed loss; a lockfile would close it if Codex ever writes that file on a schedule rather than on operator action.
@@ -4235,9 +6491,16 @@ Surfaced at session start by `session-start.sh`.
 - `scalability-audit` has no law for positive feedback under degradation — load rising as capacity falls, so the system stays broken after the trigger clears. The class is real and well-sourced (metastable failure: HotOS &#x27;21, OSDI &#x27;22, HotOS &#x27;25) and the mechanisms, taxonomy and remedies are all citable; see `.agents/knowledge/research/2026-08-13-occupancy-and-metastable-failure.md`. It was held for one reason: no ex-ante detection question exists, and the literature calls that an open problem as of 2025. The knowledge entry carries the full argument for why measurement is not the bar. Ship it when there is a heuristic worth standing behind — not before, because a law without a detection question is a slogan.
 - `demo/scaffold-showcase.html:282` hero lede says &quot;eight enforcement hooks, eight skills&quot;; counted, it is 15 skills (`.agents/skills/*/`) and 9 hook policies (`.agents/hooks/policy/*.sh`). The lede is hand-authored prose outside any `data-gen=&quot;1&quot;` block, so `embed-src.py` will never repair it — same defect class as the per-card blurbs, which is why those needed a manual fix too. The repo also disagrees with itself on the hook count: an earlier line in this file says &quot;11 hook policies&quot;. Reconcile the hook number against what actually exists, then fix the lede; consider whether counts belong in hand-authored demo prose at all, given both known instances went stale.
 - The `[A]` grade (our own analysis) was added to `market-researcher/SKILL.md` and `knowledge/README.md` after in-house judgement had nowhere legal to sit. Two existing entries predate it and need a sweep, not a rewrite — knowledge entries are dated observations and must not be revised to match later facts, so correct these by writing the grade fix into whatever entry supersedes them: `2026-08-06-agent-knowledge-base-patterns.md:29` grades an in-house inference as `[S]` (&quot;inferred from the &#x27;nightly notes&#x27; annotation&quot;), which is the exact laundering `[A]` exists to stop. Separately, the scale&#x27;s &quot;always say which kind&quot; rule for `[?]` is already unenforced at `2026-08-06-...:74` and `2026-08-07-...:52,:58` — the scale&#x27;s rules are under-enforced generally, and nothing checks them.
-- `AGENTS.md` §External actions is enforced on Claude only: `guard-publish.sh` forces the permission prompt on publish-shaped Bash/Artifact calls (git/gh/npm-family/docker and the vercel/netlify/wrangler/firebase/fly/railway deploy CLIs). Kimi and Codex sessions remain instruction-only — neither host exposes an ask-equivalent PreToolUse decision. Wire them when one does.
-- Two live checks the publish gate still needs, neither runnable headlessly: (1) confirm `permissionDecision: &quot;ask&quot;` overrides a `settings.local.json` allowlist entry for a gated command — if it does not, the gate is decorative for allowlisting operators; (2) time both PreToolUse hooks together (each measured ~430ms solo) to learn whether Claude runs matcher groups in parallel or serial; if serial, merge the two matcher entries.
-- `demo/scaffold-showcase.html` hand-maintained workflow card still shows a 5-step pipeline and &quot;workflow steps 3 and 5&quot; while `AGENTS.md` ships 6 steps with QA at 5. Hand-authored prose outside `data-gen` regions; `embed-src.py` cannot repair it. Refresh the card or stop hand-authoring counts in it.
+- `AGENTS.md` §External actions is enforced on Claude only: `guard-publish.sh` forces the permission prompt on outward Bash calls (git/gh/npm-family/docker and the vercel/netlify/wrangler/firebase/fly/railway deploy CLIs) and on every Artifact action outside its read set, and `.claude/settings.json` `permissions.ask` covers the plain forms declaratively. Kimi and Codex sessions remain instruction-only — neither host exposes an ask-equivalent PreToolUse decision. Wire them when one does.
+- The publish gate&#x27;s hook half still has no observation that a hook `permissionDecision: &quot;ask&quot;` overrides a `settings.local.json` allowlist entry; the permissions doc says hook decisions do not bypass deny/ask rules and is silent on `allow`. The declarative half is measured and settled — see `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md`, where a user-tier `permissions.ask` rule beat a project `allow` for the same command — so an allowlisting operator is covered whatever the hook does. What is unmeasured is the hook alone, on the shapes no prefix rule states (`git -C dir push`, `npx -p vercel vercel --prod`). Run those two in a live session with matching allow entries.
+- The `[P]`/`[S]`/`[?]`/`[A]` grade scale has no mark for a first-party measurement. `2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands that were run and outputs that were read, and grades them `[A]`, whose definition is inference from graded claims — &quot;no source claims it; we inferred it&quot;. A measurement is not an inference and is stronger than both, yet `[P]` would impersonate a published source. Either widen `[A]`&#x27;s definition to cover measurement-with-method, or add a mark for it; the scale&#x27;s own reasoning about why `[A]` exists applies with equal force here.
+- Whether Claude Code&#x27;s `Artifact` tool accepts a permission specifier (`Artifact(publish:*)`) or only the bare tool name is unchecked. It decides whether `permissions.ask` can be narrowed to the five mutating actions, which would stop the settings tier prompting on the four read actions `ARTIFACT_READ_ACTIONS` deliberately allows. Until then the bare rule prompts on reads, and prompt fatigue on read-only calls is the realistic path to an operator adding a blanket allow and losing the mutating gates with it.
+- Measure `guard-publish.sh` against representative session invocation counts and payload sizes before setting a runtime or input ceiling; the matched shell path currently imports the 411-line destructive-command parser on every call, but no trace yet shows a harmful bound.
+- `test-codex.sh`&#x27;s skip-Kimi-when-unwired branch (`f714aa8`) never executes here because this repo always ships `.kimi/config.toml.example`; the only run that exercises it is a transplant. Add a stripped fixture the way `test-export.sh` builds its lean kit, or accept that the branch is proven only in satellites.
+- Root `AGENTS.md` grew by ~12 lines of prose (vendored instructions, fixes in the repo, comments, tooling, naming) while the mined corrections say prose is the weak lever; the offsetting cut — the delegation table&#x27;s invocation mechanics, replaced by when-to-delegate triggers — was declined as beyond low-hanging fruit. Make the cut when the section is next touched.
+- `ui-gate.sh` keys pending edits on `session_id`; whether a spawned subagent&#x27;s PostToolUse payload carries the parent&#x27;s id is unobserved, so a delegated UI edit may never reach the main Stop. Run one delegated `.tsx` edit in a live Claude session and read the `.agents/.ui-pending-*` filename; if the id differs, key the PostToolUse half on `project_dir`. Also unobserved live: the Stop block landing beside the two sibling Stop hooks, and `outputStyle: colloid` keeping the default coding instructions.
+- `[agents] max_concurrent_threads_per_session = 8` is accepted by the host loader (`codex mcp list` in `test-codex.sh` passes), but no live session has yet opened eight spawned threads. Two things stay unobserved: whether Codex opens all eight concurrently, and whether the ChatGPT plan throttles behind the raised cap — a service-side limit surfaces as queuing or usage errors, never as a thread count, so a session that stalls at some lower number is evidence only if the errors are read. Dispatch eight bounded cells from one Codex thread and record which it is.
+- `extract-contract.sh` regenerates and validates `review-harness/contract.md` from the fenced block in `hostile-review.md`, but nothing invokes it automatically, so an edit to the playbook silently leaves the harness grading a contract the repo no longer ships — the exact failure `AGENTS.md` names. It is now in the `.agents/README.md` verification list, which is prose, not a gate. Give it a `--check` mode that fails when `contract.md` differs from a fresh extraction, and call that from a test.
 </code></pre></details>
             </article>
         <article class="card">
@@ -4401,7 +6664,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
     &quot;guard_publish&quot;: {
       &quot;enabled&quot;: true
     },
-    &quot;genome_guard&quot;: {
+    &quot;genome_inject&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;sources_capture&quot;: {

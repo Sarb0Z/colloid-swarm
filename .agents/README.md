@@ -113,6 +113,7 @@ python3 .agents/test-guard-publish.py
 .agents/test-codex.sh
 .agents/eval/review-harness/bin/extract-contract.sh
 .agents/test-export.sh
+python3 demo/check-inventory.py
 ```
 
 `test-codex.sh` reports whether the installed Codex binary loaded the project
