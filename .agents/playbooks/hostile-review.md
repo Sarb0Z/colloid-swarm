@@ -48,6 +48,17 @@ decision schema, ordered by cost to leave:
 
 `[P0|P1|P2 / <class>] <file:line|artifact:section> — evidence:<reproduced|live|inspection|theoretical>; recurrence:<observed:evidence|not-found:sources|unknown:gap>; trigger:<state or event>; risk:<worst credible consequence>; fix:<narrow correction>; next:<operation and authorization>; residual:<remaining uncertainty>; cost:<implementation/review cost>; recommendation:<fix|accept|defer|redesign|stop>`
 
+`P0` and `P1` block the round. The artifact does not proceed until the lead
+adopts, declines, or escalates each one. `P2` does not block. File it and
+continue. Fix a `P2` only when the lead already changes that code.
+
+Severity states the worst credible consequence. It does not state your
+confidence. A finding with `evidence:theoretical` must not exceed `P2`.
+
+A review that finds nothing is a result. Write `FINDINGS: none` in place of the
+list. Do not add a `P2` observation to a clean review. A finding you cannot
+defend costs the lead more time than it saves.
+
 Name groups worked and skipped. Close with zero or more exact lines:
 
 ```
@@ -72,8 +83,10 @@ sources or `unknown`, never “first occurrence.”
 
 Do not repeat a completed review in the active context while the ask, plan, and
 artifact are unchanged and every finding is dispositioned. A changed artifact
-or new evidence reopens review. Fixes receive re-review. When the same class
-recurs, identify the shared subsystem and compare cumulative patch complexity
+or new evidence reopens review. Review a slice one time. A fix re-enters review
+only when it resolves a `P0`, or when it lands in a subsystem the round did not
+cover. A `P2` fix does not reopen a round. When the same class recurs,
+identify the shared subsystem and compare cumulative patch complexity
 with redesign; separate deadline containment from the long-term architecture.
 After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
