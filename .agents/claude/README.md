@@ -23,6 +23,20 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 
 `.claude/output-styles/colloid.md` links to `output-style.md`, and `settings.json` selects it with `outputStyle`. With `keep-coding-instructions: true` it appends to the system prompt of the main conversation without replacing the host's coding instructions; subagents do not receive it. `.agents/codex/config.toml` mirrors the same text as `developer_instructions`, and `test-codex.sh` fails when the two drift. An operator who wants another style sets `outputStyle` in `.claude/settings.local.json`.
 
+## Keeping edits on the Edit tool
+
+`settings.json` sets `CLAUDE_CODE_THRIFTY_SONIC=0` in `env`. From Claude Code
+2.1.238, auto mode routes file changes through the Bash tool — `sed`, heredocs,
+short scripts — instead of Read and Edit. `ui-gate.sh` and `post-edit-check.sh`
+register on `PostToolUse` for `Edit|Write|MultiEdit|NotebookEdit`, so a change
+made through Bash matches nothing and both policies go quiet without failing.
+A UI file was edited and shipped unlooked-at that way before this was set.
+
+The flag reads through a tri-state parser, so `"0"` resolves to false rather
+than to a truthy string. An explicit value wins over the release gate that
+would otherwise turn the behavior on. Set it in a shell profile as well to
+cover repositories whose vendored scaffold carries the same matcher.
+
 ## Gating outward mutations
 
 Two layers enforce `AGENTS.md` §External actions.
