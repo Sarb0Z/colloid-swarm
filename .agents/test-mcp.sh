@@ -133,6 +133,21 @@ try:
     # an operator has answered "don't ask again" for the same tool. Without this
     # check, enabling an outward server in the registry would silently outrun the
     # gate that AGENTS.md External actions depends on.
+    # A rule naming no known tool normally warns at startup, but the check exempts
+    # names containing an underscore, so every MCP rule is exempt and a typo is
+    # silent. Shape validation is what is left: it catches mcp_linear, a trailing
+    # separator, and an empty segment, though not a well-formed wrong name.
+    import re as _re
+    settings = json.loads((source / ".agents/claude/settings.json").read_text())
+    ask_rules = settings.get("permissions", {}).get("ask")
+    if not isinstance(ask_rules, list):
+        raise SystemExit("settings.json has no permissions.ask list")
+    for rule in ask_rules:
+        if not rule.startswith("mcp"):
+            continue
+        if _re.fullmatch(r"mcp__[A-Za-z0-9*-]+(?:_[A-Za-z0-9*-]+)*(?:__[A-Za-z0-9*_-]+)?", rule) is None:
+            raise SystemExit(f"malformed MCP permission rule: {rule!r}")
+
     live = json.loads((source / ".agents/mcp.json").read_text())["mcpServers"]
     ask = set(json.loads((source / ".agents/claude/settings.json").read_text())["permissions"]["ask"])
     for name, item in sorted(live.items()):
