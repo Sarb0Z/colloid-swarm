@@ -31,6 +31,17 @@ decision schema, ordered by cost to leave:
 
 `[P0|P1|P2 / <class>] <file:line|artifact:section> — evidence:<reproduced|live|inspection|theoretical>; recurrence:<observed:evidence|not-found:sources|unknown:gap>; trigger:<state or event>; risk:<worst credible consequence>; fix:<narrow correction>; next:<operation and authorization>; residual:<remaining uncertainty>; cost:<implementation/review cost>; recommendation:<fix|accept|defer|redesign|stop>`
 
+`P0` and `P1` block the round. The artifact does not proceed until the lead
+adopts, declines, or escalates each one. `P2` does not block. File it and
+continue. Fix a `P2` only when the lead already changes that code.
+
+Severity states the worst credible consequence. It does not state your
+confidence. A finding with `evidence:theoretical` must not exceed `P2`.
+
+A review that finds nothing is a result. Write `FINDINGS: none` in place of the
+list. Do not add a `P2` observation to a clean review. A finding you cannot
+defend costs the lead more time than it saves.
+
 Name groups worked and skipped. Close with zero or more exact lines:
 
 ```

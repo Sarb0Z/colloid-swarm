@@ -57,6 +57,12 @@ and this section for phase 0 itself.
 
 Raw reports are in `results/phase0/`.
 
+CAUTION: Phase 0 and the two `pending` rows ran before the contract defined a
+severity floor and `FINDINGS: none`. `runs.tsv` keys each run to a
+`contract_sha`, and that value changed. Findings per run is therefore not
+comparable across the change. Re-measure both fixtures under the current
+contract before you read any movement as an effect.
+
 ## Run one review
 
 ```sh
