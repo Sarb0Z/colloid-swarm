@@ -84,7 +84,12 @@ A registry server whose tools write to a remote system carries `"outward": true`
 in `.agents/mcp.json`, and `test-mcp.sh` fails when one has no matching rule.
 That keeps `python3 .agents/mcp.py enable <name>` from outrunning the gate.
 Plugin and connector servers are not in the registry, so their rules are written
-by hand and nothing checks them.
+by hand. The three shipped here were copied from tool names observed in a live
+session, not guessed. Check a new one the same way: a rule naming no known tool
+normally warns at startup, but that check exempts names containing an
+underscore, so every MCP rule is exempt and a typo is silent. `test-mcp.sh`
+validates rule shape, which catches a wrong separator but not a well-formed
+wrong name.
 
 Two gaps stay open on purpose. A server marked outward is gated whole, including
 its read tools, because tool names are only known once the server runs. And
