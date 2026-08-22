@@ -6,7 +6,10 @@
       "codex_startup_timeout_sec": 30,
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     },
     "playwright": {
       "description": "Browser automation and UI verification.",
@@ -14,28 +17,41 @@
       "codex_startup_timeout_sec": 30,
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@0.0.78"]
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.78"
+      ]
     },
     "playwright-reader": {
       "description": "Browser reading with installed content-blocking extensions.",
       "enabled": false,
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@0.0.78", "--config", "${REPO_ROOT}/.agents/.playwright-reader.json"]
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.78",
+        "--config",
+        "${REPO_ROOT}/.agents/.playwright-reader.json"
+      ]
     },
     "appium-mcp": {
       "description": "Mobile app automation.",
       "enabled": false,
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "appium-mcp"]
+      "args": [
+        "-y",
+        "appium-mcp"
+      ]
     },
     "security-mcp": {
       "description": "Repository-owned authorized security scanning.",
       "enabled": false,
       "type": "stdio",
       "command": "node",
-      "args": ["${REPO_ROOT}/.agents/mcp-servers/security-mcp/dist/server.js"],
+      "args": [
+        "${REPO_ROOT}/.agents/mcp-servers/security-mcp/dist/server.js"
+      ],
       "cwd": "${REPO_ROOT}/.agents/mcp-servers/security-mcp"
     },
     "research-mcp": {
@@ -43,28 +59,34 @@
       "enabled": true,
       "type": "stdio",
       "command": "node",
-      "args": ["${REPO_ROOT}/.agents/mcp-servers/research-mcp/dist/server.js"],
+      "args": [
+        "${REPO_ROOT}/.agents/mcp-servers/research-mcp/dist/server.js"
+      ],
       "cwd": "${REPO_ROOT}/.agents/mcp-servers/research-mcp"
     },
     "linear": {
       "description": "Linear issue tracking.",
       "enabled": false,
       "type": "http",
-      "url": "https://mcp.linear.app/mcp"
+      "url": "https://mcp.linear.app/mcp",
+      "outward": true
     },
     "atlassian": {
       "description": "Jira, Confluence, and Bitbucket via Atlassian Rovo.",
       "enabled": false,
       "codex_enabled": false,
       "type": "sse",
-      "url": "https://mcp.atlassian.com/v1/sse"
+      "url": "https://mcp.atlassian.com/v1/sse",
+      "outward": true
     },
     "greptile": {
       "description": "Codebase Q&A and review.",
       "enabled": false,
       "type": "http",
       "url": "https://api.greptile.com/mcp",
-      "headers": {"Authorization": "Bearer ${GREPTILE_API_KEY}"}
+      "headers": {
+        "Authorization": "Bearer ${GREPTILE_API_KEY}"
+      }
     },
     "exa": {
       "description": "Web search and fetch.",

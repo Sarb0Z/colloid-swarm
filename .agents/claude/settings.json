@@ -65,7 +65,12 @@
       "Bash(npx netlify deploy:*)",
       "Bash(npx firebase deploy:*)",
       "Bash(npx fly deploy:*)",
-      "Bash(vercel)"
+      "Bash(vercel)",
+      "mcp__linear",
+      "mcp__atlassian",
+      "mcp__plugin_vercel_vercel__*",
+      "mcp__claude_ai_Slack__*",
+      "mcp__claude_ai_Google_Drive__*"
     ]
   },
   "hooks": {
