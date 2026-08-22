@@ -20,6 +20,7 @@ for want in '## Authority' '## Static sweep' 'CONFORMANCE:' 'EFFECTS:' \
             '[P0|P1|P2 / <class>]' 'evidence:' 'recurrence:' 'trigger:' \
             'risk:' 'fix:' 'next:' 'residual:' 'cost:' 'recommendation:' \
             'AMBIGUITY:' 'HANDOFF: qa-verifier' 'HANDOFF: scalability-audit' \
+            'FINDINGS: none' \
             'review-axes.md'; do
   grep -Fq -- "$want" "$dst" || { echo "extract is missing: $want" >&2; exit 1; }
 done

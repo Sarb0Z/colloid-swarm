@@ -15,10 +15,10 @@ In priority order. Resolve conflicts top-down.
 
 1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior over inference and generic advice.
 2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5's QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
-3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` with the plan as the artifact. Disposition every finding before you write code.
+3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` once for the slice, with the plan as the artifact. Settle every `P0` and `P1` before you write code.
 4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1. Done means the user-facing surface completes the job; a backend path the product cannot reach is not done.
 5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always for a high-stakes claim. Fix failures and re-run the failed scenario.
-6. **Hostile-review the implementation.** Run the same playbook with the diff as the artifact.
+6. **Hostile-review the implementation.** Run the same playbook once over the slice's diff.
 
 The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here — `.agents/eval/review-harness` grades against it, so a paraphrase would ship one review and measure another.
 
