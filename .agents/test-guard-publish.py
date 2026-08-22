@@ -79,7 +79,26 @@ ASK = [
     ("Monitor", {"command": "while true; do git push; sleep 60; done"}),
     ("Artifact", {"file_path": "/tmp/report.html", "favicon": "x"}),
     ("Artifact", {"file_path": "/tmp/report.html", "action": "publish"}),
+    # Comment and asset actions reach the published page without a file_path.
+    ("Artifact", {"url": "https://claude.ai/x", "action": "reply",
+                  "thread_id": "t1", "text": "hi"}),
+    ("Artifact", {"url": "https://claude.ai/x", "action": "resolve", "thread_id": "t1"}),
+    ("Artifact", {"url": "https://claude.ai/x", "action": "upload_asset",
+                  "file_path": "/tmp/a.png"}),
+    ("Artifact", {"url": "https://claude.ai/x", "action": "delete_asset",
+                  "asset_id": "0" * 32}),
+    # An action this guard has never seen asks rather than passing silently.
+    ("Artifact", {"url": "https://claude.ai/x", "action": "transfer_ownership"}),
 ]
+
+# The reason reaches the user as the permission prompt, so an unknown action
+# must be named in it. Asserting only that a reason exists hides a prompt that
+# describes the wrong operation.
+unknown = guard.verdict("Artifact", {"action": "transfer_ownership"})
+check("an unknown Artifact action names itself in the prompt",
+      "transfer_ownership" in unknown
+      and "puts this page on a claude.ai URL" not in unknown,
+      f"reason was: {unknown}")
 
 PASS = [
     ("Bash", {"command": "git status"}),
@@ -109,6 +128,10 @@ PASS = [
     ("Bash", {"command": "netlify status"}),
     ("Bash", {"command": "gh workflow list"}),
     ("Artifact", {"action": "list"}),
+    ("Artifact", {"url": "https://claude.ai/x", "action": "comments"}),
+    ("Artifact", {"url": "https://claude.ai/x", "action": "list_assets"}),
+    ("Artifact", {"url": "https://claude.ai/x", "action": "read_asset",
+                  "asset_id": "0" * 32}),
     ("Read", {"file_path": "/tmp/x"}),
     ("Bash", {}),
 ]
@@ -239,6 +262,62 @@ with tempfile.TemporaryDirectory() as tmp:
                              "tool_input": {"command": "git push"}}), repo=tmp)
     check("the config toggle turns the guard off",
           result.returncode == 0 and result.stdout.strip() == "")
+
+# The declarative half. `.claude/settings.json` permissions.ask covers the same
+# ground from a tier the hook cannot reach: a settings rule outranks an `allow`
+# entry, applies to subagent tool calls, and still holds with guard_publish
+# toggled off. It is prefix matching, so it can never express the evasion forms
+# the shell parser catches (`git -C dir push`) — the check that means anything
+# is that every rule names something this guard also treats as outward.
+settings = json.loads((here / "claude" / "settings.json").read_text(encoding="utf-8"))
+ask_rules = settings["permissions"]["ask"]
+check("permissions.ask gates the Artifact tool", "Artifact" in ask_rules)
+
+# The direction that protects the operator. With `guard_publish` disabled the
+# settings layer stands alone, so every plain form the parser gates must have a
+# rule. The parser still catches shapes no prefix can state (`git -C dir push`,
+# `npx -p vercel vercel --prod`); those are the parser's alone by design, and
+# this list is the subset the settings layer promises to hold without it.
+PLAIN_FORMS = [
+    "git push",
+    "gh pr create", "gh pr merge", "gh pr close", "gh pr reopen", "gh pr edit",
+    "gh pr comment", "gh pr review", "gh pr ready", "gh pr lock",
+    "gh issue create", "gh issue comment", "gh issue edit", "gh issue close",
+    "gh issue delete",
+    "gh release create", "gh release upload", "gh release delete", "gh release edit",
+    "gh repo create", "gh repo edit", "gh repo delete",
+    "gh gist create", "gh gist edit", "gh gist delete",
+    "gh workflow run",
+    "npm publish", "npm unpublish", "pnpm publish", "pnpm unpublish",
+    "yarn publish", "yarn unpublish", "yarn npm publish",
+    "bun publish", "bun unpublish",
+    "docker push",
+    "vercel", "vercel deploy", "vercel promote", "vercel rollback",
+    "vercel alias", "vercel rm", "vercel remove", "vercel redeploy", "vercel --prod",
+    "netlify deploy", "wrangler deploy", "wrangler publish",
+    "firebase deploy", "fly deploy", "flyctl deploy",
+    "railway up", "railway deploy",
+    "npx vercel", "npx wrangler deploy", "npx netlify deploy",
+    "npx firebase deploy", "npx fly deploy",
+]
+prefixes = [r[len("Bash("):].rstrip(")").removesuffix(":*")
+            for r in ask_rules if r.startswith("Bash(")]
+for command in PLAIN_FORMS:
+    check(f"the guard gates the plain form: {command}",
+          guard.verdict("Bash", {"command": command}) is not None)
+    check(f"permissions.ask covers the plain form: {command}",
+          any(command == prefix or command.startswith(prefix + " ")
+              for prefix in prefixes),
+          "guard_publish disabled would leave this command unprompted")
+for rule in ask_rules:
+    if not rule.startswith("Bash("):
+        continue
+    command = rule[len("Bash("):].rstrip(")")
+    if command.endswith(":*"):
+        command = command[: -len(":*")]
+    check(f"permissions.ask rule matches the guard: {command}",
+          guard.verdict("Bash", {"command": command}) is not None,
+          "the settings rule prompts on a command the guard treats as benign")
 
 print()
 print("ALL PASS" if fails == 0 else f"{fails} FAILURE(S)")

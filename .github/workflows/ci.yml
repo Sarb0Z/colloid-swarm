@@ -52,6 +52,9 @@ jobs:
       - name: Publish-gate policy
         run: python3 .agents/test-guard-publish.py
 
+      - name: Device policy kit
+        run: .agents/test-device-policy.sh
+
       - name: MCP registry
         run: .agents/test-mcp.sh
 

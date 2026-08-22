@@ -75,6 +75,14 @@ Codex hook command, inspect it and run:
 python3 .agents/codex/trust-hooks.py "$(pwd)"
 ```
 
+## Parallel work
+
+For a durable, parallel implementation/review cycle, use the `workloop` skill
+and `.agents/workloop.py`. It holds lane ownership, evidence, review references,
+attention acknowledgements, and the QA completion gate in ignored runtime state.
+The controller is portable and exports with the scaffold; it prepares prompts
+but does not attempt host-specific agent dispatch.
+
 ## Skills, rules, and stack packs
 
 A skill's `SKILL.md` governs use; its `AGENTS.md` governs edits. Path rules live
@@ -92,6 +100,7 @@ python3 .agents/check-stack-packs.py
 python3 .agents/check-layout.py
 .agents/lint-skills.sh
 .agents/test-session-start.sh
+.agents/test-workloop.sh
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-guard-publish.py
 .agents/test-mcp.sh

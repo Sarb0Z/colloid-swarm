@@ -13,8 +13,10 @@ point — a publish is legitimate exactly when the user says yes, so the guard
 forces the dialog rather than denying. Contrast guard-destructive, which
 denies, because no mid-session answer legitimizes `rm -rf /`.
 
-Scope: Bash publish/push/deploy commands and the Artifact tool's publish
-action. Other outward channels (remote MCP writes, cross-session messages)
+Scope: Bash publish/push/deploy commands, and every Artifact action that
+reaches claude.ai — publishing a page, adding or deleting one of its files, and
+posting or resolving a comment thread.
+Other outward channels (remote MCP writes, cross-session messages)
 keep their own native prompts. The threat model is an honest mistake by the
 model — a harness bias toward publishing — not an adversary with a shell.
 """
@@ -52,6 +54,17 @@ DEPLOY_VERBS = {
     "fly": {"deploy"},
     "flyctl": {"deploy"},
     "railway": {"up", "deploy"},
+}
+# The read set is the allowlist, so an action this guard does not recognize asks:
+# a new Artifact action is likelier to mutate than to read. Nothing here keys on
+# the payload shape — a comment reply and an asset delete reach the published
+# page carrying a url and a thread or asset id, never a file_path.
+ARTIFACT_READ_ACTIONS = {"list", "comments", "list_assets", "read_asset"}
+ARTIFACT_REASONS = {
+    "reply": "Artifact reply posts a comment every viewer of that page can see.",
+    "resolve": "Artifact resolve changes a comment thread on the published page.",
+    "upload_asset": "Artifact upload_asset adds a file to the published page.",
+    "delete_asset": "Artifact delete_asset permanently removes a file from the published page.",
 }
 RUNNERS = {"npx", "pnpx", "bunx"}
 RUNNER_VALUE_FLAGS = {"-p", "--package"}
@@ -169,10 +182,17 @@ def verdict(tool_name, tool_input):
                 return reason
         return None
     if tool_name == "Artifact":
-        if tool_input.get("action") == "list":
+        action = tool_input.get("action")
+        if action in ARTIFACT_READ_ACTIONS:
             return None
-        if isinstance(tool_input.get("file_path"), str):
+        if action in ARTIFACT_REASONS:
+            return ARTIFACT_REASONS[action]
+        if action is None or action == "publish":
             return "Artifact publish puts this page on a claude.ai URL."
+        # The prompt is the whole decision surface, so an unrecognized action
+        # must name itself rather than borrow the publish wording.
+        return (f"Artifact {action} is not a known read-only action and may "
+                "change the published page.")
     return None
 
 
