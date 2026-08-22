@@ -72,6 +72,9 @@ jobs:
       - name: Export kit
         run: .agents/test-export.sh
 
+      - name: Showcase inventory
+        run: python3 demo/check-inventory.py
+
       - name: Working tree is clean
         shell: bash
         run: |
