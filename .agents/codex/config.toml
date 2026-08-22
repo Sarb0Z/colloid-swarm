@@ -13,6 +13,15 @@ Counter-pressure on host defaults, owned by the repository's `AGENTS.md`:
 - Name things in the user's words, the code's identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see. Options offered for a decision must read cold.
 """
 
+# Cap on concurrently open spawned-agent threads, excluding the primary, so this
+# is the worker count and not the session total. Left unset, Codex picks its own
+# low default and an agent reads the resulting ceiling as a platform entitlement
+# it cannot change from the repository. Eight is where Codex's own TUI starts
+# warning that concurrent subagents consume plan usage quickly; raise it only
+# with a usage budget in hand.
+[agents]
+max_concurrent_threads_per_session = 8
+
 [shell_environment_policy]
 inherit = "core"
 
