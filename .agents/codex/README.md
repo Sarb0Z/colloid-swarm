@@ -1,8 +1,10 @@
 # Codex adapter
 
 `.codex/hooks.json` and `.codex/hooks/*` link here. Custom roles in
-`.codex/agents/*.toml` are static host-native definitions; MCP config is written
-by `python3 .agents/mcp.py`.
+`.codex/agents/*.toml` are static host-native definitions. `.codex/config.toml` is
+generated in full: `python3 .agents/mcp.py` renders `.agents/codex/config.toml`
+and appends the MCP records from `.agents/mcp.json`. It is gitignored, so an edit
+made there is discarded on the next run — change the canonical file.
 
 Codex role files accept `name`, `description`, and `developer_instructions`.
 Model and reasoning effort are dispatch controls, so each description states
@@ -40,6 +42,21 @@ per-command listener pairs, so the default profile leaves it off. The split
 reduces descriptor growth; it does not repair Codex's process cleanup. Exit the
 whole opt-in thread when QA finishes. See `debt: codex-network-proxy-fd-leak`.
 Start a new thread after changing either profile.
+
+## Subagent concurrency
+
+`[agents] max_concurrent_threads_per_session` in `.agents/codex/config.toml` caps
+concurrently open spawned-agent threads and excludes the primary, so a value of
+N leaves room for N workers alongside it. Codex picks its own low default when
+the key is absent, and an agent that meets that ceiling cannot tell a default
+from an entitlement — it reports the subscription as the constraint and stops
+looking. `.agents/test-codex.sh` fails when the key goes missing.
+
+Older configurations may carry `agents.max_threads` as an alias for the same
+setting. A spawned agent inherits the parent's model and reasoning effort unless
+its `.codex/agents/*.toml` file or the spawn request names one, so a raised cap
+multiplies token burn at the parent's tier rather than at a cheaper one. Start a
+new thread after changing the value.
 
 ## Hook coverage
 

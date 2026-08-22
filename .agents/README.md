@@ -83,6 +83,12 @@ attention acknowledgements, and the QA completion gate in ignored runtime state.
 The controller is portable and exports with the scaffold; it prepares prompts
 but does not attempt host-specific agent dispatch.
 
+How many cells a host will run at once is adapter-owned, not a property of the
+subscription. `.agents/codex/config.toml` states the Codex cap; see
+`.agents/codex/README.md`. Kimi's `AgentSwarm` ramps concurrency with no upper
+limit unless `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` is set, so it needs nothing
+here to run wide.
+
 ## Skills, rules, and stack packs
 
 A skill's `SKILL.md` governs use; its `AGENTS.md` governs edits. Path rules live
