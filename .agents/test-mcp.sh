@@ -128,6 +128,21 @@ try:
     )
     assert rejected.returncode and "non-executable repository command" in rejected.stderr
     (agents / "mcp.json").write_bytes(registry_before)
+    # A server that writes to a remote system must carry a permissions.ask rule.
+    # Rule order is deny, then ask, then allow, so an ask rule still prompts when
+    # an operator has answered "don't ask again" for the same tool. Without this
+    # check, enabling an outward server in the registry would silently outrun the
+    # gate that AGENTS.md External actions depends on.
+    live = json.loads((source / ".agents/mcp.json").read_text())["mcpServers"]
+    ask = set(json.loads((source / ".agents/claude/settings.json").read_text())["permissions"]["ask"])
+    for name, item in sorted(live.items()):
+        if not item.get("outward"):
+            continue
+        if not {f"mcp__{name}", f"mcp__{name}__*"} & ask:
+            raise SystemExit(
+                f"{name} is marked outward but no permissions.ask rule covers it; "
+                f'add "mcp__{name}" to .agents/claude/settings.json'
+            )
     print("MCP registry tests passed.")
 finally:
     shutil.rmtree(work)

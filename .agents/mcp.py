@@ -17,7 +17,7 @@ from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
 
 ROOT_TOKEN = "${REPO_ROOT}"
-META = {"description", "enabled", "kimi_enabled"} | CODEX_META_FIELDS
+META = {"description", "enabled", "kimi_enabled", "outward"} | CODEX_META_FIELDS
 FIELDS = META | {"type", "command", "args", "cwd", "env", "url", "headers"}
 ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -90,6 +90,8 @@ def _validate_server(name, server):
         _fail(f"{name} has unsupported field(s): {', '.join(unknown)}")
     if "kimi_enabled" in server and not isinstance(server["kimi_enabled"], bool):
         _fail(f"{name}.kimi_enabled must be boolean")
+    if "outward" in server and not isinstance(server["outward"], bool):
+        _fail(f"{name}.outward must be boolean")
     validate_codex_metadata(name, server, _fail)
     if server.get("type") == "stdio":
         _validate_stdio(name, server)
