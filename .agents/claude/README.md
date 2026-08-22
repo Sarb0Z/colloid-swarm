@@ -34,8 +34,11 @@ A UI file was edited and shipped unlooked-at that way before this was set.
 
 The flag reads through a tri-state parser, so `"0"` resolves to false rather
 than to a truthy string. An explicit value wins over the release gate that
-would otherwise turn the behavior on. Set it in a shell profile as well to
-cover repositories whose vendored scaffold carries the same matcher.
+would otherwise turn the behavior on.
+
+Keep it here and not in a shell profile. A machine-wide export would satisfy
+the flag in a transplanted repository that never set it, so the harness would
+look correct on one machine and be silently ungated everywhere else.
 
 ## Gating outward mutations
 
