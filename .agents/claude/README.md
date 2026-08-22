@@ -71,6 +71,28 @@ the prompt shows.
 a prompt on every read teaches the operator to approve without reading. The
 parser inspects the method and gates the writes.
 
+### MCP tools
+
+Both layers above read a shell command, so an outward mutation issued through an
+MCP tool reaches neither. `permissions.ask` covers those instead, because rule
+order is deny, then ask, then allow: the rule still prompts after an operator
+answers "don't ask again" for the same tool. `guard-publish.sh` stays out of the
+MCP path — it would run on every documentation lookup and browser read to gate a
+handful of calls, and the settings layer already outranks the rule it would race.
+
+A registry server whose tools write to a remote system carries `"outward": true`
+in `.agents/mcp.json`, and `test-mcp.sh` fails when one has no matching rule.
+That keeps `python3 .agents/mcp.py enable <name>` from outrunning the gate.
+Plugin and connector servers are not in the registry, so their rules are written
+by hand and nothing checks them.
+
+Two gaps stay open on purpose. A server marked outward is gated whole, including
+its read tools, because tool names are only known once the server runs. And
+`playwright` is not gated at all: a form submission or a click on a deploy button
+is an outward mutation, but prompting on every navigation would train the
+operator to approve without reading — the same reasoning that leaves `gh api`
+to the parser.
+
 Both layers stop at this repository. To cover every session on a machine, use a
 Claude Code policy helper. `managed-settings.json` names an executable file.
 The executable writes `{"appendSystemPrompt": ..., "managedSettings": ...}` to
