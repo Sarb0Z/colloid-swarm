@@ -65,6 +65,13 @@ assert config["approval_policy"] == "on-request"
 assert config["approvals_reviewer"] == "auto_review"
 assert config["default_permissions"] == "repo-autonomous"
 assert config["features"]["network_proxy"] is True
+# Subagent concurrency must be stated, not inherited: an unset cap reads to an
+# agent as a ceiling the host imposes and the repository cannot raise.
+agents = config.get("agents", {})
+assert agents.get("enabled", True) is True, "project config disables subagents"
+threads = agents.get("max_concurrent_threads_per_session")
+assert isinstance(threads, int) and not isinstance(threads, bool) and threads > 0, \
+    "state the subagent concurrency cap as a positive integer"
 default_profile = config["permissions"]["repo-autonomous"]
 assert default_profile["extends"] == ":workspace"
 workspace = default_profile["filesystem"][":workspace_roots"]
