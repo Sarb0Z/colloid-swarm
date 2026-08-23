@@ -71,6 +71,7 @@ python3 .agents/test-guard-destructive.py
 python3 .agents/test-guard-publish.py
 .agents/test-device-policy.sh
 .agents/test-mcp.sh
+.agents/test-permissions.sh
 .agents/test-codex.sh
 .agents/test-export.sh
 .agents/test-stack-packs.sh
