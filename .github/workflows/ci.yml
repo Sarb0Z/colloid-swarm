@@ -58,6 +58,9 @@ jobs:
       - name: MCP registry
         run: .agents/test-mcp.sh
 
+      - name: Permission rules
+        run: .agents/test-permissions.sh
+
       # The suite's strongest Codex assertion loads the generated config with
       # the real binary, and self-skips when codex is absent. Nothing installs
       # it here, so surface the gap rather than reading a green run as coverage.

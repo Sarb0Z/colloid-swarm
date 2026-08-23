@@ -17,6 +17,26 @@ pass=0
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 ok()   { pass=$((pass + 1)); printf 'ok    %s\n' "$*"; }
 
+# The packs the fixtures need. A satellite carries only the packs it runs, so
+# copying whatever this repository happens to hold would make the suite pass in
+# the carrier and fail everywhere else — for the one reason the carrier model
+# calls correct. Any pack the repository stripped is written from the table
+# below instead, carrying the same globs the real pack does, so the collision
+# between stack-nextjs and stack-expo is tested wherever this runs.
+pack() {
+  local name="$1" paths="$2" detect="$3"
+  if [[ -f "$repo/.agents/rules/stack-$name.md" ]]; then
+    cp "$repo/.agents/rules/stack-$name.md" "$dir/.agents/rules/"
+    return
+  fi
+  { printf -- '---\npaths:\n'
+    printf "  - '%s'\n" $paths
+    printf 'detect:\n'
+    printf "  - '%s'\n" $detect
+    printf -- '---\nfixture\n'
+  } > "$dir/.agents/rules/stack-$name.md"
+}
+
 # A fixture repository holding the packs and whatever stack files are named.
 # `--template=` keeps the operator's init.templateDir out: a global commit hook
 # would otherwise run inside the fixture and abort this suite under `set -e`.
@@ -24,7 +44,10 @@ build() {
   local dir="$scratch/$1"; shift
   rm -rf "$dir"; mkdir -p "$dir/.agents/rules"
   cp "$repo/.agents/check-stack-packs.py" "$dir/.agents/"
-  cp "$repo/.agents/rules/"stack-*.md "$dir/.agents/rules/"
+  pack nextjs '**/app/**/*.tsx **/app/**/*.ts **/src/app/**/*.tsx **/src/app/**/*.ts **/next.config.* **/middleware.ts' '**/next.config.*'
+  pack expo   '**/app/**/*.tsx **/src/app/**/*.tsx **/app.config.* **/eas.json **/metro.config.*' '**/app.json **/app.config.* **/eas.json'
+  pack nestjs '**/src/**/*.module.ts **/src/**/*.controller.ts **/src/main.ts' '**/nest-cli.json'
+  pack rails  '**/app/**/*.rb **/config/**/*.rb' '**/config/routes.rb **/Gemfile'
   printf '{}' > "$dir/.agents/config.json.example"
   local path
   for path in "$@"; do
