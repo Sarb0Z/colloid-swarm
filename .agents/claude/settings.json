@@ -5,6 +5,17 @@
   },
   "outputStyle": "colloid",
   "permissions": {
+    "deny": [
+      "mcp__linear__delete*",
+      "mcp__linear__remove*",
+      "mcp__linear__destroy*",
+      "mcp__atlassian__delete*",
+      "mcp__atlassian__remove*",
+      "mcp__atlassian__destroy*",
+      "mcp__plugin_vercel_vercel__delete*",
+      "mcp__plugin_vercel_vercel__remove*",
+      "mcp__plugin_vercel_vercel__destroy*"
+    ],
     "ask": [
       "Artifact",
       "Bash(git push:*)",

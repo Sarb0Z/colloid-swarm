@@ -91,6 +91,24 @@ underscore, so every MCP rule is exempt and a typo is silent. `test-mcp.sh`
 validates rule shape, which catches a wrong separator but not a well-formed
 wrong name.
 
+A prompt is the wrong answer for a call that destroys data, so `permissions.deny`
+holds the destructive verbs — `delete`, `remove`, `destroy` — for each outward
+server. Deny is evaluated first, and it removes the tool from the model's context
+instead of offering it and refusing. That removes the reason text with it, so the
+model cannot explain the refusal; the capability survives on the shell route,
+where `vercel rm` still meets `permissions.ask` and the destructive-command
+parser. Denying the MCP shortcut re-routes the operation through the gated path.
+
+Every deny rule uses the one glob shape the host documents: a glob-free server
+segment and a trailing star. `test-mcp.sh` rejects a wildcard anywhere else,
+because nothing documents a mid-pattern match and a glob that matches nothing
+fails open in silence. It also fails when a rule would match a read tool, which
+is the failure a deny cannot announce — `drop` as a verb would take
+`browser_drop` with it.
+
+Slack and Google Drive stay at whole-server `ask` rather than deny. Both already
+prompt on every call, and a Drive delete moves the file to the trash.
+
 Two gaps stay open on purpose. A server marked outward is gated whole, including
 its read tools, because tool names are only known once the server runs. And
 `playwright` is not gated at all: a form submission or a click on a deploy button
