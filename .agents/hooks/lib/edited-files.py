@@ -45,6 +45,14 @@ def main():
             if not resolved.startswith(real_project + os.sep):
                 continue                      # outside the repo: not ours to check
             path = project + resolved[len(real_project):]
+        if "\n" in path:
+            # This list travels newline-delimited, so the path cannot be said on
+            # it: downstream it splits into two names that do not exist and is
+            # dropped by the existence test — silently, which is exactly what the
+            # tab guard in post-edit-check.sh exists to prevent. Say it is
+            # unusable instead. Every real entry here is absolute, so a line that
+            # does not start with a separator is unambiguously this refusal.
+            path = "!" + path.replace("\n", "\\n")
         if path not in seen:
             seen.add(path)
             print(path)

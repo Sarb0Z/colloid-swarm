@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" guard-destructive.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 2; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" guard-destructive.sh"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" genome-inject.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" genome-inject.sh"
           }
         ]
       }
@@ -27,24 +27,24 @@
         "hooks": [
           {
             "type": "command",
-            "command": "POST_EDIT_MODE=write bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" post-edit-check.sh"
+            "command": "export POST_EDIT_MODE=write;d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" post-edit-check.sh"
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" post-edit-check.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" post-edit-check.sh"
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" ui-gate.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" ui-gate.sh"
           }
         ]
       },
       {
-        "matcher": "mcp__playwright__browser_navigate|mcp__playwright-reader__browser_navigate|mcp__plugin_playwright_playwright__browser_navigate|mcp__research-mcp__fetch_readable|mcp__research-mcp__resolve_open_access|mcp__context7__(resolve-library-id|query-docs)|mcp__plugin_context7_context7__(resolve-library-id|query-docs)|mcp__plugin_exa_exa__.*",
+        "matcher": "mcp__[A-Za-z0-9_-]+__(browser_navigate|fetch_readable|query-docs|resolve-library-id|resolve_open_access)|mcp__(exa|plugin_exa_exa)__.*|mcp__(greptile|plugin_greptile_greptile)__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" sources-capture.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" sources-capture.sh"
           }
         ]
       },
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" ui-gate.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" ui-gate.sh"
           }
         ]
       }
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" pre-compact.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" pre-compact.sh"
           }
         ]
       }
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" session-start.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" session-start.sh"
           }
         ]
       }
@@ -83,11 +83,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" research-prime.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" research-prime.sh"
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" done-prime.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" done-prime.sh"
           }
         ]
       }
@@ -97,15 +97,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" stop-investigate.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" stop-investigate.sh"
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" ui-gate.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" ui-gate.sh"
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/adapter.sh\" session-wrap.sh"
+            "command": "d=$PWD;while [ ! -f \"$d/.codex/hooks/adapter.sh\" ];do [ \"$d\" ] || { echo \"codex hooks: no .codex/hooks/adapter.sh at or above $PWD\" >&2; exit 0; };d=${d%/*};done;exec bash \"$d/.codex/hooks/adapter.sh\" session-wrap.sh"
           }
         ]
       }

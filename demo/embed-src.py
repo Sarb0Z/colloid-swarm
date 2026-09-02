@@ -73,7 +73,6 @@ MANIFEST = {
     "mechanic.md":              ".agents/personas/mechanic.md",
     "explorer.md":              ".agents/personas/explorer.md",
     "learning-reporter.md":     ".agents/personas/learning-reporter.md",
-    "memory/README.md":         ".agents/memory/README.md",
     "diff-wrap.md":             ".agents/playbooks/diff-wrap.md",
     "report-implementation.md": ".agents/playbooks/report-implementation.md",
     "report-investigation.md":  ".agents/playbooks/report-investigation.md",

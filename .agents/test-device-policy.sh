@@ -33,10 +33,11 @@ then check "the helper exits 0" 0; else check "the helper exits 0" 1; fi
 check "the helper writes nothing to stderr" \
   "$([ ! -s "$staging/stderr.txt" ] && echo 0 || echo 1)"
 
-if python3 - "$staging/stdout.json" "$here/claude/settings.json" <<'PY'
+if python3 - "$staging/stdout.json" "$here/claude/settings.json" "$here/claude/output-style.md" <<'PY'
 import json, sys
 document = json.load(open(sys.argv[1], encoding="utf-8"))
 settings = json.load(open(sys.argv[2], encoding="utf-8"))
+style = open(sys.argv[3], encoding="utf-8").read().split("\n---\n", 1)[1].strip()
 problems = []
 if set(document) - {"managedSettings", "claudeMd", "appendSystemPrompt"}:
     problems.append(f"keys outside the envelope: {sorted(set(document))}")
@@ -44,6 +45,8 @@ if not document.get("appendSystemPrompt", "").strip():
     problems.append("appendSystemPrompt is empty")
 if "No outward mutation" not in document.get("appendSystemPrompt", ""):
     problems.append("appendSystemPrompt omits the outward-mutation rule")
+if document.get("appendSystemPrompt", "").strip() != style:
+    problems.append("appendSystemPrompt has drifted from the output-style body")
 ask = document.get("managedSettings", {}).get("permissions", {}).get("ask", [])
 if ask != settings["permissions"]["ask"]:
     problems.append("the payload ask list has drifted from settings.json")

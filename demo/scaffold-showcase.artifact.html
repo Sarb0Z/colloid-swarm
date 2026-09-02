@@ -367,7 +367,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 85 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 87 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
@@ -382,7 +382,7 @@ In priority order. Resolve conflicts top-down.
 
 ## Workflow
 
-1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior over inference and generic advice.
+1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. When a request names patterns to audit, sweep the adjacent ones too; the named ones are the hypothesis, not the scope. Prefer observed behavior over inference and generic advice.
 2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5&#x27;s QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` once for the slice, with the plan as the artifact. Settle every `P0` and `P1` before you write code.
 4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1. Done means the user-facing surface completes the job; a backend path the product cannot reach is not done.
@@ -426,9 +426,9 @@ Size work and effort in tokens (context/output budget), never wall-clock time. &
 Remove stubs and dead code completely. If something is unused or being replaced, delete it outright.
 
 ### Durable state, not session lore
-Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### &lt;id&gt;`, condition, trigger, rework cost; code says `debt: &lt;id&gt;`); external observations in `knowledge/`. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
+Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### &lt;id&gt;`, condition, trigger, rework cost; code says `debt: &lt;id&gt;`); settled decisions and what would reopen them in `decisions.md`; external observations in `knowledge/`. Operator and machine facts go to the gitignored `CLAUDE.local.md`, never to a committed file. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
 
-Before context loss, persist session-critical commands, evidence, decisions, limitations, and next steps in the smallest existing owner above. When another session must continue, or the user requests a handoff, write a self-contained repository-local document: objective, current state, completed work, evidence, decisions, limitations, relevant paths, remaining gates, and the exact next action with any authorization it needs. A fresh session must not depend on the chat.
+When the user requests a handoff, write one self-contained repository-local document: objective, current state, evidence, decisions, limitations, remaining gates, and the exact next action with any authorization it needs.
 
 ### Latest stable by default
 Use the latest stable version allowed by existing constraints; state the constraint when it forces older, and verify versions rather than recalling them.
@@ -437,6 +437,8 @@ Use the latest stable version allowed by existing constraints; state the constra
 
 Lead with the answer. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Name things in the user&#x27;s words, the code&#x27;s identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see; a question that asks the user to decide must read cold, saying what each option concretely changes. Expand only for security warnings, destructive confirmation, multi-step sequences, or competing readings of the request.
 
+Write for a reader who has not read the code. The user directs the work and knows the product; the agents wrote the implementation, so a bare name carries nothing to them. The first time a response uses a name from the repository — a file, module, function, flag, hook, persona, severity code, or abbreviation — say what it does or what it governs in the same sentence, and state a consequence as behavior the user can observe before the mechanism that produces it. A name the user supplied needs no gloss; a name they would have to open a file to understand does.
+
 ## Subagent Delegation
 
 Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator&#x27;s own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator&#x27;s own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
@@ -444,8 +446,8 @@ Delegation is the default for bounded, well-specified work: a unit with a clear 
 | Tier | Claude | Codex | Use |
 | --- | --- | --- | --- |
 | light | `haiku` | `gpt-5.6-luna` / `low` | mechanical or bounded read-only work |
-| medium | `claude-sonnet-5` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
-| heavy | `claude-opus-5` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
+| medium | `sonnet` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
+| heavy | `opus` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
 
 Choose the lowest tier that can solve and verify the task. Claude generic cells use `general-purpose` with explicit model; use a named persona when effort must be fixed. Codex generic cells use `agent_type=default` with explicit `model` and `reasoning_effort`. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
 
@@ -546,7 +548,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 175 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 225 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -561,6 +563,10 @@ detect:
 #   - Learning output style instructions on each session start.
 #   - Unaddressed .agents/breadcrumbs.md items (markdown &quot;- &quot; bullets), capped
 #     at the 10 most recent.
+#   - Settled decisions: the `### &lt;id&gt;` headings of .agents/decisions.md, so a
+#     declined idea is not re-proposed without opening the entry.
+#   - The knowledge index, reduced to `date · kind · subject` per line; the
+#     summary after the em dash stays in the file.
 #   - Registry MCP servers that are toggled off (name + description), with the
 #     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
@@ -612,9 +618,25 @@ if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -n &quot;
 fi
 
 items=&quot;&quot;
+open=&quot;&quot;
 crumbs=&quot;$proj/.agents/breadcrumbs.md&quot;
 if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$crumbs&quot; ]]; then
-  items=&quot;$(grep -E &#x27;^[[:space:]]*-[[:space:]]&#x27; &quot;$crumbs&quot; 2&gt;/dev/null || true)&quot;
+  # Bullets under &quot;## Open decisions&quot; wait on the user, so every one surfaces;
+  # every other bullet is deferred work and takes the cap below.
+  open=&quot;$(awk &#x27;/^## Open decisions/{f=1; next} /^## /{f=0} f &amp;&amp; /^[[:space:]]*-[[:space:]]/&#x27; &quot;$crumbs&quot; 2&gt;/dev/null || true)&quot;
+  items=&quot;$(awk &#x27;/^## Open decisions/{f=1; next} /^## /{f=0} !f &amp;&amp; /^[[:space:]]*-[[:space:]]/&#x27; &quot;$crumbs&quot; 2&gt;/dev/null || true)&quot;
+fi
+
+decisions=&quot;&quot;
+decisions_file=&quot;$proj/.agents/decisions.md&quot;
+if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$decisions_file&quot; ]]; then
+  decisions=&quot;$(grep -E &#x27;^### &#x27; &quot;$decisions_file&quot; 2&gt;/dev/null | sed &#x27;s/^### /- /&#x27; || true)&quot;
+fi
+
+knowledge=&quot;&quot;
+knowledge_index=&quot;$proj/.agents/knowledge/index.md&quot;
+if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$knowledge_index&quot; ]]; then
+  knowledge=&quot;$(grep -E &#x27;^- [0-9]{4}-[0-9]{2}-[0-9]{2} &#x27; &quot;$knowledge_index&quot; 2&gt;/dev/null | sed &#x27;s/ — .*$//&#x27; || true)&quot;
 fi
 
 # Surface disabled registry servers so the model can request only what it needs.
@@ -647,20 +669,27 @@ if [[ &quot;$learning_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lear
 fi
 
 # Nothing to surface.
-[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
+  # One blank line between sections, none before the first.
+  printed=false
+  section() {
+    if [[ &quot;$printed&quot; == true ]]; then echo; fi
+    printed=true
+  }
+
   if [[ -n &quot;$learning_body&quot; ]]; then
+    section
     printf &#x27;%s\n&#x27; &quot;$learning_body&quot;
   fi
 
   if [[ &quot;$is_compact&quot; == &quot;true&quot; ]]; then
-    [[ -n &quot;$learning_body&quot; ]] &amp;&amp; echo
+    section
     cat &lt;&lt;EOF
 Context was just compacted (trigger: $trigger). If you were mid-pivot on a
 discovered subproject, checkpoint the current unit now — update the todo list,
-note the file/line — and consider recommending a fresh session rather than
-working from the compacted summary.
+note the file/line — then continue from the summary.
 
 Discovered Subprojects policy (AGENTS.md keeps a one-line compressed copy for
 the pre-compaction window; this hook re-states the full policy because a
@@ -674,9 +703,7 @@ Blocking — A cannot complete correctly without B. Before pivoting:
    commit to checkpoint; commits happen only when the user asks.
 2. B becomes the new scoped unit — re-plan and hostile-review it.
 3. Finish B end-to-end.
-4. Return to A from the checkpoint. If B ran past ~20 turns or triggered a
-   context compaction, checkpoint A and recommend the user start a fresh
-   session to continue it, rather than working from the compacted summary.
+4. Return to A from the checkpoint.
 
 Non-blocking — B is optimization, cleanup, or future work. Do not explore it,
 read files for it, or plan it. File one line and return to A immediately:
@@ -691,8 +718,14 @@ done inline. Everything else goes through this gate.
 EOF
   fi
 
+  if [[ -n &quot;$open&quot; ]]; then
+    section
+    echo &quot;Open decisions in .agents/breadcrumbs.md (each waits on a ruling from the user; ask when the work touches one):&quot;
+    printf &#x27;%s\n&#x27; &quot;$open&quot;
+  fi
+
   if [[ -n &quot;$items&quot; ]]; then
-    [[ -n &quot;$learning_body&quot; || &quot;$is_compact&quot; == &quot;true&quot; ]] &amp;&amp; echo
+    section
     count=&quot;$(printf &#x27;%s\n&#x27; &quot;$items&quot; | wc -l | tr -d &#x27; &#x27;)&quot;
     echo &quot;Unaddressed breadcrumbs in .agents/breadcrumbs.md (deferred non-blocking work — act on each, or delete the line):&quot;
     if (( count &gt; 10 )); then
@@ -709,8 +742,27 @@ EOF
     fi
   fi
 
+  if [[ -n &quot;$decisions&quot; ]]; then
+    section
+    echo &quot;Settled decisions in .agents/decisions.md (open the entry for the why before proposing what it declined):&quot;
+    printf &#x27;%s\n&#x27; &quot;$decisions&quot;
+  fi
+
+  if [[ -n &quot;$knowledge&quot; ]]; then
+    section
+    echo &quot;Knowledge index, .agents/knowledge/index.md (dated observations from outside the repository; read the index line before opening an entry):&quot;
+    kcount=&quot;$(printf &#x27;%s\n&#x27; &quot;$knowledge&quot; | wc -l | tr -d &#x27; &#x27;)&quot;
+    if (( kcount &gt; 12 )); then
+      # Newest last in the index, so the tail is the most recent research.
+      echo &quot;  (12 most recent of $kcount — read the index)&quot;
+      printf &#x27;%s\n&#x27; &quot;$knowledge&quot; | tail -n 12
+    else
+      printf &#x27;%s\n&#x27; &quot;$knowledge&quot;
+    fi
+  fi
+
   if [[ -n &quot;$mcp_off&quot; ]]; then
-    [[ -n &quot;$learning_body&quot; || &quot;$is_compact&quot; == &quot;true&quot; || -n &quot;$items&quot; ]] &amp;&amp; echo
+    section
     echo &quot;Registry MCP servers currently OFF (not connected; the description says why):&quot;
     printf &#x27;%s\n&#x27; &quot;$mcp_off&quot;
     echo &#x27;If the task needs one: run `python3 .agents/mcp.py enable &lt;name&gt;`, then restart the session. Turn it off with `python3 .agents/mcp.py disable &lt;name&gt;`.&#x27;
@@ -1370,12 +1422,14 @@ fi
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 452 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 466 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
 # Scoped strictly to the provided file list — never sweeps the repo. Every
-# external tool is optional: a missing binary is skipped silently.
+# external tool is optional: a missing binary is skipped silently. The hosts
+# wire this to their editor tools only, so a file written through a shell
+# redirect is not linted. debt: colloid-shell-writes-skip-post-edit
 #
 # Two modes, wired as two hook entries, split by whether the work rewrites the
 # tree. $POST_EDIT_MODE selects one:
@@ -1392,6 +1446,7 @@ fi
 #            the findings on stderr. Nothing here rewrites a file the agent
 #            edited, so this is the entry that runs in the background under
 #            asyncRewake, where the slow typecheckers cost the session nothing.
+#            Nothing caps how many run at once. debt: colloid-post-edit-no-process-cap
 #
 # Default is `check`: an engine that wires one entry gets the gate, not the
 # formatter.
@@ -1533,7 +1588,18 @@ before_sums=&quot;&quot;
 [[ &quot;$mode&quot; == &quot;write&quot; ]] &amp;&amp; before_sums=&quot;$(sums &quot;$files&quot;)&quot;
 
 while IFS= read -r f; do
-  [[ -z &quot;$f&quot; || ! -f &quot;$f&quot; ]] &amp;&amp; continue
+  [[ -z &quot;$f&quot; ]] &amp;&amp; continue
+
+  # edited-files.py emits absolute paths, and marks a path it cannot express on
+  # a newline-delimited list with a leading &quot;!&quot; instead. Refuse it the same way
+  # a tab is refused below, because the alternative is the silent drop.
+  if [[ &quot;$f&quot; != /* ]]; then
+    [[ &quot;$mode&quot; == &quot;check&quot; ]] &amp;&amp;
+      issues+=$&#x27;\n&#x27;&quot;[skipped] no checker can run on this path — a newline in a filename splits the list this hook reads. Rename it: ${f#!}&quot;$&#x27;\n&#x27;
+    continue
+  fi
+
+  [[ -f &quot;$f&quot; ]] || continue
   rel=&quot;${f#$proj/}&quot;
 
   # Every per-workspace grouping below is tab-delimited, so a tab inside a path
@@ -1853,7 +1919,7 @@ exit 0
               <div class="top"><span class="id">ui-gate</span><span class="badge checkpoint">checkpoint</span></div>
               <p class="what">Records an edit to a client-rendered UI file in a per-session pending file, and injects a reminder on the first edit of a batch. A screenshot tool call clears it: every recorded edit happened before the look.</p>
               <div class="io"><b>in</b> {tool_name, tool_input} &nbsp;→&nbsp; <b>out</b> .agents/.ui-pending-&lt;session&gt; &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 102 lines</span></summary><div class="srcpath">.agents/hooks/policy/ui-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 103 lines</span></summary><div class="srcpath">.agents/hooks/policy/ui-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a UI change must be looked at before the turn ends.
 #
 # Two events share one policy because they share one state file:
@@ -1871,7 +1937,8 @@ exit 0
 # templates are not covered. A screenshot of the wrong page still clears the
 # gate — no host ties a screenshot to a route — so the gate guarantees a look,
 # not the right look. Subagent edits record under the parent session on hosts
-# that share the id. Kimi is not wired: its PostToolUse output is discarded.
+# that share the id, which is unverified. debt: colloid-ui-gate-subagent-session-id
+# Kimi is not wired: its PostToolUse output is discarded.
 #
 # Input (stdin JSON): {&quot;project_dir&quot;, &quot;event&quot;: &quot;PostToolUse&quot;|&quot;Stop&quot;, &quot;session_id&quot;,
 #   &quot;files&quot;: [...], &quot;tool_name&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
@@ -1967,7 +2034,7 @@ esac
               <div class="top"><span class="id">stop-investigate</span><span class="badge gate">gate</span></div>
               <p class="what">Blocks the hand-back when the last message hedges ("I can't"), declares work out of scope, or disclaims ownership of code it touched.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 148 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 179 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: block end-of-turn when the last assistant
 # message hedges, declares the task out of scope, or disclaims ownership
 # of code it touched.
@@ -2009,9 +2076,36 @@ fi
 
 [[ -z &quot;$last_msg&quot; ]] &amp;&amp; exit 0
 
-hedges=&#x27;(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\b|\bunable to (verify|determine|confirm) without\b|\b(don.?t|do not) have (enough|sufficient) (context|information)\b|\bwould need (more )?(information|context|access) (to|from)\b|\bcould you (clarify|confirm|provide|specify|tell me)\b|\bplease (let me know|clarify|confirm|specify) (which|what|whether|if)\b|\bwithout more (information|context|details)\b|\b(I.?ll|I will) stop here\b|\bbeyond the scope of\b|\bout of scope for (this|the current)\b|\bleaving (this|that) (for|to) you\b|\byou.?ll need to (check|verify|investigate|determine|decide)\b)&#x27;
+# Two hedge classes, because only one of them can be legitimate. Giving up on
+# capability, scope, or ownership never is. Asking the user a question is
+# MANDATED by AGENTS.md § &quot;Verify with user&quot; when the blocker is genuinely
+# theirs — and a mandated escalation is word-identical to a punt, so blocking
+# every question-shaped sentence bans the behavior the rules require and leaves
+# AskUserQuestion as the only legal way to ask.
+gives_up=&#x27;(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\b|\bunable to (verify|determine|confirm) without\b|\b(don.?t|do not) have (enough|sufficient) (context|information)\b|\b(I.?ll|I will) stop here\b|\bbeyond the scope of\b|\bout of scope for (this|the current)\b|\bleaving (this|that) (for|to) you\b|\byou.?ll need to (check|verify|investigate|determine|decide)\b)&#x27;
+asks=&#x27;(\bwould need (more )?(information|context|access) (to|from)\b|\bcould you (clarify|confirm|provide|specify|tell me)\b|\bplease (let me know|clarify|confirm|specify) (which|what|whether|if)\b|\bwithout more (information|context|details)\b)&#x27;
+# The disarm, on the same principle as the ratchet disarm below: a deliberate,
+# legible act clears the gate. AGENTS.md requires an escalation to carry &quot;your
+# recommendation with its trade-offs&quot;, so a recommendation is exactly what a
+# punt lacks — it asks and stops where an escalation asks and says what it would
+# do. Nothing disarms `gives_up`: a recommendation attached to &quot;I&#x27;ll stop here&quot;
+# is still stopping.
+escalation=&#x27;(\b(I|we) recommend\b|\bI.?d recommend\b|\bmy recommendation\b|\brecommend(ed|ation):|\bI suggest\b)&#x27;
+# `handback` takes the disarm back, the way `unfiled` does for the ratchet: a
+# recommendation aimed AT the user is the punt wearing the disarm. &quot;I suggest you
+# check the logs&quot; carries nothing and returns the investigation, where &quot;I suggest
+# we take v2&quot; commits to an answer. ERE has no lookahead, so the exclusion is its
+# own pattern rather than a negated group.
+handback=&#x27;\b(recommend|suggest)(s|ing|ed)? (that )?you\b&#x27;
 
-if printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$hedges&quot;; then
+escalated=&quot;no&quot;
+if printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$escalation&quot; \
+   &amp;&amp; ! printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$handback&quot;; then
+  escalated=&quot;yes&quot;
+fi
+
+if printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$gives_up&quot; \
+   || { [[ &quot;$escalated&quot; == &quot;no&quot; ]] &amp;&amp; printf &#x27;%s&#x27; &quot;$last_msg&quot; | grep -Eqi &quot;$asks&quot;; }; then
   cat &gt;&amp;2 &lt;&lt;&#x27;EOF&#x27;
 Your last message hedged, asked the user to do investigation, or declared
 the task out of scope. Re-read the principles: investigate, then act.
@@ -2019,6 +2113,10 @@ Read the referenced files, trace the code path, run the read-only
 commands you have access to, and reach a defensible conclusion. Escalate
 to the user only when a decision genuinely requires information or
 authority they alone hold. Continue the work now.
+
+If this IS that escalation, it is missing what makes it one. Carry what you
+found, the options, and your recommendation with its trade-offs, so the user
+can decide in one reply rather than asking you what you would do.
 EOF
   exit 2
 fi
@@ -2546,7 +2644,7 @@ exit 2
               <div class="top"><span class="id">ui-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Blocks the stop once when UI edits are still unseen, naming the files, then marks itself so later stops pass until a screenshot clears them. One shot is deliberate &mdash; a second block teaches nothing new.</p>
               <div class="io"><b>in</b> {session_id} &nbsp;→&nbsp; <b>out</b> exit 2 + file list | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 102 lines</span></summary><div class="srcpath">.agents/hooks/policy/ui-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 103 lines</span></summary><div class="srcpath">.agents/hooks/policy/ui-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a UI change must be looked at before the turn ends.
 #
 # Two events share one policy because they share one state file:
@@ -2564,7 +2662,8 @@ exit 2
 # templates are not covered. A screenshot of the wrong page still clears the
 # gate — no host ties a screenshot to a route — so the gate guarantees a look,
 # not the right look. Subagent edits record under the parent session on hosts
-# that share the id. Kimi is not wired: its PostToolUse output is discarded.
+# that share the id, which is unverified. debt: colloid-ui-gate-subagent-session-id
+# Kimi is not wired: its PostToolUse output is discarded.
 #
 # Input (stdin JSON): {&quot;project_dir&quot;, &quot;event&quot;: &quot;PostToolUse&quot;|&quot;Stop&quot;, &quot;session_id&quot;,
 #   &quot;files&quot;: [...], &quot;tool_name&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
@@ -2825,7 +2924,7 @@ Task(
 ```
 
 `.claude/agents/researcher.md` links directly to
-`.agents/personas/researcher.md`; its frontmatter pins `claude-sonnet-5`. The
+`.agents/personas/researcher.md`; its frontmatter pins `sonnet`. The
 agent loads the researcher contract as
 its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.
@@ -5485,7 +5584,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       <div class="sec-head">
         <div class="eyebrow"><span class="n">05</span>Prompts &amp; cells</div>
         <h2>The words the machinery hands off.</h2>
-        <p>The prose the orchestrator prepends when it dispatches work, the memory protocol, and the checklists the
+        <p>The prose the orchestrator prepends when it dispatches work, and the checklists the
           wrap hook points at. The scripts own the gates; these files own the words. The
           Cell / Protocol / Wrap labels below are grouping, not fields from the files.</p>
       </div>
@@ -5603,7 +5702,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 262 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 272 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Build native MCP configuration from the tracked registry.
 
 Usage: mcp.py [sync] | enable NAME... | disable NAME...
@@ -5622,7 +5721,7 @@ from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
 
 ROOT_TOKEN = &quot;${REPO_ROOT}&quot;
-META = {&quot;description&quot;, &quot;enabled&quot;, &quot;kimi_enabled&quot;, &quot;outward&quot;} | CODEX_META_FIELDS
+META = {&quot;description&quot;, &quot;enabled&quot;, &quot;kimi_enabled&quot;, &quot;outward&quot;, &quot;sources&quot;} | CODEX_META_FIELDS
 FIELDS = META | {&quot;type&quot;, &quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;, &quot;env&quot;, &quot;url&quot;, &quot;headers&quot;}
 ENV = re.compile(r&quot;\$\{([A-Za-z_][A-Za-z0-9_]*)\}&quot;)
 
@@ -5697,6 +5796,16 @@ def _validate_server(name, server):
         _fail(f&quot;{name}.kimi_enabled must be boolean&quot;)
     if &quot;outward&quot; in server and not isinstance(server[&quot;outward&quot;], bool):
         _fail(f&quot;{name}.outward must be boolean&quot;)
+    # Tools whose calls produce a source the provenance ledger must record.
+    # sources-matcher.py builds every host&#x27;s hook matcher from these, so a
+    # server cannot be enabled without its capture following it.
+    if &quot;sources&quot; in server:
+        tools = server[&quot;sources&quot;]
+        if not isinstance(tools, list) or not tools or \
+                not all(isinstance(tool, str) and tool for tool in tools):
+            _fail(f&quot;{name}.sources must be a non-empty list of tool names, or [\&quot;*\&quot;]&quot;)
+        if &quot;*&quot; in tools and len(tools) != 1:
+            _fail(f&quot;{name}.sources cannot mix \&quot;*\&quot; with named tools&quot;)
     validate_codex_metadata(name, server, _fail)
     if server.get(&quot;type&quot;) == &quot;stdio&quot;:
         _validate_stdio(name, server)
@@ -5872,7 +5981,7 @@ if __name__ == &quot;__main__&quot;:
 name: implementer
 description: Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.
 tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
-model: &quot;claude-sonnet-5&quot;
+model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
 maxTurns: 30
 permissionMode: &quot;acceptEdits&quot;
@@ -5902,7 +6011,7 @@ new user decision is necessary, state the two options and do not guess.
 name: reviewer
 description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
-model: &quot;claude-opus-5&quot;
+model: &quot;opus&quot;
 effort: &quot;high&quot;
 maxTurns: 24
 ---
@@ -5921,7 +6030,7 @@ reproduction of the named claim. Return only the contract report.
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;mcp__playwright__*&quot;]
-model: &quot;claude-sonnet-5&quot;
+model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
 maxTurns: 20
 mcpServers: [&quot;playwright&quot;]
@@ -6022,7 +6131,7 @@ Do not delegate, propose unrelated cleanup, or turn discovery into a review.
 name: researcher
 description: Research current or external facts with primary sources, confidence, dates, and explicit evidence gaps.
 tools: [&quot;Read&quot;, &quot;Grep&quot;, &quot;Glob&quot;, &quot;WebSearch&quot;, &quot;WebFetch&quot;, &quot;mcp__context7__*&quot;, &quot;mcp__research-mcp__*&quot;]
-model: &quot;claude-sonnet-5&quot;
+model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
 maxTurns: 20
 mcpServers: [&quot;context7&quot;, &quot;research-mcp&quot;]
@@ -6084,22 +6193,6 @@ excerpt.
 Open with one-paragraph orientation. Close with **Open for discussion** for any
 thin brief or decision not tied to code. Return only the output path and the
 number of decisions covered. Do not delegate.
-</code></pre></details>
-            </article>
-        <article class="card"><div class="kicker">Protocol</div><h3>memory/README.md</h3><p>The memory protocol — one fact per file, an index that loads each session. A committed snapshot of the harness store.</p><div class="foot">Snapshot · not yet wired to the live store</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 13 lines</span></summary><div class="srcpath">.agents/memory/README.md</div><pre><code># Agent memory (snapshot)
-
-A point-in-time **copy** of the Claude Code per-project auto-memory, committed so the
-notes are versioned and shared. `MEMORY.md` is the index; each `*.md` is one fact.
-
-**Not yet wired.** The live store the harness actually reads/writes is still
-`~/.claude/projects/&lt;encoded-project-path&gt;/memory/` on each machine — edits there do
-**not** sync here automatically, and edits here do **not** affect the harness. This
-is a manual snapshot until we set up the symlink/adapter wiring (canonical
-`.agents/memory/` ← per-user symlink), matching how `skills/`, `hooks/`, and
-`mcp.json` are shared.
-
-To refresh the snapshot for now: copy `~/.claude/projects/&lt;…&gt;/memory/*.md` here.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a cell reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b> — with a severity floor so a speculative note cannot block the round. Fired at workflow steps 3 and 6.</p>
@@ -6222,9 +6315,13 @@ edit — a wrap is not a repo-wide cleanup mission.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>report-implementation.md</h3><p>Session report for a diff: what it does and why, the evidence named, next steps — then a Conventional Commit message.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 15 lines</span></summary><div class="srcpath">.agents/playbooks/report-implementation.md</div><pre><code># Session report — implementation
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 19 lines</span></summary><div class="srcpath">.agents/playbooks/report-implementation.md</div><pre><code># Session report — implementation
 
 The session produced a diff. Report what it does and what it costs.
+
+The reader directed this work and did not write it. Say what each file, symbol,
+or setting you name is for, the first time you name it. Lead each item with the
+behavior the reader can observe, then the code that produces it.
 
 - **Root cause** (for bugs): proximate and underlying.
 - **What was done and why** — the decision, and the alternative you rejected.
@@ -6240,10 +6337,14 @@ Then draft a commit message for the session&#x27;s work in conventional style.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>report-investigation.md</h3><p>For a long no-diff session — debugging or research. Leads with root cause; the findings are the whole deliverable and die with the context window unless written down.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 17 lines</span></summary><div class="srcpath">.agents/playbooks/report-investigation.md</div><pre><code># Session report — investigation
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 21 lines</span></summary><div class="srcpath">.agents/playbooks/report-investigation.md</div><pre><code># Session report — investigation
 
 A long session with no diff: debugging or research. The findings are the whole
 deliverable, and they die with the context window unless written down.
+
+The reader directed this work and did not write the code it examined. Say what
+each file, symbol, or setting you name is for, the first time you name it.
+State a finding as behavior the reader can observe, then the mechanism.
 
 Lead with the frame that fits:
 
@@ -6454,66 +6555,60 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 53 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 47 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
-Deferred non-blocking work. One line each. Act on it, or delete the line.
-Surfaced at session start by `session-start.sh`.
+Deferred non-blocking work. Act on an entry, or delete the line.
+Surfaced at session start by `session-start.sh`: every open decision, and the
+ten newest work items.
 
-- Make `session-wrap.sh` non-interactive under `codex exec`: the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt.
-- Expert-persona anchors applied to real work: `pentesting/SKILL.md:109` opens &quot;You are a senior red-team engineer&quot; — keep as register, or drop? Evidence says expert personas do not improve factual accuracy and domain-mismatched ones degrade it, while still shaping tone (arxiv.org/abs/2512.05858; arxiv.org/abs/2603.18507). (The genome layer stays out of scope — `genomes.md` states it is an RL environment for swarm research and makes no accuracy claim.)
-- No vendor guidance reconciles cache-prefix (stable-first) vs long-context data-before-query placement when both corpora are large near a 1M window — revisit if we ship long-corpus prompts.
-- Seed real invariants into the 5 content-free skill AGENTS.md files (frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review) as mistakes surface — each ships `None recorded yet.` in one section. Open user decision: seed-on-demand vs delete-until-needed.
-- Make recurring-correction mining a practice: periodically mine recent session transcripts for repeated user corrections, distill, adversarially verify, fold survivors into AGENTS.md. Worked once (2026-07: 10 rules mined fleet-wide, 5 adopted — two merged into existing sections — 5 declined as covered, specialized, or satellite-local).
-- `demo/scaffold-showcase.html` cards are still hand-written: `embed-src.py` refreshes the source panel inside a card that exists and is silent about one that does not. `demo/check-inventory.py` now fails CI on the gap, so drift is caught rather than shipped, but adding a hook or skill still costs a hand-authored card plus a `MANIFEST` line. Generating the card from the manifest would close it.
-- Codex hook commands bootstrap through `$(git rev-parse --show-toplevel)`, so from a submodule, a worktree, or an unrelated repo the adapter is missing and every command exits 127 — Codex treats non-2 as `Failed` and continues, so `guard-destructive` silently stops guarding. `.claude`/`.kimi` resolve structure-relative from `${BASH_SOURCE[0]}`; Codex exposes no project-dir variable, and the payload&#x27;s `cwd` arrives too late to locate the adapter. Needs a CWD-independent root or a deliberate exit 0.
-- Codex custom roles cannot enforce the Claude persona tool allowlists, and Kimi has no generated persona routing. Revisit when either host exposes a project-scoped capability boundary; until then the handoff and sandbox are the enforceable limit.
-- `trust-hooks.py` read-modify-writes `~/.codex/config.toml`, which Codex itself also writes when the operator toggles a setting. `os.replace` prevents a torn file but not a lost update, and nothing serialises the two writers. Narrow window, no observed loss; a lockfile would close it if Codex ever writes that file on a schedule rather than on operator action.
-- `trust-hooks.py` writes the project trust entry before it checks whether `codex` exists, so a machine without Codex still gets a modified `~/.codex/config.toml`; make command availability precede the first store and test the no-op contract.
-- `trust-hooks.py` reports a declared/discovered hook count mismatch but still trusts the returned subset and exits 0; fail before the hook-state write and test that partial discovery cannot disarm omitted hooks silently.
-- Nothing validates `.agents/codex/hooks.json`. `codex mcp list` reads only `config.toml` (verified: a malformed `hooks.json` in the scratch workspace still exits 0), `--no-trust` keeps real `hooks/list` discovery out of the suite, and `hooks.json` is tracked and hand-edited. It is the other file that can fail a whole Codex session. The `hooks/list` driver would cover it against the same scratch home.
-- `research-mcp` fetches on the caller&#x27;s behalf and does not consult robots.txt. That matches how every reader tool behaves for a single user-directed read (WebFetch, Jina, Readability services), and the server rate-limits per host and identifies itself — but the scaffold has never written the policy down. Decide and state it: user-directed single reads exempt, anything that becomes enumeration is not.
-- `playwright-mcp` exposes `network.blockedOrigins`/`--blocked-origins`, and neither browser tier sets it, so the browser can still navigate to `169.254.169.254` while `research-mcp` refuses to. Upstream disclaims it as a security boundary and it does not cover redirects, so it is not a fix — but the two tiers currently disagree about their threat model, which is worth resolving deliberately.
-- Unpaywall&#x27;s live path is covered only by unit tests with a stubbed fetcher; no live call has been made because it needs a real mailbox in `RESEARCH_MCP_CONTACT_EMAIL`. Set it, then confirm a DOI with a known repository copy returns `oa_locations`.
-- The two MCP servers gate their tracked bundle differently: `security-mcp`&#x27;s `npm run check` runs `build` before `check:bundle`, so a stale committed `dist/` is silently regenerated and the check still passes (leaving a dirty tree as the only signal), while `research-mcp` omits `build` and the same staleness fails loudly. The strict shape is the right one — drop `build` from `security-mcp`&#x27;s `check` so both servers fail rather than repair, and keep `build` an explicit step.
-- `export-scaffold.py` leaves three colloid-only passages unmarked in `.agents/README.md`, so every satellite inherits them stale: the `fixtures/review-episodes/` row (a path in `DROPPED_PATHS`), the `../demo/`/`../tensium-trial/` fragment in the scoped-`AGENTS.md` row, and the `.github/copilot-instructions.md` line plus the two `.github/instructions/README.md` citations further down. `.agents/claude/README.md:4` names the copilot symlink too. muscle-app and automata-pos both carry the fix by hand. A table row cannot be wrapped in `&lt;!-- colloid-only --&gt;` without breaking the table, so this needs `SUBSTITUTIONS` entries or a reordering that puts the droppable rows last.
-- `.agents/lsp.json` names bare `typescript-language-server` and `pyright-langserver`, resolved from PATH only. That is the same defect class `post-edit-check.sh` just fixed for ruff/eslint/prettier — a repository keeping its toolchain repo-local gets a language server that never starts, silently. Give the registry the same walk-up resolution, or state that LSP is PATH-only by design.
-- `export/gitignore-fragment` omits `/.playwright-mcp/`, which this repository&#x27;s own root `.gitignore` carries. Every satellite with a playwright server enabled therefore accumulates untracked-and-unignored session artefacts, which also makes `session-wrap.sh` read the tree as dirty. Add the line to the fragment.
-- The root `AGENTS.md` Layers table names `.claude/AGENTS.md` as the Claude adapter layer&#x27;s canonical file, but that path is a symlink to `.agents/claude/AGENTS.md` — and the same paragraph says never to edit through a symlink. Fixed by hand in automata-pos; the source table still says it.
-- `post-edit-check.sh` reads its file list newline-delimited, so a path containing a newline splits into two names that do not exist and is dropped by the `! -f` test — silently, which is the outcome the tab guard beside it exists to prevent. A tab is refused loudly; a newline is not. Closing it means a NUL-delimited list end to end (JSON emitter, the dispatch loop, and both groupers).
-- `.agents/knowledge/index.md` is markdown, but it is the store&#x27;s one record-shaped file and the one meant to be scanned. Benchmarks split: YAML beat markdown on nested retrieval for 2 of 3 models tested, while a 9,649-trial study found no aggregate format effect and markdown costs fewer tokens. Reasoning and the flip trigger are in `debt: colloid-knowledge-index-markdown`; revisit when the index passes a few dozen entries.
-- Files written through `Bash` heredocs or `sed -i` skip the post-edit lint gate entirely: `post-edit-check.sh` runs on `Edit|Write|MultiEdit|NotebookEdit`, and a shell redirect is none of them. Either widen the PostToolUse matcher to the shell tools and derive the touched paths from the command, or state that the gate covers editor writes only.
-- `stop-investigate.sh`&#x27;s hedge regex fires on `could you clarify|confirm|specify` and blocks the turn — which bans the prose escalation `AGENTS.md` § &quot;Verify with user&quot; mandates, leaving `AskUserQuestion` as the only legal way to ask. Exempt an explicit escalation marker, or drop the question-shaped alternations and keep the give-up ones.
-- No skill uses any of `allowed-tools`, `disallowed-tools`, `context: fork`, `model`, `effort`, or `paths`, all of which are supported. `context: fork` fits the heavyweight skills (pentesting, security-audit, seo-geo-growth-audit); `disallowed-tools` would express security-skill tool scope declaratively instead of leaning on the Bash guard.
-- `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe: esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility with a symlinked `node_modules` yields a spurious mismatch.
-- `.kimi/config.toml.example:55` gates `Bash` alone while `.agents/claude/settings.json` now gates `Bash|PowerShell|Monitor`. Kimi&#x27;s tool names are its own, and whether it exposes a background-shell tool is unverified — check the Kimi hook docs, then widen the matcher or record that Kimi has no equivalent. `.agents/codex/hooks.json` is correct as-is: Codex has no Monitor.
-- Both MCP servers declare `engines: {&quot;node&quot;: &quot;&gt;=20.19.0&quot;}`, and Node 20 reached end of life on 2026-04-30. CI runs the range&#x27;s live end (22 and 24) because running an unsupported runtime proves nothing. Raise the floor to `&gt;=22.0.0` so the declared constraint names something that is actually supported and tested.
-- The working-tree assertion in `.github/workflows/ci.yml` is eight duplicated lines across the `scaffold` and `servers` jobs. Two copies is where they drift. Factor it into a `.agents/` script both jobs call, which also carries it into the export kit that `ci.yml` itself is excluded from — or a composite action under `.github/actions/` if it must stay GitHub-shaped. Related and unverified: `actions/setup-node`&#x27;s npm cache key may omit the Node version, so the `22` and `24` legs for one server would share a key and one logs a cache-reservation warning; the content is node-agnostic npm tarballs, so it is noise, not breakage.
-- Requiring `AGENTS.md` per skill is a fleet migration, not the no-op `d0ed7aa` claims: `claude-code-boilerplate` (23 of 24 skills), `writing-coach-wt-bulk-export` (8 of 8) and `career-ops` (1 of 1) have none, so `lint-skills.sh` will red-light their whole lint run and block the post-edit hook at the next transplant. Decide whether that forcing function is wanted, and seed the files or scope the rule if not.
-- `post-edit-check.sh`&#x27;s `check` entry runs under `asyncRewake` with no per-session cap, so a burst of edits can leave several `tsc --noEmit` and `pyright` processes resident at once. Dropping `--incremental` removed the shared-file corruption but not the process count, and the diff cannot state N. Measure a real 200-edit session before adding a cap — a cap that fires wrongly is a gate that stops gating.
-- Scaffold audit, six ordered items in `docs/handoff/2026-08-08-scaffold-audit.md`: split `AGENTS.md` (11,397 bytes, ~3,800 of it conditional), widen the persona registry past `model:` to `tools:`/`effort:`/`memory:` (3 of 16 fields used; `researcher` inherits Write), put numeric thresholds in `hostile-review.md` (168 lines, zero — and the eval harness grades against it), add the compress/expand carve-out table to `## Communication`, drain this file from 55, and make `export-scaffold.py` additive so a satellite gains domain rules instead of only losing the genome. Open ruling recorded there: does the genome layer stay? Measure which of the 11 hook policies have ever fired before deciding — that answer reshapes the last item.
-- `scalability-audit` has no law for positive feedback under degradation — load rising as capacity falls, so the system stays broken after the trigger clears. The class is real and well-sourced (metastable failure: HotOS &#x27;21, OSDI &#x27;22, HotOS &#x27;25) and the mechanisms, taxonomy and remedies are all citable; see `.agents/knowledge/research/2026-08-13-occupancy-and-metastable-failure.md`. It was held for one reason: no ex-ante detection question exists, and the literature calls that an open problem as of 2025. The knowledge entry carries the full argument for why measurement is not the bar. Ship it when there is a heuristic worth standing behind — not before, because a law without a detection question is a slogan.
-- The `[A]` grade (our own analysis) was added to `market-researcher/SKILL.md` and `knowledge/README.md` after in-house judgement had nowhere legal to sit. Two existing entries predate it and need a sweep, not a rewrite — knowledge entries are dated observations and must not be revised to match later facts, so correct these by writing the grade fix into whatever entry supersedes them: `2026-08-06-agent-knowledge-base-patterns.md:29` grades an in-house inference as `[S]` (&quot;inferred from the &#x27;nightly notes&#x27; annotation&quot;), which is the exact laundering `[A]` exists to stop. Separately, the scale&#x27;s &quot;always say which kind&quot; rule for `[?]` is already unenforced at `2026-08-06-...:74` and `2026-08-07-...:52,:58` — the scale&#x27;s rules are under-enforced generally, and nothing checks them.
-- `AGENTS.md` §External actions is enforced on Claude only: `guard-publish.sh` forces the permission prompt on outward Bash calls (git/gh/npm-family/docker and the vercel/netlify/wrangler/firebase/fly/railway deploy CLIs) and on every Artifact action outside its read set, and `.claude/settings.json` `permissions.ask` covers the plain forms declaratively. Kimi and Codex sessions remain instruction-only — neither host exposes an ask-equivalent PreToolUse decision. Wire them when one does.
-- The publish gate&#x27;s hook half still has no observation that a hook `permissionDecision: &quot;ask&quot;` overrides a `settings.local.json` allowlist entry; the permissions doc says hook decisions do not bypass deny/ask rules and is silent on `allow`. The declarative half is measured and settled — see `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md`, where a user-tier `permissions.ask` rule beat a project `allow` for the same command — so an allowlisting operator is covered whatever the hook does. What is unmeasured is the hook alone, on the shapes no prefix rule states (`git -C dir push`, `npx -p vercel vercel --prod`). Run those two in a live session with matching allow entries.
-- The `[P]`/`[S]`/`[?]`/`[A]` grade scale has no mark for a first-party measurement. `2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands that were run and outputs that were read, and grades them `[A]`, whose definition is inference from graded claims — &quot;no source claims it; we inferred it&quot;. A measurement is not an inference and is stronger than both, yet `[P]` would impersonate a published source. Either widen `[A]`&#x27;s definition to cover measurement-with-method, or add a mark for it; the scale&#x27;s own reasoning about why `[A]` exists applies with equal force here.
-- Whether Claude Code&#x27;s `Artifact` tool accepts a permission specifier (`Artifact(publish:*)`) or only the bare tool name is unchecked. It decides whether `permissions.ask` can be narrowed to the five mutating actions, which would stop the settings tier prompting on the four read actions `ARTIFACT_READ_ACTIONS` deliberately allows. Until then the bare rule prompts on reads, and prompt fatigue on read-only calls is the realistic path to an operator adding a blanket allow and losing the mutating gates with it.
-- Measure `guard-publish.sh` against representative session invocation counts and payload sizes before setting a runtime or input ceiling; the matched shell path currently imports the 411-line destructive-command parser on every call, but no trace yet shows a harmful bound.
-- `test-codex.sh`&#x27;s skip-Kimi-when-unwired branch (`f714aa8`) never executes here because this repo always ships `.kimi/config.toml.example`; the only run that exercises it is a transplant. Add a stripped fixture the way `test-export.sh` builds its lean kit, or accept that the branch is proven only in satellites.
-- Root `AGENTS.md` grew by ~12 lines of prose (vendored instructions, fixes in the repo, comments, tooling, naming) while the mined corrections say prose is the weak lever; the offsetting cut — the delegation table&#x27;s invocation mechanics, replaced by when-to-delegate triggers — was declined as beyond low-hanging fruit. Make the cut when the section is next touched.
-- `ui-gate.sh` keys pending edits on `session_id`; whether a spawned subagent&#x27;s PostToolUse payload carries the parent&#x27;s id is unobserved, so a delegated UI edit may never reach the main Stop. Run one delegated `.tsx` edit in a live Claude session and read the `.agents/.ui-pending-*` filename; if the id differs, key the PostToolUse half on `project_dir`. Also unobserved live: the Stop block landing beside the two sibling Stop hooks, and `outputStyle: colloid` keeping the default coding instructions.
-- `[agents] max_concurrent_threads_per_session = 8` is accepted by the host loader (`codex mcp list` in `test-codex.sh` passes), but no live session has yet opened eight spawned threads. Two things stay unobserved: whether Codex opens all eight concurrently, and whether the ChatGPT plan throttles behind the raised cap — a service-side limit surfaces as queuing or usage errors, never as a thread count, so a session that stalls at some lower number is evidence only if the errors are read. Dispatch eight bounded cells from one Codex thread and record which it is.
-- `extract-contract.sh` regenerates and validates `review-harness/contract.md` from the fenced block in `hostile-review.md`, but nothing invokes it automatically, so an edit to the playbook silently leaves the harness grading a contract the repo no longer ships — the exact failure `AGENTS.md` names. It is now in the `.agents/README.md` verification list, which is prose, not a gate. Give it a `--check` mode that fails when `contract.md` differs from a fresh extraction, and call that from a test.
-- `permissions.deny` now holds `delete|remove|destroy` prefixes for the outward servers, but no session has loaded them: settings are read at startup, and the rules were written in the session that added them. Two things stay unobserved — whether the host accepts the `mcp__&lt;server&gt;__&lt;prefix&gt;*` shape, and whether a denied tool disappears from the tool list rather than being offered and refused. `test-mcp.sh` models the match with `fnmatch`, which is not the host&#x27;s matcher, so it proves the rule set is self-consistent and not that Claude Code honors it. Check in a fresh session: `/permissions` should list the nine deny rules, and the vercel server, once authenticated, should expose no `remove_project`. A rule naming no known tool is exempt from the startup typo warning, so a wrong server name stays silent.
-- Codex and Kimi have no equivalent MCP deny layer. `.agents/codex/config.toml` gates by permission profile and network domain, neither of which names a tool, so a destructive MCP call from Codex is ungated where the same call from Claude is denied. Confirm whether Codex exposes per-tool MCP permissions before assuming the gap is closable.
-- `sources-capture.sh`&#x27;s matcher is hand-written while `.agents/mcp.py` generates the MCP registry, and the two have already diverged: the matcher carries the plugin form `mcp__plugin_exa_exa__.*` but not the registry form, so `python3 .agents/mcp.py enable exa` (or `greptile`) yields a research tool whose sources never reach the ledger — probed, both miss. Generate the matcher from `.agents/mcp.json` so enabling a server cannot outrun its provenance capture.
-- `test-guard-publish.py` proves the shell parser and `test-mcp.sh` now proves an outward registry server carries an ask rule, but nothing asserts a gate *fires* against an MCP-shaped payload, because no hook runs in the MCP path by design. If `guard-destructive` is ever extended to MCP, that test has to come with it.
+Shape: one entry, one line — `**&lt;path, script, or decision&gt;** — what is wrong.
+The one next action.` The subject leads so the topic is legible before the
+sentence is read.
+
+Over 40 words it is not a breadcrumb: a standing tradeoff belongs in
+`debt-log.md`, a settled decision in `decisions.md`, an external observation in
+`knowledge/`, a multi-step plan in `docs/handoff/`. `lint-breadcrumbs.py` holds
+both rules.
+
+Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md`.
+
+## Open decisions
+
+- **Expert-persona anchors in skills** — `pentesting/SKILL.md:109` opens &quot;You are a senior red-team engineer&quot;. Personas do not improve factual accuracy and mismatched ones degrade it, while still shaping tone. Keep as register, or drop?
+- **Five skill `AGENTS.md` files ship `None recorded yet.`** — frontend-design, mobile-responsive-web, panspermia-mutation, seo-geo-growth-audit, thermo-nuclear-code-quality-review. Seed them as mistakes surface, or delete until one is needed?
+- **Recurring-correction mining is not a practice** — mining transcripts for repeated user corrections worked once (2026-07: 10 mined, 5 adopted). Write it up beside `breadcrumb-burndown.md`, or drop it?
+- **The two browser tiers disagree on their threat model** — neither sets `playwright-mcp`&#x27;s `network.blockedOrigins`, so a browser reaches `169.254.169.254` where `research-mcp` refuses. Upstream disclaims it as a boundary. Set it anyway, or state the split?
+- **Unpaywall&#x27;s live path has never been called** — the unit tests stub the fetcher, and a real call needs a mailbox in `RESEARCH_MCP_CONTACT_EMAIL`. Which address should it use?
+- **No skill uses `context: fork`, `disallowed-tools`, `model`, `effort`, or `paths`** — all are supported. Forking pentesting, security-audit and seo-geo-growth-audit is the obvious first use. Adopt, or leave unused?
+- **Requiring `AGENTS.md` per skill is a fleet migration** — claude-code-boilerplate (23 of 24), writing-coach (8 of 8) and career-ops (1 of 1) have none, so `lint-skills.sh` red-lights their whole run at the next transplant. Wanted, or scope the rule?
+- **`AGENTS.md` is still 11,397 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
+- **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
+- **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
+- **`.agents/config.json` is ignored but documented as a per-repository override** — writing-coach commits four hook disables that are genuine repo policy, and career-ops and claude-code-boilerplate carry no ignore line at all. Track it, or split policy from operator taste?
+
+## Work
+
+- **`session-wrap.sh` blocks under `codex exec`** — the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt. Detect exec mode and skip the prompt.
+- **Nothing validates `.agents/codex/hooks.json`** — `codex mcp list` reads only `config.toml`, so a malformed hooks.json still exits 0. It is the other file that can fail a whole Codex session. Cover it with the `hooks/list` driver.
+- **`research-mcp`&#x27;s robots.txt policy is unwritten** — it fetches on the caller&#x27;s behalf without consulting robots.txt, as every reader tool does, and rate-limits per host. State the rule: user-directed single reads exempt, enumeration not.
+- **`security-mcp`&#x27;s `check` repairs instead of failing** — it runs `build` before `check:bundle`, so a stale committed `dist/` is silently regenerated and passes. `research-mcp` omits `build` and fails loudly. Drop `build`.
+- **`export-scaffold.py` leaves colloid-only passages in `.agents/README.md`** — the `fixtures/review-episodes/` row, the `../demo/` fragment, and the `.github/copilot-instructions.md` lines. A table row cannot take `&lt;!-- colloid-only --&gt;`; needs `SUBSTITUTIONS` or reordering.
+- **`.agents/lsp.json` resolves language servers from PATH only** — a repository keeping its toolchain repo-local gets a server that never starts, silently. Give it `post-edit-check.sh`&#x27;s walk-up resolution, or state that LSP is PATH-only.
+- **`export/gitignore-fragment` omits `/.playwright-mcp/`** — every satellite running a playwright server accumulates untracked, unignored session artefacts, which also makes `session-wrap.sh` read the tree as dirty. Add the line.
+- **The root `AGENTS.md` Layers table names a symlink as canonical** — it lists `.claude/AGENTS.md` for the Claude adapter layer, but that path links to `.agents/claude/AGENTS.md`, and the same paragraph forbids editing through a symlink.
+- **`.kimi/config.toml.example:55` gates `Bash` alone** — `.agents/claude/settings.json` gates `Bash|PowerShell|Monitor`. Check the Kimi hook docs, then widen the matcher or record that Kimi exposes no background shell. Codex has no Monitor.
+- **Both MCP servers declare `node &gt;=20.19.0`** — Node 20 reached end of life on 2026-04-30 and CI runs 22 and 24. Raise the floor to `&gt;=22.0.0`, so the declared constraint names something supported and tested.
+- **`ci.yml` duplicates the working-tree assertion across two jobs** — eight lines each, and two copies is where they drift. Factor it into a `.agents/` script both jobs call, which also carries it into the export kit.
+- **`test-codex.sh`&#x27;s skip-Kimi branch never runs here** — this repository always ships `.kimi/config.toml.example`, so only a transplant exercises it. Add a stripped fixture the way `test-export.sh` builds its lean kit.
+- **`decisions.md` has no shape lint** — `lint-breadcrumbs.py` gates breadcrumbs, nothing checks that each `### &lt;id&gt;` entry carries Decision, Why, and Reopens-when lines. Add the check when an entry first ships without one.
+- **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 80 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 170 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -6593,6 +6688,96 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — Kimi 0.31.1 exposes `SubagentStart`, but documents it as observation-only and discards its hook output before constructing the child&#x27;s prompt. Wiring `genome-inject.sh` would therefore report success without treating the subagent. Acceptable: Kimi dispatch instructions prepend exactly one genome; Claude and Codex inject automatically.
 - **Trigger** — Kimi documents and ships model-visible context from `SubagentStart`.
 - **Rework** — map `agent_name` to `subagent_type`, register `genome-inject.sh`, remove Kimi&#x27;s manual-prepend instructions, and verify the child transcript rather than hook stdout; roughly 15 lines plus native QA.
+
+### colloid-outward-gating-claude-only
+
+- **Condition** — `AGENTS.md` § External actions is enforced on Claude alone. `guard-publish.sh` forces the permission prompt on outward Bash calls and on every Artifact action outside its read set, `permissions.ask` covers the plain forms declaratively, and `permissions.deny` blocks the destructive MCP tools. Kimi and Codex are instruction-only: `.agents/codex/config.toml` gates by permission profile and network domain, and neither names a tool, so a destructive MCP call from Codex is ungated where the same call from Claude is denied. Acceptable: neither host exposes an ask-equivalent PreToolUse decision or per-tool MCP permissions, so there is nothing to wire to.
+- **Trigger** — either host shipping a hook decision that can *ask* rather than only allow or deny, or per-tool MCP permissions.
+- **Rework** — return the host&#x27;s ask shape from the existing policy scripts; the decision logic is already engine-neutral, so this is an adapter change, roughly 20 lines per host.
+
+### colloid-shell-writes-skip-post-edit
+
+- **Condition** — a file written through a `Bash` heredoc or `sed -i` skips the lint gate entirely: `post-edit-check.sh` runs on `Edit|Write|MultiEdit|NotebookEdit`, and a shell redirect is none of them. Acceptable: the agent is told to use the editor tools, and a shell-written file is linted at the next editor write to it.
+- **Trigger** — shell-written files reaching commits unlinted often enough to matter, or a generator that emits code through redirects.
+- **Rework** — widen the PostToolUse matcher to the shell tools and derive the touched paths from the command, which needs the shell parse `guard-destructive.py` carries, on every edit. The cheap alternative is to state in the hook header that the gate covers editor writes only.
+
+### colloid-post-edit-no-process-cap
+
+- **Condition** — `post-edit-check.sh`&#x27;s `check` entry runs under `asyncRewake` with no per-session cap, so a burst of edits can leave several `tsc --noEmit` and `pyright` processes resident at once. Acceptable: dropping `--incremental` removed the shared-file corruption, which was the harmful half, and no session has been observed exhausting memory or descriptors.
+- **Trigger** — a measured session where concurrent typecheckers exhaust memory or descriptors.
+- **Rework** — a per-session cap keyed on a lock directory, ~30 lines. Held deliberately: the diff cannot state how many processes are concurrent, and a cap that fires wrongly is a gate that stops gating. Measure a real 200-edit session first.
+
+### colloid-guard-publish-unbounded-input
+
+- **Condition** — `guard-publish.sh`&#x27;s matched shell path imports the 411-line destructive-command parser on every call, with no runtime or input ceiling. Acceptable: no trace shows a harmful bound, and a ceiling chosen without one would either never fire or fire on a legitimate payload.
+- **Trigger** — a session where the gate&#x27;s runtime is visible, or a payload large enough to matter.
+- **Rework** — measure representative invocation counts and payload sizes, then set the ceiling from that measurement; the ceiling itself is about five lines.
+
+### colloid-publish-gate-hook-half-unmeasured
+
+- **Condition** — the publish gate&#x27;s declarative half is measured: a user-tier `permissions.ask` rule beat a project `allow` for the same command, recorded in `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md`, so an allowlisting operator is covered whatever the hook does. The hook half alone is unmeasured on the shapes no prefix rule states — `git -C dir push`, `npx -p vercel vercel --prod` — and the permissions documentation is silent on whether a hook `ask` overrides an `allow` entry. Acceptable: the two halves overlap, so the unmeasured one is redundant coverage rather than the only coverage.
+- **Trigger** — removing either half, or an operator allowlist entry the hook is expected to override.
+- **Rework** — run those two commands in a live session with matching allow entries and record the result. A measurement, not a code change.
+
+### colloid-artifact-permission-specifier
+
+- **Condition** — whether Claude Code&#x27;s `Artifact` tool accepts a permission specifier (`Artifact(publish:*)`) or only the bare tool name is unchecked, so `permissions.ask` carries the bare rule and prompts on the four read actions `ARTIFACT_READ_ACTIONS` deliberately allows. Acceptable: prompting on a read is a nuisance, not a hole.
+- **Trigger** — prompt fatigue on read-only calls. The realistic path is an operator adding a blanket allow and losing the mutating gates with it.
+- **Rework** — test the specifier in a live session, then narrow the rule to the five mutating actions; one settings line if it works.
+
+### colloid-ui-gate-subagent-session-id
+
+- **Condition** — `ui-gate.sh` keys pending edits on `session_id`, and whether a spawned subagent&#x27;s PostToolUse payload carries the parent&#x27;s id is unobserved. A delegated UI edit may therefore never reach the main Stop. Acceptable: UI edits are usually made in the main session, and the gate is a reminder rather than a correctness check.
+- **Trigger** — routinely delegating `.tsx` edits, or a delegated UI change shipping without its screenshot step.
+- **Rework** — run one delegated edit and read the `.agents/.ui-pending-*` filename; if the id differs, key the PostToolUse half on `project_dir`. A one-line change behind a one-session measurement.
+
+### codex-trust-hooks-lost-update
+
+- **Condition** — `trust-hooks.py` read-modify-writes `~/.codex/config.toml`, which Codex itself writes when the operator toggles a setting. `os.replace` prevents a torn file but not a lost update, and nothing serialises the two writers. Acceptable: the window is narrow, no loss has been observed, and Codex writes that file on operator action rather than on a schedule.
+- **Trigger** — Codex writing the file on a timer or in the background, or an observed lost toggle.
+- **Rework** — take an advisory lock around the read-modify-write, ~15 lines; it only helps if Codex takes the same lock.
+
+### codex-roles-cannot-enforce-tool-allowlists
+
+- **Condition** — Codex custom roles cannot express the Claude persona tool allowlists, and Kimi has no generated persona routing at all. A delegated cell on either host is bounded by its handoff and the sandbox, not by a capability list. Acceptable: the sandbox is the real containment on all three hosts, and the allowlist is defence in depth.
+- **Trigger** — either host exposing a project-scoped capability boundary.
+- **Rework** — generate host-native role definitions from `personas/*.md`, the way `.claude/agents/*.md` are linked today.
+
+### codex-eight-threads-unobserved
+
+- **Condition** — `[agents] max_concurrent_threads_per_session = 8` is accepted by the host loader (`codex mcp list` passes in `test-codex.sh`), but no live session has opened eight spawned threads. Two things stay unknown: whether Codex opens all eight concurrently, and whether the ChatGPT plan throttles behind the raised cap. Acceptable: a cap higher than the service allows costs nothing, because the service-side limit binds first.
+- **Trigger** — a Codex session that stalls below eight threads. It is evidence only if its queuing or usage errors are read: a service limit never surfaces as a thread count.
+- **Rework** — dispatch eight bounded cells from one Codex thread and record which limit binds. A measurement, not a code change.
+
+### colloid-check-bundle-not-symlink-safe
+
+- **Condition** — `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe. esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility against a symlinked `node_modules` yields a mismatch that is an artefact of the link rather than of the source. Acceptable: neither server&#x27;s install symlinks `node_modules`, and CI installs fresh.
+- **Trigger** — a pnpm-style store or a workspace layout that symlinks `node_modules` for either server.
+- **Rework** — normalise the realpath prefixes out of the bundle before hashing, ~20 lines; it weakens the check by exactly the bytes it erases.
+
+### colloid-showcase-cards-handwritten
+
+- **Condition** — `demo/scaffold-showcase.html` cards are hand-written. `embed-src.py` refreshes the source panel inside a card that exists and is silent about one that does not, so adding a hook or a skill costs a hand-authored card plus a `MANIFEST` line. Acceptable: `demo/check-inventory.py` fails CI on the gap, so drift is caught rather than shipped.
+- **Trigger** — the hand-authoring step being skipped often enough that the CI failure becomes routine, or the card body gaining structure worth generating.
+- **Rework** — generate the card from its manifest entry: ~60 lines in `embed-src.py` plus a template, and the hand-written prose in each card has to move into the manifest.
+
+### colloid-knowledge-grades-unenforced
+
+- **Condition** — the `[P]`/`[S]`/`[?]`/`[A]` source grades are unenforced, and two entries predate `[A]`. `2026-08-06-agent-knowledge-base-patterns.md:29` grades an in-house inference `[S]`, which is the laundering `[A]` exists to stop, and the &quot;always say which kind&quot; rule for `[?]` is ignored at `:74` and at `2026-08-07-...:52,:58`. Acceptable: knowledge entries are dated observations and must not be revised to match later facts, so a wrong grade stays until a superseding entry carries the correction.
+- **Trigger** — a new entry superseding either file, or enough entries that a reader cannot spot a mis-grade by eye.
+- **Rework** — a linter over the grade marks in `knowledge/`, plus writing the correction into whatever entry supersedes those two; ~40 lines and one entry.
+
+### scalability-audit-no-metastable-law
+
+- **Condition** — `scalability-audit` has no law for positive feedback under degradation: load rising as capacity falls, so the system stays broken after the trigger clears. The class is real and citable (metastable failure: HotOS &#x27;21, OSDI &#x27;22, HotOS &#x27;25), and the mechanisms, taxonomy and remedies are written up in `.agents/knowledge/research/2026-08-13-occupancy-and-metastable-failure.md`. Acceptable: no ex-ante detection question exists, and the literature calls that an open problem as of 2025. A law without a detection question is a slogan.
+- **Trigger** — a detection heuristic worth standing behind, from the literature or from our own incidents.
+- **Rework** — one law entry with its detection question and remedy shape; everything but the detection question is already written.
+
+### colloid-cache-prefix-vs-long-context
+
+- **Condition** — no vendor guidance reconciles cache-prefix placement, which wants stable content first so the prefix hashes identically, with long-context guidance, which wants data before the query. The two order the same bytes differently once both corpora are large near a 1M window. Acceptable: the scaffold ships no prompt carrying two large corpora, so the conflict is theoretical.
+- **Trigger** — shipping a prompt that carries both a large stable corpus and a large per-call corpus near the window limit.
+- **Rework** — measure both orders on the real prompt and choose per prompt. The answer is likely prompt-specific, which makes this a measurement habit rather than a rule.
 </code></pre></details>
             </article>
         <article class="card">

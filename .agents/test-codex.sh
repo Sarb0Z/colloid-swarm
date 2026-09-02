@@ -22,12 +22,12 @@ expected = {
 }
 claude_models = {
     "explorer": "haiku",
-    "implementer": "claude-sonnet-5",
+    "implementer": "sonnet",
     "learning-reporter": None,
     "mechanic": "haiku",
-    "qa-verifier": "claude-sonnet-5",
-    "researcher": "claude-sonnet-5",
-    "reviewer": "claude-opus-5",
+    "qa-verifier": "sonnet",
+    "researcher": "sonnet",
+    "reviewer": "opus",
 }
 
 personas = {path.stem for path in (repo / ".agents/personas").glob("*.md")}

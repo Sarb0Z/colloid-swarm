@@ -13,7 +13,7 @@ In priority order. Resolve conflicts top-down.
 
 ## Workflow
 
-1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. Prefer observed behavior over inference and generic advice.
+1. **Research.** Inspect referenced artifacts, logs, current state, and the relevant execution path before proposing a change. Ground external claims in current sources: `search-and-cite` routes quick lookups and researcher cells; `market-researcher` covers competitors, demand, and gaps. When a request names patterns to audit, sweep the adjacent ones too; the named ones are the hypothesis, not the scope. Prefer observed behavior over inference and generic advice.
 2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5's QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` once for the slice, with the plan as the artifact. Settle every `P0` and `P1` before you write code.
 4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1. Done means the user-facing surface completes the job; a backend path the product cannot reach is not done.
@@ -57,9 +57,9 @@ Size work and effort in tokens (context/output budget), never wall-clock time. "
 Remove stubs and dead code completely. If something is unused or being replaced, delete it outright.
 
 ### Durable state, not session lore
-Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### <id>`, condition, trigger, rework cost; code says `debt: <id>`); external observations in `knowledge/`. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
+Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### <id>`, condition, trigger, rework cost; code says `debt: <id>`); settled decisions and what would reopen them in `decisions.md`; external observations in `knowledge/`. Operator and machine facts go to the gitignored `CLAUDE.local.md`, never to a committed file. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
 
-Before context loss, persist session-critical commands, evidence, decisions, limitations, and next steps in the smallest existing owner above. When another session must continue, or the user requests a handoff, write a self-contained repository-local document: objective, current state, completed work, evidence, decisions, limitations, relevant paths, remaining gates, and the exact next action with any authorization it needs. A fresh session must not depend on the chat.
+When the user requests a handoff, write one self-contained repository-local document: objective, current state, evidence, decisions, limitations, remaining gates, and the exact next action with any authorization it needs.
 
 ### Latest stable by default
 Use the latest stable version allowed by existing constraints; state the constraint when it forces older, and verify versions rather than recalling them.
@@ -68,6 +68,8 @@ Use the latest stable version allowed by existing constraints; state the constra
 
 Lead with the answer. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Name things in the user's words, the code's identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see; a question that asks the user to decide must read cold, saying what each option concretely changes. Expand only for security warnings, destructive confirmation, multi-step sequences, or competing readings of the request.
 
+Write for a reader who has not read the code. The user directs the work and knows the product; the agents wrote the implementation, so a bare name carries nothing to them. The first time a response uses a name from the repository — a file, module, function, flag, hook, persona, severity code, or abbreviation — say what it does or what it governs in the same sentence, and state a consequence as behavior the user can observe before the mechanism that produces it. A name the user supplied needs no gloss; a name they would have to open a file to understand does.
+
 ## Subagent Delegation
 
 Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator's own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator's own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
@@ -75,8 +77,8 @@ Delegation is the default for bounded, well-specified work: a unit with a clear 
 | Tier | Claude | Codex | Use |
 | --- | --- | --- | --- |
 | light | `haiku` | `gpt-5.6-luna` / `low` | mechanical or bounded read-only work |
-| medium | `claude-sonnet-5` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
-| heavy | `claude-opus-5` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
+| medium | `sonnet` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
+| heavy | `opus` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
 
 Choose the lowest tier that can solve and verify the task. Claude generic cells use `general-purpose` with explicit model; use a named persona when effort must be fixed. Codex generic cells use `agent_type=default` with explicit `model` and `reasoning_effort`. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
 

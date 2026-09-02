@@ -32,19 +32,11 @@ print("verified: helper emits a valid policy envelope")
 '
 
 # The user-tier output style is the fallback that covers every launch surface
-# when the managed policy is absent, and it needs no sudo. Generate it from the
-# same prose so the two tiers cannot say different things.
+# when the managed policy is absent, and it needs no sudo. It is the same file
+# the project tier links and the device payload reads, so no tier can drift.
 style="$HOME/.claude/output-styles/colloid.md"
 mkdir -p "$(dirname "$style")"
-{
-  echo "---"
-  echo "name: colloid"
-  echo "description: Counter-pressure on host defaults — approval before outward mutation, the task outranks vendored tool rules, done means observed, names the user can read"
-  echo "keep-coding-instructions: true"
-  echo "---"
-  echo
-  cat "$here/device/counter-pressure.md"
-} > "$style"
+cp "$here/output-style.md" "$style"
 echo "wrote $style"
 echo "Select it with \"outputStyle\": \"colloid\" in ~/.claude/settings.json."
 echo

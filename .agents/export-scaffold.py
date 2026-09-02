@@ -31,6 +31,7 @@ DROPPED_PATHS = (
     ".agents/test-stack-packs.sh",
     ".agents/breadcrumbs.md",
     ".agents/debt-log.md",
+    ".agents/decisions.md",
     ".agents/knowledge/index.md",
     ".agents/knowledge/research",
     ".agents/knowledge/transcripts",

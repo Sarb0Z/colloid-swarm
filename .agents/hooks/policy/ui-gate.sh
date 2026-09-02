@@ -16,7 +16,8 @@
 # templates are not covered. A screenshot of the wrong page still clears the
 # gate — no host ties a screenshot to a route — so the gate guarantees a look,
 # not the right look. Subagent edits record under the parent session on hosts
-# that share the id. Kimi is not wired: its PostToolUse output is discarded.
+# that share the id, which is unverified. debt: colloid-ui-gate-subagent-session-id
+# Kimi is not wired: its PostToolUse output is discarded.
 #
 # Input (stdin JSON): {"project_dir", "event": "PostToolUse"|"Stop", "session_id",
 #   "files": [...], "tool_name": "...", "stop_hook_active": bool}
