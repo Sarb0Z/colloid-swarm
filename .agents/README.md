@@ -58,6 +58,13 @@ user or plugin server names still merge normally; project config is not a
 machine-wide allowlist. `codex_enabled: false` omits a provider-incompatible
 record.
 
+`sources` names the tools whose calls produce a source the provenance ledger
+must record — a tool list, or `["*"]` for a server with no distinctive tool
+name. `sources-matcher.py` builds every host's `sources-capture` hook matcher
+from those declarations, so a server cannot be enabled without its capture
+following it. Run it after changing a `sources` key; `--check` fails on drift
+and `test-sources-matcher.py` gates it.
+
 Repository-owned servers under `mcp-servers/` ship committed `dist/` bundles so
 clients can launch from a clean clone. After changing their source, run that
 server's `npm run build` and `npm run check`.
@@ -107,14 +114,22 @@ python3 .agents/check-layout.py
 .agents/lint-skills.sh
 .agents/test-session-start.sh
 .agents/test-workloop.sh
+.agents/test-post-edit-check.sh
+.agents/test-stop-investigate.sh
+.agents/test-review-contract.sh
+python3 .agents/lint-breadcrumbs.py
+python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-guard-publish.py
 .agents/test-mcp.sh
 .agents/test-codex.sh
-.agents/eval/review-harness/bin/extract-contract.sh
 .agents/test-export.sh
 python3 demo/check-inventory.py
 ```
+
+`test-review-contract.sh` runs `review-harness/bin/extract-contract.sh --check`,
+which fails when `contract.md` differs from a fresh extraction of
+`hostile-review.md`. Run the same script without `--check` to regenerate it.
 
 `test-codex.sh` reports whether the installed Codex binary loaded the project
 MCP configuration; syntax checks alone do not prove runtime discovery.

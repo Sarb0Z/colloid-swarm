@@ -40,9 +40,36 @@ fi
 
 [[ -z "$last_msg" ]] && exit 0
 
-hedges='(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\b|\bunable to (verify|determine|confirm) without\b|\b(don.?t|do not) have (enough|sufficient) (context|information)\b|\bwould need (more )?(information|context|access) (to|from)\b|\bcould you (clarify|confirm|provide|specify|tell me)\b|\bplease (let me know|clarify|confirm|specify) (which|what|whether|if)\b|\bwithout more (information|context|details)\b|\b(I.?ll|I will) stop here\b|\bbeyond the scope of\b|\bout of scope for (this|the current)\b|\bleaving (this|that) (for|to) you\b|\byou.?ll need to (check|verify|investigate|determine|decide)\b)'
+# Two hedge classes, because only one of them can be legitimate. Giving up on
+# capability, scope, or ownership never is. Asking the user a question is
+# MANDATED by AGENTS.md § "Verify with user" when the blocker is genuinely
+# theirs — and a mandated escalation is word-identical to a punt, so blocking
+# every question-shaped sentence bans the behavior the rules require and leaves
+# AskUserQuestion as the only legal way to ask.
+gives_up='(\b(I.?m|I am) unable to\b|\bcannot determine (without|whether|if)\b|\bunable to (verify|determine|confirm) without\b|\b(don.?t|do not) have (enough|sufficient) (context|information)\b|\b(I.?ll|I will) stop here\b|\bbeyond the scope of\b|\bout of scope for (this|the current)\b|\bleaving (this|that) (for|to) you\b|\byou.?ll need to (check|verify|investigate|determine|decide)\b)'
+asks='(\bwould need (more )?(information|context|access) (to|from)\b|\bcould you (clarify|confirm|provide|specify|tell me)\b|\bplease (let me know|clarify|confirm|specify) (which|what|whether|if)\b|\bwithout more (information|context|details)\b)'
+# The disarm, on the same principle as the ratchet disarm below: a deliberate,
+# legible act clears the gate. AGENTS.md requires an escalation to carry "your
+# recommendation with its trade-offs", so a recommendation is exactly what a
+# punt lacks — it asks and stops where an escalation asks and says what it would
+# do. Nothing disarms `gives_up`: a recommendation attached to "I'll stop here"
+# is still stopping.
+escalation='(\b(I|we) recommend\b|\bI.?d recommend\b|\bmy recommendation\b|\brecommend(ed|ation):|\bI suggest\b)'
+# `handback` takes the disarm back, the way `unfiled` does for the ratchet: a
+# recommendation aimed AT the user is the punt wearing the disarm. "I suggest you
+# check the logs" carries nothing and returns the investigation, where "I suggest
+# we take v2" commits to an answer. ERE has no lookahead, so the exclusion is its
+# own pattern rather than a negated group.
+handback='\b(recommend|suggest)(s|ing|ed)? (that )?you\b'
 
-if printf '%s' "$last_msg" | grep -Eqi "$hedges"; then
+escalated="no"
+if printf '%s' "$last_msg" | grep -Eqi "$escalation" \
+   && ! printf '%s' "$last_msg" | grep -Eqi "$handback"; then
+  escalated="yes"
+fi
+
+if printf '%s' "$last_msg" | grep -Eqi "$gives_up" \
+   || { [[ "$escalated" == "no" ]] && printf '%s' "$last_msg" | grep -Eqi "$asks"; }; then
   cat >&2 <<'EOF'
 Your last message hedged, asked the user to do investigation, or declared
 the task out of scope. Re-read the principles: investigate, then act.
@@ -50,6 +77,10 @@ Read the referenced files, trace the code path, run the read-only
 commands you have access to, and reach a defensible conclusion. Escalate
 to the user only when a decision genuinely requires information or
 authority they alone hold. Continue the work now.
+
+If this IS that escalation, it is missing what makes it one. Carry what you
+found, the options, and your recommendation with its trade-offs, so the user
+can decide in one reply rather than asking you what you would do.
 EOF
   exit 2
 fi

@@ -24,6 +24,9 @@ try {
   }
   await execFileAsync(process.execPath, [join(root, 'scripts', 'build.mjs'), `--outdir=${temporary}`]);
   const rebuilt = JSON.parse(await readFile(join(temporary, '.build-manifest.json'), 'utf8'));
+  // esbuild bakes realpath-resolved node_modules comments into the bundle, so a
+  // symlinked install mismatches here for reasons unrelated to the source.
+  // debt: colloid-check-bundle-not-symlink-safe
   if (JSON.stringify(tracked) !== JSON.stringify(rebuilt)) {
     throw new Error('Tracked dist does not match a clean deterministic build');
   }

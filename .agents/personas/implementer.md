@@ -2,7 +2,7 @@
 name: implementer
 description: Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
-model: "claude-sonnet-5"
+model: "sonnet"
 effort: "medium"
 maxTurns: 30
 permissionMode: "acceptEdits"

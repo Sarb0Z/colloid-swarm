@@ -22,6 +22,7 @@ import json
 import os
 import re
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -181,7 +182,11 @@ def load(path):
 
 
 def store(path, text, dry_run):
-    """Never hand the operator a config that does not parse."""
+    """Never hand the operator a config that does not parse.
+
+    Codex writes this same file when the operator toggles a setting, and nothing
+    serialises the two writers. debt: codex-trust-hooks-lost-update
+    """
     try:
         tomllib.loads(text)
     except tomllib.TOMLDecodeError as error:
@@ -213,6 +218,13 @@ def main():
     repo = os.path.abspath(args[0] if args else ".")
 
     try:
+        # The project entry is a write to the operator's own config, and none of
+        # it means anything without Codex. Check before the first store so a
+        # machine that has never run Codex is left exactly as it was found.
+        if shutil.which("codex") is None:
+            print("trust-hooks: codex not on PATH — nothing written", file=sys.stderr)
+            return 0
+
         # Discovery is gated on project trust, so this has to land first.
         text = load(config)
         trusted = upsert(text, PROJECT, "projects", {repo: {"trust_level": '"trusted"'}})
@@ -222,14 +234,16 @@ def main():
 
         found = ask_codex(repo)
         if found is None:
-            print("trust-hooks: codex not on PATH — hooks left untrusted", file=sys.stderr)
-            return 0
+            raise Fault("codex is on PATH but could not be started")
         if not found:
             raise Fault("Codex discovered no hooks for this repository")
+        # Trusting a subset is worse than trusting none: the hooks Codex did not
+        # return keep a stale hash and stop running, while the session reports
+        # itself armed. Fail before the hook-state write rather than after it.
         want = declared(repo)
         if want is not None and want != len(found):
-            print(f"trust-hooks: Codex discovered {len(found)} hook(s), "
-                  f"hooks.json declares {want}", file=sys.stderr)
+            raise Fault(f"Codex discovered {len(found)} hook(s), hooks.json declares "
+                        f"{want} — refusing to trust a subset")
 
         text = load(config)
         after = upsert(text, STATE, "hooks.state",

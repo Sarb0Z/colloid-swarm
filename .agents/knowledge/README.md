@@ -85,9 +85,9 @@ Four stores sit near each other. Keep them apart.
 | Store | Holds |
 |---|---|
 | `knowledge/` | Dated observations of the world outside the repository |
-| `memory/` | Facts about this project and its operator; the live copy is per-machine and harness-owned |
 | `breadcrumbs.md` | Deferred work, as a queue |
 | `debt-log.md` | Standing tradeoffs and deferred decisions |
+| `decisions.md` | Settled decisions and what would reopen them |
 
 A finding that produces work belongs in both: the observation here, the one-line
 task in `breadcrumbs.md`.

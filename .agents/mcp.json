@@ -2,6 +2,7 @@
   "mcpServers": {
     "context7": {
       "description": "Current library and framework documentation.",
+      "sources": ["resolve-library-id", "query-docs"],
       "enabled": true,
       "codex_startup_timeout_sec": 30,
       "type": "stdio",
@@ -13,6 +14,7 @@
     },
     "playwright": {
       "description": "Browser automation and UI verification.",
+      "sources": ["browser_navigate"],
       "enabled": true,
       "codex_startup_timeout_sec": 30,
       "type": "stdio",
@@ -24,6 +26,7 @@
     },
     "playwright-reader": {
       "description": "Browser reading with installed content-blocking extensions.",
+      "sources": ["browser_navigate"],
       "enabled": false,
       "type": "stdio",
       "command": "npx",
@@ -56,6 +59,7 @@
     },
     "research-mcp": {
       "description": "Repository-owned web and PDF research tools.",
+      "sources": ["fetch_readable", "resolve_open_access"],
       "enabled": true,
       "type": "stdio",
       "command": "node",
@@ -81,6 +85,7 @@
     },
     "greptile": {
       "description": "Codebase Q&A and review.",
+      "sources": ["*"],
       "enabled": false,
       "type": "http",
       "url": "https://api.greptile.com/mcp",
@@ -90,6 +95,7 @@
     },
     "exa": {
       "description": "Web search and fetch.",
+      "sources": ["*"],
       "enabled": false,
       "codex_enabled": false,
       "type": "http",
