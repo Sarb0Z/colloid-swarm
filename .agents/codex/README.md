@@ -98,5 +98,10 @@ hook records, and preserves unrelated config. It also establishes project trust
 because Codex otherwise ignores project configuration. Run one repository at a
 time: the user config has no cross-process writer lock.
 
+On a machine with no `codex` on PATH it writes nothing at all, including the
+project entry. It refuses when Codex discovers fewer hooks than `hooks.json`
+declares: trusting the subset would leave the rest on a stale hash, which stops
+them running while the session still reports itself armed.
+
 `test-trust-hooks.py` verifies the config rewriter without touching the real
 user config.

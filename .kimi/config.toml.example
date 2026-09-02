@@ -76,7 +76,7 @@ timeout = 30
 
 [[hooks]]
 event = "PostToolUse"
-matcher = "WebSearch|FetchURL|mcp__playwright__browser_navigate|mcp__playwright-reader__browser_navigate|mcp__plugin_playwright_playwright__browser_navigate|mcp__research-mcp__fetch_readable|mcp__research-mcp__resolve_open_access|mcp__context7__(resolve-library-id|query-docs)|mcp__plugin_context7_context7__(resolve-library-id|query-docs)|mcp__plugin_exa_exa__.*"
+matcher = "WebSearch|FetchURL|mcp__[A-Za-z0-9_-]+__(browser_navigate|fetch_readable|query-docs|resolve-library-id|resolve_open_access)|mcp__(exa|plugin_exa_exa)__.*|mcp__(greptile|plugin_greptile_greptile)__.*"
 command = ".kimi/hooks/adapter.sh sources-capture.sh"
 timeout = 10
 

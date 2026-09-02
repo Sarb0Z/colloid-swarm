@@ -38,6 +38,12 @@ make_fixture() {
     cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$dir/.kimi/hooks/"
   fi
   printf '%s\n' '- fixture breadcrumb' > "$dir/.agents/breadcrumbs.md"
+  printf '%s\n' '# Decisions' '' '### fixture-decision' '' '- **Decision** — fixture decision body' \
+    > "$dir/.agents/decisions.md"
+  mkdir -p "$dir/.agents/knowledge"
+  printf '%s\n' '# Knowledge index' '' \
+    '- 2026-01-02 · research · Fixture subject — fixture summary that stays in the file' \
+    > "$dir/.agents/knowledge/index.md"
   printf '%s\n' '{"mcpServers": {}}' > "$dir/.agents/mcp.json"
   printf '%s\n' '{"hooks": {}}' > "$dir/.agents/config.json.example"
   git -C "$dir" init -q
@@ -142,6 +148,12 @@ tt_context="$(context_of "$tt_output")"
 assert_marker_once "$tt_context"
 assert_contains "$tt_context" 'fixture breadcrumb'
 assert_not_contains "$tt_context" 'TODO'
+# Decisions surface as headings only; the knowledge index as date · kind ·
+# subject, with the summary after the em dash left in the file.
+assert_contains "$tt_context" '- fixture-decision'
+assert_not_contains "$tt_context" 'fixture decision body'
+assert_contains "$tt_context" '- 2026-01-02 · research · Fixture subject'
+assert_not_contains "$tt_context" 'fixture summary'
 assert_wrap_state "$tt"
 
 write_crumbs() {
@@ -166,6 +178,38 @@ assert_contains "$cap_context" '- crumb-12'
 assert_contains "$cap_context" '- crumb-03'
 assert_not_contains "$cap_context" '- crumb-01'
 assert_not_contains "$cap_context" '- crumb-02'
+
+# A sectioned file: every bullet under "## Open decisions" surfaces regardless
+# of the cap, and only the other bullets are counted and capped.
+sectioned="$(make_fixture breadcrumb-sections)"
+write_config "$sectioned" true true
+{
+  printf '%s\n' '# Breadcrumbs' '' '## Open decisions' ''
+  for i in 1 2 3; do printf -- '- open-%s\n' "$i"; done
+  printf '%s\n' '' '## Work' ''
+  for i in $(seq -w 1 12); do printf -- '- crumb-%s\n' "$i"; done
+} > "$sectioned/.agents/breadcrumbs.md"
+sectioned_context="$(context_of "$(run_policy "$sectioned")")"
+assert_contains "$sectioned_context" 'Open decisions in .agents/breadcrumbs.md'
+assert_contains "$sectioned_context" '- open-1'
+assert_contains "$sectioned_context" '- open-3'
+assert_contains "$sectioned_context" '(10 most recent of 12 — prune the file)'
+assert_contains "$sectioned_context" '- crumb-12'
+assert_not_contains "$sectioned_context" '- crumb-01'
+
+# The knowledge index caps at the twelve newest lines, newest last.
+kcap="$(make_fixture knowledge-cap)"
+write_config "$kcap" true true
+{
+  printf '%s\n' '# Knowledge index' ''
+  for i in $(seq -w 1 14); do printf -- '- 2026-01-%s · research · Subject %s — summary %s\n' "$i" "$i" "$i"; done
+} > "$kcap/.agents/knowledge/index.md"
+kcap_context="$(context_of "$(run_policy "$kcap")")"
+assert_contains "$kcap_context" '(12 most recent of 14 — read the index)'
+assert_contains "$kcap_context" '- 2026-01-14 · research · Subject 14'
+assert_contains "$kcap_context" '- 2026-01-03 · research · Subject 03'
+assert_not_contains "$kcap_context" 'Subject 02'
+assert_not_contains "$kcap_context" 'summary 14'
 
 # At the cap exactly, every item shows and no truncation notice appears.
 exact="$(make_fixture breadcrumb-exact)"
@@ -193,6 +237,8 @@ ft_output="$(run_policy "$ft")"
 ft_context="$(context_of "$ft_output")"
 assert_marker_once "$ft_context"
 assert_not_contains "$ft_context" 'fixture breadcrumb'
+assert_not_contains "$ft_context" 'fixture-decision'
+assert_not_contains "$ft_context" 'Fixture subject'
 [[ -f "$ft/.agents/.compaction-pending" ]] || fail 'session_start=false consumed compaction marker'
 assert_no_wrap_state "$ft"
 ft_compact_context="$(context_of "$(run_policy "$ft" compact)")"

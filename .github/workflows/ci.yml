@@ -37,6 +37,9 @@ jobs:
       - name: Skill format
         run: .agents/lint-skills.sh
 
+      - name: Breadcrumb shape
+        run: python3 .agents/lint-breadcrumbs.py
+
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
@@ -45,6 +48,18 @@ jobs:
 
       - name: UI gate policy
         run: .agents/test-ui-gate.sh
+
+      - name: Post-edit policy
+        run: .agents/test-post-edit-check.sh
+
+      - name: Stop-investigate policy
+        run: .agents/test-stop-investigate.sh
+
+      - name: Reviewer contract
+        run: .agents/test-review-contract.sh
+
+      - name: Provenance matcher
+        run: python3 .agents/test-sources-matcher.py
 
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py

@@ -149,9 +149,10 @@ MCP servers, turn limit, and permission mode where applicable. Edit the
 canonical persona and run `python3 .agents/check-layout.py`; no generation step
 exists.
 
-Models are deliberately explicit: `haiku`, `claude-sonnet-5`, and
-`claude-opus-5`.
-Generic delegation remains valid when no cached persona fits.
+Models are deliberately explicit and use the host aliases `haiku`, `sonnet`,
+`opus`, and `fable`. The Agent tool's `model` parameter accepts only those
+aliases, so a versioned model id fails validation on a generic cell. Generic
+delegation remains valid when no cached persona fits.
 
 ## Local state
 

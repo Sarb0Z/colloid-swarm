@@ -69,7 +69,7 @@ Task(
 ```
 
 `.claude/agents/researcher.md` links directly to
-`.agents/personas/researcher.md`; its frontmatter pins `claude-sonnet-5`. The
+`.agents/personas/researcher.md`; its frontmatter pins `sonnet`. The
 agent loads the researcher contract as
 its system prompt, and your prompt carries the question. `sources-capture` logs
 its web calls.

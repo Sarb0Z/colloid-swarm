@@ -11,8 +11,12 @@
 #   context policy, never a gate (no exit 2).
 #
 #   - Learning output style instructions on each session start.
-#   - Unaddressed .agents/breadcrumbs.md items (markdown "- " bullets), capped
-#     at the 10 most recent.
+#   - .agents/breadcrumbs.md: every bullet under "## Open decisions" (each
+#     waits on the user), then the other bullets capped at the 10 most recent.
+#   - Settled decisions: the `### <id>` headings of .agents/decisions.md, so a
+#     declined idea is not re-proposed without opening the entry.
+#   - The knowledge index, reduced to `date · kind · subject` per line; the
+#     summary after the em dash stays in the file.
 #   - Registry MCP servers that are toggled off (name + description), with the
 #     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
@@ -64,9 +68,25 @@ if [[ "$session_start_enabled" == "yes" && -n "$ident" ]] && git -C "$proj" rev-
 fi
 
 items=""
+open=""
 crumbs="$proj/.agents/breadcrumbs.md"
 if [[ "$session_start_enabled" == "yes" && -f "$crumbs" ]]; then
-  items="$(grep -E '^[[:space:]]*-[[:space:]]' "$crumbs" 2>/dev/null || true)"
+  # Bullets under "## Open decisions" wait on the user, so every one surfaces;
+  # every other bullet is deferred work and takes the cap below.
+  open="$(awk '/^## Open decisions/{f=1; next} /^## /{f=0} f && /^[[:space:]]*-[[:space:]]/' "$crumbs" 2>/dev/null || true)"
+  items="$(awk '/^## Open decisions/{f=1; next} /^## /{f=0} !f && /^[[:space:]]*-[[:space:]]/' "$crumbs" 2>/dev/null || true)"
+fi
+
+decisions=""
+decisions_file="$proj/.agents/decisions.md"
+if [[ "$session_start_enabled" == "yes" && -f "$decisions_file" ]]; then
+  decisions="$(grep -E '^### ' "$decisions_file" 2>/dev/null | sed 's/^### /- /' || true)"
+fi
+
+knowledge=""
+knowledge_index="$proj/.agents/knowledge/index.md"
+if [[ "$session_start_enabled" == "yes" && -f "$knowledge_index" ]]; then
+  knowledge="$(grep -E '^- [0-9]{4}-[0-9]{2}-[0-9]{2} ' "$knowledge_index" 2>/dev/null | sed 's/ — .*$//' || true)"
 fi
 
 # Surface disabled registry servers so the model can request only what it needs.
@@ -99,20 +119,27 @@ if [[ "$learning_enabled" == "yes" && -f "$learning_playbook" ]]; then
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$items" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
 
 body="$(
+  # One blank line between sections, none before the first.
+  printed=false
+  section() {
+    if [[ "$printed" == true ]]; then echo; fi
+    printed=true
+  }
+
   if [[ -n "$learning_body" ]]; then
+    section
     printf '%s\n' "$learning_body"
   fi
 
   if [[ "$is_compact" == "true" ]]; then
-    [[ -n "$learning_body" ]] && echo
+    section
     cat <<EOF
 Context was just compacted (trigger: $trigger). If you were mid-pivot on a
 discovered subproject, checkpoint the current unit now — update the todo list,
-note the file/line — and consider recommending a fresh session rather than
-working from the compacted summary.
+note the file/line — then continue from the summary.
 
 Discovered Subprojects policy (AGENTS.md keeps a one-line compressed copy for
 the pre-compaction window; this hook re-states the full policy because a
@@ -126,9 +153,7 @@ Blocking — A cannot complete correctly without B. Before pivoting:
    commit to checkpoint; commits happen only when the user asks.
 2. B becomes the new scoped unit — re-plan and hostile-review it.
 3. Finish B end-to-end.
-4. Return to A from the checkpoint. If B ran past ~20 turns or triggered a
-   context compaction, checkpoint A and recommend the user start a fresh
-   session to continue it, rather than working from the compacted summary.
+4. Return to A from the checkpoint.
 
 Non-blocking — B is optimization, cleanup, or future work. Do not explore it,
 read files for it, or plan it. File one line and return to A immediately:
@@ -143,8 +168,14 @@ done inline. Everything else goes through this gate.
 EOF
   fi
 
+  if [[ -n "$open" ]]; then
+    section
+    echo "Open decisions in .agents/breadcrumbs.md (each waits on a ruling from the user; ask when the work touches one):"
+    printf '%s\n' "$open"
+  fi
+
   if [[ -n "$items" ]]; then
-    [[ -n "$learning_body" || "$is_compact" == "true" ]] && echo
+    section
     count="$(printf '%s\n' "$items" | wc -l | tr -d ' ')"
     echo "Unaddressed breadcrumbs in .agents/breadcrumbs.md (deferred non-blocking work — act on each, or delete the line):"
     if (( count > 10 )); then
@@ -161,8 +192,27 @@ EOF
     fi
   fi
 
+  if [[ -n "$decisions" ]]; then
+    section
+    echo "Settled decisions in .agents/decisions.md (open the entry for the why before proposing what it declined):"
+    printf '%s\n' "$decisions"
+  fi
+
+  if [[ -n "$knowledge" ]]; then
+    section
+    echo "Knowledge index, .agents/knowledge/index.md (dated observations from outside the repository; read the index line before opening an entry):"
+    kcount="$(printf '%s\n' "$knowledge" | wc -l | tr -d ' ')"
+    if (( kcount > 12 )); then
+      # Newest last in the index, so the tail is the most recent research.
+      echo "  (12 most recent of $kcount — read the index)"
+      printf '%s\n' "$knowledge" | tail -n 12
+    else
+      printf '%s\n' "$knowledge"
+    fi
+  fi
+
   if [[ -n "$mcp_off" ]]; then
-    [[ -n "$learning_body" || "$is_compact" == "true" || -n "$items" ]] && echo
+    section
     echo "Registry MCP servers currently OFF (not connected; the description says why):"
     printf '%s\n' "$mcp_off"
     echo 'If the task needs one: run `python3 .agents/mcp.py enable <name>`, then restart the session. Turn it off with `python3 .agents/mcp.py disable <name>`.'

@@ -3,7 +3,9 @@
 #
 # Input  (stdin JSON): {"project_dir": "...", "files": ["...", ...]}
 # Scoped strictly to the provided file list — never sweeps the repo. Every
-# external tool is optional: a missing binary is skipped silently.
+# external tool is optional: a missing binary is skipped silently. The hosts
+# wire this to their editor tools only, so a file written through a shell
+# redirect is not linted. debt: colloid-shell-writes-skip-post-edit
 #
 # Two modes, wired as two hook entries, split by whether the work rewrites the
 # tree. $POST_EDIT_MODE selects one:
@@ -20,6 +22,7 @@
 #            the findings on stderr. Nothing here rewrites a file the agent
 #            edited, so this is the entry that runs in the background under
 #            asyncRewake, where the slow typecheckers cost the session nothing.
+#            Nothing caps how many run at once. debt: colloid-post-edit-no-process-cap
 #
 # Default is `check`: an engine that wires one entry gets the gate, not the
 # formatter.
@@ -161,7 +164,18 @@ before_sums=""
 [[ "$mode" == "write" ]] && before_sums="$(sums "$files")"
 
 while IFS= read -r f; do
-  [[ -z "$f" || ! -f "$f" ]] && continue
+  [[ -z "$f" ]] && continue
+
+  # edited-files.py emits absolute paths, and marks a path it cannot express on
+  # a newline-delimited list with a leading "!" instead. Refuse it the same way
+  # a tab is refused below, because the alternative is the silent drop.
+  if [[ "$f" != /* ]]; then
+    [[ "$mode" == "check" ]] &&
+      issues+=$'\n'"[skipped] no checker can run on this path — a newline in a filename splits the list this hook reads. Rename it: ${f#!}"$'\n'
+    continue
+  fi
+
+  [[ -f "$f" ]] || continue
   rel="${f#$proj/}"
 
   # Every per-workspace grouping below is tab-delimited, so a tab inside a path

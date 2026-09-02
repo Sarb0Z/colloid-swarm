@@ -12,6 +12,7 @@
 .agents/.ui-pending-*
 .agents/browser-extensions/
 .claude/settings.local.json
+/CLAUDE.local.md
 **/__pycache__/
 **/.tsbuildinfo-claude
 .agents/mcp-servers/*/node_modules/

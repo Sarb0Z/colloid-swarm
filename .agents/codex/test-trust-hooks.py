@@ -4,6 +4,7 @@
 import importlib.util
 import os
 import pathlib
+import shutil
 import sys
 import tomllib
 
@@ -131,6 +132,49 @@ except th.Fault:
     check("store refuses unparseable output", True)
 check("store left the original file alone", target.read_text() == 'model = "keep"\n')
 target.unlink()
+
+
+def run_main(config_path, *, which, discovered, declares):
+    """Drive main() against stubbed Codex answers, and report what it wrote."""
+    real = (shutil.which, th.ask_codex, th.declared, sys.argv)
+    shutil.which = lambda name: which
+    th.ask_codex = lambda repo: discovered
+    th.declared = lambda repo: declares
+    sys.argv = ["trust-hooks.py", "/r", f"--config={config_path}"]
+    try:
+        return th.main(), pathlib.Path(config_path).read_text()
+    finally:
+        shutil.which, th.ask_codex, th.declared, sys.argv = real
+
+
+tmp = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / "trust-hooks-main-test.toml"
+
+# No Codex means no write at all — not even the project trust entry, which lands
+# in the operator's own config and is meaningless without the tool that reads it.
+tmp.write_text('model = "keep"\n')
+code, text = run_main(tmp, which=None, discovered={}, declares=2)
+check("no codex on PATH returns 0", code == 0)
+check("no codex on PATH writes nothing", text == 'model = "keep"\n', text)
+
+# A discovery that misses hooks must fail before the hooks.state write. The
+# hooks Codex did not return keep a stale hash and silently stop running.
+tmp.write_text('model = "keep"\n')
+code, text = run_main(tmp, which="/usr/bin/codex",
+                      discovered={"/r/.codex/hooks.json:stop:0:0": "sha256:a"}, declares=3)
+check("partial discovery returns 1", code == 1)
+check("partial discovery writes no hook state", "hooks.state" not in text, text)
+check("partial discovery still trusted the project",
+      parses(text)[0]["projects"]["/r"]["trust_level"] == "trusted", text)
+
+# The matching case still writes, so the guard above is not just refusing work.
+tmp.write_text('model = "keep"\n')
+code, text = run_main(tmp, which="/usr/bin/codex",
+                      discovered={"/r/.codex/hooks.json:stop:0:0": "sha256:a"}, declares=1)
+check("matching discovery returns 0", code == 0)
+check("matching discovery writes the hook state",
+      parses(text)[0]["hooks"]["state"]["/r/.codex/hooks.json:stop:0:0"]["trusted_hash"]
+      == "sha256:a", text)
+tmp.unlink()
 
 print("\n" + ("ALL PASS" if fails == 0 else f"{fails} FAILED"))
 sys.exit(1 if fails else 0)

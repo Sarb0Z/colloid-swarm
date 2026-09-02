@@ -63,10 +63,15 @@ Run the narrow checks for the surface changed:
 ```sh
 python3 .agents/check-layout.py
 .agents/lint-skills.sh
+python3 .agents/lint-breadcrumbs.py
 .agents/test-session-start.sh
 .agents/test-done-prime.sh
 .agents/test-workloop.sh
 .agents/test-ui-gate.sh
+.agents/test-post-edit-check.sh
+.agents/test-stop-investigate.sh
+.agents/test-review-contract.sh
+python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-guard-publish.py
 .agents/test-device-policy.sh

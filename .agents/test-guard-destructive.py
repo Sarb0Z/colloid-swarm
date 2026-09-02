@@ -8,8 +8,8 @@ a behaviour nobody notices.
 
 import importlib.util
 import json
-import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -185,29 +185,54 @@ check("a redirect target is not an operand",
       [command.targets for command in guard.normalize("echo x > /etc/motd")] == [["/etc/motd"]])
 
 # End to end through the shell entry point, which is what an engine invokes.
-entry = str(here / "hooks" / "policy" / "guard-destructive.sh")
+#
+# The entry point resolves its repository from its own location and reads that
+# repository's .agents/config.json, which can turn the guard off. So these cases
+# run from a sandbox carrying an explicit config rather than from this checkout:
+# they assert what the guard does, not how the repository around it is
+# configured. A repository that ships the guard disabled would otherwise fail
+# here permanently, and for the wrong reason, while the guard behaved exactly as
+# it was told to.
+def sandbox_guard(root, enabled):
+    """A minimal repository around the real entry point. Returns its path."""
+    agents = pathlib.Path(root) / ".agents"
+    (agents / "hooks" / "policy").mkdir(parents=True)
+    (agents / "hooks" / "lib").mkdir(parents=True)
+    entry = agents / "hooks" / "policy" / "guard-destructive.sh"
+    shutil.copy2(here / "hooks" / "policy" / "guard-destructive.sh", entry)
+    shutil.copy2(policy, agents / "hooks" / "lib" / "guard-destructive.py")
+    (agents / "config.json").write_text(
+        json.dumps({"hooks": {"guard_destructive": {"enabled": enabled}}}))
+    return str(entry)
 
 
-def run(payload, repo=None):
-    return subprocess.run(
-        [entry] if repo is None else ["python3", str(policy), repo],
-        input=json.dumps(payload), text=True, capture_output=True)
+with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() as off_dir:
+    armed = sandbox_guard(armed_dir, True)
+    disarmed = sandbox_guard(off_dir, False)
 
+    def run(payload, entry=None):
+        return subprocess.run([entry or armed], input=json.dumps(payload),
+                              text=True, capture_output=True)
 
-blocked = run({"command": "rm -rf /"})
-check("entry point exits 2 on a block", blocked.returncode == 2, f"exit {blocked.returncode}")
-check("entry point states the reason", "irreversible" in blocked.stderr, blocked.stderr)
-check("entry point exits 0 otherwise", run({"command": "ls -la"}).returncode == 0)
-check("entry point exits 0 on an empty payload", run({}).returncode == 0)
-check("entry point exits 0 on unreadable input",
-      subprocess.run([entry], input="{not json", text=True, capture_output=True).returncode == 0)
+    blocked = run({"command": "rm -rf /"})
+    check("entry point exits 2 on a block", blocked.returncode == 2, f"exit {blocked.returncode}")
+    check("entry point states the reason", "irreversible" in blocked.stderr, blocked.stderr)
+    check("entry point exits 0 otherwise", run({"command": "ls -la"}).returncode == 0)
+    check("entry point exits 0 on an empty payload", run({}).returncode == 0)
+    check("entry point exits 0 on unreadable input",
+          subprocess.run([armed], input="{not json", text=True,
+                         capture_output=True).returncode == 0)
 
-with tempfile.TemporaryDirectory() as sandbox:
-    os.makedirs(os.path.join(sandbox, ".agents"))
-    with open(os.path.join(sandbox, ".agents", "config.json"), "w", encoding="utf-8") as config:
-        json.dump({"hooks": {"guard_destructive": {"enabled": False}}}, config)
-    off = run({"command": "rm -rf /"}, repo=sandbox)
+    off = run({"command": "rm -rf /"}, entry=disarmed)
     check("the config toggle turns the guard off", off.returncode == 0, off.stderr)
+
+    # The guard must run when nothing states a preference, or a repository that
+    # never wrote a config would ship unguarded.
+    with tempfile.TemporaryDirectory() as bare_dir:
+        bare = sandbox_guard(bare_dir, True)
+        (pathlib.Path(bare_dir) / ".agents" / "config.json").unlink()
+        check("the guard is on when no config states otherwise",
+              run({"command": "rm -rf /"}, entry=bare).returncode == 2)
 
 print("\nALL PASS" if not fails else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

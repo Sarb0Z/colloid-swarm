@@ -31,6 +31,7 @@ leaked="$(grep -rniE 'genome|mutagen|panspermia|\bswarm\b' "$kit" \
 for path in \
   .agents/genome.sh .agents/mutagen.sh .agents/skills/panspermia-mutation \
   .agents/eval .agents/fixtures .agents/breadcrumbs.md .agents/debt-log.md \
+  .agents/decisions.md \
   .agents/export .agents/export-scaffold.py .agents/test-export.sh \
   .agents/test-stack-packs.sh; do
   [[ ! -e "$kit/$path" ]] || fail "export retained $path"
