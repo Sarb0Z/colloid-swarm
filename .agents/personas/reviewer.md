@@ -4,7 +4,6 @@ description: Independently review a plan or diff against repository rules and st
 tools: ["Read", "Glob", "Grep", "Bash"]
 model: "opus"
 effort: "high"
-maxTurns: 24
 ---
 
 # Reviewer contract

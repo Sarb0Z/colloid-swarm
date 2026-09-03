@@ -561,8 +561,8 @@ detect:
 #   context policy, never a gate (no exit 2).
 #
 #   - Learning output style instructions on each session start.
-#   - Unaddressed .agents/breadcrumbs.md items (markdown &quot;- &quot; bullets), capped
-#     at the 10 most recent.
+#   - .agents/breadcrumbs.md: every bullet under &quot;## Open decisions&quot; (each
+#     waits on the user), then the other bullets capped at the 10 most recent.
 #   - Settled decisions: the `### &lt;id&gt;` headings of .agents/decisions.md, so a
 #     declined idea is not re-proposed without opening the entry.
 #   - The knowledge index, reduced to `date · kind · subject` per line; the
@@ -1356,7 +1356,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-publish</span><span class="badge gate">gate</span></div>
               <p class="what">Forces the permission prompt on an outward mutation &mdash; publish, deploy, push, package release. It asks rather than denies: a publish is legitimate exactly when the user approves it in this session. Fails closed when it cannot decide. Wired for Claude only.</p>
               <div class="io"><b>in</b> {tool_name, tool_input} &nbsp;→&nbsp; <b>out</b> permissionDecision "ask" | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 54 lines</span></summary><div class="srcpath">.agents/hooks/policy/guard-publish.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 64 lines</span></summary><div class="srcpath">.agents/hooks/policy/guard-publish.sh</div><pre><code>#!/usr/bin/env bash
 # Claude-scoped policy: force the permission prompt on outward mutations.
 #
 # Input  (stdin JSON): {&quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...}}
@@ -1381,23 +1381,33 @@ set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
 decide=&quot;$repo/.agents/hooks/lib/guard-publish.py&quot;
+payload=&quot;&quot;
 
+# An &quot;ask&quot; only fails closed where a human answers it. Only the modes the
+# evaluator lists as prompting get one (its docstring records the evidence);
+# a guard that cannot run denies everywhere else instead of letting the call
+# through.
 ask_failure() {
   local diagnostic=&quot;$1&quot;
   local reason=&quot;$2&quot;
+  local decision=&quot;ask&quot;
+  if ! grep -Eq &#x27;&quot;permission_mode&quot;: *&quot;(default|acceptEdits|plan)&quot;&#x27; &lt;&lt;&lt;&quot;$payload&quot;; then
+    decision=&quot;deny&quot;
+    reason=&quot;$reason This session&#x27;s permission mode does not show approval prompts, so the call is denied; the user runs it themselves or switches the mode to default and answers the prompt.&quot;
+  fi
   echo &quot;guard-publish: $diagnostic&quot; &gt;&amp;2
-  printf &#x27;{&quot;hookSpecificOutput&quot;:{&quot;hookEventName&quot;:&quot;PreToolUse&quot;,&quot;permissionDecision&quot;:&quot;ask&quot;,&quot;permissionDecisionReason&quot;:&quot;%s AGENTS.md §External actions: outward mutations need in-session user approval.&quot;}}\n&#x27; &quot;$reason&quot;
+  printf &#x27;{&quot;hookSpecificOutput&quot;:{&quot;hookEventName&quot;:&quot;PreToolUse&quot;,&quot;permissionDecision&quot;:&quot;%s&quot;,&quot;permissionDecisionReason&quot;:&quot;%s AGENTS.md §External actions: outward mutations need in-session user approval.&quot;}}\n&#x27; &quot;$decision&quot; &quot;$reason&quot;
   exit 0
 }
-
-if [[ ! -f &quot;$decide&quot; ]]; then
-  ask_failure &quot;$decide is missing; the guard cannot run.&quot; \
-    &quot;The publish guard decision library is missing.&quot;
-fi
 
 if ! payload=&quot;$(cat)&quot;; then
   ask_failure &quot;input read failed; the guard cannot decide safely.&quot; \
     &quot;The publish guard could not read the hook payload.&quot;
+fi
+
+if [[ ! -f &quot;$decide&quot; ]]; then
+  ask_failure &quot;$decide is missing; the guard cannot run.&quot; \
+    &quot;The publish guard decision library is missing.&quot;
 fi
 
 if output=&quot;$(python3 &quot;$decide&quot; &quot;$repo&quot; &lt;&lt;&lt;&quot;$payload&quot;)&quot;; then
@@ -2034,7 +2044,7 @@ esac
               <div class="top"><span class="id">stop-investigate</span><span class="badge gate">gate</span></div>
               <p class="what">Blocks the hand-back when the last message hedges ("I can't"), declares work out of scope, or disclaims ownership of code it touched.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 179 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 112 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: block end-of-turn when the last assistant
 # message hedges, declares the task out of scope, or disclaims ownership
 # of code it touched.
@@ -2042,14 +2052,19 @@ esac
 # Input  (stdin JSON): {&quot;last_assistant_message&quot;: &quot;...&quot;, &quot;transcript_path&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool}
 # Output: exit 2 + stderr reason on a match; exit 0 otherwise.
 #
-# Two pattern classes share one hook because both read the same message and
-# their reasons must not interleave on stderr. They are otherwise distinct: hedging is about capability
+# Two pattern classes share one hook because their reasons must not interleave
+# on stderr. They are otherwise distinct: hedging is about capability
 # (&quot;I can&#x27;t&quot;), disclaiming is about ownership (&quot;not mine&quot;). Hedges are checked
-# first — a give-up is the harder failure — so a message doing both shows only
+# first — a give-up is the harder failure — so a turn doing both shows only
 # the hedge reason.
 #
-# Prefer the host-provided last assistant message. Fall back to a transcript for
-# hosts that do not provide it.
+# They read different text. A hedge is a way of ending, so it is judged on the
+# last message alone: a mid-turn question the model then answered itself is
+# not a punt. A provenance claim is a way of moving on, so it is judged on the
+# whole turn: &quot;those six are pre-existing&quot; lands in the middle of a long turn,
+# the model pushes and carries on, and the final message is about something
+# else entirely. Read from the transcript when the host names one; fall back
+# to the host-provided last message otherwise.
 
 set -euo pipefail
 
@@ -2123,92 +2138,20 @@ fi
 
 [[ &quot;$ratchet&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-# Two substrates, because the triggers and the disarm want opposite treatment of
-# markdown quoting. ../lib/ratchet-text.py states which and why.
-both=&quot;$(printf &#x27;%s&#x27; &quot;$last_msg&quot; | python3 &quot;$lib/ratchet-text.py&quot;)&quot;
-prose=&quot;${both%%---RATCHET-SPLIT---*}&quot;
-ledger=&quot;${both##*---RATCHET-SPLIT---}&quot;
-
-# Two-key gate, deliberately AGGRESSIVE. Provenance must sit within NEAR chars of
-# a second key — either an explicit declination (&quot;so I left it alone&quot;) or a plain
-# DEFECT noun (&quot;those lint errors are pre-existing&quot;). The defect key exists because
-# the natural punt never announces itself: it states provenance about a failure it
-# just surfaced and moves on, and an announced-punts-only gate misses it entirely.
-#
-# The cost is knowingly accepted: &quot;those tests are pre-existing&quot; is word-identical
-# whether it dodges work or answers &quot;did you break this?&quot; — only intent separates
-# them, and intent is not in the text. So the gate fires on the claim and the
-# REASON tells the model to say so in one line and stop when it misread. The model
-# has the context the regex cannot: it knows whether the user asked.
-#
-# Proximity still bounds it — a punt is one claim in one sentence (~40 chars
-# between keys). Without it this fired on a report saying &quot;a pre-existing failure
-# was correctly suppressed&quot; in one paragraph and &quot;Left alone, every edit would drop
-# a file&quot; (a conditional, not a declination) 233 chars later. A sanctioned
-# disposition (breadcrumb, debt-log entry) still clears it: that is the policy
-# working, not a dodge.
-#
-# The triggers read `prose`; the disarm reads `ledger` (see above). The disarm
-# must not out-permission the triggers: matched against the raw message, naming a
-# ledger inside a fenced block would void the whole check.
-provenance=&#x27;(\b(pre-?existing|long-?standing)\b|\bnot (introduced|caused|added) by (this|my|the current) (change|edit|diff|pr|patch|work)\b|\b(was|were|is|are) already (broken|failing|wrong)\b|\bnot (my|mine|this change.?s) (code|work|bug|problem|mess)\b|\bI (didn.?t|did not) (write|introduce|add|author) (this|that|it|the)\b|\bunrelated to (this|my|the current) (change|diff|edit|pr|patch|work|task)\b|\bnot part of (this|my) (change|diff|edit|pr|patch|task)\b|\b(an|a) (existing|upstream|legacy) (issue|bug|problem|failure)\b|\b(existed|was there) (before|prior to)\b|\bpre-?dates\b)&#x27;
-declines=&#x27;(\bleav(e|ing) (it |that |them |those |this )?(alone|as.?is|be|for now|untouched)\b|\bleft (it |that |them |those |this )?(alone|as.?is|untouched|for now)\b|\b(not|won.?t|will not|do not|don.?t) (fix|fixing|address|addressing|touch|touching|change|changing) (it|that|them|those|this)\b|\b(didn.?t|did not) (fix|address|touch) (it|that|them|those|this)\b|\bout of scope\b|\bnot in scope\b|\bnot worth fixing\b|\b(so|and) I (skipped|ignored) (it|that|them|those)\b|\bskipping (it|that|them|those)\b|\b(untouched|unaffected|not touched) by (my|this|the|these) (change|changes|diff|edit|edits|work|pr|patch)\b)&#x27;
-# A defect the message is reporting. Provenance next to one is the silent punt —
-# &quot;those 4 lint errors are pre-existing&quot; declines nothing out loud but fixes
-# nothing either. Deliberately catches some honest answers; the reason handles it.
-defects=&#x27;\b(error|errors|failure|failures|failing|warning|warnings|bug|bugs|breakage|regression|violation|violations|lint|typecheck|type-check)\b&#x27;
-# The disarm needs an affirmative filing VERB next to the ledger, not a bare
-# mention: a turn that merely cites breadcrumbs.md while punting elsewhere must
-# still block. `unfiled` then takes back the negated form (&quot;not filing it to
-# debt-log.md&quot;), which otherwise disarms by naming the thing it refuses to do.
-# The gap is `.{0,120}`, not a bracket class: POSIX ERE does not read `\n` inside
-# brackets, so `[^\n]` means &quot;not a backslash and not the letter n&quot; and silently
-# never matches an ordinary sentence. `ledger` is already newline-flattened, so
-# `.` reaches across a bulleted filing.
-#
-# `unfiled` carries the SAME ledger proximity as `filed`. Unscoped, any negation
-# anywhere in the message re-armed the block — &quot;there&#x27;s no need to file a
-# changelog entry&quot; three sentences away from a genuine filing blocked correct
-# work. The negation only counts when it is negating THIS filing.
-ledger_f=&#x27;(breadcrumbs\.md|debt-log\.md)&#x27;
-filed=&quot;(\\b(filed|filing|recorded|recording|logged|logging|noted|noting|tracked|tracking|captured|added)\\b.{0,120}$ledger_f|\\bdebt: ?[a-z0-9-]+)&quot;
-unfiled=&quot;\\b(not|never|without|no need to)\\s+(going to\\s+|gonna\\s+)?(fil(e|ing)|record(ing)?|logg?(ing)?|track(ing)?|not(e|ing))\\b.{0,120}$ledger_f&quot;
-
-disarmed=&quot;no&quot;
-if printf &#x27;%s&#x27; &quot;$ledger&quot; | grep -Eqi &quot;$filed&quot; \
-   &amp;&amp; ! printf &#x27;%s&#x27; &quot;$ledger&quot; | grep -Eqi &quot;$unfiled&quot;; then
-  disarmed=&quot;yes&quot;
+turn_msg=&quot;$last_msg&quot;
+if [[ -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]]; then
+  turn_msg=&quot;$(python3 &quot;$lib/turn-text.py&quot; &quot;$transcript&quot;)&quot;
+  [[ -n &quot;$turn_msg&quot; ]] || turn_msg=&quot;$last_msg&quot;
 fi
 
-# Flattened so the proximity window can span a line break inside one sentence;
-# grep is line-based, so `.` cannot cross a newline otherwise.
-prose_flat=&quot;$(printf &#x27;%s&#x27; &quot;$prose&quot; | tr &#x27;\n&#x27; &#x27; &#x27;)&quot;
-NEAR=140   # generous for one sentence, well under the 233 that misfired
-
-key2=&quot;($declines|$defects)&quot;
-if printf &#x27;%s&#x27; &quot;$prose_flat&quot; | grep -Eqi &quot;$provenance.{0,$NEAR}$key2|$key2.{0,$NEAR}$provenance&quot; \
-   &amp;&amp; [[ &quot;$disarmed&quot; == &quot;no&quot; ]]; then
-  cat &gt;&amp;2 &lt;&lt;&#x27;EOF&#x27;
-Your last message tied a provenance claim — pre-existing, not yours, not
-introduced by this change — to code you are not fixing. The quality gate rises
-over time: a file you touch comes up to today&#x27;s bar, whoever wrote it and
-whenever. Provenance is not an exemption, and &quot;I only ran the linter&quot; does not
-make the errors someone else&#x27;s problem.
-
-Pick one, deliberately:
-  - It sits in a file this change already touches and the fix is bounded -&gt;
-    fix it now, in this change.
-  - It is genuinely separate work -&gt; file it (.agents/breadcrumbs.md for work,
-    .agents/debt-log.md for a standing tradeoff) and name where you filed it.
-Do not narrate the reasoning in a code comment.
-
-This check is deliberately aggressive. It fires on the claim, because a silent
-punt is word-identical to an honest answer — &quot;those tests are pre-existing&quot;
-reads the same whether it dodges work or answers a question you were asked. The
-regex cannot see which; you can. If it misread you — you were answering a direct
-question about blame, or the code genuinely is not yours to touch — say so in
-one line and stop. That is expected and cheap, not a failure.
-EOF
+# The rule and the reason live in ../lib/ratchet-claim.sh and
+# ../lib/ratchet-reason.sh, shared with the PreToolUse gate that catches the
+# same claim before the next tool call. This is the second layer: a claim made
+# after the last tool call, or one the model was already told about and shipped
+# anyway, still blocks the turn from ending.
+claim=&quot;$(printf &#x27;%s&#x27; &quot;$turn_msg&quot; | bash &quot;$lib/ratchet-claim.sh&quot; | head -n 1)&quot;
+if [[ -n &quot;$claim&quot; ]]; then
+  bash &quot;$lib/ratchet-reason.sh&quot; &quot;$claim&quot; &gt;&amp;2
   exit 2
 fi
 
@@ -5977,13 +5920,12 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>implementer.md</h3><p>The implementation cell: focused changes, executable checks, and a concrete handoff.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 27 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 26 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
 name: implementer
 description: Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.
 tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
 model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
-maxTurns: 30
 permissionMode: &quot;acceptEdits&quot;
 ---
 
@@ -6007,13 +5949,12 @@ new user decision is necessary, state the two options and do not guess.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>reviewer.md</h3><p>Independent hostile review of the change against its surrounding architecture.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 16 lines</span></summary><div class="srcpath">.agents/personas/reviewer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 15 lines</span></summary><div class="srcpath">.agents/personas/reviewer.md</div><pre><code>---
 name: reviewer
 description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
 model: &quot;opus&quot;
 effort: &quot;high&quot;
-maxTurns: 24
 ---
 
 # Reviewer contract
@@ -6026,13 +5967,12 @@ reproduction of the named claim. Return only the contract report.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>qa-verifier.md</h3><p>Verifies changed observable behavior with focused executable scenarios.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 44 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 43 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;mcp__playwright__*&quot;]
 model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
-maxTurns: 20
 mcpServers: [&quot;playwright&quot;]
 ---
 
@@ -6073,12 +6013,11 @@ it. Mark unavailable runnable surfaces as a coverage gap, never as a pass.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>mechanic.md</h3><p>Bounded mechanical edits with the smallest relevant check.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 24 lines</span></summary><div class="srcpath">.agents/personas/mechanic.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 23 lines</span></summary><div class="srcpath">.agents/personas/mechanic.md</div><pre><code>---
 name: mechanic
 description: Delegate mechanical, bounded edits with one obvious result: renames, formatting, straightforward moves, or a narrow verified fix.
 tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
 model: &quot;haiku&quot;
-maxTurns: 12
 permissionMode: &quot;acceptEdits&quot;
 ---
 
@@ -6100,12 +6039,11 @@ defect; report the exact decision or defect to the caller.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>explorer.md</h3><p>Read-only reconnaissance that maps the relevant code and evidence.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 24 lines</span></summary><div class="srcpath">.agents/personas/explorer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 23 lines</span></summary><div class="srcpath">.agents/personas/explorer.md</div><pre><code>---
 name: explorer
 description: Trace codebase structure, definitions, callers, data flow, and tests for one bounded question without editing.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;]
 model: &quot;haiku&quot;
-maxTurns: 16
 ---
 
 # Explorer contract
@@ -6127,13 +6065,12 @@ Do not delegate, propose unrelated cleanup, or turn discovery into a review.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> · <code>effort: medium</code> · no Write, no Edit</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 41 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 40 lines</span></summary><div class="srcpath">.agents/personas/researcher.md</div><pre><code>---
 name: researcher
 description: Research current or external facts with primary sources, confidence, dates, and explicit evidence gaps.
 tools: [&quot;Read&quot;, &quot;Grep&quot;, &quot;Glob&quot;, &quot;WebSearch&quot;, &quot;WebFetch&quot;, &quot;mcp__context7__*&quot;, &quot;mcp__research-mcp__*&quot;]
 model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
-maxTurns: 20
 mcpServers: [&quot;context7&quot;, &quot;research-mcp&quot;]
 ---
 
@@ -6555,7 +6492,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 47 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -6588,6 +6525,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`provenance-gate.sh` sees only text the host has flushed** — on 2.1.258 one session stopped writing mid-turn assistant text rows, so the gate read nothing and the Stop gate caught the turn. Re-test on a later host.
 - **`session-wrap.sh` blocks under `codex exec`** — the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt. Detect exec mode and skip the prompt.
 - **Nothing validates `.agents/codex/hooks.json`** — `codex mcp list` reads only `config.toml`, so a malformed hooks.json still exits 0. It is the other file that can fail a whole Codex session. Cover it with the `hooks/list` driver.
 - **`research-mcp`&#x27;s robots.txt policy is unwritten** — it fetches on the caller&#x27;s behalf without consulting robots.txt, as every reader tool does, and rate-limits per host. State the rule: user-directed single reads exempt, enumeration not.
