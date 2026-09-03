@@ -146,9 +146,9 @@ not carry a separate mapping. Unsupported or empty tool shapes write no row.
 
 `.agents/personas/*.md` are Claude-native definitions linked at
 `.claude/agents/*.md`. Their frontmatter directly names tools, model, effort,
-MCP servers, turn limit, and permission mode where applicable. Edit the
-canonical persona and run `python3 .agents/check-layout.py`; no generation step
-exists.
+MCP servers, and permission mode where applicable, and never a turn cap (see
+`no-persona-turn-cap` in `decisions.md`). Edit the canonical persona and run
+`python3 .agents/check-layout.py`; no generation step exists.
 
 Models are deliberately explicit and use the host aliases `haiku`, `sonnet`,
 `opus`, and `fable`. The Agent tool's `model` parameter accepts only those
