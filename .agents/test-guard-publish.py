@@ -154,7 +154,8 @@ def run(payload, repo=None):
     return subprocess.run(args, input=payload, capture_output=True, text=True, env=env)
 
 
-result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}))
+result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                         "permission_mode": "default"}))
 out = json.loads(result.stdout)
 check("entry point exits 0 and emits the ask envelope",
       result.returncode == 0
@@ -165,6 +166,34 @@ check("entry point exits 0 and emits the ask envelope",
 result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}}))
 check("entry point is silent on a quiet call",
       result.returncode == 0 and result.stdout.strip() == "")
+
+# The mode decides whether a human can answer. Where no prompt is shown, the
+# same verdict denies and the reason tells the model how the user approves.
+for mode in ("auto", "bypassPermissions", "dontAsk", "", "someFutureMode"):
+    result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                             "permission_mode": mode}))
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    check(f"entry point denies a push in {mode or 'an unnamed'} mode",
+          result.returncode == 0 and out["permissionDecision"] == "deny"
+          and (mode or "unnamed") in out["permissionDecisionReason"]
+          and "Shift+Tab" in out["permissionDecisionReason"]
+          and out["permissionDecisionReason"].startswith("git push publishes"),
+          f"got: {out}")
+    result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"},
+                             "permission_mode": mode}))
+    check(f"entry point stays silent on a quiet call in {mode or 'an unnamed'} mode",
+          result.returncode == 0 and result.stdout.strip() == "")
+    result = run(json.dumps({"tool_name": "Bash", "permission_mode": mode}))
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    check(f"an incomplete payload denies in {mode or 'an unnamed'} mode",
+          result.returncode == 0 and out["permissionDecision"] == "deny")
+for mode in ("default", "acceptEdits", "plan"):
+    result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                             "permission_mode": mode}))
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    check(f"entry point asks for a push in {mode} mode",
+          result.returncode == 0 and out["permissionDecision"] == "ask"
+          and "Shift+Tab" not in out["permissionDecisionReason"])
 
 result = run("not json")
 out = json.loads(result.stdout)
@@ -177,7 +206,8 @@ with tempfile.TemporaryDirectory() as tmp:
     shutil.copy2(policy, isolated)
     result = subprocess.run(
         [sys.executable, str(isolated)],
-        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                          "permission_mode": "default"}),
         capture_output=True, text=True, env=env)
     out = json.loads(result.stdout)
     check("entry point asks when the shell parser is missing",
@@ -192,6 +222,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 adapter = here / "claude" / "adapter.sh"
 claude_payload = {"session_id": "t", "hook_event_name": "PreToolUse", "cwd": str(here.parent),
+                  "permission_mode": "default",
                   "tool_name": "Bash", "tool_input": {"command": "git push origin main"}}
 result = subprocess.run(
     [str(adapter), "guard-publish.sh"], input=json.dumps(claude_payload),
@@ -206,18 +237,44 @@ out = json.loads(result.stdout)
 check("the adapter asks when a PreToolUse policy file is missing",
       result.returncode == 0 and out["hookSpecificOutput"]["permissionDecision"] == "ask")
 
+# The host names the mode at the top of its payload; the adapter carries it
+# through, and every fallback that would have asked denies where nobody answers.
+auto_payload = dict(claude_payload, permission_mode="auto")
+result = subprocess.run(
+    [str(adapter), "guard-publish.sh"], input=json.dumps(auto_payload),
+    capture_output=True, text=True, env=dict(env, CLAUDE_PROJECT_DIR=str(here.parent)))
+out = json.loads(result.stdout)["hookSpecificOutput"]
+check("the wired Claude adapter path denies a push in auto mode",
+      result.returncode == 0 and out["permissionDecision"] == "deny"
+      and "auto" in out["permissionDecisionReason"], f"got: {out}")
+result = subprocess.run(
+    [str(adapter), "guard-publish-missing.sh"], input=json.dumps(auto_payload),
+    capture_output=True, text=True, env=dict(env, CLAUDE_PROJECT_DIR=str(here.parent)))
+out = json.loads(result.stdout)
+check("the adapter denies a missing PreToolUse policy in auto mode",
+      result.returncode == 0 and out["hookSpecificOutput"]["permissionDecision"] == "deny")
+
 with tempfile.TemporaryDirectory() as tmp:
     wrapper = pathlib.Path(tmp) / ".agents" / "hooks" / "policy" / "guard-publish.sh"
     wrapper.parent.mkdir(parents=True)
     shutil.copy2(here / "hooks" / "policy" / "guard-publish.sh", wrapper)
     result = subprocess.run(
         [str(wrapper)],
-        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                          "permission_mode": "default"}),
         capture_output=True, text=True, env=env)
     out = json.loads(result.stdout)
     check("policy wrapper asks when its decision library is missing",
           result.returncode == 0
           and out["hookSpecificOutput"]["permissionDecision"] == "ask")
+    result = subprocess.run(
+        [str(wrapper)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        capture_output=True, text=True, env=env)
+    out = json.loads(result.stdout)
+    check("policy wrapper denies a missing decision library when no mode is named",
+          result.returncode == 0
+          and out["hookSpecificOutput"]["permissionDecision"] == "deny")
 
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp)
@@ -231,10 +288,12 @@ with tempfile.TemporaryDirectory() as tmp:
     path_dir.mkdir()
     os.symlink(shutil.which("dirname"), path_dir / "dirname")
     os.symlink(shutil.which("cat"), path_dir / "cat")
+    os.symlink(shutil.which("grep"), path_dir / "grep")   # the mode check needs it
     missing_env = dict(env, PATH=str(path_dir))
     result = subprocess.run(
         ["/bin/bash", str(wrapper)],
-        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                          "permission_mode": "default"}),
         capture_output=True, text=True, env=missing_env)
     out = json.loads(result.stdout)
     check("policy wrapper asks when python3 is unavailable",
@@ -246,7 +305,8 @@ with tempfile.TemporaryDirectory() as tmp:
     fake_python.chmod(0o755)
     result = subprocess.run(
         ["/bin/bash", str(wrapper)],
-        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}}),
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                          "permission_mode": "default"}),
         capture_output=True, text=True, env=missing_env)
     out = json.loads(result.stdout)
     check("policy wrapper asks when the evaluator exits nonzero",

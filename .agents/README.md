@@ -116,6 +116,7 @@ python3 .agents/check-layout.py
 .agents/test-workloop.sh
 .agents/test-post-edit-check.sh
 .agents/test-stop-investigate.sh
+.agents/test-provenance-gate.sh
 .agents/test-review-contract.sh
 python3 .agents/lint-breadcrumbs.py
 python3 .agents/test-sources-matcher.py

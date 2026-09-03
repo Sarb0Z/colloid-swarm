@@ -55,6 +55,9 @@ jobs:
       - name: Stop-investigate policy
         run: .agents/test-stop-investigate.sh
 
+      - name: Provenance gate policy
+        run: .agents/test-provenance-gate.sh
+
       - name: Reviewer contract
         run: .agents/test-review-contract.sh
 

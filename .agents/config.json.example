@@ -53,6 +53,9 @@
       "enabled": true,
       "ratchet_check": true
     },
+    "provenance_gate": {
+      "enabled": true
+    },
     "learning_report": {
       "enabled": false
     },

@@ -70,6 +70,7 @@ python3 .agents/lint-breadcrumbs.py
 .agents/test-ui-gate.sh
 .agents/test-post-edit-check.sh
 .agents/test-stop-investigate.sh
+.agents/test-provenance-gate.sh
 .agents/test-review-contract.sh
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py

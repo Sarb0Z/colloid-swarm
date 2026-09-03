@@ -39,9 +39,13 @@ raw="$(cat)"
 if [[ ! -x "$policy_path" ]]; then
   echo "adapter: unknown or non-executable policy '$policy'" >&2
   # A missing PreToolUse policy is a missing gate. Exit 1 would let the tool
-  # run; force the permission prompt instead so the loss is visible.
+  # run; force the permission prompt instead so the loss is visible. Where the
+  # mode is not one known to show a prompt, deny: an unseen prompt hides the
+  # loss instead of showing it.
   if grep -Eq '"hook_event_name" *: *"PreToolUse"' <<<"$raw"; then
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"The %s policy is missing from this checkout, so its gate cannot run."}}\n' "$(basename "$policy")"
+    decision="deny"
+    grep -Eq '"permission_mode" *: *"(default|acceptEdits|plan)"' <<<"$raw" && decision="ask"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"The %s policy is missing from this checkout, so its gate cannot run."}}\n' "$decision" "$(basename "$policy")"
     exit 0
   fi
   exit 1
