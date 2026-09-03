@@ -12,6 +12,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | `sources-capture.sh` | `project_dir`, `agent`, `tool_name`, `tool_input` |
 | `session-start.sh` | `project_dir`, `source`, `session_id`, `transcript_path` |
 | `session-wrap.sh` | `project_dir`, `stop_hook_active`, `session_id`, `transcript_path` |
+| `provenance-gate.sh` | `project_dir`, `transcript_path`, `session_id` |
 | `stop-investigate.sh` | `project_dir`, `stop_hook_active`, `last_assistant_message`, `transcript_path` |
 | `research-prime.sh` | `project_dir`, `prompt` |
 | `done-prime.sh` | `project_dir`, `prompt` |

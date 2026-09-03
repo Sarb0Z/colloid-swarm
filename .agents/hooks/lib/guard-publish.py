@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 """Decide whether a tool call is an outward mutation that needs user approval.
 
-Input  (stdin JSON): {"tool_name": "...", "tool_input": {...}}
+Input  (stdin JSON): {"tool_name": "...", "tool_input": {...},
+                      "permission_mode": "default" | "auto" | ...}
 Output: exit 0 always. Stdout carries the Claude Code PreToolUse envelope
-{"hookSpecificOutput": {"permissionDecision": "ask", ...}} in two cases: a rule
-fired, or the guard could not evaluate a call (unreadable payload, evaluator
-error) — it fails closed. Silence otherwise.
+{"hookSpecificOutput": {"permissionDecision": "ask" | "deny", ...}} in two
+cases: a rule fired, or the guard could not evaluate a call (unreadable
+payload, evaluator error) — it fails closed. Silence otherwise.
 
 This is the enforcement half of `AGENTS.md` §External actions: an outward
 mutation requires user approval in the current session. "Ask" is the whole
 point — a publish is legitimate exactly when the user says yes, so the guard
 forces the dialog rather than denying. Contrast guard-destructive, which
 denies, because no mid-session answer legitimizes `rm -rf /`.
+
+The dialog only counts when a human answers it. In auto mode the host is
+documented to floor a hook's "ask" at a prompt, and on Claude Code 2.1.258 it
+did not: ten `git push` calls in one session each drew an "ask" from this guard
+and ran unanswered seconds later, and a probe in a foreground auto-mode session
+did the same. In bypassPermissions mode nothing prompts by design, and dontAsk
+turns a prompt into a denial anyway. So the guard asks only in the modes known
+to prompt, denies in every other and says how the user approves — switch the
+mode and answer the prompt, or run the command themselves — because a call the
+user never saw is not approved.
 
 Scope: Bash publish/push/deploy commands, and every Artifact action that
 reaches claude.ai — publishing a page, adding or deleting one of its files, and
@@ -210,13 +221,31 @@ def enabled(repo):
     return node is not False
 
 
-def emit_ask(reason):
+# Modes in which the host shows a permission prompt to a human. Anything else
+# denies: a mode this guard does not know, or a payload without one, fails loud
+# rather than running a push nobody saw.
+PROMPTING_MODES = {"default", "acceptEdits", "plan"}
+
+APPROVAL = (" AGENTS.md §External actions: outward mutations need in-session "
+            "user approval.")
+UNPROMPTED = (
+    " This session's permission mode is {mode}, where the approval prompt does "
+    "not reach the user, so the call is denied instead of asked. Do not retry "
+    "or work around it. Report what you want to run and why, then stop: the "
+    "user approves by switching the permission mode to default (Shift+Tab) and "
+    "answering the prompt when you rerun the command, or by running it "
+    "themselves with the ! prefix.")
+
+
+def emit(reason, mode):
+    if mode in PROMPTING_MODES:
+        decision, tail = "ask", APPROVAL
+    else:
+        decision, tail = "deny", APPROVAL + UNPROMPTED.format(mode=mode or "unnamed")
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "permissionDecision": "ask",
-        "permissionDecisionReason":
-            reason + " AGENTS.md §External actions: outward mutations need "
-            "in-session user approval.",
+        "permissionDecision": decision,
+        "permissionDecisionReason": reason + tail,
     }}))
 
 
@@ -224,27 +253,31 @@ def main():
     repo = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
     if not enabled(repo):
         return 0
+    # A payload the guard cannot read carries no mode, and the visible signal
+    # for a broken guard is the prompt, so these two paths ask.
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError:
-        emit_ask("The publish guard could not parse the hook payload.")
+        emit("The publish guard could not parse the hook payload.", "default")
         return 0
     if not isinstance(payload, dict):
-        emit_ask("The publish guard received an invalid hook payload.")
+        emit("The publish guard received an invalid hook payload.", "default")
         return 0
+    mode = payload.get("permission_mode")
+    mode = mode if isinstance(mode, str) else ""
     tool_input = payload.get("tool_input")
     tool_name = payload.get("tool_name")
     if not isinstance(tool_name, str) or not tool_name or not isinstance(tool_input, dict):
-        emit_ask("The publish guard received an incomplete hook payload.")
+        emit("The publish guard received an incomplete hook payload.", mode)
         return 0
     try:
         reason = verdict(tool_name, tool_input)
     except Exception:
-        emit_ask("The publish guard could not evaluate this tool call.")
+        emit("The publish guard could not evaluate this tool call.", mode)
         return 0
     if not reason:
         return 0
-    emit_ask(reason)
+    emit(reason, mode)
     return 0
 
 

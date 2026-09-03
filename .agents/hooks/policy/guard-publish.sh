@@ -23,23 +23,33 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 decide="$repo/.agents/hooks/lib/guard-publish.py"
+payload=""
 
+# An "ask" only fails closed where a human answers it. Only the modes the
+# evaluator lists as prompting get one (its docstring records the evidence);
+# a guard that cannot run denies everywhere else instead of letting the call
+# through.
 ask_failure() {
   local diagnostic="$1"
   local reason="$2"
+  local decision="ask"
+  if ! grep -Eq '"permission_mode": *"(default|acceptEdits|plan)"' <<<"$payload"; then
+    decision="deny"
+    reason="$reason This session's permission mode does not show approval prompts, so the call is denied; the user runs it themselves or switches the mode to default and answers the prompt."
+  fi
   echo "guard-publish: $diagnostic" >&2
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s AGENTS.md §External actions: outward mutations need in-session user approval."}}\n' "$reason"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s AGENTS.md §External actions: outward mutations need in-session user approval."}}\n' "$decision" "$reason"
   exit 0
 }
-
-if [[ ! -f "$decide" ]]; then
-  ask_failure "$decide is missing; the guard cannot run." \
-    "The publish guard decision library is missing."
-fi
 
 if ! payload="$(cat)"; then
   ask_failure "input read failed; the guard cannot decide safely." \
     "The publish guard could not read the hook payload."
+fi
+
+if [[ ! -f "$decide" ]]; then
+  ask_failure "$decide is missing; the guard cannot run." \
+    "The publish guard decision library is missing."
 fi
 
 if output="$(python3 "$decide" "$repo" <<<"$payload")"; then

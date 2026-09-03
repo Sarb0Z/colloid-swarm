@@ -59,6 +59,8 @@ def normalize(payload, policy, repo):
     elif policy == "guard-publish.sh":
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input
+        # The mode decides whether an "ask" can reach a human at all.
+        out["permission_mode"] = payload.get("permission_mode") or ""
     # colloid-only
     elif policy == "genome-inject.sh":
         # SubagentStart fires inside the spawned cell, which names its own type
@@ -74,6 +76,9 @@ def normalize(payload, policy, repo):
         out["files"] = written_paths(tool_input)
     elif policy == "session-wrap.sh":
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
+        out["transcript_path"] = payload.get("transcript_path", "")
+        out["session_id"] = payload.get("session_id", "")
+    elif policy == "provenance-gate.sh":
         out["transcript_path"] = payload.get("transcript_path", "")
         out["session_id"] = payload.get("session_id", "")
     elif policy == "stop-investigate.sh":

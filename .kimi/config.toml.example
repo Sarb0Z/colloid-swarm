@@ -19,7 +19,8 @@
 # wrap throttle (state in .agents/.wrap-state-*, same as Claude).
 #
 # Still not portable: stop-investigate (Kimi's Stop payload has no
-# transcript path or last-message field). The no-diff investigation report
+# transcript path or last-message field) and provenance-gate (its PreToolUse
+# payload has no transcript path either). The no-diff investigation report
 # inside session-wrap also stays Claude-only (needs a transcript to size
 # the session). Both of the wrap's magnitude measures — uncommitted tree and
 # committed work — are git-only, and session_id keys the state they need,
