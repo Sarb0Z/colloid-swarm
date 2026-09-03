@@ -4,6 +4,7 @@
 .agents/.sources-ledger
 .agents/.compaction-pending
 .agents/.wrap-state-*
+.agents/.provenance-*
 .agents/.ui-pending-*
 .agents/.kimi-pending-findings-*
 .agents/.workloop-state.json
