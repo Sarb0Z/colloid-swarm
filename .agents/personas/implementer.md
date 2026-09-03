@@ -4,7 +4,6 @@ description: Delegate one bounded implementation unit after the plan is settled.
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 model: "sonnet"
 effort: "medium"
-maxTurns: 30
 permissionMode: "acceptEdits"
 ---
 

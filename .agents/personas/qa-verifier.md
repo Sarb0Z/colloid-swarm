@@ -4,7 +4,6 @@ description: Verify changed tests, APIs, and web behavior with focused executabl
 tools: ["Read", "Glob", "Grep", "Bash", "mcp__playwright__*"]
 model: "sonnet"
 effort: "medium"
-maxTurns: 20
 mcpServers: ["playwright"]
 ---
 

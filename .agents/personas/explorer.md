@@ -3,7 +3,6 @@ name: explorer
 description: Trace codebase structure, definitions, callers, data flow, and tests for one bounded question without editing.
 tools: ["Read", "Glob", "Grep"]
 model: "haiku"
-maxTurns: 16
 ---
 
 # Explorer contract

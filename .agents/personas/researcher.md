@@ -4,7 +4,6 @@ description: Research current or external facts with primary sources, confidence
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "mcp__context7__*", "mcp__research-mcp__*"]
 model: "sonnet"
 effort: "medium"
-maxTurns: 20
 mcpServers: ["context7", "research-mcp"]
 ---
 
