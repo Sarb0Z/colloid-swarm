@@ -57,10 +57,65 @@ ok "short-lived and foreground work is ignored"
 [[ -z "$(sh 'echo "starting: npm run dev" >> notes.md' true)" && ! -e "$pending" ]] || fail "an echo recorded"
 ok "a quoted mention of a launch is not a launch"
 
+# Quoting the thing being RUN is ordinary. Blanking quoted spans deleted the
+# script name, the subcommand, and the app name, and recorded none of these.
+rm -f "$pending"
+sh 'npm run "dev"' true >/dev/null
+sh 'docker compose "up" -d' >/dev/null
+sh 'open -a "Simulator"' >/dev/null
+[[ "$(grep -c '^server' "$pending")" == 1 && "$(grep -c '^docker' "$pending")" == 1 && "$(grep -c '^emulator' "$pending")" == 1 ]] \
+  || fail "a quoted keyword must still classify: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "quoting the thing being run does not hide it"
+
+# Command substitution executes whatever quoting surrounds it.
+sh 'echo "$(docker compose up -d)"' >/dev/null
+grep -q '^docker' "$pending" || fail "a substitution inside quotes must classify"
+rm -f "$pending"
+sh 'RESULT=`npm run dev &`' >/dev/null
+grep -q '^server' "$pending" || fail "a backtick substitution must classify"
+rm -f "$pending"
+ok "command substitution is executed, not quoted away"
+
+# A -c/-e payload for a non-shell interpreter is that language's source. This
+# exact shape recorded a phantom container against this repository.
+[[ -z "$(sh 'python3 -c "t = '"'"'echo \"$(docker compose up -d)\"'"'"'; print(t)"' true)" && ! -e "$pending" ]] \
+  || fail "a python payload recorded: $(cat "$pending" 2>/dev/null)"
+[[ -z "$(sh 'bash -c "echo \"docker compose up -d\""')" && ! -e "$pending" ]] \
+  || fail "an escaped-quote echo recorded: $(cat "$pending" 2>/dev/null)"
+ok "an interpreter payload is source, and an escaped-quote echo is a mention"
+
+# A read-only probe is not a teardown.
+sh 'emulator -avd Pixel &' >/dev/null
+sh 'pgrep -f qemu-system-x86_64' >/dev/null
+grep -q '^emulator' "$pending" || fail "pgrep must not count as killing the emulator"
+sh 'ps aux | grep qemu-system-x86_64' >/dev/null
+grep -q '^emulator' "$pending" || fail "ps|grep must not count as killing the emulator"
+sh 'pkill -f qemu-system-x86_64' >/dev/null
+[[ ! -e "$pending" ]] || fail "an actual kill must clear the emulator"
+ok "checking whether a device is alive is not stopping it"
+
+# The gap between the package manager and the script name cannot cross a
+# redirect: a log file named dev.log is not a dev server.
+[[ -z "$(sh 'nohup npm test > dev.log 2>&1 &')" && ! -e "$pending" ]] \
+  || fail "a redirect to dev.log recorded: $(cat "$pending" 2>/dev/null)"
+ok "a redirect target is not a script name"
+
 # A literal heredoc is data. This class fired twice for real against this very
 # repository, whose own fixtures are lists of these commands.
 [[ -z "$(sh "$(printf 'cat > fixtures.txt <<%s\ndocker compose up -d\nnpm run dev\nEOF\n' "'EOF'")" true)" && ! -e "$pending" ]] \
   || fail "a literal heredoc body recorded: $(cat "$pending" 2>/dev/null)"
+# Only `<<-` accepts an indented terminator. Accepting one for a plain `<<`
+# ended the heredoc early at a line that merely looked like the delimiter, and
+# read the rest of the body — still data to bash — as commands.
+[[ -z "$(sh "$(printf 'cat > doc.txt <<%s\nsome data\n  EOF\ndocker compose up -d\nEOF\n' "'EOF'")" true)" && ! -e "$pending" ]] \
+  || fail "an indented look-alike must not end a plain heredoc: $(cat "$pending" 2>/dev/null)"
+# With `<<-` the indented terminator is real, and the body genuinely ends there.
+sh "$(printf 'cat > doc.txt <<-%s\n\tsome data\n\tEOF\ndocker compose up -d\n' "'EOF'")" >/dev/null
+grep -q '^docker' "$pending" || fail "a <<- heredoc must end at its indented terminator"
+rm -f "$pending"
+ok "the heredoc terminator follows the form that opened it"
+
 # An unquoted heredoc is expanded and may be fed to a shell, so it still counts.
 sh "$(printf 'bash <<EOF\nnpm run dev &\nEOF\n')" true >/dev/null
 grep -q '^server' "$pending" || fail "an unquoted heredoc must still classify"
@@ -162,6 +217,23 @@ out="$(mcp mcp__appium-mcp__appium_session_management '{"action":"create","devic
 [[ "$out" == *"action=delete"* ]] || fail "an appium session must remind with its real close call: $out"
 grep -q '^device	.*Pixel 8' "$pending" || fail "an appium session must record: $(cat "$pending")"
 [[ -z "$(mcp mcp__appium-mcp__appium_session_management '{"action":"list"}')" ]] || fail "action=list must not record"
+[[ -z "$(mcp mcp__appium-mcp__appium_session_management '{"action":"select"}')" ]] || fail "action=select must not record"
+# `attach` takes a remote session the server's own disconnect cleanup skips, so
+# nothing would contain it if this gate did not. `detach` releases this end
+# without ending that session, so it is not a teardown.
+mcp mcp__appium-mcp__appium_session_management '{"action":"attach","sessionId":"remote-abc123"}' >/dev/null
+grep -q 'remote-abc123' "$pending" || fail "action=attach must record: $(cat "$pending")"
+mcp mcp__appium-mcp__appium_session_management '{"action":"detach"}' >/dev/null
+grep -q '^device' "$pending" || fail "action=detach must not clear the entry"
+mcp mcp__appium-mcp__appium_session_management '{"action":"delete"}' >/dev/null
+# The label comes from the fields the server really accepts, not a deviceName
+# key that no schema has.
+mcp mcp__appium-mcp__appium_session_management '{"action":"create","capabilities":"{\"appium:deviceName\":\"Pixel 8\",\"platformName\":\"Android\"}"}' >/dev/null
+grep -q 'Pixel 8' "$pending" || fail "the label must come from capabilities: $(cat "$pending")"
+mcp mcp__appium-mcp__appium_session_management '{"action":"delete"}' >/dev/null
+mcp mcp__appium-mcp__prepare_ios_simulator '{"udid":"A1B2-C3D4"}' >/dev/null
+grep -q 'A1B2-C3D4' "$pending" || fail "a simulator must be labelled by udid: $(cat "$pending")"
+rm -f "$pending"
 mcp mcp__appium-mcp__appium_session_management '{"action":"delete"}' >/dev/null
 [[ ! -e "$pending" ]] || fail "action=delete must clear the device class"
 # A fork that publishes under another npm name uses the close-shaped spelling.
