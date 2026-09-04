@@ -88,31 +88,81 @@ raw_command = ti.get("command") if isinstance(ti.get("command"), str) else ""
 # closes and then opens, and reading the whole string at once gets that exactly
 # backwards. Split it into the clauses a shell would run, classify each, and
 # apply the results in order.
-WRAPPED = re.compile(r"\b(?:ba|z|k|d)?sh\s+-[a-z]*c\s+(['\"])(.*?)\1", re.S)
 SPLIT = re.compile(r"&&|\|\||;|\||\n")
-# A heredoc written `<<'EOF'` is literal by definition: the shell expands
-# nothing in it, and it is overwhelmingly a file being written or a fixture
-# being fed to a reader. Its body is data, not commands. An unquoted `<<EOF` is
-# left alone because `bash <<EOF` does run its body.
-HEREDOC = re.compile(r"<<-?\s*(['\"])(\w+)\1.*?^\s*\2\s*$", re.S | re.M)
+# Escape-aware, so a `\"` inside a double-quoted payload does not end the span
+# early and spill the rest of it into the clause stream as if it were code.
+QUOTED = r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\""
+# A heredoc written `<<'EOF'` is literal: the shell expands nothing in it, and
+# it is overwhelmingly a file being written or a fixture fed to a reader. Its
+# body is data. An unquoted `<<EOF` is left alone because `bash <<EOF` runs its
+# body. The two forms differ in their terminator: only `<<-` permits an indented
+# one, so accepting indentation for both would end a heredoc early at an
+# indented line that merely looks like the delimiter, and treat the real body
+# after it as commands.
+HEREDOC_DASH = re.compile(r"<<-\s*(['\"])(\w+)\1.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+HEREDOC_PLAIN = re.compile(r"<<\s*(['\"])(\w+)\1.*?^\2[ \t]*$", re.S | re.M)
+# A `-c`/`-e` payload for a non-shell interpreter is that language's source, not
+# shell. Dropped whole: splitting it on the `;` between two Python statements
+# would hand its string literals to the shell classifier.
+INTERPRETED = re.compile(
+    r"\b(?:python[0-9.]*|node|ruby|perl|php|deno|osascript|awk)\s+(?:-[a-z]*\s+)*-[a-z]*[ce]\b\s*(?:"
+    + QUOTED + r")", re.S)
+# Command substitution runs, whatever quoting surrounds it: `echo "$(docker
+# compose up -d)"` starts a container. Its body becomes a clause of its own.
+SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+# Prefixes that decorate a command without being one.
+NOISE = re.compile(
+    r"^(?:do|then|else|elif|\{|!|time|nohup|sudo|command|exec|builtin|env|xargs"
+    r"|(?:ba|z|k|d)?sh\s+-[a-z]*c)\s+")
+ASSIGNMENT = re.compile(r"^\w+=\S*\s+")
+# Words that read or print text rather than run it. This is the rule that makes
+# a mention a mention: `grep "docker compose up -d"` names a launch, and the
+# verb is what says so — not the quotes around it, which are also how a script
+# name gets written in `npm run "dev"`.
+MENTION = re.compile(
+    r"^(?:echo|printf|cat|bat|grep|egrep|fgrep|rg|ack|sed|awk|jq|yq|head|tail|wc"
+    r"|less|more|tee|diff|comm|sort|uniq|tr|cut|pgrep|ps|lsof|pidof|which|type"
+    r"|man|touch|mkdir|export|read|declare|local|return)\b")
+# A word list is not a command: the launch strings inside a `for` header are
+# data until the loop body runs one, and the body is its own clause.
+LIST_KEYWORD = re.compile(r"^(?:for|while|until|case|select|function|alias|if)\b")
 
 
 def clauses(text, depth=0):
-    """Every command a shell would actually run, quoted mentions removed.
+    """Every command a shell would actually run.
 
-    Quoted spans are dropped because a command that merely NAMES a launch — a
-    grep, an echo, a test fixture listing `"docker compose up -d"` — is not a
-    launch, and in a repository whose own tests are about these commands that
-    mention is common. The argument of `sh -c` is the exception that proves it:
-    that payload IS executed, so it is unwrapped into a clause of its own
-    before the strip removes it.
+    Quote CHARACTERS are removed but their contents are kept, because quoting
+    the thing being run is ordinary — `npm run "dev"` runs dev. What separates a
+    mention from a launch is the verb: a clause led by `echo`, `grep`, or `cat`
+    only ever reads or prints its arguments.
     """
-    text = HEREDOC.sub(" ", text)
-    inner = [m.group(2) for m in WRAPPED.finditer(text)] if depth < 3 else []
-    parts = SPLIT.split(re.sub(r"'[^']*'|\"[^\"]*\"", " ", text))
-    for payload in inner:
-        parts += clauses(payload, depth + 1)
-    return [part.strip() for part in parts if part.strip()]
+    if depth > 3:
+        return []
+    text = HEREDOC_DASH.sub(" ", text)
+    text = HEREDOC_PLAIN.sub(" ", text)
+    text = INTERPRETED.sub(" ", text)
+
+    nested = []
+
+    def lift(match):
+        nested.extend(clauses(match.group(1) or match.group(2) or "", depth + 1))
+        return " "
+
+    text = SUBST.sub(lift, text)
+    text = text.replace("'", " ").replace('"', " ")
+
+    out = []
+    for part in SPLIT.split(text):
+        part = part.strip()
+        while True:
+            shorter = ASSIGNMENT.sub("", NOISE.sub("", part)).strip()
+            if shorter == part:
+                break
+            part = shorter
+        if not part or MENTION.match(part) or LIST_KEYWORD.match(part):
+            continue
+        out.append(part)
+    return out + nested
 
 
 # Backgrounded means the tool call returned while the process kept running: the
@@ -148,7 +198,10 @@ SERVER = re.compile(
     # guards on both sides keep the script NAME from matching a longer name that
     # merely contains it: `npm run test:dev` and `npm run dev:check` are tasks,
     # not servers, and both are common conventions.
-    r"""\b(?:npm|pnpm|yarn|bun)\s.{0,60}?(?<![:\w-])(?:dev|start|serve|preview)(?![:\w-])
+    # The gap cannot cross a redirect or a background operator: without that,
+    # `nohup npm test > dev.log 2>&1 &` reads as a dev server because its log
+    # file is named dev.
+    r"""\b(?:npm|pnpm|yarn|bun)\s[^|;&<>\n]{0,60}?(?<![:\w-])(?:dev|start|serve|preview)(?![:\w-])
       | \bnext\s+(?:dev|start)\b
       | \bvite\b(?!\s+build)
       | \bnest\s+start\b
@@ -192,10 +245,12 @@ EMULATOR_OPEN = re.compile(
 # newer adb builds, so the practical forms — killing the qemu process, closing
 # the Simulator app — count as a teardown too.
 EMULATOR_CLOSE = re.compile(
+    # Every form needs an actual termination verb. Matching the process name
+    # alone would let `pgrep -f qemu-system-x86_64` — asking whether the
+    # emulator is still alive — count as having killed it.
     r"""\badb\b.*\bemu\s+kill\b
       | \bxcrun\s+simctl\s+shutdown\b
-      | \bkillall\b.*\bSimulator\b
-      | \bqemu-system-\w+
+      | \b(?:kill|pkill|killall)\b.*\b(?:Simulator|qemu-system-\w+|emulator)\b
     """,
     re.X,
 )
@@ -229,6 +284,32 @@ def label(text, limit=72):
     return text[: limit - 1] + "…" if len(text) > limit else text
 
 
+def appium_label(fields, fallback="appium session"):
+    """Name the device from the fields the server actually accepts.
+
+    `appium_session_management` takes `capabilities` as a JSON *string* and
+    `prepare_ios_simulator` takes `udid`; neither has a top-level `deviceName`,
+    so reading one would name every session identically.
+    """
+    for key in ("udid", "sessionId", "deviceName"):
+        value = fields.get(key)
+        if isinstance(value, str) and value:
+            return label(value)
+    caps = fields.get("capabilities")
+    if isinstance(caps, str) and caps:
+        try:
+            caps = json.loads(caps)
+        except ValueError:
+            caps = {}
+    if isinstance(caps, dict):
+        for key in ("appium:deviceName", "deviceName", "appium:udid", "platformName"):
+            value = caps.get(key)
+            if isinstance(value, str) and value:
+                return label(value)
+    platform = fields.get("platform")
+    return label(f"{platform} session") if isinstance(platform, str) and platform else fallback
+
+
 # One ordered list, not an opens bucket and a closes bucket: the caller replays
 # it in the order a shell would have run the clauses, so the last word about a
 # class belongs to whichever clause came last.
@@ -244,16 +325,21 @@ elif BROWSER_OPEN.match(tool):
         verdicts.append("+browser\t" + label(url if isinstance(url, str) and url else "browser tab"))
 elif APPIUM_SESSION.match(tool):
     action = ti.get("action")
-    if action == "create":
-        verdicts.append("+device\t" + label(str(ti.get("deviceName") or "appium session")))
+    # `attach` takes hold of a remote session as firmly as `create` opens a new
+    # one, and the server's own disconnect cleanup deletes only the sessions it
+    # owns — an attached one survives it. Untracked here, nothing would contain
+    # it at all. `detach` releases this end without ending that session, so it
+    # is deliberately not a teardown; `list` and `select` do neither.
+    if action in ("create", "attach"):
+        verdicts.append("+device\t" + appium_label(ti))
     elif action == "delete":
         verdicts.append("-device")
 elif APPIUM_CLOSE.match(tool):
     verdicts.append("-device")
 elif APPIUM_OPEN.match(tool):
-    verdicts.append("+device\t" + label(str(ti.get("deviceName") or "appium session")))
+    verdicts.append("+device\t" + appium_label(ti))
 elif APPIUM_BOOT.match(tool):
-    verdicts.append("+emulator\t" + label(str(ti.get("deviceName") or "iOS simulator")))
+    verdicts.append("+emulator\t" + appium_label(ti, "iOS simulator"))
 elif STOP_TOOL.match(tool):
     verdicts += ["-server", "-watcher", "-build"]
 elif raw_command:
@@ -370,9 +456,12 @@ PostToolUse)
           grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;
       # kind, the commit count when it was started, then the label. The count
       # makes "a commit has landed since" answerable per resource.
+      # `opened` tracks the LAST open in the batch, so the reminder names an
+      # entry the pending file actually holds rather than one a later clause in
+      # the same command replaced.
       +*) kind="${verdict#+}"; kind="${kind%%	*}"
           printf '%s\t%s\t%s\n' "$kind" "${commits:--}" "${verdict#*	}" >> "$pending"
-          [[ -n "$opened" ]] || opened="$verdict" ;;
+          opened="$verdict" ;;
     esac
   done <<< "$verdicts"
 
