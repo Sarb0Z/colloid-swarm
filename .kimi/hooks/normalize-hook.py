@@ -55,6 +55,16 @@ def normalize(payload, policy, repo):
             prompt = " ".join(part.get("text", "") for part in prompt
                               if isinstance(part, dict))
         out["prompt"] = prompt if isinstance(prompt, str) else ""
+    elif policy == "teardown-gate.sh":
+        # The PostToolUse reminder is discarded under Kimi like every other
+        # PostToolUse output, but the recording it does is a file write, so the
+        # Stop block still sees everything the session started.
+        event = payload.get("hook_event_name", "")
+        out["event"] = "Stop" if event in ("Stop", "SubagentStop") else "PostToolUse"
+        out["session_id"] = payload.get("session_id", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
+        out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "") or "auto"
     return out

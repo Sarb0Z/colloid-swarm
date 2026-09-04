@@ -100,6 +100,17 @@ timeout = 10
 # reminder, and Kimi discards PostToolUse output, so the Stop half would block
 # on edits the model was never told about.
 
+# teardown-gate.sh IS wired despite the same discarded PostToolUse output. The
+# two halves differ in what the model needs to have been told: ui-gate blocks on
+# an edit the model made and may have forgotten, where this blocks on a process
+# the model started and can see. The block itself names every resource and its
+# close command, so the lost reminder costs nothing.
+[[hooks]]
+event = "PostToolUse"
+matcher = "Bash|mcp__[A-Za-z0-9_-]+__(browser_(navigate|tabs|close)|appium_session_management|(start|create|end|close|delete|quit)_session|(appium_)?prepare_ios_(simulator|real_device))"
+command = ".kimi/hooks/adapter.sh teardown-gate.sh"
+timeout = 10
+
 [[hooks]]
 event = "PreCompact"
 command = ".kimi/hooks/adapter.sh pre-compact.sh"
@@ -108,6 +119,11 @@ timeout = 10
 [[hooks]]
 event = "PostCompact"
 command = ".kimi/hooks/adapter.sh session-start.sh"
+timeout = 10
+
+[[hooks]]
+event = "Stop"
+command = ".kimi/hooks/adapter.sh teardown-gate.sh"
 timeout = 10
 
 [[hooks]]

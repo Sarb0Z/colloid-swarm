@@ -35,6 +35,9 @@
     "ui_gate": {
       "enabled": true
     },
+    "teardown_gate": {
+      "enabled": true
+    },
     "post_edit_check": {
       "enabled": true,
       "tombstone_check": true,

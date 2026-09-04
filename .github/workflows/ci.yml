@@ -49,6 +49,9 @@ jobs:
       - name: UI gate policy
         run: .agents/test-ui-gate.sh
 
+      - name: Teardown gate policy
+        run: .agents/test-teardown-gate.sh
+
       - name: Post-edit policy
         run: .agents/test-post-edit-check.sh
 
