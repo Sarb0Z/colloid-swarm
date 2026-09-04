@@ -11,6 +11,10 @@ edit — a wrap is not a repo-wide cleanup mission.
 - Delete comments that describe behavior you removed or replaced.
 - Delete TODO markers you wrote.
 - Delete temporary scripts, fixtures, or scratch files created for iteration.
+- Stop what the work started: browser contexts, dev servers, watchers, and the
+  containers or compose stacks the work needed. The unit is closing, so nothing
+  is left to keep them warm for. Say which one you kept, and why, if you keep
+  any.
 
 ## 2. Behavior-impact review on the touched files
 

@@ -1,0 +1,305 @@
+#!/usr/bin/env bash
+# Firing tests for the teardown-gate policy: record, remind, clear, tier, block.
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+ok() { printf 'ok    %s\n' "$*"; }
+
+dir="$scratch/fixture"
+mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib" "$dir/.agents/claude" "$dir/.agents/codex" "$dir/.codex/hooks"
+cp "$repo/.agents/hooks/policy/teardown-gate.sh" "$dir/.agents/hooks/policy/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
+cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
+cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
+gate="$dir/.agents/hooks/policy/teardown-gate.sh"
+pending="$dir/.agents/.teardown-pending-s1"
+
+# The fixture deliberately starts OUTSIDE any git repository, so the completion
+# signal is absent and the docker/build tier can be tested on its own terms.
+sh() {  # <command> [run_in_background] -> stdout
+  printf '{"project_dir":"%s","event":"PostToolUse","session_id":"s1","tool_name":"Bash","tool_input":{"command":%s,"run_in_background":%s}}' \
+    "$dir" "$(printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" "${2:-false}" \
+    | bash "$gate"
+}
+mcp() {  # <tool_name> [json tool_input] -> stdout
+  local input="{}"
+  [[ $# -gt 1 ]] && input="$2"
+  printf '{"project_dir":"%s","event":"PostToolUse","session_id":"s1","tool_name":"%s","tool_input":%s}' \
+    "$dir" "$1" "$input" | bash "$gate"
+}
+stop() {  # [stop_hook_active] -> sets rc, err
+  set +e
+  err="$(printf '{"project_dir":"%s","event":"Stop","session_id":"s1","stop_hook_active":%s}' "$dir" "${1:-false}" | bash "$gate" 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+}
+
+stop; [[ $rc -eq 0 ]] || fail "a clean session must stop freely"
+ok "nothing recorded, nothing blocked"
+
+# ── what must NOT be recorded ────────────────────────────────────────────────
+[[ -z "$(sh 'npm test')" && ! -e "$pending" ]] || fail "a plain test run recorded"
+[[ -z "$(sh 'npm run dev')" && ! -e "$pending" ]] || fail "a FOREGROUND dev server recorded"
+[[ -z "$(sh 'npm run build')" && ! -e "$pending" ]] || fail "a build recorded"
+[[ -z "$(sh 'vitest run' true)" && ! -e "$pending" ]] || fail "a backgrounded one-shot vitest recorded"
+[[ -z "$(sh 'docker compose down')" && ! -e "$pending" ]] || fail "a teardown command recorded"
+ok "short-lived and foreground work is ignored"
+
+# A command that NAMES a launch is not a launch. This class fired for real: a
+# shell loop over quoted fixture commands recorded a container nobody started.
+[[ -z "$(sh 'grep -rn "docker compose up -d" .' true)" && ! -e "$pending" ]] || fail "a grep for a launch recorded"
+[[ -z "$(sh 'for c in "npm run dev" "docker compose up -d"; do echo $c; done' true)" && ! -e "$pending" ]] \
+  || fail "a quoted fixture list recorded: $(cat "$pending")"
+[[ -z "$(sh 'echo "starting: npm run dev" >> notes.md' true)" && ! -e "$pending" ]] || fail "an echo recorded"
+ok "a quoted mention of a launch is not a launch"
+
+# A literal heredoc is data. This class fired twice for real against this very
+# repository, whose own fixtures are lists of these commands.
+[[ -z "$(sh "$(printf 'cat > fixtures.txt <<%s\ndocker compose up -d\nnpm run dev\nEOF\n' "'EOF'")" true)" && ! -e "$pending" ]] \
+  || fail "a literal heredoc body recorded: $(cat "$pending" 2>/dev/null)"
+# An unquoted heredoc is expanded and may be fed to a shell, so it still counts.
+sh "$(printf 'bash <<EOF\nnpm run dev &\nEOF\n')" true >/dev/null
+grep -q '^server' "$pending" || fail "an unquoted heredoc must still classify"
+rm -f "$pending"
+ok "a literal heredoc is data; an expanded one is not"
+
+# The argument of `sh -c` IS executed, so the quote strip must not swallow it.
+sh 'nohup bash -c "cd app && npm run dev" &' >/dev/null
+grep -q '^server' "$pending" || fail "a -c wrapped launch must record: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+sh 'sh -c "docker compose up -d"' >/dev/null
+grep -q '^docker' "$pending" || fail "a -c wrapped container must record"
+rm -f "$pending"
+ok "a command wrapped in sh -c is classified, not stripped"
+
+# A tool call is not one command: order across clauses decides the outcome.
+sh 'docker compose down && docker compose up -d' >/dev/null
+grep -q '^docker' "$pending" || fail "close-then-open must leave the new container recorded"
+rm -f "$pending"
+sh 'docker compose up -d && sleep 1 && docker compose down' >/dev/null
+[[ ! -e "$pending" ]] || fail "open-then-close must leave nothing: $(cat "$pending")"
+ok "clauses are replayed in shell order"
+
+# ── browser: the always tier ─────────────────────────────────────────────────
+out="$(mcp mcp__playwright__browser_navigate '{"url":"http://localhost:5014/login"}')"
+[[ "$out" == *"keeps running"* && "$out" == *"browser_close"* ]] || fail "first navigate must remind: $out"
+grep -q 'localhost:5014/login' "$pending" || fail "navigate must record"
+[[ -z "$(mcp mcp__playwright__browser_navigate '{"url":"http://localhost:5014/payers"}')" ]] || fail "a second open must stay quiet"
+[[ "$(grep -c '^browser' "$pending")" == 2 ]] || fail "both navigations must record"
+ok "browser opens record; only the first reminds"
+
+stop
+[[ $rc -eq 2 && "$err" == *"[browser]"* && "$err" == *"login"* && "$err" == *"payers"* ]] \
+  || fail "stop must block listing both pages (rc=$rc): $err"
+ok "a live browser blocks the stop"
+
+stop true; [[ $rc -eq 0 ]] || fail "stop_hook_active must pass"
+grep -q 'login' "$pending" || fail "a pass on the host flag must not clear the pending set"
+ok "a sibling block passes without clearing"
+
+stop; [[ $rc -eq 0 ]] || fail "a second judged stop must pass (one-shot)"
+ok "the gate blocks once per batch"
+
+mcp mcp__playwright__browser_navigate '{"url":"http://localhost:5014/audit"}' >/dev/null
+stop; [[ $rc -eq 2 && "$err" == *"audit"* ]] || fail "a new resource must re-arm the one-shot: $err"
+ok "a newly opened resource re-arms the block"
+
+mcp mcp__playwright__browser_close
+[[ ! -e "$pending" ]] || fail "browser_close must clear every browser line"
+stop; [[ $rc -eq 0 ]] || fail "stop after teardown must pass"
+ok "browser_close clears the class"
+
+# ── server and watcher: the this-turn tier ───────────────────────────────────
+out="$(sh 'npm run dev' true)"
+[[ "$out" == *"TaskStop"* ]] || fail "a backgrounded dev server must remind with its stop path: $out"
+sh 'pnpm exec vitest --watch' true >/dev/null
+sh 'nohup uvicorn app.main:app &' >/dev/null
+[[ "$(grep -c '^server' "$pending")" == 2 && "$(grep -c '^watcher' "$pending")" == 1 ]] \
+  || fail "server/watcher classification: $(cat "$pending")"
+ok "backgrounded servers and test watchers record, trailing & included"
+
+# Monorepo launch forms put a workspace selector between the manager and the
+# script; requiring them to be adjacent missed every one of them.
+rm -f "$pending"
+sh 'yarn workspace web dev' true >/dev/null
+sh 'pnpm --filter api start --port 4000' true >/dev/null
+[[ "$(grep -c '^server' "$pending")" == 2 ]] || fail "monorepo launch forms: $(cat "$pending")"
+rm -f "$pending"
+# `:dev` and `dev:` are both ordinary npm-script naming, on either side of the
+# separator; neither names a server.
+for task in 'npm run dev:check' 'npm run test:dev' 'npm run lint:dev' 'npm run build:dev' 'npm run build'; do
+  [[ -z "$(sh "$task" true)" && ! -e "$pending" ]] || fail "'$task' is a task, not a server"
+done
+ok "monorepo selectors match; a dev-prefixed or -suffixed task name does not"
+
+# Docker spellings that the first pass missed entirely.
+sh 'docker run -itd --name pg postgres:17' >/dev/null
+grep -q '^docker' "$pending" || fail "a combined -itd short flag must record"
+sh 'docker container stop pg' >/dev/null
+[[ ! -e "$pending" ]] || fail "'docker container stop' must clear: $(cat "$pending")"
+ok "combined short flags record; the container subcommand clears"
+
+# A server started through `npm run dev` is stopped through `npm run stop`.
+sh 'npm run dev' true >/dev/null
+sh 'npm run stop' >/dev/null
+[[ ! -e "$pending" ]] || fail "'npm run stop' must clear the server class"
+ok "the run-prefixed stop script clears"
+
+# Monitor runs its command in the background by definition; it carries no flag.
+printf '{"project_dir":"%s","event":"PostToolUse","session_id":"s1","tool_name":"Monitor","tool_input":{"command":"npm run dev"}}' "$dir" | bash "$gate" >/dev/null
+grep -q '^server' "$pending" || fail "a Monitor launch must record without a background flag"
+rm -f "$pending"
+ok "Monitor counts as backgrounded"
+
+# ── mobile: Appium sessions, emulators, Metro ────────────────────────────────
+# The official appium-mcp exposes no close-shaped tool name: one
+# `appium_session_management` tool carries both directions in an `action` arg.
+out="$(mcp mcp__appium-mcp__appium_session_management '{"action":"create","deviceName":"Pixel 8 API 35"}')"
+[[ "$out" == *"action=delete"* ]] || fail "an appium session must remind with its real close call: $out"
+grep -q '^device	.*Pixel 8' "$pending" || fail "an appium session must record: $(cat "$pending")"
+[[ -z "$(mcp mcp__appium-mcp__appium_session_management '{"action":"list"}')" ]] || fail "action=list must not record"
+mcp mcp__appium-mcp__appium_session_management '{"action":"delete"}' >/dev/null
+[[ ! -e "$pending" ]] || fail "action=delete must clear the device class"
+# A fork that publishes under another npm name uses the close-shaped spelling.
+mcp mcp__appium__start_session '{"deviceName":"iPhone 15"}' >/dev/null
+grep -q '^device' "$pending" || fail "a fork's start_session must record"
+mcp mcp__appium__end_session
+[[ ! -e "$pending" ]] || fail "a fork's end_session must clear"
+ok "an appium session is read from the action, not the tool name"
+
+sh 'emulator -avd Pixel_8_API_35 &' >/dev/null
+sh 'xcrun simctl boot "iPhone 15"' >/dev/null
+[[ "$(grep -c '^emulator' "$pending")" == 2 ]] || fail "emulator boots: $(cat "$pending")"
+stop; [[ $rc -eq 0 ]] || fail "a booted device must not block before the work completes: $err"
+sh 'adb -s emulator-5554 emu kill' >/dev/null
+sh 'xcrun simctl shutdown booted' >/dev/null
+[[ ! -e "$pending" ]] || fail "both shutdown forms must clear: $(cat "$pending")"
+ok "emulators boot into the on-completion tier and clear on shutdown"
+
+sh 'npx appium --port 4723' true >/dev/null
+sh 'npx react-native start' true >/dev/null
+sh 'npx expo start --ios' true >/dev/null
+[[ "$(grep -c '^server' "$pending")" == 3 ]] || fail "appium/metro/expo: $(cat "$pending")"
+[[ -z "$(sh 'appium --version')" ]] || fail "'appium --version' is not a server"
+sh 'pkill -f appium' >/dev/null
+mcp mcp__appium-mcp__prepare_ios_simulator '{"deviceName":"iPhone 15 Pro"}' >/dev/null
+grep -q '^emulator' "$pending" || fail "prepare_ios_simulator boots a device and must record"
+rm -f "$pending"
+ok "the appium server, Metro, and Expo are servers; a simulator prepare is not"
+
+# Two clears in flight at once must not discard an entry neither of them names.
+sh 'npm run dev' true >/dev/null
+mcp mcp__playwright__browser_navigate '{"url":"http://localhost:3000"}' >/dev/null
+sh 'docker compose down' & sh 'pkill -f server' & wait
+grep -q '^browser' "$pending" || fail "a concurrent clear must not drop an untouched class: $(cat "$pending" 2>/dev/null)"
+[[ -z "$(find "$dir/.agents" -name '.teardown-pending-*.lock' -o -name '.teardown-pending-s1.[0-9]*')" ]] \
+  || fail "the lock and tmp files must not survive"
+mcp mcp__playwright__browser_close
+rm -f "$pending"
+ok "concurrent clears do not lose an unrelated entry"
+
+# Rebuild the set the tier assertions below read, since the checks above
+# cleared it.
+sh 'npm run dev' true >/dev/null
+sh 'pnpm exec vitest --watch' true >/dev/null
+sh 'nohup uvicorn app.main:app &' >/dev/null
+
+stop; [[ $rc -eq 2 && "$err" == *"[server]"* && "$err" == *"[watcher]"* ]] || fail "servers must block the turn: $err"
+[[ "$err" == *"restarts in seconds"* ]] || fail "the block must carry the tier's reason: $err"
+ok "a live server blocks this turn"
+
+sh 'kill %1' >/dev/null
+[[ ! -e "$pending" ]] || fail "kill must clear server and watcher lines"
+ok "a kill clears the process classes"
+
+printf '{"project_dir":"%s","event":"PostToolUse","session_id":"s1","tool_name":"TaskStop","tool_input":{"task_id":"x"}}' "$dir" | bash "$gate" >/dev/null
+sh 'npm run dev' true >/dev/null
+printf '{"project_dir":"%s","event":"PostToolUse","session_id":"s1","tool_name":"TaskStop","tool_input":{"task_id":"x"}}' "$dir" | bash "$gate" >/dev/null
+[[ ! -e "$pending" ]] || fail "TaskStop must clear the process classes"
+ok "the host's own stop tool clears"
+
+# ── docker and build: the on-completion tier ─────────────────────────────────
+sh 'docker compose up -d' >/dev/null
+sh 'tsc --watch --preserveWatchOutput' true >/dev/null
+[[ "$(grep -c '^docker' "$pending")" == 1 && "$(grep -c '^build' "$pending")" == 1 ]] \
+  || fail "docker/build classification: $(cat "$pending")"
+stop; [[ $rc -eq 0 ]] || fail "docker and a build watcher must not block before the work completes: $err"
+ok "containers and build watchers survive a mid-work stop"
+
+sh 'docker run -d --name pg postgres:17' >/dev/null
+[[ "$(grep -c '^docker' "$pending")" == 2 ]] || fail "a detached docker run must record"
+[[ -z "$(sh 'docker run --rm alpine echo hi')" ]] || fail "a foreground docker run must not record"
+ok "only detached containers record"
+
+# They ride along on a block another class caused, without causing one.
+mcp mcp__playwright__browser_navigate '{"url":"http://localhost:5014/"}' >/dev/null
+stop
+[[ $rc -eq 2 && "$err" == *"[browser]"* ]] || fail "the browser must still block: $err"
+[[ "$err" == *"Still useful while the work continues"* && "$err" == *"[docker]"* && "$err" == *"[build]"* ]] \
+  || fail "not-yet-due resources must be reported alongside a block: $err"
+ok "not-yet-due resources ride along without blocking alone"
+
+mcp mcp__playwright__browser_close
+sh 'docker compose down' >/dev/null
+grep -q '^docker' "$pending" && fail "docker compose down must clear the container lines"
+grep -q '^build' "$pending" || fail "docker compose down must not touch the build watcher"
+ok "a teardown clears only its own class"
+
+# ── the completion signal: a commit landing ──────────────────────────────────
+gitdir="$scratch/repo"
+mkdir -p "$gitdir/.agents/hooks/policy" "$gitdir/.agents/hooks/lib"
+cp "$gate" "$gitdir/.agents/hooks/policy/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$gitdir/.agents/hooks/lib/"
+git -C "$gitdir" init -q
+git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
+gate="$gitdir/.agents/hooks/policy/teardown-gate.sh"
+pending="$gitdir/.agents/.teardown-pending-s1"
+dir="$gitdir"
+
+sh 'docker compose up -d' >/dev/null
+stop; [[ $rc -eq 0 ]] || fail "a container must not block before a commit lands: $err"
+git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m second
+stop; [[ $rc -eq 2 && "$err" == *"[docker]"* && "$err" == *"commit landed"* ]] \
+  || fail "a container must come due once a commit lands (rc=$rc): $err"
+ok "a landed commit makes containers and build watchers due"
+
+# ── identity and the config toggle ───────────────────────────────────────────
+[[ -z "$(printf '{"project_dir":"%s","event":"PostToolUse","session_id":"","tool_name":"mcp__playwright__browser_navigate","tool_input":{"url":"http://x"}}' "$dir" | bash "$gate")" ]] \
+  || fail "no session id must do nothing"
+[[ -z "$(find "$dir/.agents" -maxdepth 1 -name '.teardown-pending-' -o -maxdepth 1 -name '.teardown-pending-nosession')" ]] \
+  || fail "no session id must write no state"
+ok "no session identity means no state"
+
+rm -f "$pending"
+printf '{"hooks":{"teardown_gate":{"enabled":false}}}\n' > "$dir/.agents/config.json"
+[[ -z "$(mcp mcp__playwright__browser_navigate '{"url":"http://x"}')" && ! -e "$pending" ]] || fail "disabled policy recorded"
+rm "$dir/.agents/config.json"
+ok "the config toggle turns the gate off"
+
+# ── Claude adapter end to end, including SubagentStop ────────────────────────
+dir="$scratch/fixture"
+gate="$dir/.agents/hooks/policy/teardown-gate.sh"
+pending="$dir/.agents/.teardown-pending-c9"
+rm -f "$dir/.agents/.teardown-pending-"*
+c() { CLAUDE_PROJECT_DIR="$dir" bash "$dir/.agents/claude/adapter.sh" teardown-gate.sh; }
+out="$(printf '{"hook_event_name":"PostToolUse","cwd":"%s","session_id":"c9","tool_name":"mcp__playwright__browser_navigate","tool_input":{"url":"http://localhost:3000"}}' "$dir" | c)"
+[[ "$out" == *"browser_close"* ]] || fail "claude adapter navigate path: $out"
+set +e
+err="$(printf '{"hook_event_name":"SubagentStop","cwd":"%s","session_id":"c9","stop_hook_active":false}' "$dir" | c 2>&1 >/dev/null)"
+rc=$?
+set -e
+[[ $rc -eq 2 && "$err" == *"[browser]"* ]] || fail "SubagentStop must block a cell holding a browser (rc=$rc): $err"
+ok "the Claude adapter carries PostToolUse and SubagentStop"
+
+# ── Codex adapter end to end ─────────────────────────────────────────────────
+rm -f "$dir/.agents/.teardown-pending-"*
+x() { bash "$dir/.codex/hooks/adapter.sh" teardown-gate.sh; }
+printf '{"hook_event_name":"PostToolUse","cwd":"%s","session_id":"x1","tool_name":"Bash","tool_input":{"command":"docker compose up -d"}}' "$dir" | x >/dev/null
+grep -q '^docker' "$dir/.agents/.teardown-pending-x1" || fail "codex adapter must record"
+ok "the Codex adapter records through the shared contract"
+
+printf '\nall teardown-gate tests passed\n'

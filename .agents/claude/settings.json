@@ -160,6 +160,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh ui-gate.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Monitor|TaskStop|KillShell|KillBash|mcp__[A-Za-z0-9_-]+__(browser_(navigate|tabs|close)|appium_session_management|(start|create|end|close|delete|quit)_session|(appium_)?prepare_ios_(simulator|real_device))",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh teardown-gate.sh"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -175,7 +184,21 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main teardown-gate.sh"
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main session-wrap.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh teardown-gate.sh"
           }
         ]
       }
