@@ -6,6 +6,7 @@
 .agents/.wrap-state-*
 .agents/.provenance-*
 .agents/.ui-pending-*
+.agents/.teardown-pending-*
 .agents/.kimi-pending-findings-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock

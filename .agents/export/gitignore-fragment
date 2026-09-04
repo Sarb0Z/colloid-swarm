@@ -11,7 +11,10 @@
 .agents/.wrap-state-*
 .agents/.provenance-*
 .agents/.ui-pending-*
+.agents/.teardown-pending-*
 .agents/browser-extensions/
+# Session artefacts a playwright MCP server drops beside the project.
+/.playwright-mcp/
 .claude/settings.local.json
 /CLAUDE.local.md
 **/__pycache__/

@@ -17,6 +17,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | `research-prime.sh` | `project_dir`, `prompt` |
 | `done-prime.sh` | `project_dir`, `prompt` |
 | `ui-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `files`, `stop_hook_active` |
+| `teardown-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `tool_input`, `stop_hook_active` |
 | `pre-compact.sh` | `project_dir`, `trigger` |
 <!-- colloid-only -->
 | `genome-inject.sh` | `project_dir`, `subagent_type` |

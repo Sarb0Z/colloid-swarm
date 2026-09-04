@@ -26,6 +26,14 @@ infer runtime success from code or a passing unrelated suite. Add no test; hand
 reproducing regression coverage back to the implementer. Bash exists to execute
 tests and interactions, not to edit product source.
 
+Close what you opened before you return. Verification is short and its
+resources are not worth holding: call `browser_close` once the last interaction
+is observed, end any device session, and stop any server or watcher you
+backgrounded. A container, a compose stack, or a booted emulator the run needs
+is worth keeping while the work continues — leave it up and name it under
+STILL UP so the caller can decide. Report the state you left the machine in; a
+run that leaves ten browser contexts alive has not finished.
+
 Return exactly:
 
 ```
@@ -37,6 +45,10 @@ FAILURES
 - <file:line or scenario> — <observed failure> | none
 COVERAGE GAPS
 - <scenario> — <why it could not run> | none
+TORN DOWN
+- <resource> — <how it was stopped> | nothing started
+STILL UP
+- <resource> — <why it is worth keeping> | none
 ```
 
 Mark a scenario `not applicable` only when the changed behavior cannot exhibit

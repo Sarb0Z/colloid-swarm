@@ -99,6 +99,15 @@ def normalize(payload, policy, repo):
         out["tool_name"] = payload.get("tool_name") or ""
         out["files"] = written_paths(tool_input)
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
+    elif policy == "teardown-gate.sh":
+        # SubagentStop is a Stop for this policy: a cell that opened a browser
+        # must close it before it hands results back, not after the parent ends.
+        event = payload.get("hook_event_name", "")
+        out["event"] = "Stop" if event == "SubagentStop" else event
+        out["session_id"] = payload.get("session_id", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
+        out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "")
     return out

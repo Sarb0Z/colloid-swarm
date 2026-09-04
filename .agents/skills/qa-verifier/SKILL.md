@@ -15,8 +15,13 @@ Give it the ask, plan, changed paths, runnable commands, and the independent
 claim for high-stakes work. Route applicable scenarios through identity, API or
 data validation, state/retry, UI/navigation/accessibility, and integration
 failure; do not collapse them into one generic edge case. It returns
-`SCENARIOS`, `EXECUTED`, `FAILURES`, and `COVERAGE GAPS`. A passing command
-proves only its scenario; preserve that boundary in the handoff.
+`SCENARIOS`, `EXECUTED`, `FAILURES`, `COVERAGE GAPS`, `TORN DOWN`, and
+`STILL UP`. A passing command proves only its scenario; preserve that boundary
+in the handoff.
+
+The verifier must close the browsers and background processes it started before
+it returns, and must name anything it left running under `STILL UP`. A run that
+leaves ten browser contexts alive holds the machine's memory until it restarts.
 
 If QA finds a failure, the implementer fixes it and QA re-runs the failed
 scenario. If a surface cannot run, state the exact blocker; do not call the
