@@ -243,4 +243,29 @@ else
   echo "SKIP: uv not on PATH"
 fi
 
+
+# 13. a lockfile that matches another checkout's links its node_modules
+# instead of installing; a changed lockfile drops the link and installs
+share_main="$scratch/share-main"; mkdir -p "$share_main/node_modules/left-pad"
+git -C "$share_main" init -q 2>/dev/null || { git init -q "$share_main"; }
+printf '{"name":"s","lockfileVersion":3}\n' > "$share_main/package-lock.json"
+share_lane="$scratch/share-lane"; git init -q "$share_lane"; git -C "$share_lane" config user.email t@t; git -C "$share_lane" config user.name t
+cp "$share_main/package-lock.json" "$share_lane/"; git -C "$share_lane" add -A; git -C "$share_lane" commit -qm lock
+rm -f "$scratch/npm.ran"
+out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fail "shared provision failed: $out"
+[[ "$out" == *"(shared from"* ]] || fail "share not reported: $out"
+[[ -L "$share_lane/node_modules" && -d "$share_lane/node_modules/left-pad" ]] || fail "node_modules is not a link to the shared tree"
+[[ ! -e "$scratch/npm.ran" ]] || fail "npm ran despite a matching shared tree"
+[[ -f "$(gitdir "$share_lane")/colloid-provisioned" ]] || fail "shared provision wrote no memo"
+ok "a matching lockfile links the shared node_modules and installs nothing"
+printf '{"name":"s","lockfileVersion":3,"changed":1}\n' > "$share_lane/package-lock.json"
+rm -f "$scratch/npm.ran"
+out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fail "unshared provision failed: $out"
+[[ -e "$scratch/npm.ran" && ! -L "$share_lane/node_modules" ]] || fail "changed lockfile kept the link or skipped the install"
+[[ -d "$share_main/node_modules/left-pad" ]] || fail "the shared tree was disturbed"
+ok "a changed lockfile drops the link before installing and leaves the shared tree alone"
+out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_lane" "$prov" . 2>&1 || true)"
+[[ "$out" != *"(shared from"* ]] || fail "a checkout shared from itself"
+ok "a checkout never shares from itself"
+
 printf '\nall provision tests passed\n'

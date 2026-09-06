@@ -28,8 +28,8 @@ lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
 
 payload="$(cat)"
-{ read -r enabled; read -r allow_scripts; } < <(python3 "$lib/config.py" "$cfg_path" \
-  hooks.worktree_provision.enabled=true hooks.worktree_provision.allow_scripts=false)
+{ read -r enabled; read -r allow_scripts; read -r share; } < <(python3 "$lib/config.py" "$cfg_path" \
+  hooks.worktree_provision.enabled=true hooks.worktree_provision.allow_scripts=false hooks.worktree_provision.share=true)
 [[ "$enabled" == "yes" ]] || exit 0
 
 { read -r cwd; read -r project_dir; } < <(printf '%s' "$payload" | python3 -c '
@@ -60,7 +60,11 @@ top="$(git -C "$cwd" rev-parse --show-toplevel)"
 
 export_scripts=""
 [[ "$allow_scripts" == "yes" ]] && export_scripts=1
-result="$(PROVISION_ALLOW_SCRIPTS="${export_scripts:-0}" "$repo/.agents/provision.sh" "$top" 2>&1)" || {
+# The session's checkout is the natural source: a lane branched from it and,
+# unless the lane changed a lockfile, carries the same dependencies.
+share_from=""
+[[ "$share" == "yes" && -n "$project_dir" ]] && share_from="$project_dir"
+result="$(PROVISION_ALLOW_SCRIPTS="${export_scripts:-0}" PROVISION_SHARE_FROM="$share_from" "$repo/.agents/provision.sh" "$top" 2>&1)" || {
   printf '%s\n' "$result" >&2
   exit 2
 }

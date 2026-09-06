@@ -271,7 +271,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
         print(f"add-lane {args.lane}: creating worktree {workspace} on {branch} at {base[:12]}", file=sys.stderr)
         wg.git(repo, "worktree", "add", "-q", "-b", branch, str(workspace), base)
     print(f"add-lane {args.lane}: provisioning", file=sys.stderr)
-    ok, text = wg.provision(workspace)
+    ok, text = wg.provision(workspace, repo)
     lock_hash = wg.lock_hash(workspace) if ok else None
     with Store(state_path(args.state)) as data:
         lane = lane_of(run_of(data, args.run), args.lane)
@@ -600,9 +600,11 @@ def cmd_archive(args: argparse.Namespace) -> None:
 
 def cmd_provision(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
-        lane = lane_of(run_of(data, args.run), args.lane)
+        run = run_of(data, args.run)
+        lane = lane_of(run, args.lane)
         workspace = require_workspace(lane)
-    ok, text = wg.provision(workspace)
+        repo = Path(run["repo"])
+    ok, text = wg.provision(workspace, repo)
     lock_hash = wg.lock_hash(workspace) if ok else None
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
@@ -660,7 +662,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         wg.merge_lane(workspace, name, branches[name][0], merged)
         merged.append(name)
     print("integrate: provisioning", file=sys.stderr)
-    ok, text = wg.provision(workspace)
+    ok, text = wg.provision(workspace, repo)
     if not ok:
         print(text, file=sys.stderr)
         fail("integration workspace could not be provisioned")

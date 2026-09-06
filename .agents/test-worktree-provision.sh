@@ -154,4 +154,17 @@ set -e
 [[ $rc -eq 0 && "$out" == *installed* && -e "$scratch/npm.ran" ]] || fail "an isolation worktree under .claude/worktrees was skipped: rc=$rc out=$out"
 ok "an isolation worktree under .claude/worktrees is provisioned regardless"
 
+
+# 9. an isolation worktree with the session checkout's lockfile links its
+# node_modules from there instead of installing
+mkdir -p "$fixture/node_modules/left-pad"
+sh_wt="$fixture/.claude/worktrees/agent-share"
+git -C "$fixture" worktree add -q "$sh_wt" -b share-cell
+rm -f "$scratch/npm.ran"
+set +e
+out="$(printf '{"project_dir":"%s","cwd":"%s","agent_type":"implementer"}' "$fixture" "$sh_wt" | bash "$policy" 2>"$scratch/err.txt")"; rc=$?
+set -e
+[[ $rc -eq 0 && "$out" == *"shared from"* && -L "$sh_wt/node_modules" && ! -e "$scratch/npm.ran" ]] || fail "isolation worktree did not share the session's node_modules: rc=$rc out=$out"
+ok "an isolation worktree shares the session checkout's node_modules when the lockfile matches"
+
 printf '\nall worktree-provision tests passed\n'

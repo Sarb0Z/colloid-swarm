@@ -36,6 +36,9 @@
 #                               under the host's 600 s hook budget, so the
 #                               failure is ours to report, not the host's
 #                               to discard)
+#   PROVISION_SHARE_FROM=<dir>  a checkout whose node_modules may be linked
+#                               instead of installed when its lockfile
+#                               matches this one's byte for byte
 #
 # Exit 0 with a `provision:` line on success or when nothing was needed;
 # exit 1 with the reason on stderr otherwise. Bash 3.2 (stock macOS).
@@ -247,10 +250,46 @@ report_failure() {
   } >&2
 }
 
+# --- share a JS install from another checkout when the lockfile matches -----
+# A lane that does not touch dependencies has the same lockfile as the
+# checkout it branched from, and that checkout already carries the install.
+# A symlink to it costs nothing where an install costs minutes and hundreds
+# of megabytes per lane. Frozen installs with scripts off never write into
+# node_modules, so the shared tree stays what its owner built; a lane whose
+# lockfile changes gets its own tree, and the symlink is removed before any
+# real install so the manager can never rebuild the shared tree by mistake.
+share_from="${PROVISION_SHARE_FROM:-}"
+[[ -n "$share_from" && -d "$share_from" ]] && share_from="$(cd "$share_from" && pwd -P)" || share_from=""
+[[ "$share_from" == "$dir" ]] && share_from=""
+
+file_hash() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -c1-64; else sha256sum "$1" | cut -c1-64; fi
+}
+
+try_share() {  # <manager> <lockfile path> <cwd> -> 0 when shared
+  local manager="$1" path="$2" cwd="$3" rel source
+  case "$manager" in npm|pnpm|bun|yarn) ;; *) return 1 ;; esac
+  [[ -n "$share_from" ]] || return 1
+  rel="${cwd#"$dir"}"; rel="${rel#/}"
+  source="$share_from${rel:+/$rel}"
+  [[ -d "$source/node_modules" && -f "$source/$(basename "$path")" ]] || return 1
+  [[ "$(file_hash "$source/$(basename "$path")")" == "$(file_hash "$path")" ]] || return 1
+  if [[ -L "$cwd/node_modules" ]]; then rm -f "$cwd/node_modules"
+  elif [[ -d "$cwd/node_modules" ]]; then rm -rf "$cwd/node_modules"; fi
+  ln -s "$source/node_modules" "$cwd/node_modules"
+}
+
 installed=""
 while IFS=$'\t' read -r manager path; do
   [[ -n "$manager" ]] || continue
   cwd="$(dirname "$path")"
+  if try_share "$manager" "$path" "$cwd"; then
+    rel="${cwd#"$dir"}"; rel="${rel#/}"
+    installed="${installed}${installed:+, }$manager:${rel:-.} (shared from $share_from)"
+    continue
+  fi
+  # Never let a manager run through a symlink into another checkout's tree.
+  [[ -L "$cwd/node_modules" ]] && rm -f "$cwd/node_modules"
   command -v "$manager" >/dev/null 2>&1 || {
     report_failure "$manager" "$manager (not on PATH)" /dev/null 127; exit 1; }
   argv=()
