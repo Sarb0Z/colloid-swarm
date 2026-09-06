@@ -52,6 +52,18 @@ jobs:
       - name: Teardown gate policy
         run: .agents/test-teardown-gate.sh
 
+      - name: Workloop controller
+        run: .agents/test-workloop.sh
+
+      - name: Provisioning
+        run: .agents/test-provision.sh
+
+      - name: Worktree-provision policy
+        run: .agents/test-worktree-provision.sh
+
+      - name: Parallel-writers gate
+        run: .agents/test-parallel-writers.sh
+
       - name: Post-edit policy
         run: .agents/test-post-edit-check.sh
 

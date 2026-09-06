@@ -67,6 +67,16 @@ if [[ "$session_start_enabled" == "yes" && -n "$ident" ]] && git -C "$proj" rev-
   fi
 fi
 
+# The parallel-writers gate tracks live writer cells per session. No cell
+# survives the process, so a fresh start or a resume begins with none live;
+# a compaction continues the same process, where background cells may still
+# be running, and leaves the record alone.
+if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
+  writers_session="$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')"
+  rm -rf "$proj/.agents/.writers-live-$writers_session" "$proj/.agents/.writers-turn-$writers_session" \
+         "$proj/.agents/.writers-lock-$writers_session" 2>/dev/null || true
+fi
+
 items=""
 open=""
 crumbs="$proj/.agents/breadcrumbs.md"

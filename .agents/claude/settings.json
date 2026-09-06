@@ -112,6 +112,24 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main provenance-gate.sh"
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh parallel-writers-gate.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main parallel-writers-gate.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -125,6 +143,10 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-provision.sh",
             "timeout": 600
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh parallel-writers-gate.sh"
           }
         ]
       }
@@ -204,6 +226,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh teardown-gate.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh parallel-writers-gate.sh"
           }
         ]
       }
