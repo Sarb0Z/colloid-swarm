@@ -128,15 +128,15 @@ if [[ "$learning_enabled" == "yes" && -f "$learning_playbook" ]]; then
   learning_body="$(cat "$learning_playbook")"
 fi
 
-# Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
-
 # A run mid-flight is the first thing a resumed lead needs to know about;
 # the digest is the same one workloop-inbox.sh gives at each prompt.
 workloop_digest=""
 if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]]; then
   workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" 2>/dev/null || true)"
 fi
+
+# Nothing to surface.
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.

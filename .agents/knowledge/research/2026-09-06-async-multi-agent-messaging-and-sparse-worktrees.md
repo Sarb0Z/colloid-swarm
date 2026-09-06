@@ -50,7 +50,9 @@ Grades: `[P]` primary read directly · `[S]` secondary · `[?]` unverified ·
   asynchronously and lagging the live conversation. (claude-directory)
 - `[P]` `ScheduleWakeup` and `CronCreate` fire only while the session is
   running and idle, are session-scoped, expire (recurring) after 7 days,
-  and do not catch up missed fires. (scheduled-tasks)
+  and do not catch up missed fires. `/loop <interval> <command>` is the
+  user-facing form the same page documents, and this host lists it as a
+  built-in skill. (scheduled-tasks)
 
 ### Sparse worktrees
 
@@ -82,6 +84,14 @@ Grades: `[P]` primary read directly · `[S]` secondary · `[?]` unverified ·
   `node_modules` is 765 MB — five times the full checkout — so on this
   class of repository provisioning, not checkout, is the dominant lane
   cost.
+- `[A]` Sharing `node_modules` as one symlink fails twice: a `node_modules/`
+  ignore pattern matches directories only, so the link is listed as
+  untracked and `git add -A` commits it; and esbuild writes module paths
+  resolved through the link into the bundle, with or without
+  `preserveSymlinks`. A real directory of per-package links satisfies the
+  ignore rule; folding the resolved prefix back to `node_modules/` before
+  hashing makes the bundle manifest identical for a linked and a real
+  install (verified on both MCP servers, main and lane).
 - `[A]` Internal audit of `workloop.py`: the lane entry with its paths is
   written inside the exclusive lock before any work runs outside it, so
   concurrent `add-lane`s cannot both pass the overlap check; `integrate`

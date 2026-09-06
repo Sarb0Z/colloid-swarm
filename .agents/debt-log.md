@@ -139,12 +139,6 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — a Codex session that stalls below eight threads. It is evidence only if its queuing or usage errors are read: a service limit never surfaces as a thread count.
 - **Rework** — dispatch eight bounded cells from one Codex thread and record which limit binds. A measurement, not a code change.
 
-### colloid-check-bundle-not-symlink-safe
-
-- **Condition** — `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe. esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility against a symlinked `node_modules` yields a mismatch that is an artefact of the link rather than of the source. Acceptable: neither server's install symlinks `node_modules`, and CI installs fresh.
-- **Trigger** — a pnpm-style store or a workspace layout that symlinks `node_modules` for either server.
-- **Rework** — normalise the realpath prefixes out of the bundle before hashing, ~20 lines; it weakens the check by exactly the bytes it erases.
-
 ### colloid-showcase-cards-handwritten
 
 - **Condition** — `demo/scaffold-showcase.html` cards are hand-written. `embed-src.py` refreshes the source panel inside a card that exists and is silent about one that does not, so adding a hook or a skill costs a hand-authored card plus a `MANIFEST` line. Acceptable: `demo/check-inventory.py` fails CI on the gap, so drift is caught rather than shipped.

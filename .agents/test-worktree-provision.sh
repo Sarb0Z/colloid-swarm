@@ -164,7 +164,7 @@ rm -f "$scratch/npm.ran"
 set +e
 out="$(printf '{"project_dir":"%s","cwd":"%s","agent_type":"implementer"}' "$fixture" "$sh_wt" | bash "$policy" 2>"$scratch/err.txt")"; rc=$?
 set -e
-[[ $rc -eq 0 && "$out" == *"shared from"* && -L "$sh_wt/node_modules" && ! -e "$scratch/npm.ran" ]] || fail "isolation worktree did not share the session's node_modules: rc=$rc out=$out"
+[[ $rc -eq 0 && "$out" == *"shared from"* && -f "$sh_wt/node_modules/.colloid-shared" && -L "$sh_wt/node_modules/left-pad" && ! -e "$scratch/npm.ran" ]] || fail "isolation worktree did not share the session's node_modules: rc=$rc out=$out"
 ok "an isolation worktree shares the session checkout's node_modules when the lockfile matches"
 
 printf '\nall worktree-provision tests passed\n'

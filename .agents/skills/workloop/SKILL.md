@@ -91,11 +91,21 @@ claimant acknowledges it. The sender cannot acknowledge its own message.
 .agents/workloop.py watch slice-3b --stale-seconds 900
 ```
 
+Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
+its host agent id at start and each unread message for its lane once between
+tool calls, and the lead hears at every prompt which lanes await review, carry
+attention, are stale or broken, and when a run is ready to integrate. A hook
+cannot wake an idle lead, so for a run that outlives the lead's turn schedule
+the poll: `/loop 10m .agents/workloop.py watch <run>`. On Codex and Kimi the
+manual `inbox` stands.
+
 `watch` is read-only and reports O(lanes + messages) work. Its restart request
 must be delivered by a native host adapter or a lead; it never claims to restart
 or interrupt an agent itself. A run retains at most 128 messages by default.
-Archive acknowledged-free status and evidence-ready chatter before that ceiling;
-required findings remain until their review cycle is complete.
+Archive acknowledgement-free status and evidence-ready chatter before that
+ceiling; an acknowledged finding is dropped once the lane it addresses is
+reviewed, and one awaiting acknowledgement is never archived — it blocks
+completion until the claimant answers it.
 
 ```sh
 .agents/workloop.py archive slice-3b

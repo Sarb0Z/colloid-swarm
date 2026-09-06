@@ -25,6 +25,10 @@ import time
 from pathlib import Path
 
 STALE_SECONDS = 900
+# Hook output is capped by the host and discarded on timeout, and the seen
+# file is written before the host reads the block, so a delivery must never
+# be larger than what is sure to arrive; the rest stays unseen for next time.
+MAX_DELIVER = 8
 
 
 def load(path: Path) -> dict:
@@ -50,7 +54,11 @@ def live_runs(runs: dict) -> dict:
 
 def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -> tuple[str, set[str]]:
     lines: list[str] = []
-    if event == "SubagentStart" and runs:
+    # The id matters to a cell that can act on it: one with a lane to claim,
+    # or one that already holds a lane.
+    claimable = any(lane.get("state") in ("ready", "reopened") or lane.get("claimed_by") == agent_id
+                    for run in runs.values() for lane in run["lanes"].values())
+    if event == "SubagentStart" and claimable:
         lines.append(f"AGENT_ID: {agent_id} — claim your workloop lane and send or acknowledge messages with --agent {agent_id}.")
     delivered: set[str] = set()
     for run_name, run in runs.items():
@@ -59,6 +67,9 @@ def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -> tup
             for message in run.get("messages", []):
                 if message["to"] != lane_name or message.get("acknowledged_at") or message["id"] in seen:
                     continue
+                if len(delivered) >= MAX_DELIVER:
+                    lines.append(f"WORKLOOP: more messages wait for {run_name}/{lane_name}; they follow after your next tool call.")
+                    return "\n".join(lines), delivered
                 ack = f" — acknowledge before your next handoff: .agents/workloop.py ack-message {run_name} {lane_name} {message['id']} --agent {agent_id}" if message["requires_ack"] else ""
                 ref = f" ({message['reference']})" if message.get("reference") else ""
                 lines.append(f"WORKLOOP MESSAGE {run_name}/{lane_name} from {message['from']} [{message['kind']}]: {message['message']}{ref}{ack}")
@@ -78,9 +89,15 @@ def main_block(runs: dict) -> str:
             if lane.get("attention"):
                 notes.append(f"{lane_name} carries {lane['attention'].get('severity', 'attention')}")
             if state == "active":
+                # A heartbeat is a contract only under --supervised; an ordinary
+                # lane that has simply been working for a while is not stale.
                 beat = stamp(lane.get("heartbeat_at") or lane.get("claimed_at"))
                 if beat is not None and now - beat > STALE_SECONDS:
-                    notes.append(f"{lane_name} stale {int((now - beat) // 60)}m (release-stale if its worker is gone)")
+                    minutes = int((now - beat) // 60)
+                    if run.get("supervised"):
+                        notes.append(f"{lane_name} stale {minutes}m (release-stale if its worker is gone)")
+                    else:
+                        notes.append(f"{lane_name} active {minutes}m")
             if lane.get("env") == "broken":
                 notes.append(f"{lane_name} environment broken (provision {run_name} {lane_name})")
         pending = [m["id"] for m in run.get("messages", []) if m["requires_ack"] and not m.get("acknowledged_at")]

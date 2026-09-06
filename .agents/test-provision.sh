@@ -254,18 +254,39 @@ cp "$share_main/package-lock.json" "$share_lane/"; git -C "$share_lane" add -A; 
 rm -f "$scratch/npm.ran"
 out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fail "shared provision failed: $out"
 [[ "$out" == *"(shared from"* ]] || fail "share not reported: $out"
-[[ -L "$share_lane/node_modules" && -d "$share_lane/node_modules/left-pad" ]] || fail "node_modules is not a link to the shared tree"
+[[ -d "$share_lane/node_modules" && ! -L "$share_lane/node_modules" && -L "$share_lane/node_modules/left-pad" && -d "$share_lane/node_modules/left-pad" && -f "$share_lane/node_modules/.colloid-shared" ]] || fail "node_modules is not a directory of links to the shared tree"
+[[ -z "$(git -C "$share_lane" ls-files --others --exclude-standard | grep node_modules)" ]] || { printf 'node_modules/\n' > "$share_lane/.gitignore"; [[ -z "$(git -C "$share_lane" ls-files --others --exclude-standard | grep node_modules)" ]] || fail "a node_modules/ ignore rule did not cover the shared directory"; }
 [[ ! -e "$scratch/npm.ran" ]] || fail "npm ran despite a matching shared tree"
 [[ -f "$(gitdir "$share_lane")/colloid-provisioned" ]] || fail "shared provision wrote no memo"
 ok "a matching lockfile links the shared node_modules and installs nothing"
 printf '{"name":"s","lockfileVersion":3,"changed":1}\n' > "$share_lane/package-lock.json"
 rm -f "$scratch/npm.ran"
 out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fail "unshared provision failed: $out"
-[[ -e "$scratch/npm.ran" && ! -L "$share_lane/node_modules" ]] || fail "changed lockfile kept the link or skipped the install"
+[[ -e "$scratch/npm.ran" && ! -f "$share_lane/node_modules/.colloid-shared" ]] || fail "changed lockfile kept the shared directory or skipped the install"
 [[ -d "$share_main/node_modules/left-pad" ]] || fail "the shared tree was disturbed"
 ok "a changed lockfile drops the link before installing and leaves the shared tree alone"
 out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_lane" "$prov" . 2>&1 || true)"
 [[ "$out" != *"(shared from"* ]] || fail "a checkout shared from itself"
 ok "a checkout never shares from itself"
+
+
+# 14. a source that declares workspaces is never shared; another ecosystem's
+# lockfile in the same directory leaves the link alone
+printf '{"name":"s","workspaces":["packages/*"]}\n' > "$share_main/package.json"
+printf '{"name":"s","lockfileVersion":3,"ws":1}\n' > "$share_main/package-lock.json"; cp "$share_main/package-lock.json" "$share_lane/"; git -C "$share_lane" commit -qam ws
+rm -f "$scratch/npm.ran"
+out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fail "workspace provision failed: $out"
+[[ "$out" != *"(shared from"* && -e "$scratch/npm.ran" && ! -f "$share_lane/node_modules/.colloid-shared" ]] || fail "a workspace source was shared: $out"
+ok "a source that declares workspaces is installed, never linked"
+rm -f "$share_main/package.json"; printf '{"name":"s","lockfileVersion":3,"mixed":1}\n' > "$share_main/package-lock.json"; cp "$share_main/package-lock.json" "$share_lane/"
+cat > "$scratch/bin/bundle" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$scratch/bin/bundle"
+printf 'GEM\n' > "$share_lane/Gemfile.lock"; git -C "$share_lane" add -A; git -C "$share_lane" commit -qm mixed
+out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fail "mixed provision failed: $out"
+[[ "$out" == *"(shared from"* && "$out" == *"bundle:"* && -f "$share_lane/node_modules/.colloid-shared" ]] || fail "a Gemfile.lock beside the lockfile removed the shared directory: $out"
+ok "a non-JS lockfile in the same directory leaves the shared link in place"
 
 printf '\nall provision tests passed\n'
