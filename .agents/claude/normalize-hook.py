@@ -67,6 +67,14 @@ def normalize(payload, policy, repo):
         # at the top level rather than in a tool input.
         out["subagent_type"] = payload.get("agent_type", "")
     # /colloid-only
+    elif policy == "parallel-writers-gate.sh":
+        out["event"] = payload.get("hook_event_name", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["session_id"] = payload.get("session_id", "")
+        out["prompt_id"] = payload.get("prompt_id", "")
+        out["tool_input"] = tool_input
+        out["agent_id"] = payload.get("agent_id", "")
+        out["agent_type"] = payload.get("agent_type", "")
     elif policy == "worktree-provision.sh":
         # SubagentStart's cwd is the spawned cell's working directory — the
         # worktree root for an isolated cell, the checkout otherwise.

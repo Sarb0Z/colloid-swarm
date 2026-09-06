@@ -27,6 +27,9 @@
       "enabled": true,
       "allow_scripts": false
     },
+    "parallel_writers": {
+      "enabled": true
+    },
     "sources_capture": {
       "enabled": true
     },

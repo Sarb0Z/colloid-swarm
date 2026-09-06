@@ -69,6 +69,7 @@ python3 .agents/lint-breadcrumbs.py
 .agents/test-workloop.sh
 .agents/test-provision.sh
 .agents/test-worktree-provision.sh
+.agents/test-parallel-writers.sh
 .agents/test-ui-gate.sh
 .agents/test-teardown-gate.sh
 .agents/test-post-edit-check.sh
