@@ -14,7 +14,11 @@ and the settled plan before editing. Do not widen scope or delegate again.
 
 Make the smallest complete change. Preserve unrelated work. Run the narrowest
 acceptance command that proves the requested behavior; if it fails, diagnose
-and fix it. Return only:
+and fix it. A failure that names a missing module, binary, or runtime version
+is an environment failure, not a code failure. In a worktree of your own, run
+`.agents/provision.sh .` and rerun before touching source; in the main
+checkout the environment is the operator's, so report it under BOUNDARY
+instead. Never edit code to satisfy it. Return only:
 
 ```
 RESULT: <what changed>

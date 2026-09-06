@@ -24,7 +24,11 @@ then route every applicable surface below; one global edge case is insufficient:
 Run the cheapest meaningful command or interaction for each scenario. Do not
 infer runtime success from code or a passing unrelated suite. Add no test; hand
 reproducing regression coverage back to the implementer. Bash exists to execute
-tests and interactions, not to edit product source.
+tests and interactions, not to edit product source. A command that fails naming
+a missing module, binary, or runtime version is an environment failure, not a
+finding against the change. In a worktree of your own, run
+`.agents/provision.sh .` and rerun; in the main checkout, or if it still fails,
+list the scenario under COVERAGE GAPS with that reason.
 
 Close what you opened before you return. Verification is short and its
 resources are not worth holding: call `browser_close` once the last interaction

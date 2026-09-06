@@ -33,7 +33,7 @@ never append a second entry for the same question.
 
 ### boxed-handoff-dispatch-ledger
 
-- **Decision** — No `.dispatch-ledger` (base SHA, write box, siblings at dispatch). Adopted from the same protocol: four-way finding disposition with a review stop rule, criticality named at plan time with a headline-claim reproduction, and runnable acceptance in every writer report.
+- **Decision** — No `.dispatch-ledger` (base SHA, write box, siblings at dispatch). Adopted from the same protocol: four-way finding disposition with a review stop rule, criticality named at plan time with a headline-claim reproduction, and runnable acceptance in every writer report. A workloop lane's `lock_hash` is outside this: it records the environment the lane was installed against, which git does not hold.
 - **Why** — Worktree isolation confines writers, the host task system tracks lanes and survives process exits, and git holds base state. A shared-tree writer fan-out is not a working mode here.
 - **Reopens when** — Shared-tree writer fan-out becomes a working mode, and the argument first beats worktree isolation.
 
@@ -84,3 +84,9 @@ never append a second entry for the same question.
 - **Decision** — `.agents/hooks/policy/teardown-gate.sh` records what a tool call started and blocks the stop when it is due, tiered by how expensive the resource is to restart: a browser page is due at once, a dev server or test watcher at the end of its turn, and a container, compose stack, or build watcher only once a commit lands. The gate never kills anything itself, and an agent may keep a resource past its tier by naming it and why. Declined: killing leftover processes automatically at end of turn, warning without blocking, and one uniform tier for every resource.
 - **Why** — Ten Playwright windows survived a single session and held the operator's machine memory until restart, so a warning-only gate is already the observed failure. Automatic killing would take down a server the operator asked to keep and destroys the process before it can be inspected. A uniform tier would tear down a database container after every turn and pay image pulls and migrations to rebuild it, costing more than the memory it frees. A landed commit is the cheapest completion signal a hook can read, and `session-wrap.sh` already measures work that way.
 - **Reopens when** — A host reports which context or container a close reached, so clearing can key on process identity instead of on the class; or the commit signal is observed misreading completion in a repository that commits mid-unit.
+
+### verification-placement
+
+- **Decision** — Each writer verifies its own slice inside its own worktree; `post-edit-check.sh` owns lint, format, and typecheck on every edit; `workloop.py integrate` verifies the merged lanes once; `provision.sh` installs from lockfiles after checkout, memoizes the lockfile hash, and refuses to hand over a failed install. Declined: the root agent running every lane's tests, a shared warm typecheck daemon, and isolating single writers by default.
+- **Why** — Anthropic, Cognition (after reversing its 2025 essay), Cursor, Codex, and Factory all converge on isolated writers that self-verify, with the parent decomposing and reviewing; test output pulled into the root is the largest token sink in the one context in-session decay is measured against; no first-party harness ships a shared checker and OpenCode's docs recommend against one; a lone sequential writer in the main tree is the linear case with nothing to compose.
+- **Reopens when** — A host exposes a verification service that several cells can query cheaper than each running its own suite, or a measured run shows the per-lane install cost exceeding the composition it protects.

@@ -23,21 +23,32 @@ otherwise agents poll the durable inbox at each handoff.
 
 ## Start a run
 
-Create one run with a testable objective and an explicit base revision. Add a
-lane per isolated Git worktree; a writing lane owns exclusive paths.
+Create one run with a testable objective, the test command that proves the
+composed result, and a base revision; `init` pins the base to a commit. Add a
+lane per writer: `add-lane` creates the worktree on branch `<run>/<lane>` when
+the path does not exist, installs its dependencies from the lockfiles, and
+records the lockfile hash. A writing lane owns exclusive paths.
 
 ```sh
 .agents/workloop.py init slice-3b --objective 'Persist parsed 835 claims' \
-  --acceptance 'database, parser, and browser scenarios pass' --base HEAD --supervised
+  --acceptance 'database, parser, and browser scenarios pass' \
+  --verify 'pnpm test --filter api' --base HEAD --supervised
 .agents/workloop.py add-lane slice-3b persistence --worker implementer \
   --workspace ../clearclaim-persistence --path apps/api --path tests/api
 .agents/workloop.py brief slice-3b persistence --role worker
 ```
 
-Use `brief` as the bounded dispatch prompt. The worker claims the lane, works
-only in its worktree and declared paths, then submits observed test evidence.
-Review can begin from the brief in parallel, but final acceptance occurs only
-after the submitted diff and its canonical review report are available.
+`--verify` must be a test command; `init` refuses one the destructive or
+publish guard would refuse, and that check is a floor, not a review. Use
+`brief` as the bounded dispatch prompt. The worker claims the lane, works only
+in its worktree and declared paths, commits on the lane branch, then submits
+observed test evidence. `claim` refuses a lane whose lockfiles changed since
+it was provisioned, or whose install failed, until `provision <run> <lane>`
+succeeds; a test failure naming a missing module, binary, or runtime version
+is that case, not a code defect. `submit` refuses uncommitted work: review and
+integration read the branch. Review can begin from the brief in parallel, but
+final acceptance occurs only after the submitted diff and its canonical review
+report are available.
 
 ## Feedback and recovery
 
@@ -81,16 +92,35 @@ required findings remain until their review cycle is complete.
 .agents/workloop.py archive slice-3b
 ```
 
+## Integrate and tear down
+
+Each lane verified its own slice in its own worktree; nothing has verified the
+composition. Once every lane is reviewed, `integrate` resets an integration
+worktree to the base on branch `<run>/integration`, merges the lane branches in
+dependency order, provisions, and runs the `--verify` command once. A conflict
+aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
+`check` on a run with more than one lane requires a passing integration whose
+recorded lane tips still match; a lane commit after integration reports
+`integration:stale` until `integrate` reruns.
+
+```sh
+.agents/workloop.py integrate slice-3b --workspace ../clearclaim-integration
+.agents/workloop.py qa slice-3b --evidence 'Playwright and service tests passed'
+.agents/workloop.py check slice-3b
+.agents/workloop.py teardown slice-3b
+```
+
+`teardown` removes the lane and integration worktrees once `check` passes. It
+deletes a branch only when the repository's HEAD already contains it; the
+`<run>/integration` branch carries the verified composition, so land it first
+and rerun `teardown` to drop it.
+
 ## Complete the cycle
 
 Only the independent QA result advances the run. `check` is the completion
 gate: it fails if any lane is unresolved, lacks evidence, has unacknowledged
-attention, or the run lacks QA evidence.
-
-```sh
-.agents/workloop.py qa slice-3b --evidence 'Playwright and service tests passed'
-.agents/workloop.py check slice-3b
-```
+attention, the run lacks QA evidence, or a multi-lane run lacks a current
+passing integration.
 
 The default ceiling is eight lanes. More lanes require `--allow-more` when
 adding the next lane, so the lead consciously accepts the added coordination
