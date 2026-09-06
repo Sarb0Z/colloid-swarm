@@ -280,6 +280,22 @@ for root_value in 'null' '[]' '"text"' '42'; do
   assert_contains "$non_object_context" 'fixture breadcrumb'
 done
 
+
+# A fresh start or a resume clears the parallel-writers gate's live record for
+# the session; a compaction continues the process and leaves it alone.
+writers="$(make_fixture writers)"
+write_config "$writers" true false
+printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
+printf 'p\t1' > "$writers/.agents/.writers-turn-fixture-session"
+run_policy "$writers" compact >/dev/null
+[[ -f "$writers/.agents/.writers-live-fixture-session" ]] || fail "compact cleared the live-writers record"
+run_policy "$writers" startup >/dev/null
+[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" ]] || fail "startup left a stale live-writers record"
+printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
+run_policy "$writers" resume >/dev/null
+[[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"
+printf 'ok: startup and resume clear the live-writers record; compact keeps it\n'
+
 # Startup, resume, and compact starts each inject one teaching contract.
 resume="$(make_fixture resume)"
 write_config "$resume" true true

@@ -88,6 +88,20 @@ the checkout, and Kimi's `SubagentStart` is observation-only and cannot block
 a start; on both, parallel writers go through `workloop.py`, which provisions
 each lane itself.
 
+`parallel-writers-gate.sh` is the rail that makes that the default rather than
+a choice: on Claude it watches every `Agent` dispatch, lets the first writer of
+a turn through, and denies a second writer while another is live — in the same
+message or still running in the background — unless its prompt is a workloop
+brief. The denial names the three commands that turn the dispatch into a lane.
+It also denies the lead's own `Edit` or `Write` while an uncoordinated writer
+is live and no workloop run is active. Read-only personas never count; a
+generic cell declares itself read-only by starting its prompt with
+`READ-ONLY`; an unknown persona counts as a writer. State lives in
+`.agents/.writers-live-<session>` and `.agents/.writers-turn-<session>`;
+`session-start.sh` clears both at startup and resume, and deleting the live
+file is the manual reset for a cell known to have died. The toggle is
+`hooks.parallel_writers.enabled`.
+
 Codex hashes hook declarations. After changing `.agents/codex/hooks.json` or a
 Codex hook command, inspect it and run:
 
