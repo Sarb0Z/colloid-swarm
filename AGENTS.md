@@ -75,7 +75,7 @@ Write for a reader who has not read the code. The user directs the work and know
 
 ## Subagent Delegation
 
-Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator's own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator's own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
+Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator's own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator's own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Two or more writers working at the same time go through a `workloop` run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees; a single writer edits the main tree. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
 
 | Tier | Claude | Codex | Use |
 | --- | --- | --- | --- |

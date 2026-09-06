@@ -1,0 +1,6 @@
+# Gitignored paths Claude Code copies into every worktree it creates for this
+# repository. Only a file that matches this list AND is already gitignored is copied.
+.env
+.env.*
+.agents/config.json
+CLAUDE.local.md

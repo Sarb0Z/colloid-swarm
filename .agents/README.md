@@ -75,6 +75,19 @@ Policies read normalized JSON from stdin. Host adapters translate event names
 and payload shapes; they do not own behavior. `config.json.example` contains
 hook defaults and ignored `config.json` may override them per repository.
 
+`worktree-provision.sh` runs at subagent start under Claude only: a cell that
+starts inside a linked worktree gets that worktree's dependencies installed by
+`.agents/provision.sh` before its first turn, and a failed install blocks the
+start. The session's own directory is never provisioned, so an operator who
+launches from a worktree keeps their `node_modules`. Installs run with
+lifecycle scripts off; `hooks.worktree_provision.allow_scripts` turns them on
+for a repository whose native modules need a build step, at the cost of
+executing whatever a branch's lockfile names with no prompt and outside every
+`PreToolUse` guard. Codex's hook set is hash-trusted and its subagents share
+the checkout, and Kimi's `SubagentStart` is observation-only and cannot block
+a start; on both, parallel writers go through `workloop.py`, which provisions
+each lane itself.
+
 Codex hashes hook declarations. After changing `.agents/codex/hooks.json` or a
 Codex hook command, inspect it and run:
 
@@ -86,9 +99,12 @@ python3 .agents/codex/trust-hooks.py "$(pwd)"
 
 For a durable, parallel implementation/review cycle, use the `workloop` skill
 and `.agents/workloop.py`. It holds lane ownership, evidence, review references,
-attention acknowledgements, and the QA completion gate in ignored runtime state.
-The controller is portable and exports with the scaffold; it prepares prompts
-but does not attempt host-specific agent dispatch.
+attention acknowledgements, and the QA completion gate in ignored runtime state;
+it creates and provisions each lane's worktree, refuses a claim whose lockfiles
+moved since the install, verifies the merged lanes once with `integrate`, and
+removes what it created with `teardown`. The controller is portable and exports
+with the scaffold; it prepares prompts but does not attempt host-specific agent
+dispatch.
 
 How many cells a host will run at once is adapter-owned, not a property of the
 subscription. `.agents/codex/config.toml` states the Codex cap; see
