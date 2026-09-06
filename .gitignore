@@ -10,6 +10,7 @@
 .agents/.writers-live-*
 .agents/.writers-turn-*
 .agents/.writers-lock-*
+.agents/.inbox-seen-*
 .agents/.kimi-pending-findings-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock

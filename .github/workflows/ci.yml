@@ -64,6 +64,9 @@ jobs:
       - name: Parallel-writers gate
         run: .agents/test-parallel-writers.sh
 
+      - name: Workloop inbox policy
+        run: .agents/test-workloop-inbox.sh
+
       - name: Post-edit policy
         run: .agents/test-post-edit-check.sh
 
