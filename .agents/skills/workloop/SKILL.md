@@ -38,6 +38,15 @@ records the lockfile hash. A writing lane owns exclusive paths.
 .agents/workloop.py brief slice-3b persistence --role worker
 ```
 
+On a large or vendored repository add `--sparse`: the lane's worktree then
+holds only its owned directories, root files, and any `--also <dir>` — name
+the review directory there, since git refuses to stage a file outside the
+cone, and any directory the tests import from. A directory absent at the
+base is created empty in the cone. Lockfiles outside the cone are not
+installed; a root pnpm workspace whose packages fall outside the cone
+installs partially and reports success, so give such a lane the whole
+workspace. The integration worktree is always full.
+
 `--verify` must be a test command; `init` refuses one the destructive or
 publish guard would refuse, and that check is a floor, not a review. Use
 `brief` as the bounded dispatch prompt. The worker claims the lane, works only
