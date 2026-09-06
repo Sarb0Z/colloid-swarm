@@ -29,8 +29,6 @@ lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
 
 payload="$(cat)"
-enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"
-[[ "$enabled" == "no" ]] && exit 0
 
 { read -r proj; read -r event; read -r session; read -r agent_id; } < <(
   printf '%s' "$payload" | python3 -c '
@@ -46,7 +44,11 @@ for k in ("project_dir", "event", "session_id", "agent_id"):
 
 [[ -n "$proj" && -n "$session" ]] || exit 0
 state="$proj/.agents/.workloop-state.json"
+# A repository that never runs a workloop pays one interpreter start per
+# event and nothing more: the toggle is read only once there is state.
 [[ -f "$state" ]] || exit 0
+enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"
+[[ "$enabled" == "no" ]] && exit 0
 
 block="$(python3 "$lib/workloop-inbox.py" "$state" "$proj/.agents" "$session" "$event" "$agent_id")"
 [[ -n "$block" ]] || exit 0

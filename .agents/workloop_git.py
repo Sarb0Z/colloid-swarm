@@ -101,9 +101,21 @@ def dirty_paths(workspace: Path | str) -> list[str]:
 
 
 def changed_files(workspace: Path, base: str) -> list[str]:
-    seen: set[str] = set()
-    for args in (("diff", "--name-only", base), ("ls-files", "--others", "--exclude-standard")):
-        seen.update(line for line in git(workspace, *args).splitlines() if line)
+    seen: set[str] = set(line for line in git(workspace, "diff", "--name-only", base).splitlines() if line)
+    root = workspace.resolve()
+    for line in git(workspace, "ls-files", "--others", "--exclude-standard").splitlines():
+        if not line:
+            continue
+        # A `node_modules/` ignore pattern matches directories only, so the
+        # link provisioning leaves behind is listed as untracked. A link that
+        # points out of the worktree is environment, never the lane's work.
+        candidate = workspace / line
+        if candidate.is_symlink():
+            try:
+                candidate.resolve().relative_to(root)
+            except ValueError:
+                continue
+        seen.add(line)
     return sorted(seen)
 
 

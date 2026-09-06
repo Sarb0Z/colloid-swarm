@@ -92,6 +92,14 @@ the checkout, and Kimi's `SubagentStart` is observation-only and cannot block
 a start; on both, parallel writers go through `workloop.py`, which provisions
 each lane itself.
 
+`workloop-inbox.sh` turns the controller's durable inbox into push: at
+subagent start a cell hears its host agent id and claims its lane with it;
+between tool calls it hears each unread message for that lane once; at every
+prompt and at session start the lead hears which lanes await review, carry
+attention, are stale or broken, and when a run is ready to integrate.
+Delivery is remembered in `.agents/.inbox-seen-<session>-<agent>`; the toggle
+is `hooks.workloop_inbox.enabled`.
+
 `parallel-writers-gate.sh` is the rail that makes that the default rather than
 a choice: on Claude it watches every `Agent` dispatch, lets the first writer of
 a turn through, and denies a second writer while another is live — in the same

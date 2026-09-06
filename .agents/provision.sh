@@ -266,18 +266,39 @@ file_hash() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -c1-64; else sha256sum "$1" | cut -c1-64; fi
 }
 
+is_js() { case "$1" in npm|pnpm|bun|yarn) return 0 ;; *) return 1 ;; esac; }
+
+# A workspace install links node_modules/<pkg> relatively into the source
+# checkout's packages/, so a lane sharing it would test the source's copy of
+# every workspace package instead of its own edits, and pass. Never share one.
+declares_workspaces() {  # <dir>
+  [[ -f "$1/pnpm-workspace.yaml" ]] && return 0
+  [[ -f "$1/package.json" ]] && grep -q '"workspaces"' "$1/package.json"
+}
+
 try_share() {  # <manager> <lockfile path> <cwd> -> 0 when shared
   local manager="$1" path="$2" cwd="$3" rel source
-  case "$manager" in npm|pnpm|bun|yarn) ;; *) return 1 ;; esac
+  is_js "$manager" || return 1
   [[ -n "$share_from" ]] || return 1
   rel="${cwd#"$dir"}"; rel="${rel#/}"
   source="$share_from${rel:+/$rel}"
   [[ -d "$source/node_modules" && -f "$source/$(basename "$path")" ]] || return 1
+  declares_workspaces "$source" && return 1
   [[ "$(file_hash "$source/$(basename "$path")")" == "$(file_hash "$path")" ]] || return 1
-  if [[ -L "$cwd/node_modules" ]]; then rm -f "$cwd/node_modules"
-  elif [[ -d "$cwd/node_modules" ]]; then rm -rf "$cwd/node_modules"; fi
-  ln -s "$source/node_modules" "$cwd/node_modules"
+  # A real directory of links, not one link: git's `node_modules/` ignore
+  # pattern matches directories only, so a bare link would surface as an
+  # untracked path and be swept into a commit by `git add -A`.
+  rm -rf "$cwd/node_modules"
+  mkdir "$cwd/node_modules"
+  local entry
+  for entry in "$source/node_modules"/* "$source/node_modules"/.[!.]*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
+    ln -s "$entry" "$cwd/node_modules/$(basename "$entry")"
+  done
+  printf '%s\n' "$source/node_modules" >"$cwd/node_modules/.colloid-shared"
 }
+
+shared_dir() { [[ -f "$1/node_modules/.colloid-shared" ]]; }
 
 installed=""
 while IFS=$'\t' read -r manager path; do
@@ -288,8 +309,9 @@ while IFS=$'\t' read -r manager path; do
     installed="${installed}${installed:+, }$manager:${rel:-.} (shared from $share_from)"
     continue
   fi
-  # Never let a manager run through a symlink into another checkout's tree.
-  [[ -L "$cwd/node_modules" ]] && rm -f "$cwd/node_modules"
+  # Never let a JS manager run over links into another checkout's tree.
+  # Another ecosystem's install in the same directory leaves them alone.
+  if is_js "$manager" && shared_dir "$cwd"; then rm -rf "$cwd/node_modules"; fi
   command -v "$manager" >/dev/null 2>&1 || {
     report_failure "$manager" "$manager (not on PATH)" /dev/null 127; exit 1; }
   argv=()

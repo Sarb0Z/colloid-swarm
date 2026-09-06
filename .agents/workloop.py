@@ -242,6 +242,8 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
                     fail(f"paths overlap lane {name!r}; writing lanes need exclusive ownership")
             if workspace == repo.resolve():
                 fail(f"lane workspace is the main checkout {repo}; a lane needs its own worktree")
+            if args.sparse and wg.git(repo, "ls-tree", "--name-only", base, "--", "pnpm-workspace.yaml") == "pnpm-workspace.yaml":
+                fail("this repository is a pnpm workspace; pnpm installs a sparse workspace partially and reports success, so give the lane the whole tree (drop --sparse)")
             run["lanes"][args.lane] = {
                 "worker": args.worker,
                 "workspace": str(workspace),
@@ -271,6 +273,9 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
             fail(f"branch {branch} already exists in {repo} from an earlier run; delete it or land it, then rerun add-lane")
         cone = (existing or run["lanes"][args.lane]).get("sparse")
         shape = f" sparse to {', '.join(cone)}" if cone else ""
+        for entry in cone or []:
+            if wg.git(repo, "ls-tree", "--name-only", base, "--", entry) != entry:
+                print(f"add-lane {args.lane}: cone directory {entry!r} does not exist at the base; created empty", file=sys.stderr)
         print(f"add-lane {args.lane}: creating worktree {workspace} on {branch} at {base[:12]}{shape}", file=sys.stderr)
         wg.worktree_add(repo, workspace, branch, base, cone)
     print(f"add-lane {args.lane}: provisioning", file=sys.stderr)
@@ -489,6 +494,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         f"Owned paths: {', '.join(lane['paths'])}",
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
         *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; widen with: git sparse-checkout add <dir>"] if lane.get("sparse") else []),
+        *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
         "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
         "Do not edit outside owned paths. Preserve unrelated work. Record executable evidence before handoff.",
@@ -593,13 +599,20 @@ def cmd_archive(args: argparse.Namespace) -> None:
         if not run["supervised"]: fail("archive requires init --supervised")
         retained, archived = [], []
         for message in run["messages"]:
-            if not message["requires_ack"] and message["kind"] in {"status", "evidence-ready"}:
+            # Chatter goes; so does an acknowledged message to a lane whose
+            # review cycle is over. A required acknowledgement that never
+            # came stays: it is a completion blocker, and archive is not the
+            # way past one.
+            chatter = not message["requires_ack"] and message["kind"] in {"status", "evidence-ready"}
+            answered = bool(message.get("acknowledged_at")) or not message["requires_ack"]
+            settled = answered and run["lanes"].get(message["to"], {}).get("state") == "reviewed"
+            if chatter or settled:
                 archived.append(message["id"])
             else:
                 retained.append(message)
         run["messages"] = retained
         record(args.run, run, "archive", detail=",".join(archived))
-    print(f"archived {len(archived)} nonblocking messages; retained {len(retained)}")
+    print(f"archived {len(archived)} messages; retained {len(retained)}")
 
 
 def cmd_provision(args: argparse.Namespace) -> None:
