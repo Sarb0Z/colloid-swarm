@@ -28,6 +28,7 @@ git -C "$work" config user.name test
 mkdir -p "$work/src" "$work/tests"
 printf 'base\n' > "$work/src/app.txt"
 printf '{"name":"fixture","lockfileVersion":3}\n' > "$work/package-lock.json"
+printf 'node_modules/\n' > "$work/.gitignore"
 git -C "$work" add . && git -C "$work" commit -qm base
 base="$(git -C "$work" rev-parse HEAD)"
 tool=(python3 "$repo/.agents/workloop.py" --state "$state")
@@ -135,6 +136,8 @@ la="$scratch/lane-a"; lb="$scratch/lane-b"
 if "${tool[@]}" integrate multi --workspace "$scratch/integration" 2>/dev/null; then fail 'integrate ran before lanes were reviewed'; fi
 "${tool[@]}" claim multi alpha --agent a1
 printf 'change\n' >> "$la/src/app.txt"; mkdir -p "$la/docs/alpha"; printf 'r\n' > "$la/docs/alpha/review.md"; commit "$la" alpha
+# a provisioning link out of the worktree is environment, not a changed path
+mkdir -p "$work/node_modules/pkg" "$la/node_modules"; ln -s "$work/node_modules/pkg" "$la/node_modules/pkg"; printf '%s\n' "$work/node_modules" > "$la/node_modules/.colloid-shared"
 "${tool[@]}" submit multi alpha --evidence 'alpha ok'
 "${tool[@]}" review multi alpha --reference docs/alpha/review.md#ok --result accept
 "${tool[@]}" claim multi beta --agent b1
@@ -153,7 +156,7 @@ expect 'PASS: integrated alpha, beta' "${tool[@]}" integrate multi --workspace "
 [[ "$(git -C "$integ" symbolic-ref --short HEAD)" == "multi/integration" ]] || fail 'integration is not on its branch'
 grep -q change "$integ/src/app.txt" && grep -q test "$integ/tests/app.txt" || fail 'integration tree lacks a lane'
 expect PASS "${tool[@]}" check multi
-ok "integrate merges reviewed lanes in dependency order and check passes"
+ok "integrate merges reviewed lanes in dependency order and check passes; a shared node_modules link never counts as a changed path"
 
 # a lane that moves after integration makes the run stale; re-integrate clears it
 printf 'more\n' >> "$la/src/app.txt"; commit "$la" more
@@ -290,7 +293,20 @@ inode_before="$(stat -f '%i' "$state")"
 expect 'RESTART REQUEST' "${tool[@]}" watch supervised --stale-seconds 0
 [[ "$inode_before" == "$(stat -f '%i' "$state")" ]] || fail 'watch rewrote state'
 "${tool[@]}" send supervised --from-lane reviewer --to-lane writer --agent reviewer-agent --kind status --message 'progress' >/dev/null
-expect 'archived 1 nonblocking messages' "${tool[@]}" archive supervised
+expect 'archived 1 messages' "${tool[@]}" archive supervised
+"${tool[@]}" send supervised --from-lane reviewer --to-lane writer --agent reviewer-agent --kind finding --message 'late finding' --requires-ack >/dev/null
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["supervised"]["lanes"]["writer"]["state"] = "reviewed"; json.dump(s, open(p, "w"))
+EOF
+expect 'archived 1 messages' "${tool[@]}" archive supervised
+expect 'late finding' "${tool[@]}" inbox supervised writer
+ok "archive drops an acknowledged finding to a reviewed lane and keeps one awaiting acknowledgement"
+git -C "$work" checkout -q -b pnpmws; printf 'packages:\n  - apps/*\n' > "$work/pnpm-workspace.yaml"; git -C "$work" add -A; git -C "$work" commit -qm ws; git -C "$work" checkout -q -
+"${tool[@]}" init pnpmws --objective x --acceptance y --repo "$work" --base pnpmws
+if "${tool[@]}" add-lane pnpmws w --worker implementer --workspace "$scratch/lane-pnpm" --path src --sparse 2>/dev/null; then fail 'a sparse lane was allowed on a pnpm workspace'; fi
+expect 'does not exist at the base; created empty' "${tool[@]}" add-lane sparse n --worker implementer --workspace "$scratch/lane-newdir" --path brand-new --sparse
+ok "a pnpm workspace refuses --sparse; a cone directory absent at the base is named"
 ok "supervised messaging holds"
 
 # ── a state file from before pinned bases is refused ─────────────────────────

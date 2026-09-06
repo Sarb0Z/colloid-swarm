@@ -70,5 +70,6 @@ result="$(PROVISION_ALLOW_SCRIPTS="${export_scripts:-0}" PROVISION_SHARE_FROM="$
 }
 
 body="Worktree $top — $result. Run tests here; a failure naming a missing module, binary, or runtime version is an environment failure, not a code failure: run .agents/provision.sh . and rerun before touching source."
+[[ "$result" == *"shared from"* ]] && body="$body node_modules here is a link into the session checkout: never install into it — change the lockfile and run .agents/provision.sh ., which gives this worktree its own tree."
 printf '%s' "$body" | python3 "$lib/emit-context.py" SubagentStart
 exit 0

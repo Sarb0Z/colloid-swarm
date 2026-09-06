@@ -31,7 +31,7 @@ old="$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > "$state" <<EOF
 {"version":1,"runs":{
- "r1":{"objective":"o","lanes":{
+ "r1":{"objective":"o","supervised":true,"lanes":{
    "api":{"state":"active","claimed_by":"a1","claimed_at":"$now","heartbeat_at":"$now","attention":null,"env":"ready"},
    "web":{"state":"review","claimed_by":"a2","claimed_at":"$old","heartbeat_at":"$old","attention":null,"env":"ready"},
    "db":{"state":"active","claimed_by":"a3","claimed_at":"$old","heartbeat_at":"$old","attention":{"severity":"P0","message":"stop"},"env":"broken"}},
@@ -65,11 +65,30 @@ ctx="$(context "$(fire PostToolBatch a1)")"
 [[ -z "$(fire PostToolBatch a1)" ]] || fail "second delivery repeated"
 ok "each message is delivered once, between tool calls"
 
-# a cell holding no lane hears only its id at start, nothing later
+# a cell with no lane to claim hears nothing; once a lane is ready it hears its id
+[[ -z "$(fire SubagentStart zz)" ]] || fail "a cell with nothing to claim was told an id"
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["lanes"]["spare"] = {"state":"ready","attention":None,"env":"ready"}; json.dump(s, open(p, "w"))
+EOF
 ctx="$(context "$(fire SubagentStart zz)")"
-[[ "$ctx" == *"AGENT_ID: zz"* && "$ctx" != *"WORKLOOP MESSAGE"* ]] || fail "unclaimed cell heard messages: $ctx"
+[[ "$ctx" == *"AGENT_ID: zz"* && "$ctx" != *"WORKLOOP MESSAGE"* ]] || fail "a cell with a lane to claim was not told its id: $ctx"
 [[ -z "$(fire PostToolBatch zz)" ]] || fail "unclaimed cell heard something between tools"
-ok "a cell without a lane hears only its id"
+ok "a cell hears its id only when a lane is claimable, and no messages until it claims"
+
+# delivery is capped; the remainder follows next time
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+for i in range(10):
+    s["runs"]["r1"]["messages"].append({"id":f"bulk{i}","from":"web","to":"api","agent":"a2","kind":"status","message":f"bulk {i}","reference":"","requires_ack":False})
+json.dump(s, open(p, "w"))
+EOF
+ctx="$(context "$(fire PostToolBatch a1)")"
+[[ "$(grep -c 'bulk ' <<<"$ctx")" -eq 8 && "$ctx" == *"more messages wait"* ]] || fail "delivery not capped at 8: $ctx"
+ctx="$(context "$(fire PostToolBatch a1)")"
+[[ "$(grep -c 'bulk ' <<<"$ctx")" -eq 2 ]] || fail "remainder not delivered next time: $ctx"
+ok "at most eight messages per delivery; the rest follow"
 
 # the lead hears a digest: review, attention, stale, broken, pending acks; not the torn-down run
 ctx="$(context "$(fire UserPromptSubmit '')")"
@@ -79,6 +98,17 @@ ctx="$(context "$(fire UserPromptSubmit '')")"
 [[ "$ctx" != *"api stale"* ]] || fail "a fresh heartbeat was called stale"
 [[ "$ctx" != *"WORKLOOP done"* ]] || fail "a torn-down run was reported"
 ok "the lead hears review, attention, stale, broken, and pending acknowledgements"
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["supervised"] = False; json.dump(s, open(p, "w"))
+EOF
+ctx="$(context "$(fire UserPromptSubmit '')")"
+[[ "$ctx" == *"db active "* && "$ctx" != *"db stale"* ]] || fail "an ordinary lane was called stale: $ctx"
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["supervised"] = True; json.dump(s, open(p, "w"))
+EOF
+ok "only a supervised run reports a lane stale; an ordinary one reports elapsed time"
 
 # all lanes reviewed on a multi-lane run: told to integrate
 python3 - "$state" <<'EOF'
