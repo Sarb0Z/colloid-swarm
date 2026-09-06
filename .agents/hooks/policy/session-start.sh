@@ -131,6 +131,13 @@ fi
 # Nothing to surface.
 [[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" ]] && exit 0
 
+# A run mid-flight is the first thing a resumed lead needs to know about;
+# the digest is the same one workloop-inbox.sh gives at each prompt.
+workloop_digest=""
+if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]]; then
+  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" 2>/dev/null || true)"
+fi
+
 body="$(
   # One blank line between sections, none before the first.
   printed=false
@@ -176,6 +183,12 @@ subagent so it runs in an isolated context.
 Trivial exception — a fix under ~15 minutes in a file A already touches may be
 done inline. Everything else goes through this gate.
 EOF
+  fi
+
+  if [[ -n "$workloop_digest" ]]; then
+    section
+    echo "Workloop runs in flight (.agents/.workloop-state.json — lanes, messages, and gates a lead owns):"
+    printf '%s\n' "$workloop_digest"
   fi
 
   if [[ -n "$open" ]]; then
