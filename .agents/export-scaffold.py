@@ -78,7 +78,7 @@ def tracked_export(destination):
                     "git", "-C", str(REPO), "archive", "HEAD",
                     ".agents", ".claude", ".codex", ".kimi", "AGENTS.md", "CLAUDE.md",
                     ".github/lsp.json", ".github/copilot-instructions.md",
-                    ".github/instructions",
+                    ".github/instructions", ".worktreeinclude",
                 ],
                 stdout=stream, check=True,
             )

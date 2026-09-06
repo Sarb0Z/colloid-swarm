@@ -67,6 +67,11 @@ def normalize(payload, policy, repo):
         # at the top level rather than in a tool input.
         out["subagent_type"] = payload.get("agent_type", "")
     # /colloid-only
+    elif policy == "worktree-provision.sh":
+        # SubagentStart's cwd is the spawned cell's working directory — the
+        # worktree root for an isolated cell, the checkout otherwise.
+        out["cwd"] = payload.get("cwd", "")
+        out["agent_type"] = payload.get("agent_type", "")
     elif policy == "sources-capture.sh":
         agent = payload.get("agent_type")
         out["agent"] = (agent if isinstance(agent, str) else "main").strip() or "main"

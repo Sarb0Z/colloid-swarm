@@ -23,6 +23,10 @@
     "genome_inject": {
       "enabled": true
     },
+    "worktree_provision": {
+      "enabled": true,
+      "allow_scripts": false
+    },
     "sources_capture": {
       "enabled": true
     },
