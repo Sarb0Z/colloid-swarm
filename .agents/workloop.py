@@ -490,6 +490,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         "Do not edit outside owned paths. Preserve unrelated work. Record executable evidence before handoff.",
         supervised,
         f"State: {command} status {args.run}",
+        f"Claim: {command} claim {args.run} {args.lane} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls.",
         f"Worker handoff: {command} submit {args.run} {args.lane} --evidence '<command and observed result>'",
         f"Reviewer handoff: {command} review {args.run} {args.lane} --reference '<canonical-review-path>#<finding>' --result accept",
         "A finding must live in its canonical review report; use --result reopen to require a correction cycle.",

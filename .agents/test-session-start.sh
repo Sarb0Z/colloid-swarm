@@ -27,7 +27,7 @@ make_fixture() {
   cp "$repo/.agents/hooks/lib/config.py" \
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
-     "$repo/.agents/hooks/lib/mcp-off.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
@@ -295,6 +295,16 @@ printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-sess
 run_policy "$writers" resume >/dev/null
 [[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"
 printf 'ok: startup and resume clear the live-writers record; compact keeps it\n'
+
+
+# A run in flight is surfaced at session start; a torn-down one is not.
+inflight="$(make_fixture inflight)"
+write_config "$inflight" true false
+printf '{"version":1,"runs":{"r1":{"objective":"o","lanes":{"api":{"state":"review","claimed_by":"a","attention":null}},"messages":[],"integration":null},"old":{"objective":"o","torn_down":{"at":"x"},"lanes":{"z":{"state":"review"}},"messages":[]}}}' > "$inflight/.agents/.workloop-state.json"
+inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
+[[ "$inflight_context" == *"Workloop runs in flight"* && "$inflight_context" == *"WORKLOOP r1: api awaits review"* ]] || fail "session start did not surface the run in flight"
+[[ "$inflight_context" != *"WORKLOOP old"* ]] || fail "session start surfaced a torn-down run"
+printf 'ok: a run in flight is surfaced at session start\n'
 
 # Startup, resume, and compact starts each inject one teaching contract.
 resume="$(make_fixture resume)"

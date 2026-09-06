@@ -67,6 +67,10 @@ def normalize(payload, policy, repo):
         # at the top level rather than in a tool input.
         out["subagent_type"] = payload.get("agent_type", "")
     # /colloid-only
+    elif policy == "workloop-inbox.sh":
+        out["event"] = payload.get("hook_event_name", "")
+        out["session_id"] = payload.get("session_id", "")
+        out["agent_id"] = payload.get("agent_id", "")
     elif policy == "parallel-writers-gate.sh":
         out["event"] = payload.get("hook_event_name", "")
         out["tool_name"] = payload.get("tool_name") or ""
