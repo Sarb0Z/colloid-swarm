@@ -25,7 +25,8 @@
     },
     "worktree_provision": {
       "enabled": true,
-      "allow_scripts": false
+      "allow_scripts": false,
+      "share": true
     },
     "parallel_writers": {
       "enabled": true

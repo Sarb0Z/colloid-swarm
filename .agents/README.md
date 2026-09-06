@@ -79,7 +79,11 @@ hook defaults and ignored `config.json` may override them per repository.
 starts inside a linked worktree gets that worktree's dependencies installed by
 `.agents/provision.sh` before its first turn, and a failed install blocks the
 start. The session's own directory is never provisioned, so an operator who
-launches from a worktree keeps their `node_modules`. Installs run with
+launches from a worktree keeps their `node_modules`. A worktree whose
+lockfile matches the session checkout's byte for byte links that checkout's
+`node_modules` instead of installing (`hooks.worktree_provision.share`,
+default on; measured here 1 s and 9 MB against 54 s and 262 MB), and drops
+the link before any real install once its lockfile changes. Installs run with
 lifecycle scripts off; `hooks.worktree_provision.allow_scripts` turns them on
 for a repository whose native modules need a build step, at the cost of
 executing whatever a branch's lockfile names with no prompt and outside every

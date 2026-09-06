@@ -113,8 +113,11 @@ def provision_script() -> Path:
     return ROOT / ".agents/provision.sh"
 
 
-def provision(path: Path | str) -> tuple[bool, str]:
-    result = subprocess.run([str(provision_script()), str(path)], text=True, capture_output=True)
+def provision(path: Path | str, share_from: Path | str | None = None) -> tuple[bool, str]:
+    env = dict(os.environ)
+    if share_from:
+        env["PROVISION_SHARE_FROM"] = str(share_from)
+    result = subprocess.run([str(provision_script()), str(path)], text=True, capture_output=True, env=env)
     text = (result.stdout + result.stderr).strip()
     return result.returncode == 0, text
 
