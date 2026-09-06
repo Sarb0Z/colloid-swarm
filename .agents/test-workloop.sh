@@ -254,6 +254,25 @@ expect 'removed 2 worktree(s)' "${tool[@]}" teardown dirtyint
 expect PASS "${tool[@]}" check dirtyint
 ok "teardown prunes a hand-deleted lane and check still passes"
 
+
+# ── a sparse lane carries only its owned directories ─────────────────────────
+"${tool[@]}" init sparse --objective x --acceptance y --repo "$work" --verify 'true'
+sp="$scratch/lane-sparse"
+expect 'sparse to docs, src' "${tool[@]}" add-lane sparse s --worker implementer --workspace "$sp" --path src --sparse --also docs
+[[ -f "$sp/src/app.txt" && ! -e "$sp/tests" && -f "$sp/package-lock.json" ]] || fail "sparse cone wrong: $(ls "$sp")"
+[[ "$(git -C "$sp" config core.sparseCheckoutCone)" == "true" ]] || fail "cone mode not set per worktree"
+expect 'Sparse cone: docs, src' "${tool[@]}" brief sparse s
+"${tool[@]}" claim sparse s --agent sp1
+printf 'sparse\n' >> "$sp/src/app.txt"; commit "$sp" sparse
+"${tool[@]}" submit sparse s --evidence ok
+mkdir -p "$sp/docs"; printf 'r\n' > "$sp/docs/r.md"; commit "$sp" review
+"${tool[@]}" review sparse s --reference docs/r.md#ok --result reopen --message m; "${tool[@]}" ack sparse s --agent sp1
+"${tool[@]}" submit sparse s --evidence ok; "${tool[@]}" review sparse s --reference docs/r.md#ok --result accept
+"${tool[@]}" add-lane sparse t --worker implementer --workspace "$scratch/lane-sparse-t" --path tests --also src --sparse >/dev/null 2>&1
+[[ -f "$scratch/lane-sparse-t/src/app.txt" ]] || fail "--also directory absent from the cone"
+mkdir -p "$scratch/lane-sparse-t/tests"; printf 'x\n' > "$scratch/lane-sparse-t/tests/new.txt"; git -C "$scratch/lane-sparse-t" add tests/new.txt || fail "a file inside the cone could not be staged"
+ok "a sparse lane holds its owned and --also directories plus root files, and stages what lands inside them"
+
 # ── supervised messaging ──────────────────────────────────────────────────────
 "${tool[@]}" init supervised --objective x --acceptance y --repo "$work" --supervised
 "${tool[@]}" add-lane supervised writer --worker implementer --workspace "$scratch/lane-w" --path src

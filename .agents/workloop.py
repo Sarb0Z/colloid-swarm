@@ -246,6 +246,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
                 "worker": args.worker,
                 "workspace": str(workspace),
                 "branch": None,
+                "sparse": wg.cone_for(repo, base, paths, args.also or []) if args.sparse else None,
                 "paths": paths,
                 "depends_on": dependencies,
                 "state": "ready",
@@ -268,8 +269,10 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
     else:
         if wg.branch_tip(repo, branch):
             fail(f"branch {branch} already exists in {repo} from an earlier run; delete it or land it, then rerun add-lane")
-        print(f"add-lane {args.lane}: creating worktree {workspace} on {branch} at {base[:12]}", file=sys.stderr)
-        wg.git(repo, "worktree", "add", "-q", "-b", branch, str(workspace), base)
+        cone = (existing or run["lanes"][args.lane]).get("sparse")
+        shape = f" sparse to {', '.join(cone)}" if cone else ""
+        print(f"add-lane {args.lane}: creating worktree {workspace} on {branch} at {base[:12]}{shape}", file=sys.stderr)
+        wg.worktree_add(repo, workspace, branch, base, cone)
     print(f"add-lane {args.lane}: provisioning", file=sys.stderr)
     ok, text = wg.provision(workspace, repo)
     lock_hash = wg.lock_hash(workspace) if ok else None
@@ -485,6 +488,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         f"Acceptance: {run['acceptance']}",
         f"Owned paths: {', '.join(lane['paths'])}",
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
+        *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; widen with: git sparse-checkout add <dir>"] if lane.get("sparse") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
         "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
         "Do not edit outside owned paths. Preserve unrelated work. Record executable evidence before handoff.",
@@ -737,7 +741,7 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--event-id", help="idempotency key for a mutating command")
     sub = root.add_subparsers(required=True)
     init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="test command run once over the composed tree by integrate"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.set_defaults(func=cmd_init)
-    add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.set_defaults(func=cmd_add_lane)
+    add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="check out only the owned directories (and --also ones)"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.set_defaults(func=cmd_add_lane)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
     review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", default="P1"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)

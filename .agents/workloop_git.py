@@ -107,6 +107,37 @@ def changed_files(workspace: Path, base: str) -> list[str]:
     return sorted(seen)
 
 
+def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> list[str]:
+    """Directories a sparse lane needs on disk: each owned path's directory, plus extras.
+
+    Cone mode takes directories only, so an owned file contributes its
+    parent. A path absent at the base is a directory the lane will create —
+    a new module, or the review directory — and belongs in the cone too, or
+    git refuses to stage what lands there. Root-level files are always
+    present in a cone.
+    """
+    dirs: set[str] = set()
+    for path in list(paths) + list(extra):
+        kind = git(repo, "cat-file", "-t", f"{base}:{path}", check=False)
+        if kind == "blob":
+            parent = str(Path(path).parent)
+            if parent != ".":
+                dirs.add(parent)
+        else:
+            dirs.add(path)
+    return sorted(dirs)
+
+
+def worktree_add(repo: Path, workspace: Path, branch: str, base: str, cone: list[str] | None = None) -> None:
+    """Create the lane worktree; with a cone, populate only those directories."""
+    if not cone:
+        git(repo, "worktree", "add", "-q", "-b", branch, str(workspace), base)
+        return
+    git(repo, "worktree", "add", "-q", "--no-checkout", "-b", branch, str(workspace), base)
+    git(workspace, "sparse-checkout", "set", "--cone", *cone)
+    git(workspace, "read-tree", "-mu", "HEAD")
+
+
 # --- provisioning ------------------------------------------------------------
 
 def provision_script() -> Path:
