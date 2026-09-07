@@ -39,6 +39,11 @@ MANIFEST = {
     "guard-publish":     ".agents/hooks/policy/guard-publish.sh",
     "ui-gate":           ".agents/hooks/policy/ui-gate.sh",
     "genome-inject":     ".agents/hooks/policy/genome-inject.sh",
+    "provenance-gate":   ".agents/hooks/policy/provenance-gate.sh",
+    "teardown-gate":     ".agents/hooks/policy/teardown-gate.sh",
+    "worktree-provision": ".agents/hooks/policy/worktree-provision.sh",
+    "parallel-writers-gate": ".agents/hooks/policy/parallel-writers-gate.sh",
+    "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
     # skills (SKILL.md only)
     "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",
     "search-and-cite":                    ".agents/skills/search-and-cite/SKILL.md",
