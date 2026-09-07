@@ -336,6 +336,41 @@ with tempfile.TemporaryDirectory() as tmp:
           forced.returncode == 0 and forced.stdout.strip() != "",
           forced.stdout.strip() or "no envelope emitted")
 
+# A repository's own deploy script shows the guard no vercel or gh word, so the
+# repository lists it in the tracked policy.json and the guard asks by path.
+with tempfile.TemporaryDirectory() as tmp:
+    agents = pathlib.Path(tmp) / ".agents"
+    agents.mkdir()
+    (agents / "policy.json").write_text(json.dumps({"hooks": {"guard_publish": {
+        "outward_commands": ["scripts/deploy.sh", "switch-on/02-vercel.sh",
+                             "tools/copy-env-to-prod.py"]}}}))
+    outward = guard.outward_commands(tmp)
+    check("outward_commands reads the tracked policy file",
+          outward == ["scripts/deploy.sh", "switch-on/02-vercel.sh", "tools/copy-env-to-prod.py"],
+          str(outward))
+    for command in ("./scripts/deploy.sh", "scripts/deploy.sh --prod",
+                    "bash scripts/deploy.sh", "sh -x ./scripts/deploy.sh",
+                    "ALLOW_DIRTY=1 ./scripts/deploy.sh",
+                    "cd switch-on && ./02-vercel.sh",
+                    "python3 ../tools/copy-env-to-prod.py SENTRY_DSN",
+                    f"{tmp}/scripts/deploy.sh"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"asks on a listed script: {command}", reason is not None and "hosted system" in (reason or ""),
+              reason or "quiet")
+    for command in ("cat scripts/deploy.sh", "grep vercel scripts/deploy.sh",
+                    "./scripts/deploy.sh --dry-run", "./scripts/deploy.sh -n",
+                    "./scripts/verify.sh", "ls switch-on"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"quiet on a read or dry run: {command}", reason is None, reason or "")
+    result = subprocess.run([sys.executable, str(policy), tmp],
+                            input=json.dumps({"tool_name": "Bash", "permission_mode": "default",
+                                              "tool_input": {"command": "./scripts/deploy.sh"}}),
+                            capture_output=True, text=True, env=env)
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    check("the entry point asks on a listed script",
+          out["permissionDecision"] == "ask" and "scripts/deploy.sh" in out["permissionDecisionReason"],
+          result.stdout)
+
 # The declarative half. `.claude/settings.json` permissions.ask covers the same
 # ground from a tier the hook cannot reach: a settings rule outranks an `allow`
 # entry, applies to subagent tool calls, and still holds with guard_publish

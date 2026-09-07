@@ -176,21 +176,26 @@ def rule_bash(command, shell):
     return None
 
 
-def verdict(tool_name, tool_input):
-    """The reason to ask, or None."""
+def verdict(tool_name, tool_input, outward=()):
+    """The reason to ask, or None. `outward` is the repository's script list."""
     if tool_name in ("Bash", "PowerShell", "Monitor"):
         text = tool_input.get("command")
         if not isinstance(text, str) or not text.strip():
             return None
         # Only a command naming a gated tool is worth the parser; a parser
         # fault must not turn every `ls` into a permission prompt.
-        if GATED_NAMES.isdisjoint(re.findall(r"[A-Za-z0-9_.-]+", text)):
+        gated = GATED_NAMES | {os.path.basename(entry) for entry in outward}
+        if gated.isdisjoint(re.findall(r"[A-Za-z0-9_.-]+", text)):
             return None
         shell = load_shell_parser()
         for command in shell.normalize(text):
             reason = rule_bash(command, shell)
             if reason:
                 return reason
+            if outward:
+                reason = rule_outward(shell.lead(command.words), outward, shell)
+                if reason:
+                    return reason
         return None
     if tool_name == "Artifact":
         action = tool_input.get("action")
@@ -207,18 +212,74 @@ def verdict(tool_name, tool_input):
     return None
 
 
+def read_setting(repo, key, default):
+    """A layered policy.json/config.json value, or the default when config.py
+    is not beside this file — the toggle and the script list must never be the
+    reason the guard cannot answer."""
+    path = os.path.join(HERE, "config.py")
+    if not os.path.exists(path):
+        return default
+    spec = importlib.util.spec_from_file_location("colloid_config", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.read(module.load(os.path.join(repo, ".agents", "config.json")), key, default)
+
+
 def enabled(repo):
-    try:
-        with open(os.path.join(repo, ".agents", "config.json"), encoding="utf-8") as config:
-            settings = json.load(config)
-    except (OSError, ValueError):
-        return True
-    node = settings
-    for name in ("hooks", "guard_publish", "enabled"):
-        if not isinstance(node, dict) or name not in node:
-            return True
-        node = node[name]
-    return node is not False
+    return read_setting(repo, "hooks.guard_publish.enabled", True)
+
+
+def outward_commands(repo):
+    """Scripts this repository names as writing to a hosted system.
+
+    `hooks.guard_publish.outward_commands` in the tracked `.agents/policy.json`
+    (or the operator's `config.json`): repository-relative paths such as
+    `scripts/deploy.sh`. A deploy that goes through a script never shows the
+    guard a `vercel` or `gh` word, so the repository has to say which scripts
+    those are. Matched by path suffix, so `./scripts/deploy.sh`,
+    `bash scripts/deploy.sh`, and an absolute path all count.
+    """
+    listed = read_setting(repo, "hooks.guard_publish.outward_commands", [])
+    if not isinstance(listed, list):
+        return []
+    return [entry.strip().lstrip("./") for entry in listed
+            if isinstance(entry, str) and entry.strip()]
+
+
+# A script run through one of these is named by the first operand, not the
+# command word. Interpreters with major-version suffixes (python3.12) match by
+# prefix below.
+INTERPRETERS = {"bash", "sh", "zsh", "dash", "source", ".", "python", "python3", "node", "uv"}
+
+
+def outward_target(words, shell):
+    """The script a command runs: its command word, or an interpreter's first operand."""
+    if not words:
+        return None
+    name = shell.base(words[0])
+    if words[0] in INTERPRETERS or name in INTERPRETERS or name.startswith("python3."):
+        operands = [w for w in words[1:] if not w.startswith("-") and w != "run"]
+        return operands[0] if operands else None
+    return words[0]
+
+
+def rule_outward(words, outward, shell):
+    target = outward_target(words, shell)
+    if not target:
+        return None
+    normalized = target.lstrip("./")
+    for entry in outward:
+        # The listed path, any path ending in it, or its bare name after a
+        # `cd`: a script that writes to production is worth an ask under
+        # whatever path it was reached by. Reads never get here — the command
+        # word is `cat` or `grep`, not the script.
+        if (normalized == entry or normalized.endswith("/" + entry)
+                or os.path.basename(normalized) == os.path.basename(entry)):
+            letters, longs, _ = shell.parts(words[1:])
+            if "n" in letters or "--dry-run" in longs:
+                return None
+            return f"{entry} is listed by this repository as writing to a hosted system."
+    return None
 
 
 # Modes in which the host shows a permission prompt to a human. Anything else
@@ -277,7 +338,7 @@ def main():
         emit("The publish guard received an incomplete hook payload.", mode)
         return 0
     try:
-        reason = verdict(tool_name, tool_input)
+        reason = verdict(tool_name, tool_input, outward_commands(repo))
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0

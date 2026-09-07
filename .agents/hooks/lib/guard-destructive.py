@@ -21,6 +21,7 @@ The threat model is an honest mistake by the model, not an adversary with a
 shell. Obfuscation defeats this, and is meant to.
 """
 
+import importlib.util
 import json
 import os
 import re
@@ -371,19 +372,22 @@ def verdict(text, project=""):
     return None
 
 
+def load_config():
+    """config.py, imported by path: it owns the policy.json/config.json layering."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("colloid_config", os.path.join(here, "config.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def settings(repo):
+    return load_config().load(os.path.join(repo, ".agents", "config.json"))
+
+
 def enabled(repo):
     """The toggle, read the way config.py reads every other one."""
-    try:
-        with open(os.path.join(repo, ".agents", "config.json"), encoding="utf-8") as config:
-            settings = json.load(config)
-    except (OSError, ValueError):
-        return True
-    node = settings
-    for name in ("hooks", "guard_destructive", "enabled"):
-        if not isinstance(node, dict) or name not in node:
-            return True
-        node = node[name]
-    return node is not False
+    return load_config().read(settings(repo), "hooks.guard_destructive.enabled", True)
 
 
 def main():
