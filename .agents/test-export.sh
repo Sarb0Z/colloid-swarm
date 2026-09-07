@@ -51,8 +51,10 @@ done
 # A hook that starts writing a new runtime state file leaves the kit's
 # gitignore fragment behind, and every target then commits that state. The
 # repository's own ignore rules are the source of truth for what is transient.
-python3 - "$repo/.gitignore" "$kit/export/gitignore-fragment" <<'PY'
-import re
+# Both sides come from the clone, which is HEAD: the kit is built by
+# `git archive HEAD`, so comparing it against the working tree would fail the
+# very edit that fixes the drift, until it was committed.
+python3 - "$work/source/.gitignore" "$kit/export/gitignore-fragment" <<'PY'
 import sys
 
 COLLOID_ONLY = {".agents/.genome-ledger", ".agents/.mutagen-ledger"}

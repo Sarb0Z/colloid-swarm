@@ -323,6 +323,19 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the config toggle turns the guard off",
           result.returncode == 0 and result.stdout.strip() == "")
 
+    # The workloop controller asks this way. It screens a --verify command it
+    # will later run unattended in the integration worktree, with no PreToolUse
+    # hook in front of it, so the toggle that governs the hook must not take
+    # its floor away.
+    forced = subprocess.run(
+        [sys.executable, str(policy), tmp, "--force"],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "npm publish"},
+                          "permission_mode": "default"}),
+        capture_output=True, text=True, env=env)
+    check("--force keeps the verdict when the toggle is off",
+          forced.returncode == 0 and forced.stdout.strip() != "",
+          forced.stdout.strip() or "no envelope emitted")
+
 # The declarative half. `.claude/settings.json` permissions.ask covers the same
 # ground from a tier the hook cannot reach: a settings rule outranks an `allow`
 # entry, applies to subagent tool calls, and still holds with guard_publish

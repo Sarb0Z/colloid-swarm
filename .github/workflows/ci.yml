@@ -111,6 +111,12 @@ jobs:
       - name: Export kit
         run: .agents/test-export.sh
 
+      # check-inventory.py finds a hook or skill with no card; it cannot see a
+      # card whose embedded source went stale when the file it quotes changed.
+      # Regenerating here leaves the drift as a dirty tree for the next step.
+      - name: Showcase source panels
+        run: python3 demo/embed-src.py
+
       - name: Showcase inventory
         run: python3 demo/check-inventory.py
 
