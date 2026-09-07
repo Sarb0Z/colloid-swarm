@@ -48,6 +48,33 @@ for path in "${retained[@]}"; do
   [[ -e "$kit/$path" ]] || fail "export omitted $path"
 done
 
+# A hook that starts writing a new runtime state file leaves the kit's
+# gitignore fragment behind, and every target then commits that state. The
+# repository's own ignore rules are the source of truth for what is transient.
+python3 - "$repo/.gitignore" "$kit/export/gitignore-fragment" <<'PY'
+import re
+import sys
+
+COLLOID_ONLY = {".agents/.genome-ledger", ".agents/.mutagen-ledger"}
+
+
+def transient(path):
+    return {
+        line.strip()
+        for line in open(path, encoding="utf-8")
+        if line.strip().startswith(".agents/.")
+    }
+
+
+missing = transient(sys.argv[1]) - transient(sys.argv[2]) - COLLOID_ONLY
+if missing:
+    raise SystemExit(
+        "export: gitignore-fragment does not ignore "
+        + ", ".join(sorted(missing))
+        + " — a target would commit that runtime state"
+    )
+PY
+
 python3 - "$kit/.claude/settings.json" "$kit/.codex/hooks.json" <<'PY'
 import json, sys
 for path in sys.argv[1:]:

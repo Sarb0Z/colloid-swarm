@@ -12,6 +12,14 @@
 .agents/.provenance-*
 .agents/.ui-pending-*
 .agents/.teardown-pending-*
+.agents/.writers-live-*
+.agents/.writers-turn-*
+.agents/.writers-lock-*
+.agents/.inbox-seen-*
+.agents/.cells-*
+.agents/.workloop-state.json
+.agents/.workloop-state.json.lock
+.agents/.kimi-pending-findings-*
 .agents/browser-extensions/
 # Session artefacts a playwright MCP server drops beside the project.
 /.playwright-mcp/
