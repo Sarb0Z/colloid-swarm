@@ -9,6 +9,7 @@ paths:
   - '**/src/main.ts'
 detect:
   - '**/nest-cli.json'
+  - '**/src/app.module.ts'
 ---
 
 # NestJS Rules
