@@ -26,15 +26,17 @@ def main():
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    # config.py owns the policy.json/config.json layering; read through it so
+    # a tracked exemption list is honoured the same as an operator's.
     settings = {}
     if len(sys.argv) > 1:
-        try:
-            with open(sys.argv[1], encoding="utf-8") as source:
-                settings = json.load(source)
-        except (OSError, ValueError):
-            settings = {}
-    if not isinstance(settings, dict):
-        settings = {}
+        import importlib.util
+        import os
+        spec = importlib.util.spec_from_file_location(
+            "colloid_config", os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        settings = module.load(sys.argv[1])
 
     # Coerce: a non-string type must stamp rather than crash.
     kind = payload.get("subagent_type")
