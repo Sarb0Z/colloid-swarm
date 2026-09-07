@@ -31,6 +31,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`teardown-gate.sh` blocks on containers `workloop.py reap` already removed** — the stop-classifier knows `docker stop` and `docker compose down`, not the controller's own reap, so a reaped lane stays pending. Teach it the reap command, or verify liveness before blocking.
 - **`provenance-gate.sh` sees only text the host has flushed** — on 2.1.258 one session stopped writing mid-turn assistant text rows, so the gate read nothing and the Stop gate caught the turn. Re-test on a later host.
 - **`session-wrap.sh` blocks under `codex exec`** — the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt. Detect exec mode and skip the prompt.
 - **Nothing validates `.agents/codex/hooks.json`** — `codex mcp list` reads only `config.toml`, so a malformed hooks.json still exits 0. It is the other file that can fail a whole Codex session. Cover it with the `hooks/list` driver.
