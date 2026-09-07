@@ -243,6 +243,50 @@ else
   echo "SKIP: uv not on PATH"
 fi
 
+# --- a pinned requirements.txt is a lockfile; a loose one is a manifest -----
+pip_dir="$scratch/pip-pinned"
+mkdir -p "$pip_dir/svc"
+git -C "$pip_dir" init -q
+git -C "$pip_dir" config user.email t@t
+git -C "$pip_dir" config user.name t
+printf '%s\n' '# nothing to fetch: the venv itself is the proof' '-r constraints.txt' > "$pip_dir/svc/requirements.txt"
+: > "$pip_dir/svc/constraints.txt"
+printf '%s\n' '-r requirements.txt' > "$pip_dir/svc/requirements-dev.txt"
+git -C "$pip_dir" add -A && git -C "$pip_dir" commit -q -m first
+out="$("$prov" "$pip_dir")"
+[[ "$out" == *"installed pip:svc"* ]] || fail "pinned requirements stdout: $out"
+[[ -x "$pip_dir/svc/.venv/bin/pip" ]] || fail "pip provisioning created no .venv"
+ok "a pinned requirements.txt builds a .venv and installs into it"
+before="$("$prov" --hash "$pip_dir")"
+printf 'pytest==9.1.1\n' >> "$pip_dir/svc/requirements-dev.txt"
+[[ "$("$prov" --hash "$pip_dir")" != "$before" ]] || fail "requirements-dev.txt edit did not move the hash"
+ok "the sibling requirements-dev.txt is part of the hash"
+
+loose_dir="$scratch/pip-loose"
+mkdir -p "$loose_dir"
+git -C "$loose_dir" init -q
+git -C "$loose_dir" config user.email t@t
+git -C "$loose_dir" config user.name t
+printf 'fastapi>=0.100\n' > "$loose_dir/requirements.txt"
+git -C "$loose_dir" add -A && git -C "$loose_dir" commit -q -m first
+out="$("$prov" "$loose_dir")"
+[[ "$out" == *"skipped unlocked manifests: requirements.txt"* ]] || fail "loose requirements stdout: $out"
+[[ ! -d "$loose_dir/.venv" ]] || fail "a loose requirements.txt built a venv"
+ok "an unpinned requirements.txt is named and skipped"
+
+pyver_dir="$scratch/pip-pyver"
+mkdir -p "$pyver_dir"
+git -C "$pyver_dir" init -q
+git -C "$pyver_dir" config user.email t@t
+git -C "$pyver_dir" config user.name t
+: > "$pyver_dir/requirements.txt"
+printf '2.4\n' > "$pyver_dir/.python-version"
+git -C "$pyver_dir" add -A && git -C "$pyver_dir" commit -q -m first
+if "$prov" "$pyver_dir" >/dev/null 2>"$scratch/pyver.err"; then fail "a missing interpreter was not an environment failure"; fi
+grep -q "python2.4 is not on PATH" "$scratch/pyver.err" || fail "missing-interpreter stderr: $(cat "$scratch/pyver.err")"
+grep -q "environment failure" "$scratch/pyver.err" || fail "missing-interpreter stderr lacks the sentence"
+ok "a .python-version the machine cannot satisfy fails by name, not by falling back"
+
 
 # 13. a lockfile that matches another checkout's links its node_modules
 # instead of installing; a changed lockfile drops the link and installs

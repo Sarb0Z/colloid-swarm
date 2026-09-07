@@ -201,6 +201,7 @@ def sandbox_guard(root, enabled):
     entry = agents / "hooks" / "policy" / "guard-destructive.sh"
     shutil.copy2(here / "hooks" / "policy" / "guard-destructive.sh", entry)
     shutil.copy2(policy, agents / "hooks" / "lib" / "guard-destructive.py")
+    shutil.copy2(here / "hooks" / "lib" / "config.py", agents / "hooks" / "lib" / "config.py")
     (agents / "config.json").write_text(
         json.dumps({"hooks": {"guard_destructive": {"enabled": enabled}}}))
     return str(entry)
@@ -235,6 +236,21 @@ with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() a
         input=json.dumps({"command": "rm -rf /"}), text=True, capture_output=True)
     check("--force keeps the verdict when the toggle is off",
           forced.returncode == 2, forced.stderr)
+
+    # policy.json is the repository's tracked word; config.json is one
+    # operator's, and wins where both speak.
+    with tempfile.TemporaryDirectory() as layered_dir:
+        entry = sandbox_guard(layered_dir, True)
+        agents = pathlib.Path(layered_dir) / ".agents"
+        (agents / "config.json").unlink()
+        (agents / "policy.json").write_text(
+            json.dumps({"hooks": {"guard_destructive": {"enabled": False}}}))
+        check("policy.json alone switches the guard off",
+              run({"command": "rm -rf /"}, entry=entry).returncode == 0)
+        (agents / "config.json").write_text(
+            json.dumps({"hooks": {"guard_destructive": {"enabled": True}}}))
+        check("config.json overrides policy.json for the same key",
+              run({"command": "rm -rf /"}, entry=entry).returncode == 2)
 
     # The guard must run when nothing states a preference, or a repository that
     # never wrote a config would ship unguarded.

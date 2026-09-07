@@ -27,7 +27,6 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`AGENTS.md` is still 11,397 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
-- **`.agents/config.json` is ignored but documented as a per-repository override** — writing-coach commits four hook disables that are genuine repo policy, and career-ops and claude-code-boilerplate carry no ignore line at all. Track it, or split policy from operator taste?
 
 ## Work
 
@@ -48,6 +47,6 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`ravi-travels` carries a stray `"SubagentStart": [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
 - **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry Codex's `Common dependencies` registry set, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
 - **Turborepo cache across worktrees** — its local cache is keyed by task hash and shared across a repository's worktrees: a second lane's build hits the first's; add one line to the Next.js stack pack when a target uses turbo.
-- **`provision.sh` installs packages, not toolchains** — a lane whose branch bumps `.nvmrc` or `engines.node` still runs the main checkout's runtime. Read the pin and fail by name when it is unmet, or state the limit in the workloop skill.
+- **`provision.sh` installs packages, not Node toolchains** — a lane whose branch bumps `.nvmrc` or `engines.node` still runs the main checkout's runtime; `.python-version` is already honoured. Read the Node pin and fail by name when it is unmet, or state the limit in the workloop skill.
 - **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
 - **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `<run>/<lane>` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.

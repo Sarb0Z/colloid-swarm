@@ -162,3 +162,9 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — no vendor guidance reconciles cache-prefix placement, which wants stable content first so the prefix hashes identically, with long-context guidance, which wants data before the query. The two order the same bytes differently once both corpora are large near a 1M window. Acceptable: the scaffold ships no prompt carrying two large corpora, so the conflict is theoretical.
 - **Trigger** — shipping a prompt that carries both a large stable corpus and a large per-call corpus near the window limit.
 - **Rework** — measure both orders on the real prompt and choose per prompt. The answer is likely prompt-specific, which makes this a measurement habit rather than a rule.
+
+### provision-pip-no-closure
+
+- **Condition** — `provision.sh` treats a `requirements.txt` whose every requirement is `==`-pinned as a lockfile and installs it into a `.venv`. Such a file pins direct dependencies only; transitive ones resolve from the index at install time, so two lanes provisioned days apart can differ in a package neither branch names. Accepted because the alternative was no environment at all for a repository that ships this way, and lanes of one run provision minutes apart from the same index.
+- **Trigger** — a lane's suite goes red on a package absent from both requirements files, or a repository adopts `pip-compile` / `uv pip compile` output (recognisable by `# via` provenance lines) — then the pin check should require the closure and this entry retires.
+- **Rework cost** — ~15 lines in `pinned_requirements`, plus the target repository generating a compiled requirements file.
