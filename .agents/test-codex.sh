@@ -110,15 +110,22 @@ source_group = next(
 if source_group is None:
     raise SystemExit("Codex source-capture hook is missing")
 codex_matcher = source_group["matcher"]
-for tool in (
-    "mcp__playwright__browser_navigate",
-    "mcp__research-mcp__fetch_readable",
-    "mcp__research-mcp__resolve_open_access",
-    "mcp__context7__resolve-library-id",
-    "mcp__context7__query-docs",
-    "mcp__plugin_exa_exa__web_search_exa",
+# The matcher is generated from the registry, so a tool is only owed capture
+# where its server is registered; a satellite that dropped a server has
+# nothing to capture for it.
+with (repo / ".agents/mcp.json").open(encoding="utf-8") as stream:
+    registry = json.load(stream)["mcpServers"]
+import re
+for server, tool in (
+    ("playwright", "mcp__playwright__browser_navigate"),
+    ("research-mcp", "mcp__research-mcp__fetch_readable"),
+    ("research-mcp", "mcp__research-mcp__resolve_open_access"),
+    ("context7", "mcp__context7__resolve-library-id"),
+    ("context7", "mcp__context7__query-docs"),
+    ("exa", "mcp__plugin_exa_exa__web_search_exa"),
 ):
-    import re
+    if server not in registry:
+        continue
     if re.fullmatch(codex_matcher, tool) is None:
         raise SystemExit(f"Codex source matcher misses {tool}")
 
@@ -145,8 +152,11 @@ if kimi_path.is_file():
         hook for hook in kimi_config["hooks"]
         if "sources-capture.sh" in hook["command"]
     )
-    for tool in ("WebSearch", "FetchURL", "mcp__research-mcp__fetch_readable",
-                 "mcp__plugin_exa_exa__web_search_exa"):
+    for server, tool in (("", "WebSearch"), ("", "FetchURL"),
+                         ("research-mcp", "mcp__research-mcp__fetch_readable"),
+                         ("exa", "mcp__plugin_exa_exa__web_search_exa")):
+        if server and server not in registry:
+            continue
         if re.fullmatch(kimi_source["matcher"], tool) is None:
             raise SystemExit(f"Kimi source matcher misses {tool}")
 PY
