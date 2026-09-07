@@ -74,7 +74,7 @@ fi
 if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
   writers_session="$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')"
   rm -rf "$proj/.agents/.writers-live-$writers_session" "$proj/.agents/.writers-turn-$writers_session" \
-         "$proj/.agents/.writers-lock-$writers_session" 2>/dev/null || true
+         "$proj/.agents/.writers-lock-$writers_session" "$proj/.agents/.cells-$writers_session" 2>/dev/null || true
 fi
 
 items=""

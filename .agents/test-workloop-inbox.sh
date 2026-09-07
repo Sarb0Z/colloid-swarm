@@ -14,6 +14,19 @@ dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
 cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
+mkdir -p "$scratch/bin"
+cat > "$scratch/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${DOCKER_LOG:?}"
+case "$*" in
+  "ps -aq --filter label=colloid.run=r1 --filter label=colloid.lane=db") printf 'dead1\n' ;;
+  "ps --filter label=org.testcontainers=true --format "*) printf 'lonely_pg\tabc12345-0000\t20 minutes ago\n' ;;
+  *) : ;;
+esac
+exit 0
+EOF
+chmod +x "$scratch/bin/docker"; export PATH="$scratch/bin:$PATH" DOCKER_LOG="$scratch/docker.log"
 printf '{"hooks":{"workloop_inbox":{"enabled":true}}}\n' > "$dir/.agents/config.json"
 policy="$dir/.agents/hooks/policy/workloop-inbox.sh"
 state="$dir/.agents/.workloop-state.json"
@@ -109,6 +122,35 @@ import json, sys
 p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["supervised"] = True; json.dump(s, open(p, "w"))
 EOF
 ok "only a supervised run reports a lane stale; an ordinary one reports elapsed time"
+
+
+# a claimant this session started that is no longer live: its lane's docker
+# resources are reaped by label and the lead is told; foreign orphans are named
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); r = s["runs"]["r1"]
+r["lanes"]["db"] = {"state":"active","claimed_by":"gone","claimed_at":"2026-01-01T00:00:00Z","heartbeat_at":"2026-01-01T00:00:00Z","attention":None,"env":"ready","progress":"seeding"}
+r["lanes"]["api"]["progress"] = "e2e 12/40"
+json.dump(s, open(p, "w"))
+EOF
+# the hook's own record: both cells started this session; `gone` has stopped
+printf 'a1\tlive\ngone\tstopped\n' > "$dir/.agents/.cells-s1"
+: > "$DOCKER_LOG"
+ctx="$(context "$(fire UserPromptSubmit '')")"
+[[ "$ctx" == *"db's worker gone has stopped without submitting; reaped 1 docker resource(s)"* ]] || fail "dead claimant not reported/reaped: $ctx"
+grep -q 'rm -f dead1' "$DOCKER_LOG" || fail "the dead lane's container was not removed: $(cat "$DOCKER_LOG")"
+[[ "$ctx" == *"api"*"e2e 12/40"* ]] || fail "progress not shown beside the live lane: $ctx"
+[[ "$ctx" == *"Not ours, still running with no reaper: lonely_pg (20 minutes ago, testcontainers session abc12345 with no reaper)"* ]] || fail "foreign orphan not named: $ctx"
+[[ "$(grep -c 'rm -f' "$DOCKER_LOG")" -eq 1 ]] || fail "something other than the dead lane's resources was removed: $(cat "$DOCKER_LOG")"
+ok "a stopped claimant's lane is reaped by label and reported; a live one shows progress; foreign orphans are only named"
+
+# the record is kept by the hook itself: start lists a cell live, stop marks it
+rm -f "$dir/.agents/.cells-s1"
+fire SubagentStart c9 >/dev/null; [[ "$(cat "$dir/.agents/.cells-s1")" == $'c9\tlive' ]] || fail "start not recorded: $(cat "$dir/.agents/.cells-s1")"
+fire SubagentStop c9 >/dev/null; [[ "$(cat "$dir/.agents/.cells-s1")" == $'c9\tstopped' ]] || fail "stop not recorded: $(cat "$dir/.agents/.cells-s1")"
+mv "$state" "$state.off"; fire SubagentStart c10 >/dev/null; mv "$state.off" "$state"
+grep -q $'c10\tlive' "$dir/.agents/.cells-s1" || fail "a cell that started before any run existed was not recorded"
+ok "the hook records every subagent's start and stop, with or without a run in flight"
 
 # all lanes reviewed on a multi-lane run: told to integrate
 python3 - "$state" <<'EOF'
