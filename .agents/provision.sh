@@ -14,7 +14,10 @@
 # THE RULES, each chosen because a harness that ships them was read:
 #   * Install only from a lockfile, and only in its frozen form. An
 #     unlocked manifest is named and skipped; the environment must be
-#     what the branch declares, never what a resolver picks today.
+#     what the branch declares, never what a resolver picks today. A
+#     requirements.txt counts as a lockfile only when every requirement
+#     is `==`-pinned; it installs into the directory's own .venv, built
+#     with the interpreter `.python-version` names.
 #   * Hash the lockfiles and remember the hash inside the checkout's own
 #     git dir. Same hash next time → nothing runs. A branch that only
 #     changes source pays nothing; one that changes a lockfile reinstalls.
@@ -87,10 +90,46 @@ manager_for() {
     package-lock.json) echo npm ;;
     uv.lock) echo uv ;;
     poetry.lock) echo poetry ;;
+    requirements.txt) echo pip ;;
     Gemfile.lock) echo bundle ;;
     Cargo.lock) echo cargo ;;
     go.sum) echo go ;;
   esac
+}
+
+# A requirements.txt is a lockfile only when every requirement in it is
+# pinned with `==`; `-r`, `-c` and other option lines are allowed. Anything
+# looser is a manifest, and installing it would resolve to whatever the index
+# holds today — the drift a frozen install exists to prevent. Direct pins are
+# not a transitive closure; debt: provision-pip-no-closure.
+pinned_requirements() {  # <file>
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"; line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "$line" == -* ]] && continue
+    [[ "$line" == *"=="* ]] || return 1
+  done <"$1"
+}
+
+# The interpreter that builds a .venv: `.python-version` (walked up from the
+# requirements file to the checkout root) names one when the runtime matters —
+# a wheel pinned for 3.12 may not exist for the machine's default python — and
+# a version it names but the machine lacks is an environment failure, not a
+# reason to fall back to the wrong one silently.
+python_for() {  # <dir> -> interpreter path on stdout, or exit 1 with a reason on stderr
+  local probe="$1" want minor
+  while :; do
+    if [[ -f "$probe/.python-version" ]]; then
+      want="$(head -n1 "$probe/.python-version" | tr -d '[:space:]')"
+      minor="${want%.*}"; [[ "$minor" == *.* ]] || minor="$want"
+      if command -v "python$minor" >/dev/null 2>&1; then command -v "python$minor"; return 0; fi
+      echo "provision: .python-version asks for $want and python$minor is not on PATH" >&2
+      return 1
+    fi
+    [[ "$probe" == "$dir" || "$probe" == "/" ]] && break
+    probe="$(dirname "$probe")"
+  done
+  command -v python3
 }
 
 nested() {
@@ -121,6 +160,21 @@ for name in uv.lock poetry.lock Gemfile.lock Cargo.lock go.sum; do
     done <<<"$(nested "$name")"
   fi
 done
+# A pinned requirements.txt counts, unless uv or poetry already owns that
+# directory's environment.
+add_requirements() {  # <path>
+  local here; here="$(dirname "$1")"
+  [[ -f "$here/uv.lock" || -f "$here/poetry.lock" ]] && return 0
+  pinned_requirements "$1" && add pip "$1"
+  return 0
+}
+if [[ -f "$dir/requirements.txt" ]]; then
+  add_requirements "$dir/requirements.txt"
+else
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && add_requirements "$path"
+  done <<<"$(nested requirements.txt)"
+fi
 
 if [[ -z "$lockfiles" ]]; then
   if (( hash_only )); then echo none; exit 0; fi
@@ -137,9 +191,27 @@ if [[ -z "$lockfiles" ]]; then
 fi
 
 # --- hash and memo ----------------------------------------------------------
+# A requirements-dev.txt beside a pinned requirements.txt is installed with
+# it, so it is part of what the hash must notice.
+dev_requirements() {  # <requirements.txt path> -> sibling dev file, if any
+  local dev; dev="$(dirname "$1")/requirements-dev.txt"
+  [[ -f "$dev" ]] && printf '%s\n' "$dev"
+  return 0
+}
+
 hash_lockfiles() {
-  local paths
-  paths="$(printf '%s\n' "$lockfiles" | cut -f2)"
+  local paths manager path
+  paths=""
+  while IFS=$'\t' read -r manager path; do
+    [[ -n "$manager" ]] || continue
+    paths="${paths}${paths:+
+}$path"
+    if [[ "$manager" == pip ]]; then
+      local dev; dev="$(dev_requirements "$path")"
+      [[ -n "$dev" ]] && paths="${paths}
+$dev"
+    fi
+  done <<<"$lockfiles"
   if command -v shasum >/dev/null 2>&1; then
     printf '%s\n' "$paths" | tr '\n' '\0' | xargs -0 cat | shasum -a 256 | cut -c1-64
   else
@@ -312,11 +384,25 @@ while IFS=$'\t' read -r manager path; do
   # Never let a JS manager run over links into another checkout's tree.
   # Another ecosystem's install in the same directory leaves them alone.
   if is_js "$manager" && shared_dir "$cwd"; then rm -rf "$cwd/node_modules"; fi
-  command -v "$manager" >/dev/null 2>&1 || {
-    report_failure "$manager" "$manager (not on PATH)" /dev/null 127; exit 1; }
-  argv=()
-  while IFS= read -r word; do argv+=("$word"); done <<<"$(install_argv "$manager" "$cwd")"
   log="$(mktemp -t provision-log)"
+  if [[ "$manager" == pip ]]; then
+    # pip installs into the directory's own .venv, created with the interpreter
+    # .python-version names; the pinned dev file rides along when present.
+    python="$(python_for "$cwd")" || { report_failure pip "python (for $cwd)" /dev/null 127; exit 1; }
+    if [[ ! -x "$cwd/.venv/bin/pip" ]]; then
+      run_with_deadline "$cwd" "$log" "$python" -m venv .venv; rc=$?
+      if [[ $rc -ne 0 ]]; then
+        report_failure pip "$python -m venv .venv (in $cwd)" "$log" "$rc"; rm -f "$log"; exit 1
+      fi
+    fi
+    argv=("$cwd/.venv/bin/pip" install --disable-pip-version-check -r "$path")
+    dev="$(dev_requirements "$path")"; [[ -n "$dev" ]] && argv+=(-r "$dev")
+  else
+    command -v "$manager" >/dev/null 2>&1 || {
+      report_failure "$manager" "$manager (not on PATH)" /dev/null 127; exit 1; }
+    argv=()
+    while IFS= read -r word; do argv+=("$word"); done <<<"$(install_argv "$manager" "$cwd")"
+  fi
   run_with_deadline "$cwd" "$log" "${argv[@]}"; rc=$?
   if [[ $rc -ne 0 ]]; then
     report_failure "$manager" "${argv[*]} (in $cwd)" "$log" "$rc"

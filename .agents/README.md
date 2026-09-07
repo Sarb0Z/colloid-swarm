@@ -73,7 +73,10 @@ server's `npm run build` and `npm run check`.
 
 Policies read normalized JSON from stdin. Host adapters translate event names
 and payload shapes; they do not own behavior. `config.json.example` contains
-hook defaults and ignored `config.json` may override them per repository.
+hook defaults; a repository states its own policy in the tracked
+`policy.json` — a hook it runs without, the scripts its publish guard must ask
+about under `hooks.guard_publish.outward_commands` — and an operator's ignored
+`config.json` overrides either per machine.
 
 `worktree-provision.sh` runs at subagent start under Claude only: a cell that
 starts inside a linked worktree gets that worktree's dependencies installed by
