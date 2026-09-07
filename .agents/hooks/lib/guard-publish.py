@@ -250,8 +250,14 @@ def emit(reason, mode):
 
 
 def main():
-    repo = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
-    if not enabled(repo):
+    # --force asks for the verdict whatever the toggle says, for a caller that
+    # runs the command with no hook in front of it: the workloop controller
+    # screening a --verify command it will later execute unattended. See the
+    # same flag on guard-destructive.py.
+    argv = [arg for arg in sys.argv[1:] if arg != "--force"]
+    force = len(argv) != len(sys.argv) - 1
+    repo = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+    if not force and not enabled(repo):
         return 0
     # A payload the guard cannot read carries no mode, and the visible signal
     # for a broken guard is the prompt, so these two paths ask.

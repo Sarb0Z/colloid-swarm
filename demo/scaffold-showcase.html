@@ -1256,7 +1256,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 411 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 418 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive, and say why.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;}
@@ -1646,8 +1646,15 @@ def enabled(repo):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    repo = sys.argv[1] if len(sys.argv) &gt; 1 else os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    if not enabled(repo):
+    # --force asks for the verdict whatever the toggle says. The toggle governs
+    # the PreToolUse hook, where a denial the operator disagrees with costs them
+    # a tool call; a caller that runs a command with no hook in front of it —
+    # the workloop controller&#x27;s --verify — has no such escape and must not lose
+    # the floor because a hook was switched off.
+    argv = [arg for arg in sys.argv[1:] if arg != &quot;--force&quot;]
+    force = len(argv) != len(sys.argv) - 1
+    repo = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    if not force and not enabled(repo):
         return 0
     try:
         payload = json.loads(sys.stdin.read() or &quot;{}&quot;)
@@ -4933,7 +4940,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Durable, bounded parallel implementation and review lanes. The controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 182 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 186 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Coordinates durable, bounded parallel implementation and review lanes through a portable evidence-backed controller.
 ---
@@ -4983,7 +4990,11 @@ installs partially and reports success, so give such a lane the whole
 workspace. The integration worktree is always full.
 
 `--verify` must be a test command; `init` refuses one the destructive or
-publish guard would refuse, and that check is a floor, not a review. Use
+publish rules would refuse, and that check is a floor, not a review. It holds
+even where `config.json` switches those hooks off, because `integrate` runs the
+command unattended with no hook in front of it. Give it no cleaning or
+resetting step — `integrate` already resets the worktree to the base and cleans
+it before merging, and such a command is what the floor refuses. Use
 `brief` as the bounded dispatch prompt. The worker claims the lane, works only
 in its worktree and declared paths, commits on the lane branch, then submits
 observed test evidence. `claim` refuses a lane whose lockfiles changed since
