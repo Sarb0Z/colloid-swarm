@@ -239,11 +239,30 @@ def outward_commands(repo):
     those are. Matched by path suffix, so `./scripts/deploy.sh`,
     `bash scripts/deploy.sh`, and an absolute path all count.
     """
-    listed = read_setting(repo, "hooks.guard_publish.outward_commands", [])
-    if not isinstance(listed, list):
+    # The two files are read separately and joined: the tracked list is a
+    # floor an operator's config.json may extend and never shrink. Through the
+    # ordinary layering a config.json naming one local script would replace
+    # the repository's whole list, and every deploy it named would run silent.
+    agents = os.path.join(repo, ".agents")
+    path = os.path.join(HERE, "config.py")
+    if not os.path.exists(path):
         return []
-    return [entry.strip().lstrip("./") for entry in listed
-            if isinstance(entry, str) and entry.strip()]
+    spec = importlib.util.spec_from_file_location("colloid_config", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    listed = []
+    for name in ("policy.json", "config.json"):
+        document = module._read_json(os.path.join(agents, name))
+        entries = module.read(document, "hooks.guard_publish.outward_commands", [])
+        if isinstance(entries, list):
+            listed.extend(entries)
+    seen = []
+    for entry in listed:
+        if isinstance(entry, str) and entry.strip():
+            cleaned = entry.strip().lstrip("./")
+            if cleaned not in seen:
+                seen.append(cleaned)
+    return seen
 
 
 # A script run through one of these is named by the first operand, not the
@@ -275,8 +294,9 @@ def rule_outward(words, outward, shell):
         # word is `cat` or `grep`, not the script.
         if (normalized == entry or normalized.endswith("/" + entry)
                 or os.path.basename(normalized) == os.path.basename(entry)):
-            letters, longs, _ = shell.parts(words[1:])
-            if "n" in letters or "--dry-run" in longs:
+            # Only the literal --dry-run is a rehearsal. `-n` is git's
+            # convention, not these scripts': deploy.sh ignores it and deploys.
+            if "--dry-run" in words[1:]:
                 return None
             return f"{entry} is listed by this repository as writing to a hosted system."
     return None

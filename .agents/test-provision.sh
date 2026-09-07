@@ -287,6 +287,45 @@ grep -q "python2.4 is not on PATH" "$scratch/pyver.err" || fail "missing-interpr
 grep -q "environment failure" "$scratch/pyver.err" || fail "missing-interpreter stderr lacks the sentence"
 ok "a .python-version the machine cannot satisfy fails by name, not by falling back"
 
+# An include is followed: a file that is nothing but `-r` of a loose file is
+# a manifest, and so is a pinned file beside a loose requirements-dev.txt.
+inc_dir="$scratch/pip-include"
+mkdir -p "$inc_dir"
+git -C "$inc_dir" init -q
+git -C "$inc_dir" config user.email t@t
+git -C "$inc_dir" config user.name t
+printf '%s\n' '-r base.txt' > "$inc_dir/requirements.txt"
+printf 'fastapi>=0.100\n' > "$inc_dir/base.txt"
+git -C "$inc_dir" add -A && git -C "$inc_dir" commit -q -m first
+out="$("$prov" "$inc_dir")"
+[[ "$out" == *"skipped unlocked manifests: requirements.txt"* ]] || fail "loose include stdout: $out"
+ok "a requirements.txt whose include is unpinned is a manifest"
+printf 'fastapi==0.115.6\n' > "$inc_dir/base.txt"
+printf 'pytest\n' > "$inc_dir/requirements-dev.txt"
+git -C "$inc_dir" add -A && git -C "$inc_dir" commit -q -m second
+out="$("$prov" "$inc_dir")"
+[[ "$out" == *"skipped unlocked manifests: requirements.txt"* ]] || fail "loose dev sibling stdout: $out"
+ok "a loose requirements-dev.txt beside a pinned requirements.txt is a manifest"
+
+# A venv built by hand with the wrong interpreter is rebuilt with the right one.
+if command -v python3.12 >/dev/null 2>&1 && [[ "$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')" != "3.12" ]]; then
+  rb_dir="$scratch/pip-rebuild"
+  mkdir -p "$rb_dir"
+  git -C "$rb_dir" init -q
+  git -C "$rb_dir" config user.email t@t
+  git -C "$rb_dir" config user.name t
+  : > "$rb_dir/requirements.txt"
+  printf '3.12\n' > "$rb_dir/.python-version"
+  git -C "$rb_dir" add -A && git -C "$rb_dir" commit -q -m first
+  python3 -m venv "$rb_dir/.venv" >/dev/null 2>&1
+  out="$("$prov" "$rb_dir")"
+  [[ "$out" == *"rebuilding"* ]] || fail "wrong-interpreter venv was not rebuilt: $out"
+  [[ "$("$rb_dir/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')" == "3.12" ]] || fail "rebuilt venv is not 3.12"
+  ok "a hand-built venv on the wrong interpreter is rebuilt from .python-version"
+else
+  echo "SKIP: needs python3.12 on PATH and a different default python3"
+fi
+
 
 # 13. a lockfile that matches another checkout's links its node_modules
 # instead of installing; a changed lockfile drops the link and installs

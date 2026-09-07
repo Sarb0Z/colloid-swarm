@@ -30,6 +30,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **The exported `.agents/README.md` keeps its Kimi prose when a target drops `.kimi/`** — the host table and `.kimi-code/mcp.json` lines dangle in both TaxDrop repos. Wrap them in `colloid-only` markers, or add a Kimi-drop step to the guide.
 - **`teardown-gate.sh` blocks on containers `workloop.py reap` already removed** — the stop-classifier knows `docker stop` and `docker compose down`, not the controller's own reap, so a reaped lane stays pending. Teach it the reap command, or verify liveness before blocking.
 - **`provenance-gate.sh` sees only text the host has flushed** — on 2.1.258 one session stopped writing mid-turn assistant text rows, so the gate read nothing and the Stop gate caught the turn. Re-test on a later host.
 - **`session-wrap.sh` blocks under `codex exec`** — the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt. Detect exec mode and skip the prompt.
@@ -47,6 +48,6 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`ravi-travels` carries a stray `"SubagentStart": [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
 - **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry Codex's `Common dependencies` registry set, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
 - **Turborepo cache across worktrees** — its local cache is keyed by task hash and shared across a repository's worktrees: a second lane's build hits the first's; add one line to the Next.js stack pack when a target uses turbo.
-- **`provision.sh` installs packages, not Node toolchains** — a lane whose branch bumps `.nvmrc` or `engines.node` still runs the main checkout's runtime; `.python-version` is already honoured. Read the Node pin and fail by name when it is unmet, or state the limit in the workloop skill.
+- **`provision.sh` honours `.python-version` but not `.nvmrc`** — a lane whose branch bumps the Node pin still runs the main checkout's runtime. Read it and fail by name when unmet, or state the limit in the workloop skill.
 - **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
 - **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `<run>/<lane>` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.

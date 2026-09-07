@@ -358,10 +358,24 @@ with tempfile.TemporaryDirectory() as tmp:
         check(f"asks on a listed script: {command}", reason is not None and "hosted system" in (reason or ""),
               reason or "quiet")
     for command in ("cat scripts/deploy.sh", "grep vercel scripts/deploy.sh",
-                    "./scripts/deploy.sh --dry-run", "./scripts/deploy.sh -n",
+                    "./scripts/deploy.sh --dry-run",
                     "./scripts/verify.sh", "ls switch-on"):
         reason = guard.verdict("Bash", {"command": command}, outward)
         check(f"quiet on a read or dry run: {command}", reason is None, reason or "")
+    # -n is git's rehearsal flag, not these scripts': deploy.sh ignores it.
+    for command in ("./scripts/deploy.sh -n", "scripts/deploy.sh -vn", "./scripts/deploy.sh -newer"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"a short flag is not a dry run: {command}", reason is not None, "quiet")
+    # An operator's config.json extends the repository's list; it cannot
+    # replace it, or one local entry would silence every listed deploy.
+    (agents / "config.json").write_text(json.dumps({"hooks": {"guard_publish": {
+        "outward_commands": ["scripts/my-local.sh"]}}}))
+    outward = guard.outward_commands(tmp)
+    check("config.json extends the tracked list rather than replacing it",
+          "scripts/deploy.sh" in outward and "scripts/my-local.sh" in outward, str(outward))
+    check("a listed deploy still asks with a config.json list present",
+          guard.verdict("Bash", {"command": "./scripts/deploy.sh"}, outward) is not None)
+    (agents / "config.json").unlink()
     result = subprocess.run([sys.executable, str(policy), tmp],
                             input=json.dumps({"tool_name": "Bash", "permission_mode": "default",
                                               "tool_input": {"command": "./scripts/deploy.sh"}}),

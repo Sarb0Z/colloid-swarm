@@ -103,11 +103,21 @@ manager_for() {
 # holds today — the drift a frozen install exists to prevent. Direct pins are
 # not a transitive closure; debt: provision-pip-no-closure.
 pinned_requirements() {  # <file>
-  local line
+  local line target
+  [[ -f "$1" ]] || return 1
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
-    [[ -z "$line" || "$line" == -* ]] && continue
-    [[ "$line" == *"=="* ]] || return 1
+    [[ -z "$line" ]] && continue
+    case "$line" in
+      -r\ *|-c\ *|--requirement\ *|--constraint\ *)
+        # An include carries requirements too; the file is pinned only if
+        # every file it pulls in is.
+        target="${line#* }"; target="${target#"${target%%[![:space:]]*}"}"
+        [[ "$target" == /* ]] || target="$(dirname "$1")/$target"
+        pinned_requirements "$target" || return 1 ;;
+      -*) ;;
+      *) [[ "$line" == *"=="* ]] || return 1 ;;
+    esac
   done <"$1"
 }
 
@@ -165,7 +175,10 @@ done
 add_requirements() {  # <path>
   local here; here="$(dirname "$1")"
   [[ -f "$here/uv.lock" || -f "$here/poetry.lock" ]] && return 0
-  pinned_requirements "$1" && add pip "$1"
+  # The dev sibling is installed with it, so it must be pinned too.
+  if pinned_requirements "$1" && { [[ ! -f "$here/requirements-dev.txt" ]] || pinned_requirements "$here/requirements-dev.txt"; }; then
+    add pip "$1"
+  fi
   return 0
 }
 if [[ -f "$dir/requirements.txt" ]]; then
@@ -389,6 +402,16 @@ while IFS=$'\t' read -r manager path; do
     # pip installs into the directory's own .venv, created with the interpreter
     # .python-version names; the pinned dev file rides along when present.
     python="$(python_for "$cwd")" || { report_failure pip "python (for $cwd)" /dev/null 127; exit 1; }
+    # A venv built by hand with another interpreter is rebuilt: the wheel
+    # failures it produces would read as code defects.
+    if [[ -x "$cwd/.venv/bin/python" ]]; then
+      want="$("$python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+      have="$("$cwd/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo none)"
+      if [[ "$want" != "$have" ]]; then
+        echo "provision: rebuilding $cwd/.venv (python $have) with python $want"
+        rm -rf "$cwd/.venv"
+      fi
+    fi
     if [[ ! -x "$cwd/.venv/bin/pip" ]]; then
       run_with_deadline "$cwd" "$log" "$python" -m venv .venv; rc=$?
       if [[ $rc -ne 0 ]]; then
