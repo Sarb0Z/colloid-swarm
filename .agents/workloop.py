@@ -199,7 +199,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     repo = wg.toplevel(args.repo or Path.cwd())
     base = wg.resolve_commit(repo, args.base)
     if args.verify:
-        wg.guard_command(args.verify)
+        wg.guard_command(args.verify, repo)
     with Store(state_path(args.state)) as data:
         if args.run in data["runs"]:
             if replayed(data["runs"][args.run], args.event_id):
@@ -723,7 +723,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         fail(f"integration workspace is lane {taken[workspace]!r}'s worktree; use a separate path")
     if workspace == repo.resolve() or (workspace.exists() and not wg.is_linked_worktree(workspace)):
         fail(f"integration workspace must be a new path or a linked worktree of {repo}, not a checkout: {workspace}")
-    wg.guard_command(verify)
+    wg.guard_command(verify, repo)
     print(f"integrate: preparing {workspace} at {base[:12]}", file=sys.stderr)
     wg.prepare_integration(repo, workspace, f"{args.run}/integration", base)
     merged: list[str] = []
