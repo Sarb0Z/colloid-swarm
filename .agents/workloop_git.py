@@ -235,11 +235,13 @@ def merge_lane(workspace: Path, lane: str, branch: str, merged: list[str]) -> No
 
 
 def guard_command(command: str) -> None:
-    """Refuse a verify command the repository's own guards would refuse.
+    """Refuse a verify command the destructive and publish rules would refuse.
 
     The controller runs the command outside any tool call, so no PreToolUse
-    hook sees it; this is the same check, applied by hand. --force keeps the
-    floor when a repository has the destructive hook switched off.
+    hook sees it. Both guards are asked with --force: the config toggles
+    govern the hooks, where a denial costs the operator one tool call they
+    can rephrase, and a command running unattended in the integration
+    worktree has no such escape.
     """
     lib = ROOT / ".agents/hooks/lib"
     destructive = subprocess.run(
@@ -251,7 +253,7 @@ def guard_command(command: str) -> None:
     if destructive.returncode != 0:
         fail(f"guard-destructive could not evaluate the verify command (exit {destructive.returncode}): {destructive.stderr.strip()}")
     publish = subprocess.run(
-        [sys.executable, str(lib / "guard-publish.py")],
+        [sys.executable, str(lib / "guard-publish.py"), "--force"],
         input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "permission_mode": "default"}),
         text=True, capture_output=True,
     )

@@ -48,7 +48,11 @@ installs partially and reports success, so give such a lane the whole
 workspace. The integration worktree is always full.
 
 `--verify` must be a test command; `init` refuses one the destructive or
-publish guard would refuse, and that check is a floor, not a review. Use
+publish rules would refuse, and that check is a floor, not a review. It holds
+even where `config.json` switches those hooks off, because `integrate` runs the
+command unattended with no hook in front of it. Give it no cleaning or
+resetting step — `integrate` already resets the worktree to the base and cleans
+it before merging, and such a command is what the floor refuses. Use
 `brief` as the bounded dispatch prompt. The worker claims the lane, works only
 in its worktree and declared paths, commits on the lane branch, then submits
 observed test evidence. `claim` refuses a lane whose lockfiles changed since
