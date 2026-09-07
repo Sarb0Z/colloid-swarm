@@ -388,8 +388,15 @@ def enabled(repo):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    repo = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    if not enabled(repo):
+    # --force asks for the verdict whatever the toggle says. The toggle governs
+    # the PreToolUse hook, where a denial the operator disagrees with costs them
+    # a tool call; a caller that runs a command with no hook in front of it —
+    # the workloop controller's --verify — has no such escape and must not lose
+    # the floor because a hook was switched off.
+    argv = [arg for arg in sys.argv[1:] if arg != "--force"]
+    force = len(argv) != len(sys.argv) - 1
+    repo = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    if not force and not enabled(repo):
         return 0
     try:
         payload = json.loads(sys.stdin.read() or "{}")

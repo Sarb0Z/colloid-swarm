@@ -238,11 +238,12 @@ def guard_command(command: str) -> None:
     """Refuse a verify command the repository's own guards would refuse.
 
     The controller runs the command outside any tool call, so no PreToolUse
-    hook sees it; this is the same check, applied by hand.
+    hook sees it; this is the same check, applied by hand. --force keeps the
+    floor when a repository has the destructive hook switched off.
     """
     lib = ROOT / ".agents/hooks/lib"
     destructive = subprocess.run(
-        [sys.executable, str(lib / "guard-destructive.py")],
+        [sys.executable, str(lib / "guard-destructive.py"), "--force"],
         input=json.dumps({"command": command}), text=True, capture_output=True,
     )
     if destructive.returncode == 2:

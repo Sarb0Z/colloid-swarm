@@ -226,6 +226,16 @@ with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() a
     off = run({"command": "rm -rf /"}, entry=disarmed)
     check("the config toggle turns the guard off", off.returncode == 0, off.stderr)
 
+    # The workloop controller asks this way. It runs a --verify command with no
+    # PreToolUse hook in front of it, so the toggle that governs the hook must
+    # not take its floor away.
+    forced = subprocess.run(
+        [sys.executable, str(pathlib.Path(off_dir) / ".agents/hooks/lib/guard-destructive.py"),
+         "--force"],
+        input=json.dumps({"command": "rm -rf /"}), text=True, capture_output=True)
+    check("--force keeps the verdict when the toggle is off",
+          forced.returncode == 2, forced.stderr)
+
     # The guard must run when nothing states a preference, or a repository that
     # never wrote a config would ship unguarded.
     with tempfile.TemporaryDirectory() as bare_dir:
