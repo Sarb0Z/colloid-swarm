@@ -22,6 +22,25 @@ EOF
 chmod +x "$scratch/bin/npm"
 export PATH="$scratch/bin:$PATH" NPM_LOG="$scratch/npm.log"
 
+# A recording docker so reaping is observed without a daemon: `ps -aq` with a
+# colloid label filter answers with canned ids, everything else is logged.
+cat > "$scratch/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${DOCKER_LOG:?}"
+case "$*" in
+  "ps -aq --filter label=colloid.run="*"--filter label=colloid.lane="*) printf 'c1\nc2\n' ;;
+  "network ls -q --filter label=colloid.run="*) printf 'n1\n' ;;
+  "ps -aq --filter label=com.docker.compose.project=res-plain") printf 'compose1\n' ;;
+  "ps -aq --filter label=com.docker.compose.project=res-x") printf 'stranger\n' ;;
+  "volume ls -q --filter label=colloid.run=res --filter label=colloid.lane=plain") printf 'v1\n' ;;
+  "volume rm -f v1") echo "volume is in use" >&2; exit 1 ;;
+  *) : ;;
+esac
+exit 0
+EOF
+chmod +x "$scratch/bin/docker"
+export DOCKER_LOG="$scratch/docker.log"
+
 git init -q "$work"
 git -C "$work" config user.email test@example.com
 git -C "$work" config user.name test
@@ -275,6 +294,45 @@ mkdir -p "$sp/docs"; printf 'r\n' > "$sp/docs/r.md"; commit "$sp" review
 [[ -f "$scratch/lane-sparse-t/src/app.txt" ]] || fail "--also directory absent from the cone"
 mkdir -p "$scratch/lane-sparse-t/tests"; printf 'x\n' > "$scratch/lane-sparse-t/tests/new.txt"; git -C "$scratch/lane-sparse-t" add tests/new.txt || fail "a file inside the cone could not be staged"
 ok "a sparse lane holds its owned and --also directories plus root files, and stages what lands inside them"
+
+
+# ── leases, progress, and reaping by ownership ───────────────────────────────
+"${tool[@]}" init res --objective x --acceptance y --repo "$work"
+"${tool[@]}" add-lane res browser-a --worker implementer --workspace "$scratch/lane-ra" --path src --exclusive playwright >/dev/null 2>&1
+"${tool[@]}" add-lane res browser-b --worker implementer --workspace "$scratch/lane-rb" --path tests --exclusive playwright >/dev/null 2>&1
+"${tool[@]}" add-lane res plain --worker implementer --workspace "$scratch/lane-rp" --path docs >/dev/null 2>&1
+"${tool[@]}" claim res browser-a --agent ra
+expect 'exclusive resource in use: browser-a holds playwright' "${tool[@]}" claim res browser-b --agent rb
+"${tool[@]}" claim res plain --agent rp
+ok "a second lane cannot claim a held exclusive resource; an unrelated lane can"
+expect 'COLLOID_RUN=res COLLOID_LANE=browser-a COMPOSE_PROJECT_NAME=res-browser-a' "${tool[@]}" brief res browser-a
+expect 'Exclusive: playwright' "${tool[@]}" brief res browser-a
+expect 'Do not run the end-to-end or browser suite here' "${tool[@]}" brief res plain
+ok "the brief exports the lane's environment, its lease, and the narrow-acceptance rule"
+"${tool[@]}" heartbeat res plain --agent rp --progress 'migrations 3/9'
+expect $'plain\tactive\tpending=0\timplementer\tdocs\tmigrations 3/9' "${tool[@]}" status res
+ok "an ordinary lane's heartbeat carries progress and status shows it"
+: > "$DOCKER_LOG"
+expect 'reaped 3 docker resource(s)' "${tool[@]}" release-stale res browser-a --reason 'worker gone'
+grep -q 'rm -f c1 c2' "$DOCKER_LOG" && grep -q 'network rm n1' "$DOCKER_LOG" || fail "release-stale did not remove the lane's labelled resources: $(cat "$DOCKER_LOG")"
+grep -q -- '--filter label=colloid.run=res --filter label=colloid.lane=browser-a' "$DOCKER_LOG" || fail "reap did not filter by run and lane labels"
+"${tool[@]}" claim res browser-b --agent rb
+ok "releasing a lane reaps what it started by label and frees its lease"
+: > "$DOCKER_LOG"
+set +e; out="$("${tool[@]}" reap res --lane plain 2>&1)"; rc=$?; set -e
+[[ $rc -ne 0 && "$out" == *"NOT removed: volumes v1: volume is in use"* && "$out" == *"reaped 4 docker resource(s)"* ]] || fail "a refused removal was not surfaced: rc=$rc $out"
+grep -q 'label=colloid.lane=plain' "$DOCKER_LOG" || fail "reap --lane did not target the lane"
+ok "reap reports what it removed and what docker refused, and fails on a refusal"
+: > "$DOCKER_LOG"
+"${tool[@]}" reap res >/dev/null 2>&1 || true
+grep -q 'compose.project=res-plain' "$DOCKER_LOG" || fail "a lane's compose project was not queried"
+! grep -q 'compose.project=res-x' "$DOCKER_LOG" || fail "a compose project that is not a lane was queried"
+! grep -q 'stranger' "$DOCKER_LOG" || fail "a stranger's compose project was reaped"
+grep -q 'rm -f .*compose1' "$DOCKER_LOG" || fail "the lane's compose container was not removed"
+ok "reap matches compose projects exactly against the run's lanes"
+if "${tool[@]}" init BadName --objective x --acceptance y --repo "$work" 2>/dev/null; then fail 'an uppercase run name was accepted'; fi
+if "${tool[@]}" add-lane res 'my lane' --worker implementer --workspace "$scratch/lane-bad" --path src 2>/dev/null; then fail 'a lane name with a space was accepted'; fi
+ok "run and lane names are constrained to what compose and labels accept"
 
 # ── supervised messaging ──────────────────────────────────────────────────────
 "${tool[@]}" init supervised --objective x --acceptance y --repo "$work" --supervised

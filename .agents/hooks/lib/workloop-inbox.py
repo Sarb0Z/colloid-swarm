@@ -24,6 +24,12 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+try:
+    import workloop_docker as wd  # noqa: E402
+except ImportError:  # a trimmed export without the controller still gets the digest
+    wd = None  # type: ignore[assignment]
+
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
 # file is written before the host reads the block, so a delivery must never
@@ -77,9 +83,47 @@ def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -> tup
     return "\n".join(lines), delivered
 
 
-def main_block(runs: dict) -> str:
+def cells_path(seen_dir: Path, session: str) -> Path:
+    return seen_dir / f".cells-{re.sub(r'[^A-Za-z0-9_-]', '', session)}"
+
+
+def record_cell(seen_dir: Path, session: str, agent_id: str, event: str) -> None:
+    """Keep the session's own record of which subagents are running.
+
+    Every subagent, reader or writer, is listed from its start to its stop —
+    the parallel-writers gate tracks writers only and tells an operator to
+    delete its file, so it is not a liveness source. `started` survives a
+    stop, so a claimant that came and went is still known to be ours.
+    """
+    path = cells_path(seen_dir, session)
+    try:
+        lines = [line for line in path.read_text().splitlines() if line]
+    except OSError:
+        lines = []
+    entries = dict(line.split("\t", 1) for line in lines if "\t" in line)
+    if event == "SubagentStart":
+        entries[agent_id] = "live"
+    elif event == "SubagentStop" and agent_id in entries:
+        entries[agent_id] = "stopped"
+    else:
+        return
+    path.write_text("".join(f"{key}\t{value}\n" for key, value in sorted(entries.items())))
+
+
+def dead_claimants(seen_dir: Path, session: str) -> tuple[set[str], set[str]]:
+    """Agent ids this session started, and the subset still live."""
+    try:
+        lines = [line for line in cells_path(seen_dir, session).read_text().splitlines() if "\t" in line]
+    except OSError:
+        return set(), set()
+    entries = dict(line.split("\t", 1) for line in lines)
+    return set(entries), {key for key, value in entries.items() if value == "live"}
+
+
+def main_block(runs: dict, seen_dir: Path | None = None, session: str = "") -> str:
     now = time.time()
     lines: list[str] = []
+    ours, live = dead_claimants(seen_dir, session) if seen_dir else (set(), set())
     for run_name, run in sorted(runs.items()):
         notes: list[str] = []
         for lane_name, lane in sorted(run["lanes"].items()):
@@ -89,15 +133,27 @@ def main_block(runs: dict) -> str:
             if lane.get("attention"):
                 notes.append(f"{lane_name} carries {lane['attention'].get('severity', 'attention')}")
             if state == "active":
+                claimant = lane.get("claimed_by") or ""
+                if wd is not None and claimant in ours and claimant not in live:
+                    # The worker stopped without handing the lane back. What it
+                    # started in Docker is owned by the lane, so it goes now;
+                    # the lane itself waits for the lead's release-stale.
+                    result = wd.reap(run_name, sorted(run["lanes"]), lane_name)
+                    tail = f"; {wd.summary(result)}" if (wd.removed_count(result) or result["failed"]) else ""
+                    notes.append(f"{lane_name}'s worker {claimant} has stopped without submitting{tail} — release-stale {run_name} {lane_name} to reopen it")
+                    continue
                 # A heartbeat is a contract only under --supervised; an ordinary
                 # lane that has simply been working for a while is not stale.
                 beat = stamp(lane.get("heartbeat_at") or lane.get("claimed_at"))
+                progress = f" — {lane['progress']}" if lane.get("progress") else ""
                 if beat is not None and now - beat > STALE_SECONDS:
                     minutes = int((now - beat) // 60)
                     if run.get("supervised"):
-                        notes.append(f"{lane_name} stale {minutes}m (release-stale if its worker is gone)")
+                        notes.append(f"{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)")
                     else:
-                        notes.append(f"{lane_name} active {minutes}m")
+                        notes.append(f"{lane_name} active {minutes}m{progress}")
+                elif progress:
+                    notes.append(f"{lane_name}{progress}")
             if lane.get("env") == "broken":
                 notes.append(f"{lane_name} environment broken (provision {run_name} {lane_name})")
         pending = [m["id"] for m in run.get("messages", []) if m["requires_ack"] and not m.get("acknowledged_at")]
@@ -107,11 +163,16 @@ def main_block(runs: dict) -> str:
             notes.append(f"all lanes reviewed; integrate {run_name}")
         if notes:
             lines.append(f"WORKLOOP {run_name}: " + "; ".join(notes) + f". Status: .agents/workloop.py status {run_name}")
+    orphans = wd.foreign_orphans() if (runs and wd is not None) else []
+    if orphans:
+        lines.append("Not ours, still running with no reaper: " + "; ".join(orphans[:5]) + (f"; and {len(orphans) - 5} more" if len(orphans) > 5 else ""))
     return "\n".join(lines)
 
 
 def main() -> None:
     state_path, seen_dir, session, event, agent_id = (Path(sys.argv[1]), Path(sys.argv[2]), *sys.argv[3:6])
+    if agent_id:
+        record_cell(seen_dir, session, agent_id, event)
     runs = live_runs(load(state_path))
     if not runs:
         return
@@ -126,7 +187,7 @@ def main() -> None:
         if delivered:
             seen_path.write_text("\n".join(sorted(seen | delivered)) + "\n")
     else:
-        block = main_block(runs)
+        block = main_block(runs, seen_dir, session)
     if block:
         print(block)
 

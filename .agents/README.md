@@ -127,8 +127,11 @@ For a durable, parallel implementation/review cycle, use the `workloop` skill
 and `.agents/workloop.py`. It holds lane ownership, evidence, review references,
 attention acknowledgements, and the QA completion gate in ignored runtime state;
 it creates and provisions each lane's worktree, refuses a claim whose lockfiles
-moved since the install, verifies the merged lanes once with `integrate`, and
-removes what it created with `teardown`. The controller is portable and exports
+moved since the install, leases named exclusive resources between lanes,
+verifies the merged lanes once with `integrate`, and removes what it created
+with `teardown` — worktrees, branches it has landed, and Docker resources
+labelled with the run and lane. A lane whose worker stopped without
+submitting has its labelled resources reaped at the lead's next prompt. The controller is portable and exports
 with the scaffold; it prepares prompts but does not attempt host-specific agent
 dispatch.
 

@@ -9,11 +9,13 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
+import workloop_docker as wd
 import workloop_git as wg
 
 
@@ -179,7 +181,19 @@ def parse_stamp(value: str) -> float:
     return float(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")))
 
 
+NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
+
+
+def valid_name(kind: str, value: str) -> None:
+    # Run and lane names become compose project names and docker labels;
+    # compose lowercases and strips what it does not accept, and a name it
+    # rewrote would never match the one the controller reaps by.
+    if not NAME.fullmatch(value):
+        fail(f"{kind} name {value!r} must be lowercase letters, digits, '-' or '_', starting with a letter or digit")
+
+
 def cmd_init(args: argparse.Namespace) -> None:
+    valid_name("run", args.run)
     if args.max_lanes < 1 or args.message_limit < 1:
         fail("max-lanes and message-limit must be positive")
     repo = wg.toplevel(args.repo or Path.cwd())
@@ -212,6 +226,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 
 def cmd_add_lane(args: argparse.Namespace) -> None:
+    valid_name("lane", args.lane)
     paths = [normalize_path(path) for path in args.path]
     if len(set(paths)) != len(paths):
         fail("a lane cannot declare the same path twice")
@@ -251,6 +266,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
                 "sparse": wg.cone_for(repo, base, paths, args.also or []) if args.sparse else None,
                 "paths": paths,
                 "depends_on": dependencies,
+                "exclusive": sorted(set(args.exclusive or [])),
                 "state": "ready",
                 "env": "pending",
                 "lock_hash": None,
@@ -311,6 +327,15 @@ def cmd_claim(args: argparse.Namespace) -> None:
                   if name != args.lane and other["state"] == "active" and other["workspace"] == lane["workspace"]]
         if shared:
             fail("concurrent writing lanes need separate Git worktrees; shared with " + ", ".join(shared))
+        # A named exclusive resource is held by one active lane at a time —
+        # a browser pool, a device, one shared service that cannot be given
+        # a copy per lane. The next lane waits rather than contends.
+        held = {name: other for name, other in run["lanes"].items()
+                if name != args.lane and other["state"] == "active"
+                and set(other.get("exclusive") or []) & set(lane.get("exclusive") or [])}
+        if held:
+            holders = "; ".join(f"{name} holds {', '.join(sorted(set(other['exclusive']) & set(lane['exclusive'])))}" for name, other in held.items())
+            fail(f"exclusive resource in use: {holders}. Claim again when that lane submits or is released.")
         # A lane whose lockfiles moved since its install would fail its first
         # test on a missing module and read that as a code defect.
         repair = f"run: .agents/workloop.py provision {args.run} {args.lane}"
@@ -416,7 +441,10 @@ def cmd_release_stale(args: argparse.Namespace) -> None:
         lane.pop("claimed_by", None)
         lane.pop("claimed_at", None)
         record(args.run, run, "release-stale", args.lane, args.reason, args.event_id)
-    print(f"released stale claim for lane {args.lane!r}")
+        lane_names = sorted(run["lanes"])
+    # The worker is gone; what it started in Docker is not.
+    result = wd.reap(args.run, lane_names, args.lane)
+    print(f"released stale claim for lane {args.lane!r}; {wd.summary(result)}")
 
 
 def cmd_qa(args: argparse.Namespace) -> None:
@@ -497,6 +525,10 @@ def cmd_brief(args: argparse.Namespace) -> None:
         *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
         "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
+        f"Environment: export COLLOID_RUN={args.run} COLLOID_LANE={args.lane} COMPOSE_PROJECT_NAME={wd.project_name(args.run, args.lane)}. Label what only this lane uses with --label colloid.run={args.run} --label colloid.lane={args.lane} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={args.run} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
+        *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
+        "Run only the narrowest acceptance for your slice. Do not run the end-to-end or browser suite here: integrate runs --verify once over the merged tree.",
+        f"Progress: {command} heartbeat {args.run} {args.lane} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
         "Do not edit outside owned paths. Preserve unrelated work. Record executable evidence before handoff.",
         supervised,
         f"State: {command} status {args.run}",
@@ -514,7 +546,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         for name, lane in sorted(run["lanes"].items()):
             attention = " attention" if lane["attention"] else ""
             pending = len(pending_messages(run, name))
-            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}")
+            progress = f"\t{lane['progress']}" if lane.get("progress") else ""
+            lease = f"\texclusive={','.join(lane['exclusive'])}" if lane.get("exclusive") else ""
+            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}{lease}{progress}")
         print("qa\t" + (run["qa"]["evidence"] if run["qa"] else "pending"))
 
 
@@ -576,11 +610,30 @@ def cmd_ack_message(args: argparse.Namespace) -> None:
 def cmd_heartbeat(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run); lane = lane_of(run, args.lane)
-        if not run["supervised"] or lane.get("claimed_by") != args.agent:
-            fail("heartbeat requires a supervised lane claimed by this agent")
-        lane["heartbeat_at"] = now(); record(args.run, run, "heartbeat", args.lane, args.agent, args.event_id)
+        if lane.get("claimed_by") != args.agent:
+            fail("heartbeat requires a lane claimed by this agent")
+        # The payload is what separates a slow lane from a dead one: the
+        # lead's digest shows it beside the age.
+        lane["heartbeat_at"] = now()
+        if args.progress:
+            lane["progress"] = args.progress
+        record(args.run, run, "heartbeat", args.lane, args.progress or args.agent, args.event_id)
     print(f"heartbeat recorded for {args.lane!r}")
 
+
+def cmd_reap(args: argparse.Namespace) -> None:
+    with ReadStore(state_path(args.state)) as data:
+        run = run_of(data, args.run)
+        lane_names = sorted(run["lanes"])
+        if args.lane:
+            lane_of(run, args.lane)
+    result = wd.reap(args.run, lane_names, args.lane)
+    scope = f"lane {args.lane!r}" if args.lane else f"run {args.run!r}"
+    print(f"{scope}: {wd.summary(result)}")
+    for line in wd.foreign_orphans():
+        print(f"not ours, still running: {line}")
+    if result["failed"]:
+        raise SystemExit(1)
 
 def cmd_watch(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
@@ -719,6 +772,9 @@ def cmd_teardown(args: argparse.Namespace) -> None:
     # branch git refuses to drop, leaves a report rather than a run that no
     # command can move forward.
     removed, kept, errors = [], [], []
+    docker_result = wd.reap(args.run, sorted(lanes))
+    docker_removed = wd.removed_count(docker_result)
+    errors.extend(docker_result["failed"])
     wg.git(repo, "worktree", "prune", check=False)
     targets = [(f"lane {name}", workspace, branch, f"not merged into {head[:12]}") for name, (workspace, branch) in sorted(lanes.items())]
     targets.append(("integration", integration.get("workspace"), f"{args.run}/integration",
@@ -739,7 +795,7 @@ def cmd_teardown(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         run["torn_down"] = {"at": now(), "removed": removed, "kept": kept, "errors": errors}
         record(args.run, run, "teardown", detail=f"removed {len(removed)}, kept {len(kept)}, errors {len(errors)}", supplied=args.event_id)
-    print(f"removed {len(removed)} worktree(s)")
+    print(f"removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)")
     for line in kept:
         print(f"kept branch {line}")
     if errors:
@@ -754,7 +810,7 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--event-id", help="idempotency key for a mutating command")
     sub = root.add_subparsers(required=True)
     init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="test command run once over the composed tree by integrate"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.set_defaults(func=cmd_init)
-    add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="check out only the owned directories (and --also ones)"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.set_defaults(func=cmd_add_lane)
+    add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="check out only the owned directories (and --also ones)"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.set_defaults(func=cmd_add_lane)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
     review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", default="P1"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
@@ -771,7 +827,8 @@ def parser() -> argparse.ArgumentParser:
     send = sub.add_parser("send"); send.add_argument("run"); send.add_argument("--from-lane", required=True); send.add_argument("--to-lane", required=True); send.add_argument("--agent", required=True); send.add_argument("--kind", choices=("finding", "blocked", "evidence-ready", "status"), required=True); send.add_argument("--message", required=True); send.add_argument("--reference", default=""); send.add_argument("--requires-ack", action="store_true"); send.set_defaults(func=cmd_send)
     inbox = sub.add_parser("inbox"); inbox.add_argument("run"); inbox.add_argument("lane"); inbox.set_defaults(func=cmd_inbox)
     ack_message = sub.add_parser("ack-message"); ack_message.add_argument("run"); ack_message.add_argument("lane"); ack_message.add_argument("message_id"); ack_message.add_argument("--agent", required=True); ack_message.set_defaults(func=cmd_ack_message)
-    beat = sub.add_parser("heartbeat"); beat.add_argument("run"); beat.add_argument("lane"); beat.add_argument("--agent", required=True); beat.set_defaults(func=cmd_heartbeat)
+    beat = sub.add_parser("heartbeat"); beat.add_argument("run"); beat.add_argument("lane"); beat.add_argument("--agent", required=True); beat.add_argument("--progress", help="what the lane is doing right now"); beat.set_defaults(func=cmd_heartbeat)
+    reap = sub.add_parser("reap"); reap.add_argument("run"); reap.add_argument("--lane"); reap.set_defaults(func=cmd_reap)
     watch = sub.add_parser("watch"); watch.add_argument("run"); watch.add_argument("--stale-seconds", type=int, default=900); watch.set_defaults(func=cmd_watch)
     archive = sub.add_parser("archive"); archive.add_argument("run"); archive.set_defaults(func=cmd_archive)
     return root
