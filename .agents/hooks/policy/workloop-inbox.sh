@@ -45,8 +45,12 @@ for k in ("project_dir", "event", "session_id", "agent_id"):
 [[ -n "$proj" && -n "$session" ]] || exit 0
 state="$proj/.agents/.workloop-state.json"
 # A repository that never runs a workloop pays one interpreter start per
-# event and nothing more: the toggle is read only once there is state.
-[[ -f "$state" ]] || exit 0
+# event and nothing more: the toggle is read only once there is state. A
+# subagent's start or stop is still recorded, so a run begun mid-session
+# knows which cells it can trust as its own.
+if [[ ! -f "$state" ]]; then
+  [[ -n "$agent_id" && ( "$event" == "SubagentStart" || "$event" == "SubagentStop" ) ]] || exit 0
+fi
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
