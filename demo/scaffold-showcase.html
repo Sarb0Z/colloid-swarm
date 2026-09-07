@@ -288,13 +288,13 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, twelve enforcement hooks, sixteen skills, and an evidence trail —
+      A hostile-review workflow, seventeen enforcement hooks, sixteen skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">Research → plan → attack → implement → attack. Principles, communication, delegation.</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">6 gates · 4 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">12 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">10 gates · 5 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">17 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
       <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">16 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
@@ -375,7 +375,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 87 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 90 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
@@ -394,7 +394,7 @@ In priority order. Resolve conflicts top-down.
 2. **Plan.** Use plan mode for non-trivial work; skip it for trivial edits. Outline affected modules, constraints, and the one or two options worth considering. Ask one focused question to resolve an ambiguity or choose between valid approaches. Classify high-stakes changes (auth, data loss, money, prod config) up front, even when the plan is skipped, and state the one claim step 5&#x27;s QA must independently reproduce. When unsure, classify as high-stakes; never downgrade.
 3. **Hostile-review the plan.** Run `.agents/playbooks/hostile-review.md` once for the slice, with the plan as the artifact. Settle every `P0` and `P1` before you write code.
 4. **Implement, then test.** Tie every fix to observed evidence: a reproduced defect, or system, user, log, or test output. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment. Simulate destructive or scarce operations and state what remains unverified. If anything fails, diagnose and fix; if the fix forces a redesign, return to step 1. Done means the user-facing surface completes the job; a backend path the product cannot reach is not done.
-5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always for a high-stakes claim. Fix failures and re-run the failed scenario.
+5. **QA changed behavior.** Run `qa-verifier` after implementation tests and before final review when behavior is observable; always for a high-stakes claim. Fix failures and re-run the failed scenario. Close the browsers and stop the processes the verification started before reporting its result.
 6. **Hostile-review the implementation.** Run the same playbook once over the slice&#x27;s diff.
 
 The playbook is the reviewer contract, the disposition rules, and the stop condition. Read it; do not restate it here — `.agents/eval/review-harness` grades against it, so a paraphrase would ship one review and measure another.
@@ -427,6 +427,9 @@ Keep the requested deliverable on the critical path. Work end to end: investigat
 ### Long-running work
 Design stateful long-running workflows to survive interruption: preserve completed work across reruns, resume from the last valid checkpoint, make retries idempotent where practical, contain partial failure, do not consume their own output, and expose phase, progress, errors, and recovery state. While an operation runs, monitor its output and report measured progress, anomalies, and the next action unprompted. A successful process exit is not inspection of the final state.
 
+### Tear down what you start
+A process the agent starts must be stopped by the agent, and the machine it ran on is the user&#x27;s. Judge the moment by restart cost, not by rule. A browser page or an Appium device session must close as soon as the last interaction is observed; each holds a process or a device that the next run cannot reuse, and reconnecting is cheap. A dev server, an Appium server, a Metro bundler, a test watcher, or any other backgrounded shell should stop at the end of the turn that needed it. A container, a compose stack, a build watcher, or a booted emulator carries image pulls, migrations, a warm cache, or a minute of boot, so it is worth keeping while the work continues and must come down once the work is done. Keep one past its moment only when the user asked for it or the next step needs it, and say which and why. `.agents/hooks/policy/teardown-gate.sh` enforces the floor; the judgment is still the agent&#x27;s.
+
 ### Estimate in tokens, not time
 Size work and effort in tokens (context/output budget), never wall-clock time. &quot;~30k tokens&quot; or &quot;a few hundred lines&quot;, not &quot;about an hour&quot;.
 
@@ -449,7 +452,7 @@ Write for a reader who has not read the code. The user directs the work and know
 
 ## Subagent Delegation
 
-Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator&#x27;s own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator&#x27;s own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
+Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator&#x27;s own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator&#x27;s own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Two or more writers working at the same time go through a `workloop` run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees; a single writer edits the main tree. `parallel-writers-gate.sh` enforces this at dispatch, whatever the workflow was called: it reads the `subagent_type`, treats every persona not on its read-only list as a writer, and denies a second writer while another is live unless the prompt is a workloop brief; a generic cell that only reads says so by starting its prompt with `READ-ONLY`. The lead&#x27;s own edit is denied while an uncoordinated writer is live. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
 
 | Tier | Claude | Codex | Use |
 | --- | --- | --- | --- |
@@ -556,7 +559,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 225 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 248 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -625,6 +628,16 @@ if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -n &quot;
   fi
 fi
 
+# The parallel-writers gate tracks live writer cells per session. No cell
+# survives the process, so a fresh start or a resume begins with none live;
+# a compaction continues the same process, where background cells may still
+# be running, and leaves the record alone.
+if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; != &quot;compact&quot; ]]; then
+  writers_session=&quot;$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot;
+  rm -rf &quot;$proj/.agents/.writers-live-$writers_session&quot; &quot;$proj/.agents/.writers-turn-$writers_session&quot; \
+         &quot;$proj/.agents/.writers-lock-$writers_session&quot; &quot;$proj/.agents/.cells-$writers_session&quot; 2&gt;/dev/null || true
+fi
+
 items=&quot;&quot;
 open=&quot;&quot;
 crumbs=&quot;$proj/.agents/breadcrumbs.md&quot;
@@ -676,8 +689,15 @@ if [[ &quot;$learning_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lear
   learning_body=&quot;$(cat &quot;$learning_playbook&quot;)&quot;
 fi
 
+# A run mid-flight is the first thing a resumed lead needs to know about;
+# the digest is the same one workloop-inbox.sh gives at each prompt.
+workloop_digest=&quot;&quot;
+if [[ -f &quot;$proj/.agents/.workloop-state.json&quot; &amp;&amp; -f &quot;$lib/workloop-inbox.py&quot; ]]; then
+  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; 2&gt;/dev/null || true)&quot;
+fi
+
 # Nothing to surface.
-[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$workloop_digest&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
   # One blank line between sections, none before the first.
@@ -724,6 +744,12 @@ subagent so it runs in an isolated context.
 Trivial exception — a fix under ~15 minutes in a file A already touches may be
 done inline. Everything else goes through this gate.
 EOF
+  fi
+
+  if [[ -n &quot;$workloop_digest&quot; ]]; then
+    section
+    echo &quot;Workloop runs in flight (.agents/.workloop-state.json — lanes, messages, and gates a lead owns):&quot;
+    printf &#x27;%s\n&#x27; &quot;$workloop_digest&quot;
   fi
 
   if [[ -n &quot;$open&quot; ]]; then
@@ -935,6 +961,289 @@ stamp=&quot;$(&quot;$repo/.agents/genome.sh&quot; 2&gt;/dev/null)&quot; || exit 
 
 printf &#x27;%s&#x27; &quot;$stamp&quot; | python3 &quot;$lib/emit-context.py&quot; SubagentStart
 exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">worktree-provision</span><span class="badge gate">gate</span></div>
+              <p class="what">A cell spawned into its own worktree finds its dependencies already installed. Reads the lockfiles, installs frozen with lifecycle scripts off, and memoizes the hash in that worktree&#x27;s private git dir, so a second cell on an unchanged lockfile costs nothing. An install that fails blocks the cell from starting rather than handing it a half-built environment to misread as a code defect.</p>
+              <div class="io"><b>in</b> {cwd, agent_type} &nbsp;→&nbsp; <b>out</b> additionalContext | exit 2 + reason</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 75 lines</span></summary><div class="srcpath">.agents/hooks/policy/worktree-provision.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: a subagent that starts inside a linked worktree
+# gets that worktree&#x27;s dependencies installed before its first turn.
+#
+# A worktree is a fresh checkout: no node_modules, no .venv, nothing a test
+# can run against. Left alone, the cell&#x27;s first red test reads as a code
+# defect and it starts patching source to satisfy a missing module. So the
+# start of the cell is the moment to provision — after the checkout exists,
+# before any reasoning has happened — and a provision that fails blocks the
+# start (exit 2) rather than handing over a half-built tree.
+#
+# Input (stdin JSON): {&quot;project_dir&quot;: ..., &quot;cwd&quot;: ..., &quot;agent_type&quot;: ...}
+# Output: exit 0 silently for a subagent in the main checkout at any depth;
+#   additionalContext naming what was installed for one in a linked worktree;
+#   exit 2 with provision.sh&#x27;s reason when the install fails or expires.
+#
+# The install runs with lifecycle scripts off unless config says otherwise,
+# because nothing here passes a PreToolUse guard: see provision.sh.
+#
+# Claude runs this under its 600 s command-hook budget and discards a hook
+# that outruns it — no decision, subagent starts anyway. provision.sh&#x27;s own
+# 540 s deadline is therefore the gate that actually holds.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+
+payload=&quot;$(cat)&quot;
+{ read -r enabled; read -r allow_scripts; read -r share; } &lt; &lt;(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; \
+  hooks.worktree_provision.enabled=true hooks.worktree_provision.allow_scripts=false hooks.worktree_provision.share=true)
+[[ &quot;$enabled&quot; == &quot;yes&quot; ]] || exit 0
+
+{ read -r cwd; read -r project_dir; } &lt; &lt;(printf &#x27;%s&#x27; &quot;$payload&quot; | python3 -c &#x27;
+import json, sys
+p = json.load(sys.stdin)
+print(p.get(&quot;cwd&quot;) or &quot;&quot;); print(p.get(&quot;project_dir&quot;) or &quot;&quot;)&#x27;)
+[[ -n &quot;$cwd&quot; &amp;&amp; -d &quot;$cwd&quot; ]] || exit 0
+
+canon() { ( cd &quot;$1&quot; 2&gt;/dev/null &amp;&amp; pwd -P ); }
+
+# The session&#x27;s own directory is never an isolation worktree, even when the
+# operator launched Claude from a linked worktree: installing there would
+# rebuild their node_modules under them. project_dir stays at the launch
+# directory while an isolated cell&#x27;s cwd moves under .claude/worktrees/, so
+# the two differ exactly for the cells this policy is for.
+if [[ -n &quot;$project_dir&quot; &amp;&amp; &quot;$(canon &quot;$cwd&quot;)&quot; == &quot;$(canon &quot;$project_dir&quot;)&quot; &amp;&amp; &quot;$cwd&quot; != */.claude/worktrees/* ]]; then
+  exit 0
+fi
+
+# A linked worktree is one whose private git dir differs from the shared
+# one. Compare canonical paths: rev-parse prints the two in different forms
+# from a subdirectory, so string equality would misread the main checkout.
+gitdir=&quot;$(git -C &quot;$cwd&quot; rev-parse --path-format=absolute --git-dir 2&gt;/dev/null)&quot; || exit 0
+common=&quot;$(git -C &quot;$cwd&quot; rev-parse --path-format=absolute --git-common-dir 2&gt;/dev/null)&quot; || exit 0
+[[ &quot;$(canon &quot;$gitdir&quot;)&quot; != &quot;$(canon &quot;$common&quot;)&quot; ]] || exit 0
+
+top=&quot;$(git -C &quot;$cwd&quot; rev-parse --show-toplevel)&quot;
+
+export_scripts=&quot;&quot;
+[[ &quot;$allow_scripts&quot; == &quot;yes&quot; ]] &amp;&amp; export_scripts=1
+# The session&#x27;s checkout is the natural source: a lane branched from it and,
+# unless the lane changed a lockfile, carries the same dependencies.
+share_from=&quot;&quot;
+[[ &quot;$share&quot; == &quot;yes&quot; &amp;&amp; -n &quot;$project_dir&quot; ]] &amp;&amp; share_from=&quot;$project_dir&quot;
+result=&quot;$(PROVISION_ALLOW_SCRIPTS=&quot;${export_scripts:-0}&quot; PROVISION_SHARE_FROM=&quot;$share_from&quot; &quot;$repo/.agents/provision.sh&quot; &quot;$top&quot; 2&gt;&amp;1)&quot; || {
+  printf &#x27;%s\n&#x27; &quot;$result&quot; &gt;&amp;2
+  exit 2
+}
+
+body=&quot;Worktree $top — $result. Run tests here; a failure naming a missing module, binary, or runtime version is an environment failure, not a code failure: run .agents/provision.sh . and rerun before touching source.&quot;
+[[ &quot;$result&quot; == *&quot;shared from&quot;* ]] &amp;&amp; body=&quot;$body node_modules here is a link into the session checkout: never install into it — change the lockfile and run .agents/provision.sh ., which gives this worktree its own tree.&quot;
+printf &#x27;%s&#x27; &quot;$body&quot; | python3 &quot;$lib/emit-context.py&quot; SubagentStart
+exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="context">
+              <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
+              <p class="what">Carries a parallel run&#x27;s messages without polling. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; the lead hears at every prompt which lanes await review, carry a finding, have gone quiet, or are ready to integrate — and a lane whose worker stopped without submitting is reaped.</p>
+              <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 196 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
+
+Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt;
+
+Prints the block, or nothing when there is nothing new. The state file is
+the controller&#x27;s own; this reads it and never writes it. Delivery is
+remembered per agent in &lt;seen-dir&gt;/.inbox-seen-&lt;session&gt;-&lt;agent&gt;, so a
+message is injected once and its acknowledgement still goes through
+`ack-message`.
+
+A subagent hears: its host agent id at start, so it can claim its lane with
+that id; and, once it has claimed, every unread message addressed to its
+lane. The main agent hears a digest of every run not torn down: lanes
+awaiting review, lanes carrying attention, lanes whose heartbeat is stale.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import calendar
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+try:
+    import workloop_docker as wd  # noqa: E402
+except ImportError:  # a trimmed export without the controller still gets the digest
+    wd = None  # type: ignore[assignment]
+
+STALE_SECONDS = 900
+# Hook output is capped by the host and discarded on timeout, and the seen
+# file is written before the host reads the block, so a delivery must never
+# be larger than what is sure to arrive; the rest stays unseen for next time.
+MAX_DELIVER = 8
+
+
+def load(path: Path) -&gt; dict:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data.get(&quot;runs&quot;, {}) if isinstance(data, dict) else {}
+
+
+def stamp(value: str | None) -&gt; float | None:
+    if not value:
+        return None
+    try:
+        return float(calendar.timegm(time.strptime(value, &quot;%Y-%m-%dT%H:%M:%SZ&quot;)))
+    except ValueError:
+        return None
+
+
+def live_runs(runs: dict) -&gt; dict:
+    return {name: run for name, run in runs.items() if not run.get(&quot;torn_down&quot;)}
+
+
+def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -&gt; tuple[str, set[str]]:
+    lines: list[str] = []
+    # The id matters to a cell that can act on it: one with a lane to claim,
+    # or one that already holds a lane.
+    claimable = any(lane.get(&quot;state&quot;) in (&quot;ready&quot;, &quot;reopened&quot;) or lane.get(&quot;claimed_by&quot;) == agent_id
+                    for run in runs.values() for lane in run[&quot;lanes&quot;].values())
+    if event == &quot;SubagentStart&quot; and claimable:
+        lines.append(f&quot;AGENT_ID: {agent_id} — claim your workloop lane and send or acknowledge messages with --agent {agent_id}.&quot;)
+    delivered: set[str] = set()
+    for run_name, run in runs.items():
+        mine = [name for name, lane in run[&quot;lanes&quot;].items() if lane.get(&quot;claimed_by&quot;) == agent_id]
+        for lane_name in mine:
+            for message in run.get(&quot;messages&quot;, []):
+                if message[&quot;to&quot;] != lane_name or message.get(&quot;acknowledged_at&quot;) or message[&quot;id&quot;] in seen:
+                    continue
+                if len(delivered) &gt;= MAX_DELIVER:
+                    lines.append(f&quot;WORKLOOP: more messages wait for {run_name}/{lane_name}; they follow after your next tool call.&quot;)
+                    return &quot;\n&quot;.join(lines), delivered
+                ack = f&quot; — acknowledge before your next handoff: .agents/workloop.py ack-message {run_name} {lane_name} {message[&#x27;id&#x27;]} --agent {agent_id}&quot; if message[&quot;requires_ack&quot;] else &quot;&quot;
+                ref = f&quot; ({message[&#x27;reference&#x27;]})&quot; if message.get(&quot;reference&quot;) else &quot;&quot;
+                lines.append(f&quot;WORKLOOP MESSAGE {run_name}/{lane_name} from {message[&#x27;from&#x27;]} [{message[&#x27;kind&#x27;]}]: {message[&#x27;message&#x27;]}{ref}{ack}&quot;)
+                delivered.add(message[&quot;id&quot;])
+    return &quot;\n&quot;.join(lines), delivered
+
+
+def cells_path(seen_dir: Path, session: str) -&gt; Path:
+    return seen_dir / f&quot;.cells-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, session)}&quot;
+
+
+def record_cell(seen_dir: Path, session: str, agent_id: str, event: str) -&gt; None:
+    &quot;&quot;&quot;Keep the session&#x27;s own record of which subagents are running.
+
+    Every subagent, reader or writer, is listed from its start to its stop —
+    the parallel-writers gate tracks writers only and tells an operator to
+    delete its file, so it is not a liveness source. `started` survives a
+    stop, so a claimant that came and went is still known to be ours.
+    &quot;&quot;&quot;
+    path = cells_path(seen_dir, session)
+    try:
+        lines = [line for line in path.read_text().splitlines() if line]
+    except OSError:
+        lines = []
+    entries = dict(line.split(&quot;\t&quot;, 1) for line in lines if &quot;\t&quot; in line)
+    if event == &quot;SubagentStart&quot;:
+        entries[agent_id] = &quot;live&quot;
+    elif event == &quot;SubagentStop&quot; and agent_id in entries:
+        entries[agent_id] = &quot;stopped&quot;
+    else:
+        return
+    path.write_text(&quot;&quot;.join(f&quot;{key}\t{value}\n&quot; for key, value in sorted(entries.items())))
+
+
+def dead_claimants(seen_dir: Path, session: str) -&gt; tuple[set[str], set[str]]:
+    &quot;&quot;&quot;Agent ids this session started, and the subset still live.&quot;&quot;&quot;
+    try:
+        lines = [line for line in cells_path(seen_dir, session).read_text().splitlines() if &quot;\t&quot; in line]
+    except OSError:
+        return set(), set()
+    entries = dict(line.split(&quot;\t&quot;, 1) for line in lines)
+    return set(entries), {key for key, value in entries.items() if value == &quot;live&quot;}
+
+
+def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&quot;) -&gt; str:
+    now = time.time()
+    lines: list[str] = []
+    ours, live = dead_claimants(seen_dir, session) if seen_dir else (set(), set())
+    for run_name, run in sorted(runs.items()):
+        notes: list[str] = []
+        for lane_name, lane in sorted(run[&quot;lanes&quot;].items()):
+            state = lane.get(&quot;state&quot;)
+            if state == &quot;review&quot;:
+                notes.append(f&quot;{lane_name} awaits review&quot;)
+            if lane.get(&quot;attention&quot;):
+                notes.append(f&quot;{lane_name} carries {lane[&#x27;attention&#x27;].get(&#x27;severity&#x27;, &#x27;attention&#x27;)}&quot;)
+            if state == &quot;active&quot;:
+                claimant = lane.get(&quot;claimed_by&quot;) or &quot;&quot;
+                if wd is not None and claimant in ours and claimant not in live:
+                    # The worker stopped without handing the lane back. What it
+                    # started in Docker is owned by the lane, so it goes now;
+                    # the lane itself waits for the lead&#x27;s release-stale.
+                    result = wd.reap(run_name, sorted(run[&quot;lanes&quot;]), lane_name)
+                    tail = f&quot;; {wd.summary(result)}&quot; if (wd.removed_count(result) or result[&quot;failed&quot;]) else &quot;&quot;
+                    notes.append(f&quot;{lane_name}&#x27;s worker {claimant} has stopped without submitting{tail} — release-stale {run_name} {lane_name} to reopen it&quot;)
+                    continue
+                # A heartbeat is a contract only under --supervised; an ordinary
+                # lane that has simply been working for a while is not stale.
+                beat = stamp(lane.get(&quot;heartbeat_at&quot;) or lane.get(&quot;claimed_at&quot;))
+                progress = f&quot; — {lane[&#x27;progress&#x27;]}&quot; if lane.get(&quot;progress&quot;) else &quot;&quot;
+                if beat is not None and now - beat &gt; STALE_SECONDS:
+                    minutes = int((now - beat) // 60)
+                    if run.get(&quot;supervised&quot;):
+                        notes.append(f&quot;{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)&quot;)
+                    else:
+                        notes.append(f&quot;{lane_name} active {minutes}m{progress}&quot;)
+                elif progress:
+                    notes.append(f&quot;{lane_name}{progress}&quot;)
+            if lane.get(&quot;env&quot;) == &quot;broken&quot;:
+                notes.append(f&quot;{lane_name} environment broken (provision {run_name} {lane_name})&quot;)
+        pending = [m[&quot;id&quot;] for m in run.get(&quot;messages&quot;, []) if m[&quot;requires_ack&quot;] and not m.get(&quot;acknowledged_at&quot;)]
+        if pending:
+            notes.append(f&quot;{len(pending)} message(s) await acknowledgement&quot;)
+        if run.get(&quot;integration&quot;) is None and len(run[&quot;lanes&quot;]) &gt; 1 and all(l.get(&quot;state&quot;) == &quot;reviewed&quot; for l in run[&quot;lanes&quot;].values()):
+            notes.append(f&quot;all lanes reviewed; integrate {run_name}&quot;)
+        if notes:
+            lines.append(f&quot;WORKLOOP {run_name}: &quot; + &quot;; &quot;.join(notes) + f&quot;. Status: .agents/workloop.py status {run_name}&quot;)
+    orphans = wd.foreign_orphans() if (runs and wd is not None) else []
+    if orphans:
+        lines.append(&quot;Not ours, still running with no reaper: &quot; + &quot;; &quot;.join(orphans[:5]) + (f&quot;; and {len(orphans) - 5} more&quot; if len(orphans) &gt; 5 else &quot;&quot;))
+    return &quot;\n&quot;.join(lines)
+
+
+def main() -&gt; None:
+    state_path, seen_dir, session, event, agent_id = (Path(sys.argv[1]), Path(sys.argv[2]), *sys.argv[3:6])
+    if agent_id:
+        record_cell(seen_dir, session, agent_id, event)
+    runs = live_runs(load(state_path))
+    if not runs:
+        return
+    safe = re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, session)
+    if agent_id:
+        seen_path = seen_dir / f&quot;.inbox-seen-{safe}-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, agent_id)}&quot;
+        try:
+            seen = set(seen_path.read_text().split())
+        except OSError:
+            seen = set()
+        block, delivered = subagent_block(runs, agent_id, event, seen)
+        if delivered:
+            seen_path.write_text(&quot;\n&quot;.join(sorted(seen | delivered)) + &quot;\n&quot;)
+    else:
+        block = main_block(runs, seen_dir, session)
+    if block:
+        print(block)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
 </code></pre></details>
             </article>
           </div>
@@ -1428,6 +1737,281 @@ else
   ask_failure &quot;evaluator exited $status; the guard cannot decide safely.&quot; \
     &quot;The publish guard evaluator failed.&quot;
 fi
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">parallel-writers-gate</span><span class="badge gate">gate</span></div>
+              <p class="what">Denies a second writing cell while one is already live, so two agents never edit one tree at once. The way through is a coordinated run: each writer gets its own provisioned worktree, and the composed result is verified once. A cell that only reads says so by opening its prompt with <code>READ-ONLY</code>; the lead&#x27;s own edit is denied while an uncoordinated writer is out.</p>
+              <div class="io"><b>in</b> {subagent_type, prompt} &nbsp;→&nbsp; <b>out</b> deny + the workloop commands | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 189 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: two writers never edit one checkout at once outside
+# a workloop run.
+#
+# A single writer edits the main tree — that is the linear case and needs no
+# ceremony. The moment a second writer is dispatched while another is live,
+# the work is a parallel workflow whether or not anyone called it one, and
+# the scaffold&#x27;s answer is a workloop run: each lane in its own provisioned
+# worktree, the composed result verified once, the worktrees removed after.
+# An `isolation: worktree` flag alone is not accepted here; it isolates the
+# edits but nothing verifies their composition or tears the worktrees down.
+#
+# Four events share one policy because they share one state file:
+#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt whose
+#                  first line is READ-ONLY passes. Otherwise the first writer
+#                  of a turn passes and is counted; a writer dispatched while
+#                  any other writer is counted or live is denied, with the
+#                  three commands that make it a lane. A prompt that is a
+#                  workloop brief is counted but never denied: it is a lane.
+#   PreToolUse Edit/Write, main agent — the lead&#x27;s own edit while an
+#                  uncoordinated writer is live is the same collision from
+#                  the other side, and is denied unless a workloop run is
+#                  active, in which case the live writers are lanes in their
+#                  own worktrees and the main tree is the lead&#x27;s.
+#   SubagentStart — a writer that has started moves from &quot;dispatched this
+#                  turn&quot; to &quot;live&quot;, so a writer dispatched after the previous
+#                  one finished, in the same turn, is sequential and passes.
+#   SubagentStop  — the writer is no longer live.
+#
+# session-start.sh clears the state at startup and resume: no subagent
+# survives the process, so a cell that died without a SubagentStop cannot
+# deny the next session. Within one session, .agents/.writers-live-&lt;session&gt;
+# is the file to delete if a cell is known dead.
+#
+# Input (stdin JSON): {&quot;project_dir&quot;, &quot;event&quot;, &quot;session_id&quot;, &quot;prompt_id&quot;,
+#   &quot;tool_name&quot;, &quot;tool_input&quot;: {...}, &quot;agent_id&quot;, &quot;agent_type&quot;}
+# Output: PreToolUse — a deny envelope on stdout when the rule fires, silence
+#   otherwise. The other events emit nothing.
+#
+# Writers are everything not on the read-only list below. An unknown persona
+# is a writer: a gate that guesses &quot;reader&quot; for a name it has not seen lets
+# the second implementer through under a new name. A known reader is trusted
+# by name, not by its tool list: reviewer and qa-verifier carry Bash and
+# could write, but their contracts forbid it, and denying two QA cells at
+# once would cost more than the contention it prevents.
+#
+# The decision is deny, not ask. guard-publish asks because only the user can
+# approve an outward mutation; here the remedy is the agent&#x27;s own — make the
+# dispatch a lane — and a prompt would train the user to click through.
+# The operator&#x27;s override is hooks.parallel_writers.enabled in config.json.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+cfg_path=&quot;$repo/.agents/config.json&quot;
+
+READERS=&quot;explore explorer plan researcher reviewer qa-verifier claude-code-guide statusline-setup&quot;
+
+payload=&quot;$(cat)&quot;
+# A malformed toggle keeps the gate on: a broken gate must never silently
+# disable itself.
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; hooks.parallel_writers.enabled=true 2&gt;/dev/null || echo yes)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; } &lt; &lt;(
+  printf &#x27;%s&#x27; &quot;$payload&quot; | python3 -c &#x27;
+import json, re, sys
+try:
+    p = json.load(sys.stdin)
+except ValueError:
+    p = {}
+if not isinstance(p, dict):
+    p = {}
+ti = p.get(&quot;tool_input&quot;) or {}
+if not isinstance(ti, dict):
+    ti = {}
+def line(v): print(re.sub(r&quot;[\r\n]&quot;, &quot; &quot;, str(v or &quot;&quot;)))
+def ident(v): print(re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, str(v or &quot;&quot;)))
+line(p.get(&quot;project_dir&quot;)); line(p.get(&quot;event&quot;)); ident(p.get(&quot;session_id&quot;)); ident(p.get(&quot;prompt_id&quot;))
+ident(p.get(&quot;agent_id&quot;)); line(p.get(&quot;agent_type&quot;)); line(p.get(&quot;tool_name&quot;))
+line(ti.get(&quot;subagent_type&quot;) or &quot;general-purpose&quot;)
+prompt = str(ti.get(&quot;prompt&quot;) or &quot;&quot;)
+if re.search(r&quot;WORKLOOP (WORKER|REVIEWER|QA) BRIEF&quot;, prompt):
+    print(&quot;brief&quot;)
+elif re.match(r&quot;\s*READ-ONLY\b&quot;, prompt):
+    print(&quot;read-only&quot;)
+else:
+    print(&quot;plain&quot;)&#x27;)
+
+[[ -n &quot;$session&quot; &amp;&amp; -n &quot;$proj&quot; ]] || exit 0
+live=&quot;$proj/.agents/.writers-live-$session&quot;
+turn=&quot;$proj/.agents/.writers-turn-$session&quot;
+lock=&quot;$proj/.agents/.writers-lock-$session&quot;
+workloop_state=&quot;$proj/.agents/.workloop-state.json&quot;
+
+is_reader() {
+  local t; t=&quot;$(printf &#x27;%s&#x27; &quot;$1&quot; | tr &#x27;[:upper:]&#x27; &#x27;[:lower:]&#x27;)&quot;
+  for r in $READERS; do [[ &quot;$t&quot; == &quot;$r&quot; ]] &amp;&amp; return 0; done
+  return 1
+}
+
+# mkdir is the atomic test-and-set stock macOS has. The hold is milliseconds,
+# so a lock older than a minute belongs to a dead hook and is reaped; a hook
+# that cannot take the lock in a second proceeds without it rather than
+# stalling the dispatch behind it.
+held=&quot;&quot;
+take_lock() {
+  local tries=0
+  while (( tries &lt; 20 )); do
+    if mkdir &quot;$lock&quot; 2&gt;/dev/null; then held=yes; return; fi
+    [[ -n &quot;$(find &quot;$lock&quot; -maxdepth 0 -mmin +1 2&gt;/dev/null)&quot; ]] &amp;&amp; rm -rf &quot;$lock&quot;
+    sleep 0.05; tries=$((tries + 1))
+  done
+}
+release_lock() { [[ -n &quot;$held&quot; ]] &amp;&amp; rmdir &quot;$lock&quot; 2&gt;/dev/null || true; }
+trap release_lock EXIT
+
+turn_count() {  # &lt;prompt_id&gt; -&gt; writers dispatched this turn and not yet started
+  [[ -f &quot;$turn&quot; ]] || { echo 0; return; }
+  local recorded; recorded=&quot;$(cat &quot;$turn&quot;)&quot;
+  [[ &quot;${recorded%%	*}&quot; == &quot;$1&quot; ]] &amp;&amp; echo &quot;${recorded#*	}&quot; || echo 0
+}
+
+live_count() {
+  # grep -c prints 0 and exits 1 on an empty file, so it cannot sit in a || chain.
+  if [[ -f &quot;$live&quot; ]]; then grep -c . &quot;$live&quot; || true; else echo 0; fi
+}
+
+workloop_active() {
+  [[ -f &quot;$workloop_state&quot; ]] || return 1
+  python3 - &quot;$workloop_state&quot; &lt;&lt;&#x27;EOF&#x27;
+import json, sys
+try:
+    runs = json.load(open(sys.argv[1])).get(&quot;runs&quot;, {})
+except (OSError, ValueError):
+    sys.exit(1)
+for run in runs.values():
+    if run.get(&quot;torn_down&quot;):
+        continue
+    if any(lane.get(&quot;state&quot;) in (&quot;active&quot;, &quot;review&quot;, &quot;reopened&quot;) for lane in run.get(&quot;lanes&quot;, {}).values()):
+        sys.exit(0)
+sys.exit(1)
+EOF
+}
+
+deny() {
+  printf &#x27;{&quot;hookSpecificOutput&quot;:{&quot;hookEventName&quot;:&quot;PreToolUse&quot;,&quot;permissionDecision&quot;:&quot;deny&quot;,&quot;permissionDecisionReason&quot;:%s}}\n&#x27; \
+    &quot;$(printf &#x27;%s&#x27; &quot;$1&quot; | python3 -c &#x27;import json,sys; print(json.dumps(sys.stdin.read()))&#x27;)&quot;
+}
+
+case &quot;$event&quot; in
+  PreToolUse)
+    if [[ &quot;$tool_name&quot; == &quot;Agent&quot; || &quot;$tool_name&quot; == &quot;Task&quot; ]]; then
+      is_reader &quot;$tool_type&quot; &amp;&amp; exit 0
+      [[ &quot;$kind&quot; == &quot;read-only&quot; ]] &amp;&amp; exit 0
+      take_lock
+      pending=&quot;$(turn_count &quot;$prompt_id&quot;)&quot;
+      running=&quot;$(live_count)&quot;
+      if [[ &quot;$kind&quot; != &quot;brief&quot; ]] &amp;&amp; (( pending + running &gt;= 1 )); then
+        deny &quot;A second writer (${tool_type}) is being dispatched while another writer is still live. Concurrent writers go through a workloop run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees: .agents/workloop.py init &lt;run&gt; --objective &#x27;&lt;goal&gt;&#x27; --acceptance &#x27;&lt;prose&gt;&#x27; --verify &#x27;&lt;test command&gt;&#x27;; .agents/workloop.py add-lane &lt;run&gt; &lt;lane&gt; --worker ${tool_type} --workspace &lt;new path&gt; --path &lt;owned path&gt;; then dispatch the output of .agents/workloop.py brief &lt;run&gt; &lt;lane&gt; --role worker as this cell&#x27;s prompt. A cell that only reads may say so: start its prompt with READ-ONLY. Read-only personas (explorer, researcher, reviewer, qa-verifier) pass. isolation: worktree alone is not enough — nothing would verify the composition. If a counted writer is known dead, delete ${live}.&quot;
+        exit 0
+      fi
+      if ! printf &#x27;%s\t%s&#x27; &quot;$prompt_id&quot; &quot;$((pending + 1))&quot; &gt;&quot;$turn&quot;; then
+        deny &quot;The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory&#x27;s permissions and retry.&quot;
+      fi
+    else
+      # The lead&#x27;s own edit while an uncoordinated writer is live.
+      (( $(live_count) &gt;= 1 )) || exit 0
+      workloop_active &amp;&amp; exit 0
+      deny &quot;A writer cell is live in this checkout and no workloop run is active, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief) and edit the main tree freely. If the cell is known dead, delete ${live}.&quot;
+    fi
+    ;;
+  SubagentStart)
+    is_reader &quot;$agent_type&quot; &amp;&amp; exit 0
+    [[ -n &quot;$agent_id&quot; ]] || exit 0
+    take_lock
+    printf &#x27;%s\t%s\n&#x27; &quot;$agent_id&quot; &quot;$agent_type&quot; &gt;&gt;&quot;$live&quot;
+    pending=&quot;$(turn_count &quot;$prompt_id&quot;)&quot;
+    (( pending &gt; 0 )) &amp;&amp; printf &#x27;%s\t%s&#x27; &quot;$prompt_id&quot; &quot;$((pending - 1))&quot; &gt;&quot;$turn&quot; || true
+    ;;
+  SubagentStop)
+    [[ -n &quot;$agent_id&quot; &amp;&amp; -f &quot;$live&quot; ]] || exit 0
+    take_lock
+    grep -v &quot;^$agent_id	&quot; &quot;$live&quot; &gt;&quot;$live.new&quot; 2&gt;/dev/null || true
+    mv &quot;$live.new&quot; &quot;$live&quot;
+    ;;
+esac
+exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">provenance-gate</span><span class="badge gate">gate</span></div>
+              <p class="what">Denies the next tool call after the turn claims a failure is pre-existing, unrelated, or not its own — once per claim, so the model can answer it and carry on. The Stop gate judges the same claim when the turn ends; this one shortens the distance between the punt and the commit that follows it seconds later.</p>
+              <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> deny + the claim | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 74 lines</span></summary><div class="srcpath">.agents/hooks/policy/provenance-gate.sh</div><pre><code>#!/usr/bin/env bash
+# Claude-scoped policy: deny the next tool call after a provenance punt.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;transcript_path&quot;: &quot;...&quot;, &quot;session_id&quot;: &quot;...&quot;}
+# Output: exit 0 always. Stdout carries Claude&#x27;s PreToolUse envelope with
+# permissionDecision &quot;deny&quot; the first time a claim appears in the turn;
+# silence otherwise.
+#
+# The Stop gate judges the turn when it ends. This one judges it before each
+# tool call, because the punt and the shipping are seconds apart: &quot;all six fail
+# identically without my changes, so they are pre-existing&quot; was followed by the
+# commit and the push in the same breath. No host event fires on assistant
+# text, but every tool call carries the transcript, and when the host has
+# written the text that precedes the call, the call that gets denied is the
+# one the punt was about to make. The host does not always write it in time
+# (breadcrumbs.md records a session where it stopped), so the Stop gate stays
+# the layer that always sees the text; this one shortens the distance.
+#
+# A claim is reported once per turn. The model answers it — fixes, files, or
+# says the regex misread it — and its next call goes through; the Stop gate
+# still holds the turn if it did none of those. The ledger is one line per claim under
+# .agents/.provenance-&lt;session hash&gt;, ignored runtime state.
+#
+# Scope: wired for Claude Code only, main agent. Codex and Kimi do not carry a
+# transcript path into their PreToolUse payloads.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.provenance_gate.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; transcript_path session_id)&quot;
+transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+session_id=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+[[ -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]] || exit 0
+
+turn=&quot;$(python3 &quot;$lib/turn-text.py&quot; --turn-id &quot;$transcript&quot;)&quot;
+turn_id=&quot;${turn%%$&#x27;\n&#x27;*}&quot;
+turn=&quot;${turn#*$&#x27;\n&#x27;}&quot;
+[[ -n &quot;$turn&quot; ]] || exit 0
+claims=&quot;$(printf &#x27;%s&#x27; &quot;$turn&quot; | bash &quot;$lib/ratchet-claim.sh&quot;)&quot;
+[[ -n &quot;$claims&quot; ]] || exit 0
+
+# The first claim of the turn not yet reported. A turn can punt twice, and the
+# second must not hide behind the first. The key is the turn plus the head of
+# the span: the window is greedy, so as the turn grows the same claim can
+# match a longer span, and its start is what stays put; the same sentence in a
+# later turn is a new punt.
+identity=&quot;${session_id:-$transcript}&quot;
+ledger=&quot;$repo/.agents/.provenance-$(printf &#x27;%s&#x27; &quot;$identity&quot; | shasum | cut -c1-12)&quot;
+claim=&quot;&quot;
+key=&quot;&quot;
+while IFS= read -r span; do
+  [[ -n &quot;$span&quot; ]] || continue
+  key=&quot;$(printf &#x27;%s %s&#x27; &quot;$turn_id&quot; &quot;${span:0:60}&quot; | shasum | cut -c1-40)&quot;
+  grep -qsF &quot;$key&quot; &quot;$ledger&quot; &amp;&amp; continue
+  claim=&quot;$span&quot;
+  break
+done &lt;&lt;&lt;&quot;$claims&quot;
+[[ -n &quot;$claim&quot; ]] || exit 0
+
+lead=&quot;Before this tool call runs: this turn tied a provenance claim to a defect it is not fixing:&quot;
+reason=&quot;$(bash &quot;$lib/ratchet-reason.sh&quot; &quot;$claim&quot; &quot;$lead&quot;)&quot; || reason=&quot;$lead $claim&quot;
+printf &#x27;%s&#x27; &quot;$reason&quot; | python3 -c &#x27;import json, sys
+print(json.dumps({&quot;hookSpecificOutput&quot;: {
+    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,
+    &quot;permissionDecision&quot;: &quot;deny&quot;,
+    &quot;permissionDecisionReason&quot;: sys.stdin.read().strip()}}))&#x27;
+# Ledgered only once the deny is on stdout: a claim the model never heard
+# about must be reported next time, not marked as answered.
+printf &#x27;%s\n&#x27; &quot;$key&quot; &gt;&gt; &quot;$ledger&quot;
+exit 0
 </code></pre></details>
             </article>
           </div>
@@ -2700,6 +3284,549 @@ Stop)
 esac
 </code></pre></details>
             </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
+              <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container or a booted emulator once the work is finished. The block names each open resource and the command that closes it.</p>
+              <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 537 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: a resource the agent started must be stopped before
+# the work is reported done — sooner for the ones that are cheap to restart.
+#
+# Two events share one policy because they share one state file:
+#   PostToolUse  — a tool call that starts a long-lived resource records it in
+#                  .agents/.teardown-pending-&lt;session&gt;; the first such call in a
+#                  batch also injects a reminder. A tool call that stops that
+#                  CLASS of resource clears its lines.
+#   Stop         — a due resource blocks the stop once (exit 2) with the list and
+#                  the command that closes each class, then marks itself so later
+#                  stops pass until a teardown clears the file or a new resource
+#                  re-arms it. Under Claude, SubagentStop maps here too, so a QA
+#                  cell must close its browser before it can hand results back;
+#                  Codex and Kimi expose no subagent-stop event, so there a
+#                  cell&#x27;s browser is caught by the parent&#x27;s Stop instead.
+#
+# The Claude PostToolUse matcher holds characters outside letters and `|`, so
+# the host reads it as an unanchored regex rather than a tool-name list, and
+# `Bash` also matches `BashOutput`. That is waste, not a defect: a BashOutput
+# payload carries no command, so the policy classifies nothing and exits. The
+# same trade is documented for guard-destructive.sh.
+#
+# THE TIERS, set by restart cost rather than by resource type. Tearing down a
+# database container after every turn and rebuilding it on the next one costs
+# far more than the memory it frees, so it is not asked for until the work is
+# actually finished:
+#   browser  always     — a page holds a full renderer process and buys nothing
+#                         once the screenshot is taken. Re-navigating is free.
+#   device   always     — an Appium driver session holds the device, so the next
+#                         run against that device cannot start until it ends.
+#   server   this turn  — a dev server, an Appium server, a Metro bundler, or a
+#   watcher  this turn    test watcher restarts in seconds.
+#   docker   on completion — a container, a compose stack, a build watcher, or a
+#   build    on completion   booted emulator carries image pulls, migrations,
+#   emulator on completion   warm caches, or a minute of boot time. Due once a
+#                            commit lands; reported alongside any other block
+#                            before that, never blocking alone.
+#
+# These are heuristics, and the block says so. An agent that still needs a
+# resource says which and why in its reply instead of tearing it down.
+#
+# SCOPE: only resources that do not exit on their own. A backgrounded test run
+# or build ends by itself, so recording it would block on a process already
+# gone. Foreground commands are never recorded: the tool call did not return
+# until they finished.
+#
+# CLEARING IS BY CLASS, not by process identity. One browser_close clears every
+# recorded browser; one `docker compose down` clears every recorded container.
+# No host reports which context or container a close reached, so the gate
+# guarantees that a teardown was performed, not that nothing survived it. That
+# is the same trade ui-gate.sh makes for screenshots, and for the same reason:
+# a gate that demands proof no host emits blocks forever and gets ignored.
+#
+# The user&#x27;s own long-running process is not this gate&#x27;s business. It only ever
+# records what an agent tool call started inside the session.
+#
+# Input (stdin JSON): {&quot;project_dir&quot;, &quot;event&quot;: &quot;PostToolUse&quot;|&quot;Stop&quot;,
+#   &quot;session_id&quot;, &quot;tool_name&quot;, &quot;tool_input&quot;: {...}, &quot;stop_hook_active&quot;: bool}
+# Output: PostToolUse — an additionalContext object on the first record, exit 0.
+#   Stop — exit 2 + stderr reason on a block, exit 0 otherwise.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.teardown_gate.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+# One interpreter for every field plus the whole classification: this runs on
+# every Bash and browser call, so a second process would be paid thousands of
+# times a session.
+read -r -d &#x27;&#x27; parse &lt;&lt;&#x27;PY&#x27; || true
+import json, re, sys
+
+try:
+    p = json.loads(sys.stdin.read() or &quot;{}&quot;)
+except ValueError:
+    p = {}
+p = p if isinstance(p, dict) else {}
+s = lambda k: v if isinstance((v := p.get(k)), str) else &quot;&quot;
+ti = p.get(&quot;tool_input&quot;)
+ti = ti if isinstance(ti, dict) else {}
+
+tool = s(&quot;tool_name&quot;)
+raw_command = ti.get(&quot;command&quot;) if isinstance(ti.get(&quot;command&quot;), str) else &quot;&quot;
+
+# A tool call is not one command. `docker compose down &amp;&amp; docker compose up -d`
+# closes and then opens, and reading the whole string at once gets that exactly
+# backwards. Split it into the clauses a shell would run, classify each, and
+# apply the results in order.
+SPLIT = re.compile(r&quot;&amp;&amp;|\|\||;|\||\n&quot;)
+# Escape-aware, so a `\&quot;` inside a double-quoted payload does not end the span
+# early and spill the rest of it into the clause stream as if it were code.
+QUOTED = r&quot;&#x27;(?:[^&#x27;\\]|\\.)*&#x27;|\&quot;(?:[^\&quot;\\]|\\.)*\&quot;&quot;
+# A heredoc written `&lt;&lt;&#x27;EOF&#x27;` is literal: the shell expands nothing in it, and
+# it is overwhelmingly a file being written or a fixture fed to a reader. Its
+# body is data. An unquoted `&lt;&lt;EOF` is left alone because `bash &lt;&lt;EOF` runs its
+# body. The two forms differ in their terminator: only `&lt;&lt;-` permits an indented
+# one, so accepting indentation for both would end a heredoc early at an
+# indented line that merely looks like the delimiter, and treat the real body
+# after it as commands.
+HEREDOC_DASH = re.compile(r&quot;&lt;&lt;-\s*([&#x27;\&quot;])(\w+)\1.*?^[ \t]*\2[ \t]*$&quot;, re.S | re.M)
+HEREDOC_PLAIN = re.compile(r&quot;&lt;&lt;\s*([&#x27;\&quot;])(\w+)\1.*?^\2[ \t]*$&quot;, re.S | re.M)
+# A `-c`/`-e` payload for a non-shell interpreter is that language&#x27;s source, not
+# shell. Dropped whole: splitting it on the `;` between two Python statements
+# would hand its string literals to the shell classifier.
+INTERPRETED = re.compile(
+    r&quot;\b(?:python[0-9.]*|node|ruby|perl|php|deno|osascript|awk)\s+(?:-[a-z]*\s+)*-[a-z]*[ce]\b\s*(?:&quot;
+    + QUOTED + r&quot;)&quot;, re.S)
+# Command substitution runs, whatever quoting surrounds it: `echo &quot;$(docker
+# compose up -d)&quot;` starts a container. Its body becomes a clause of its own.
+SUBST = re.compile(r&quot;\$\(([^()]*)\)|`([^`]*)`&quot;)
+# Prefixes that decorate a command without being one.
+NOISE = re.compile(
+    r&quot;^(?:do|then|else|elif|\{|!|time|nohup|sudo|command|exec|builtin|env|xargs&quot;
+    r&quot;|(?:ba|z|k|d)?sh\s+-[a-z]*c)\s+&quot;)
+ASSIGNMENT = re.compile(r&quot;^\w+=\S*\s+&quot;)
+# Words that read or print text rather than run it. This is the rule that makes
+# a mention a mention: `grep &quot;docker compose up -d&quot;` names a launch, and the
+# verb is what says so — not the quotes around it, which are also how a script
+# name gets written in `npm run &quot;dev&quot;`.
+MENTION = re.compile(
+    r&quot;^(?:echo|printf|cat|bat|grep|egrep|fgrep|rg|ack|sed|awk|jq|yq|head|tail|wc&quot;
+    r&quot;|less|more|tee|diff|comm|sort|uniq|tr|cut|pgrep|ps|lsof|pidof|which|type&quot;
+    r&quot;|man|touch|mkdir|export|read|declare|local|return)\b&quot;)
+# A word list is not a command: the launch strings inside a `for` header are
+# data until the loop body runs one, and the body is its own clause.
+LIST_KEYWORD = re.compile(r&quot;^(?:for|while|until|case|select|function|alias|if)\b&quot;)
+
+
+def clauses(text, depth=0):
+    &quot;&quot;&quot;Every command a shell would actually run.
+
+    Quote CHARACTERS are removed but their contents are kept, because quoting
+    the thing being run is ordinary — `npm run &quot;dev&quot;` runs dev. What separates a
+    mention from a launch is the verb: a clause led by `echo`, `grep`, or `cat`
+    only ever reads or prints its arguments.
+    &quot;&quot;&quot;
+    if depth &gt; 3:
+        return []
+    text = HEREDOC_DASH.sub(&quot; &quot;, text)
+    text = HEREDOC_PLAIN.sub(&quot; &quot;, text)
+    text = INTERPRETED.sub(&quot; &quot;, text)
+
+    nested = []
+
+    def lift(match):
+        nested.extend(clauses(match.group(1) or match.group(2) or &quot;&quot;, depth + 1))
+        return &quot; &quot;
+
+    text = SUBST.sub(lift, text)
+    text = text.replace(&quot;&#x27;&quot;, &quot; &quot;).replace(&#x27;&quot;&#x27;, &quot; &quot;)
+
+    out = []
+    for part in SPLIT.split(text):
+        part = part.strip()
+        while True:
+            shorter = ASSIGNMENT.sub(&quot;&quot;, NOISE.sub(&quot;&quot;, part)).strip()
+            if shorter == part:
+                break
+            part = shorter
+        if not part or MENTION.match(part) or LIST_KEYWORD.match(part):
+            continue
+        out.append(part)
+    return out + nested
+
+
+# Backgrounded means the tool call returned while the process kept running: the
+# host&#x27;s own flag, a tool that only ever runs in the background, or a trailing
+# `&amp;` the shell honored. `&amp;&amp;` is a conjunction, not a background operator, and
+# the clause split has already consumed it. The whole-command check is what
+# carries the `&amp;` in `nohup bash -c &quot;npm run dev&quot; &amp;` down to the unwrapped
+# clause, which has no `&amp;` of its own.
+always_background = (
+    bool(ti.get(&quot;run_in_background&quot;))
+    or tool == &quot;Monitor&quot;
+    or bool(re.search(r&quot;(?&lt;![&amp;&gt;])&amp;\s*$&quot;, raw_command))
+)
+
+# Resources that outlive the call that started them. Each pattern needs an
+# explicit long-lived flag rather than guessing: `vitest` with no --watch runs
+# once under a hook&#x27;s non-TTY stdin and exits, so matching the bare binary would
+# block on a process that already ended.
+DOCKER_OPEN = re.compile(
+    r&quot;\bdocker\s+compose\b.*\bup\b&quot;
+    r&quot;|\bdocker-compose\b.*\bup\b&quot;
+    # `-d` is often bundled into a combined short flag: `docker run -itd nginx`.
+    r&quot;|\bdocker\s+(?:container\s+)?run\b(?=.*\s(?:-[a-z]*d[a-z]*|--detach)\b)&quot;
+    r&quot;|\bdocker\s+(?:container\s+)?start\b&quot;
+)
+DOCKER_CLOSE = re.compile(
+    # `docker container stop` is the modern spelling of `docker stop`.
+    r&quot;\bdocker(?:-compose|\s+compose)?\s+(?:container\s+)?(?:down|stop|kill|rm)\b&quot;
+)
+SERVER = re.compile(
+    # The package-manager form allows what a monorepo puts between the manager
+    # and the script — `yarn workspace web dev`, `pnpm --filter api start`. The
+    # guards on both sides keep the script NAME from matching a longer name that
+    # merely contains it: `npm run test:dev` and `npm run dev:check` are tasks,
+    # not servers, and both are common conventions.
+    # The gap cannot cross a redirect or a background operator: without that,
+    # `nohup npm test &gt; dev.log 2&gt;&amp;1 &amp;` reads as a dev server because its log
+    # file is named dev.
+    r&quot;&quot;&quot;\b(?:npm|pnpm|yarn|bun)\s[^|;&amp;&lt;&gt;\n]{0,60}?(?&lt;![:\w-])(?:dev|start|serve|preview)(?![:\w-])
+      | \bnext\s+(?:dev|start)\b
+      | \bvite\b(?!\s+build)
+      | \bnest\s+start\b
+      | \bexpo\s+start\b
+      | \breact-native\s+start\b
+      | \bappium\b(?!\s*-{1,2}(?:v|version|help))
+      | \b(?:bin/)?rails\s+(?:s|server)\b
+      | \bpython[0-9.]*\s+-m\s+http\.server\b
+      | \b(?:uvicorn|gunicorn|daphne|hypercorn)\b
+      | \bflask\s+run\b
+      | \bphp\s+artisan\s+serve\b
+      | \b(?:http-server|live-server)\b
+      | \bnodemon\b
+      | \bdotnet\s+run\b
+      | \bspring-boot:run\b
+    &quot;&quot;&quot;,
+    re.X,
+)
+# A build watcher rebuilds artifacts and holds a warm incremental cache, so it
+# is worth keeping for the length of the work; a test watcher is re-runnable and
+# is not. They are separated only because they fall in different tiers.
+BUILD = re.compile(
+    r&quot;&quot;&quot;\b(?:tsc|webpack|rollup|esbuild|parcel|swc|tsup)\b[^|;]*\s(?:-w|--watch)\b
+      | \bturbo\s+watch\b
+      | \bvite\s+build\b[^|;]*--watch\b
+      | \b(?:next|nuxt)\s+build\b[^|;]*--watch\b
+    &quot;&quot;&quot;,
+    re.X,
+)
+WATCHER = re.compile(r&quot;--watch\b | --watchAll\b | \bwatchexec\b | \bchokidar\b&quot;, re.X)
+# A booted emulator or simulator costs 30-60 seconds to start, which puts it in
+# the same tier as a container: worth keeping while the mobile work runs.
+EMULATOR_OPEN = re.compile(
+    r&quot;&quot;&quot;\bemulator\s+(?:-avd\b|@\w)
+      | \bxcrun\s+simctl\s+boot\b
+      | \bopen\s+-a\s+Simulator\b
+    &quot;&quot;&quot;,
+    re.X,
+)
+# `adb emu kill` is the documented stop and is reported to fail silently on
+# newer adb builds, so the practical forms — killing the qemu process, closing
+# the Simulator app — count as a teardown too.
+EMULATOR_CLOSE = re.compile(
+    # Every form needs an actual termination verb. Matching the process name
+    # alone would let `pgrep -f qemu-system-x86_64` — asking whether the
+    # emulator is still alive — count as having killed it.
+    r&quot;&quot;&quot;\badb\b.*\bemu\s+kill\b
+      | \bxcrun\s+simctl\s+shutdown\b
+      | \b(?:kill|pkill|killall)\b.*\b(?:Simulator|qemu-system-\w+|emulator)\b
+    &quot;&quot;&quot;,
+    re.X,
+)
+# Stopping a process the agent backgrounded. The host&#x27;s own stop tool is the
+# clean path; the shell forms cover the agent that reached for `kill` instead.
+PROC_CLOSE = re.compile(
+    r&quot;&quot;&quot;\b(?:kill|pkill|killall)\b | \bfuser\s+-k\b | \bxargs\s+kill\b
+      | \bpm2\s+(?:stop|delete|kill)\b
+      | \b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?stop\b
+    &quot;&quot;&quot;,
+    re.X,
+)
+
+BROWSER_OPEN = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__browser_(navigate|tabs)$&quot;)
+BROWSER_CLOSE = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__browser_close$&quot;)
+# The official appium-mcp server (appium/appium-mcp, npm `appium-mcp`) exposes
+# no close-shaped tool name at all: one `appium_session_management` tool carries
+# create, delete, list, select, attach, and detach in an `action` argument, so
+# the action decides the direction. Community forks that publish under other npm
+# names do use `start_session`/`end_session`, and matching both costs nothing.
+APPIUM_SESSION = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__appium_session_management$&quot;)
+APPIUM_OPEN = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(start_session|create_session)$&quot;)
+APPIUM_CLOSE = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(end_session|close_session|delete_session|quit_session)$&quot;)
+# Booting a simulator is the expensive half of preparing a device.
+APPIUM_BOOT = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(appium_)?prepare_ios_(simulator|real_device)$&quot;)
+STOP_TOOL = re.compile(r&quot;^(TaskStop|KillShell|KillBash)$&quot;)
+
+
+def label(text, limit=72):
+    text = &quot; &quot;.join(text.split())
+    return text[: limit - 1] + &quot;…&quot; if len(text) &gt; limit else text
+
+
+def appium_label(fields, fallback=&quot;appium session&quot;):
+    &quot;&quot;&quot;Name the device from the fields the server actually accepts.
+
+    `appium_session_management` takes `capabilities` as a JSON *string* and
+    `prepare_ios_simulator` takes `udid`; neither has a top-level `deviceName`,
+    so reading one would name every session identically.
+    &quot;&quot;&quot;
+    for key in (&quot;udid&quot;, &quot;sessionId&quot;, &quot;deviceName&quot;):
+        value = fields.get(key)
+        if isinstance(value, str) and value:
+            return label(value)
+    caps = fields.get(&quot;capabilities&quot;)
+    if isinstance(caps, str) and caps:
+        try:
+            caps = json.loads(caps)
+        except ValueError:
+            caps = {}
+    if isinstance(caps, dict):
+        for key in (&quot;appium:deviceName&quot;, &quot;deviceName&quot;, &quot;appium:udid&quot;, &quot;platformName&quot;):
+            value = caps.get(key)
+            if isinstance(value, str) and value:
+                return label(value)
+    platform = fields.get(&quot;platform&quot;)
+    return label(f&quot;{platform} session&quot;) if isinstance(platform, str) and platform else fallback
+
+
+# One ordered list, not an opens bucket and a closes bucket: the caller replays
+# it in the order a shell would have run the clauses, so the last word about a
+# class belongs to whichever clause came last.
+verdicts = []
+
+if BROWSER_CLOSE.match(tool):
+    verdicts.append(&quot;-browser&quot;)
+elif BROWSER_OPEN.match(tool):
+    # browser_tabs only opens something when it is asked to; every other action
+    # acts on a tab a navigate already recorded.
+    if not tool.endswith(&quot;browser_tabs&quot;) or ti.get(&quot;action&quot;) == &quot;new&quot;:
+        url = ti.get(&quot;url&quot;)
+        verdicts.append(&quot;+browser\t&quot; + label(url if isinstance(url, str) and url else &quot;browser tab&quot;))
+elif APPIUM_SESSION.match(tool):
+    action = ti.get(&quot;action&quot;)
+    # `attach` takes hold of a remote session as firmly as `create` opens a new
+    # one, and the server&#x27;s own disconnect cleanup deletes only the sessions it
+    # owns — an attached one survives it. Untracked here, nothing would contain
+    # it at all. `detach` releases this end without ending that session, so it
+    # is deliberately not a teardown; `list` and `select` do neither.
+    if action in (&quot;create&quot;, &quot;attach&quot;):
+        verdicts.append(&quot;+device\t&quot; + appium_label(ti))
+    elif action == &quot;delete&quot;:
+        verdicts.append(&quot;-device&quot;)
+elif APPIUM_CLOSE.match(tool):
+    verdicts.append(&quot;-device&quot;)
+elif APPIUM_OPEN.match(tool):
+    verdicts.append(&quot;+device\t&quot; + appium_label(ti))
+elif APPIUM_BOOT.match(tool):
+    verdicts.append(&quot;+emulator\t&quot; + appium_label(ti, &quot;iOS simulator&quot;))
+elif STOP_TOOL.match(tool):
+    verdicts += [&quot;-server&quot;, &quot;-watcher&quot;, &quot;-build&quot;]
+elif raw_command:
+    for clause in clauses(raw_command):
+        backgrounded = always_background or bool(re.search(r&quot;(?&lt;![&amp;&gt;])&amp;\s*$&quot;, clause))
+        if DOCKER_CLOSE.search(clause):
+            verdicts.append(&quot;-docker&quot;)
+        elif EMULATOR_CLOSE.search(clause):
+            verdicts.append(&quot;-emulator&quot;)
+        elif PROC_CLOSE.search(clause):
+            verdicts += [&quot;-server&quot;, &quot;-watcher&quot;, &quot;-build&quot;]
+        elif DOCKER_OPEN.search(clause):
+            verdicts.append(&quot;+docker\t&quot; + label(clause))
+        elif EMULATOR_OPEN.search(clause):
+            verdicts.append(&quot;+emulator\t&quot; + label(clause))
+        elif not backgrounded:
+            continue
+        elif SERVER.search(clause):
+            verdicts.append(&quot;+server\t&quot; + label(clause))
+        elif BUILD.search(clause):
+            verdicts.append(&quot;+build\t&quot; + label(clause))
+        elif WATCHER.search(clause):
+            verdicts.append(&quot;+watcher\t&quot; + label(clause))
+
+print(s(&quot;project_dir&quot;))
+print(s(&quot;event&quot;))
+print(re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, s(&quot;session_id&quot;)))
+print(&quot;yes&quot; if p.get(&quot;stop_hook_active&quot;) else &quot;no&quot;)
+print(&quot;\n&quot;.join(verdicts))
+PY
+parsed=&quot;$(python3 -c &quot;$parse&quot;)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+event=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+session=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+stop_active=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
+verdicts=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | tail -n +5 | grep . || true)&quot;
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$repo&quot;
+
+# No session identity means no state to key on; do nothing rather than share one
+# file across every session.
+[[ -z &quot;$session&quot; ]] &amp;&amp; exit 0
+pending=&quot;$proj/.agents/.teardown-pending-$session&quot;
+
+# The close command for each class, printed with the block so the agent does not
+# have to guess which tool ends which resource.
+howto() {
+  case &quot;$1&quot; in
+    browser)       printf &#x27;call browser_close&#x27; ;;
+    device)        printf &#x27;call appium_session_management with action=delete&#x27; ;;
+    docker)        printf &#x27;run `docker compose down` (or `docker stop &lt;id&gt;`)&#x27; ;;
+    emulator)      printf &#x27;run `adb emu kill` (Android) or `xcrun simctl shutdown booted` (iOS)&#x27; ;;
+    server|watcher|build)
+                   printf &#x27;stop the background shell (TaskStop) or kill the process&#x27; ;;
+    *)             printf &#x27;stop it&#x27; ;;
+  esac
+}
+# Tier prose, so the block reads as the heuristic it is rather than a rule.
+due_why() {
+  case &quot;$1&quot; in
+    browser)  printf &#x27;a page holds a renderer process and buys nothing after the screenshot&#x27; ;;
+    device)   printf &#x27;a driver session holds the device and blocks the next run against it&#x27; ;;
+    docker)   printf &#x27;due now that a commit landed; it was worth keeping while the work ran&#x27; ;;
+    build)    printf &#x27;due now that a commit landed; the warm cache was worth keeping until then&#x27; ;;
+    emulator) printf &#x27;due now that a commit landed; a boot costs a minute, so it was worth keeping&#x27; ;;
+    *)        printf &#x27;restarts in seconds, so it is not worth holding between turns&#x27; ;;
+  esac
+}
+
+# The commit count is the &quot;work is complete&quot; signal, and it is a COUNT rather
+# than a sha for the reason session-wrap.sh gives: a sha merely moves on
+# `--amend`, `rebase`, or `checkout`, none of which close a unit of work.
+commits=&quot;$(git -C &quot;$proj&quot; rev-list --count HEAD 2&gt;/dev/null || true)&quot;
+[[ &quot;$commits&quot; =~ ^[0-9]+$ ]] || commits=&quot;&quot;
+
+case &quot;$event&quot; in
+PostToolUse)
+  [[ -z &quot;$verdicts&quot; ]] &amp;&amp; exit 0
+  mkdir -p &quot;$proj/.agents&quot;
+
+  # Every clear is a read-modify-write of one file, and two tool calls in the
+  # same session can be in flight at once. Without this, two concurrent clears
+  # each filter the copy they read and the later rename discards the other&#x27;s
+  # work — losing an entry for a class neither of them touched. `mkdir` is the
+  # portable atomic test-and-set; `flock` is not on macOS. A lock that cannot be
+  # taken is waited on briefly and then ignored: a gate must never hang a tool
+  # call, and a lost clear costs one spurious block where a hang costs the turn.
+  lock=&quot;$pending.lock&quot;
+  held=&quot;no&quot;
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if mkdir &quot;$lock&quot; 2&gt;/dev/null; then held=&quot;yes&quot;; break; fi
+    # Reap a lock left behind by a killed hook rather than waiting out the loop
+    # on every later call.
+    [[ -n &quot;$(find &quot;$lock&quot; -maxdepth 0 -mmin +1 2&gt;/dev/null)&quot; ]] &amp;&amp; rmdir &quot;$lock&quot; 2&gt;/dev/null
+    sleep 0.05
+  done
+  [[ &quot;$held&quot; == &quot;yes&quot; ]] &amp;&amp; trap &#x27;rmdir &quot;$lock&quot; 2&gt;/dev/null || true&#x27; EXIT
+
+  first=&quot;no&quot;
+  [[ -s &quot;$pending&quot; ]] || first=&quot;yes&quot;
+
+  # Replayed in the order the shell would have run the clauses, so
+  # `docker compose down &amp;&amp; docker compose up -d` ends with the new container
+  # recorded, and `up -d &amp;&amp; down` ends with nothing recorded. Two passes would
+  # get one of those two backwards whichever way they were ordered.
+  tmp=&quot;$pending.$$&quot;
+  opened=&quot;&quot;
+  while IFS= read -r verdict; do
+    case &quot;$verdict&quot; in
+      -*) kind=&quot;${verdict#-}&quot;
+          if [[ -f &quot;$pending&quot; ]]; then
+            grep -v &quot;^$kind	&quot; &quot;$pending&quot; &gt; &quot;$tmp&quot; 2&gt;/dev/null || true
+            mv &quot;$tmp&quot; &quot;$pending&quot;
+          fi
+          grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
+      # kind, the commit count when it was started, then the label. The count
+      # makes &quot;a commit has landed since&quot; answerable per resource.
+      # `opened` tracks the LAST open in the batch, so the reminder names an
+      # entry the pending file actually holds rather than one a later clause in
+      # the same command replaced.
+      +*) kind=&quot;${verdict#+}&quot;; kind=&quot;${kind%%	*}&quot;
+          printf &#x27;%s\t%s\t%s\n&#x27; &quot;$kind&quot; &quot;${commits:--}&quot; &quot;${verdict#*	}&quot; &gt;&gt; &quot;$pending&quot;
+          opened=&quot;$verdict&quot; ;;
+    esac
+  done &lt;&lt;&lt; &quot;$verdicts&quot;
+
+  # A new resource re-arms the one-shot: the batch the block was spent on is not
+  # the batch now outstanding.
+  if [[ -n &quot;$opened&quot; &amp;&amp; -f &quot;$pending&quot; ]] &amp;&amp; grep -qx &#x27;#blocked&#x27; &quot;$pending&quot;; then
+    grep -vx &#x27;#blocked&#x27; &quot;$pending&quot; &gt; &quot;$tmp&quot; &amp;&amp; mv &quot;$tmp&quot; &quot;$pending&quot;
+    first=&quot;yes&quot;
+  fi
+  rm -f &quot;$tmp&quot;
+  [[ &quot;$held&quot; == &quot;yes&quot; ]] &amp;&amp; { trap - EXIT; rmdir &quot;$lock&quot; 2&gt;/dev/null || true; }
+
+  [[ -z &quot;$opened&quot; || &quot;$first&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+  kind=&quot;${opened#+}&quot;; kind=&quot;${kind%%	*}&quot;
+  printf &#x27;%s&#x27; &quot;Started something that keeps running: ${opened#*	}. Tear it down before you report the work done — $(howto &quot;$kind&quot;). Leftover browsers, servers, and containers hold the machine&#x27;s memory until it is restarted.&quot; \
+    | python3 &quot;$lib/emit-context.py&quot; PostToolUse
+  exit 0
+  ;;
+Stop)
+  find &quot;$proj/.agents&quot; -maxdepth 1 -name &#x27;.teardown-pending-*&#x27; -mtime +7 -delete 2&gt;/dev/null || true
+  [[ -s &quot;$pending&quot; ]] || exit 0
+  # A sibling Stop hook may have blocked; the host flag says so. Pass without
+  # marking, so the next stop still gets judged on the same resources.
+  [[ &quot;$stop_active&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
+  if grep -qx &#x27;#blocked&#x27; &quot;$pending&quot;; then
+    exit 0
+  fi
+
+  entries=&quot;$(grep -v &#x27;^#&#x27; &quot;$pending&quot; | awk &#x27;!seen[$0]++&#x27;)&quot;
+  [[ -n &quot;$entries&quot; ]] || exit 0
+
+  # Split by tier. A `docker` or `build` entry is due only once a commit landed
+  # after it started — that is &quot;the work is complete&quot;, the cheapest signal a
+  # hook can read. Without git there is no signal, so those entries never make a
+  # block happen on their own; they ride along on one and stay recorded until
+  # they are torn down.
+  due=&quot;&quot;
+  waiting=&quot;&quot;
+  while IFS= read -r entry; do
+    [[ -z &quot;$entry&quot; ]] &amp;&amp; continue
+    kind=&quot;${entry%%	*}&quot;
+    rest=&quot;${entry#*	}&quot;
+    started=&quot;${rest%%	*}&quot;
+    text=&quot;${rest#*	}&quot;
+    line=&quot;  - [$kind] $text&quot;$&#x27;\n&#x27;&quot;     -&gt; $(howto &quot;$kind&quot;)  ($(due_why &quot;$kind&quot;))&quot;
+    case &quot;$kind&quot; in
+      docker|build|emulator)
+        if [[ -n &quot;$commits&quot; &amp;&amp; &quot;$started&quot; =~ ^[0-9]+$ ]] &amp;&amp; (( commits &gt; started )); then
+          due=&quot;${due}${line}&quot;$&#x27;\n&#x27;
+        else
+          waiting=&quot;${waiting}${line}&quot;$&#x27;\n&#x27;
+        fi ;;
+      *) due=&quot;${due}${line}&quot;$&#x27;\n&#x27; ;;
+    esac
+  done &lt;&lt;&lt; &quot;$entries&quot;
+
+  [[ -n &quot;$due&quot; ]] || exit 0
+  printf &#x27;#blocked\n&#x27; &gt;&gt; &quot;$pending&quot;
+  {
+    printf &#x27;Resources you started this session are still running:\n&#x27;
+    printf &#x27;%s&#x27; &quot;$due&quot;
+    if [[ -n &quot;$waiting&quot; ]]; then
+      printf &#x27;Still useful while the work continues, but tear these down before the session ends:\n&#x27;
+      printf &#x27;%s&#x27; &quot;$waiting&quot;
+    fi
+    printf &#x27;Tear down the ones listed as due, then report the turn done. These are heuristics: if you still need one, keep it and say which and why in your reply. This gate blocks once per batch, until a teardown clears it or a new resource re-arms it.\n&#x27;
+  } &gt;&amp;2
+  exit 2
+  ;;
+*)
+  exit 0
+  ;;
+esac
+</code></pre></details>
+            </article>
           </div>
         </div>
         <div class="event">
@@ -3806,7 +4933,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Durable, bounded parallel implementation and review lanes. The controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 97 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 182 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Coordinates durable, bounded parallel implementation and review lanes through a portable evidence-backed controller.
 ---
@@ -3831,21 +4958,77 @@ otherwise agents poll the durable inbox at each handoff.
 
 ## Start a run
 
-Create one run with a testable objective and an explicit base revision. Add a
-lane per isolated Git worktree; a writing lane owns exclusive paths.
+Create one run with a testable objective, the test command that proves the
+composed result, and a base revision; `init` pins the base to a commit. Add a
+lane per writer: `add-lane` creates the worktree on branch `&lt;run&gt;/&lt;lane&gt;` when
+the path does not exist, installs its dependencies from the lockfiles, and
+records the lockfile hash. A writing lane owns exclusive paths.
 
 ```sh
 .agents/workloop.py init slice-3b --objective &#x27;Persist parsed 835 claims&#x27; \
-  --acceptance &#x27;database, parser, and browser scenarios pass&#x27; --base HEAD --supervised
+  --acceptance &#x27;database, parser, and browser scenarios pass&#x27; \
+  --verify &#x27;pnpm test --filter api&#x27; --base HEAD --supervised
 .agents/workloop.py add-lane slice-3b persistence --worker implementer \
   --workspace ../clearclaim-persistence --path apps/api --path tests/api
 .agents/workloop.py brief slice-3b persistence --role worker
 ```
 
-Use `brief` as the bounded dispatch prompt. The worker claims the lane, works
-only in its worktree and declared paths, then submits observed test evidence.
-Review can begin from the brief in parallel, but final acceptance occurs only
-after the submitted diff and its canonical review report are available.
+On a large or vendored repository add `--sparse`: the lane&#x27;s worktree then
+holds only its owned directories, root files, and any `--also &lt;dir&gt;` — name
+the review directory there, since git refuses to stage a file outside the
+cone, and any directory the tests import from. A directory absent at the
+base is created empty in the cone. Lockfiles outside the cone are not
+installed; a root pnpm workspace whose packages fall outside the cone
+installs partially and reports success, so give such a lane the whole
+workspace. The integration worktree is always full.
+
+`--verify` must be a test command; `init` refuses one the destructive or
+publish guard would refuse, and that check is a floor, not a review. Use
+`brief` as the bounded dispatch prompt. The worker claims the lane, works only
+in its worktree and declared paths, commits on the lane branch, then submits
+observed test evidence. `claim` refuses a lane whose lockfiles changed since
+it was provisioned, or whose install failed, until `provision &lt;run&gt; &lt;lane&gt;`
+succeeds; a test failure naming a missing module, binary, or runtime version
+is that case, not a code defect. `submit` refuses uncommitted work: review and
+integration read the branch. Review can begin from the brief in parallel, but
+final acceptance occurs only after the submitted diff and its canonical review
+report are available.
+
+## Resources a lane starts
+
+Three lanes sharing one Postgres, one Docker daemon, and one machine&#x27;s browser
+capacity are bottlenecked, not stalled, and a lane killed mid-run leaves its
+containers behind. The controller answers with ownership, leases, and
+progress:
+
+- The brief exports `COLLOID_RUN`, `COLLOID_LANE`, and
+  `COMPOSE_PROJECT_NAME=&lt;run&gt;-&lt;lane&gt;`. What only a lane uses carries
+  `--label colloid.run=&lt;run&gt; --label colloid.lane=&lt;lane&gt;` or that compose
+  project name; what the run shares — the one Postgres — carries
+  `colloid.run` alone, so a lane&#x27;s reap never takes it and `teardown` does.
+  `release-stale`, `teardown`, and `reap` remove by those labels, report
+  what docker refused, and touch nothing else. The lead&#x27;s digest reaps a
+  lane whose worker has stopped without submitting (the hook records every
+  cell&#x27;s start and stop) and names test containers that belong to no one — a
+  testcontainers session with no reaper — without removing them. A container
+  a test framework starts under its own labels is outside this: leave that
+  framework&#x27;s reaper on.
+- `add-lane --exclusive &lt;name&gt;` leases a resource one active lane may hold —
+  `playwright`, a device, a shared service that cannot be copied. `claim`
+  refuses while another active lane holds it; the lead sequences dispatch,
+  nothing queues. The lease frees at `submit` or `release-stale`; what the
+  holder started stays until `reap` or `teardown`. `status` shows each
+  lane&#x27;s lease, so a misspelt name is visible.
+- Isolate what is cheap: one shared, labelled Postgres per run and a database
+  per lane named from `COLLOID_LANE` (the shape Rails uses per test worker),
+  not a container per lane. A compose stack per lane only when a lane needs
+  its own.
+- `heartbeat --progress &#x27;&lt;what is running&gt;&#x27;` works on any claimed lane; the
+  digest and `status` show it beside the lane&#x27;s age, so a slow lane reads as
+  slow.
+- A lane runs only the narrowest acceptance for its slice and never the
+  end-to-end or browser suite; `integrate` runs `--verify` once over the
+  merged tree. Every merge queue works this way.
 
 ## Feedback and recovery
 
@@ -3879,26 +5062,55 @@ claimant acknowledges it. The sender cannot acknowledge its own message.
 .agents/workloop.py watch slice-3b --stale-seconds 900
 ```
 
+Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
+its host agent id at start and each unread message for its lane once between
+tool calls, and the lead hears at every prompt which lanes await review, carry
+attention, are stale or broken, and when a run is ready to integrate. A hook
+cannot wake an idle lead, so for a run that outlives the lead&#x27;s turn schedule
+the poll: `/loop 10m .agents/workloop.py watch &lt;run&gt;`. On Codex and Kimi the
+manual `inbox` stands.
+
 `watch` is read-only and reports O(lanes + messages) work. Its restart request
 must be delivered by a native host adapter or a lead; it never claims to restart
 or interrupt an agent itself. A run retains at most 128 messages by default.
-Archive acknowledged-free status and evidence-ready chatter before that ceiling;
-required findings remain until their review cycle is complete.
+Archive acknowledgement-free status and evidence-ready chatter before that
+ceiling; an acknowledged finding is dropped once the lane it addresses is
+reviewed, and one awaiting acknowledgement is never archived — it blocks
+completion until the claimant answers it.
 
 ```sh
 .agents/workloop.py archive slice-3b
 ```
 
+## Integrate and tear down
+
+Each lane verified its own slice in its own worktree; nothing has verified the
+composition. Once every lane is reviewed, `integrate` resets an integration
+worktree to the base on branch `&lt;run&gt;/integration`, merges the lane branches in
+dependency order, provisions, and runs the `--verify` command once. A conflict
+aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
+`check` on a run with more than one lane requires a passing integration whose
+recorded lane tips still match; a lane commit after integration reports
+`integration:stale` until `integrate` reruns.
+
+```sh
+.agents/workloop.py integrate slice-3b --workspace ../clearclaim-integration
+.agents/workloop.py qa slice-3b --evidence &#x27;Playwright and service tests passed&#x27;
+.agents/workloop.py check slice-3b
+.agents/workloop.py teardown slice-3b
+```
+
+`teardown` removes the lane and integration worktrees once `check` passes. It
+deletes a branch only when the repository&#x27;s HEAD already contains it; the
+`&lt;run&gt;/integration` branch carries the verified composition, so land it first
+and rerun `teardown` to drop it.
+
 ## Complete the cycle
 
 Only the independent QA result advances the run. `check` is the completion
 gate: it fails if any lane is unresolved, lacks evidence, has unacknowledged
-attention, or the run lacks QA evidence.
-
-```sh
-.agents/workloop.py qa slice-3b --evidence &#x27;Playwright and service tests passed&#x27;
-.agents/workloop.py check slice-3b
-```
+attention, the run lacks QA evidence, or a multi-lane run lacks a current
+passing integration.
 
 The default ceiling is eight lanes. More lanes require `--allow-more` when
 adding the next lane, so the lead consciously accepts the added coordination
@@ -4039,7 +5251,7 @@ purpose-aware judge, after the blind work is done.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>qa-verifier</h3><p>Executes focused scenarios against changed observable behavior and reports evidence, failures, and the coverage it did not reach. Runs after implementation tests and before final review.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 23 lines</span></summary><div class="srcpath">.agents/skills/qa-verifier/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 28 lines</span></summary><div class="srcpath">.agents/skills/qa-verifier/SKILL.md</div><pre><code>---
 name: qa-verifier
 description: Verify changed observable behavior with focused executable scenarios, evidence, failures, and coverage gaps. Use after implementation when a change affects API, UI, data flow, integration, or a high-stakes claim.
 ---
@@ -4056,8 +5268,13 @@ Give it the ask, plan, changed paths, runnable commands, and the independent
 claim for high-stakes work. Route applicable scenarios through identity, API or
 data validation, state/retry, UI/navigation/accessibility, and integration
 failure; do not collapse them into one generic edge case. It returns
-`SCENARIOS`, `EXECUTED`, `FAILURES`, and `COVERAGE GAPS`. A passing command
-proves only its scenario; preserve that boundary in the handoff.
+`SCENARIOS`, `EXECUTED`, `FAILURES`, `COVERAGE GAPS`, `TORN DOWN`, and
+`STILL UP`. A passing command proves only its scenario; preserve that boundary
+in the handoff.
+
+The verifier must close the browsers and background processes it started before
+it returns, and must name anything it left running under `STILL UP`. A run that
+leaves ten browser contexts alive holds the machine&#x27;s memory until it restarts.
 
 If QA finds a failure, the implementer fixes it and QA re-runs the failed
 scenario. If a surface cannot run, state the exact blocker; do not call the
@@ -5928,7 +7145,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>implementer.md</h3><p>The implementation cell: focused changes, executable checks, and a concrete handoff.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 26 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 30 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
 name: implementer
 description: Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.
 tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
@@ -5944,7 +7161,11 @@ and the settled plan before editing. Do not widen scope or delegate again.
 
 Make the smallest complete change. Preserve unrelated work. Run the narrowest
 acceptance command that proves the requested behavior; if it fails, diagnose
-and fix it. Return only:
+and fix it. A failure that names a missing module, binary, or runtime version
+is an environment failure, not a code failure. In a worktree of your own, run
+`.agents/provision.sh .` and rerun before touching source; in the main
+checkout the environment is the operator&#x27;s, so report it under BOUNDARY
+instead. Never edit code to satisfy it. Return only:
 
 ```
 RESULT: &lt;what changed&gt;
@@ -5975,7 +7196,7 @@ reproduction of the named claim. Return only the contract report.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>qa-verifier.md</h3><p>Verifies changed observable behavior with focused executable scenarios.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 43 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 59 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;mcp__playwright__*&quot;]
@@ -6001,7 +7222,19 @@ then route every applicable surface below; one global edge case is insufficient:
 Run the cheapest meaningful command or interaction for each scenario. Do not
 infer runtime success from code or a passing unrelated suite. Add no test; hand
 reproducing regression coverage back to the implementer. Bash exists to execute
-tests and interactions, not to edit product source.
+tests and interactions, not to edit product source. A command that fails naming
+a missing module, binary, or runtime version is an environment failure, not a
+finding against the change. In a worktree of your own, run
+`.agents/provision.sh .` and rerun; in the main checkout, or if it still fails,
+list the scenario under COVERAGE GAPS with that reason.
+
+Close what you opened before you return. Verification is short and its
+resources are not worth holding: call `browser_close` once the last interaction
+is observed, end any device session, and stop any server or watcher you
+backgrounded. A container, a compose stack, or a booted emulator the run needs
+is worth keeping while the work continues — leave it up and name it under
+STILL UP so the caller can decide. Report the state you left the machine in; a
+run that leaves ten browser contexts alive has not finished.
 
 Return exactly:
 
@@ -6014,6 +7247,10 @@ FAILURES
 - &lt;file:line or scenario&gt; — &lt;observed failure&gt; | none
 COVERAGE GAPS
 - &lt;scenario&gt; — &lt;why it could not run&gt; | none
+TORN DOWN
+- &lt;resource&gt; — &lt;how it was stopped&gt; | nothing started
+STILL UP
+- &lt;resource&gt; — &lt;why it is worth keeping&gt; | none
 ```
 
 Mark a scenario `not applicable` only when the changed behavior cannot exhibit
@@ -6021,7 +7258,7 @@ it. Mark unavailable runnable surfaces as a coverage gap, never as a pass.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>mechanic.md</h3><p>Bounded mechanical edits with the smallest relevant check.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 23 lines</span></summary><div class="srcpath">.agents/personas/mechanic.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 27 lines</span></summary><div class="srcpath">.agents/personas/mechanic.md</div><pre><code>---
 name: mechanic
 description: Delegate mechanical, bounded edits with one obvious result: renames, formatting, straightforward moves, or a narrow verified fix.
 tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
@@ -6035,7 +7272,11 @@ Perform one mechanical, bounded task with an obvious result. Read the affected
 files and local instructions first. Do not redesign, broaden scope, or change
 behavior unless the task explicitly asks for it.
 
-Make the edit, run the smallest relevant check, and return:
+Make the edit, run the smallest relevant check, and return the result. A check
+that fails naming a missing module, binary, or runtime version is an
+environment failure, not a code failure. In a worktree of your own, run
+`.agents/provision.sh .` and rerun; in the main checkout, or if it still
+fails, report that as the CHECK result instead of editing code to satisfy it.
 
 ```
 RESULT: &lt;changed paths and outcome&gt;
@@ -6236,7 +7477,7 @@ decision to the user.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 21 lines</span></summary><div class="srcpath">.agents/playbooks/diff-wrap.md</div><pre><code># Clean-up and behavior-impact review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 25 lines</span></summary><div class="srcpath">.agents/playbooks/diff-wrap.md</div><pre><code># Clean-up and behavior-impact review
 
 Scope: the files this session actually touched. Do not sweep files you did not
 edit — a wrap is not a repo-wide cleanup mission.
@@ -6249,6 +7490,10 @@ edit — a wrap is not a repo-wide cleanup mission.
 - Delete comments that describe behavior you removed or replaced.
 - Delete TODO markers you wrote.
 - Delete temporary scripts, fixtures, or scratch files created for iteration.
+- Stop what the work started: browser contexts, dev servers, watchers, and the
+  containers or compose stacks the work needed. The unit is closing, so nothing
+  is left to keep them warm for. Say which one you kept, and why, if you keep
+  any.
 
 ## 2. Behavior-impact review on the touched files
 
@@ -6500,7 +7745,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 52 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -6540,7 +7785,6 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`security-mcp`&#x27;s `check` repairs instead of failing** — it runs `build` before `check:bundle`, so a stale committed `dist/` is silently regenerated and passes. `research-mcp` omits `build` and fails loudly. Drop `build`.
 - **`export-scaffold.py` leaves colloid-only passages in `.agents/README.md`** — the `fixtures/review-episodes/` row, the `../demo/` fragment, and the `.github/copilot-instructions.md` lines. A table row cannot take `&lt;!-- colloid-only --&gt;`; needs `SUBSTITUTIONS` or reordering.
 - **`.agents/lsp.json` resolves language servers from PATH only** — a repository keeping its toolchain repo-local gets a server that never starts, silently. Give it `post-edit-check.sh`&#x27;s walk-up resolution, or state that LSP is PATH-only.
-- **`export/gitignore-fragment` omits `/.playwright-mcp/`** — every satellite running a playwright server accumulates untracked, unignored session artefacts, which also makes `session-wrap.sh` read the tree as dirty. Add the line.
 - **The root `AGENTS.md` Layers table names a symlink as canonical** — it lists `.claude/AGENTS.md` for the Claude adapter layer, but that path links to `.agents/claude/AGENTS.md`, and the same paragraph forbids editing through a symlink.
 - **`.kimi/config.toml.example:55` gates `Bash` alone** — `.agents/claude/settings.json` gates `Bash|PowerShell|Monitor`. Check the Kimi hook docs, then widen the matcher or record that Kimi exposes no background shell. Codex has no Monitor.
 - **Both MCP servers declare `node &gt;=20.19.0`** — Node 20 reached end of life on 2026-04-30 and CI runs 22 and 24. Raise the floor to `&gt;=22.0.0`, so the declared constraint names something supported and tested.
@@ -6548,13 +7792,18 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`test-codex.sh`&#x27;s skip-Kimi branch never runs here** — this repository always ships `.kimi/config.toml.example`, so only a transplant exercises it. Add a stripped fixture the way `test-export.sh` builds its lean kit.
 - **`decisions.md` has no shape lint** — `lint-breadcrumbs.py` gates breadcrumbs, nothing checks that each `### &lt;id&gt;` entry carries Decision, Why, and Reopens-when lines. Add the check when an entry first ships without one.
 - **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
+- **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry Codex&#x27;s `Common dependencies` registry set, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
+- **Turborepo cache across worktrees** — its local cache is keyed by task hash and shared across a repository&#x27;s worktrees: a second lane&#x27;s build hits the first&#x27;s; add one line to the Next.js stack pack when a target uses turbo.
+- **`provision.sh` installs packages, not toolchains** — a lane whose branch bumps `.nvmrc` or `engines.node` still runs the main checkout&#x27;s runtime. Read the pin and fail by name when it is unmet, or state the limit in the workloop skill.
+- **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
+- **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `&lt;run&gt;/&lt;lane&gt;` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 170 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 164 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -6694,12 +7943,6 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — `[agents] max_concurrent_threads_per_session = 8` is accepted by the host loader (`codex mcp list` passes in `test-codex.sh`), but no live session has opened eight spawned threads. Two things stay unknown: whether Codex opens all eight concurrently, and whether the ChatGPT plan throttles behind the raised cap. Acceptable: a cap higher than the service allows costs nothing, because the service-side limit binds first.
 - **Trigger** — a Codex session that stalls below eight threads. It is evidence only if its queuing or usage errors are read: a service limit never surfaces as a thread count.
 - **Rework** — dispatch eight bounded cells from one Codex thread and record which limit binds. A measurement, not a code change.
-
-### colloid-check-bundle-not-symlink-safe
-
-- **Condition** — `.agents/mcp-servers/*/scripts/check-bundle.mjs` is not symlink-safe. esbuild bakes realpath-resolved `node_modules/...` module comments into the bundle, so verifying reproducibility against a symlinked `node_modules` yields a mismatch that is an artefact of the link rather than of the source. Acceptable: neither server&#x27;s install symlinks `node_modules`, and CI installs fresh.
-- **Trigger** — a pnpm-style store or a workspace layout that symlinks `node_modules` for either server.
-- **Rework** — normalise the realpath prefixes out of the bundle before hashing, ~20 lines; it weakens the check by exactly the bytes it erases.
 
 ### colloid-showcase-cards-handwritten
 
