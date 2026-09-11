@@ -58,6 +58,7 @@ MANIFEST = {
     "security-scan":                      ".agents/skills/security-scan/SKILL.md",
     "dynamic-security-scan":              ".agents/skills/dynamic-security-scan/SKILL.md",
     "perf-budget":                        ".agents/skills/perf-budget/SKILL.md",
+    "page-load-audit":                    ".agents/skills/page-load-audit/SKILL.md",
     "market-researcher":                  ".agents/skills/market-researcher/SKILL.md",
     "mobile-responsive-web":              ".agents/skills/mobile-responsive-web/SKILL.md",
     "react-native-expert":                ".agents/skills/react-native-expert/SKILL.md",

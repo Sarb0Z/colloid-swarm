@@ -188,10 +188,6 @@
 
   /* ═══ Card grids ══════════════════════════════════════════════════════ */
   .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(276px,1fr)); gap:.85rem}
-  /* Sixteen skills leave a stranded single card at three columns. The wrap is
-     capped at 1040px, so a narrower track resolves to four across at desktop
-     and still collapses on the way down. */
-  #skills .grid{grid-template-columns:repeat(auto-fill,minmax(228px,1fr))}
   .card{background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:1.1rem 1.15rem; box-shadow:var(--shadow); display:flex; flex-direction:column}
   .kicker{font-family:var(--mono); font-size:.62rem; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:600; margin-bottom:.6rem}
   .card h3{margin:0; font-family:var(--mono); font-size:.94rem; font-weight:700; color:var(--strong); letter-spacing:-.01em}
@@ -288,7 +284,7 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, seventeen enforcement hooks, sixteen skills, and an evidence trail —
+      A hostile-review workflow, seventeen enforcement hooks, seventeen skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
@@ -296,7 +292,7 @@
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">Research → plan → attack → implement → attack. Principles, communication, delegation.</span><span class="m-n">AGENTS.md</span></a>
       <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">10 gates · 5 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">17 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
-      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">16 skills</span></a>
+      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">17 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
       <a href="#tracking"><span class="m-name">tracking</span><span class="m-desc">No tombstone comments — deferred work and standing tradeoffs get typed ledgers.</span><span class="m-n">2 ledgers</span></a>
       <a href="#config"><span class="m-name">config</span><span class="m-desc">Every hook, threshold, and behavior is a switch in one committed file.</span><span class="m-n">config.json</span></a>
@@ -1256,7 +1252,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 418 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 422 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive, and say why.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;}
@@ -1279,6 +1275,7 @@ The threat model is an honest mistake by the model, not an adversary with a
 shell. Obfuscation defeats this, and is meant to.
 &quot;&quot;&quot;
 
+import importlib.util
 import json
 import os
 import re
@@ -1629,19 +1626,22 @@ def verdict(text, project=&quot;&quot;):
     return None
 
 
+def load_config():
+    &quot;&quot;&quot;config.py, imported by path: it owns the policy.json/config.json layering.&quot;&quot;&quot;
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location(&quot;colloid_config&quot;, os.path.join(here, &quot;config.py&quot;))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def settings(repo):
+    return load_config().load(os.path.join(repo, &quot;.agents&quot;, &quot;config.json&quot;))
+
+
 def enabled(repo):
     &quot;&quot;&quot;The toggle, read the way config.py reads every other one.&quot;&quot;&quot;
-    try:
-        with open(os.path.join(repo, &quot;.agents&quot;, &quot;config.json&quot;), encoding=&quot;utf-8&quot;) as config:
-            settings = json.load(config)
-    except (OSError, ValueError):
-        return True
-    node = settings
-    for name in (&quot;hooks&quot;, &quot;guard_destructive&quot;, &quot;enabled&quot;):
-        if not isinstance(node, dict) or name not in node:
-            return True
-        node = node[name]
-    return node is not False
+    return load_config().read(settings(repo), &quot;hooks.guard_destructive.enabled&quot;, True)
 
 
 def main():
@@ -5879,6 +5879,262 @@ Otherwise keep the old baseline so subsequent runs still gate against it.
   `.agents/perf-budgets.json`; infer and persist the config only when it&#x27;s absent.
 </code></pre></details>
             </article>
+        <article class="card"><div class="kicker">Assurance</div><h3>page-load-audit</h3><p>Why a page loads blank, slow, or not at all &mdash; a padlock over a white page means the HTML arrived and the app never started. Tells a hung third party from a refused one by experiment, finds the CDN that stores nothing, then applies the bundle levers in order and measures each.</p><div class="foot">Diagnosis · hands the metric to <code>perf-budget</code></div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 253 lines</span></summary><div class="srcpath">.agents/skills/page-load-audit/SKILL.md</div><pre><code>---
+name: page-load-audit
+description: &gt;
+  Diagnoses why a web app loads blank, slow, or not at all, then shrinks what it
+  ships. Works the path from URL to first paint in order: triage the symptom
+  (unreachable, slow, or blank — a padlock over a white page means the HTML
+  arrived and the app never started), find render-blocking third-party
+  dependencies and prove them with a hang-versus-refuse experiment, diagnose a
+  CDN that caches nothing (Vary, Set-Cookie, TTL overrides, which process
+  actually answered), attribute the bundle and apply the levers in order
+  (on-demand libraries, route splitting with cold-entry routes eager, narrow
+  vendor chunks), size images to their display box, and make monitoring announce
+  its own absence. Every lever is measured before and after; every guard ships
+  with a test proven to fail without it. Use for &quot;site won&#x27;t load&quot;, &quot;blank
+  page&quot;, &quot;white screen&quot;, &quot;some users can&#x27;t access it&quot;, &quot;slow to load&quot;, &quot;bundle
+  too big&quot;, &quot;CDN not caching&quot;, &quot;cf-cache-status BYPASS&quot;, &quot;errors aren&#x27;t reaching
+  Sentry&quot;, or &quot;why is first load slow&quot;.
+---
+
+# Page Load Audit
+
+A page that will not load is three different faults wearing one symptom. This
+skill separates them, proves which one is live, fixes what the repository
+controls, and hands the operator the exact steps for what it does not.
+
+The method generalises. The evidence does not: worked numbers from one system
+live in [`references/worked-example.md`](references/worked-example.md), and the
+probe scripts in [`references/probes.md`](references/probes.md).
+
+## When to use this
+
+- A report says the site is down, blank, or slow for some users and not others.
+- A CDN sits in front of the origin and assets still travel the whole way.
+- The entry bundle is the reason first paint is late.
+- Errors happen in production and nothing reports them.
+
+Do not use it for backend latency under load; that is `scalability-audit`.
+
+## §1 Triage: read the symptom before touching anything
+
+**Three states, three causes.** Settle which one you have from the evidence,
+not the wording of the report.
+
+| What the user sees | What it means | Where to look |
+| --- | --- | --- |
+| Browser error page (&quot;can&#x27;t open the page&quot;) | Nothing arrived: DNS, TLS, or network path | Outside the app; §3 if a CDN is involved |
+| Content, eventually | Slow: bytes, round trips, or origin distance | §3, §4, §5 |
+| **White page, padlock in the address bar, no error** | **HTML arrived and the app never started** | §2, then §4 |
+
+The padlock is the tell. TLS completed and a document was served, so the
+network path works. Something after the HTML gates the app: a render-blocking
+resource that never settles, or a script that never finishes downloading.
+
+**Prove what is alive** with read-only probes before forming a hypothesis:
+
+- The root document: status, `cache-control`, CDN cache header.
+- One hashed asset the document references: status, cache headers, ETag.
+- One authenticated API route: a `401` proves the backend and its auth
+  middleware are both running. A `404` from a POST-only route on GET is also
+  proof of life.
+- The health route: check whether it returns the app&#x27;s HTML. A single-page app
+  served with a catch-all (`try_files … /index.html`) answers `200` for a dead
+  backend, and an uptime monitor pointed there measures the web server, not the
+  API.
+
+**Prove the deployed build is the current one.** Find a string introduced by
+the newest commit and grep the live bundle for it. Staleness is a cheaper
+explanation than a bug, so eliminate it first.
+
+**Read analytics with the survivorship caveat.** Core Web Vitals and similar
+beacons run after the page paints. A user looking at a blank page never fires
+one, so the affected cohort is invisible in those charts by construction. Look
+instead at visits diverging from page views (sessions failing to start while
+the ones that start behave normally), and at the P99 tail, not the median.
+
+## §2 Render-blocking third parties
+
+Only two things gate first paint and the deferred module script: parser-inserted
+stylesheets, including every `@import` they chain to, and synchronous scripts in
+`&lt;head&gt;`. Inventory them from the **served** document and stylesheet, not the
+source — a build step may inline or rewrite either.
+
+**Detection question:** does any render-blocking chain leave the origin?
+`grep -oE &#x27;https?://[^&quot;&#x27;\&#x27;&#x27;() ]+&#x27; &lt;served-stylesheet&gt;` answers it in one line.
+
+**The decisive experiment.** Refusal and hang are different faults with
+different symptoms, and only the experiment tells them apart:
+
+| Condition | Simulate with | Predicts |
+| --- | --- | --- |
+| Host refuses | abort the request (connection refused) | Page renders, wrong typeface or missing style |
+| Host **hangs** | intercept and never resolve | **Page never renders; root stays empty** |
+| Host answers late | delay by N seconds, then continue | Blank for N seconds, then renders |
+
+A network that filters silently drops packets; that is a hang, not a refusal.
+Run the experiment in the engine of the reported browser, sample the DOM on a
+timer (root child count, visible text length, stylesheet count, computed body
+background) rather than waiting on load events that never fire, and screenshot
+with a short timeout, because `screenshot()` itself waits on the still-loading
+page. Script in [`references/probes.md`](references/probes.md).
+
+**Find the cache that hides it.** Check `cache-control` on the third-party
+resource. A short private lifetime means every browser re-fetches on a
+schedule, so the fault looks intermittent and per-user, and &quot;clear your cache&quot;
+guarantees the failing request. Say so before that advice goes out.
+
+**Remedy: self-host.** Fonts through a package that bundles the files and
+emits `@font-face` with `unicode-range`, so a visitor downloads only the
+subsets their text needs. Then prove the swap is invisible: measure the
+bounding boxes of the same text nodes on production and on the new build; the
+widths must match to the pixel. Leave a comment on the import that says why no
+`@import` may point outside the origin, because the next person will not run
+the experiment.
+
+## §3 The CDN that caches nothing
+
+When every asset&#x27;s cache header reads `BYPASS` or `MISS` (`cf-cache-status`,
+`x-cache`, or the provider&#x27;s equivalent), eliminate in this order, cheapest
+first. Each step is a question with a checkable answer.
+
+1. **Development or bypass mode on?** Dashboard toggle; auto-expires on some
+   providers, so check the state, not the memory of it.
+2. **Cache level or a cache rule set to bypass?** Zero rules is an answer too:
+   it moves the cause to the response itself.
+3. **`Set-Cookie` on the response?** Most CDNs will not store one.
+4. **`Vary` on anything but `Accept-Encoding`?** Most CDNs will not store one.
+   `Vary: Origin` is the signature of CORS middleware — which means a process
+   with middleware answered a request for a static file.
+5. **Browser cache TTL override?** If the origin sends `immutable` for a year
+   and the browser sees four hours, the CDN is rewriting it. Fixing the origin
+   changes nothing a browser sees until that override is set to respect
+   origin headers. Sequence the fix accordingly.
+
+**Which process actually answered?** The ETag says. A strong hex ETag
+(`&quot;68c0f2ad-3aa1b2&quot;`) is a web server serving from disk. A weak decimal one
+(`W/&quot;3841394-1788963021492&quot;`) is a runtime static handler. If the repository&#x27;s
+web-server config says &quot;serve from disk&quot; and the live ETag says &quot;runtime&quot;, the
+live config is not the repository&#x27;s file. Prove drift with headers, then make
+applying the config a script rather than a runbook paragraph:
+
+- copy the live config aside first, and restore it if the syntax check fails;
+- treat the syntax check as the gate and reload only after it;
+- verify by mechanism, not symptom: weak ETag means the wrong process, `Vary`
+  means the CDN cannot cache, a bypass after two requests points at rules;
+- refuse to report on the wrong artefact — a catch-all route answers `200` with
+  the app&#x27;s HTML for a missing asset, so check `content-type` before reading
+  any other header.
+
+Purge the CDN once after the origin headers change, so entries stored with the
+old `Vary` are replaced.
+
+## §4 Bundle diet, in lever order
+
+**Measure first.** Attribute the entry chunk&#x27;s bytes back to packages, source
+areas, and pages by walking its source map. A number typed into a comment
+drifts from the truth within days; compute it every time. If source maps only
+emit when an upload token is present, add a build script that forces them on
+**and suppresses the upload plugin** — otherwise measuring bundle size
+publishes a release and then deletes the maps it uploaded.
+
+Apply levers in this order, and measure after each. Skipping the measurement
+turns a lever into a guess.
+
+**Lever 1 — heavy leaf libraries on demand.** Spreadsheet, PDF, and chart
+libraries are usually a quarter of the chunk and reach a fraction of visitors.
+Move the import inside the handler that needs it. Then check the trap: **a
+single static import anywhere defeats every dynamic import of the same
+package.** One memoised loader per library, and every call site through it.
+
+**Lever 2 — routes on demand.** Lazy-load pages. Keep eager only the routes a
+visitor reaches before logging in, because a lazy route costs a second round
+trip and that waterfall lands on the cold first visit. Those pages are small.
+One suspense boundary around the router; a named-export unwrap helper if the
+pages export names. Forecast honestly: lazy-loading a page evicts a component
+only if nothing eager imports it, so the shared-components figure is an upper
+bound, not a prediction. Heavy libraries reached only by lazy pages leave on
+their own. In-app navigation shows no fallback when the router runs
+navigation in a transition; check on a throttled link rather than assuming.
+
+**Lever 3 — vendor chunks.** Split framework packages so a returning visitor
+re-downloads app code alone after a deploy. Match named leaf packages, never
+&quot;everything in node_modules&quot;: a broad rule splits an import cycle across chunks
+and fixes an evaluation order the app then violates at runtime. This lever
+trades first-load bytes for repeat-visit bytes; report both. Prove the claim by
+changing a rendered string, rebuilding, and confirming the entry hash moved and
+the vendor hashes did not. A trailing comment does not survive minification
+and proves nothing.
+
+**Leave the cycle-breakers alone.** A module imported both statically and
+dynamically because the dynamic import breaks a circular dependency is not a
+size problem; the bundler is only noting the dynamic import cannot split it.
+
+Re-run the full route sweep after Lever 3. It is the one that fails at runtime.
+
+## §5 Images
+
+Size each raster to roughly twice its largest CSS display box, not to the
+source. Read every call site: the same file may render at 130 px in one place
+and 400 px in another. Store photographs in a lossy format; a photograph saved
+as PNG is pure waste. Delete files nothing references — grep the source for
+each name. A file that doubles as tab icon and placeholder avatar keeps its
+name, extension, and box, and is palette-quantised instead of resized; flat
+artwork with a few dozen colours loses nothing. Look at the two heaviest
+compressions by eye — fine UI text in a screenshot is the worst case.
+
+## §6 Monitoring that announces its absence
+
+An application that reports no errors looks exactly like one that never
+errors. `if (!dsn) return;` is how a monitoring gap survives for months and
+gets discovered by email. Announce the gap in three places, and throw in none
+of them — losing an API URL makes the app useless, losing monitoring must not
+take it down:
+
+- at build time, when the production build carries no DSN;
+- in the browser, on a production build;
+- at server boot, in the production environment.
+
+Ship the guard with tests that pin both halves — audible when absent, never
+fatal — and prove they detect the defect by restoring the silent return and
+watching the first one fail. A failed source-map upload must not fail the
+build either; if a comment claims it does, the comment goes.
+
+## §7 Verification discipline
+
+- One lever, one measurement. Report the table, not the intent.
+- Sweep routes in a browser: every public route, protected routes redirecting,
+  the catch-all, no console errors, no stuck fallback. Twice if a lever touches
+  chunk boundaries.
+- A guard without a test that fails in its absence is a comment.
+- Stop every server and browser the audit started before reporting.
+- &quot;Pre-existing&quot; is not a disposition. A failing check you ran is yours to fix
+  or file, in that order.
+
+## Output
+
+1. **The diagnosis**, stated as which of the three states was live and the
+   evidence that settled it.
+2. **A lever table**: each lever, measured before and after, in the units the
+   user can observe (bytes over the wire, seconds to first paint).
+3. **The environment steps that are the operator&#x27;s** — CDN settings, config
+   applied on the box, variables set — named precisely, with what each changes.
+4. **What was filed** rather than fixed, and why it needed a decision.
+
+## Preflight
+
+- The advice already given to users may be wrong. &quot;Clear your cache&quot; against a
+  render-blocking hang makes the fault certain. Check before it goes out again.
+- Screenshots of dashboards are evidence. Read the header row: a badge saying
+  which plan, a TTL, a rule count.
+- Do not test an upload plugin with real credentials. An invalid token and an
+  endpoint pointed at a closed local port prove the wiring without publishing.
+- The reporting browser matters. Engines differ in whether a stalled
+  stylesheet blocks the deferred script; test the one in the screenshot.
+</code></pre></details>
+            </article>
         <article class="card"><div class="kicker">Research</div><h3>market-researcher</h3><p>Competitor teardowns, pricing, sizing, and prior art &mdash; sweeping peer-reviewed literature, not just competitor pages. Grades every claim by source quality and flags widely-repeated numbers that have no primary source.</p>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 455 lines</span></summary><div class="srcpath">.agents/skills/market-researcher/SKILL.md</div><pre><code>---
 name: market-researcher
@@ -7785,10 +8041,10 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`AGENTS.md` is still 11,397 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
-- **`.agents/config.json` is ignored but documented as a per-repository override** — writing-coach commits four hook disables that are genuine repo policy, and career-ops and claude-code-boilerplate carry no ignore line at all. Track it, or split policy from operator taste?
 
 ## Work
 
+- **The exported `.agents/README.md` keeps its Kimi prose when a target drops `.kimi/`** — the host table and `.kimi-code/mcp.json` lines dangle in both TaxDrop repos. Wrap them in `colloid-only` markers, or add a Kimi-drop step to the guide.
 - **`teardown-gate.sh` blocks on containers `workloop.py reap` already removed** — the stop-classifier knows `docker stop` and `docker compose down`, not the controller&#x27;s own reap, so a reaped lane stays pending. Teach it the reap command, or verify liveness before blocking.
 - **`provenance-gate.sh` sees only text the host has flushed** — on 2.1.258 one session stopped writing mid-turn assistant text rows, so the gate read nothing and the Stop gate caught the turn. Re-test on a later host.
 - **`session-wrap.sh` blocks under `codex exec`** — the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt. Detect exec mode and skip the prompt.
@@ -7806,7 +8062,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
 - **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry Codex&#x27;s `Common dependencies` registry set, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
 - **Turborepo cache across worktrees** — its local cache is keyed by task hash and shared across a repository&#x27;s worktrees: a second lane&#x27;s build hits the first&#x27;s; add one line to the Next.js stack pack when a target uses turbo.
-- **`provision.sh` installs packages, not toolchains** — a lane whose branch bumps `.nvmrc` or `engines.node` still runs the main checkout&#x27;s runtime. Read the pin and fail by name when it is unmet, or state the limit in the workloop skill.
+- **`provision.sh` honours `.python-version` but not `.nvmrc`** — a lane whose branch bumps the Node pin still runs the main checkout&#x27;s runtime. Read it and fail by name when unmet, or state the limit in the workloop skill.
 - **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
 - **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `&lt;run&gt;/&lt;lane&gt;` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.
 </code></pre></details>
@@ -7815,7 +8071,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 164 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 170 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -7979,6 +8235,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — no vendor guidance reconciles cache-prefix placement, which wants stable content first so the prefix hashes identically, with long-context guidance, which wants data before the query. The two order the same bytes differently once both corpora are large near a 1M window. Acceptable: the scaffold ships no prompt carrying two large corpora, so the conflict is theoretical.
 - **Trigger** — shipping a prompt that carries both a large stable corpus and a large per-call corpus near the window limit.
 - **Rework** — measure both orders on the real prompt and choose per prompt. The answer is likely prompt-specific, which makes this a measurement habit rather than a rule.
+
+### provision-pip-no-closure
+
+- **Condition** — `provision.sh` treats a `requirements.txt` whose every requirement is `==`-pinned as a lockfile and installs it into a `.venv`. Such a file pins direct dependencies only; transitive ones resolve from the index at install time, so two lanes provisioned days apart can differ in a package neither branch names. Accepted because the alternative was no environment at all for a repository that ships this way, and lanes of one run provision minutes apart from the same index.
+- **Trigger** — a lane&#x27;s suite goes red on a package absent from both requirements files, or a repository adopts `pip-compile` / `uv pip compile` output (recognisable by `# via` provenance lines) — then the pin check should require the closure and this entry retires.
+- **Rework cost** — ~15 lines in `pinned_requirements`, plus the target repository generating a compiled requirements file.
 </code></pre></details>
             </article>
         <article class="card">
