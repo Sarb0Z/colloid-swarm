@@ -101,6 +101,26 @@ BLOCK = [
     "ssh prod 'truncate -s 0 /var/log/app.log'",
     "ssh prod ': > /var/myexpenses/cron.log'",
     "ssh prod 'echo x > out.txt'",
+    "ssh prod 'echo x > /dev/sda'",
+    # ssh: a delete hidden behind -exec or xargs, in a shell or not.
+    r'''ssh prod "find /var/myexpenses -type f -exec sh -c 'rm -f \"$1\"' _ {} \;"''',
+    r'''ssh prod "find /var/myexpenses -type f -print0 | xargs -0 sh -c 'rm -f \"$@\"' _"''',
+    "ssh prod 'xargs -I {} rm {}'",
+    # ssh: container teardown, and the local rules applied to the far host.
+    "ssh prod 'docker compose down -v'",
+    "ssh prod 'docker-compose down --volumes'",
+    "ssh prod 'docker stop web'",
+    "ssh prod \"psql -c 'DROP TABLE users'\"",
+    "ssh prod 'kubectl delete namespace prod'",
+    "ssh prod 'terraform destroy -auto-approve'",
+    "ssh prod 'aws s3 rm s3://bucket/ --recursive'",
+    "ssh prod 'git clean -fdx'",
+    "ssh prod 'git -C /srv/app reset --hard'",
+    # copy onto a remote host: every destination spelling.
+    "rsync -av --delete ./dist/ prod:/var/www/html/",
+    "rsync -a /srv/ user@prod:/srv/",
+    "scp nginx.conf prod:/etc/nginx/nginx.conf",
+    "scp -i key.pem nginx.conf prod:/etc/nginx/nginx.conf",
     # SQL: the keyword decides, not the punctuation around it.
     'psql -c "DROP TABLE users"',
     'psql -c "TRUNCATE users"',
@@ -155,6 +175,15 @@ ALLOW = [
     "ssh prod 'nginx -T 2>/dev/null | grep server_name'",
     "ssh prod 'wc -l < /etc/passwd'",
     "ssh prod 'df -h 2>&1'",
+    "ssh prod \"find /var/log -name '*.log' -exec grep -l error {} \\;\"",
+    "ssh prod 'ls /var/log | xargs wc -l'",
+    "ssh prod 'docker logs web'",
+    "ssh prod \"psql -c 'SELECT 1'\"",
+    "ssh prod 'kubectl get pods'",
+    # copy from a remote host, and a local sync.
+    "rsync -av prod:/var/www/html/ ./backup/",
+    "scp prod:/etc/nginx/nginx.conf /tmp/nginx.conf",
+    "rsync -a --delete ./a/ ./b/",
     # The same deletions on this machine are the working tree's own business.
     "find . -name '*.pyc' -delete",
     "docker builder prune -af",
