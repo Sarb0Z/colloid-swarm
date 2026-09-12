@@ -275,32 +275,63 @@ PACKAGE_VERBS = {"install", "remove", "purge", "upgrade", "dist-upgrade", "autor
                  "erase", "uninstall", "add"}
 PACKAGE_TOOLS = {"apt", "apt-get", "yum", "dnf", "apk", "zypper", "pip", "pip3",
                  "npm", "pnpm", "yarn"}
-CONTAINER_TOOLS = {"docker", "podman", "nerdctl"}
-CONTAINER_VERBS = {"prune", "rm", "rmi"}
-DELETERS = {"rm", "mv", "truncate"}
+CONTAINER_TOOLS = {"docker", "docker-compose", "podman", "nerdctl"}
+CONTAINER_VERBS = {"prune", "rm", "rmi", "down", "stop", "restart", "kill"}
+FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+# The only device paths that discard or echo. Every other entry under /dev is
+# storage or hardware, and a redirect onto it is the worst write there is.
+DEVICE_SINKS = ("/dev/null", "/dev/zero", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/fd/")
 
 
 def persistent(path):
     """True when a path on the remote host outlives the command.
 
     Everything on that host is production, so a relative path counts too: it is
-    the remote home. A scratch root, the device tree, and a bare descriptor
+    the remote home. A scratch root, a device sink, and a bare descriptor
     number (`2>&1`) do not.
     """
     if path.isdigit():
         return False
     if path.startswith("/"):
-        return not (path.startswith("/dev/") or any(under(path, root) for root in SCRATCH))
+        if path.startswith(DEVICE_SINKS):
+            return False
+        return not any(under(path, root) for root in SCRATCH)
     return True
+
+
+def delegated(words):
+    """The commands `find -exec` hands off, or `xargs` runs, as Commands.
+
+    Both re-enter `normalize`, so a delete hidden in `sh -c '...'` is read too.
+    xargs's own flags take values (`-I {}`), so every suffix of its words is
+    tried as the command start; a suffix that begins with a flag value names
+    no command and decides nothing.
+    """
+    found = []
+    name = base(words[0])
+    if name == "find":
+        index = 1
+        while index < len(words):
+            if words[index] in FIND_EXEC:
+                end = index + 1
+                while end < len(words) and words[end] not in (";", "+"):
+                    end += 1
+                found.extend(normalize(" ".join(shlex.quote(word) for word in words[index + 1:end]), depth=1))
+                index = end
+            index += 1
+    elif name == "xargs":
+        for start in range(1, len(words)):
+            found.extend(normalize(" ".join(shlex.quote(word) for word in words[start:]), depth=1))
+    return found
 
 
 def mutating(command):
     """True when the command changes the state of the host that runs it.
 
     Deletion counts in every spelling, not only `rm -rf`: `find -delete`, a
-    delete handed to `xargs` or `-exec`, a container prune, a journal vacuum,
-    `truncate`, and a redirect that empties a file. A move or copy counts when
-    it lands outside scratch.
+    delete handed to `-exec` or `xargs`, a container prune or teardown, a
+    journal vacuum, `truncate`, and a redirect that empties a file. A move or
+    copy counts when it lands outside scratch.
     """
     words = lead(command.words)
     if not words:
@@ -325,10 +356,9 @@ def mutating(command):
         return True
     if name == "cp" and operands and persistent(operands[-1]):
         return True
-    if name == "find" and ("-delete" in rest or (
-            {"-exec", "-execdir"} & set(rest) and DELETERS & {base(word) for word in rest})):
+    if name == "find" and "-delete" in rest:
         return True
-    if name == "xargs" and DELETERS & {base(operand) for operand in operands}:
+    if name in ("find", "xargs") and any(mutating(nested) for nested in delegated(words)):
         return True
     if name in CONTAINER_TOOLS and CONTAINER_VERBS & set(operands):
         return True
@@ -345,10 +375,33 @@ def rule_ssh(command, project=""):
     while index < len(words) and words[index].startswith("-"):
         index += 2 if words[index] in SSH_VALUED else 1
     remote = " ".join(words[index + 1:])
-    if remote and any(mutating(nested) for nested in normalize(remote, depth=1)):
-        return ("Production mutation via SSH is forbidden from local sessions. Ship the "
-                "change through the repo and the approved deploy path; production access "
-                "is read-only here.")
+    # Everything on the far host is production: a command that merely changes
+    # state there is denied, and so is anything the local rules would deny,
+    # with no project carve-out because no remote path is this working tree.
+    for nested in normalize(remote, depth=1):
+        if mutating(nested) or any(rule(nested, "") for rule in RULES):
+            return ("Production mutation via SSH is forbidden from local sessions. Ship the "
+                    "change through the repo and the approved deploy path; production access "
+                    "is read-only here.")
+    return None
+
+
+REMOTE_PATH = re.compile(r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+:")
+
+
+def remote(operand):
+    """True when a copy operand names a host: `host:path`, `user@host:path`, or a URL."""
+    return "://" in operand or bool(REMOTE_PATH.match(operand))
+
+
+def rule_remote_copy(command, project=""):
+    words = lead(command.words)
+    if not words or base(words[0]) not in ("rsync", "scp"):
+        return None
+    _, _, operands = parts(words[1:])
+    if len(operands) >= 2 and remote(operands[-1]):
+        return ("Copying onto a remote host writes to production. Ship the change "
+                "through the repo and the approved deploy path.")
     return None
 
 
@@ -400,7 +453,7 @@ def rule_cloud(command, project=""):
     return None
 
 
-RULES = (rule_rm, rule_git, rule_ssh, rule_sql, rule_cloud)
+RULES = (rule_rm, rule_git, rule_ssh, rule_remote_copy, rule_sql, rule_cloud)
 
 
 def verdict(text, project=""):
