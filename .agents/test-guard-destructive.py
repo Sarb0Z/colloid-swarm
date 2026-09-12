@@ -87,6 +87,20 @@ BLOCK = [
     "ssh prod 'rm -rf /var/log/app'",
     'ssh prod "echo x > /etc/motd"',
     "ssh prod 'apt-get install nginx'",
+    # ssh: deletion in every spelling, and a write that lands outside scratch.
+    "ssh prod 'find /var/myexpenses/exported -type f -mtime +7 -delete'",
+    "ssh prod 'find /var/log -name \"*.gz\" -exec rm {} \\;'",
+    "ssh prod 'ls /var/log | xargs rm'",
+    "ssh prod 'rm /etc/nginx/ssl/old.crt'",
+    "ssh prod 'mv /etc/nginx/sites-enabled/x.bak /root/backups/'",
+    "ssh prod 'cp nginx.conf /etc/nginx/nginx.conf'",
+    "ssh prod 'docker builder prune -af'",
+    "ssh prod 'docker system prune -a --volumes'",
+    "ssh prod 'docker rm -f web'",
+    "ssh prod 'journalctl --vacuum-size=200M'",
+    "ssh prod 'truncate -s 0 /var/log/app.log'",
+    "ssh prod ': > /var/myexpenses/cron.log'",
+    "ssh prod 'echo x > out.txt'",
     # SQL: the keyword decides, not the punctuation around it.
     'psql -c "DROP TABLE users"',
     'psql -c "TRUNCATE users"',
@@ -131,6 +145,19 @@ ALLOW = [
     'ssh prod "tail -n 50 /var/log/syslog"',
     "ssh prod uptime\nsed -i s/a/b/ local.txt",
     "ssh prod uptime\nrm -rf ./build",
+    # ssh: the read-only neighbour of every deletion form, and scratch writes.
+    "ssh prod 'docker ps'",
+    "ssh prod 'docker system df'",
+    "ssh prod 'journalctl -u nginx -n 50'",
+    "ssh prod 'find /var/log -name \"*.log\" -size +100M'",
+    "ssh prod 'cat /etc/nginx/nginx.conf > /tmp/nginx.conf'",
+    "ssh prod 'cp /etc/nginx/nginx.conf /tmp/'",
+    "ssh prod 'nginx -T 2>/dev/null | grep server_name'",
+    "ssh prod 'wc -l < /etc/passwd'",
+    "ssh prod 'df -h 2>&1'",
+    # The same deletions on this machine are the working tree's own business.
+    "find . -name '*.pyc' -delete",
+    "docker builder prune -af",
     # SQL: a restricted statement, and the keyword outside a client.
     'psql -c "SELECT * FROM users"',
     'psql -c "DELETE FROM users WHERE id = 1"',
@@ -183,6 +210,8 @@ check("a herestring is not a heredoc",
 check("an unbalanced quote drops the segment", guard.normalize("rm -rf '/") == [])
 check("a redirect target is not an operand",
       [command.targets for command in guard.normalize("echo x > /etc/motd")] == [["/etc/motd"]])
+check("an input redirect is not a target",
+      [command.targets for command in guard.normalize("wc -l < /etc/passwd")] == [[]])
 
 # End to end through the shell entry point, which is what an engine invokes.
 #
