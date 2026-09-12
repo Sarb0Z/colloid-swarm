@@ -37,7 +37,7 @@ def check(name, ok, detail=""):
 ASK = [
     ("Bash", {"command": "git push"}),
     ("Bash", {"command": "git push origin main"}),
-    ("Bash", {"command": "git -C /Users/mac/Projects/repo push origin main"}),
+    ("Bash", {"command": "git -C /srv/example/repo push origin main"}),
     ("Bash", {"command": "git -c user.name=x push"}),
     ("Bash", {"command": "git --git-dir=/r/.git push"}),
     ("Bash", {"command": "git commit -m x && git push"}),

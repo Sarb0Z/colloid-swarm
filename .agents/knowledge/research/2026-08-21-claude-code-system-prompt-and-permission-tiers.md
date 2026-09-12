@@ -2,7 +2,7 @@
 date: 2026-08-21
 subject: How Claude Code 2.1.238 admits text into the system prompt, and which permission tier wins
 kind: research
-source: /Users/mac/.local/share/claude/versions/2.1.238 (shipped binary, read with `strings`); `claude --help`; four live `claude -p` runs on this machine
+source: ~/.local/share/claude/versions/2.1.238 (shipped binary, read with `strings`); `claude --help`; four live `claude -p` runs on this machine
 ---
 
 ## Scope note
