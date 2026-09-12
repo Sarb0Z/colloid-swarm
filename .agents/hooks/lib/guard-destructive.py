@@ -100,23 +100,28 @@ def segments(text):
 
 
 def cut_redirects(words):
-    """Separate redirection targets from the words that name the command."""
+    """Separate redirection targets from the words that name the command.
+
+    Only an output redirection yields a target: `> file` and `2> file` write to
+    the host, while `< file` and `<<< word` read and change nothing.
+    """
     kept, targets, index = [], [], 0
     while index < len(words):
         word = words[index]
         if word and word[0] in "<>":
             width = 1
-        elif len(word) > 1 and word[0].isdigit() and word[1] == ">":
+        elif len(word) > 1 and word[0].isdigit() and word[1] in "<>":
             width = 2
         else:
             kept.append(word)
             index += 1
             continue
+        writes = word[width - 1] == ">"
         target = word[width:].lstrip("<>&")
         if not target and index + 1 < len(words):
             index += 1
             target = words[index]
-        if target:
+        if target and writes:
             targets.append(target)
         index += 1
     return kept, targets
@@ -270,15 +275,38 @@ PACKAGE_VERBS = {"install", "remove", "purge", "upgrade", "dist-upgrade", "autor
                  "erase", "uninstall", "add"}
 PACKAGE_TOOLS = {"apt", "apt-get", "yum", "dnf", "apk", "zypper", "pip", "pip3",
                  "npm", "pnpm", "yarn"}
+CONTAINER_TOOLS = {"docker", "podman", "nerdctl"}
+CONTAINER_VERBS = {"prune", "rm", "rmi"}
+DELETERS = {"rm", "mv", "truncate"}
+
+
+def persistent(path):
+    """True when a path on the remote host outlives the command.
+
+    Everything on that host is production, so a relative path counts too: it is
+    the remote home. A scratch root, the device tree, and a bare descriptor
+    number (`2>&1`) do not.
+    """
+    if path.isdigit():
+        return False
+    if path.startswith("/"):
+        return not (path.startswith("/dev/") or any(under(path, root) for root in SCRATCH))
+    return True
 
 
 def mutating(command):
-    """True when the command changes the state of the host that runs it."""
+    """True when the command changes the state of the host that runs it.
+
+    Deletion counts in every spelling, not only `rm -rf`: `find -delete`, a
+    delete handed to `xargs` or `-exec`, a container prune, a journal vacuum,
+    `truncate`, and a redirect that empties a file. A move or copy counts when
+    it lands outside scratch.
+    """
     words = lead(command.words)
     if not words:
         return False
     name, rest = base(words[0]), words[1:]
-    letters, _, _ = parts(rest)
+    letters, longs, operands = parts(rest)
     if name == "systemctl" and SERVICE_VERBS & set(rest):
         return True
     if name == "postsuper" or (name == "postqueue" and {"f", "d"} & letters):
@@ -291,9 +319,22 @@ def mutating(command):
         return True
     if name == "sed" and "i" in letters:
         return True
-    if name == "rm" and {"r", "R", "f"} & letters:
+    if name in ("rm", "truncate"):
         return True
-    return any(target.startswith("/etc/") for target in command.targets)
+    if name == "mv" and any(persistent(operand) for operand in operands):
+        return True
+    if name == "cp" and operands and persistent(operands[-1]):
+        return True
+    if name == "find" and ("-delete" in rest or (
+            {"-exec", "-execdir"} & set(rest) and DELETERS & {base(word) for word in rest})):
+        return True
+    if name == "xargs" and DELETERS & {base(operand) for operand in operands}:
+        return True
+    if name in CONTAINER_TOOLS and CONTAINER_VERBS & set(operands):
+        return True
+    if name == "journalctl" and any(flag.startswith("--vacuum") for flag in longs):
+        return True
+    return any(persistent(target) for target in command.targets)
 
 
 def rule_ssh(command, project=""):
