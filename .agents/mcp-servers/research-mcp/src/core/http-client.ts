@@ -133,7 +133,11 @@ export class HttpClient implements Fetcher {
       const location = response.headers.location;
       const status = response.statusCode ?? 0;
       if (status >= 300 && status < 400 && location) {
-        response.resume();
+        // Only the Location header matters here. Destroying rather than draining
+        // keeps an unread body inside the size cap and off a stream that has no
+        // `error` listener, where a mid-drain reset would reach the process
+        // unhandled. `agent: false` means no pooled socket is lost.
+        response.destroy();
         if (hop === this.config.maxRedirects) {
           throw new FetchError(`Exceeded ${this.config.maxRedirects} redirects`, 'http');
         }
@@ -180,11 +184,17 @@ export class HttpClient implements Fetcher {
     const { url, hostname, addresses, deadline } = hop;
     for (let attempt = 0; ; attempt += 1) {
       const last = attempt >= this.config.retries;
+      // Checked before the request, not only before a sleep: with retrying
+      // switched off there are no sleeps, and request time alone can outlast
+      // the budget across a redirect chain.
+      this.assertWithinBudget(deadline, 0, url);
       await this.limiter.acquire(hostname, options.intervalMs);
 
       let response: IncomingMessage;
       try {
-        response = await this.send(url, addresses, options.accept);
+        // The request may not outlive the budget either, so it gets whichever
+        // of the two ceilings expires first.
+        response = await this.send(url, addresses, options.accept, this.remainingMs(deadline));
       } catch (error) {
         // A timeout, a reset or a DNS failure carries no status and may well be
         // transient. A policy refusal is a decision and never retried.
@@ -223,6 +233,11 @@ export class HttpClient implements Fetcher {
     return new Promise((resolve) => {
       setTimeout(resolve, ms).unref?.();
     });
+  }
+
+  /** Time left in the call's budget, never above the per-request ceiling. */
+  private remainingMs(deadline: number): number {
+    return Math.max(1, Math.min(this.config.requestTimeoutMs, deadline - Date.now()));
   }
 
   /**
@@ -268,6 +283,7 @@ export class HttpClient implements Fetcher {
     url: URL,
     addresses: readonly ResolvedAddress[],
     accept?: string,
+    timeoutMs = this.config.requestTimeoutMs,
   ): Promise<IncomingMessage> {
     const secure = url.protocol === 'https:';
     const options: ClientRequestArgs = {
@@ -282,7 +298,7 @@ export class HttpClient implements Fetcher {
         'accept-encoding': 'gzip, deflate, br',
         'accept-language': 'en',
       },
-      timeout: this.config.requestTimeoutMs,
+      timeout: timeoutMs,
       // Pinned to the addresses the policy validated, closing the window
       // between resolving a name and connecting to it.
       lookup: pinnedLookup(addresses),
@@ -293,7 +309,7 @@ export class HttpClient implements Fetcher {
       const call = secure ? httpsRequest : httpRequest;
       const req = call(options, resolve);
       req.on('timeout', () => {
-        req.destroy(new FetchError(`Timed out after ${this.config.requestTimeoutMs}ms`, 'network'));
+        req.destroy(new FetchError(`Timed out after ${timeoutMs}ms`, 'network'));
       });
       req.on('error', (error: Error) =>
         reject(error instanceof FetchError ? error : new FetchError(error.message, 'network')),

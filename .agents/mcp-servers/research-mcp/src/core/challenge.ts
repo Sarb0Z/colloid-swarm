@@ -28,11 +28,22 @@ const CHALLENGE_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * A challenge body is short. Scanning the whole document would let a page that
- * merely *discusses* bot protection match its own prose, and the interstitial's
- * marker is always near the top.
+ * Only the head is scanned. An interstitial carries its marker near the top,
+ * while a page that merely *discusses* bot protection puts the same words in
+ * its body.
  */
 const SCAN_CHARS = 4_096;
+
+/**
+ * A challenge page carries no content, so its whole document is small. A real
+ * page above this size that happens to use one of the phrases — an article on
+ * captchas, a title beginning "Just a moment" — is not an interstitial, and
+ * discarding it would be the same silent loss in the opposite direction.
+ *
+ * Generous on purpose: observed interstitials run a few kilobytes, and the
+ * cost of setting this too low is a live page thrown away.
+ */
+const MAX_CHALLENGE_CHARS = 64_000;
 
 /**
  * The matched pattern's source when the text is an interstitial, else null.
@@ -41,7 +52,7 @@ const SCAN_CHARS = 4_096;
  * which signal fired; "blocked" with no reason is not actionable.
  */
 export function detectChallenge(text: string): string | null {
-  if (!text) return null;
+  if (!text || text.length > MAX_CHALLENGE_CHARS) return null;
   const head = text.slice(0, SCAN_CHARS);
   return CHALLENGE_PATTERNS.find((pattern) => pattern.test(head))?.source ?? null;
 }

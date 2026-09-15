@@ -61806,7 +61806,7 @@ var HttpClient = class {
       const location = response.headers.location;
       const status = response.statusCode ?? 0;
       if (status >= 300 && status < 400 && location) {
-        response.resume();
+        response.destroy();
         if (hop === this.config.maxRedirects) {
           throw new FetchError(`Exceeded ${this.config.maxRedirects} redirects`, "http");
         }
@@ -61848,10 +61848,11 @@ var HttpClient = class {
     const { url, hostname: hostname2, addresses, deadline } = hop;
     for (let attempt = 0; ; attempt += 1) {
       const last = attempt >= this.config.retries;
+      this.assertWithinBudget(deadline, 0, url);
       await this.limiter.acquire(hostname2, options.intervalMs);
       let response;
       try {
-        response = await this.send(url, addresses, options.accept);
+        response = await this.send(url, addresses, options.accept, this.remainingMs(deadline));
       } catch (error2) {
         const transient = error2 instanceof FetchError && error2.kind === "network";
         if (last || !transient) {
@@ -61881,6 +61882,10 @@ var HttpClient = class {
     return new Promise((resolve) => {
       setTimeout(resolve, ms2).unref?.();
     });
+  }
+  /** Time left in the call's budget, never above the per-request ceiling. */
+  remainingMs(deadline) {
+    return Math.max(1, Math.min(this.config.requestTimeoutMs, deadline - Date.now()));
   }
   /**
    * Refuses a wait that would outlive the call's budget.
@@ -61915,7 +61920,7 @@ var HttpClient = class {
    * loop without a live origin: the address policy rejects loopback by design,
    * so there is no local server this class would ever agree to talk to.
    */
-  send(url, addresses, accept) {
+  send(url, addresses, accept, timeoutMs = this.config.requestTimeoutMs) {
     const secure = url.protocol === "https:";
     const options = {
       method: "GET",
@@ -61929,7 +61934,7 @@ var HttpClient = class {
         "accept-encoding": "gzip, deflate, br",
         "accept-language": "en"
       },
-      timeout: this.config.requestTimeoutMs,
+      timeout: timeoutMs,
       // Pinned to the addresses the policy validated, closing the window
       // between resolving a name and connecting to it.
       lookup: pinnedLookup(addresses),
@@ -61940,7 +61945,7 @@ var HttpClient = class {
       const call = secure ? httpsRequest : httpRequest;
       const req = call(options, resolve);
       req.on("timeout", () => {
-        req.destroy(new FetchError(`Timed out after ${this.config.requestTimeoutMs}ms`, "network"));
+        req.destroy(new FetchError(`Timed out after ${timeoutMs}ms`, "network"));
       });
       req.on(
         "error",
@@ -62042,8 +62047,9 @@ var CHALLENGE_PATTERNS = [
   /\bddos protection by\b/i
 ];
 var SCAN_CHARS = 4096;
+var MAX_CHALLENGE_CHARS = 64e3;
 function detectChallenge(text) {
-  if (!text) return null;
+  if (!text || text.length > MAX_CHALLENGE_CHARS) return null;
   const head = text.slice(0, SCAN_CHARS);
   return CHALLENGE_PATTERNS.find((pattern) => pattern.test(head))?.source ?? null;
 }
@@ -72739,10 +72745,12 @@ var fetchReadableToolDefinition = {
 function classifyFailure(error2) {
   if (error2.kind === "policy") return "policy";
   if (error2.kind === "size") return "size";
+  if (error2.kind === "budget") return "timeout";
   if (error2.kind === "network") {
     return /timed out/i.test(error2.message) ? "timeout" : "network";
   }
-  const status = error2.status ?? 0;
+  const status = error2.status;
+  if (status === void 0) return "network";
   if (status === 404 || status === 410) return "not_found";
   if (status === 403 || status === 429 || status === 503) return "blocked";
   if (status >= 500) return "server_error";
@@ -72764,7 +72772,8 @@ async function handleFetchReadable(input, http) {
         source: "archive",
         contentType: "",
         notes,
-        error: "No Wayback capture found for this URL"
+        error: "No Wayback capture found for this URL",
+        failure: "not_found"
       };
     }
     target = snapshot.url;
@@ -72795,7 +72804,21 @@ async function handleFetchReadable(input, http) {
       source = "archive";
       archiveTimestamp = snapshot.timestamp;
       archiveOriginal = snapshot.original;
-      response = await http.fetch(snapshot.url);
+      try {
+        response = await http.fetch(snapshot.url);
+      } catch (archiveError) {
+        const archiveFailure = archiveError;
+        return {
+          ok: false,
+          url: snapshot.url,
+          requestedUrl: input.url,
+          source: "archive",
+          contentType: "",
+          notes,
+          error: archiveFailure.message,
+          ...archiveFailure instanceof FetchError ? { failure: classifyFailure(archiveFailure), attempts: archiveFailure.attempts } : {}
+        };
+      }
     } else {
       return {
         ok: false,
@@ -72821,6 +72844,7 @@ async function handleFetchReadable(input, http) {
         contentType: response.contentType,
         notes,
         failure: "blocked",
+        attempts: 1,
         error: `Anti-bot challenge served instead of the page (matched /${challenge}/)`
       };
     }
@@ -72828,7 +72852,37 @@ async function handleFetchReadable(input, http) {
     source = "archive";
     archiveTimestamp = snapshot.timestamp;
     archiveOriginal = snapshot.original;
-    response = await http.fetch(snapshot.url);
+    try {
+      response = await http.fetch(snapshot.url);
+    } catch (error2) {
+      const failure = error2;
+      return {
+        ok: false,
+        url: snapshot.url,
+        requestedUrl: input.url,
+        source: "archive",
+        contentType: "",
+        notes,
+        error: failure.message,
+        ...failure instanceof FetchError ? { failure: classifyFailure(failure), attempts: failure.attempts } : {}
+      };
+    }
+  }
+  if (source === "archive") {
+    const archivedChallenge = detectChallenge(response.text);
+    if (archivedChallenge) {
+      return {
+        ok: false,
+        url: response.url,
+        requestedUrl: input.url,
+        source: "archive",
+        contentType: response.contentType,
+        notes,
+        failure: "blocked",
+        ...archiveTimestamp ? { archiveTimestamp } : {},
+        error: `The archived capture is itself an anti-bot challenge (matched /${archivedChallenge}/)`
+      };
+    }
   }
   const base = {
     ok: true,
@@ -72844,13 +72898,25 @@ async function handleFetchReadable(input, http) {
   };
   if (/^application\/pdf/i.test(response.contentType)) {
     if (response.truncated) {
-      return { ...base, ok: false, notes, error: "PDF exceeded the size cap; a partial PDF cannot be parsed" };
+      return {
+        ...base,
+        ok: false,
+        notes,
+        failure: "size",
+        error: "PDF exceeded the size cap; a partial PDF cannot be parsed"
+      };
     }
     const { text, pages } = await extractPdfText(new Uint8Array(response.bytes));
     return { ...base, pages, ...cap(text, input.maxChars), notes };
   }
   if (isBinary(response.contentType)) {
-    return { ...base, ok: false, notes, error: `Unsupported content type ${response.contentType}` };
+    return {
+      ...base,
+      ok: false,
+      notes,
+      failure: "unsupported",
+      error: `Unsupported content type ${response.contentType}`
+    };
   }
   if (response.truncated) {
     notes.push("Response hit the size cap; the document is incomplete and extraction may be partial.");
