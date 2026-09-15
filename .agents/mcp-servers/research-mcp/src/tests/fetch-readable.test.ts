@@ -104,6 +104,41 @@ describe('fetch_readable on a live anti-bot challenge', () => {
   });
 });
 
+describe('fetch_readable when the capture is itself the wall', () => {
+  /** Live page and capture are both the interstitial, which is the common case
+   *  for a permanently walled board: the index filters for captures stored with
+   *  status 200, and a challenge is served 200. */
+  class WalledFetcher implements Fetcher {
+    async fetch(url: string): Promise<FetchResult> {
+      if (url.startsWith('https://web.archive.org/cdx/')) {
+        return result(url, CDX_ROWS, 'application/json');
+      }
+      return result(url, CHALLENGE_HTML);
+    }
+  }
+
+  it('reports a block rather than returning the archived interstitial', async () => {
+    const out = await handleFetchReadable(
+      { url: ORIGINAL, archived: false, maxChars: 120_000 },
+      new WalledFetcher(),
+    );
+    expect(out.ok).toBe(false);
+    expect(out.failure).toBe('blocked');
+    expect(out.source).toBe('archive');
+    expect(out.error).toMatch(/archived capture is itself an anti-bot challenge/i);
+    expect(out.text ?? '').not.toContain('Checking your browser');
+  });
+
+  it('catches it on an explicitly requested capture too', async () => {
+    const out = await handleFetchReadable(
+      { url: ORIGINAL, archived: true, maxChars: 120_000 },
+      new WalledFetcher(),
+    );
+    expect(out.ok).toBe(false);
+    expect(out.failure).toBe('blocked');
+  });
+});
+
 describe('fetch_readable failure reporting', () => {
   it('reports the class and the real attempt count when no capture exists', async () => {
     const blocked = new FetchError('HTTP 403 from builtin.com', 'http', 403);

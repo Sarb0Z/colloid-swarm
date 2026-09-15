@@ -39,6 +39,10 @@ contact address.
 Each value must be an integer in its permitted range. The server refuses to
 start when one is not, and names the variable.
 
+The budget bounds one fetch. A single `fetch_readable` call makes up to three:
+the live page, the archive index, and the capture. Size the value against one
+fetch, not against the whole tool call.
+
 Unpaywall rejects placeholder addresses, so the server refuses to start with an
 `example.com`-class domain rather than fail on every lookup. Without the
 variable set, Unpaywall is skipped and each result says so; Crossref and arXiv

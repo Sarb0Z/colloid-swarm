@@ -120,10 +120,15 @@ export type FailureClass =
 export function classifyFailure(error: FetchError): FailureClass {
   if (error.kind === 'policy') return 'policy';
   if (error.kind === 'size') return 'size';
+  if (error.kind === 'budget') return 'timeout';
   if (error.kind === 'network') {
     return /timed out/i.test(error.message) ? 'timeout' : 'network';
   }
-  const status = error.status ?? 0;
+  const status = error.status;
+  // A redirect loop or an exhausted hop count is `http` with no status. It is
+  // the chain being wrong, not this request, so it must not land in
+  // `client_error` and be read as "never worth trying again".
+  if (status === undefined) return 'network';
   if (status === 404 || status === 410) return 'not_found';
   if (status === 403 || status === 429 || status === 503) return 'blocked';
   if (status >= 500) return 'server_error';
@@ -152,6 +157,7 @@ export async function handleFetchReadable(
       return {
         ok: false, url: input.url, requestedUrl: input.url, source: 'archive',
         contentType: '', notes, error: 'No Wayback capture found for this URL',
+        failure: 'not_found',
       };
     }
     target = snapshot.url;
@@ -180,7 +186,21 @@ export async function handleFetchReadable(
       source = 'archive';
       archiveTimestamp = snapshot.timestamp;
       archiveOriginal = snapshot.original;
-      response = await http.fetch(snapshot.url);
+      try {
+        response = await http.fetch(snapshot.url);
+      } catch (archiveError) {
+        // Reported here rather than thrown: the transport layer above would
+        // flatten this to a bare message and drop the notes explaining that the
+        // live read was refused first.
+        const archiveFailure = archiveError as FetchError;
+        return {
+          ok: false, url: snapshot.url, requestedUrl: input.url, source: 'archive',
+          contentType: '', notes, error: archiveFailure.message,
+          ...(archiveFailure instanceof FetchError
+            ? { failure: classifyFailure(archiveFailure), attempts: archiveFailure.attempts }
+            : {}),
+        };
+      }
     } else {
       return {
         ok: false, url: target, requestedUrl: input.url, source,
@@ -202,6 +222,7 @@ export async function handleFetchReadable(
       return {
         ok: false, url: response.url, requestedUrl: input.url, source: 'live',
         contentType: response.contentType, notes, failure: 'blocked',
+        attempts: 1,
         error: `Anti-bot challenge served instead of the page (matched /${challenge}/)`,
       };
     }
@@ -209,7 +230,34 @@ export async function handleFetchReadable(
     source = 'archive';
     archiveTimestamp = snapshot.timestamp;
     archiveOriginal = snapshot.original;
-    response = await http.fetch(snapshot.url);
+    try {
+      response = await http.fetch(snapshot.url);
+    } catch (error) {
+      const failure = error as FetchError;
+      return {
+        ok: false, url: snapshot.url, requestedUrl: input.url, source: 'archive',
+        contentType: '', notes, error: failure.message,
+        ...(failure instanceof FetchError
+          ? { failure: classifyFailure(failure), attempts: failure.attempts }
+          : {}),
+      };
+    }
+  }
+
+  // The capture can be a capture of the wall. The archive index filters for
+  // captures it stored with status 200, and an interstitial is served 200, so
+  // the newest capture of a permanently walled page is a plausible copy of the
+  // block. There is no further fallback, so this is where the read ends.
+  if (source === 'archive') {
+    const archivedChallenge = detectChallenge(response.text);
+    if (archivedChallenge) {
+      return {
+        ok: false, url: response.url, requestedUrl: input.url, source: 'archive',
+        contentType: response.contentType, notes, failure: 'blocked',
+        ...(archiveTimestamp ? { archiveTimestamp } : {}),
+        error: `The archived capture is itself an anti-bot challenge (matched /${archivedChallenge}/)`,
+      };
+    }
   }
 
   const base = {
@@ -227,14 +275,16 @@ export async function handleFetchReadable(
 
   if (/^application\/pdf/i.test(response.contentType)) {
     if (response.truncated) {
-      return { ...base, ok: false, notes, error: 'PDF exceeded the size cap; a partial PDF cannot be parsed' };
+      return { ...base, ok: false, notes, failure: 'size',
+        error: 'PDF exceeded the size cap; a partial PDF cannot be parsed' };
     }
     const { text, pages } = await extractPdfText(new Uint8Array(response.bytes));
     return { ...base, pages, ...cap(text, input.maxChars), notes };
   }
 
   if (isBinary(response.contentType)) {
-    return { ...base, ok: false, notes, error: `Unsupported content type ${response.contentType}` };
+    return { ...base, ok: false, notes, failure: 'unsupported',
+      error: `Unsupported content type ${response.contentType}` };
   }
 
   if (response.truncated) {
