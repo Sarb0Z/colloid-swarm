@@ -28,11 +28,45 @@ export interface Fetcher {
 }
 
 export class FetchError extends Error {
-  constructor(message: string, readonly kind: 'policy' | 'network' | 'http' | 'size') {
+  constructor(
+    message: string,
+    readonly kind: 'policy' | 'network' | 'http' | 'size',
+    /** Present for `kind: 'http'`, so callers can branch on the code itself. */
+    readonly status?: number,
+  ) {
     super(message);
     this.name = 'FetchError';
   }
 }
+
+/**
+ * Whether another attempt could plausibly succeed. A 429 or a 5xx is the server
+ * reporting a condition of its own; every other 4xx is the server rejecting
+ * this request, and repeating it only burns the host's rate budget.
+ */
+export function isRetryableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+/**
+ * Milliseconds from a `Retry-After` header in either permitted form, a delta in
+ * seconds or an HTTP date. Returns null when absent or unparseable.
+ */
+export function parseRetryAfterMs(raw: string | undefined, now = Date.now()): number | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1_000;
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, at - now);
+}
+
+const JITTER_MS = 250;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms).unref?.();
+  });
 
 /**
  * Serialises requests per host. Crossref, arXiv and Unpaywall each publish a
@@ -85,8 +119,7 @@ export class HttpClient implements Fetcher {
       if (!decision.allowed) throw new FetchError(decision.reason, 'policy');
       const { url, hostname, addresses } = decision.target;
 
-      await this.limiter.acquire(hostname, options.intervalMs);
-      const response = await this.send(url, addresses, options.accept);
+      const response = await this.sendWithRetry(url, hostname, addresses, options);
 
       const location = response.headers.location;
       const status = response.statusCode ?? 0;
@@ -102,7 +135,7 @@ export class HttpClient implements Fetcher {
 
       const { bytes, truncated } = await this.readBody(response);
       if (status >= 400) {
-        throw new FetchError(`HTTP ${status} from ${url.hostname}`, 'http');
+        throw new FetchError(`HTTP ${status} from ${url.hostname}`, 'http', status);
       }
       const contentType = response.headers['content-type'] ?? '';
       return {
@@ -118,7 +151,75 @@ export class HttpClient implements Fetcher {
     throw new FetchError('Redirect loop', 'http');
   }
 
-  private send(
+  /**
+   * One redirect hop, retried on conditions the origin reports as its own.
+   *
+   * Retrying here rather than around the whole fetch keeps every attempt inside
+   * the hop the address policy just cleared: re-entering the outer loop would
+   * replay earlier hops, and re-running a redirect chain to recover from a 503
+   * multiplies the requests the origin sees.
+   *
+   * Hands back the response untouched once attempts run out, so a caller that
+   * treats an exhausted 503 as an ordinary error needs no special case.
+   */
+  private async sendWithRetry(
+    url: URL,
+    hostname: string,
+    addresses: readonly ResolvedAddress[],
+    options: { accept?: string; intervalMs?: number },
+  ): Promise<IncomingMessage> {
+    for (let attempt = 0; ; attempt += 1) {
+      const last = attempt >= this.config.retries;
+      await this.limiter.acquire(hostname, options.intervalMs);
+
+      let response: IncomingMessage;
+      try {
+        response = await this.send(url, addresses, options.accept);
+      } catch (error) {
+        // A timeout, a reset or a DNS failure carries no status and may well be
+        // transient. A policy refusal is a decision and never retried.
+        const transient = error instanceof FetchError && error.kind === 'network';
+        if (last || !transient) throw error;
+        await sleep(this.backoffMs(attempt));
+        continue;
+      }
+
+      const status = response.statusCode ?? 0;
+      if (last || !isRetryableStatus(status)) return response;
+
+      // The body of a 503 is a courtesy page. Draining frees the socket for the
+      // next attempt instead of leaving it half-read.
+      const retryAfter = parseRetryAfterMs(response.headers['retry-after']);
+      response.resume();
+      await sleep(retryAfter === null ? this.backoffMs(attempt) : this.clampRetryAfter(retryAfter));
+    }
+  }
+
+  /** Exponential backoff under the configured ceiling, plus jitter. */
+  private backoffMs(attempt: number): number {
+    // The jitter is reserved out of the ceiling rather than added on top, so the
+    // total still honours the configured maximum. It matters most exactly where
+    // the curve has flattened and every caller would otherwise wake together.
+    const jitter = Math.min(JITTER_MS, Math.max(0, this.config.retryMaxDelayMs));
+    const ceiling = Math.max(0, this.config.retryMaxDelayMs - jitter);
+    return Math.min(this.config.retryBaseDelayMs * 2 ** attempt, ceiling) + Math.random() * jitter;
+  }
+
+  /**
+   * Honours the origin's own pacing, but only so far. `Retry-After: 86400` is
+   * either hostile or misconfigured, and either way a research read must not
+   * park a process for a day.
+   */
+  private clampRetryAfter(ms: number): number {
+    return Math.min(ms, this.config.retryMaxDelayMs * 4);
+  }
+
+  /**
+   * The single socket-touching call. `protected` so a test can drive the retry
+   * loop without a live origin: the address policy rejects loopback by design,
+   * so there is no local server this class would ever agree to talk to.
+   */
+  protected send(
     url: URL,
     addresses: readonly ResolvedAddress[],
     accept?: string,

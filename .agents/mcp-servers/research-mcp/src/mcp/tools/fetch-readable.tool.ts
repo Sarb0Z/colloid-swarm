@@ -96,6 +96,13 @@ export async function handleFetchReadable(
   let source: 'live' | 'archive' = input.archived ? 'archive' : 'live';
   let archiveTimestamp: string | undefined;
   let target = input.url;
+  /**
+   * The address the captured bytes were originally served from. Links and the
+   * canonical tag must resolve against it: a capture is fetched from
+   * web.archive.org, so resolving `/jobs?page=2` against the fetch URL yields an
+   * archive path that was never captured and does not exist.
+   */
+  let archiveOriginal: string | undefined;
 
   if (input.archived) {
     const snapshot = await findSnapshot(http, input.url, input.archivedBefore);
@@ -107,6 +114,7 @@ export async function handleFetchReadable(
     }
     target = snapshot.url;
     archiveTimestamp = snapshot.timestamp;
+    archiveOriginal = snapshot.original;
   }
 
   let response;
@@ -128,6 +136,7 @@ export async function handleFetchReadable(
       notes.push(`Live fetch failed (${failure.message}); read the Wayback capture instead.`);
       source = 'archive';
       archiveTimestamp = snapshot.timestamp;
+      archiveOriginal = snapshot.original;
       response = await http.fetch(snapshot.url);
     } else {
       return {
@@ -166,12 +175,14 @@ export async function handleFetchReadable(
     notes.push('Response hit the size cap; the document is incomplete and extraction may be partial.');
   }
 
-  const article = extractArticle(response.text, response.url);
+  const documentUrl = archiveOriginal ?? response.url;
+
+  const article = extractArticle(response.text, documentUrl);
   if (!article) {
     notes.push('Readability found no article body — this is probably an index or application page, not prose.');
     return {
       ...base,
-      canonicalUrl: canonicalUrl(response.text, response.url),
+      canonicalUrl: canonicalUrl(response.text, documentUrl),
       title: /<title[^>]*>([\s\S]*?)<\/title>/i.exec(response.text)?.[1]?.trim() ?? null,
       ...cap(stripTags(response.text), input.maxChars),
       notes,
@@ -180,7 +191,7 @@ export async function handleFetchReadable(
 
   return {
     ...base,
-    canonicalUrl: canonicalUrl(response.text, response.url),
+    canonicalUrl: canonicalUrl(response.text, documentUrl),
     title: article.title,
     byline: article.byline,
     siteName: article.siteName,
