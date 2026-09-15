@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Fetcher, FetchResult } from '../core/http-client.js';
+import { FetchError, type Fetcher, type FetchResult } from '../core/http-client.js';
 import { handleFetchReadable } from '../mcp/tools/fetch-readable.tool.js';
 
 const ORIGINAL = 'https://builtin.com/jobs/remote/dev-engineering';
@@ -53,6 +53,75 @@ class ArchiveFetcher implements Fetcher {
     throw new Error(`unexpected fetch of ${url}`);
   }
 }
+
+const CHALLENGE_HTML = `<!doctype html><html><head><title>Just a moment...</title></head>
+<body><p>Checking your browser before accessing builtin.com.</p></body></html>`;
+
+/** Answers the live URL with an interstitial, then serves the capture. */
+class ChallengedFetcher implements Fetcher {
+  readonly requested: string[] = [];
+
+  constructor(private readonly archiveAvailable = true) {}
+
+  async fetch(url: string): Promise<FetchResult> {
+    this.requested.push(url);
+    if (url.startsWith('https://web.archive.org/cdx/')) {
+      return result(url, this.archiveAvailable ? CDX_ROWS : '[]', 'application/json');
+    }
+    if (url === CAPTURE) return result(CAPTURE, CAPTURED_HTML);
+    return result(ORIGINAL, CHALLENGE_HTML);
+  }
+}
+
+describe('fetch_readable on a live anti-bot challenge', () => {
+  it('does not return the interstitial as the page', async () => {
+    const http = new ChallengedFetcher(false);
+    const out = await handleFetchReadable({ url: ORIGINAL, archived: false, maxChars: 120_000 }, http);
+    expect(out.ok).toBe(false);
+    expect(out.failure).toBe('blocked');
+    expect(out.text ?? '').not.toContain('Checking your browser');
+    expect(out.error).toMatch(/challenge/i);
+  });
+
+  it('falls back to the capture, the same way a refused fetch does', async () => {
+    const http = new ChallengedFetcher(true);
+    const out = await handleFetchReadable({ url: ORIGINAL, archived: false, maxChars: 120_000 }, http);
+    expect(out.ok).toBe(true);
+    expect(out.source).toBe('archive');
+    expect(out.archiveTimestamp).toBe(TIMESTAMP);
+    expect(out.text).toContain('Senior Backend Engineer');
+    expect(out.notes.join(' ')).toMatch(/anti-bot challenge/i);
+  });
+
+  it('leaves an ordinary page alone', async () => {
+    const http = new ArchiveFetcher();
+    // The capture URL serves normal listing markup; reading it live must not
+    // trip the detector.
+    const out = await handleFetchReadable({ url: CAPTURE, archived: false, maxChars: 120_000 }, http);
+    expect(out.ok).toBe(true);
+    expect(out.source).toBe('live');
+    expect(out.failure).toBeUndefined();
+  });
+});
+
+describe('fetch_readable failure reporting', () => {
+  it('reports the class and the real attempt count when no capture exists', async () => {
+    const blocked = new FetchError('HTTP 403 from builtin.com', 'http', 403);
+    blocked.attempts = 1;
+    const http: Fetcher = {
+      async fetch(url: string) {
+        if (url.startsWith('https://web.archive.org/cdx/')) {
+          return result(url, '[]', 'application/json');
+        }
+        throw blocked;
+      },
+    };
+    const out = await handleFetchReadable({ url: ORIGINAL, archived: false, maxChars: 120_000 }, http);
+    expect(out.ok).toBe(false);
+    expect(out.failure).toBe('blocked');
+    expect(out.attempts).toBe(1);
+  });
+});
 
 describe('fetch_readable on an archived page', () => {
   it('resolves links and the canonical tag against the original site, not the archive', async () => {

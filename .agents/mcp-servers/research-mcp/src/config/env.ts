@@ -41,6 +41,8 @@ export interface RuntimeConfig {
   retryBaseDelayMs: number;
   /** Ceiling for a computed backoff, and the basis for the Retry-After clamp. */
   retryMaxDelayMs: number;
+  /** Wall-clock ceiling on one fetch, covering every redirect hop and retry. */
+  fetchBudgetMs: number;
 }
 
 export const VERSION = '0.1.0';
@@ -63,5 +65,9 @@ export function getConfig(): RuntimeConfig {
     retries: integer('RESEARCH_MCP_RETRIES', 2, 0, 5),
     retryBaseDelayMs: integer('RESEARCH_MCP_RETRY_BASE_DELAY_MS', 500, 0, 10_000),
     retryMaxDelayMs: integer('RESEARCH_MCP_RETRY_MAX_DELAY_MS', 8_000, 0, 60_000),
+    // Redirect hops and retries multiply: at the other defaults a single fetch
+    // could otherwise send 18 requests and sleep between each, holding the
+    // caller's turn for tens of minutes. One budget covers the whole call.
+    fetchBudgetMs: integer('RESEARCH_MCP_FETCH_BUDGET_MS', 120_000, 5_000, 600_000),
   };
 }

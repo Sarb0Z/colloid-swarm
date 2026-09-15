@@ -34,8 +34,7 @@ Grades: `[P]` primary read directly · `[S]` secondary · `[?]` unverified ·
   `web.archive.org`, any extractor resolving links against the fetch URL turns
   a site-root link like `/jobs?page=2` into `https://web.archive.org/jobs?page=2`,
   a path that was never captured. The CDX row's `original` field is the correct
-  base. This repo's `fetch_readable` had the bug; fixed 2026-09-15 with a test
-  that reproduces the wrong URL.
+  base, and any extractor reading a capture must be given it explicitly.
 - `[A]` **A capture is history, not listings.** The newest capture of a
   bot-walled Built In board was 146 days old. Substituting it silently would
   manufacture stale leads, which is worse than the 403 because it reads as

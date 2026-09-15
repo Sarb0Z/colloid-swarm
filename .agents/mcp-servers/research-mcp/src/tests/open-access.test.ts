@@ -13,6 +13,7 @@ const config = (contactEmail: string | null): RuntimeConfig => ({
   retries: 0,
   retryBaseDelayMs: 0,
   retryMaxDelayMs: 0,
+  fetchBudgetMs: 60_000,
 });
 
 const reply = (text: string): FetchResult => ({

@@ -56,3 +56,4 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **A JS/TS satellite lints the vendored scaffold** — the bundled `security-mcp` build trips `@typescript-eslint/no-this-alias`, failing the whole repo's lint after a transplant. Ship an eslint ignore for `.agents/**`, or have the transplant add one.
 - **No stack pack covers Flutter** — two satellites are Flutter, and the carrier ships packs only for Expo, NestJS, Next.js and Rails, so both keep zero packs. Write one, or state the gap.
 - **The post-edit check does not cover Dart** — it dispatches on Python, TypeScript and JavaScript, so a Flutter satellite's main language has no automatic gate after an edit. Add `dart analyze`, or record the limit.
+- **`fetch_readable` falls back to a capture of any age** — one measured capture was 146 days old, which is history rather than current content. Return the capture age, or take a caller-supplied maximum and refuse past it.

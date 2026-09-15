@@ -31,6 +31,13 @@ contact address.
 | `RESEARCH_MCP_MAX_BODY_BYTES` | `8388608` | Response size cap. |
 | `RESEARCH_MCP_MAX_REDIRECTS` | `5` | Redirect hops permitted. |
 | `RESEARCH_MCP_MIN_HOST_INTERVAL_MS` | `350` | Minimum gap between requests to one host. |
+| `RESEARCH_MCP_RETRIES` | `2` | Extra attempts per redirect hop. Set `0` to disable retrying. |
+| `RESEARCH_MCP_RETRY_BASE_DELAY_MS` | `500` | First backoff delay. Each further attempt doubles it. |
+| `RESEARCH_MCP_RETRY_MAX_DELAY_MS` | `8000` | Ceiling for a backoff delay. A `Retry-After` header is honoured up to four times this value. |
+| `RESEARCH_MCP_FETCH_BUDGET_MS` | `120000` | Wall-clock ceiling for one fetch, shared by every redirect hop and retry. |
+
+Each value must be an integer in its permitted range. The server refuses to
+start when one is not, and names the variable.
 
 Unpaywall rejects placeholder addresses, so the server refuses to start with an
 `example.com`-class domain rather than fail on every lookup. Without the
@@ -53,6 +60,10 @@ redirects, so the address guard runs on **every hop**, not once at entry:
   a private one.
 - A failed live fetch may fall back to the archive; a **policy** rejection never
   does, because the archive would otherwise be a way around the guard.
+- A hop may be attempted more than once. Each retry re-acquires the per-host
+  interval, so retrying cannot send requests faster than the configured pace.
+- A live page that is an anti-bot challenge counts as a block, not as content.
+  The server reports `failure: "blocked"` and reads the archive instead.
 
 Requests identify themselves as `colloid-research-mcp/<version>`, with the
 contact address when one is configured.

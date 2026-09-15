@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { FetchError, type Fetcher, isBinary } from '../../core/http-client.js';
+import { detectChallenge } from '../../core/challenge.js';
 import type { ArticleLink } from '../../core/readable.js';
 import { canonicalUrl, extractArticle, extractPdfText } from '../../core/readable.js';
 import { findSnapshot } from '../../core/wayback.js';
@@ -86,6 +87,47 @@ export interface ReadableResult {
   redirects?: readonly string[];
   notes: string[];
   error?: string;
+  /**
+   * Why the read failed, when it did. A caller's next move differs per class
+   * and cannot be recovered from the message: `blocked` and `server_error` are
+   * worth another attempt later or from elsewhere, `not_found` and `policy`
+   * never are.
+   */
+  failure?: FailureClass;
+  /** Requests actually sent, so a caller summarising a sweep need not guess. */
+  attempts?: number;
+}
+
+export type FailureClass =
+  | 'blocked'
+  | 'not_found'
+  | 'server_error'
+  | 'client_error'
+  | 'timeout'
+  | 'network'
+  | 'policy'
+  | 'size'
+  | 'unsupported';
+
+/**
+ * Buckets a transport failure by what a caller would do about it.
+ *
+ * `403`, `429` and `503` go together: all three are the origin refusing *us*,
+ * which is never evidence the page is gone. Conflating them with `404` is the
+ * mistake career-ops documents at length, where a throttled board was recorded
+ * as expired and then skipped indefinitely.
+ */
+export function classifyFailure(error: FetchError): FailureClass {
+  if (error.kind === 'policy') return 'policy';
+  if (error.kind === 'size') return 'size';
+  if (error.kind === 'network') {
+    return /timed out/i.test(error.message) ? 'timeout' : 'network';
+  }
+  const status = error.status ?? 0;
+  if (status === 404 || status === 410) return 'not_found';
+  if (status === 403 || status === 429 || status === 503) return 'blocked';
+  if (status >= 500) return 'server_error';
+  return 'client_error';
 }
 
 export async function handleFetchReadable(
@@ -131,6 +173,7 @@ export async function handleFetchReadable(
         return {
           ok: false, url: input.url, requestedUrl: input.url, source: 'live',
           contentType: '', notes, error: failure.message,
+          failure: classifyFailure(failure), attempts: failure.attempts,
         };
       }
       notes.push(`Live fetch failed (${failure.message}); read the Wayback capture instead.`);
@@ -142,8 +185,31 @@ export async function handleFetchReadable(
       return {
         ok: false, url: target, requestedUrl: input.url, source,
         contentType: '', notes, error: failure.message,
+        ...(failure instanceof FetchError
+          ? { failure: classifyFailure(failure), attempts: failure.attempts }
+          : {}),
       };
     }
+  }
+
+  // A challenge is served as 200 with a short body, so it survives every check
+  // above and would be returned as the page. Treat it as the block it is, and
+  // reach for the capture the same way a refused fetch does.
+  const challenge = source === 'live' ? detectChallenge(response.text) : null;
+  if (challenge) {
+    const snapshot = await findSnapshot(http, input.url, input.archivedBefore).catch(() => null);
+    if (!snapshot) {
+      return {
+        ok: false, url: response.url, requestedUrl: input.url, source: 'live',
+        contentType: response.contentType, notes, failure: 'blocked',
+        error: `Anti-bot challenge served instead of the page (matched /${challenge}/)`,
+      };
+    }
+    notes.push(`Live page was an anti-bot challenge (matched /${challenge}/); read the Wayback capture instead.`);
+    source = 'archive';
+    archiveTimestamp = snapshot.timestamp;
+    archiveOriginal = snapshot.original;
+    response = await http.fetch(snapshot.url);
   }
 
   const base = {
