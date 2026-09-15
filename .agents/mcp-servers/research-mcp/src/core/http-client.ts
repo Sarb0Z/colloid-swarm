@@ -28,9 +28,16 @@ export interface Fetcher {
 }
 
 export class FetchError extends Error {
+  /**
+   * Requests actually sent, which is not `retries + 1`: a non-retryable status
+   * ends the loop after one. A caller summarising a sweep would otherwise have
+   * to assume the full budget was spent.
+   */
+  attempts = 1;
+
   constructor(
     message: string,
-    readonly kind: 'policy' | 'network' | 'http' | 'size',
+    readonly kind: 'policy' | 'network' | 'http' | 'size' | 'budget',
     /** Present for `kind: 'http'`, so callers can branch on the code itself. */
     readonly status?: number,
   ) {
@@ -62,11 +69,6 @@ export function parseRetryAfterMs(raw: string | undefined, now = Date.now()): nu
 }
 
 const JITTER_MS = 250;
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms).unref?.();
-  });
 
 /**
  * Serialises requests per host. Crossref, arXiv and Unpaywall each publish a
@@ -111,6 +113,10 @@ export class HttpClient implements Fetcher {
   ): Promise<FetchResult> {
     const redirects: string[] = [];
     let current = rawUrl;
+    // One budget for the whole call. Redirect hops and retries multiply:
+    // without a shared deadline, each hop gets a fresh attempt budget and a
+    // single fetch can hold the caller's turn for tens of minutes.
+    const deadline = Date.now() + this.config.fetchBudgetMs;
 
     for (let hop = 0; hop <= this.config.maxRedirects; hop += 1) {
       // Re-authorised per hop: a public first response may redirect to
@@ -119,7 +125,10 @@ export class HttpClient implements Fetcher {
       if (!decision.allowed) throw new FetchError(decision.reason, 'policy');
       const { url, hostname, addresses } = decision.target;
 
-      const response = await this.sendWithRetry(url, hostname, addresses, options);
+      const { response, attempts } = await this.sendWithRetry(
+        { url, hostname, addresses, deadline },
+        options,
+      );
 
       const location = response.headers.location;
       const status = response.statusCode ?? 0;
@@ -135,7 +144,9 @@ export class HttpClient implements Fetcher {
 
       const { bytes, truncated } = await this.readBody(response);
       if (status >= 400) {
-        throw new FetchError(`HTTP ${status} from ${url.hostname}`, 'http', status);
+        const failure = new FetchError(`HTTP ${status} from ${url.hostname}`, 'http', status);
+        failure.attempts = attempts;
+        throw failure;
       }
       const contentType = response.headers['content-type'] ?? '';
       return {
@@ -163,11 +174,10 @@ export class HttpClient implements Fetcher {
    * treats an exhausted 503 as an ordinary error needs no special case.
    */
   private async sendWithRetry(
-    url: URL,
-    hostname: string,
-    addresses: readonly ResolvedAddress[],
+    hop: { url: URL; hostname: string; addresses: readonly ResolvedAddress[]; deadline: number },
     options: { accept?: string; intervalMs?: number },
-  ): Promise<IncomingMessage> {
+  ): Promise<{ response: IncomingMessage; attempts: number }> {
+    const { url, hostname, addresses, deadline } = hop;
     for (let attempt = 0; ; attempt += 1) {
       const last = attempt >= this.config.retries;
       await this.limiter.acquire(hostname, options.intervalMs);
@@ -179,20 +189,55 @@ export class HttpClient implements Fetcher {
         // A timeout, a reset or a DNS failure carries no status and may well be
         // transient. A policy refusal is a decision and never retried.
         const transient = error instanceof FetchError && error.kind === 'network';
-        if (last || !transient) throw error;
-        await sleep(this.backoffMs(attempt));
+        if (last || !transient) {
+          if (error instanceof FetchError) error.attempts = attempt + 1;
+          throw error;
+        }
+        const waitMs = this.backoffMs(attempt);
+        this.assertWithinBudget(deadline, waitMs, url);
+        await this.sleep(waitMs);
         continue;
       }
 
       const status = response.statusCode ?? 0;
-      if (last || !isRetryableStatus(status)) return response;
+      if (last || !isRetryableStatus(status)) return { response, attempts: attempt + 1 };
 
-      // The body of a 503 is a courtesy page. Draining frees the socket for the
-      // next attempt instead of leaving it half-read.
+      // Destroyed rather than drained. `resume()` keeps reading a body this
+      // attempt has already abandoned — outside the size cap, and on a stream
+      // with no `error` listener, so a reset mid-drain reaches the process as
+      // an unhandled error and takes the server down with it.
       const retryAfter = parseRetryAfterMs(response.headers['retry-after']);
-      response.resume();
-      await sleep(retryAfter === null ? this.backoffMs(attempt) : this.clampRetryAfter(retryAfter));
+      response.destroy();
+      const waitMs = retryAfter === null ? this.backoffMs(attempt) : this.clampRetryAfter(retryAfter);
+      this.assertWithinBudget(deadline, waitMs, url);
+      await this.sleep(waitMs);
     }
+  }
+
+  /**
+   * Waits between attempts. `protected` so a test can observe the delay the
+   * policy chose: a suite that shortens the delays instead cannot tell an
+   * honoured `Retry-After` from an ignored one.
+   */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms).unref?.();
+    });
+  }
+
+  /**
+   * Refuses a wait that would outlive the call's budget.
+   *
+   * Checked before sleeping rather than after: a caller gains nothing from a
+   * process that waits 32 seconds and only then reports it had already run out
+   * of time.
+   */
+  private assertWithinBudget(deadline: number, waitMs: number, url: URL): void {
+    if (Date.now() + waitMs <= deadline) return;
+    throw new FetchError(
+      `Exceeded the ${this.config.fetchBudgetMs}ms budget for ${url.hostname}`,
+      'budget',
+    );
   }
 
   /** Exponential backoff under the configured ceiling, plus jitter. */

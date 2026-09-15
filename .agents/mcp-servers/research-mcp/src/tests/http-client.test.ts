@@ -22,6 +22,7 @@ const config = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig => ({
   // not the wall time it sleeps for.
   retryBaseDelayMs: 0,
   retryMaxDelayMs: 0,
+  fetchBudgetMs: 60_000,
   ...overrides,
 });
 
@@ -48,11 +49,19 @@ class ScriptedClient extends HttpClient {
     super(runtime, publicResolver);
   }
 
+  /** Every delay the policy chose, in order, without spending the wall time. */
+  readonly slept: number[] = [];
+
   protected override send(url: URL): Promise<IncomingMessage> {
     this.requested.push(url.toString());
     const step = this.steps.shift();
     if (!step) throw new Error('ScriptedClient ran out of scripted responses');
     return step instanceof Error ? Promise.reject(step) : Promise.resolve(step);
+  }
+
+  protected override sleep(ms: number): Promise<void> {
+    this.slept.push(ms);
+    return Promise.resolve();
   }
 }
 
@@ -162,6 +171,51 @@ describe('HttpClient retry', () => {
   it('makes exactly one attempt when retrying is switched off', async () => {
     const client = new ScriptedClient([reply(503)], config({ retries: 0 }));
     await expect(client.fetch('https://example.com/doc')).rejects.toMatchObject({ status: 503 });
+    expect(client.requested).toHaveLength(1);
+  });
+});
+
+describe('HttpClient pacing', () => {
+  // Real delays here, so an ignored Retry-After would show up as a backoff.
+  const paced = (overrides = {}) =>
+    config({ retryBaseDelayMs: 500, retryMaxDelayMs: 8_000, ...overrides });
+
+  it('waits the interval the origin asked for', async () => {
+    const client = new ScriptedClient(
+      [reply(429, '', { 'retry-after': '1' }), reply(200, 'ok')],
+      paced(),
+    );
+    await client.fetch('https://example.com/doc');
+    expect(client.slept).toEqual([1_000]);
+  });
+
+  it('caps a hostile Retry-After instead of parking the process', async () => {
+    // A day-long interval is either hostile or misconfigured. Either way a
+    // research read must not honour it literally.
+    const client = new ScriptedClient(
+      [reply(503, '', { 'retry-after': '86400' }), reply(200, 'ok')],
+      paced(),
+    );
+    await client.fetch('https://example.com/doc');
+    expect(client.slept).toEqual([32_000]); // retryMaxDelayMs * 4
+  });
+
+  it('backs off exponentially when the origin names no interval', async () => {
+    const client = new ScriptedClient([reply(503), reply(503), reply(200, 'ok')], paced());
+    await client.fetch('https://example.com/doc');
+    expect(client.slept).toHaveLength(2);
+    expect(client.slept[1]).toBeGreaterThan(client.slept[0] ?? 0);
+  });
+
+  it('refuses a wait that would outlive the call budget', async () => {
+    const client = new ScriptedClient(
+      [reply(503, '', { 'retry-after': '86400' }), reply(200, 'ok')],
+      paced({ fetchBudgetMs: 5_000 }),
+    );
+    await expect(client.fetch('https://example.com/doc')).rejects.toMatchObject({ kind: 'budget' });
+    // It fails before sleeping: a caller gains nothing from a wait that was
+    // already known to exceed the budget.
+    expect(client.slept).toEqual([]);
     expect(client.requested).toHaveLength(1);
   });
 });
