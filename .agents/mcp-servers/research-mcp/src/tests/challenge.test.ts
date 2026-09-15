@@ -39,6 +39,20 @@ describe('detectChallenge', () => {
   it('handles empty input', () => {
     expect(detectChallenge('')).toBeNull();
   });
+
+  it('leaves a full-sized document alone even when the phrase is in its head', () => {
+    // A challenge page carries no content. A large document that uses the same
+    // words is an article about them, and discarding it is the same silent loss
+    // in the opposite direction.
+    const head = '<html><head><title>Just a moment: a history of the captcha</title></head><body>';
+    const body = `${head}${'Real article prose about bot protection. '.repeat(3_000)}</body></html>`;
+    expect(body.length).toBeGreaterThan(64_000);
+    expect(detectChallenge(body)).toBeNull();
+  });
+
+  it('still fires on a small page carrying the phrase', () => {
+    expect(detectChallenge('<html><head><title>Just a moment...</title></head></html>')).toBeTruthy();
+  });
 });
 
 describe('classifyFailure', () => {
@@ -72,5 +86,16 @@ describe('classifyFailure', () => {
   it('classifies a policy refusal and a size refusal', () => {
     expect(classifyFailure(new FetchError('non-public address', 'policy'))).toBe('policy');
     expect(classifyFailure(new FetchError('too large', 'size'))).toBe('size');
+  });
+
+  it('treats an exhausted time budget as a timeout, not a bad request', () => {
+    // The doc-comment tells a caller that `client_error` is never worth
+    // retrying. A page that was merely slow must not land there.
+    expect(classifyFailure(new FetchError('Exceeded the 120000ms budget', 'budget'))).toBe('timeout');
+  });
+
+  it('does not file a redirect loop as a bad request either', () => {
+    expect(classifyFailure(new FetchError('Redirect loop', 'http'))).toBe('network');
+    expect(classifyFailure(new FetchError('Exceeded 5 redirects', 'http'))).toBe('network');
   });
 });
