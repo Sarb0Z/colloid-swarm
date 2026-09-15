@@ -36,6 +36,11 @@ export interface RuntimeConfig {
   maxBodyBytes: number;
   maxRedirects: number;
   minHostIntervalMs: number;
+  /** Extra attempts after the first. 0 disables retrying entirely. */
+  retries: number;
+  retryBaseDelayMs: number;
+  /** Ceiling for a computed backoff, and the basis for the Retry-After clamp. */
+  retryMaxDelayMs: number;
 }
 
 export const VERSION = '0.1.0';
@@ -51,5 +56,12 @@ export function getConfig(): RuntimeConfig {
     maxBodyBytes: integer('RESEARCH_MCP_MAX_BODY_BYTES', 8_388_608, 16_384, 33_554_432),
     maxRedirects: integer('RESEARCH_MCP_MAX_REDIRECTS', 5, 0, 10),
     minHostIntervalMs: integer('RESEARCH_MCP_MIN_HOST_INTERVAL_MS', 350, 0, 10_000),
+    // The Internet Archive's CDX index — the fallback this server offers for a
+    // page that blocks us — measured a failure on roughly one call in three,
+    // answering 503 or timing out. One attempt turns a flaky dependency into an
+    // unusable one, so the default is three attempts in total.
+    retries: integer('RESEARCH_MCP_RETRIES', 2, 0, 5),
+    retryBaseDelayMs: integer('RESEARCH_MCP_RETRY_BASE_DELAY_MS', 500, 0, 10_000),
+    retryMaxDelayMs: integer('RESEARCH_MCP_RETRY_MAX_DELAY_MS', 8_000, 0, 60_000),
   };
 }

@@ -10,6 +10,9 @@ const config = (contactEmail: string | null): RuntimeConfig => ({
   maxBodyBytes: 1_024,
   maxRedirects: 1,
   minHostIntervalMs: 0,
+  retries: 0,
+  retryBaseDelayMs: 0,
+  retryMaxDelayMs: 0,
 });
 
 const reply = (text: string): FetchResult => ({
