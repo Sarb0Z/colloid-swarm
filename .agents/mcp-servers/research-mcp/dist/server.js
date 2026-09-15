@@ -61574,7 +61574,14 @@ function getConfig() {
     requestTimeoutMs: integer2("RESEARCH_MCP_REQUEST_TIMEOUT_MS", 2e4, 1e3, 6e4),
     maxBodyBytes: integer2("RESEARCH_MCP_MAX_BODY_BYTES", 8388608, 16384, 33554432),
     maxRedirects: integer2("RESEARCH_MCP_MAX_REDIRECTS", 5, 0, 10),
-    minHostIntervalMs: integer2("RESEARCH_MCP_MIN_HOST_INTERVAL_MS", 350, 0, 1e4)
+    minHostIntervalMs: integer2("RESEARCH_MCP_MIN_HOST_INTERVAL_MS", 350, 0, 1e4),
+    // The Internet Archive's CDX index — the fallback this server offers for a
+    // page that blocks us — measured a failure on roughly one call in three,
+    // answering 503 or timing out. One attempt turns a flaky dependency into an
+    // unusable one, so the default is three attempts in total.
+    retries: integer2("RESEARCH_MCP_RETRIES", 2, 0, 5),
+    retryBaseDelayMs: integer2("RESEARCH_MCP_RETRY_BASE_DELAY_MS", 500, 0, 1e4),
+    retryMaxDelayMs: integer2("RESEARCH_MCP_RETRY_MAX_DELAY_MS", 8e3, 0, 6e4)
   };
 }
 
@@ -61721,13 +61728,30 @@ var gunzipAsync = promisify(gunzip);
 var inflateAsync = promisify(inflate);
 var brotliAsync = promisify(brotliDecompress);
 var FetchError = class extends Error {
-  constructor(message, kind) {
+  constructor(message, kind, status) {
     super(message);
     this.kind = kind;
+    this.status = status;
     this.name = "FetchError";
   }
   kind;
+  status;
 };
+function isRetryableStatus(status) {
+  return status === 429 || status >= 500 && status < 600;
+}
+function parseRetryAfterMs(raw, now = Date.now()) {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1e3;
+  const at2 = Date.parse(trimmed);
+  if (Number.isNaN(at2)) return null;
+  return Math.max(0, at2 - now);
+}
+var JITTER_MS = 250;
+var sleep = (ms2) => new Promise((resolve) => {
+  setTimeout(resolve, ms2).unref?.();
+});
 var HostRateLimiter = class {
   constructor(defaultIntervalMs) {
     this.defaultIntervalMs = defaultIntervalMs;
@@ -61767,8 +61791,7 @@ var HttpClient = class {
       const decision = await authorizeUrl(current, this.resolver);
       if (!decision.allowed) throw new FetchError(decision.reason, "policy");
       const { url, hostname: hostname2, addresses } = decision.target;
-      await this.limiter.acquire(hostname2, options.intervalMs);
-      const response = await this.send(url, addresses, options.accept);
+      const response = await this.sendWithRetry(url, hostname2, addresses, options);
       const location = response.headers.location;
       const status = response.statusCode ?? 0;
       if (status >= 300 && status < 400 && location) {
@@ -61782,7 +61805,7 @@ var HttpClient = class {
       }
       const { bytes, truncated } = await this.readBody(response);
       if (status >= 400) {
-        throw new FetchError(`HTTP ${status} from ${url.hostname}`, "http");
+        throw new FetchError(`HTTP ${status} from ${url.hostname}`, "http", status);
       }
       const contentType = response.headers["content-type"] ?? "";
       return {
@@ -61797,6 +61820,56 @@ var HttpClient = class {
     }
     throw new FetchError("Redirect loop", "http");
   }
+  /**
+   * One redirect hop, retried on conditions the origin reports as its own.
+   *
+   * Retrying here rather than around the whole fetch keeps every attempt inside
+   * the hop the address policy just cleared: re-entering the outer loop would
+   * replay earlier hops, and re-running a redirect chain to recover from a 503
+   * multiplies the requests the origin sees.
+   *
+   * Hands back the response untouched once attempts run out, so a caller that
+   * treats an exhausted 503 as an ordinary error needs no special case.
+   */
+  async sendWithRetry(url, hostname2, addresses, options) {
+    for (let attempt = 0; ; attempt += 1) {
+      const last = attempt >= this.config.retries;
+      await this.limiter.acquire(hostname2, options.intervalMs);
+      let response;
+      try {
+        response = await this.send(url, addresses, options.accept);
+      } catch (error2) {
+        const transient = error2 instanceof FetchError && error2.kind === "network";
+        if (last || !transient) throw error2;
+        await sleep(this.backoffMs(attempt));
+        continue;
+      }
+      const status = response.statusCode ?? 0;
+      if (last || !isRetryableStatus(status)) return response;
+      const retryAfter = parseRetryAfterMs(response.headers["retry-after"]);
+      response.resume();
+      await sleep(retryAfter === null ? this.backoffMs(attempt) : this.clampRetryAfter(retryAfter));
+    }
+  }
+  /** Exponential backoff under the configured ceiling, plus jitter. */
+  backoffMs(attempt) {
+    const jitter = Math.min(JITTER_MS, Math.max(0, this.config.retryMaxDelayMs));
+    const ceiling = Math.max(0, this.config.retryMaxDelayMs - jitter);
+    return Math.min(this.config.retryBaseDelayMs * 2 ** attempt, ceiling) + Math.random() * jitter;
+  }
+  /**
+   * Honours the origin's own pacing, but only so far. `Retry-After: 86400` is
+   * either hostile or misconfigured, and either way a research read must not
+   * park a process for a day.
+   */
+  clampRetryAfter(ms2) {
+    return Math.min(ms2, this.config.retryMaxDelayMs * 4);
+  }
+  /**
+   * The single socket-touching call. `protected` so a test can drive the retry
+   * loop without a live origin: the address policy rejects loopback by design,
+   * so there is no local server this class would ever agree to talk to.
+   */
   send(url, addresses, accept) {
     const secure = url.protocol === "https:";
     const options = {
@@ -72604,6 +72677,7 @@ async function handleFetchReadable(input, http) {
   let source = input.archived ? "archive" : "live";
   let archiveTimestamp;
   let target = input.url;
+  let archiveOriginal;
   if (input.archived) {
     const snapshot = await findSnapshot(http, input.url, input.archivedBefore);
     if (!snapshot) {
@@ -72619,6 +72693,7 @@ async function handleFetchReadable(input, http) {
     }
     target = snapshot.url;
     archiveTimestamp = snapshot.timestamp;
+    archiveOriginal = snapshot.original;
   }
   let response;
   try {
@@ -72641,6 +72716,7 @@ async function handleFetchReadable(input, http) {
       notes.push(`Live fetch failed (${failure.message}); read the Wayback capture instead.`);
       source = "archive";
       archiveTimestamp = snapshot.timestamp;
+      archiveOriginal = snapshot.original;
       response = await http.fetch(snapshot.url);
     } else {
       return {
@@ -72679,12 +72755,13 @@ async function handleFetchReadable(input, http) {
   if (response.truncated) {
     notes.push("Response hit the size cap; the document is incomplete and extraction may be partial.");
   }
-  const article = extractArticle(response.text, response.url);
+  const documentUrl = archiveOriginal ?? response.url;
+  const article = extractArticle(response.text, documentUrl);
   if (!article) {
     notes.push("Readability found no article body \u2014 this is probably an index or application page, not prose.");
     return {
       ...base,
-      canonicalUrl: canonicalUrl(response.text, response.url),
+      canonicalUrl: canonicalUrl(response.text, documentUrl),
       title: /<title[^>]*>([\s\S]*?)<\/title>/i.exec(response.text)?.[1]?.trim() ?? null,
       ...cap(stripTags(response.text), input.maxChars),
       notes
@@ -72692,7 +72769,7 @@ async function handleFetchReadable(input, http) {
   }
   return {
     ...base,
-    canonicalUrl: canonicalUrl(response.text, response.url),
+    canonicalUrl: canonicalUrl(response.text, documentUrl),
     title: article.title,
     byline: article.byline,
     siteName: article.siteName,
