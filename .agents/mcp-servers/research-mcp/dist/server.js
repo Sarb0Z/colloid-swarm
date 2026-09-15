@@ -61581,7 +61581,11 @@ function getConfig() {
     // unusable one, so the default is three attempts in total.
     retries: integer2("RESEARCH_MCP_RETRIES", 2, 0, 5),
     retryBaseDelayMs: integer2("RESEARCH_MCP_RETRY_BASE_DELAY_MS", 500, 0, 1e4),
-    retryMaxDelayMs: integer2("RESEARCH_MCP_RETRY_MAX_DELAY_MS", 8e3, 0, 6e4)
+    retryMaxDelayMs: integer2("RESEARCH_MCP_RETRY_MAX_DELAY_MS", 8e3, 0, 6e4),
+    // Redirect hops and retries multiply: at the other defaults a single fetch
+    // could otherwise send 18 requests and sleep between each, holding the
+    // caller's turn for tens of minutes. One budget covers the whole call.
+    fetchBudgetMs: integer2("RESEARCH_MCP_FETCH_BUDGET_MS", 12e4, 5e3, 6e5)
   };
 }
 
@@ -61736,6 +61740,12 @@ var FetchError = class extends Error {
   }
   kind;
   status;
+  /**
+   * Requests actually sent, which is not `retries + 1`: a non-retryable status
+   * ends the loop after one. A caller summarising a sweep would otherwise have
+   * to assume the full budget was spent.
+   */
+  attempts = 1;
 };
 function isRetryableStatus(status) {
   return status === 429 || status >= 500 && status < 600;
@@ -61749,9 +61759,6 @@ function parseRetryAfterMs(raw, now = Date.now()) {
   return Math.max(0, at2 - now);
 }
 var JITTER_MS = 250;
-var sleep = (ms2) => new Promise((resolve) => {
-  setTimeout(resolve, ms2).unref?.();
-});
 var HostRateLimiter = class {
   constructor(defaultIntervalMs) {
     this.defaultIntervalMs = defaultIntervalMs;
@@ -61787,11 +61794,15 @@ var HttpClient = class {
   async fetch(rawUrl, options = {}) {
     const redirects = [];
     let current = rawUrl;
+    const deadline = Date.now() + this.config.fetchBudgetMs;
     for (let hop = 0; hop <= this.config.maxRedirects; hop += 1) {
       const decision = await authorizeUrl(current, this.resolver);
       if (!decision.allowed) throw new FetchError(decision.reason, "policy");
       const { url, hostname: hostname2, addresses } = decision.target;
-      const response = await this.sendWithRetry(url, hostname2, addresses, options);
+      const { response, attempts } = await this.sendWithRetry(
+        { url, hostname: hostname2, addresses, deadline },
+        options
+      );
       const location = response.headers.location;
       const status = response.statusCode ?? 0;
       if (status >= 300 && status < 400 && location) {
@@ -61805,7 +61816,9 @@ var HttpClient = class {
       }
       const { bytes, truncated } = await this.readBody(response);
       if (status >= 400) {
-        throw new FetchError(`HTTP ${status} from ${url.hostname}`, "http", status);
+        const failure = new FetchError(`HTTP ${status} from ${url.hostname}`, "http", status);
+        failure.attempts = attempts;
+        throw failure;
       }
       const contentType = response.headers["content-type"] ?? "";
       return {
@@ -61831,7 +61844,8 @@ var HttpClient = class {
    * Hands back the response untouched once attempts run out, so a caller that
    * treats an exhausted 503 as an ordinary error needs no special case.
    */
-  async sendWithRetry(url, hostname2, addresses, options) {
+  async sendWithRetry(hop, options) {
+    const { url, hostname: hostname2, addresses, deadline } = hop;
     for (let attempt = 0; ; attempt += 1) {
       const last = attempt >= this.config.retries;
       await this.limiter.acquire(hostname2, options.intervalMs);
@@ -61840,16 +61854,47 @@ var HttpClient = class {
         response = await this.send(url, addresses, options.accept);
       } catch (error2) {
         const transient = error2 instanceof FetchError && error2.kind === "network";
-        if (last || !transient) throw error2;
-        await sleep(this.backoffMs(attempt));
+        if (last || !transient) {
+          if (error2 instanceof FetchError) error2.attempts = attempt + 1;
+          throw error2;
+        }
+        const waitMs2 = this.backoffMs(attempt);
+        this.assertWithinBudget(deadline, waitMs2, url);
+        await this.sleep(waitMs2);
         continue;
       }
       const status = response.statusCode ?? 0;
-      if (last || !isRetryableStatus(status)) return response;
+      if (last || !isRetryableStatus(status)) return { response, attempts: attempt + 1 };
       const retryAfter = parseRetryAfterMs(response.headers["retry-after"]);
-      response.resume();
-      await sleep(retryAfter === null ? this.backoffMs(attempt) : this.clampRetryAfter(retryAfter));
+      response.destroy();
+      const waitMs = retryAfter === null ? this.backoffMs(attempt) : this.clampRetryAfter(retryAfter);
+      this.assertWithinBudget(deadline, waitMs, url);
+      await this.sleep(waitMs);
     }
+  }
+  /**
+   * Waits between attempts. `protected` so a test can observe the delay the
+   * policy chose: a suite that shortens the delays instead cannot tell an
+   * honoured `Retry-After` from an ignored one.
+   */
+  sleep(ms2) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms2).unref?.();
+    });
+  }
+  /**
+   * Refuses a wait that would outlive the call's budget.
+   *
+   * Checked before sleeping rather than after: a caller gains nothing from a
+   * process that waits 32 seconds and only then reports it had already run out
+   * of time.
+   */
+  assertWithinBudget(deadline, waitMs, url) {
+    if (Date.now() + waitMs <= deadline) return;
+    throw new FetchError(
+      `Exceeded the ${this.config.fetchBudgetMs}ms budget for ${url.hostname}`,
+      "budget"
+    );
   }
   /** Exponential backoff under the configured ceiling, plus jitter. */
   backoffMs(attempt) {
@@ -61982,6 +62027,25 @@ function decode(bytes, contentType) {
   } catch {
     return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   }
+}
+
+// src/core/challenge.ts
+var CHALLENGE_PATTERNS = [
+  /just a moment/i,
+  /performing security verification/i,
+  /checking your browser before/i,
+  /verify you are (a |not a )?human/i,
+  /enable javascript and cookies to continue/i,
+  /attention required.*cloudflare/i,
+  /\bcf-ray\b/i,
+  /please complete the security check/i,
+  /\bddos protection by\b/i
+];
+var SCAN_CHARS = 4096;
+function detectChallenge(text) {
+  if (!text) return null;
+  const head = text.slice(0, SCAN_CHARS);
+  return CHALLENGE_PATTERNS.find((pattern) => pattern.test(head))?.source ?? null;
 }
 
 // src/core/readable.ts
@@ -72672,6 +72736,18 @@ var fetchReadableToolDefinition = {
     required: ["url"]
   }
 };
+function classifyFailure(error2) {
+  if (error2.kind === "policy") return "policy";
+  if (error2.kind === "size") return "size";
+  if (error2.kind === "network") {
+    return /timed out/i.test(error2.message) ? "timeout" : "network";
+  }
+  const status = error2.status ?? 0;
+  if (status === 404 || status === 410) return "not_found";
+  if (status === 403 || status === 429 || status === 503) return "blocked";
+  if (status >= 500) return "server_error";
+  return "client_error";
+}
 async function handleFetchReadable(input, http) {
   const notes = [];
   let source = input.archived ? "archive" : "live";
@@ -72710,7 +72786,9 @@ async function handleFetchReadable(input, http) {
           source: "live",
           contentType: "",
           notes,
-          error: failure.message
+          error: failure.message,
+          failure: classifyFailure(failure),
+          attempts: failure.attempts
         };
       }
       notes.push(`Live fetch failed (${failure.message}); read the Wayback capture instead.`);
@@ -72726,9 +72804,31 @@ async function handleFetchReadable(input, http) {
         source,
         contentType: "",
         notes,
-        error: failure.message
+        error: failure.message,
+        ...failure instanceof FetchError ? { failure: classifyFailure(failure), attempts: failure.attempts } : {}
       };
     }
+  }
+  const challenge = source === "live" ? detectChallenge(response.text) : null;
+  if (challenge) {
+    const snapshot = await findSnapshot(http, input.url, input.archivedBefore).catch(() => null);
+    if (!snapshot) {
+      return {
+        ok: false,
+        url: response.url,
+        requestedUrl: input.url,
+        source: "live",
+        contentType: response.contentType,
+        notes,
+        failure: "blocked",
+        error: `Anti-bot challenge served instead of the page (matched /${challenge}/)`
+      };
+    }
+    notes.push(`Live page was an anti-bot challenge (matched /${challenge}/); read the Wayback capture instead.`);
+    source = "archive";
+    archiveTimestamp = snapshot.timestamp;
+    archiveOriginal = snapshot.original;
+    response = await http.fetch(snapshot.url);
   }
   const base = {
     ok: true,
