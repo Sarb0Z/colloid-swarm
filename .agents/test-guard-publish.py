@@ -366,6 +366,25 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("./scripts/deploy.sh -n", "scripts/deploy.sh -vn", "./scripts/deploy.sh -newer"):
         reason = guard.verdict("Bash", {"command": command}, outward)
         check(f"a short flag is not a dry run: {command}", reason is not None, "quiet")
+    # The Supabase CLI groups its verbs under a noun, and one of them is both
+    # the routine local reset and the production rebuild. Splitting on the
+    # remote flag is what lets the dangerous form ask without the safe form
+    # asking several times an hour.
+    for command in ("supabase db push", "supabase db push --linked",
+                    "supabase functions deploy purchase-ticket",
+                    "supabase secrets set STRIPE_KEY=x", "supabase secrets unset STRIPE_KEY",
+                    "supabase projects delete abcd", "supabase branches create preview",
+                    "supabase db reset --linked", "supabase migration up --linked",
+                    "supabase db reset --db-url postgres://host/db"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a hosted Supabase command: {command}", reason is not None, "quiet")
+    for command in ("supabase db reset", "supabase migration up", "supabase start",
+                    "supabase status", "supabase stop", "supabase db diff",
+                    "supabase migration new add_memos",
+                    "supabase gen types typescript --local"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a local Supabase command: {command}", reason is None, reason or "")
+
     # A JavaScript repository reaches its scripts through a package manager, so
     # a list carrying only `node` leaves the documented invocation ungated.
     # Both shapes matter: the runner as an interpreter, and the manifest alias,
