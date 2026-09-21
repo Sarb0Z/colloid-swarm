@@ -366,6 +366,25 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("./scripts/deploy.sh -n", "scripts/deploy.sh -vn", "./scripts/deploy.sh -newer"):
         reason = guard.verdict("Bash", {"command": command}, outward)
         check(f"a short flag is not a dry run: {command}", reason is not None, "quiet")
+    # A JavaScript repository reaches its scripts through a package manager, so
+    # a list carrying only `node` leaves the documented invocation ungated.
+    # Both shapes matter: the runner as an interpreter, and the manifest alias,
+    # which never resolves to a path and so must be listed in its own right.
+    js_outward = ["supabase/tests/schema_verification.mjs", "db:verify"]
+    for command in ("bun --env-file=.env supabase/tests/schema_verification.mjs",
+                    "bun run db:verify", "npm run db:verify", "pnpm run db:verify",
+                    "yarn db:verify", "npx tsx supabase/tests/schema_verification.mjs",
+                    "deno run -A supabase/tests/schema_verification.mjs",
+                    "cd supabase/tests && bun schema_verification.mjs"):
+        reason = guard.verdict("Bash", {"command": command}, js_outward)
+        check(f"asks on a package-manager invocation: {command}",
+              reason is not None and "hosted system" in (reason or ""), reason or "quiet")
+    for command in ("cat supabase/tests/schema_verification.mjs",
+                    "bun run db:reset", "bun run lint",
+                    "bun run db:verify --dry-run"):
+        reason = guard.verdict("Bash", {"command": command}, js_outward)
+        check(f"quiet on a local or read-only script: {command}", reason is None, reason or "")
+
     # An operator's config.json extends the repository's list; it cannot
     # replace it, or one local entry would silence every listed deploy.
     (agents / "config.json").write_text(json.dumps({"hooks": {"guard_publish": {
