@@ -479,6 +479,20 @@ for rule in ask_rules:
           guard.verdict("Bash", {"command": command}) is not None,
           "the settings rule prompts on a command the guard treats as benign")
 
+# Derived from the guard's own table rather than the hand-written list above,
+# because the list is what a new vendor gets forgotten in: the hook would gate
+# the command while the host's own permission layer stayed blind to it.
+# The flag-conditional verbs are deliberately absent -- a static prefix rule
+# cannot see `--linked`, and a rule matching the bare verb would prompt on the
+# local one.
+for vendor, verbs in guard.DEPLOY_VERBS.items():
+    for verb in verbs:
+        command = f"{vendor} {verb}"
+        check(f"permissions.ask covers a gated vendor verb: {command}",
+              any(command == prefix or command.startswith(prefix + " ")
+                  for prefix in prefixes),
+              "the guard gates this but settings.json has no ask rule for it")
+
 print()
 print("ALL PASS" if fails == 0 else f"{fails} FAILURE(S)")
 sys.exit(1 if fails else 0)
