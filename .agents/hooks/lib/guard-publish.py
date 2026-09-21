@@ -56,6 +56,8 @@ GH_MUTATING_AREAS = {"pr", "issue", "release", "repo", "gist", "label", "workflo
 NPM_PUBLISHERS = {"npm", "pnpm", "yarn", "bun"}
 READ_FLAGS_GH_API = {"GET", "HEAD"}
 # One deploy vendor per row; the verb set is that CLI's outward-mutating verbs.
+# A verb may be two words, matched against the leading positional arguments and
+# longest-first, because some CLIs group their verbs under a noun.
 # `vercel` is special-cased below because its bare invocation deploys.
 DEPLOY_VERBS = {
     "vercel": {"deploy", "promote", "rollback", "alias", "rm", "remove", "redeploy"},
@@ -65,6 +67,17 @@ DEPLOY_VERBS = {
     "fly": {"deploy"},
     "flyctl": {"deploy"},
     "railway": {"up", "deploy"},
+    "supabase": {"db push", "functions deploy", "secrets set", "secrets unset",
+                 "projects create", "projects delete",
+                 "branches create", "branches delete"},
+}
+# Verbs that are local by default and reach the hosted project only when a flag
+# says so. Gating them unconditionally would ask on every `supabase db reset`,
+# which is how a developer rebuilds the Docker stack several times an hour; an
+# ask that fires on routine local work is one people learn to dismiss.
+REMOTE_FLAG_VERBS = {
+    "supabase": ({"db reset", "migration up", "migration repair", "db dump"},
+                 {"--linked", "--db-url"}),
 }
 # The read set is the allowlist, so an action this guard does not recognize asks:
 # a new Artifact action is likelier to mutate than to read. Nothing here keys on
@@ -82,7 +95,8 @@ RUNNER_VALUE_FLAGS = {"-p", "--package"}
 RUNNER_CALL_FLAGS = {"-c", "--call"}      # npx -c "<shell>" runs its value
 CONTROL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "time", "{"}
 # Names a command must mention before the shell parser is worth loading.
-GATED_NAMES = {"git", "gh", "docker"} | NPM_PUBLISHERS | set(DEPLOY_VERBS) | RUNNERS
+GATED_NAMES = ({"git", "gh", "docker"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
+               | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
 VERCEL_VALUE_FLAGS = {"--cwd", "-Q", "--global-config", "-A", "--local-config",
                       "-S", "--scope", "-t", "--token"}
@@ -170,9 +184,17 @@ def rule_bash(command, shell):
         return "docker push publishes the image to the registry."
     if name == "vercel":
         return vercel_reason(rest)
-    if name in DEPLOY_VERBS:
-        if rest and rest[0] in DEPLOY_VERBS[name]:
-            return f"{name} {rest[0]} deploys or mutates the hosted project."
+    if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
+        # Longest phrase first, so a two-word verb is not shadowed by its noun.
+        positional = [word for word in rest if not word.startswith("-")]
+        phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
+        for phrase in phrases:
+            if phrase in DEPLOY_VERBS.get(name, ()):
+                return f"{name} {phrase} deploys or mutates the hosted project."
+        verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
+        for phrase in phrases:
+            if phrase in verbs and any(word.split("=")[0] in flags for word in rest):
+                return f"{name} {phrase} against the linked project mutates the hosted database."
     return None
 
 
