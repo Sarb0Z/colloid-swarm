@@ -20,14 +20,28 @@ Usage:
 Dry run by default; `--apply` writes. The source folder is left in place, so a
 bad rewrite costs nothing -- delete it once `/resume` in the new location looks
 right, or pass `--prune` to have a successful run do it.
+
+One store per run. `CLAUDE_CONFIG_DIR` selects which, so an operator with a
+second config directory relinks each account with its own invocation.
 """
 
 import argparse
+import os
 import pathlib
 import re
 import shutil
 
-PROJECTS = pathlib.Path("~/.claude/projects").expanduser()
+
+def projects_root():
+    """Where this invocation's Claude Code keeps its transcripts.
+
+    Resolved per call, never cached at import. An operator with a second config
+    directory relinks one store per run, and a cached root would send the second
+    run back to the first store -- where it finds the work already done and
+    reports `0 copied`, indistinguishable from a healthy idempotent re-run,
+    while the other account's history stays orphaned.
+    """
+    return pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR", "~/.claude")).expanduser() / "projects"
 
 # How Claude Code encodes a path as a folder name: separators and dots fold to
 # hyphens. Derived rather than recorded, which is the whole reason a moved
@@ -52,11 +66,12 @@ def source_folder(path):
     short than a genuinely absent history. Suggesting neighbours turns that from
     a dead end into a one-word correction.
     """
-    folder = PROJECTS / slug(path)
+    root = projects_root()
+    folder = root / slug(path)
     if folder.is_dir():
         return folder
     stem = pathlib.Path(path).name.lower()
-    near = sorted(d.name for d in PROJECTS.iterdir() if d.is_dir() and stem in d.name.lower())
+    near = sorted(d.name for d in root.iterdir() if d.is_dir() and stem in d.name.lower())
     hint = f"\n  Did you mean one of: {near}" if near else ""
     raise SystemExit(f"relink: no transcript folder for {path}\n  Looked for: {folder}{hint}")
 
@@ -79,7 +94,7 @@ def main():
     args = parser.parse_args()
 
     source = source_folder(args.old_path)
-    target = PROJECTS / slug(args.new_path)
+    target = projects_root() / slug(args.new_path)
     if source == target:
         raise SystemExit("relink: both paths encode to the same folder, nothing to do")
 
