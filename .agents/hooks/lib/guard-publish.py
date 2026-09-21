@@ -268,37 +268,54 @@ def outward_commands(repo):
 # A script run through one of these is named by the first operand, not the
 # command word. Interpreters with major-version suffixes (python3.12) match by
 # prefix below.
-INTERPRETERS = {"bash", "sh", "zsh", "dash", "source", ".", "python", "python3", "node", "uv"}
+#
+# The JavaScript package managers belong here for two distinct reasons, and a
+# list carrying only `node` misses both: they run a file directly
+# (`bun x.mjs`), and they run it behind a manifest alias (`npm run deploy`).
+# The alias never resolves to a path, so a repository whose scripts are the
+# documented way in must also list the alias itself in `outward_commands`.
+INTERPRETERS = {
+    "bash", "sh", "zsh", "dash", "source", ".", "python", "python3", "node", "uv",
+    "bun", "bunx", "npm", "npx", "pnpm", "pnpx", "yarn", "deno",
+}
 
 
-def outward_target(words, shell):
-    """The script a command runs: its command word, or an interpreter's first operand."""
+def outward_targets(words, shell):
+    """Everything a command might be running: its command word, or an
+    interpreter's operands.
+
+    A runner does not hold the script in a fixed position -- `bun x.mjs` puts it
+    first, `npx tsx x.mjs` puts a tool there instead, and `npm run deploy` names
+    a manifest alias that is not a path at all. Returning every operand lets the
+    caller match against the listed entries rather than guess the position;
+    naming each intermediate tool instead would need a list that grows forever.
+
+    A non-runner yields only its command word, which is what keeps `cat` and
+    `grep` quiet: their operands are never inspected.
+    """
     if not words:
-        return None
+        return []
     name = shell.base(words[0])
     if words[0] in INTERPRETERS or name in INTERPRETERS or name.startswith("python3."):
-        operands = [w for w in words[1:] if not w.startswith("-") and w != "run"]
-        return operands[0] if operands else None
-    return words[0]
+        return [w for w in words[1:] if not w.startswith("-") and w != "run"]
+    return [words[0]]
 
 
 def rule_outward(words, outward, shell):
-    target = outward_target(words, shell)
-    if not target:
-        return None
-    normalized = target.lstrip("./")
-    for entry in outward:
-        # The listed path, any path ending in it, or its bare name after a
-        # `cd`: a script that writes to production is worth an ask under
-        # whatever path it was reached by. Reads never get here — the command
-        # word is `cat` or `grep`, not the script.
-        if (normalized == entry or normalized.endswith("/" + entry)
-                or os.path.basename(normalized) == os.path.basename(entry)):
-            # Only the literal --dry-run is a rehearsal. `-n` is git's
-            # convention, not these scripts': deploy.sh ignores it and deploys.
-            if "--dry-run" in words[1:]:
-                return None
-            return f"{entry} is listed by this repository as writing to a hosted system."
+    for target in outward_targets(words, shell):
+        normalized = target.lstrip("./")
+        for entry in outward:
+            # The listed path, any path ending in it, or its bare name after a
+            # `cd`: a script that writes to production is worth an ask under
+            # whatever path it was reached by. Reads never get here — the command
+            # word is `cat` or `grep`, not the script.
+            if (normalized == entry or normalized.endswith("/" + entry)
+                    or os.path.basename(normalized) == os.path.basename(entry)):
+                # Only the literal --dry-run is a rehearsal. `-n` is git's
+                # convention, not these scripts': deploy.sh ignores it and deploys.
+                if "--dry-run" in words[1:]:
+                    return None
+                return f"{entry} is listed by this repository as writing to a hosted system."
     return None
 
 
