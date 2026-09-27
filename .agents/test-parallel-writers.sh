@@ -101,6 +101,48 @@ rm "$dir/.agents/.workloop-state.json"; stop a5 implementer
 [[ -z "$(edit p5)" ]] || fail "an edit after the writer stopped was refused"
 ok "the lead's edit is denied beside a live writer unless a workloop run is active"
 
+# a READ-ONLY generic cell that starts never registers, so the lead edits beside it
+rm -f "$dir/.agents/.writers-"*
+[[ -z "$(dispatch p7 general-purpose 'READ-ONLY: mine the logs')" ]] || fail "READ-ONLY dispatch refused"
+start r7 general-purpose p7
+[[ -z "$(edit p7)" ]] || fail "a started READ-ONLY cell blocked the lead's edit"
+stop r7 general-purpose
+ok "a started READ-ONLY generic cell does not register as a writer"
+
+# a writer and a READ-ONLY cell of one type in one turn: both register, in
+# either start order, so the writer stays live after the reader stops
+for order in reader-first writer-first; do
+  rm -f "$dir/.agents/.writers-"*
+  [[ -z "$(dispatch p8 general-purpose 'READ-ONLY: look around')" ]] || fail "READ-ONLY dispatch refused"
+  [[ -z "$(dispatch p8 general-purpose 'change the module')" ]] || fail "first writer refused"
+  if [[ "$order" == reader-first ]]; then start r8 general-purpose p8; start w8 general-purpose p8
+  else start w8 general-purpose p8; start r8 general-purpose p8; fi
+  stop r8 general-purpose
+  denied "$(edit p8)" || fail "$order: the writer went unregistered once the reader stopped"
+  stop w8 general-purpose
+  [[ -z "$(edit p8)" ]] || fail "$order: edit refused after both stopped"
+done
+ok "a mixed reader and writer turn keeps the writer registered in either start order"
+
+# a start whose turn was never recorded registers: an unknown start is a writer
+rm -f "$dir/.agents/.writers-"*
+start u1 general-purpose p-unknown
+denied "$(edit p-unknown)" || fail "a start with no recorded dispatch did not register"
+stop u1 general-purpose
+ok "a start whose dispatch was never recorded counts as a writer"
+
+# an edit whose every target lies outside the checkout passes beside a live writer
+[[ -z "$(dispatch p10 implementer)" ]] || fail "writer refused"
+start w10 implementer p10
+outside_edit() {
+  printf '{"project_dir":"%s","event":"PreToolUse","session_id":"s1","prompt_id":"p10","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$dir" "$1" | bash "$gate"
+}
+[[ -z "$(outside_edit "$scratch/plan.md")" ]] || fail "an edit outside the checkout was refused"
+denied "$(outside_edit "$dir/src/y.py")" || fail "an absolute path inside the checkout passed"
+denied "$(outside_edit "../fixture/src/y.py")" || fail "a relative path back into the checkout passed"
+stop w10 implementer
+ok "an edit outside the checkout passes; one inside is still denied"
+
 # a broken toggle keeps the gate on; a malformed payload does not crash it
 printf 'not json' > "$dir/.agents/config.json"
 : > "$dir/.agents/.writers-turn-s1"

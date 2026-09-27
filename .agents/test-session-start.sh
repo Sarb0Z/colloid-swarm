@@ -288,10 +288,11 @@ writers="$(make_fixture writers)"
 write_config "$writers" true false
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 printf 'p\t1' > "$writers/.agents/.writers-turn-fixture-session"
+printf 'p\t implementer' > "$writers/.agents/.writers-kinds-fixture-session"
 run_policy "$writers" compact >/dev/null
 [[ -f "$writers/.agents/.writers-live-fixture-session" ]] || fail "compact cleared the live-writers record"
 run_policy "$writers" startup >/dev/null
-[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" ]] || fail "startup left a stale live-writers record"
+[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" && ! -e "$writers/.agents/.writers-kinds-fixture-session" ]] || fail "startup left a stale live-writers record"
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 run_policy "$writers" resume >/dev/null
 [[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"

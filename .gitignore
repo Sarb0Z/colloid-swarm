@@ -9,6 +9,7 @@
 .agents/.teardown-pending-*
 .agents/.writers-live-*
 .agents/.writers-turn-*
+.agents/.writers-kinds-*
 .agents/.writers-lock-*
 .agents/.inbox-seen-*
 .agents/.cells-*

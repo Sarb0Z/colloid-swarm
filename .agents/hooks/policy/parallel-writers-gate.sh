@@ -63,9 +63,9 @@ payload="$(cat)"
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.parallel_writers.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; } < <(
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; } < <(
   printf '%s' "$payload" | python3 -c '
-import json, re, sys
+import json, os, re, sys
 try:
     p = json.load(sys.stdin)
 except ValueError:
@@ -86,12 +86,22 @@ if re.search(r"WORKLOOP (WORKER|REVIEWER|QA) BRIEF", prompt):
 elif re.match(r"\s*READ-ONLY\b", prompt):
     print("read-only")
 else:
-    print("plain")')
+    print("plain")
+# An edit whose every target lies outside the checkout cannot collide with a
+# cell working in it. A relative path is the checkout'"'"'s.
+root = os.path.realpath(str(p.get("project_dir") or "."))
+paths = [v for v in (ti.get("file_path"), ti.get("notebook_path")) if isinstance(v, str) and v]
+paths += [e["file_path"] for e in ti.get("edits") or [] if isinstance(e, dict) and isinstance(e.get("file_path"), str)]
+def inside(path):
+    full = os.path.realpath(os.path.join(root, os.path.expanduser(path)))
+    return full == root or full.startswith(root + os.sep)
+print("yes" if paths and not any(inside(x) for x in paths) else "no")')
 
 [[ -n "$session" && -n "$proj" ]] || exit 0
 live="$proj/.agents/.writers-live-$session"
 turn="$proj/.agents/.writers-turn-$session"
 lock="$proj/.agents/.writers-lock-$session"
+kinds="$proj/.agents/.writers-kinds-$session"
 workloop_state="$proj/.agents/.workloop-state.json"
 
 is_reader() {
@@ -120,6 +130,29 @@ turn_count() {  # <prompt_id> -> writers dispatched this turn and not yet starte
   [[ -f "$turn" ]] || { echo 0; return; }
   local recorded; recorded="$(cat "$turn")"
   [[ "${recorded%%	*}" == "$1" ]] && echo "${recorded#*	}" || echo 0
+}
+
+# SubagentStart carries the prompt id but not the dispatch prompt, so it cannot
+# see a READ-ONLY marker. Every dispatch of a turn therefore records the turn,
+# and each counted writer adds its type to a set that nothing consumes. A
+# started cell registers when its type is in the set for its turn, or when its
+# turn was never recorded: an unknown start is a writer. Consuming the set
+# instead would let a reader that starts first take a writer's place and leave
+# the writer unregistered.
+note_turn() {  # <prompt_id> [writer type]
+  local recorded="" types=""
+  [[ -f "$kinds" ]] && recorded="$(cat "$kinds")"
+  [[ "${recorded%%	*}" == "$1" ]] && types="${recorded#*	}"
+  [[ -n "${2:-}" ]] && types="$types $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  printf '%s\t%s' "$1" "$types" >"$kinds"
+}
+
+registers() {  # <prompt_id> <agent_type> -> 0 when the started cell is a writer
+  local recorded
+  [[ -f "$kinds" ]] || return 0
+  recorded="$(cat "$kinds")"
+  [[ "${recorded%%	*}" == "$1" ]] || return 0
+  [[ " ${recorded#*	} " == *" $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]') "* ]]
 }
 
 live_count() {
@@ -153,19 +186,23 @@ case "$event" in
   PreToolUse)
     if [[ "$tool_name" == "Agent" || "$tool_name" == "Task" ]]; then
       is_reader "$tool_type" && exit 0
-      [[ "$kind" == "read-only" ]] && exit 0
       take_lock
+      if [[ "$kind" == "read-only" ]]; then
+        note_turn "$prompt_id"
+        exit 0
+      fi
       pending="$(turn_count "$prompt_id")"
       running="$(live_count)"
       if [[ "$kind" != "brief" ]] && (( pending + running >= 1 )); then
         deny "A second writer (${tool_type}) is being dispatched while another writer is still live. Concurrent writers go through a workloop run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --workspace <new path> --path <owned path>; then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. A cell that only reads may say so: start its prompt with READ-ONLY. Read-only personas (explorer, researcher, reviewer, qa-verifier) pass. isolation: worktree alone is not enough — nothing would verify the composition. If a counted writer is known dead, delete ${live}."
         exit 0
       fi
-      if ! printf '%s\t%s' "$prompt_id" "$((pending + 1))" >"$turn"; then
+      if ! printf '%s\t%s' "$prompt_id" "$((pending + 1))" >"$turn" || ! note_turn "$prompt_id" "$tool_type"; then
         deny "The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory's permissions and retry."
       fi
     else
       # The lead's own edit while an uncoordinated writer is live.
+      [[ "$outside" == "yes" ]] && exit 0
       (( $(live_count) >= 1 )) || exit 0
       workloop_active && exit 0
       deny "A writer cell is live in this checkout and no workloop run is active, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief) and edit the main tree freely. If the cell is known dead, delete ${live}."
@@ -175,6 +212,7 @@ case "$event" in
     is_reader "$agent_type" && exit 0
     [[ -n "$agent_id" ]] || exit 0
     take_lock
+    registers "$prompt_id" "$agent_type" || exit 0
     printf '%s\t%s\n' "$agent_id" "$agent_type" >>"$live"
     pending="$(turn_count "$prompt_id")"
     (( pending > 0 )) && printf '%s\t%s' "$prompt_id" "$((pending - 1))" >"$turn" || true
