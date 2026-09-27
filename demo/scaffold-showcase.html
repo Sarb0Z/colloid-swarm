@@ -284,13 +284,13 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, seventeen enforcement hooks, seventeen skills, and an evidence trail —
+      A hostile-review workflow, eighteen enforcement hooks, seventeen skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">Research → plan → attack → implement → attack. Principles, communication, delegation.</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">10 gates · 5 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">17 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">11 gates · 5 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">18 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
       <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">17 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
@@ -555,7 +555,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 248 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 249 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -631,6 +631,7 @@ fi
 if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; != &quot;compact&quot; ]]; then
   writers_session=&quot;$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot;
   rm -rf &quot;$proj/.agents/.writers-live-$writers_session&quot; &quot;$proj/.agents/.writers-turn-$writers_session&quot; \
+         &quot;$proj/.agents/.writers-kinds-$writers_session&quot; \
          &quot;$proj/.agents/.writers-lock-$writers_session&quot; &quot;$proj/.agents/.cells-$writers_session&quot; 2&gt;/dev/null || true
 fi
 
@@ -1252,7 +1253,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 422 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 534 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive, and say why.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;}
@@ -1320,6 +1321,16 @@ def strip_heredocs(text):
 
 def segments(text):
     &quot;&quot;&quot;Split at the shell operators, honouring quotes and escapes.&quot;&quot;&quot;
+    return [segment for segment, _ in split_operators(text) if segment]
+
+
+def split_operators(text):
+    &quot;&quot;&quot;Each segment with the operator run that ends it (`&amp;`, `&amp;&amp;`, `;`, `|`, ...).
+
+    An `&amp;` inside a redirection — `2&gt;&amp;1`, `&gt;&amp;2`, `&lt;&amp;3`, `&amp;&gt;log` — belongs to
+    the word, not to the operators, so a bare trailing `&amp;` stays readable as
+    the background operator it is.
+    &quot;&quot;&quot;
     found, current, quote, index = [], [], None, 0
     while index &lt; len(text):
         char = text[index]
@@ -1341,36 +1352,49 @@ def segments(text):
             current.append(char)
             current.append(text[index + 1])
             index += 2
+        elif char == &quot;&amp;&quot; and (
+            (current and current[-1] in &quot;&lt;&gt;&quot;) or text[index + 1:index + 2] == &quot;&gt;&quot;
+        ):
+            current.append(char)
+            index += 1
         elif char in OPERATORS:
-            found.append(&quot;&quot;.join(current))
-            current = []
+            start = index
             while index &lt; len(text) and text[index] in OPERATORS:
                 index += 1
+            found.append((&quot;&quot;.join(current).strip(), text[start:index]))
+            current = []
         else:
             current.append(char)
             index += 1
-    found.append(&quot;&quot;.join(current))
-    return [segment for segment in (part.strip() for part in found) if segment]
+    found.append((&quot;&quot;.join(current).strip(), &quot;&quot;))
+    return found
 
 
 def cut_redirects(words):
-    &quot;&quot;&quot;Separate redirection targets from the words that name the command.&quot;&quot;&quot;
+    &quot;&quot;&quot;Separate redirection targets from the words that name the command.
+
+    Only an output redirection yields a target: `&gt; file` and `2&gt; file` write to
+    the host, while `&lt; file` and `&lt;&lt;&lt; word` read and change nothing.
+    &quot;&quot;&quot;
     kept, targets, index = [], [], 0
     while index &lt; len(words):
         word = words[index]
-        if word and word[0] in &quot;&lt;&gt;&quot;:
+        if word.startswith(&quot;&amp;&gt;&quot;):
+            width = 2
+        elif word and word[0] in &quot;&lt;&gt;&quot;:
             width = 1
-        elif len(word) &gt; 1 and word[0].isdigit() and word[1] == &quot;&gt;&quot;:
+        elif len(word) &gt; 1 and word[0].isdigit() and word[1] in &quot;&lt;&gt;&quot;:
             width = 2
         else:
             kept.append(word)
             index += 1
             continue
+        writes = word[width - 1] == &quot;&gt;&quot;
         target = word[width:].lstrip(&quot;&lt;&gt;&amp;&quot;)
         if not target and index + 1 &lt; len(words):
             index += 1
             target = words[index]
-        if target:
+        if target and writes:
             targets.append(target)
         index += 1
     return kept, targets
@@ -1524,15 +1548,69 @@ PACKAGE_VERBS = {&quot;install&quot;, &quot;remove&quot;, &quot;purge&quot;, &qu
                  &quot;erase&quot;, &quot;uninstall&quot;, &quot;add&quot;}
 PACKAGE_TOOLS = {&quot;apt&quot;, &quot;apt-get&quot;, &quot;yum&quot;, &quot;dnf&quot;, &quot;apk&quot;, &quot;zypper&quot;, &quot;pip&quot;, &quot;pip3&quot;,
                  &quot;npm&quot;, &quot;pnpm&quot;, &quot;yarn&quot;}
+CONTAINER_TOOLS = {&quot;docker&quot;, &quot;docker-compose&quot;, &quot;podman&quot;, &quot;nerdctl&quot;}
+CONTAINER_VERBS = {&quot;prune&quot;, &quot;rm&quot;, &quot;rmi&quot;, &quot;down&quot;, &quot;stop&quot;, &quot;restart&quot;, &quot;kill&quot;}
+FIND_EXEC = {&quot;-exec&quot;, &quot;-execdir&quot;, &quot;-ok&quot;, &quot;-okdir&quot;}
+# The only device paths that discard or echo. Every other entry under /dev is
+# storage or hardware, and a redirect onto it is the worst write there is.
+DEVICE_SINKS = (&quot;/dev/null&quot;, &quot;/dev/zero&quot;, &quot;/dev/stdout&quot;, &quot;/dev/stderr&quot;, &quot;/dev/tty&quot;, &quot;/dev/fd/&quot;)
+
+
+def persistent(path):
+    &quot;&quot;&quot;True when a path on the remote host outlives the command.
+
+    Everything on that host is production, so a relative path counts too: it is
+    the remote home. A scratch root, a device sink, and a bare descriptor
+    number (`2&gt;&amp;1`) do not.
+    &quot;&quot;&quot;
+    if path.isdigit():
+        return False
+    if path.startswith(&quot;/&quot;):
+        if path.startswith(DEVICE_SINKS):
+            return False
+        return not any(under(path, root) for root in SCRATCH)
+    return True
+
+
+def delegated(words):
+    &quot;&quot;&quot;The commands `find -exec` hands off, or `xargs` runs, as Commands.
+
+    Both re-enter `normalize`, so a delete hidden in `sh -c &#x27;...&#x27;` is read too.
+    xargs&#x27;s own flags take values (`-I {}`), so every suffix of its words is
+    tried as the command start; a suffix that begins with a flag value names
+    no command and decides nothing.
+    &quot;&quot;&quot;
+    found = []
+    name = base(words[0])
+    if name == &quot;find&quot;:
+        index = 1
+        while index &lt; len(words):
+            if words[index] in FIND_EXEC:
+                end = index + 1
+                while end &lt; len(words) and words[end] not in (&quot;;&quot;, &quot;+&quot;):
+                    end += 1
+                found.extend(normalize(&quot; &quot;.join(shlex.quote(word) for word in words[index + 1:end]), depth=1))
+                index = end
+            index += 1
+    elif name == &quot;xargs&quot;:
+        for start in range(1, len(words)):
+            found.extend(normalize(&quot; &quot;.join(shlex.quote(word) for word in words[start:]), depth=1))
+    return found
 
 
 def mutating(command):
-    &quot;&quot;&quot;True when the command changes the state of the host that runs it.&quot;&quot;&quot;
+    &quot;&quot;&quot;True when the command changes the state of the host that runs it.
+
+    Deletion counts in every spelling, not only `rm -rf`: `find -delete`, a
+    delete handed to `-exec` or `xargs`, a container prune or teardown, a
+    journal vacuum, `truncate`, and a redirect that empties a file. A move or
+    copy counts when it lands outside scratch.
+    &quot;&quot;&quot;
     words = lead(command.words)
     if not words:
         return False
     name, rest = base(words[0]), words[1:]
-    letters, _, _ = parts(rest)
+    letters, longs, operands = parts(rest)
     if name == &quot;systemctl&quot; and SERVICE_VERBS &amp; set(rest):
         return True
     if name == &quot;postsuper&quot; or (name == &quot;postqueue&quot; and {&quot;f&quot;, &quot;d&quot;} &amp; letters):
@@ -1545,9 +1623,21 @@ def mutating(command):
         return True
     if name == &quot;sed&quot; and &quot;i&quot; in letters:
         return True
-    if name == &quot;rm&quot; and {&quot;r&quot;, &quot;R&quot;, &quot;f&quot;} &amp; letters:
+    if name in (&quot;rm&quot;, &quot;truncate&quot;):
         return True
-    return any(target.startswith(&quot;/etc/&quot;) for target in command.targets)
+    if name == &quot;mv&quot; and any(persistent(operand) for operand in operands):
+        return True
+    if name == &quot;cp&quot; and operands and persistent(operands[-1]):
+        return True
+    if name == &quot;find&quot; and &quot;-delete&quot; in rest:
+        return True
+    if name in (&quot;find&quot;, &quot;xargs&quot;) and any(mutating(nested) for nested in delegated(words)):
+        return True
+    if name in CONTAINER_TOOLS and CONTAINER_VERBS &amp; set(operands):
+        return True
+    if name == &quot;journalctl&quot; and any(flag.startswith(&quot;--vacuum&quot;) for flag in longs):
+        return True
+    return any(persistent(target) for target in command.targets)
 
 
 def rule_ssh(command, project=&quot;&quot;):
@@ -1558,10 +1648,33 @@ def rule_ssh(command, project=&quot;&quot;):
     while index &lt; len(words) and words[index].startswith(&quot;-&quot;):
         index += 2 if words[index] in SSH_VALUED else 1
     remote = &quot; &quot;.join(words[index + 1:])
-    if remote and any(mutating(nested) for nested in normalize(remote, depth=1)):
-        return (&quot;Production mutation via SSH is forbidden from local sessions. Ship the &quot;
-                &quot;change through the repo and the approved deploy path; production access &quot;
-                &quot;is read-only here.&quot;)
+    # Everything on the far host is production: a command that merely changes
+    # state there is denied, and so is anything the local rules would deny,
+    # with no project carve-out because no remote path is this working tree.
+    for nested in normalize(remote, depth=1):
+        if mutating(nested) or any(rule(nested, &quot;&quot;) for rule in RULES):
+            return (&quot;Production mutation via SSH is forbidden from local sessions. Ship the &quot;
+                    &quot;change through the repo and the approved deploy path; production access &quot;
+                    &quot;is read-only here.&quot;)
+    return None
+
+
+REMOTE_PATH = re.compile(r&quot;^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+:&quot;)
+
+
+def remote(operand):
+    &quot;&quot;&quot;True when a copy operand names a host: `host:path`, `user@host:path`, or a URL.&quot;&quot;&quot;
+    return &quot;://&quot; in operand or bool(REMOTE_PATH.match(operand))
+
+
+def rule_remote_copy(command, project=&quot;&quot;):
+    words = lead(command.words)
+    if not words or base(words[0]) not in (&quot;rsync&quot;, &quot;scp&quot;):
+        return None
+    _, _, operands = parts(words[1:])
+    if len(operands) &gt;= 2 and remote(operands[-1]):
+        return (&quot;Copying onto a remote host writes to production. Ship the change &quot;
+                &quot;through the repo and the approved deploy path.&quot;)
     return None
 
 
@@ -1613,7 +1726,7 @@ def rule_cloud(command, project=&quot;&quot;):
     return None
 
 
-RULES = (rule_rm, rule_git, rule_ssh, rule_sql, rule_cloud)
+RULES = (rule_rm, rule_git, rule_ssh, rule_remote_copy, rule_sql, rule_cloud)
 
 
 def verdict(text, project=&quot;&quot;):
@@ -1666,6 +1779,174 @@ def main():
         return 0
     project = payload.get(&quot;project_dir&quot;)
     reason = verdict(command, project if isinstance(project, str) else repo)
+    if not reason:
+        return 0
+    print(reason, file=sys.stderr)
+    return 2
+
+
+if __name__ == &quot;__main__&quot;:
+    sys.exit(main())
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">wait-gate</span><span class="badge gate">gate</span></div>
+              <p class="what">No blind waiting. Refuses a main-agent <code>sleep</code> over 5&nbsp;s, a sleep that polls a background task&rsquo;s output, and a process started with a bare <code>&amp;</code>; the denial names the wait that ends when the thing happens.</p>
+              <div class="io"><b>in</b> {command, run_in_background} &nbsp;→&nbsp; <b>out</b> exit 2 + remedy | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 162 lines</span></summary><div class="srcpath">.agents/hooks/lib/wait-gate.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Decide whether a shell command waits blind, and say what to do instead.
+
+Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;, &quot;run_in_background&quot;: bool}
+Output: exit 2 and the remedy on stderr when a rule fires; exit 0 otherwise.
+
+A foreground `sleep` holds the session and learns nothing; a bare `&amp;` starts a
+process the host cannot see, so nothing reports when it ends and the agent
+falls back to sleeping and tailing its log. Three shapes are refused:
+
+* sleeps longer than SHORT seconds, summed over the top level, or any single
+  one inside a loop body or an `sh -c` payload;
+* any sleep in a command that reads a host task&#x27;s output file, which the host
+  already reports on completion;
+* a segment backgrounded with `&amp;` in a command that never runs `wait`.
+
+A short sleep passes: `kill 123; sleep 2` waits for a port to free, and
+`until curl -sf ...; do sleep 2; done` ends the moment the condition holds.
+Heredoc bodies are data, as in guard-destructive.
+&quot;&quot;&quot;
+
+import importlib.util
+import json
+import os
+import re
+import shlex
+import sys
+
+SHORT = 5.0
+TASK_OUTPUT = re.compile(r&quot;/tasks/[A-Za-z0-9_-]+\.output\b&quot;)
+DURATION = re.compile(r&quot;^(\d+(?:\.\d*)?|\.\d+)([smhd]?)$&quot;)
+SCALE = {&quot;&quot;: 1, &quot;s&quot;: 1, &quot;m&quot;: 60, &quot;h&quot;: 3600, &quot;d&quot;: 86400}
+WRAPPERS = {&quot;timeout&quot;, &quot;gtimeout&quot;, &quot;nice&quot;, &quot;stdbuf&quot;}
+PREFIXES = {&quot;then&quot;, &quot;else&quot;, &quot;elif&quot;, &quot;{&quot;, &quot;}&quot;, &quot;!&quot;, &quot;time&quot;, &quot;nohup&quot;, &quot;command&quot;, &quot;builtin&quot;, &quot;exec&quot;}
+
+WAIT = &quot;&quot;&quot;Pick the wait that ends when the thing happens:
+- A background shell or subagent you started: end your turn. The harness re-invokes you when it finishes; report then.
+- A process you are about to start (tests, a build, a server): run it as its own Bash call with run_in_background: true. You are notified when it exits, and TaskStop stops it.
+- A condition (a port answers, a file appears): poll briefly under a cap, e.g. timeout 120 bash -c &#x27;until curl -sf http://localhost:3000 &gt;/dev/null; do sleep 2; done&#x27;.
+- CI or a deploy: gh run watch &lt;id&gt; --exit-status with run_in_background: true.
+Sleeps of 5 s or less pass.&quot;&quot;&quot;
+
+
+def load(name, file):
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location(name, os.path.join(here, file))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+parser = load(&quot;guard_destructive&quot;, &quot;guard-destructive.py&quot;)
+
+
+def seconds(words):
+    &quot;&quot;&quot;Total seconds a `sleep` word list asks for, or None when unreadable.&quot;&quot;&quot;
+    total = 0.0
+    for word in words[1:]:
+        if word == &quot;infinity&quot;:
+            return float(&quot;inf&quot;)
+        match = DURATION.match(word)
+        if not match:
+            return None
+        total += float(match.group(1)) * SCALE[match.group(2)]
+    return total
+
+
+def unwrap(words):
+    &quot;&quot;&quot;The command a `timeout`, `nice` or `stdbuf` prefix runs.&quot;&quot;&quot;
+    while words and os.path.basename(words[0]) in WRAPPERS:
+        takes_value = os.path.basename(words[0]) == &quot;timeout&quot;
+        words = words[1:]
+        while words and words[0].startswith(&quot;-&quot;):
+            words = words[1:]
+        if takes_value and words:
+            words = words[1:]
+    return words
+
+
+def scan(text, nested=False):
+    &quot;&quot;&quot;(top-level sleep seconds, longest sleep in a loop or payload, backgrounded, waits).&quot;&quot;&quot;
+    top, inner, background, waits, depth = 0.0, 0.0, [], False, 0
+    # A full-line comment is prose; an `&amp;` in it is not an operator.
+    code = &quot;\n&quot;.join(line for line in parser.strip_heredocs(text).split(&quot;\n&quot;)
+                     if not line.lstrip().startswith(&quot;#&quot;))
+    for segment, operator in parser.split_operators(code):
+        try:
+            words = shlex.split(segment, comments=True)
+        except ValueError:
+            continue
+        words, _ = parser.cut_redirects(words)
+        while words and words[0] in PREFIXES | {&quot;do&quot;}:
+            depth += words.pop(0) == &quot;do&quot;
+        if words and words[0] == &quot;done&quot;:
+            depth = max(0, depth - 1)
+            words = words[1:]
+        # `( ... ) &amp;` leaves an empty segment between the `)` and the `&amp;`.
+        if operator.startswith(&quot;&amp;&quot;) and not operator.startswith(&quot;&amp;&amp;&quot;):
+            background.append(segment or &quot;( ... )&quot;)
+        words = unwrap(parser.lead(words))
+        if not words:
+            continue
+        name = os.path.basename(words[0])
+        if name == &quot;wait&quot;:
+            waits = True
+        if name == &quot;sleep&quot;:
+            length = seconds(words) or 0.0
+            if depth or nested:
+                inner = max(inner, length)
+            else:
+                top += length
+        if name in parser.SHELLS and &quot;-c&quot; in words and words.index(&quot;-c&quot;) + 1 &lt; len(words):
+            _, deeper, _, _ = scan(words[words.index(&quot;-c&quot;) + 1], nested=True)
+            inner = max(inner, deeper)
+    return top, inner, background, waits
+
+
+def verdict(command):
+    &quot;&quot;&quot;The reason to block, or None.&quot;&quot;&quot;
+    if &quot;sleep&quot; not in command and &quot;&amp;&quot; not in command:
+        return None
+    top, inner, background, waits = scan(command)
+    if (top or inner) and TASK_OUTPUT.search(command):
+        return (&quot;Blocked: this sleeps and then reads a background task&#x27;s output file. &quot;
+                &quot;The harness notifies you when that task finishes; end your turn and read the file then.&quot;)
+    if top &gt; SHORT or inner &gt; SHORT:
+        length = top if top &gt; SHORT else inner
+        return f&quot;Blocked: sleeping {length:g} s holds the session and learns nothing. {WAIT}&quot;
+    if background and not waits:
+        shown = background[0] if len(background[0]) &lt;= 80 else background[0][:77] + &quot;...&quot;
+        return (&quot;Blocked: `&quot; + shown + &quot; &amp;` starts a process the harness cannot see, so nothing &quot;
+                &quot;reports when it ends and the teardown check cannot stop it. Run it as its own Bash &quot;
+                &quot;call with run_in_background: true. To run commands in parallel inside one call, end &quot;
+                &quot;the command with `wait`.&quot;)
+    return None
+
+
+def main():
+    repo = sys.argv[1] if len(sys.argv) &gt; 1 else os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    config = load(&quot;colloid_config&quot;, &quot;config.py&quot;)
+    settings = config.load(os.path.join(repo, &quot;.agents&quot;, &quot;config.json&quot;))
+    if not config.read(settings, &quot;hooks.wait_gate.enabled&quot;, True):
+        return 0
+    try:
+        payload = json.loads(sys.stdin.read() or &quot;{}&quot;)
+    except json.JSONDecodeError:
+        return 0
+    if not isinstance(payload, dict) or payload.get(&quot;run_in_background&quot;):
+        return 0
+    command = payload.get(&quot;command&quot;)
+    if not isinstance(command, str) or not command.strip():
+        return 0
+    reason = verdict(command)
     if not reason:
         return 0
     print(reason, file=sys.stderr)
@@ -1750,7 +2031,7 @@ fi
               <div class="top"><span class="id">parallel-writers-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Denies a second writing cell while one is already live, so two agents never edit one tree at once. The way through is a coordinated run: each writer gets its own provisioned worktree, and the composed result is verified once. A cell that only reads says so by opening its prompt with <code>READ-ONLY</code>; the lead&#x27;s own edit is denied while an uncoordinated writer is out.</p>
               <div class="io"><b>in</b> {subagent_type, prompt} &nbsp;→&nbsp; <b>out</b> deny + the workloop commands | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 189 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 227 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: two writers never edit one checkout at once outside
 # a workloop run.
 #
@@ -1815,9 +2096,9 @@ payload=&quot;$(cat)&quot;
 enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; hooks.parallel_writers.enabled=true 2&gt;/dev/null || echo yes)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; } &lt; &lt;(
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; } &lt; &lt;(
   printf &#x27;%s&#x27; &quot;$payload&quot; | python3 -c &#x27;
-import json, re, sys
+import json, os, re, sys
 try:
     p = json.load(sys.stdin)
 except ValueError:
@@ -1838,12 +2119,22 @@ if re.search(r&quot;WORKLOOP (WORKER|REVIEWER|QA) BRIEF&quot;, prompt):
 elif re.match(r&quot;\s*READ-ONLY\b&quot;, prompt):
     print(&quot;read-only&quot;)
 else:
-    print(&quot;plain&quot;)&#x27;)
+    print(&quot;plain&quot;)
+# An edit whose every target lies outside the checkout cannot collide with a
+# cell working in it. A relative path is the checkout&#x27;&quot;&#x27;&quot;&#x27;s.
+root = os.path.realpath(str(p.get(&quot;project_dir&quot;) or &quot;.&quot;))
+paths = [v for v in (ti.get(&quot;file_path&quot;), ti.get(&quot;notebook_path&quot;)) if isinstance(v, str) and v]
+paths += [e[&quot;file_path&quot;] for e in ti.get(&quot;edits&quot;) or [] if isinstance(e, dict) and isinstance(e.get(&quot;file_path&quot;), str)]
+def inside(path):
+    full = os.path.realpath(os.path.join(root, os.path.expanduser(path)))
+    return full == root or full.startswith(root + os.sep)
+print(&quot;yes&quot; if paths and not any(inside(x) for x in paths) else &quot;no&quot;)&#x27;)
 
 [[ -n &quot;$session&quot; &amp;&amp; -n &quot;$proj&quot; ]] || exit 0
 live=&quot;$proj/.agents/.writers-live-$session&quot;
 turn=&quot;$proj/.agents/.writers-turn-$session&quot;
 lock=&quot;$proj/.agents/.writers-lock-$session&quot;
+kinds=&quot;$proj/.agents/.writers-kinds-$session&quot;
 workloop_state=&quot;$proj/.agents/.workloop-state.json&quot;
 
 is_reader() {
@@ -1872,6 +2163,29 @@ turn_count() {  # &lt;prompt_id&gt; -&gt; writers dispatched this turn and not y
   [[ -f &quot;$turn&quot; ]] || { echo 0; return; }
   local recorded; recorded=&quot;$(cat &quot;$turn&quot;)&quot;
   [[ &quot;${recorded%%	*}&quot; == &quot;$1&quot; ]] &amp;&amp; echo &quot;${recorded#*	}&quot; || echo 0
+}
+
+# SubagentStart carries the prompt id but not the dispatch prompt, so it cannot
+# see a READ-ONLY marker. Every dispatch of a turn therefore records the turn,
+# and each counted writer adds its type to a set that nothing consumes. A
+# started cell registers when its type is in the set for its turn, or when its
+# turn was never recorded: an unknown start is a writer. Consuming the set
+# instead would let a reader that starts first take a writer&#x27;s place and leave
+# the writer unregistered.
+note_turn() {  # &lt;prompt_id&gt; [writer type]
+  local recorded=&quot;&quot; types=&quot;&quot;
+  [[ -f &quot;$kinds&quot; ]] &amp;&amp; recorded=&quot;$(cat &quot;$kinds&quot;)&quot;
+  [[ &quot;${recorded%%	*}&quot; == &quot;$1&quot; ]] &amp;&amp; types=&quot;${recorded#*	}&quot;
+  [[ -n &quot;${2:-}&quot; ]] &amp;&amp; types=&quot;$types $(printf &#x27;%s&#x27; &quot;$2&quot; | tr &#x27;[:upper:]&#x27; &#x27;[:lower:]&#x27;)&quot;
+  printf &#x27;%s\t%s&#x27; &quot;$1&quot; &quot;$types&quot; &gt;&quot;$kinds&quot;
+}
+
+registers() {  # &lt;prompt_id&gt; &lt;agent_type&gt; -&gt; 0 when the started cell is a writer
+  local recorded
+  [[ -f &quot;$kinds&quot; ]] || return 0
+  recorded=&quot;$(cat &quot;$kinds&quot;)&quot;
+  [[ &quot;${recorded%%	*}&quot; == &quot;$1&quot; ]] || return 0
+  [[ &quot; ${recorded#*	} &quot; == *&quot; $(printf &#x27;%s&#x27; &quot;$2&quot; | tr &#x27;[:upper:]&#x27; &#x27;[:lower:]&#x27;) &quot;* ]]
 }
 
 live_count() {
@@ -1905,19 +2219,23 @@ case &quot;$event&quot; in
   PreToolUse)
     if [[ &quot;$tool_name&quot; == &quot;Agent&quot; || &quot;$tool_name&quot; == &quot;Task&quot; ]]; then
       is_reader &quot;$tool_type&quot; &amp;&amp; exit 0
-      [[ &quot;$kind&quot; == &quot;read-only&quot; ]] &amp;&amp; exit 0
       take_lock
+      if [[ &quot;$kind&quot; == &quot;read-only&quot; ]]; then
+        note_turn &quot;$prompt_id&quot;
+        exit 0
+      fi
       pending=&quot;$(turn_count &quot;$prompt_id&quot;)&quot;
       running=&quot;$(live_count)&quot;
       if [[ &quot;$kind&quot; != &quot;brief&quot; ]] &amp;&amp; (( pending + running &gt;= 1 )); then
         deny &quot;A second writer (${tool_type}) is being dispatched while another writer is still live. Concurrent writers go through a workloop run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees: .agents/workloop.py init &lt;run&gt; --objective &#x27;&lt;goal&gt;&#x27; --acceptance &#x27;&lt;prose&gt;&#x27; --verify &#x27;&lt;test command&gt;&#x27;; .agents/workloop.py add-lane &lt;run&gt; &lt;lane&gt; --worker ${tool_type} --workspace &lt;new path&gt; --path &lt;owned path&gt;; then dispatch the output of .agents/workloop.py brief &lt;run&gt; &lt;lane&gt; --role worker as this cell&#x27;s prompt. A cell that only reads may say so: start its prompt with READ-ONLY. Read-only personas (explorer, researcher, reviewer, qa-verifier) pass. isolation: worktree alone is not enough — nothing would verify the composition. If a counted writer is known dead, delete ${live}.&quot;
         exit 0
       fi
-      if ! printf &#x27;%s\t%s&#x27; &quot;$prompt_id&quot; &quot;$((pending + 1))&quot; &gt;&quot;$turn&quot;; then
+      if ! printf &#x27;%s\t%s&#x27; &quot;$prompt_id&quot; &quot;$((pending + 1))&quot; &gt;&quot;$turn&quot; || ! note_turn &quot;$prompt_id&quot; &quot;$tool_type&quot;; then
         deny &quot;The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory&#x27;s permissions and retry.&quot;
       fi
     else
       # The lead&#x27;s own edit while an uncoordinated writer is live.
+      [[ &quot;$outside&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
       (( $(live_count) &gt;= 1 )) || exit 0
       workloop_active &amp;&amp; exit 0
       deny &quot;A writer cell is live in this checkout and no workloop run is active, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief) and edit the main tree freely. If the cell is known dead, delete ${live}.&quot;
@@ -1927,6 +2245,7 @@ case &quot;$event&quot; in
     is_reader &quot;$agent_type&quot; &amp;&amp; exit 0
     [[ -n &quot;$agent_id&quot; ]] || exit 0
     take_lock
+    registers &quot;$prompt_id&quot; &quot;$agent_type&quot; || exit 0
     printf &#x27;%s\t%s\n&#x27; &quot;$agent_id&quot; &quot;$agent_type&quot; &gt;&gt;&quot;$live&quot;
     pending=&quot;$(turn_count &quot;$prompt_id&quot;)&quot;
     (( pending &gt; 0 )) &amp;&amp; printf &#x27;%s\t%s&#x27; &quot;$prompt_id&quot; &quot;$((pending - 1))&quot; &gt;&quot;$turn&quot; || true
@@ -8012,7 +8331,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 53 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 58 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -8065,6 +8384,11 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`provision.sh` honours `.python-version` but not `.nvmrc`** — a lane whose branch bumps the Node pin still runs the main checkout&#x27;s runtime. Read it and fail by name when unmet, or state the limit in the workloop skill.
 - **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
 - **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `&lt;run&gt;/&lt;lane&gt;` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.
+- **The SSH rule is a deny-list under a read-only promise** — it denies only named forms, so each new spelling ships after a loss. Decide whether to deny every remote command that is not a known read-only tool.
+- **The vendored-scaffold lint ignore has no target yet** — neither JS/TS satellite measured on 2026-09-21 lints `.agents/` at all (see `knowledge/index.md`). Find a config where it does bite before shipping an ignore, or drop this line.
+- **No stack pack covers Flutter** — two satellites are Flutter, and the carrier ships packs only for Expo, NestJS, Next.js and Rails, so both keep zero packs. Write one, or state the gap.
+- **The post-edit check does not cover Dart** — it dispatches on Python, TypeScript and JavaScript, so a Flutter satellite&#x27;s main language has no automatic gate after an edit. Add `dart analyze`, or record the limit.
+- **`fetch_readable` falls back to a capture of any age** — one measured capture was 146 days old, which is history rather than current content. Return the capture age, or take a caller-supplied maximum and refuse past it.
 </code></pre></details>
             </article>
         <article class="card">

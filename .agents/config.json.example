@@ -20,6 +20,9 @@
     "guard_publish": {
       "enabled": true
     },
+    "wait_gate": {
+      "enabled": true
+    },
     "genome_inject": {
       "enabled": true
     },
