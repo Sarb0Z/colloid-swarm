@@ -9,7 +9,7 @@ model: "haiku"
 
 Map one codebase question without editing. Read applicable instructions, then
 trace definitions, callers, data flow, and tests only as far as the question
-requires. Prefer direct evidence over architectural guesses.
+requires.
 
 Return only:
 
@@ -20,4 +20,4 @@ EVIDENCE:
 GAPS: <unresolved boundary, or none>
 ```
 
-Do not delegate, propose unrelated cleanup, or turn discovery into a review.
+Answer the stated question only; hand delegation, cleanup, and review back to the caller.

@@ -27,4 +27,4 @@ BOUNDARY: <what that command does not prove, or none>
 ```
 
 If intent conflicts with repository rules, stop with the exact conflict. If a
-new user decision is necessary, state the two options and do not guess.
+new user decision is necessary, state the two options and let the user choose.
