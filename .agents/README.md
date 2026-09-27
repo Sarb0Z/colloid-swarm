@@ -111,9 +111,12 @@ brief. The denial names the three commands that turn the dispatch into a lane.
 It also denies the lead's own `Edit` or `Write` while an uncoordinated writer
 is live and no workloop run is active. Read-only personas never count; a
 generic cell declares itself read-only by starting its prompt with
-`READ-ONLY`; an unknown persona counts as a writer. State lives in
-`.agents/.writers-live-<session>` and `.agents/.writers-turn-<session>`;
-`session-start.sh` clears both at startup and resume, and deleting the live
+`READ-ONLY`; an unknown persona counts as a writer. An edit whose every target
+lies outside the checkout passes. State lives in
+`.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>` and
+`.agents/.writers-kinds-<session>` (the writer types each turn dispatched,
+which decides whether a started cell registers); `session-start.sh` clears
+them at startup and resume, and deleting the live
 file is the manual reset for a cell known to have died. The toggle is
 `hooks.parallel_writers.enabled`.
 
