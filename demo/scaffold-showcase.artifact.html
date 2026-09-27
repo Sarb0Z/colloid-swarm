@@ -3072,7 +3072,7 @@ exit 0
               <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
               <p class="what">On magnitude escalation (none → trivial → diff → large) offers a clean-up + report wrap, and asks the user — full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 trigger | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 419 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 439 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool,
@@ -3121,7 +3121,7 @@ exit 0
 # Tunable via .agents/config.json (env vars still override):
 #   trivial_files (2), trivial_lines (30)   -&gt; the trivial floor
 #   review_files (5),  review_lines (150)   -&gt; the `large` threshold
-#   heavy_lines (200)                       -&gt; no-diff session worth reporting
+#   heavy_tool_calls (60)                   -&gt; no-diff session worth reporting
 
 set -euo pipefail
 
@@ -3138,7 +3138,7 @@ cfg=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; \
   hooks.session_wrap.trivial_lines=30 \
   hooks.session_wrap.review_files=5 \
   hooks.session_wrap.review_lines=150 \
-  hooks.session_wrap.heavy_lines=200 \
+  hooks.session_wrap.heavy_tool_calls=60 \
   hooks.session_wrap.report_every_turn=false \
   hooks.learning_report.enabled=false)&quot;
 enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;1p&#x27;)&quot;
@@ -3147,7 +3147,7 @@ cfg_trivial_files=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x2
 cfg_trivial_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;3p&#x27;)&quot;
 cfg_review_files=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;4p&#x27;)&quot;
 cfg_review_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;5p&#x27;)&quot;
-cfg_heavy_lines=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;6p&#x27;)&quot;
+cfg_heavy_calls=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;6p&#x27;)&quot;
 report_every_turn=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;7p&#x27;)&quot;
 learning_enabled=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27;8p&#x27;)&quot;
 
@@ -3165,7 +3165,7 @@ TRIVIAL_FILES=&quot;${WRAP_TRIVIAL_FILES:-$cfg_trivial_files}&quot;
 TRIVIAL_LINES=&quot;${WRAP_TRIVIAL_LINES:-$cfg_trivial_lines}&quot;
 REVIEW_FILES=&quot;${WRAP_REVIEW_FILES:-$cfg_review_files}&quot;
 REVIEW_LINES=&quot;${WRAP_REVIEW_LINES:-$cfg_review_lines}&quot;
-HEAVY=&quot;${WRAP_HEAVY_LINES:-$cfg_heavy_lines}&quot;
+HEAVY=&quot;${WRAP_HEAVY_TOOL_CALLS:-$cfg_heavy_calls}&quot;
 
 # The kit&#x27;s own transient state is not session work — exclude by name (precise,
 # so a real file that merely sits in .agents/ is never hidden). Generated
@@ -3458,9 +3458,11 @@ elif [[ &quot;$tier&quot; == &quot;diff&quot; || &quot;$tier&quot; == &quot;larg
   next_implemented=&quot;1&quot;
 else
   # ──────────── no diff (or trivial): capture a long investigation ────────────
-  # Length ≈ transcript line count (one line per exchange); schema-agnostic, so
-  # any engine that hands us a transcript path works. Throttled by the
-  # `investigated` flag: once per session, not once per turn.
+  # Length is the agent&#x27;s tool calls, not transcript lines: a transcript also
+  # carries titles, mode changes and attachments, which roughly doubles a line
+  # count. Claude records a call as a `tool_use` content block, Codex as a
+  # `function_call` or `custom_tool_call` item. Throttled by the `investigated`
+  # flag: once per session, not once per turn.
   #
   # `implemented` is the load-bearing guard: without it this branch reads a clean
   # tree as &quot;nothing was built&quot; and calls a heavily-committed implementation
@@ -3469,12 +3471,30 @@ else
   # the way is still a research session, and still needs its findings written down.
   events=&quot;&quot;
   [[ -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]] &amp;&amp; \
-    events=&quot;$(wc -l &lt;&quot;$transcript&quot; 2&gt;/dev/null | tr -d &#x27; &#x27; || true)&quot;
+    events=&quot;$(python3 - &quot;$transcript&quot; &lt;&lt;&#x27;EOF&#x27; 2&gt;/dev/null || true
+import json, sys
+calls = 0
+for line in open(sys.argv[1], errors=&quot;replace&quot;):
+    try:
+        event = json.loads(line)
+    except ValueError:
+        continue
+    if not isinstance(event, dict):
+        continue
+    content = (event.get(&quot;message&quot;) or {}).get(&quot;content&quot;) if event.get(&quot;type&quot;) == &quot;assistant&quot; else None
+    if isinstance(content, list):
+        calls += sum(1 for block in content if isinstance(block, dict) and block.get(&quot;type&quot;) == &quot;tool_use&quot;)
+    payload = event.get(&quot;payload&quot;) if event.get(&quot;type&quot;) == &quot;response_item&quot; else None
+    if isinstance(payload, dict) and payload.get(&quot;type&quot;) in (&quot;function_call&quot;, &quot;custom_tool_call&quot;):
+        calls += 1
+print(calls)
+EOF
+)&quot;
 
   if [[ -n &quot;$events&quot; ]] &amp;&amp; (( events &gt;= HEAVY )) \
      &amp;&amp; [[ -z &quot;$implemented&quot; &amp;&amp; &quot;$baseline_known&quot; == &quot;yes&quot; ]] \
      &amp;&amp; { [[ -z &quot;$investigated&quot; ]] || [[ &quot;$report_every_turn&quot; == &quot;yes&quot; ]]; }; then
-    add &quot;A long session (~$events exchanges) with no substantial diff — a debugging&quot;
+    add &quot;A long session ($events tool calls) with no substantial diff — a debugging&quot;
     add &quot;or research session whose findings die with the context window.&quot;
     add &quot;&quot;
     add &quot;Ask the user whether they want a session report, with a question tool where&quot;

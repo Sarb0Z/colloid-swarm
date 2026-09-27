@@ -47,7 +47,7 @@
 # Tunable via .agents/config.json (env vars still override):
 #   trivial_files (2), trivial_lines (30)   -> the trivial floor
 #   review_files (5),  review_lines (150)   -> the `large` threshold
-#   heavy_lines (200)                       -> no-diff session worth reporting
+#   heavy_tool_calls (60)                   -> no-diff session worth reporting
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ cfg="$(python3 "$lib/config.py" "$cfg_path" \
   hooks.session_wrap.trivial_lines=30 \
   hooks.session_wrap.review_files=5 \
   hooks.session_wrap.review_lines=150 \
-  hooks.session_wrap.heavy_lines=200 \
+  hooks.session_wrap.heavy_tool_calls=60 \
   hooks.session_wrap.report_every_turn=false \
   hooks.learning_report.enabled=false)"
 enabled="$(printf '%s\n' "$cfg" | sed -n '1p')"
@@ -73,7 +73,7 @@ cfg_trivial_files="$(printf '%s\n' "$cfg" | sed -n '2p')"
 cfg_trivial_lines="$(printf '%s\n' "$cfg" | sed -n '3p')"
 cfg_review_files="$(printf '%s\n' "$cfg" | sed -n '4p')"
 cfg_review_lines="$(printf '%s\n' "$cfg" | sed -n '5p')"
-cfg_heavy_lines="$(printf '%s\n' "$cfg" | sed -n '6p')"
+cfg_heavy_calls="$(printf '%s\n' "$cfg" | sed -n '6p')"
 report_every_turn="$(printf '%s\n' "$cfg" | sed -n '7p')"
 learning_enabled="$(printf '%s\n' "$cfg" | sed -n '8p')"
 
@@ -91,7 +91,7 @@ TRIVIAL_FILES="${WRAP_TRIVIAL_FILES:-$cfg_trivial_files}"
 TRIVIAL_LINES="${WRAP_TRIVIAL_LINES:-$cfg_trivial_lines}"
 REVIEW_FILES="${WRAP_REVIEW_FILES:-$cfg_review_files}"
 REVIEW_LINES="${WRAP_REVIEW_LINES:-$cfg_review_lines}"
-HEAVY="${WRAP_HEAVY_LINES:-$cfg_heavy_lines}"
+HEAVY="${WRAP_HEAVY_TOOL_CALLS:-$cfg_heavy_calls}"
 
 # The kit's own transient state is not session work — exclude by name (precise,
 # so a real file that merely sits in .agents/ is never hidden). Generated
@@ -384,9 +384,11 @@ elif [[ "$tier" == "diff" || "$tier" == "large" ]]; then
   next_implemented="1"
 else
   # ──────────── no diff (or trivial): capture a long investigation ────────────
-  # Length ≈ transcript line count (one line per exchange); schema-agnostic, so
-  # any engine that hands us a transcript path works. Throttled by the
-  # `investigated` flag: once per session, not once per turn.
+  # Length is the agent's tool calls, not transcript lines: a transcript also
+  # carries titles, mode changes and attachments, which roughly doubles a line
+  # count. Claude records a call as a `tool_use` content block, Codex as a
+  # `function_call` or `custom_tool_call` item. Throttled by the `investigated`
+  # flag: once per session, not once per turn.
   #
   # `implemented` is the load-bearing guard: without it this branch reads a clean
   # tree as "nothing was built" and calls a heavily-committed implementation
@@ -395,12 +397,30 @@ else
   # the way is still a research session, and still needs its findings written down.
   events=""
   [[ -n "$transcript" && -f "$transcript" ]] && \
-    events="$(wc -l <"$transcript" 2>/dev/null | tr -d ' ' || true)"
+    events="$(python3 - "$transcript" <<'EOF' 2>/dev/null || true
+import json, sys
+calls = 0
+for line in open(sys.argv[1], errors="replace"):
+    try:
+        event = json.loads(line)
+    except ValueError:
+        continue
+    if not isinstance(event, dict):
+        continue
+    content = (event.get("message") or {}).get("content") if event.get("type") == "assistant" else None
+    if isinstance(content, list):
+        calls += sum(1 for block in content if isinstance(block, dict) and block.get("type") == "tool_use")
+    payload = event.get("payload") if event.get("type") == "response_item" else None
+    if isinstance(payload, dict) and payload.get("type") in ("function_call", "custom_tool_call"):
+        calls += 1
+print(calls)
+EOF
+)"
 
   if [[ -n "$events" ]] && (( events >= HEAVY )) \
      && [[ -z "$implemented" && "$baseline_known" == "yes" ]] \
      && { [[ -z "$investigated" ]] || [[ "$report_every_turn" == "yes" ]]; }; then
-    add "A long session (~$events exchanges) with no substantial diff — a debugging"
+    add "A long session ($events tool calls) with no substantial diff — a debugging"
     add "or research session whose findings die with the context window."
     add ""
     add "Ask the user whether they want a session report, with a question tool where"
