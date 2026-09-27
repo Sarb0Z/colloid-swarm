@@ -79,6 +79,7 @@ python3 .agents/lint-breadcrumbs.py
 .agents/test-review-contract.sh
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
+python3 .agents/test-wait-gate.py
 python3 .agents/test-guard-publish.py
 .agents/test-device-policy.sh
 .agents/test-mcp.sh

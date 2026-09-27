@@ -66,6 +66,16 @@ def strip_heredocs(text):
 
 def segments(text):
     """Split at the shell operators, honouring quotes and escapes."""
+    return [segment for segment, _ in split_operators(text) if segment]
+
+
+def split_operators(text):
+    """Each segment with the operator run that ends it (`&`, `&&`, `;`, `|`, ...).
+
+    An `&` inside a redirection — `2>&1`, `>&2`, `<&3`, `&>log` — belongs to
+    the word, not to the operators, so a bare trailing `&` stays readable as
+    the background operator it is.
+    """
     found, current, quote, index = [], [], None, 0
     while index < len(text):
         char = text[index]
@@ -87,16 +97,22 @@ def segments(text):
             current.append(char)
             current.append(text[index + 1])
             index += 2
+        elif char == "&" and (
+            (current and current[-1] in "<>") or text[index + 1:index + 2] == ">"
+        ):
+            current.append(char)
+            index += 1
         elif char in OPERATORS:
-            found.append("".join(current))
-            current = []
+            start = index
             while index < len(text) and text[index] in OPERATORS:
                 index += 1
+            found.append(("".join(current).strip(), text[start:index]))
+            current = []
         else:
             current.append(char)
             index += 1
-    found.append("".join(current))
-    return [segment for segment in (part.strip() for part in found) if segment]
+    found.append(("".join(current).strip(), ""))
+    return found
 
 
 def cut_redirects(words):
@@ -108,7 +124,9 @@ def cut_redirects(words):
     kept, targets, index = [], [], 0
     while index < len(words):
         word = words[index]
-        if word and word[0] in "<>":
+        if word.startswith("&>"):
+            width = 2
+        elif word and word[0] in "<>":
             width = 1
         elif len(word) > 1 and word[0].isdigit() and word[1] in "<>":
             width = 2
