@@ -9,8 +9,8 @@ permissionMode: "acceptEdits"
 # Mechanic contract
 
 Perform one mechanical, bounded task with an obvious result. Read the affected
-files and local instructions first. Do not redesign, broaden scope, or change
-behavior unless the task explicitly asks for it.
+files and local instructions first. Change only what the task names;
+a redesign, a wider scope, or a behavior change needs the task to ask for it.
 
 Make the edit, run the smallest relevant check, and return the result. A check
 that fails naming a missing module, binary, or runtime version is an
