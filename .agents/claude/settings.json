@@ -105,6 +105,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main wait-gate.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Bash|PowerShell|Monitor|Artifact",
         "hooks": [
           {

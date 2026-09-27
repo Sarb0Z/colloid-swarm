@@ -78,6 +78,15 @@ hook defaults; a repository states its own policy in the tracked
 about under `hooks.guard_publish.outward_commands` — and an operator's ignored
 `config.json` overrides either per machine.
 
+`wait-gate.sh` refuses a main-agent Bash call, under Claude only, that waits
+blind: sleeps longer than 5 s, a sleep that polls a background task's output
+file, or a process started with a bare `&` and never waited for. Its denial
+names the wait that ends when the thing happens — end the turn for work the
+host reports on, `run_in_background` for a process the agent starts, a short
+capped `until` loop for a condition. Calls the host already runs in the
+background pass. Codex and Kimi have no background flag to point to, so the
+gate is not wired there. The toggle is `hooks.wait_gate.enabled`.
+
 `worktree-provision.sh` runs at subagent start under Claude only: a cell that
 starts inside a linked worktree gets that worktree's dependencies installed by
 `.agents/provision.sh` before its first turn, and a failed install blocks the
@@ -172,6 +181,7 @@ python3 .agents/check-layout.py
 python3 .agents/lint-breadcrumbs.py
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
+python3 .agents/test-wait-gate.py
 python3 .agents/test-guard-publish.py
 .agents/test-mcp.sh
 .agents/test-codex.sh
