@@ -63,7 +63,7 @@
       "trivial_lines": 30,
       "review_files": 5,
       "review_lines": 150,
-      "heavy_lines": 200,
+      "heavy_tool_calls": 60,
       "report_every_turn": false
     },
     "stop_investigate": {

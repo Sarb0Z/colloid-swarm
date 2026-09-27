@@ -80,6 +80,7 @@ python3 .agents/lint-breadcrumbs.py
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
+.agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
 .agents/test-device-policy.sh
 .agents/test-mcp.sh
