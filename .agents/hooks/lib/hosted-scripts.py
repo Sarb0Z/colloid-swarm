@@ -35,7 +35,7 @@ HOSTS = re.compile(
 )
 # A literal write verb, or a method chosen at run time (`method=method`).
 WRITES = re.compile(
-    r"""["'](?:POST|PUT|PATCH|DELETE)["']|\b-X\s*(?:POST|PUT|PATCH|DELETE)\b"""
+    r"""["'](?:POST|PUT|PATCH|DELETE)["']|(?:^|\s)-X\s*(?:POST|PUT|PATCH|DELETE)\b"""
     r"""|--request\s+(?:POST|PUT|PATCH|DELETE)\b|\bmethod(?:=|:\s*)(?!None\b|["'])[A-Za-z_]\w*\b(?!\s*\()"""
     r"""|\.(?:post|put|patch|delete)\s*\("""
 )
@@ -64,60 +64,99 @@ def writes_hosted(text):
     return True
 
 
-def executed(command, shell):
-    """Script paths the command runs, in order."""
-    found = []
+def runs(words):
+    """The script operand one command runs, or None."""
+    if not words or "--dry-run" in words[1:]:
+        return None
+    name = os.path.basename(words[0])
+    if SCRIPT.fullmatch(words[0]) and "/" in words[0]:
+        return words[0]
+    if name in ("source", ".") and len(words) > 1:
+        return words[1]
+    # `npx tsx x.ts` runs x.ts; `npx tsc x.ts` only type-checks it.
+    if name in RUNNERS:
+        words = [w for w in words[1:] if not w.startswith("-") and w != "run"]
+        if not words:
+            return None
+        if SCRIPT.fullmatch(words[0]):
+            return words[0]
+        name = os.path.basename(words[0])
+    if name in INTERPRETERS or name.startswith("python3."):
+        # `-m` runs a module; `bash -n` only parses.
+        if "-m" in words[1:] or (name in ("bash", "sh", "zsh") and "-n" in words[1:]):
+            return None
+        return next((w for w in words[1:] if not w.startswith("-") and SCRIPT.fullmatch(w)), None)
+    return None
+
+
+def executed(command, shell, cwd):
+    """Absolute paths of the scripts the command runs, in order.
+
+    A relative operand resolves against the directory the shell is in when it
+    runs: the session's working directory, moved by each `cd` or `pushd`
+    earlier in the command. A subshell's `cd` is followed past the subshell,
+    which can only make an operand resolve to a file that exists.
+    """
+    found, here = [], cwd
     for cmd in shell.normalize(command):
         words = shell.lead(cmd.words)
-        if not words:
+        if words and words[0] in ("cd", "pushd") and len(words) > 1 and "$" not in words[1]:
+            here = resolve(words[1], here)
             continue
-        name = os.path.basename(words[0])
-        if SCRIPT.fullmatch(words[0]) and "/" in words[0]:
-            found.append(words[0])
-        # `npx tsx x.ts` runs x.ts; `npx tsc x.ts` only type-checks it.
-        if name in RUNNERS:
-            words = [w for w in words[1:] if not w.startswith("-") and w != "run"]
-            if not words:
-                continue
-            if SCRIPT.fullmatch(words[0]):
-                found.append(words[0])
-                continue
-            name = os.path.basename(words[0])
-        if name in INTERPRETERS or name.startswith("python3."):
-            if "-m" in words[1:]:
-                continue
-            found += [w for w in words[1:] if not w.startswith("-") and SCRIPT.fullmatch(w)][:1]
+        script = runs(words)
+        if script:
+            found.append(resolve(script, here))
     # Inline code runs a path only through a loader; a path it merely names —
     # a file it edits, a string it prints — is data.
     if INLINE.search(command):
         for line in command.split("\n"):
             if LOADERS.search(line):
-                found += [m.group(1) for m in SCRIPT.finditer(line) if "/" in m.group(1)]
+                found += [resolve(m.group(1), here) for m in SCRIPT.finditer(line) if "/" in m.group(1)]
     return list(dict.fromkeys(found))
 
 
-def resolve(path, project):
-    return os.path.realpath(os.path.join(project, os.path.expanduser(path)))
+def resolve(path, base):
+    return os.path.realpath(os.path.join(base, os.path.expanduser(path)))
 
 
-def committed(path, project):
-    """True when the file is tracked in the project and unchanged since HEAD."""
-    rel = os.path.relpath(path, project)
-    if rel.startswith(".."):
+def written_here(path, command):
+    """True when the command itself writes the script before running it."""
+    return re.search(r"(?:>|\btee\s+(?:-a\s+)?)\s*[\"']?[^\s\"']*" + re.escape(os.path.basename(path)) + r"\b", command) is not None
+
+
+def repository(path):
+    """The top of the Git repository holding the file, or None."""
+    top = subprocess.run(["git", "-C", os.path.dirname(path), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    return os.path.realpath(top.stdout.strip()) if top.returncode == 0 and top.stdout.strip() else None
+
+
+def committed(path):
+    """True when the file is tracked in its own repository and unchanged since HEAD.
+
+    Its own repository, not the session's: a session opened on a folder of
+    several repositories runs each one's committed tools.
+    """
+    top = repository(path)
+    if not top:
         return False
-    tracked = subprocess.run(["git", "-C", project, "ls-files", "--error-unmatch", "--", rel],
+    rel = os.path.relpath(path, top)
+    tracked = subprocess.run(["git", "-C", top, "ls-files", "--error-unmatch", "--", rel],
                              capture_output=True).returncode == 0
-    clean = subprocess.run(["git", "-C", project, "diff", "--quiet", "HEAD", "--", rel],
+    clean = subprocess.run(["git", "-C", top, "diff", "--quiet", "HEAD", "--", rel],
                            capture_output=True).returncode == 0
     return tracked and clean
 
 
-def build_output(path, project):
-    """True for a gitignored file under a build directory of the project."""
-    rel = os.path.relpath(path, project)
-    if rel.startswith("..") or not BUILD_DIRS & set(rel.split(os.sep)[:-1]):
+def build_output(path):
+    """True for a gitignored file under a build directory of its repository."""
+    top = repository(path)
+    if not top:
         return False
-    return subprocess.run(["git", "-C", project, "check-ignore", "-q", "--", rel],
+    rel = os.path.relpath(path, top)
+    if not BUILD_DIRS & set(rel.split(os.sep)[:-1]):
+        return False
+    return subprocess.run(["git", "-C", top, "check-ignore", "-q", "--", rel],
                           capture_output=True).returncode == 0
 
 
@@ -138,27 +177,23 @@ REMEDY = (" AGENTS.md §Changes live in the repository: production state is appl
           "from there. Do not retry it from outside the repository or inline.")
 
 
-def verdict(command, project, shell):
+def verdict(command, project, shell, cwd=None):
     """("deny" | "ask", reason) for a hosted write the command makes, or None."""
     project = os.path.realpath(project or ".")
-    if "--dry-run" in command.split():
-        return None
     inline = bool(INLINE.search(command))
-    for script in executed(command, shell):
-        path = resolve(script, project)
+    for path in executed(command, shell, os.path.realpath(cwd or project)):
         body = read(path) if os.path.isfile(path) else ""
-        # A script written and run in one call is missing at hook time; the
-        # command text carries its body.
-        source = body or (command if not os.path.isfile(path) else "")
-        if not source or not writes_hosted(source):
+        # A script written in the same call is missing or stale at hook time;
+        # the command text carries its new body, and it is not committed code.
+        rewritten = not body or written_here(path, command)
+        if not writes_hosted(body + ("\n" + command if rewritten else "")):
             continue
-        if os.path.isfile(path) and committed(path, project):
-            return ("ask", f"{os.path.relpath(path, project)} writes to a hosted management API.")
-        if build_output(path, project):
+        if not rewritten and committed(path):
+            return ("ask", f"{path} writes to a hosted management API.")
+        if not rewritten and build_output(path):
             continue
-        where = "outside the repository" if os.path.relpath(path, project).startswith("..") \
-            else "not committed as it stands"
-        return ("deny", f"{script} is {where} and writes to a hosted management API." + REMEDY)
+        where = "not committed as it stands" if repository(path) else "outside any repository"
+        return ("deny", f"{path} is {where} and writes to a hosted management API." + REMEDY)
     if inline and HTTP_CALLS.search(command) and writes_hosted(command):
         return ("deny", "Inline code in this command writes to a hosted management API." + REMEDY
                 + " If the inline code only edits a file that contains such calls, edit it with the editor tool.")
