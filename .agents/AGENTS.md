@@ -82,6 +82,7 @@ python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
 .agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
+python3 .agents/test-hosted-scripts.py
 .agents/test-device-policy.sh
 .agents/test-mcp.sh
 .agents/test-permissions.sh
