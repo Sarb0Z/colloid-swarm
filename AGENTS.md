@@ -80,16 +80,17 @@ Write for a reader who has not read the code. The user directs the work and know
 
 ## Subagent Delegation
 
-Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator's own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator's own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Two or more writers working at the same time go through a `workloop` run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees; a single writer edits the main tree. `parallel-writers-gate.sh` enforces this and its denial names the commands; a generic cell that only reads says so by starting its prompt with `READ-ONLY`. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
+The lead runs on `opus` and delegates in both directions. Bounded, well-specified work — a unit with a clear input, output, and acceptance — goes to the lowest tier that can solve and verify it. Complex or critical work — an architecture, a defect that survived two fixes — goes up to `fable` from the start rather than after a cheaper tier fails. The lead keeps the plan, the integration of results, and the calls that need this conversation's context. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Two or more writers working at the same time go through a `workloop` run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees; a single writer edits the main tree. `parallel-writers-gate.sh` enforces this and its denial names the commands; a generic cell that only reads says so by starting its prompt with `READ-ONLY`. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
 
 | Tier | Model | Use |
 | --- | --- | --- |
 | light | `haiku` | mechanical or bounded read-only work |
 | medium | `sonnet` | implementation, tests, scoped debugging, QA |
-| heavy | `opus` | planning, or work that failed at medium |
+| heavy | `opus` | well-specified work too broad or subtle for medium, or that failed there |
+| frontier | `fable` | complex or critical work, or work that failed at heavy |
 
-Choose the lowest tier that can solve and verify the task. Generic cells use `general-purpose` with an explicit model; use a named persona when effort must be fixed. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
+Generic cells use `general-purpose` with an explicit model; use a named persona when effort must be fixed. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
 
-Persona files name these defaults directly. A generic cell keeps every tool, so constrain its handoff and retain the sandbox boundary.
+Persona files name these defaults directly, except `reviewer`, whose model the lead chooses at dispatch. A generic cell keeps every tool, so constrain its handoff and retain the sandbox boundary.
 
 Scoped instructions load on demand and aren't restated here. Read `.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md` before working in any subtree.

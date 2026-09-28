@@ -27,7 +27,7 @@ claude_models = {
     "mechanic": "haiku",
     "qa-verifier": "sonnet",
     "researcher": "sonnet",
-    "reviewer": "opus",
+    "reviewer": None,
 }
 
 personas = {path.stem for path in (repo / ".agents/personas").glob("*.md")}

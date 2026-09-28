@@ -3,7 +3,7 @@
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
 pasted content, a diff or tree digest, or an authorized commit. Never commit
-merely to make a review checkpoint. Use the heavy tier for the runtime.
+merely to make a review checkpoint. Choose the reviewer's model at dispatch for the artifact at hand; the persona pins none.
 <!-- colloid-only -->
 Claude and Codex inject a genome on `SubagentStart`; do not prepend another.
 Kimi discards start-hook output, so prepend exactly one fresh stamp there.

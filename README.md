@@ -43,11 +43,13 @@ checks committed links without generating or pruning files.
 | --- | --- | --- |
 | Mechanical or bounded exploration | Haiku | `gpt-5.6-luna` / low |
 | Implementation, QA, research | Claude Sonnet 5 | `gpt-5.6-terra` / medium |
-| Planning or independent hostile review | Claude Opus 5 | `gpt-5.6-sol` / high |
+| Well-specified work too broad for medium; the lead | Claude Opus 5 | `gpt-5.6-sol` / high |
+| Complex or critical work | Claude Fable 5.1 | — |
 
 The cached personas cover common work but do not restrict generic delegation.
-The driver chooses the cheapest tier that can solve and verify the task, and
-grants only the capabilities that task needs.
+The Opus lead sends well-specified work to the cheapest tier that can solve and
+verify it and complex work up to Fable, and grants only the capabilities that
+task needs.
 
 ## MCP capabilities
 

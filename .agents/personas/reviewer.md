@@ -2,7 +2,6 @@
 name: reviewer
 description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
 tools: ["Read", "Glob", "Grep", "Bash"]
-model: "opus"
 effort: "high"
 ---
 
