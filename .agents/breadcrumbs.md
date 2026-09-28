@@ -27,9 +27,11 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`AGENTS.md` is still 11,397 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
+- **Delegation is re-typed per session** — ten September prompts across four satellites asked for it; `AGENTS.md` already makes it the default and prose has not held. Add a gate (a Stop check on undelegated long turns), or accept?
 
 ## Work
 
+- **Satellites lack the 2026-09-27 harness changes** — the wait gate, the hosted-script refusal, the writer-gate fix and the contract edits reach a satellite only through a sync pass. Carry them in the next sync.
 - **The exported `.agents/README.md` keeps its Kimi prose when a target drops `.kimi/`** — the host table and `.kimi-code/mcp.json` lines dangle in both TaxDrop repos. Wrap them in `colloid-only` markers, or add a Kimi-drop step to the guide.
 - **`teardown-gate.sh` blocks on containers `workloop.py reap` already removed** — the stop-classifier knows `docker stop` and `docker compose down`, not the controller's own reap, so a reaped lane stays pending. Teach it the reap command, or verify liveness before blocking.
 - **`provenance-gate.sh` sees only text the host has flushed** — on 2.1.258 one session stopped writing mid-turn assistant text rows, so the gate read nothing and the Stop gate caught the turn. Re-test on a later host.
