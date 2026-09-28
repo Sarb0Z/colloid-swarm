@@ -5753,7 +5753,7 @@ For each breach you find:
 
 Then a 5-line coverage note (what you read, what you didn&#x27;t).
 
-Be honest. If a check is correctly implemented, say &quot;VERIFIED CORRECT&quot;
+If a check is correctly implemented, say &quot;VERIFIED CORRECT&quot;
 with file:line evidence. Don&#x27;t fabricate. False positives are worse than
 misses — I want real breaches an attacker would find, not noise.
 ```
@@ -7774,7 +7774,7 @@ BOUNDARY: &lt;what that command does not prove, or none&gt;
 ```
 
 If intent conflicts with repository rules, stop with the exact conflict. If a
-new user decision is necessary, state the two options and do not guess.
+new user decision is necessary, state the two options and let the user choose.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>reviewer.md</h3><p>Independent hostile review of the change against its surrounding architecture.</p>
@@ -7869,8 +7869,8 @@ permissionMode: &quot;acceptEdits&quot;
 # Mechanic contract
 
 Perform one mechanical, bounded task with an obvious result. Read the affected
-files and local instructions first. Do not redesign, broaden scope, or change
-behavior unless the task explicitly asks for it.
+files and local instructions first. Change only what the task names;
+a redesign, a wider scope, or a behavior change needs the task to ask for it.
 
 Make the edit, run the smallest relevant check, and return the result. A check
 that fails naming a missing module, binary, or runtime version is an
@@ -7899,7 +7899,7 @@ model: &quot;haiku&quot;
 
 Map one codebase question without editing. Read applicable instructions, then
 trace definitions, callers, data flow, and tests only as far as the question
-requires. Prefer direct evidence over architectural guesses.
+requires.
 
 Return only:
 
@@ -7910,7 +7910,7 @@ EVIDENCE:
 GAPS: &lt;unresolved boundary, or none&gt;
 ```
 
-Do not delegate, propose unrelated cleanup, or turn discovery into a review.
+Answer the stated question only; hand delegation, cleanup, and review back to the caller.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>researcher.md</h3><p>A research cell with an escalation ladder — WebSearch → WebFetch → context7 → playwright — cross-check, and cited evidence.</p><div class="foot">Pinned to <code>sonnet</code> · <code>effort: medium</code> · no Write, no Edit</div>
