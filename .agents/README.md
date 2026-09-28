@@ -87,6 +87,14 @@ capped `until` loop for a condition. Calls the host already runs in the
 background pass. Codex and Kimi have no background flag to point to, so the
 gate is not wired there. The toggle is `hooks.wait_gate.enabled`.
 
+`guard-publish.sh` also refuses, in every mode, a command that runs a script
+writing to a hosted management API when that script is outside the
+repository, untracked, or edited since the last commit, and inline code that
+does the same (`hooks/lib/hosted-scripts.py`); the committed, unchanged script
+asks like any outward mutation. Detection is textual — a management host and a
+write signal in the file the command runs — so SDK clients and CLIs spawned
+from a script are not seen. See decision `hosted-writes-need-committed-code`.
+
 `worktree-provision.sh` runs at subagent start under Claude only: a cell that
 starts inside a linked worktree gets that worktree's dependencies installed by
 `.agents/provision.sh` before its first turn, and a failed install blocks the
@@ -184,6 +192,7 @@ python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
 .agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
+python3 .agents/test-hosted-scripts.py
 .agents/test-mcp.sh
 .agents/test-codex.sh
 .agents/test-export.sh

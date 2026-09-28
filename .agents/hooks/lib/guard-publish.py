@@ -369,6 +369,29 @@ def emit(reason, mode):
     }}))
 
 
+def refuse(reason):
+    """Deny whatever the mode: the remedy is the agent's, not the user's."""
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+
+
+def hosted_script(tool_name, tool_input, project):
+    """hosted-scripts.py's verdict for a shell command, or None."""
+    command = tool_input.get("command")
+    if tool_name not in ("Bash", "PowerShell", "Monitor") or not isinstance(command, str):
+        return None
+    # Only a command naming a script file or an API host needs the parser.
+    if not re.search(r"\.(?:py|mjs|cjs|js|mts|ts|sh|bash|zsh|rb)\b|\bapi\.|/auth/v1/adm[i]n", command):
+        return None
+    spec = importlib.util.spec_from_file_location("hosted_scripts", os.path.join(HERE, "hosted-scripts.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.verdict(command, project, load_shell_parser())
+
+
 def main():
     # --force asks for the verdict whatever the toggle says, for a caller that
     # runs the command with no hook in front of it: the workloop controller
@@ -397,7 +420,12 @@ def main():
         emit("The publish guard received an incomplete hook payload.", mode)
         return 0
     try:
-        reason = verdict(tool_name, tool_input, outward_commands(repo))
+        project = payload.get("project_dir")
+        hosted = hosted_script(tool_name, tool_input, project if isinstance(project, str) and project else repo)
+        if hosted and hosted[0] == "deny":
+            refuse(hosted[1])
+            return 0
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo))
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0
