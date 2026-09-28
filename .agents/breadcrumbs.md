@@ -31,6 +31,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`wait-gate.py` reads an `&` in a trailing comment as a background** — `echo hi # a & b` is refused with the run_in_background remedy. Strip unquoted trailing comments before `split_operators`, with a test row.
 - **Satellites lack the 2026-09-27 harness changes** — the wait gate, the hosted-script refusal, the writer-gate fix and the contract edits reach a satellite only through a sync pass. Carry them in the next sync.
 - **The exported `.agents/README.md` keeps its Kimi prose when a target drops `.kimi/`** — the host table and `.kimi-code/mcp.json` lines dangle in both TaxDrop repos. Wrap them in `colloid-only` markers, or add a Kimi-drop step to the guide.
 - **`teardown-gate.sh` blocks on containers `workloop.py reap` already removed** — the stop-classifier knows `docker stop` and `docker compose down`, not the controller's own reap, so a reaped lane stays pending. Teach it the reap command, or verify liveness before blocking.

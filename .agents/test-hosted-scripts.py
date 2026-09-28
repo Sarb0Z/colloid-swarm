@@ -49,9 +49,9 @@ GRAPHQL_MUTATION = 'import requests\nrequests.post("https://GITHUB/graphql", jso
 MOCKED_TEST = 'def test_charge(mocker):\n    mocker.patch("requests.post")  # https://STRIPE/v1/charges "POST"\n'
 
 
-def decide(project, command, mode="default"):
+def decide(project, command, mode="default", cwd=None):
     payload = {"tool_name": "Bash", "tool_input": {"command": real(command)}, "permission_mode": mode,
-               "project_dir": str(project)}
+               "project_dir": str(project), "cwd": str(cwd or project)}
     out = subprocess.run([sys.executable, str(guard), str(here.parent)], input=json.dumps(payload),
                          capture_output=True, text=True).stdout.strip()
     if not out:
@@ -118,9 +118,26 @@ with tempfile.TemporaryDirectory() as scratch:
         ("an application's own payment calls are not infrastructure", "node checkout.ts", "default", "pass"),
         ("an ordinary command passes", "ls -la", "default", "pass"),
     ]
+    (outside / "harmless.py").write_text("print('hello')\n")
+    (outside / "lib.sh").write_text(real("curl -X PATCH https://VERCEL/v9/projects/web -d '{}'\n"))
+    setup = "production-vercel-github-setup.py"
+    rows += [
+        ("a relative script after cd", f"cd {outside} && python3 {setup}", "default", "deny"),
+        ("a relative script after cd in a subshell", f"(cd {outside} && python3 {setup})", "default", "deny"),
+        ("a relative script after pushd", f"pushd {outside} && python3 {setup}", "default", "deny"),
+        ("./script after cd", f"cd {outside}; ./{setup}", "default", "deny"),
+        ("a dry run chained before the real run", f"python3 {outside}/{setup} --dry-run && python3 {outside}/{setup}", "default", "deny"),
+        ("an existing harmless file overwritten and run in one call",
+         f"cat > {outside}/harmless.py <<'EOF'\n{WRITER}EOF\npython3 {outside}/harmless.py", "default", "deny"),
+        ("a sourced shell file", f"source {outside}/lib.sh", "default", "deny"),
+        ("a dot-sourced shell file", f". {outside}/lib.sh", "default", "deny"),
+    ]
     for name, command, mode, expected in rows:
         got, reason = decide(project, command, mode)
         check(name, got == expected, f"expected {expected}, got {got}: {reason[:200]}")
+
+    got, _ = decide(project, f"python3 {setup}", cwd=outside)
+    check("a relative script resolves against the session's working directory", got == "deny", got)
 
     got, reason = decide(project, f"python3 {outside}/production-vercel-github-setup.py")
     check("the refusal names the plan/apply remedy and says not to retry",

@@ -378,7 +378,7 @@ def refuse(reason):
     }}))
 
 
-def hosted_script(tool_name, tool_input, project):
+def hosted_script(tool_name, tool_input, project, cwd):
     """hosted-scripts.py's verdict for a shell command, or None."""
     command = tool_input.get("command")
     if tool_name not in ("Bash", "PowerShell", "Monitor") or not isinstance(command, str):
@@ -389,7 +389,7 @@ def hosted_script(tool_name, tool_input, project):
     spec = importlib.util.spec_from_file_location("hosted_scripts", os.path.join(HERE, "hosted-scripts.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.verdict(command, project, load_shell_parser())
+    return module.verdict(command, project, load_shell_parser(), cwd)
 
 
 def main():
@@ -421,7 +421,9 @@ def main():
         return 0
     try:
         project = payload.get("project_dir")
-        hosted = hosted_script(tool_name, tool_input, project if isinstance(project, str) and project else repo)
+        cwd = payload.get("cwd")
+        hosted = hosted_script(tool_name, tool_input, project if isinstance(project, str) and project else repo,
+                               cwd if isinstance(cwd, str) and cwd else None)
         if hosted and hosted[0] == "deny":
             refuse(hosted[1])
             return 0

@@ -64,6 +64,8 @@ def normalize(payload, policy, repo):
         out["tool_input"] = tool_input
         # The mode decides whether an "ask" can reach a human at all.
         out["permission_mode"] = payload.get("permission_mode") or ""
+        # The shell's directory, which a relative script operand resolves against.
+        out["cwd"] = payload.get("cwd") or ""
     # colloid-only
     elif policy == "genome-inject.sh":
         # SubagentStart fires inside the spawned cell, which names its own type
