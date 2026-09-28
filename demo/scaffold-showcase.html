@@ -371,7 +371,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 92 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 95 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
@@ -412,6 +412,9 @@ A skill, plugin, or MCP server describes how to use a capability; it never holds
 A fix is a change the repository reproduces: code, configuration, a migration, a dependency added through the package manager. Never hand-edit a dependency entry in a manifest or lockfile.
 
 Production and staging state follows infrastructure-as-code: hosting settings, environment variable declarations, auth configuration, secret names, DNS, schema, and seed data are declared in the repository, and applied by committed code — a CI workflow or a committed plan/apply tool that reports drift before it changes anything and is safe to rerun. Then the state is reproducible after loss, auditable in Git, and comparable across environments. A dashboard edit or a script outside the repository is diagnosis or containment only; its declaration and apply path land in the repository in the same session. Secret values stay in the secret store or a gitignored env file; the repository names each secret and where it comes from.
+
+### Copy in the user&#x27;s voice
+Text that speaks for the user or the product — marketing and landing copy, onboarding and empty-state prose, emails and messages to customers, announcements and posts, reports written in the user&#x27;s name, and creative text such as dialogue or story — is the user&#x27;s voice, and a first draft sticks. Write it only from a sample of that voice (the user&#x27;s own writing, a copy or brand document, earlier text they approved), and match its register and length. Without a sample, leave an obvious placeholder such as `[Hero headline — offer, one line]`; this is the one placeholder the production bar allows, and every one is listed as open in the report. Functional text — labels, error and validation messages, logs, technical documentation — is the agent&#x27;s to write.
 
 ### Comments and documentation
 Write for a reader who never saw the old code. A comment earns its place by saying what the code cannot: a non-obvious why, a subtle constraint, a surprising tradeoff, or a signpost over a chunk of a long linear process — &quot;Resolve overlaps, nearest first&quot; above the loop beats extracting a function called once. Say what a path guards against, not when it once failed; keep history only when it guards a real regression (&quot;don&#x27;t revert to the double-precision form; it loses the low bits at Q32 scale&quot;). No tombstones: nothing describes removed or replaced behavior.
