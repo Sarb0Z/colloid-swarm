@@ -397,7 +397,7 @@ while IFS=$'\t' read -r manager path; do
   # Never let a JS manager run over links into another checkout's tree.
   # Another ecosystem's install in the same directory leaves them alone.
   if is_js "$manager" && shared_dir "$cwd"; then rm -rf "$cwd/node_modules"; fi
-  log="$(mktemp -t provision-log)"
+  log="$(mktemp "${TMPDIR:-/tmp}/provision-log.XXXXXX")"
   if [[ "$manager" == pip ]]; then
     # pip installs into the directory's own .venv, created with the interpreter
     # .python-version names; the pinned dev file rides along when present.
