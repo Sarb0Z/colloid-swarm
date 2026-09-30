@@ -32,6 +32,9 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 ## Work
 
 - **`guard-destructive.py`'s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x` and `bash -lc 'rm -rf ~/x'` are allowed. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and combined `-lc`/`-ec`, with BLOCK rows per form.
+- **`guard-publish.py` is silent on a listed script run over SSH** — `ssh host 'cd /opt/app && bash scripts/deploy.sh'` gets no decision from either guard (Mailstation, 2026-09-30). Match listed paths inside an `ssh` remote command, with a test row.
+- **`guard-publish.py` trusts a literal `--dry-run` on any script** — a script that ignores its arguments deploys with no prompt (Mailstation's `lambda/website-scraper/deploy.sh`). Honour `--dry-run` only for scripts the policy marks as supporting it.
+- **`guard-publish.py` has no rule for a typed `aws` mutation** — `aws lambda update-function-code …` gets no decision, unlike the listed deploy scripts. Add the AWS CLI's mutating verbs beside the Supabase ones, with test rows.
 - **`wait-gate.py` reads an `&` in a trailing comment as a background** — `echo hi # a & b` is refused with the run_in_background remedy. Strip unquoted trailing comments before `split_operators`, with a test row.
 - **Satellites lack the 2026-09-27 harness changes** — the wait gate, the hosted-script refusal, the writer-gate fix and the contract edits reach a satellite only through a sync pass. Carry them in the next sync.
 - **The exported `.agents/README.md` keeps its Kimi prose when a target drops `.kimi/`** — the host table and `.kimi-code/mcp.json` lines dangle in both TaxDrop repos. Wrap them in `colloid-only` markers, or add a Kimi-drop step to the guide.
