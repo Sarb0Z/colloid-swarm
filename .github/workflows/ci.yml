@@ -94,6 +94,9 @@ jobs:
       - name: MCP registry
         run: .agents/test-mcp.sh
 
+      - name: Browser sync
+        run: python3 .agents/test-browser-sync.py
+
       - name: Permission rules
         run: .agents/test-permissions.sh
 

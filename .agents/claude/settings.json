@@ -15,7 +15,8 @@
       "mcp__atlassian__destroy*",
       "mcp__plugin_vercel_vercel__delete*",
       "mcp__plugin_vercel_vercel__remove*",
-      "mcp__plugin_vercel_vercel__destroy*"
+      "mcp__plugin_vercel_vercel__destroy*",
+      "mcp__playwright__browser_run_code_unsafe"
     ],
     "ask": [
       "Artifact",

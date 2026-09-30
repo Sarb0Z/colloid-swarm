@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Build native MCP configuration from the tracked registry.
 
-Usage: mcp.py [sync] | enable NAME... | disable NAME...
+Usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...
+
+`--settings FILE` reads browser settings from FILE, not `.agents/config.json`.
+`--new-proxy-session` replaces the stored proxy `{session}` token.
 """
 
 import json
@@ -15,6 +18,7 @@ from pathlib import Path
 from mcp_codex import META_FIELDS as CODEX_META_FIELDS
 from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
+import mcp_playwright as playwright
 
 ROOT_TOKEN = "${REPO_ROOT}"
 META = {"description", "enabled", "kimi_enabled", "outward", "sources"} | CODEX_META_FIELDS
@@ -38,9 +42,10 @@ def _write_json(path, value, mode=None):
     temp.replace(path)
 
 
-def _write_text(path, value):
+def _write_text(path, value, mode=None):
     path.parent.mkdir(parents=True, exist_ok=True)
-    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    if mode is None:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
     with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as output:
         output.write(value)
         temp = Path(output.name)
@@ -172,7 +177,7 @@ def _reader_config(repo, enabled):
         launch["args"] = ["--load-extension=" + ",".join(str(Path(item).parent) for item in installed)]
     if enabled and not installed:
         _fail("playwright-reader is enabled but no extension is installed; run .agents/fetch-extension.sh ublock-lite")
-    return {"browser": {"browserName": "chromium", "launchOptions": launch}}
+    return {"browser": {"browserName": "chromium", "launchOptions": launch}, "webmcp": False}
 
 
 def _expand_env(value, missing):
@@ -221,16 +226,20 @@ def _claude_settings(repo, servers, enabled):
     return value
 
 
-def _build(repo, doc=None):
+def _build(repo, doc=None, settings_path=None, rotate=False):
     doc, raw = _registry(repo, doc)
     reader = _reader_config(repo, raw.get("playwright-reader", {}).get("enabled") is True)
-    reader_path = repo / ".agents/.playwright-reader.json"
+    settings = playwright.load_settings(repo, settings_path)
+    browser, token = playwright.render(repo, settings, os.environ, rotate)
+    # Generated files that a fresh checkout has not produced yet.
+    virtual = {repo / ".agents/.playwright-reader.json", repo / playwright.CONFIG}
     servers = {
-        name: _resolve(server, name, repo, {reader_path})
+        name: _resolve(server, name, repo, virtual)
         for name, server in raw.items()
     }
     enabled = {name: _public(server) for name, server in servers.items() if server["enabled"]}
     return doc, {
+        "browser": browser, "token": token, "rotate": rotate,
         "reader": reader, "claude_mcp": {"mcpServers": enabled},
         "kimi": _kimi_config(repo, servers),
         "settings": _claude_settings(repo, servers, enabled),
@@ -239,6 +248,11 @@ def _build(repo, doc=None):
 
 
 def _commit(repo, outputs):
+    if outputs["token"] is not None:
+        _write_text(repo / playwright.TOKEN, outputs["token"] + "\n", 0o600)
+    elif outputs["rotate"]:
+        (repo / playwright.TOKEN).unlink(missing_ok=True)
+    _write_json(repo / playwright.CONFIG, outputs["browser"], 0o600)
     _write_json(repo / ".agents/.playwright-reader.json", outputs["reader"])
     _write_json(repo / ".mcp.json", outputs["claude_mcp"])
     if outputs["kimi"] is not None:
@@ -247,9 +261,13 @@ def _commit(repo, outputs):
     _write_text(repo / ".codex/config.toml", outputs["codex"])
 
 
+USAGE = "usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME..."
+
+
 def main():
     repo = Path(__file__).resolve().parent.parent
-    action, *names = sys.argv[1:] or ["sync"]
+    args = sys.argv[1:]
+    action, *names = args if args and not args[0].startswith("-") else ["sync", *args]
     doc = None
     if action in {"enable", "disable"}:
         if not names:
@@ -260,9 +278,14 @@ def main():
             _fail("unknown server(s): " + ", ".join(unknown))
         for name in names:
             servers[name]["enabled"] = action == "enable"
-    elif action != "sync" or names:
-        _fail("usage: mcp.py [sync] | enable NAME... | disable NAME...")
-    doc, outputs = _build(repo, doc if action in {"enable", "disable"} else None)
+    elif action != "sync":
+        _fail(USAGE)
+    try:
+        settings_path, rotate = playwright.sync_options(names) if action == "sync" else (None, False)
+        doc, outputs = _build(repo, doc, settings_path, rotate)
+        playwright.prepare_dir(repo, repo / playwright.CONFIG)
+    except playwright.SettingsError as error:
+        _fail(str(error))
     if action in {"enable", "disable"}:
         _write_json(repo / ".agents/mcp.json", doc)
     _commit(repo, outputs)

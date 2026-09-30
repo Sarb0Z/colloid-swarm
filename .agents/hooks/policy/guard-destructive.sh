@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Engine-agnostic policy: block destructive shell commands.
+# Engine-agnostic policy: block destructive shell commands, and commands only
+# the user may run.
 #
 # Input  (stdin JSON): {"command": "<shell command>"}
 # Output: exit 2 + stderr reason on block; exit 0 otherwise.

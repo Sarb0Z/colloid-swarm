@@ -65,6 +65,110 @@ from those declarations, so a server cannot be enabled without its capture
 following it. Run it after changing a `sources` key; `--check` fails on drift
 and `test-sources-matcher.py` gates it.
 
+## Default browser
+
+The `playwright` server launches branded Chrome with the config file
+`.agents/.browser/playwright.json`. `mcp.py` writes that file from the
+`browser` section of the ignored `.agents/config.json`. The tracked
+`policy.json` must not set this section, and `mcp.py` refuses it there.
+`config.json.example` shows each setting with its default. With no `browser`
+section, the server keeps its own window and network. The profile does not
+depend on the settings: when `.agents/.browser/profile` holds a synced cookie
+store, the server uses that profile; otherwise it uses its own.
+
+| Setting | Effect |
+| --- | --- |
+| `chrome_profile` | The Chrome profile directory that `browser-sync.py` reads. The default is `Default`. |
+| `sync_sites` | The sites whose cookies `browser-sync.py` copies. |
+| `user_agent`, `locale`, `timezone`, `viewport` | Browser context values. `null` keeps the value of the browser. |
+| `headless` | `true` or `false`. `null` lets the server choose. |
+| `proxy`, `proxy_env`, `proxy_bypass` | Send the browser traffic through a proxy. |
+
+Do not set `user_agent` unless a site requires it. A user agent that does not
+agree with the Chrome version makes bot detection more likely.
+
+Run `python3 .agents/mcp.py` after you change a setting, then restart the
+session. `mcp.py sync --settings FILE` reads the settings from FILE instead of
+`config.json`.
+
+### Sync your Chrome into the Playwright browser
+
+The Playwright browser never drives your Chrome. It uses its own profile,
+`.agents/.browser/profile`. `browser-sync.py` copies into that profile only the
+cookies of the sites that you list. It copies no other data.
+
+1. List the sites in `.agents/config.json`, for example
+   `{"browser": {"sync_sites": ["zillow.com"]}}`. `zillow.com` includes
+   `www.zillow.com` and the other subdomains. A subdomain entry also copies
+   the domain cookies of its parent, because Chrome sends them to the
+   subdomain. Those cookies work on every sibling subdomain too: `mail.google.com`
+   copies the `.google.com` session cookies, which sign the agent in on all of
+   `google.com`. It does not copy the host-only cookies of the parent or the
+   cookies of a sibling.
+   `localhost` and IP addresses match only themselves. The script converts an
+   international name to the ASCII form that Chrome stores. It refuses any other
+   single-label name and a small built-in list of public suffixes, such as
+   `co.uk` and `github.io`. That list is not the full Public Suffix List, so
+   list sites, not hosting domains.
+2. Quit Chrome. Chrome writes new cookies to disk, such as the cookie from a
+   solved challenge, when it quits. The script refuses to run while Chrome
+   uses the profile.
+3. Run the script yourself. In an agent session, use the `!` prefix:
+   `! python3 .agents/browser-sync.py`. An agent must not run it: the
+   destructive-command guard refuses it on Claude, Codex, and Kimi, unless
+   `--source` points to a synthetic profile in a temporary directory. The
+   refusal stays on when `hooks.guard_destructive.enabled` is `false`. The
+   guard stops an accidental run. It does not stop a command that hides the
+   script on purpose, for example `python3 -c` with `runpy`.
+4. Restart the agent session.
+
+To remove the synced cookies, delete `.agents/.browser/profile`, run
+`python3 .agents/mcp.py sync`, and restart the agent session.
+
+The script reads `~/Library/Application Support/Google/Chrome/<chrome_profile>/Cookies`.
+Use `--source DIR` for a different Chrome user data directory. The cookie store
+must be inside that directory: the script refuses a store that a symbolic link
+puts outside it or into the default Chrome directory. The script
+works on macOS only, because Chrome seals the cookies with the macOS Keychain
+key. It prints the number of cookies for each listed site and the listed sites
+that have no cookies. It never prints cookie names or values. It replaces only
+the cookie store, so the other state of the Playwright profile stays. You can
+run it again at any time.
+
+An agent that uses the `playwright` server acts as you on the listed sites. It
+can read the cookie values through the network and evaluate tools. Claude
+denies `browser_run_code_unsafe` on this server. Codex and Kimi have no
+per-tool gate (debt `colloid-outward-gating-claude-only`). List only the sites
+that the agent must use while you are signed in.
+
+### Proxy
+
+Set `browser.proxy` to `true`. Put the endpoint in the environment variable
+that `proxy_env` names, `PLAYWRIGHT_PROXY` by default. Never put the endpoint
+in a tracked file.
+
+```sh
+export PLAYWRIGHT_PROXY='http://user-session-{session}:password@proxy.example:8080'
+python3 .agents/mcp.py
+```
+
+- `mcp.py` replaces `{session}` with a stored token. The browser then keeps
+  one exit IP when the vendor supports sticky sessions.
+  `python3 .agents/mcp.py sync --new-proxy-session` makes a new token.
+- `mcp.py` stops with an error when `proxy` is `true` and the variable is not
+  set, when the URL is malformed, and when a `socks5://` URL has credentials,
+  which Chromium cannot send. The error never shows the URL.
+- All traffic of the default browser goes through the proxy, and the vendor
+  meters it. Loopback hosts (`localhost`, `*.localhost`, `127.0.0.1`,
+  `[::1]`) always go direct. Other development hosts go to the vendor unless
+  you add them to `proxy_bypass`.
+- `mcp.py` reads the variable when it runs, not when the session starts. Run
+  it again after you change the variable.
+
+The config file and the token file are mode 0600 in `.agents/.browser/`. That
+directory holds its own `.gitignore`, and `mcp.py` and `browser-sync.py` refuse
+to write a file there that Git does not ignore.
+
 Repository-owned servers under `mcp-servers/` ship committed `dist/` bundles so
 clients can launch from a clean clone. After changing their source, run that
 server's `npm run build` and `npm run check`.
@@ -194,6 +298,8 @@ python3 .agents/test-wait-gate.py
 python3 .agents/test-guard-publish.py
 python3 .agents/test-hosted-scripts.py
 .agents/test-mcp.sh
+python3 .agents/test-browser-sync.py
+.agents/test-permissions.sh
 .agents/test-codex.sh
 .agents/test-export.sh
 python3 demo/check-inventory.py

@@ -13,6 +13,18 @@
   "stack_packs": {
     "carrier": true
   },
+  "browser": {
+    "chrome_profile": "Default",
+    "sync_sites": [],
+    "user_agent": null,
+    "locale": null,
+    "timezone": null,
+    "viewport": null,
+    "headless": null,
+    "proxy": false,
+    "proxy_env": "PLAYWRIGHT_PROXY",
+    "proxy_bypass": []
+  },
   "hooks": {
     "guard_destructive": {
       "enabled": true

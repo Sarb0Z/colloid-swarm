@@ -137,6 +137,29 @@ BLOCK = [
     "kubectl delete namespace prod",
     "kubectl delete ns prod",
     "kubectl delete pods --all",
+    # browser-sync: reading the user's own Chrome cookie store is the user's call.
+    "python3 .agents/browser-sync.py",
+    ".agents/browser-sync.py",
+    "cd .agents && ./browser-sync.py",
+    "python3 -u /work/repo/.agents/browser-sync.py --settings /tmp/settings.json",
+    "python3 .agents/browser-sync.py --source ~/Library/Application\\ Support/Google/Chrome",
+    "python3 .agents/browser-sync.py --source /tmp/../Users/mac/Library",
+    "python3 .agents/browser-sync.py --source /tmp",
+    "python3 .agents/browser-sync.py --source relative/profile",
+    "python3 .agents/browser-sync.py --source /tmp/synthetic --source /Users/mac/Chrome",
+    # ...behind any wrapper, interpreter flag, or shell body.
+    "timeout 60 python3 .agents/browser-sync.py",
+    "timeout 120 sh -c 'python3 .agents/browser-sync.py'",
+    "bash -lc 'python3 .agents/browser-sync.py'",
+    "bash -ec 'cd .agents && ./browser-sync.py'",
+    "/usr/bin/env python3 .agents/browser-sync.py",
+    "uv run .agents/browser-sync.py",
+    "nice python3 .agents/browser-sync.py",
+    "caffeinate -i python3 .agents/browser-sync.py",
+    "python3 -X utf8 .agents/browser-sync.py",
+    "python3 -W ignore .agents/browser-sync.py",
+    "xargs python3 .agents/browser-sync.py",
+    "python3 .agents/browser-sync.py --source /tmp/synthetic && python3 .agents/browser-sync.py",
 ]
 
 ALLOW = [
@@ -198,6 +221,24 @@ ALLOW = [
     "aws s3 rm s3://bucket/key",
     "kubectl delete pod foo",
     "kubectl get pods",
+    # browser-sync against a synthetic profile under a scratch root, and reads.
+    "python3 .agents/browser-sync.py --source /tmp/synthetic-chrome",
+    ".agents/browser-sync.py --source=/var/folders/xc/T/synthetic --settings /tmp/s.json",
+    "python3 .agents/browser-sync.py --source /private/tmp/synthetic-chrome",
+    "cat .agents/browser-sync.py",
+    "grep -n source .agents/browser-sync.py",
+    "python3 .agents/test-browser-sync.py",
+    "timeout 60 python3 .agents/browser-sync.py --source /tmp/synthetic-chrome",
+    "sed -n 1,20p .agents/browser-sync.py",
+    "head -40 .agents/browser-sync.py",
+    "rg SyncError .agents/browser-sync.py",
+    "git show HEAD:.agents/browser-sync.py",
+    "git diff -- .agents/browser-sync.py",
+    "git log -- .agents/browser-sync.py",
+    "git add .agents/browser-sync.py",
+    'git commit -m "add browser-sync.py"',
+    "bash -c 'cat .agents/browser-sync.py'",
+    "wc -l .agents/browser-sync.py",
     # Nothing to decide on.
     "",
     "ls -la",
@@ -277,6 +318,10 @@ with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() a
     check("entry point exits 2 on a block", blocked.returncode == 2, f"exit {blocked.returncode}")
     check("entry point states the reason", "irreversible" in blocked.stderr, blocked.stderr)
     check("entry point exits 0 otherwise", run({"command": "ls -la"}).returncode == 0)
+    synced = run({"command": "python3 .agents/browser-sync.py"})
+    check("entry point refuses an agent-run browser sync", synced.returncode == 2, f"exit {synced.returncode}")
+    check("the refusal tells the user to run it with !",
+          "! python3 .agents/browser-sync.py" in synced.stderr, synced.stderr)
     check("entry point exits 0 on an empty payload", run({}).returncode == 0)
     check("entry point exits 0 on unreadable input",
           subprocess.run([armed], input="{not json", text=True,
@@ -284,6 +329,8 @@ with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() a
 
     off = run({"command": "rm -rf /"}, entry=disarmed)
     check("the config toggle turns the guard off", off.returncode == 0, off.stderr)
+    consent = run({"command": "python3 .agents/browser-sync.py"}, entry=disarmed)
+    check("the toggle leaves the browser-sync consent rule on", consent.returncode == 2, consent.stderr)
 
     # The workloop controller asks this way. It runs a --verify command with no
     # PreToolUse hook in front of it, so the toggle that governs the hook must

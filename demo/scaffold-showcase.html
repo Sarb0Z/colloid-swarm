@@ -371,7 +371,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 95 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 96 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
@@ -453,17 +453,18 @@ Write for a reader who has not read the code. The user directs the work and know
 
 ## Subagent Delegation
 
-Delegation is the default for bounded, well-specified work: a unit with a clear input, output, and acceptance goes to a light or medium cell at low or medium effort. Keep at the delegator&#x27;s own strength only what is complex, core, or critical — the plan, the architecture, the judgment call — or what already failed a tier below; sending work to the delegator&#x27;s own tier needs a stated reason. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Two or more writers working at the same time go through a `workloop` run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees; a single writer edits the main tree. `parallel-writers-gate.sh` enforces this and its denial names the commands; a generic cell that only reads says so by starting its prompt with `READ-ONLY`. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
+The lead runs on `opus` and delegates in both directions. Bounded, well-specified work — a unit with a clear input, output, and acceptance — goes to the lowest tier that can solve and verify it. Complex or critical work — an architecture, a defect that survived two fixes — goes up to `fable` from the start rather than after a cheaper tier fails. The lead keeps the plan, the integration of results, and the calls that need this conversation&#x27;s context. Delegate also when parallelism, context isolation, or independent verification beats handoff cost. Two or more writers working at the same time go through a `workloop` run, which gives each its own provisioned worktree, verifies the merged result once, and removes the worktrees; a single writer edits the main tree. `parallel-writers-gate.sh` enforces this and its denial names the commands; a generic cell that only reads says so by starting its prompt with `READ-ONLY`. Personas are hot paths, not a closed taxonomy: otherwise use a generic cell with task-specific role, capabilities, model, and effort.
 
-| Tier | Claude | Codex | Use |
-| --- | --- | --- | --- |
-| light | `haiku` | `gpt-5.6-luna` / `low` | mechanical or bounded read-only work |
-| medium | `sonnet` | `gpt-5.6-terra` / `medium` | implementation, tests, scoped debugging, QA |
-| heavy | `opus` | `gpt-5.6-sol` / `high` | planning, or work that failed at medium |
+| Tier | Model | Use |
+| --- | --- | --- |
+| light | `haiku` | mechanical or bounded read-only work |
+| medium | `sonnet` | implementation, tests, scoped debugging, QA |
+| heavy | `opus` | well-specified work too broad or subtle for medium, or that failed there |
+| frontier | `fable` | complex or critical work, or work that failed at heavy |
 
-Choose the lowest tier that can solve and verify the task. Claude generic cells use `general-purpose` with explicit model; use a named persona when effort must be fixed. Codex generic cells use `agent_type=default` with explicit `model` and `reasoning_effort`. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
+Generic cells use `general-purpose` with an explicit model; use a named persona when effort must be fixed. Give every cell only needed context and capabilities; default-off capabilities require a user request and a project-scoped enablement. Hot paths: `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher`. A handoff states decisions, paths, and one next step; a changed-state result includes runnable acceptance.
 
-Persona files name these defaults directly. Where a host cannot narrow tools, constrain the handoff and retain the sandbox boundary.
+Persona files name these defaults directly, except `reviewer`, whose model the lead chooses at dispatch. A generic cell keeps every tool, so constrain its handoff and retain the sandbox boundary.
 
 Scoped instructions load on demand and aren&#x27;t restated here. Read `.agents/AGENTS.md` before editing the scaffold, and the local `AGENTS.md` before working in any subtree.
 </code></pre></details>
@@ -1258,8 +1259,9 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 534 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
-&quot;&quot;&quot;Decide whether a shell command is destructive, and say why.
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 600 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
+and say why.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;}
 Output: exit 2 and one line on stderr when a rule fires; exit 0 otherwise.
@@ -1731,13 +1733,76 @@ def rule_cloud(command, project=&quot;&quot;):
     return None
 
 
-RULES = (rule_rm, rule_git, rule_ssh, rule_remote_copy, rule_sql, rule_cloud)
+SYNC_SCRIPT = &quot;browser-sync.py&quot;
+# Commands that read, list, or version a file and never run it. `git` covers
+# `git add` and a commit message that names the script.
+NON_RUNNERS = {&quot;cat&quot;, &quot;less&quot;, &quot;more&quot;, &quot;head&quot;, &quot;tail&quot;, &quot;grep&quot;, &quot;egrep&quot;, &quot;rg&quot;, &quot;wc&quot;,
+               &quot;ls&quot;, &quot;stat&quot;, &quot;file&quot;, &quot;diff&quot;, &quot;cmp&quot;, &quot;echo&quot;, &quot;printf&quot;, &quot;git&quot;}
+SHELL_BODY_FLAG = re.compile(r&quot;-[A-Za-z]*c[A-Za-z]*&quot;)
 
 
-def verdict(text, project=&quot;&quot;):
+def synthetic_source(value):
+    &quot;&quot;&quot;True when a --source value resolves under a scratch root.&quot;&quot;&quot;
+    tmpdir = os.environ.get(&quot;TMPDIR&quot;)
+    if tmpdir:
+        for token in (&quot;${TMPDIR}&quot;, &quot;$TMPDIR&quot;):
+            if value.startswith(token + &quot;/&quot;):
+                value = tmpdir.rstrip(&quot;/&quot;) + value[len(token):]
+    if not value.startswith(&quot;/&quot;):
+        return False
+    # macOS links /tmp and /var into /private, so compare resolved to resolved.
+    resolved = os.path.realpath(value)
+    return any(under(resolved, root) for root in {os.path.realpath(root) for root in SCRATCH})
+
+
+def sync_runs(words, depth=0):
+    &quot;&quot;&quot;Every word list that runs browser-sync.py.
+
+    Any word naming the script counts, wherever it sits: a wrapper such as
+    `timeout`, `nice`, `env`, `uv run`, or `xargs` does not hide it. A shell&#x27;s
+    `-c` body is read as commands of its own. Only a leading reader such as
+    `cat` or `git` makes the mention harmless.&quot;&quot;&quot;
+    first = lead(words)
+    if first and (base(first[0]) in NON_RUNNERS or (base(first[0]) == &quot;sed&quot; and &quot;-n&quot; in first)):
+        return []
+    runs, shell = [], False
+    for index, word in enumerate(words):
+        body = shell and index and SHELL_BODY_FLAG.fullmatch(words[index - 1])
+        if body and depth &lt; 3:
+            for inner in normalize(word):
+                runs += sync_runs(inner.words, depth + 1)
+        elif base(word) == SYNC_SCRIPT:
+            runs.append(words)
+        shell = shell or base(word) in SHELLS
+    return runs
+
+
+def rule_browser_sync(command, project=&quot;&quot;):
+    &quot;&quot;&quot;browser-sync.py reads the user&#x27;s Chrome cookie store. An agent may run it
+    only against a synthetic profile it built under a scratch root. This stops
+    an accidental run, not a deliberately disguised one.&quot;&quot;&quot;
+    runs = sync_runs(command.words)
+    if not runs:
+        return None
+    def sources(words):
+        found = [word.partition(&quot;=&quot;)[2] for word in words if word.startswith(&quot;--source=&quot;)]
+        return found + [words[index + 1] for index, word in enumerate(words[:-1]) if word == &quot;--source&quot;]
+    if all(sources(words) and all(synthetic_source(value) for value in sources(words)) for words in runs):
+        return None
+    return (&quot;browser-sync.py copies cookies out of the user&#x27;s own Chrome profile, so &quot;
+            &quot;only the user runs it. Ask the user to run it themselves with the ! &quot;
+            &quot;prefix: ! python3 .agents/browser-sync.py. An agent may run it only &quot;
+            &quot;with --source pointing at a synthetic profile under a temp directory.&quot;)
+
+
+RULES = (rule_rm, rule_git, rule_ssh, rule_remote_copy, rule_sql, rule_cloud,
+         rule_browser_sync)
+
+
+def verdict(text, project=&quot;&quot;, rules=RULES):
     &quot;&quot;&quot;The reason to block, or None.&quot;&quot;&quot;
     for command in normalize(text):
-        for rule in RULES:
+        for rule in rules:
             reason = rule(command, project)
             if reason:
                 return reason
@@ -1772,8 +1837,10 @@ def main():
     argv = [arg for arg in sys.argv[1:] if arg != &quot;--force&quot;]
     force = len(argv) != len(sys.argv) - 1
     repo = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    if not force and not enabled(repo):
-        return 0
+    # The toggle switches off the destructive rules only. Running browser-sync
+    # is the user&#x27;s consent to share their cookies, which no operator setting
+    # gives on the user&#x27;s behalf.
+    rules = RULES if force or enabled(repo) else (rule_browser_sync,)
     try:
         payload = json.loads(sys.stdin.read() or &quot;{}&quot;)
     except json.JSONDecodeError:
@@ -1783,7 +1850,7 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return 0
     project = payload.get(&quot;project_dir&quot;)
-    reason = verdict(command, project if isinstance(project, str) else repo)
+    reason = verdict(command, project if isinstance(project, str) else repo, rules)
     if not reason:
         return 0
     print(reason, file=sys.stderr)
@@ -7481,10 +7548,13 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 272 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 295 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Build native MCP configuration from the tracked registry.
 
-Usage: mcp.py [sync] | enable NAME... | disable NAME...
+Usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...
+
+`--settings FILE` reads browser settings from FILE, not `.agents/config.json`.
+`--new-proxy-session` replaces the stored proxy `{session}` token.
 &quot;&quot;&quot;
 
 import json
@@ -7498,6 +7568,7 @@ from pathlib import Path
 from mcp_codex import META_FIELDS as CODEX_META_FIELDS
 from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
+import mcp_playwright as playwright
 
 ROOT_TOKEN = &quot;${REPO_ROOT}&quot;
 META = {&quot;description&quot;, &quot;enabled&quot;, &quot;kimi_enabled&quot;, &quot;outward&quot;, &quot;sources&quot;} | CODEX_META_FIELDS
@@ -7521,9 +7592,10 @@ def _write_json(path, value, mode=None):
     temp.replace(path)
 
 
-def _write_text(path, value):
+def _write_text(path, value, mode=None):
     path.parent.mkdir(parents=True, exist_ok=True)
-    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    if mode is None:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
     with tempfile.NamedTemporaryFile(&quot;w&quot;, dir=path.parent, delete=False) as output:
         output.write(value)
         temp = Path(output.name)
@@ -7655,7 +7727,7 @@ def _reader_config(repo, enabled):
         launch[&quot;args&quot;] = [&quot;--load-extension=&quot; + &quot;,&quot;.join(str(Path(item).parent) for item in installed)]
     if enabled and not installed:
         _fail(&quot;playwright-reader is enabled but no extension is installed; run .agents/fetch-extension.sh ublock-lite&quot;)
-    return {&quot;browser&quot;: {&quot;browserName&quot;: &quot;chromium&quot;, &quot;launchOptions&quot;: launch}}
+    return {&quot;browser&quot;: {&quot;browserName&quot;: &quot;chromium&quot;, &quot;launchOptions&quot;: launch}, &quot;webmcp&quot;: False}
 
 
 def _expand_env(value, missing):
@@ -7704,16 +7776,20 @@ def _claude_settings(repo, servers, enabled):
     return value
 
 
-def _build(repo, doc=None):
+def _build(repo, doc=None, settings_path=None, rotate=False):
     doc, raw = _registry(repo, doc)
     reader = _reader_config(repo, raw.get(&quot;playwright-reader&quot;, {}).get(&quot;enabled&quot;) is True)
-    reader_path = repo / &quot;.agents/.playwright-reader.json&quot;
+    settings = playwright.load_settings(repo, settings_path)
+    browser, token = playwright.render(repo, settings, os.environ, rotate)
+    # Generated files that a fresh checkout has not produced yet.
+    virtual = {repo / &quot;.agents/.playwright-reader.json&quot;, repo / playwright.CONFIG}
     servers = {
-        name: _resolve(server, name, repo, {reader_path})
+        name: _resolve(server, name, repo, virtual)
         for name, server in raw.items()
     }
     enabled = {name: _public(server) for name, server in servers.items() if server[&quot;enabled&quot;]}
     return doc, {
+        &quot;browser&quot;: browser, &quot;token&quot;: token, &quot;rotate&quot;: rotate,
         &quot;reader&quot;: reader, &quot;claude_mcp&quot;: {&quot;mcpServers&quot;: enabled},
         &quot;kimi&quot;: _kimi_config(repo, servers),
         &quot;settings&quot;: _claude_settings(repo, servers, enabled),
@@ -7722,6 +7798,11 @@ def _build(repo, doc=None):
 
 
 def _commit(repo, outputs):
+    if outputs[&quot;token&quot;] is not None:
+        _write_text(repo / playwright.TOKEN, outputs[&quot;token&quot;] + &quot;\n&quot;, 0o600)
+    elif outputs[&quot;rotate&quot;]:
+        (repo / playwright.TOKEN).unlink(missing_ok=True)
+    _write_json(repo / playwright.CONFIG, outputs[&quot;browser&quot;], 0o600)
     _write_json(repo / &quot;.agents/.playwright-reader.json&quot;, outputs[&quot;reader&quot;])
     _write_json(repo / &quot;.mcp.json&quot;, outputs[&quot;claude_mcp&quot;])
     if outputs[&quot;kimi&quot;] is not None:
@@ -7730,9 +7811,13 @@ def _commit(repo, outputs):
     _write_text(repo / &quot;.codex/config.toml&quot;, outputs[&quot;codex&quot;])
 
 
+USAGE = &quot;usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...&quot;
+
+
 def main():
     repo = Path(__file__).resolve().parent.parent
-    action, *names = sys.argv[1:] or [&quot;sync&quot;]
+    args = sys.argv[1:]
+    action, *names = args if args and not args[0].startswith(&quot;-&quot;) else [&quot;sync&quot;, *args]
     doc = None
     if action in {&quot;enable&quot;, &quot;disable&quot;}:
         if not names:
@@ -7743,9 +7828,14 @@ def main():
             _fail(&quot;unknown server(s): &quot; + &quot;, &quot;.join(unknown))
         for name in names:
             servers[name][&quot;enabled&quot;] = action == &quot;enable&quot;
-    elif action != &quot;sync&quot; or names:
-        _fail(&quot;usage: mcp.py [sync] | enable NAME... | disable NAME...&quot;)
-    doc, outputs = _build(repo, doc if action in {&quot;enable&quot;, &quot;disable&quot;} else None)
+    elif action != &quot;sync&quot;:
+        _fail(USAGE)
+    try:
+        settings_path, rotate = playwright.sync_options(names) if action == &quot;sync&quot; else (None, False)
+        doc, outputs = _build(repo, doc, settings_path, rotate)
+        playwright.prepare_dir(repo, repo / playwright.CONFIG)
+    except playwright.SettingsError as error:
+        _fail(str(error))
     if action in {&quot;enable&quot;, &quot;disable&quot;}:
         _write_json(repo / &quot;.agents/mcp.json&quot;, doc)
     _commit(repo, outputs)
@@ -7789,11 +7879,10 @@ new user decision is necessary, state the two options and let the user choose.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>reviewer.md</h3><p>Independent hostile review of the change against its surrounding architecture.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 15 lines</span></summary><div class="srcpath">.agents/personas/reviewer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/personas/reviewer.md</div><pre><code>---
 name: reviewer
 description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
-model: &quot;opus&quot;
 effort: &quot;high&quot;
 ---
 
@@ -7998,7 +8087,7 @@ number of decisions covered. Do not delegate.
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
 pasted content, a diff or tree digest, or an authorized commit. Never commit
-merely to make a review checkpoint. Use the heavy tier for the runtime.
+merely to make a review checkpoint. Choose the reviewer&#x27;s model at dispatch for the artifact at hand; the persona pins none.
 &lt;!-- colloid-only --&gt;
 Claude and Codex inject a genome on `SubagentStart`; do not prepend another.
 Kimi discards start-hook output, so prepend exactly one fresh stamp there.
@@ -8407,7 +8496,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`test-codex.sh`&#x27;s skip-Kimi branch never runs here** — this repository always ships `.kimi/config.toml.example`, so only a transplant exercises it. Add a stripped fixture the way `test-export.sh` builds its lean kit.
 - **`decisions.md` has no shape lint** — `lint-breadcrumbs.py` gates breadcrumbs, nothing checks that each `### &lt;id&gt;` entry carries Decision, Why, and Reopens-when lines. Add the check when an entry first ships without one.
 - **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
-- **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry Codex&#x27;s `Common dependencies` registry set, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
+- **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry the common package registries, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
 - **Turborepo cache across worktrees** — its local cache is keyed by task hash and shared across a repository&#x27;s worktrees: a second lane&#x27;s build hits the first&#x27;s; add one line to the Next.js stack pack when a target uses turbo.
 - **`provision.sh` honours `.python-version` but not `.nvmrc`** — a lane whose branch bumps the Node pin still runs the main checkout&#x27;s runtime. Read it and fail by name when unmet, or state the limit in the workloop skill.
 - **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
@@ -8506,7 +8595,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 
 ### colloid-outward-gating-claude-only
 
-- **Condition** — `AGENTS.md` § External actions is enforced on Claude alone. `guard-publish.sh` forces the permission prompt on outward Bash calls and on every Artifact action outside its read set, `permissions.ask` covers the plain forms declaratively, and `permissions.deny` blocks the destructive MCP tools. Kimi and Codex are instruction-only: `.agents/codex/config.toml` gates by permission profile and network domain, and neither names a tool, so a destructive MCP call from Codex is ungated where the same call from Claude is denied. Acceptable: neither host exposes an ask-equivalent PreToolUse decision or per-tool MCP permissions, so there is nothing to wire to.
+- **Condition** — `AGENTS.md` § External actions is enforced on Claude alone. `guard-publish.sh` forces the permission prompt on outward Bash calls and on every Artifact action outside its read set, `permissions.ask` covers the plain forms declaratively, and `permissions.deny` blocks the destructive MCP tools. Kimi and Codex are instruction-only: `.agents/codex/config.toml` gates by permission profile and network domain, and neither names a tool, so a destructive MCP call from Codex is ungated where the same call from Claude is denied. The same split covers `mcp__playwright__browser_run_code_unsafe`, which runs arbitrary code in the default browser&#x27;s server process and, once `browser-sync.py` has filled that browser&#x27;s profile, with the operator&#x27;s session cookies for the listed sites: Claude denies it, Codex and Kimi expose it. Acceptable: neither host exposes an ask-equivalent PreToolUse decision or per-tool MCP permissions, so there is nothing to wire to.
 - **Trigger** — either host shipping a hook decision that can *ask* rather than only allow or deny, or per-tool MCP permissions.
 - **Rework** — return the host&#x27;s ask shape from the existing policy scripts; the decision logic is already engine-neutral, so this is an adapter change, roughly 20 lines per host.
 
@@ -8644,7 +8733,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 71 lines</span></summary><div class="srcpath">.agents/config.json</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 101 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -8656,12 +8745,20 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
       &quot;learning-reporter&quot;
     ]
   },
-  &quot;models&quot;: {
-    &quot;researcher&quot;: &quot;sonnet&quot;,
-    &quot;learning_reporter&quot;: null,
-    &quot;explore&quot;: null,
-    &quot;plan&quot;: null,
-    &quot;default_subagent&quot;: null
+  &quot;stack_packs&quot;: {
+    &quot;carrier&quot;: true
+  },
+  &quot;browser&quot;: {
+    &quot;chrome_profile&quot;: &quot;Default&quot;,
+    &quot;sync_sites&quot;: [],
+    &quot;user_agent&quot;: null,
+    &quot;locale&quot;: null,
+    &quot;timezone&quot;: null,
+    &quot;viewport&quot;: null,
+    &quot;headless&quot;: null,
+    &quot;proxy&quot;: false,
+    &quot;proxy_env&quot;: &quot;PLAYWRIGHT_PROXY&quot;,
+    &quot;proxy_bypass&quot;: []
   },
   &quot;hooks&quot;: {
     &quot;guard_destructive&quot;: {
@@ -8670,13 +8767,36 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
     &quot;guard_publish&quot;: {
       &quot;enabled&quot;: true
     },
+    &quot;wait_gate&quot;: {
+      &quot;enabled&quot;: true
+    },
     &quot;genome_inject&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;worktree_provision&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;allow_scripts&quot;: false,
+      &quot;share&quot;: true
+    },
+    &quot;parallel_writers&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;workloop_inbox&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;sources_capture&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;research_prime&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;done_prime&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;ui_gate&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;teardown_gate&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;post_edit_check&quot;: {
@@ -8690,28 +8810,27 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
       &quot;trivial_lines&quot;: 30,
       &quot;review_files&quot;: 5,
       &quot;review_lines&quot;: 150,
-      &quot;heavy_lines&quot;: 200,
+      &quot;heavy_tool_calls&quot;: 60,
       &quot;report_every_turn&quot;: false
     },
     &quot;stop_investigate&quot;: {
       &quot;enabled&quot;: true,
       &quot;ratchet_check&quot;: true
     },
+    &quot;provenance_gate&quot;: {
+      &quot;enabled&quot;: true
+    },
     &quot;learning_report&quot;: {
       &quot;enabled&quot;: false
+    },
+    &quot;learning_output_style&quot;: {
+      &quot;enabled&quot;: true
     },
     &quot;session_start&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;pre_compact&quot;: {
       &quot;enabled&quot;: true
-    }
-  },
-  &quot;mcp&quot;: {
-    &quot;servers&quot;: {
-      &quot;playwright-reader&quot;: {
-        &quot;enabled&quot;: false
-      }
     }
   }
 }
