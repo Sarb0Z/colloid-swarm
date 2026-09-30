@@ -6,6 +6,10 @@
 # every satellite that ships a different set — the servers are a per-repository
 # choice, while mcp.py's behaviour is what this file is for. Only
 # `playwright-reader` keeps a real name, because mcp.py special-cases it.
+#
+# The browser settings come from the fixture's own .agents/config.json. The
+# proxy variables are removed from every run, so an operator's endpoint never
+# reaches these assertions.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo" <<'PY'
@@ -54,13 +58,17 @@ FIXTURE = {"mcpServers": {
         "description": "Fixture reader.", "sources": ["browser_navigate"],
         "enabled": False, "type": "stdio", "command": "npx",
         "args": ["-y", "fx-reader", "--config", "${REPO_ROOT}/.agents/.playwright-reader.json"]},
+    # The generated browser config does not exist in a fresh checkout.
+    "fx-browser": {
+        "description": "Fixture browser.", "enabled": False, "type": "stdio", "command": "npx",
+        "args": ["-y", "fx-browser", "--config", "${REPO_ROOT}/.agents/.browser/playwright.json"]},
 }}
 ON = {"fx-docs", "fx-plain"}
 
 try:
     agents = work / ".agents"
     (agents / "codex").mkdir(parents=True)
-    for relative in ("mcp.py", "mcp_codex.py"):
+    for relative in ("mcp.py", "mcp_codex.py", "mcp_playwright.py"):
         shutil.copy2(source / ".agents" / relative, agents / relative)
     (agents / "mcp.py").chmod(0o755)
     # A minimal Codex base, so the rendered mcp_servers tables are all that is
@@ -75,15 +83,18 @@ try:
     (work / ".claude/settings.local.json").write_text(
         json.dumps({"keep": True, "enabledMcpjsonServers": ["outside"]}))
 
+    PROXY_VARS = {"PLAYWRIGHT_PROXY", "FX_PROXY"}
+    base_env = {key: value for key, value in os.environ.items() if key not in PROXY_VARS}
+
     def run(*args, **env):
         return subprocess.run(
             [sys.executable, str(agents / "mcp.py"), *args], cwd=work, text=True,
-            capture_output=True, check=True, env={**os.environ, **env})
+            capture_output=True, check=True, env={**base_env, **env})
 
     def refuse(*args, **env):
         return subprocess.run(
             [sys.executable, str(agents / "mcp.py"), *args], cwd=work, text=True,
-            capture_output=True, env={**os.environ, **env})
+            capture_output=True, env={**base_env, **env})
 
     run()
     registry = json.loads((agents / "mcp.json").read_text())["mcpServers"]
@@ -202,6 +213,118 @@ try:
         rejected = refuse()
         assert rejected.returncode and message in rejected.stderr, (server, rejected.stderr)
         (agents / "mcp.json").write_bytes(registry_before)
+
+    # config.json.example documents the generator's defaults; drift misleads
+    # every operator who copies it.
+    sys.path.insert(0, str(agents))
+    import mcp_playwright
+    example = json.loads((source / ".agents/config.json.example").read_text())
+    assert example["browser"] == mcp_playwright.DEFAULTS, example["browser"]
+
+    # The default browser: with nothing configured the server keeps its own
+    # profile, context, and network, as it did before the config existed.
+    browser_dir = agents / ".browser"
+    browser_path = browser_dir / "playwright.json"
+    run()
+    assert json.loads(browser_path.read_text()) == {
+        "browser": {"browserName": "chromium", "launchOptions": {"channel": "chrome"}},
+        "webmcp": False}, browser_path.read_text()
+    assert stat.S_IMODE(browser_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(browser_dir.stat().st_mode) == 0o700
+    assert (browser_dir / ".gitignore").read_text() == "*\n"
+    assert json.loads((agents / ".playwright-reader.json").read_text())["webmcp"] is False
+
+    def browser_settings(**values):
+        (agents / "config.json").write_text(json.dumps({"browser": values}))
+
+    def browser():
+        return json.loads(browser_path.read_text())["browser"]
+
+    browser_settings(user_agent="Fixture/1", locale="en-GB", timezone="Europe/London",
+                     viewport={"width": 1280, "height": 800}, headless=True)
+    run()
+    assert browser()["contextOptions"] == {
+        "userAgent": "Fixture/1", "locale": "en-GB", "timezoneId": "Europe/London",
+        "viewport": {"width": 1280, "height": 800}}, browser()
+    assert browser()["launchOptions"]["headless"] is True
+    for values, message in (
+        ({"viewport": {"width": 0, "height": 1}}, "browser.viewport"),
+        ({"headless": "yes"}, "browser.headless"),
+        ({"surprise": 1}, "unknown browser setting"),
+        ({"proxy_env": "not a name"}, "browser.proxy_env"),
+    ):
+        browser_settings(**values)
+        rejected = refuse()
+        assert rejected.returncode and message in rejected.stderr, (values, rejected.stderr)
+    (agents / "config.json").unlink()
+
+    (agents / "policy.json").write_text(json.dumps({"browser": {"proxy": True}}))
+    rejected = refuse()
+    assert rejected.returncode and "not the tracked .agents/policy.json" in rejected.stderr
+    (agents / "policy.json").unlink()
+
+    alternate = work / "alternate-settings.json"
+    alternate.write_text(json.dumps({"browser": {"locale": "fr-FR"}}))
+    run("sync", "--settings", str(alternate))
+    assert browser()["contextOptions"] == {"locale": "fr-FR"}
+    assert refuse("sync", "--settings").returncode
+    assert refuse("sync", "--bogus").returncode
+
+    # A synced profile: the server launches it without the mock keychain, at
+    # an absolute path, so the copied Keychain-sealed cookies decrypt.
+    profile = browser_dir / "profile"
+    (profile / "Default").mkdir(parents=True)
+    (profile / "Default/Cookies").write_bytes(b"")
+    run()
+    assert browser()["userDataDir"] == str(profile.resolve()), browser()
+    assert browser()["launchOptions"]["ignoreDefaultArgs"] == ["--use-mock-keychain"]
+    shutil.rmtree(profile)
+    run()
+    assert "userDataDir" not in browser() and "ignoreDefaultArgs" not in browser()["launchOptions"]
+
+    # Proxy: explicit, fed from the environment, one stored session token.
+    token_path = browser_dir / "session-token"
+    browser_settings(proxy=True, proxy_env="FX_PROXY", proxy_bypass=["*.internal.test"])
+    before = browser_path.read_bytes()
+    absent = refuse()
+    assert absent.returncode and "$FX_PROXY is not set" in absent.stderr, absent.stderr
+    assert browser_path.read_bytes() == before
+    endpoint = "http://user-{session}:p%40ss-secret@proxy.fixture.test:8080"
+    shown = run(FX_PROXY=endpoint)
+    proxy = browser()["launchOptions"]["proxy"]
+    token = token_path.read_text().strip()
+    assert proxy == {
+        "server": "http://proxy.fixture.test:8080", "username": f"user-{token}",
+        "password": "p@ss-secret",
+        "bypass": "localhost,*.localhost,127.0.0.1,[::1],*.internal.test"}, proxy
+    assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(browser_path.stat().st_mode) == 0o600
+    assert "secret" not in shown.stdout + shown.stderr
+    run(FX_PROXY=endpoint)
+    assert token_path.read_text().strip() == token, "the session token must persist"
+    run("sync", "--new-proxy-session", FX_PROXY=endpoint)
+    assert token_path.read_text().strip() != token, "--new-proxy-session must rotate the token"
+    for value, message in (
+        ("http://user:secret/host", "is not a proxy URL"),
+        ("http://user:secret@host", "is not a proxy URL"),
+        ("ftp://user:secret@host:21", "must use http, https, or socks5"),
+        ("socks5://user:secret@host:1080", "Chromium cannot send"),
+        ("http://user:secret@host:8080/path", "is not a proxy URL"),
+    ):
+        rejected = refuse(FX_PROXY=value)
+        assert rejected.returncode and message in rejected.stderr, (value, rejected.stderr)
+        assert "secret" not in rejected.stdout + rejected.stderr, rejected.stderr
+    (agents / "config.json").unlink()
+    run("sync", "--new-proxy-session")
+    assert not token_path.exists() and "proxy" not in browser()["launchOptions"]
+
+    # Git must ignore the generated file; a tracked one is refused.
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "-f", str(browser_path)], check=True)
+    rejected = refuse()
+    assert rejected.returncode and "Git does not ignore it" in rejected.stderr, rejected.stderr
+    subprocess.run(["git", "-C", str(work), "rm", "-q", "--cached", str(browser_path)], check=True)
+    run()
 
     print("MCP registry tests passed.")
 finally:

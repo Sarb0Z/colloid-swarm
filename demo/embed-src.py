@@ -71,7 +71,7 @@ MANIFEST = {
     "stack-nextjs.md": ".agents/rules/stack-nextjs.md",
     "breadcrumbs.md":  ".agents/breadcrumbs.md",
     "debt-log.md":     ".agents/debt-log.md",
-    "config.json":     ".agents/config.json",
+    "config.json":     ".agents/config.json.example",
     # contracts
     "researcher.md":            ".agents/personas/researcher.md",
     "implementer.md":           ".agents/personas/implementer.md",
