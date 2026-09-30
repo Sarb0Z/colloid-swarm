@@ -6,6 +6,7 @@
 /.codex/config.toml
 .agents/config.json
 .agents/.playwright-reader.json
+.agents/.browser/
 .agents/.sources-ledger
 .agents/.compaction-pending
 .agents/.wrap-state-*

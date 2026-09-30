@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Decide whether a shell command is destructive, and say why.
+"""Decide whether a shell command is destructive or the user's alone to run,
+and say why.
 
 Input  (stdin JSON): {"command": "<shell command>"}
 Output: exit 2 and one line on stderr when a rule fires; exit 0 otherwise.
@@ -471,13 +472,76 @@ def rule_cloud(command, project=""):
     return None
 
 
-RULES = (rule_rm, rule_git, rule_ssh, rule_remote_copy, rule_sql, rule_cloud)
+SYNC_SCRIPT = "browser-sync.py"
+# Commands that read, list, or version a file and never run it. `git` covers
+# `git add` and a commit message that names the script.
+NON_RUNNERS = {"cat", "less", "more", "head", "tail", "grep", "egrep", "rg", "wc",
+               "ls", "stat", "file", "diff", "cmp", "echo", "printf", "git"}
+SHELL_BODY_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
 
 
-def verdict(text, project=""):
+def synthetic_source(value):
+    """True when a --source value resolves under a scratch root."""
+    tmpdir = os.environ.get("TMPDIR")
+    if tmpdir:
+        for token in ("${TMPDIR}", "$TMPDIR"):
+            if value.startswith(token + "/"):
+                value = tmpdir.rstrip("/") + value[len(token):]
+    if not value.startswith("/"):
+        return False
+    # macOS links /tmp and /var into /private, so compare resolved to resolved.
+    resolved = os.path.realpath(value)
+    return any(under(resolved, root) for root in {os.path.realpath(root) for root in SCRATCH})
+
+
+def sync_runs(words, depth=0):
+    """Every word list that runs browser-sync.py.
+
+    Any word naming the script counts, wherever it sits: a wrapper such as
+    `timeout`, `nice`, `env`, `uv run`, or `xargs` does not hide it. A shell's
+    `-c` body is read as commands of its own. Only a leading reader such as
+    `cat` or `git` makes the mention harmless."""
+    first = lead(words)
+    if first and (base(first[0]) in NON_RUNNERS or (base(first[0]) == "sed" and "-n" in first)):
+        return []
+    runs, shell = [], False
+    for index, word in enumerate(words):
+        body = shell and index and SHELL_BODY_FLAG.fullmatch(words[index - 1])
+        if body and depth < 3:
+            for inner in normalize(word):
+                runs += sync_runs(inner.words, depth + 1)
+        elif base(word) == SYNC_SCRIPT:
+            runs.append(words)
+        shell = shell or base(word) in SHELLS
+    return runs
+
+
+def rule_browser_sync(command, project=""):
+    """browser-sync.py reads the user's Chrome cookie store. An agent may run it
+    only against a synthetic profile it built under a scratch root. This stops
+    an accidental run, not a deliberately disguised one."""
+    runs = sync_runs(command.words)
+    if not runs:
+        return None
+    def sources(words):
+        found = [word.partition("=")[2] for word in words if word.startswith("--source=")]
+        return found + [words[index + 1] for index, word in enumerate(words[:-1]) if word == "--source"]
+    if all(sources(words) and all(synthetic_source(value) for value in sources(words)) for words in runs):
+        return None
+    return ("browser-sync.py copies cookies out of the user's own Chrome profile, so "
+            "only the user runs it. Ask the user to run it themselves with the ! "
+            "prefix: ! python3 .agents/browser-sync.py. An agent may run it only "
+            "with --source pointing at a synthetic profile under a temp directory.")
+
+
+RULES = (rule_rm, rule_git, rule_ssh, rule_remote_copy, rule_sql, rule_cloud,
+         rule_browser_sync)
+
+
+def verdict(text, project="", rules=RULES):
     """The reason to block, or None."""
     for command in normalize(text):
-        for rule in RULES:
+        for rule in rules:
             reason = rule(command, project)
             if reason:
                 return reason
@@ -512,8 +576,10 @@ def main():
     argv = [arg for arg in sys.argv[1:] if arg != "--force"]
     force = len(argv) != len(sys.argv) - 1
     repo = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    if not force and not enabled(repo):
-        return 0
+    # The toggle switches off the destructive rules only. Running browser-sync
+    # is the user's consent to share their cookies, which no operator setting
+    # gives on the user's behalf.
+    rules = RULES if force or enabled(repo) else (rule_browser_sync,)
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError:
@@ -523,7 +589,7 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return 0
     project = payload.get("project_dir")
-    reason = verdict(command, project if isinstance(project, str) else repo)
+    reason = verdict(command, project if isinstance(project, str) else repo, rules)
     if not reason:
         return 0
     print(reason, file=sys.stderr)

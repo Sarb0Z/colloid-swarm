@@ -40,6 +40,11 @@ __pycache__/
 .agents/.playwright-reader.json
 .agents/browser-extensions/
 
+# Default browser state: its launch config and proxy session token, which can
+# carry proxy credentials, and the profile holding synced session cookies. The
+# directory also ignores itself, for a checkout whose rules lack this line.
+.agents/.browser/
+
 # Local, per-repo tuned config — copy from config.json.example and tune
 .agents/config.json
 

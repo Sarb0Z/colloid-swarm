@@ -64,13 +64,13 @@ python3 .agents/mcp.py disable appium-mcp
 ```
 
 The command writes `.mcp.json`, `.codex/config.toml`, optional
-`.kimi-code/mcp.json`, Claude's enabled-server list, and the reader browser
-config. Restart the session after a state change.
+`.kimi-code/mcp.json`, Claude's enabled-server list, and the reader and default
+browser configs. Restart the session after a state change.
 
 | Server | Default | Purpose |
 | --- | --- | --- |
 | `context7` | on | current library documentation |
-| `playwright` | on | browser QA |
+| `playwright` | on | browser QA; optional synced site cookies and proxy (see `.agents/README.md`) |
 | `research-mcp` | on | readable web/PDF research |
 | `playwright-reader` | off | browser reading with an installed blocker |
 | `appium-mcp` | off | mobile device/simulator QA |

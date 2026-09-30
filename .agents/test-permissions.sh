@@ -43,6 +43,10 @@ SAFE_TOOLS = (
     "mcp__context7__query-docs",
 )
 
+# The default browser can carry the operator's synced session cookies, and
+# this tool runs arbitrary code in its server process with them.
+REQUIRED_DENY = ("mcp__playwright__browser_run_code_unsafe",)
+
 ask_rules = permissions.get("ask")
 if not isinstance(ask_rules, list):
     raise SystemExit("settings.json has no permissions.ask list")
@@ -67,6 +71,10 @@ for rule in ask_rules:
 for rule in deny_rules:
     if re.fullmatch(r"mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+\*?", rule) is None:
         raise SystemExit(f"malformed MCP deny rule: {rule!r}; use mcp__<server>__<prefix>*")
+
+for rule in REQUIRED_DENY:
+    if rule not in deny_rules:
+        raise SystemExit(f"permissions.deny must carry {rule}; add it to .agents/claude/settings.json")
 
 for tool in SAFE_TOOLS:
     hit = [rule for rule in deny_rules if fnmatch.fnmatchcase(tool, rule)]
