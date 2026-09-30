@@ -347,9 +347,10 @@ if "${tool[@]}" submit supervised writer --evidence 'ignored finding' 2>/dev/nul
 if "${tool[@]}" ack-message supervised reviewer "$message" --agent reviewer-agent 2>/dev/null; then fail 'sender acknowledged recipient message'; fi
 "${tool[@]}" ack-message supervised writer "$message" --agent writer-agent
 "${tool[@]}" heartbeat supervised writer --agent writer-agent
-inode_before="$(stat -f '%i' "$state")"
+inode() { python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_ino)' "$1"; }
+inode_before="$(inode "$state")"
 expect 'RESTART REQUEST' "${tool[@]}" watch supervised --stale-seconds 0
-[[ "$inode_before" == "$(stat -f '%i' "$state")" ]] || fail 'watch rewrote state'
+[[ "$inode_before" == "$(inode "$state")" ]] || fail 'watch rewrote state'
 "${tool[@]}" send supervised --from-lane reviewer --to-lane writer --agent reviewer-agent --kind status --message 'progress' >/dev/null
 expect 'archived 1 messages' "${tool[@]}" archive supervised
 "${tool[@]}" send supervised --from-lane reviewer --to-lane writer --agent reviewer-agent --kind finding --message 'late finding' --requires-ack >/dev/null
