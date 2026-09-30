@@ -31,7 +31,10 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
-- **`guard-destructive.py`'s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x` and `bash -lc 'rm -rf ~/x'` are allowed. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and combined `-lc`/`-ec`, with BLOCK rows per form.
+- **`guard-destructive.py`'s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x`, `bash -lc 'rm -rf ~/x'` and `timeout 600 eas build` pass both guards. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and `-lc`/`-ec`, tested per guard.
+- **`guard-publish.py` keeps `@<version>` on runner operands** — `npx eas-cli@16 submit` misses a listed `eas-cli`, so each pinned tag must be listed separately (Meridian mobile). Strip the version before matching, with test rows.
+- **`guard-publish.py` reads flags only as typed** — `bun run db:reset --linked` passes `--linked` through the alias and resets the linked database with no prompt (MemoGo). Decide whether alias arguments reach the Supabase rule, or state the limit.
+- **`guard-publish.py`'s Supabase table misses hosted verbs** — `config push`, `functions delete`, `storage`, `sso`, `domains`, `postgres-config` and `network-restrictions` get no decision (MemoGo). Add them beside `DEPLOY_VERBS`, with test rows.
 - **`guard-publish.py` is silent on a listed script run over SSH** — `ssh host 'cd /opt/app && bash scripts/deploy.sh'` gets no decision from either guard (Mailstation, 2026-09-30). Match listed paths inside an `ssh` remote command, with a test row.
 - **`guard-publish.py` trusts a literal `--dry-run` on any script** — a script that ignores its arguments deploys with no prompt (Mailstation's `lambda/website-scraper/deploy.sh`). Honour `--dry-run` only for scripts the policy marks as supporting it.
 - **`guard-publish.py` has no rule for a typed `aws` mutation** — `aws lambda update-function-code …` gets no decision, unlike the listed deploy scripts. Add the AWS CLI's mutating verbs beside the Supabase ones, with test rows.
