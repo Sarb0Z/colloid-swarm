@@ -179,8 +179,10 @@ Policies read normalized JSON from stdin. Host adapters translate event names
 and payload shapes; they do not own behavior. `config.json.example` contains
 hook defaults; a repository states its own policy in the tracked
 `policy.json` — a hook it runs without, the scripts its publish guard must ask
-about under `hooks.guard_publish.outward_commands` — and an operator's ignored
-`config.json` overrides either per machine.
+about under `hooks.guard_publish.outward_commands`, and under
+`dry_run_commands` the ones whose `--dry-run` really rehearses — and an
+operator's ignored `config.json` overrides either per machine, except that it
+can only extend the outward list and cannot declare a rehearsal.
 
 `wait-gate.sh` refuses a main-agent Bash call, under Claude only, that waits
 blind: sleeps longer than 5 s, a sleep that polls a background task's output
