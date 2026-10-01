@@ -393,6 +393,26 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("./scripts/deploy.sh -n", "scripts/deploy.sh -vn", "./scripts/deploy.sh -newer"):
         reason = guard.verdict("Bash", {"command": command}, outward)
         check(f"a short flag is not a dry run: {command}", reason is not None, "quiet")
+    # gcloud ends a group path with its verb, and firebase namespaces verbs
+    # with colons; a write is the verb, wherever the path puts it.
+    for command in ("gcloud services api-keys delete k --project rumah-y3ecek",
+                    "gcloud run deploy web --image i", "gcloud --project p functions delete f",
+                    "gcloud run services update s --set-env-vars A=1",
+                    "gcloud secrets versions add s --data-file=-", "gcloud storage rm gs://b/o",
+                    "gcloud storage cp ./f gs://b/", "gcloud projects add-iam-policy-binding p",
+                    "firebase firestore:delete /vendors -r", "firebase database:set /a d.json",
+                    "firebase functions:delete f", "firebase auth:import u.json",
+                    "firebase functions:secrets:set KEY", "firebase hosting:disable"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a hosted gcloud or firebase write: {command}", reason is not None, "quiet")
+    for command in ("gcloud run services describe s", "gcloud services api-keys list",
+                    "gcloud config set project p", "gcloud auth list",
+                    "gcloud storage cp gs://b/o .", "gcloud logging read x",
+                    "gcloud beta emulators firestore start", "gcloud emulators pubsub start",
+                    "firebase emulators:start", "firebase firestore:indexes",
+                    "firebase projects:list", "firebase use p"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a gcloud or firebase read: {command}", reason is None, reason or "")
     # The Supabase CLI groups its verbs under a noun, and one of them is both
     # the routine local reset and the production rebuild. Splitting on the
     # remote flag is what lets the dangerous form ask without the safe form
