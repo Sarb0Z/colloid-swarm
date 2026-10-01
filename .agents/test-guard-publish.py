@@ -385,6 +385,21 @@ with tempfile.TemporaryDirectory() as tmp:
                     "./scripts/deploy.sh --dry-run true --dry-run false"):
         reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
         check(f"a dry-run flag switched off is a live run: {command}", reason is not None, "quiet")
+    # Only a value known to switch the flag on rehearses: an empty, padded or
+    # unfamiliar value may read as off.
+    for command in ("./scripts/deploy.sh --dry-run=", "./scripts/deploy.sh --dry-run=disabled",
+                    "./scripts/deploy.sh --dry-run \"false \"", "./scripts/deploy.sh --dry-run ''",
+                    "./scripts/deploy.sh --dry-run=maybe", "./scripts/deploy.sh --dry-run disabled",
+                    "./scripts/deploy.sh --dry-run --dry-run=off"):
+        reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
+        check(f"a dry-run flag not clearly on is a live run: {command}", reason is not None, "quiet")
+    # A following word outside the boolean vocabulary is an operand, so the
+    # flag before it was bare.
+    for command in ("./scripts/deploy.sh --dry-run=YES", "./scripts/deploy.sh --dry-run=' on'",
+                    "./scripts/deploy.sh --dry-run 1", "./scripts/deploy.sh --dry-run production",
+                    "./scripts/deploy.sh --dry-run true --dry-run"):
+        reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
+        check(f"quiet on a dry run switched on: {command}", reason is None, reason or "")
     for command in ("./scripts/deploy.sh --dry-run true", "./scripts/deploy.sh --dry-run --prod",
                     "./scripts/deploy.sh --dry-run=true"):
         reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
@@ -405,6 +420,34 @@ with tempfile.TemporaryDirectory() as tmp:
                     "firebase functions:secrets:set KEY", "firebase hosting:disable"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted gcloud or firebase write: {command}", reason is not None, "quiet")
+    # gcloud names a write by a verb family as well as a fixed verb, and a
+    # traffic split, a message, a job run or a bucket sync is a write too.
+    for command in ("gcloud run services update-traffic web --to-latest",
+                    "gcloud app services set-traffic default --splits v2=1",
+                    "gcloud compute instances add-metadata vm --metadata k=v",
+                    "gcloud compute instances remove-metadata vm --keys k",
+                    "gcloud compute instances set-machine-type vm --machine-type e2",
+                    "gcloud compute backend-services create-signed-url-key b",
+                    "gcloud compute disks delete-snapshot-schedule d",
+                    "gcloud compute instances enable-oslogin vm",
+                    "gcloud iam service-accounts disable-key k",
+                    "gcloud storage rsync ./dist gs://b", "gcloud storage rsync -r ./dist gs://b/site",
+                    "gcloud pubsub topics publish t --message m", "gcloud scheduler jobs run j",
+                    "gcloud firestore export gs://b", "gcloud app versions migrate v2",
+                    "gcloud functions call f --data {}", "gcloud deploy apply --file=pipeline.yaml",
+                    "gcloud beta run deploy web --image i", "gcloud alpha scheduler jobs run j",
+                    "gcloud run deploy emulators --image i"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a hosted gcloud write: {command}", reason is not None, "quiet")
+    for command in ("gcloud run services describe update-checker", "gcloud run services list",
+                    "gcloud secrets versions get latest", "gcloud projects get-iam-policy p",
+                    "gcloud logging read x", "gcloud app logs tail", "gcloud run services logs read web",
+                    "gcloud config set run/region us-east1", "gcloud auth login",
+                    "gcloud storage rsync gs://b ./local", "gcloud storage ls gs://b/run",
+                    "gcloud emulators firestore start", "gcloud beta emulators pubsub start",
+                    "gcloud alpha emulators bigtable start", "gcloud beta config set project p"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a gcloud read or local command: {command}", reason is None, reason or "")
     # A global flag's separate value is not the verb.
     for command in ("firebase --project prod firestore:delete /vendors -r",
                     "firebase -P prod database:set /a d.json", "firebase --project prod deploy",
