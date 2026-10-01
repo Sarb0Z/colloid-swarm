@@ -405,6 +405,19 @@ with tempfile.TemporaryDirectory() as tmp:
                     "firebase functions:secrets:set KEY", "firebase hosting:disable"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted gcloud or firebase write: {command}", reason is not None, "quiet")
+    # A global flag's separate value is not the verb.
+    for command in ("firebase --project prod firestore:delete /vendors -r",
+                    "firebase -P prod database:set /a d.json", "firebase --project prod deploy",
+                    "firebase -P prod deploy --only hosting", "firebase --project=prod deploy",
+                    "firebase --project=prod firestore:delete /vendors",
+                    "firebase --account a@b.c -c alt.json hosting:disable",
+                    "firebase --token T --json deploy", "npx firebase -P prod deploy"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a firebase write after a global flag: {command}", reason is not None, "quiet")
+    for command in ("firebase -P prod projects:list", "firebase --project prod emulators:start",
+                    "firebase --json use prod"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a firebase read after a global flag: {command}", reason is None, reason or "")
     for command in ("gcloud run services describe s", "gcloud services api-keys list",
                     "gcloud config set project p", "gcloud auth list",
                     "gcloud storage cp gs://b/o .", "gcloud logging read x",

@@ -109,6 +109,16 @@ GCLOUD_WRITES = {"create", "delete", "update", "deploy", "set", "unset", "patch"
 FIREBASE_WRITES = {"delete", "set", "unset", "remove", "update", "push", "import",
                    "disable", "enable", "clone", "create", "install", "uninstall",
                    "destroy", "rollback"}
+# Global options whose value is the next word, so that value is not read as
+# the verb. firebase-tools declares its globals in src/index.ts: `-P, --project
+# <alias_or_project_id>`, `--account <email>`, `--token <token>` and `-c,
+# --config <path>` take a value; `--json`, `--debug` and the interactivity
+# switches do not. `--flag=value` carries its own value and needs no entry.
+VALUE_FLAGS = {
+    "firebase": {"-P", "--project", "--account", "--token", "-c", "--config"},
+    "gcloud": {"--project", "--account", "--configuration", "--impersonate-service-account",
+               "--region", "--zone", "--format", "--verbosity"},
+}
 GATED_NAMES = ({"git", "gh", "docker", "gcloud"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
                | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
@@ -147,19 +157,23 @@ def vercel_reason(words):
     return None
 
 
-def gcloud_reason(rest):
-    """gcloud's verb is the last word of its group path; a flag value
-    (`--project p`) is not part of the path."""
-    path, skip = [], False
-    for word in rest:
+def positionals(words, value_flags=frozenset()):
+    """The words that are not options or the separate value of one."""
+    found, skip = [], False
+    for word in words:
         if skip:
             skip = False
         elif word.startswith("-"):
-            skip = "=" not in word and word in ("--project", "--account", "--configuration",
-                                                 "--impersonate-service-account", "--region",
-                                                 "--zone", "--format", "--verbosity")
+            skip = word in value_flags
         else:
-            path.append(word)
+            found.append(word)
+    return found
+
+
+def gcloud_reason(rest):
+    """gcloud's verb is the last word of its group path; a flag value
+    (`--project p`) is not part of the path."""
+    path = positionals(rest, VALUE_FLAGS["gcloud"])
     if not path or path[0] in GCLOUD_LOCAL_GROUPS or "emulators" in path:
         return None
     for index, word in enumerate(path):
@@ -224,12 +238,12 @@ def rule_bash(command, shell):
     if name == "gcloud":
         return gcloud_reason(rest)
     if name == "firebase":
-        positional = [word for word in rest if not word.startswith("-")]
+        positional = positionals(rest, VALUE_FLAGS["firebase"])
         if positional and positional[0].split(":")[-1] in FIREBASE_WRITES:
             return f"firebase {positional[0]} writes to the hosted project."
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
-        positional = [word for word in rest if not word.startswith("-")]
+        positional = positionals(rest, VALUE_FLAGS.get(name, ()))
         phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
         for phrase in phrases:
             if phrase in DEPLOY_VERBS.get(name, ()):
@@ -463,8 +477,10 @@ def refuse(reason):
     }}))
 
 
-def hosted_script(tool_name, tool_input, project, cwd):
-    """hosted-scripts.py's verdict for a shell command, or None."""
+def hosted_script(tool_name, tool_input, project, cwd, repo, rehearsals=()):
+    """hosted-scripts.py's verdict for a shell command, or None. A committed
+    script rehearses on the same terms as a listed one: declared in
+    `rehearsals`, relative to `repo`, and run with a dry run switched on."""
     command = tool_input.get("command")
     if tool_name not in ("Bash", "PowerShell", "Monitor") or not isinstance(command, str):
         return None
@@ -474,7 +490,9 @@ def hosted_script(tool_name, tool_input, project, cwd):
     spec = importlib.util.spec_from_file_location("hosted_scripts", os.path.join(HERE, "hosted-scripts.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.verdict(command, project, load_shell_parser(), cwd)
+    declared = {os.path.realpath(os.path.join(repo, entry)) for entry in rehearsals}
+    return module.verdict(command, project, load_shell_parser(), cwd,
+                          lambda path, args: path in declared and rehearsal(args))
 
 
 def main():
@@ -507,13 +525,13 @@ def main():
     try:
         project = payload.get("project_dir")
         cwd = payload.get("cwd")
+        rehearsals = dry_run_commands(repo)
         hosted = hosted_script(tool_name, tool_input, project if isinstance(project, str) and project else repo,
-                               cwd if isinstance(cwd, str) and cwd else None)
+                               cwd if isinstance(cwd, str) and cwd else None, repo, rehearsals)
         if hosted and hosted[0] == "deny":
             refuse(hosted[1])
             return 0
-        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo),
-                                                       dry_run_commands(repo))
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals)
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0
