@@ -15,7 +15,10 @@ holds byte-identical, and prints the best three. Build the base kit by running
 that commit's own exporter from a detached worktree.
 
 Without --apply the merge only reports. A file the satellite deleted stays
-deleted: a pruned skill or stack pack is an adaptation, not drift. The root
+deleted: a pruned skill or stack pack is an adaptation, not drift, and so does
+a file the carrier adds under a directory the satellite pruned. Every path is
+decided before any is written, so a path the merge cannot place is a conflict,
+never a half-applied merge. The root
 AGENTS.md and CLAUDE.md are merged by section, by hand, so they are reported
 and never written. Exit 1 when any path needs a hand merge.
 """
@@ -78,7 +81,8 @@ def same(a, b):
         return a.is_symlink() and b.is_symlink() and os.readlink(a) == os.readlink(b)
     if a.is_dir() or b.is_dir():
         return False                                      # a real directory where a link was
-    return filecmp.cmp(a, b, shallow=False)
+    # A hook that loses its executable bit stops running, so mode is content.
+    return ((a.stat().st_mode ^ b.stat().st_mode) & 0o111) == 0 and filecmp.cmp(a, b, shallow=False)
 
 
 def place(source, destination):
@@ -92,7 +96,8 @@ def place(source, destination):
 
 
 def text_merge(ours, base, theirs):
-    """Return (merged text, conflicted), or None when a side is not text."""
+    """Return (merged bytes, conflicted), or None when a side is not text.
+    Bytes, so CRLF line endings survive the merge."""
     if any(p.is_symlink() or p.is_dir() for p in (ours, base, theirs)):
         return None
     try:
@@ -102,62 +107,92 @@ def text_merge(ours, base, theirs):
         return None
     run = subprocess.run(["git", "merge-file", "-p", "-L", "satellite", "-L", "base-kit",
                           "-L", "new-kit", str(ours), str(base), str(theirs)],
-                         capture_output=True, text=True)
+                         capture_output=True)
     if run.returncode < 0 or run.returncode > 127:
-        raise SystemExit(f"merge-kit: git merge-file failed on {ours}: {run.stderr}")
+        raise SystemExit(f"merge-kit: git merge-file failed on {ours}: {run.stderr.decode(errors='replace')}")
     return run.stdout, run.returncode > 0
+
+
+def blocked(satellite, relative):
+    """The nearest ancestor the satellite holds as a file or link, or None:
+    placing the kit's file would have to write through or over it."""
+    for parent in reversed(pathlib.PurePosixPath(relative).parents[:-1]):
+        held = satellite / parent
+        if held.is_symlink() or (held.exists() and not held.is_dir()):
+            return parent.as_posix()
+    return None
+
+
+def pruned(satellite, base_kit, relative):
+    """True when an ancestor directory the base kit had is gone from the satellite."""
+    return any((base_kit / parent).is_dir() and not (satellite / parent).exists()
+               for parent in pathlib.PurePosixPath(relative).parents[:-1])
+
+
+def decide(satellite, base_kit, relative, b, n):
+    """(category, note, action) for one path; action is None, "place",
+    "unlink" or "merge" and is taken only under --apply."""
+    ours = satellite / relative
+    if relative in HAND_MERGED:
+        return (None if b and n and same(b, n) else "hand-merge"), "", None
+    if n and (b is None or not same(b, n)):
+        holder = blocked(satellite, relative)
+        if holder:
+            return "conflict", f"  (satellite has a file at {holder}, where the kit has a directory)", None
+    present = ours.is_symlink() or ours.exists()
+    if n and not b:                                       # the carrier added it
+        if present:
+            return (None, "", None) if same(ours, n) else ("conflict", "  (satellite has its own file here)", None)
+        if pruned(satellite, base_kit, relative):
+            return "kept-deleted", "", None
+        return "added", "", "place"
+    if b and not n:                                       # the carrier removed it
+        if not present:
+            return None, "", None
+        if same(ours, b):
+            return "removed", "", "unlink"
+        return "conflict", "  (carrier removed it; satellite edited it)", None
+    if same(b, n):
+        return None, "", None                             # no carrier change
+    if not present:
+        return "kept-deleted", "", None
+    if same(ours, n):
+        return None, "", None
+    if same(ours, b):
+        return "updated", "", "place"
+    return "merge", "", "merge"
 
 
 def merge(satellite, base_kit, new_kit, apply):
     base, new = files(base_kit), files(new_kit)
     report = {key: [] for key in ("added", "updated", "merged", "removed",
                                   "kept-deleted", "hand-merge", "conflict")}
+    actions = []
     for relative in sorted(set(base) | set(new)):
-        ours = satellite / relative
-        present = ours.is_symlink() or ours.exists()
         b, n = base.get(relative), new.get(relative)
-        if relative in HAND_MERGED:
-            if not (b and n and same(b, n)):
-                report["hand-merge"].append(relative)
-            continue
-        if n and not b:                                   # the carrier added it
-            if not present:
-                report["added"].append(relative)
-                if apply:
-                    place(n, ours)
-            elif not same(ours, n):
-                report["conflict"].append(f"{relative}  (satellite has its own file here)")
-            continue
-        if b and not n:                                   # the carrier removed it
-            if present and same(ours, b):
-                report["removed"].append(relative)
-                if apply:
-                    ours.unlink()
-            elif present:
-                report["conflict"].append(f"{relative}  (carrier removed it; satellite edited it)")
-            continue
-        if same(b, n):
-            continue                                      # no carrier change
-        if not present:
-            report["kept-deleted"].append(relative)
-            continue
-        if same(ours, n):
-            continue
-        if same(ours, b):
-            report["updated"].append(relative)
-            if apply:
+        category, note, action = decide(satellite, base_kit, relative, b, n)
+        merged = None
+        if category == "merge":
+            merged = text_merge(satellite / relative, b, n)
+            if merged is None:
+                category, note, action = "conflict", "  (link, directory or binary changed on both sides)", None
+            else:
+                category = "conflict" if merged[1] else "merged"
+        if category:
+            report[category].append(relative + note)
+        if action:
+            actions.append((relative, action, n, merged))
+    if apply:
+        for relative, action, n, merged in actions:
+            ours = satellite / relative
+            if action == "place":
                 place(n, ours)
-            continue
-        merged = text_merge(ours, b, n)
-        if merged is None:
-            report["conflict"].append(f"{relative}  (link, directory or binary changed on both sides)")
-            continue
-        text, conflicted = merged
-        report["conflict" if conflicted else "merged"].append(relative)
-        if apply:
-            mode = ours.stat().st_mode
-            ours.write_text(text, encoding="utf-8")
-            os.chmod(ours, mode | (n.stat().st_mode & 0o111))
+            elif action == "unlink":
+                ours.unlink()
+            else:
+                mode = ours.stat().st_mode
+                ours.write_bytes(merged[0])
+                os.chmod(ours, mode | (n.stat().st_mode & 0o111))
     for key, paths in report.items():
         if paths:
             print(f"{key}: {len(paths)}")
