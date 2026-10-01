@@ -49,10 +49,10 @@ GRAPHQL_MUTATION = 'import requests\nrequests.post("https://GITHUB/graphql", jso
 MOCKED_TEST = 'def test_charge(mocker):\n    mocker.patch("requests.post")  # https://STRIPE/v1/charges "POST"\n'
 
 
-def decide(project, command, mode="default", cwd=None):
+def decide(project, command, mode="default", cwd=None, repo=None):
     payload = {"tool_name": "Bash", "tool_input": {"command": real(command)}, "permission_mode": mode,
                "project_dir": str(project), "cwd": str(cwd or project)}
-    out = subprocess.run([sys.executable, str(guard), str(here.parent)], input=json.dumps(payload),
+    out = subprocess.run([sys.executable, str(guard), str(repo or here.parent)], input=json.dumps(payload),
                          capture_output=True, text=True).stdout.strip()
     if not out:
         return "pass", ""
@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as scratch:
         ("a committed script edited since the commit", "python3 tools/edited.py", "default", "deny"),
         ("the committed, unchanged script asks", "python3 tools/apply.py", "default", "ask"),
         ("the committed script is denied where no prompt reaches the user", "python3 tools/apply.py", "auto", "deny"),
-        ("--dry-run passes", "python3 tools/apply.py --dry-run", "default", "pass"),
+        ("--dry-run on a script the policy does not declare asks", "python3 tools/apply.py --dry-run", "default", "ask"),
         ("a hand curl write to a management API asks", "curl -X PATCH https://VERCEL/v9/projects/web -d '{}'", "default", "ask"),
         ("a curl read passes", "curl -s https://VERCEL/v9/projects", "default", "pass"),
         ("a /tmp check that signs in to the app passes", f"node {outside}/check.mjs", "default", "pass"),
@@ -119,6 +119,8 @@ with tempfile.TemporaryDirectory() as scratch:
         ("an ordinary command passes", "ls -la", "default", "pass"),
     ]
     (outside / "harmless.py").write_text("print('hello')\n")
+    (project / "tools" / "push-env.sh").write_text(real("#!/bin/sh\ncurl -X POST https://VERCEL/v10/projects/web/env -d '{}'\n"))
+    (project / "tools" / "push-env.sh").chmod(0o755)
     (outside / "lib.sh").write_text(real("curl -X PATCH https://VERCEL/v9/projects/web -d '{}'\n"))
     setup = "production-vercel-github-setup.py"
     rows += [
@@ -131,6 +133,13 @@ with tempfile.TemporaryDirectory() as scratch:
          f"cat > {outside}/harmless.py <<'EOF'\n{WRITER}EOF\npython3 {outside}/harmless.py", "default", "deny"),
         ("a sourced shell file", f"source {outside}/lib.sh", "default", "deny"),
         ("a dot-sourced shell file", f". {outside}/lib.sh", "default", "deny"),
+        # No flag vouches for code nobody reviewed: the refusal holds whatever
+        # the arguments say.
+        ("an untracked writer with --dry-run", "python3 tools/untracked.py --dry-run", "default", "deny"),
+        ("an untracked writer with --dry-run false", "python3 tools/untracked.py --dry-run false", "default", "deny"),
+        ("an untracked shell writer with --dry-run", "./tools/push-env.sh --dry-run", "default", "deny"),
+        ("an untracked shell writer with --dry-run false", "./tools/push-env.sh --dry-run false", "default", "deny"),
+        ("a /tmp writer with --dry-run", f"python3 {outside}/{setup} --dry-run", "default", "deny"),
     ]
     for name, command, mode, expected in rows:
         got, reason = decide(project, command, mode)
@@ -138,6 +147,22 @@ with tempfile.TemporaryDirectory() as scratch:
 
     got, _ = decide(project, f"python3 {setup}", cwd=outside)
     check("a relative script resolves against the session's working directory", got == "deny", got)
+
+    # The repository's tracked policy may declare that a committed script's
+    # --dry-run rehearses. That exempts the ask, never the refusal.
+    (project / ".agents").mkdir()
+    (project / ".agents" / "policy.json").write_text(json.dumps({"hooks": {"guard_publish": {
+        "dry_run_commands": ["tools/apply.py", "tools/untracked.py"]}}}))
+    for name, command, expected in [
+        ("a declared committed script rehearses with --dry-run", "python3 tools/apply.py --dry-run", "pass"),
+        ("a declared committed script with --dry-run false asks", "python3 tools/apply.py --dry-run false", "ask"),
+        ("a declared committed script without the flag asks", "python3 tools/apply.py", "ask"),
+        ("a declared untracked script with --dry-run is refused", "python3 tools/untracked.py --dry-run", "deny"),
+        ("a declared script run again live asks",
+         "python3 tools/apply.py --dry-run && python3 tools/apply.py", "ask"),
+    ]:
+        got, reason = decide(project, command, repo=project)
+        check(name, got == expected, f"expected {expected}, got {got}: {reason[:200]}")
 
     got, reason = decide(project, f"python3 {outside}/production-vercel-github-setup.py")
     check("the refusal names the plan/apply remedy and says not to retry",
