@@ -297,8 +297,8 @@ if [[ -n "$js_ts_edited" ]]; then
   if [[ "$mode" == "write" ]]; then
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
-      prettier_bin="${line%%$'\t'*}"
-      IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+      IFS=$'\t' read -r prettier_bin _ rest <<< "$line"
+      IFS=$'\t' read -r -a jsfiles <<< "$rest"
       # Stay in $proj: prettier finds its config from each file's own path, so
       # the workspace's .prettierrc applies either way.
       "$prettier_bin" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
@@ -306,9 +306,9 @@ if [[ -n "$js_ts_edited" ]]; then
 
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
-      eslint_bin="${line%%$'\t'*}"
-      IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
-      (cd "${eslint_bin%/node_modules/.bin/*}" && "$eslint_bin" --fix "${jsfiles[@]}") >/dev/null 2>&1 || true
+      IFS=$'\t' read -r eslint_bin eslint_cwd rest <<< "$line"
+      IFS=$'\t' read -r -a jsfiles <<< "$rest"
+      (cd "$eslint_cwd" && "$eslint_bin" --fix "${jsfiles[@]}") >/dev/null 2>&1 || true
     done <<< "$(js_groups eslint)"
   else
     # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for
@@ -317,13 +317,13 @@ if [[ -n "$js_ts_edited" ]]; then
     # majors.
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
-      eslint_bin="${line%%$'\t'*}"
-      IFS=$'\t' read -r -a jsfiles <<< "${line#*$'\t'}"
+      IFS=$'\t' read -r eslint_bin eslint_cwd rest <<< "$line"
+      IFS=$'\t' read -r -a jsfiles <<< "$rest"
       # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
       # resolve a config, which a stdout-only reader cannot tell apart from a
       # clean run — the same trap the --format note above describes, one level up.
       eslint_rc=0
-      eslint_raw="$(cd "${eslint_bin%/node_modules/.bin/*}" && "$eslint_bin" --format json "${jsfiles[@]}" 2>/dev/null)" || eslint_rc=$?
+      eslint_raw="$(cd "$eslint_cwd" && "$eslint_bin" --format json "${jsfiles[@]}" 2>/dev/null)" || eslint_rc=$?
       if [[ "$eslint_rc" -ne 0 && -z "$eslint_raw" ]]; then
         issues+=$'\n'"[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted."$'\n'
         continue
