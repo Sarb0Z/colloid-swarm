@@ -343,8 +343,12 @@ with tempfile.TemporaryDirectory() as tmp:
     agents.mkdir()
     (agents / "policy.json").write_text(json.dumps({"hooks": {"guard_publish": {
         "outward_commands": ["scripts/deploy.sh", "switch-on/02-vercel.sh",
-                             "tools/copy-env-to-prod.py"]}}}))
+                             "tools/copy-env-to-prod.py"],
+        "dry_run_commands": ["scripts/deploy.sh"]}}}))
     outward = guard.outward_commands(tmp)
+    rehearsals = guard.dry_run_commands(tmp)
+    check("dry_run_commands reads the tracked policy file", rehearsals == ["scripts/deploy.sh"],
+          str(rehearsals))
     check("outward_commands reads the tracked policy file",
           outward == ["scripts/deploy.sh", "switch-on/02-vercel.sh", "tools/copy-env-to-prod.py"],
           str(outward))
@@ -360,16 +364,30 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("cat scripts/deploy.sh", "grep vercel scripts/deploy.sh",
                     "./scripts/deploy.sh --dry-run",
                     "./scripts/verify.sh", "ls switch-on"):
-        reason = guard.verdict("Bash", {"command": command}, outward)
+        reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
         check(f"quiet on a read or dry run: {command}", reason is None, reason or "")
+    # Only a script the policy says honours --dry-run rehearses with it. One
+    # that ignores its arguments deploys with the flag appended.
+    for command in ("./scripts/deploy.sh --dry-run", "cd switch-on && ./02-vercel.sh --dry-run",
+                    "python3 tools/copy-env-to-prod.py X --dry-run"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"a script not declared to honour --dry-run asks: {command}", reason is not None, "quiet")
+    reason = guard.verdict("Bash", {"command": "cd switch-on && ./02-vercel.sh --dry-run"}, outward, rehearsals)
+    check("--dry-run on an undeclared script asks beside a declared one", reason is not None, "quiet")
     # A script whose flag takes a value reads `--dry-run false` as a live run.
     for command in ("./scripts/deploy.sh --dry-run false", "./scripts/deploy.sh --dry-run FALSE",
                     "./scripts/deploy.sh --dry-run 0", "./scripts/deploy.sh --dry-run no",
                     "./scripts/deploy.sh --dry-run off"):
-        reason = guard.verdict("Bash", {"command": command}, outward)
+        reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
         check(f"a dry-run flag switched off is a live run: {command}", reason is not None, "quiet")
-    for command in ("./scripts/deploy.sh --dry-run true", "./scripts/deploy.sh --dry-run --prod"):
-        reason = guard.verdict("Bash", {"command": command}, outward)
+    # The script reads the last occurrence; any switched-off one may be it.
+    for command in ("./scripts/deploy.sh --dry-run n", "./scripts/deploy.sh --dry-run=false",
+                    "./scripts/deploy.sh --dry-run true --dry-run false"):
+        reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
+        check(f"a dry-run flag switched off is a live run: {command}", reason is not None, "quiet")
+    for command in ("./scripts/deploy.sh --dry-run true", "./scripts/deploy.sh --dry-run --prod",
+                    "./scripts/deploy.sh --dry-run=true"):
+        reason = guard.verdict("Bash", {"command": command}, outward, rehearsals)
         check(f"quiet on a dry run followed by a value or flag: {command}", reason is None, reason or "")
     # -n is git's rehearsal flag, not these scripts': deploy.sh ignores it.
     for command in ("./scripts/deploy.sh -n", "scripts/deploy.sh -vn", "./scripts/deploy.sh -newer"):
@@ -410,7 +428,7 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("cat supabase/tests/schema_verification.mjs",
                     "bun run db:reset", "bun run lint",
                     "bun run db:verify --dry-run"):
-        reason = guard.verdict("Bash", {"command": command}, js_outward)
+        reason = guard.verdict("Bash", {"command": command}, js_outward, ["db:verify"])
         check(f"quiet on a local or read-only script: {command}", reason is None, reason or "")
 
     # An operator's config.json extends the repository's list; it cannot
@@ -422,6 +440,11 @@ with tempfile.TemporaryDirectory() as tmp:
           "scripts/deploy.sh" in outward and "scripts/my-local.sh" in outward, str(outward))
     check("a listed deploy still asks with a config.json list present",
           guard.verdict("Bash", {"command": "./scripts/deploy.sh"}, outward) is not None)
+    # Declaring a rehearsal silences a gate, so only the tracked policy may.
+    (agents / "config.json").write_text(json.dumps({"hooks": {"guard_publish": {
+        "dry_run_commands": ["switch-on/02-vercel.sh"]}}}))
+    check("config.json cannot declare a dry-run rehearsal",
+          guard.dry_run_commands(tmp) == ["scripts/deploy.sh"], str(guard.dry_run_commands(tmp)))
     (agents / "config.json").unlink()
     result = subprocess.run([sys.executable, str(policy), tmp],
                             input=json.dumps({"tool_name": "Bash", "permission_mode": "default",

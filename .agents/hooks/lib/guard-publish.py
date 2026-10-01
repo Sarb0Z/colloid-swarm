@@ -198,8 +198,9 @@ def rule_bash(command, shell):
     return None
 
 
-def verdict(tool_name, tool_input, outward=()):
-    """The reason to ask, or None. `outward` is the repository's script list."""
+def verdict(tool_name, tool_input, outward=(), rehearsals=()):
+    """The reason to ask, or None. `outward` is the repository's script list;
+    `rehearsals` names the entries whose --dry-run really rehearses."""
     if tool_name in ("Bash", "PowerShell", "Monitor"):
         text = tool_input.get("command")
         if not isinstance(text, str) or not text.strip():
@@ -215,7 +216,7 @@ def verdict(tool_name, tool_input, outward=()):
             if reason:
                 return reason
             if outward:
-                reason = rule_outward(shell.lead(command.words), outward, shell)
+                reason = rule_outward(shell.lead(command.words), outward, shell, rehearsals)
                 if reason:
                     return reason
         return None
@@ -278,6 +279,30 @@ def outward_commands(repo):
         entries = module.read(document, "hooks.guard_publish.outward_commands", [])
         if isinstance(entries, list):
             listed.extend(entries)
+    return cleaned_entries(listed)
+
+
+def dry_run_commands(repo):
+    """Listed scripts whose `--dry-run` rehearses instead of writing.
+
+    `hooks.guard_publish.dry_run_commands`, read from the tracked
+    `.agents/policy.json` alone: a script that ignores its arguments deploys
+    with the flag appended, so the exemption is a claim about the script that
+    the repository makes once, in review. An operator's config.json may add
+    gates, never this exemption.
+    """
+    path = os.path.join(HERE, "config.py")
+    if not os.path.exists(path):
+        return []
+    spec = importlib.util.spec_from_file_location("colloid_config", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    document = module._read_json(os.path.join(repo, ".agents", "policy.json"))
+    entries = module.read(document, "hooks.guard_publish.dry_run_commands", [])
+    return cleaned_entries(entries if isinstance(entries, list) else [])
+
+
+def cleaned_entries(listed):
     seen = []
     for entry in listed:
         if isinstance(entry, str) and entry.strip():
@@ -324,31 +349,39 @@ def outward_targets(words, shell):
 
 
 # A script whose flag takes a value reads `--dry-run false` as a live run.
-SWITCHED_OFF = {"false", "0", "no", "off"}
+SWITCHED_OFF = {"false", "f", "0", "no", "n", "off"}
 
 
 def rehearsal(args):
-    """True when the arguments carry a literal --dry-run that is not switched off."""
+    """True when the arguments ask for a dry run and none switches it off.
+    A script reads the last occurrence, so any switched-off one may win."""
+    values = []
     for index, word in enumerate(args):
         if word == "--dry-run":
             following = args[index + 1] if index + 1 < len(args) else ""
-            return following.lower() not in SWITCHED_OFF
-    return False
+            values.append(following)
+        elif word.startswith("--dry-run="):
+            values.append(word.split("=", 1)[1])
+    return bool(values) and not any(v.lower() in SWITCHED_OFF for v in values)
 
 
-def rule_outward(words, outward, shell):
+def matches(target, entry):
+    """The listed path, any path ending in it, or its bare name after a `cd`."""
+    normalized = target.lstrip("./")
+    return (normalized == entry or normalized.endswith("/" + entry)
+            or os.path.basename(normalized) == os.path.basename(entry))
+
+
+def rule_outward(words, outward, shell, rehearsals=()):
     for target in outward_targets(words, shell):
-        normalized = target.lstrip("./")
         for entry in outward:
-            # The listed path, any path ending in it, or its bare name after a
-            # `cd`: a script that writes to production is worth an ask under
-            # whatever path it was reached by. Reads never get here — the command
-            # word is `cat` or `grep`, not the script.
-            if (normalized == entry or normalized.endswith("/" + entry)
-                    or os.path.basename(normalized) == os.path.basename(entry)):
-                # Only the literal --dry-run is a rehearsal. `-n` is git's
-                # convention, not these scripts': deploy.sh ignores it and deploys.
-                if rehearsal(words[1:]):
+            # A script that writes to production is worth an ask under whatever
+            # path it was reached by. Reads never get here — the command word
+            # is `cat` or `grep`, not the script.
+            if matches(target, entry):
+                # Only --dry-run on a script declared to honour it rehearses.
+                # `-n` is git's convention, not these scripts'.
+                if entry in rehearsals and rehearsal(words[1:]):
                     return None
                 return f"{entry} is listed by this repository as writing to a hosted system."
     return None
@@ -440,7 +473,8 @@ def main():
         if hosted and hosted[0] == "deny":
             refuse(hosted[1])
             return 0
-        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo))
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo),
+                                                       dry_run_commands(repo))
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0
