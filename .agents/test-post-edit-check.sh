@@ -74,4 +74,24 @@ run '["src/app.py"]'
 [[ $rc -eq 0 ]] || fail "a clean payload must pass, got $rc: $err"
 ok "a clean payload still passes"
 
+# A monorepo hoists eslint to the root while each app keeps its own flat
+# config. ESLint 9 looks for that config from its working directory, so a run
+# from the binary's folder finds none, exits 2, and lints nothing. The stand-in
+# below behaves the same way: no eslint.config.* in its cwd, no report.
+mkdir -p "$dir/node_modules/.bin" "$dir/apps/web/src"
+cat > "$dir/node_modules/.bin/eslint" <<'SH'
+#!/usr/bin/env bash
+ls eslint.config.* >/dev/null 2>&1 || exit 2
+file="${@: -1}"
+printf '[{"filePath":"%s","messages":[{"ruleId":"probe/flat-config-found","severity":2,"message":"linted from %s","line":1,"column":1}],"errorCount":1}]' "$file" "$PWD"
+exit 1
+SH
+chmod +x "$dir/node_modules/.bin/eslint"
+printf 'export default [];\n' > "$dir/apps/web/eslint.config.mjs"
+printf 'export const x = 1;\n' > "$dir/apps/web/src/a.ts"
+run '["apps/web/src/a.ts"]'
+[[ "$err" == *"probe/flat-config-found"* ]] \
+  || fail "a hoisted eslint must run from the workspace that holds the flat config, got: $err"
+ok "a hoisted eslint lints a workspace file against that workspace's flat config"
+
 printf '\nALL PASS\n'
