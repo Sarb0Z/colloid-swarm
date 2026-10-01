@@ -323,6 +323,19 @@ def outward_targets(words, shell):
     return [words[0]]
 
 
+# A script whose flag takes a value reads `--dry-run false` as a live run.
+SWITCHED_OFF = {"false", "0", "no", "off"}
+
+
+def rehearsal(args):
+    """True when the arguments carry a literal --dry-run that is not switched off."""
+    for index, word in enumerate(args):
+        if word == "--dry-run":
+            following = args[index + 1] if index + 1 < len(args) else ""
+            return following.lower() not in SWITCHED_OFF
+    return False
+
+
 def rule_outward(words, outward, shell):
     for target in outward_targets(words, shell):
         normalized = target.lstrip("./")
@@ -335,7 +348,7 @@ def rule_outward(words, outward, shell):
                     or os.path.basename(normalized) == os.path.basename(entry)):
                 # Only the literal --dry-run is a rehearsal. `-n` is git's
                 # convention, not these scripts': deploy.sh ignores it and deploys.
-                if "--dry-run" in words[1:]:
+                if rehearsal(words[1:]):
                     return None
                 return f"{entry} is listed by this repository as writing to a hosted system."
     return None
