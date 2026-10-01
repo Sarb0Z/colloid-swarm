@@ -88,8 +88,12 @@ python3 .agents/test-hosted-scripts.py
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-codex.sh
+# colloid-only
 .agents/test-export.sh
 .agents/test-stack-packs.sh
+# /colloid-only
 ```
 
+<!-- colloid-only -->
 Use `export-scaffold.py` only from a reviewed commit. It reads Git, not the working tree.
+<!-- /colloid-only -->
