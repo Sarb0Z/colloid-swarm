@@ -137,6 +137,8 @@ printf 'one\ntwo\nthree\nfour\nfive\n' >"$base/.agents/playbooks/hostile-review.
 printf 'skill base\n' >"$base/.agents/skills/qa-verifier/AGENTS.md"
 printf 'persona base\n' >"$base/.agents/personas/mechanic.md"
 rm "$base/.agents/test-codex.sh"
+mkdir -p "$base/.agents/hooks/lib/__pycache__"
+printf 'bytecode\n' >"$base/.agents/hooks/lib/__pycache__/config.pyc"
 cp -R "$base" "$sat"
 rm -rf "$sat/export"
 printf 'ONE\ntwo\nthree\nfour\nfive\n' >"$sat/.agents/playbooks/hostile-review.md"
@@ -157,5 +159,6 @@ cmp -s "$sat/.agents/README.md" "$kit/.agents/README.md" || fail "merge-kit skip
 grep -q '^<<<<<<< satellite' "$sat/.agents/personas/mechanic.md" || fail "merge-kit hid a same-line conflict"
 grep -q 'conflict: 1' <<<"$out" || fail "merge-kit miscounted conflicts: $out"
 [[ -L "$sat/.claude/skills/workloop" ]] || fail "merge-kit wrote through a linked directory"
+[[ -e "$sat/.agents/hooks/lib/__pycache__/config.pyc" ]] || fail "merge-kit treated bytecode as kit content"
 
 echo "Export checks passed."
