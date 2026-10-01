@@ -128,7 +128,10 @@ will keep it.
   workflows, package scripts, `tools/`, and `infra/` deploy too — state the
   criterion,
   and leave the read-only ones off. The operator's ignored `config.json` may
-  extend this list and never shrinks it.
+  extend this list and never shrinks it. Under
+  `hooks.guard_publish.dry_run_commands`, name only the listed entries whose
+  code reads `--dry-run` and rehearses; every other listed script asks even
+  with the flag, because a script that ignores it deploys anyway.
 - **Skills**: keep what the work uses, by name, and delete the rest with their
   host links. A backend keeps security, scalability, code review, research,
   QA, and workloop; a customer web app adds frontend, responsive web, and
