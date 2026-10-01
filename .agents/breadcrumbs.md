@@ -66,3 +66,4 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **No stack pack covers Flutter** — two satellites are Flutter, and the carrier ships packs only for Expo, NestJS, Next.js and Rails, so both keep zero packs. Write one, or state the gap.
 - **The post-edit check does not cover Dart** — it dispatches on Python, TypeScript and JavaScript, so a Flutter satellite's main language has no automatic gate after an edit. Add `dart analyze`, or record the limit.
 - **`fetch_readable` falls back to a capture of any age** — one measured capture was 146 days old, which is history rather than current content. Return the capture age, or take a caller-supplied maximum and refuse past it.
+- **The Codex developer text names `fable`** — `.agents/codex/config.toml` tells Codex to delegate "up to `fable`", a Claude-only model, so every Codex-first satellite reads a tier it cannot dispatch. Name Codex's own tiers there.
