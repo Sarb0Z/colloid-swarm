@@ -17,7 +17,11 @@ heredoc body or a `-c`/`-e` payload — is itself a script outside the repositor
 
 Detection is textual: a management host and a write signal in the same file.
 SDK clients (supabase-js admin, octokit), a CLI spawned from a script, and a
-direct database URL are not seen. The threat model is an honest mistake, as in
+direct database URL are not seen.
+
+No argument exempts the refusal: a `--dry-run` is a claim the script makes
+about itself, and nobody has reviewed this script. The caller decides which
+committed scripts rehearse, and only the ask is exempted for them. The threat model is an honest mistake, as in
 guard-destructive.
 """
 
@@ -66,7 +70,7 @@ def writes_hosted(text):
 
 def runs(words):
     """The script operand one command runs, or None."""
-    if not words or "--dry-run" in words[1:]:
+    if not words:
         return None
     name = os.path.basename(words[0])
     if SCRIPT.fullmatch(words[0]) and "/" in words[0]:
@@ -90,7 +94,7 @@ def runs(words):
 
 
 def executed(command, shell, cwd):
-    """Absolute paths of the scripts the command runs, in order.
+    """(absolute path, arguments) for each script the command runs, in order.
 
     A relative operand resolves against the directory the shell is in when it
     runs: the session's working directory, moved by each `cd` or `pushd`
@@ -105,13 +109,14 @@ def executed(command, shell, cwd):
             continue
         script = runs(words)
         if script:
-            found.append(resolve(script, here))
+            args = words[words.index(script) + 1:] if script in words else []
+            found.append((resolve(script, here), tuple(args)))
     # Inline code runs a path only through a loader; a path it merely names —
     # a file it edits, a string it prints — is data.
     if INLINE.search(command):
         for line in command.split("\n"):
             if LOADERS.search(line):
-                found += [resolve(m.group(1), here) for m in SCRIPT.finditer(line) if "/" in m.group(1)]
+                found += [(resolve(m.group(1), here), ()) for m in SCRIPT.finditer(line) if "/" in m.group(1)]
     return list(dict.fromkeys(found))
 
 
@@ -177,11 +182,15 @@ REMEDY = (" AGENTS.md §Changes live in the repository: production state is appl
           "from there. Do not retry it from outside the repository or inline.")
 
 
-def verdict(command, project, shell, cwd=None):
-    """("deny" | "ask", reason) for a hosted write the command makes, or None."""
+def verdict(command, project, shell, cwd=None, rehearses=lambda path, args: False):
+    """("deny" | "ask", reason) for a hosted write the command makes, or None.
+
+    `rehearses(path, args)` is true when the repository declares that this
+    committed script, run with these arguments, only rehearses.
+    """
     project = os.path.realpath(project or ".")
     inline = bool(INLINE.search(command))
-    for path in executed(command, shell, os.path.realpath(cwd or project)):
+    for path, args in executed(command, shell, os.path.realpath(cwd or project)):
         body = read(path) if os.path.isfile(path) else ""
         # A script written in the same call is missing or stale at hook time;
         # the command text carries its new body, and it is not committed code.
@@ -189,6 +198,8 @@ def verdict(command, project, shell, cwd=None):
         if not writes_hosted(body + ("\n" + command if rewritten else "")):
             continue
         if not rewritten and committed(path):
+            if rehearses(path, args):
+                continue
             return ("ask", f"{path} writes to a hosted management API.")
         if not rewritten and build_output(path):
             continue
