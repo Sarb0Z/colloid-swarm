@@ -49,12 +49,39 @@ production deploy is, so name the claim QA must reproduce from a fresh clone.
 
 ## Sync
 
-1. Append `export/gitignore-fragment` before the first sync. An unanchored
+A target that already carries the scaffold has edited its copy. Copying the
+new kit over it erases those edits, so a re-sync is a three-way merge against
+the kit it was last synced from:
+
+```sh
+# in the carrier: the commit whose scaffold the target holds most of, byte for byte
+python3 .agents/export/merge-kit.py --find-base <target>
+git worktree add --detach /tmp/carrier-base <base-commit>
+/tmp/carrier-base/.agents/export-scaffold.py /tmp/kit-base
+git worktree remove /tmp/carrier-base
+.agents/export-scaffold.py /tmp/kit-new
+# report first, then write; conflicts carry git merge markers
+python3 /tmp/kit-new/export/merge-kit.py <target> /tmp/kit-base /tmp/kit-new
+python3 /tmp/kit-new/export/merge-kit.py <target> /tmp/kit-base /tmp/kit-new --apply
+```
+
+The merge keeps every file the target deleted (a pruned skill or stack pack
+stays pruned) and reports the root `AGENTS.md` for step 3. A first sync has no
+base; it copies the kit.
+
+1. Reconcile `export/gitignore-fragment` on every sync, not only the first:
+   each carrier release can add a runtime state file, and a missing line means
+   the target commits that state. An unanchored
    `dist/` already in the target also matches `.agents/mcp-servers/*/dist/`;
    the negation only works after it. Then confirm nothing the kit ships is
    ignored: `git ls-files --others --ignored --exclude-standard .agents .claude
    .codex .github` must print nothing.
-2. Merge `AGENTS.md` by section, never by file. The target owns its sections
+2. Exclude `.agents/` from every linter and formatter that walks the
+   repository root — an ESLint flat config's `ignores`, `.prettierignore`,
+   ruff's `extend-exclude`. The committed server bundles under
+   `.agents/mcp-servers/*/dist/` are not the target's code, and a root
+   `eslint .` reports them as errors and turns CI red.
+3. Merge `AGENTS.md` by section, never by file. The target owns its sections
    and their position and depth; the kit owns the sections it ships. Three
    traps, each of which has lost repository policy once: a heading below depth
    three inside a replaced section is swallowed with it; a target-owned
@@ -63,20 +90,20 @@ production deploy is, so name the claim QA must reproduce from a fresh clone.
    the contract under its own heading needs every kit heading shifted to match.
    After the merge, diff the heading list against the previous commit — a
    missing title is a lost section.
-3. Delete every `stack-*.md` whose `detect:` markers the target does not have,
+4. Delete every `stack-*.md` whose `detect:` markers the target does not have,
    with its `.claude/rules/` and `.github/instructions/01-*` links. Keep every
    stack it genuinely runs.
-4. Never `--delete` on the sync; the target's own CI workflows and skills live
+5. Never `--delete` on the sync; the target's own CI workflows and skills live
    beside the kit's files.
-5. Merge `export/debt-log-entry.md` into the target's debt log when it carries
+6. Merge `export/debt-log-entry.md` into the target's debt log when it carries
    entries. The kit drops `.agents/breadcrumbs.md`, `.agents/debt-log.md`, and
    `.agents/decisions.md`; a target's copies are a create, not a merge.
-6. A generated host config that carries an absolute path — `.mcp.json`,
+7. A generated host config that carries an absolute path — `.mcp.json`,
    `.codex/config.toml`, `.kimi-code/mcp.json` once a bundled server is
    enabled — must not be tracked; it breaks every other clone. The fragment
    ignores them; `git rm --cached` the ones a target already tracks and say so
    in the commit.
-7. Remove the `export/` directory last; the steps above read from it.
+8. Remove the `export/` directory last; the steps above read from it.
 
 ## Adapt
 
@@ -97,7 +124,9 @@ will keep it.
   under `hooks.guard_publish.outward_commands`, every script that writes to a
   hosted system: the deploy script, anything that sets hosted environment or
   secrets, applies a schema to a remote database, or writes hosted rows or
-  blobs. Enumerate by reading `scripts/` and its siblings, state the criterion,
+  blobs. Enumerate from `git ls-files`, not from `scripts/` alone — CI
+  workflows, package scripts, `tools/`, and `infra/` deploy too — state the
+  criterion,
   and leave the read-only ones off. The operator's ignored `config.json` may
   extend this list and never shrinks it.
 - **Skills**: keep what the work uses, by name, and delete the rest with their

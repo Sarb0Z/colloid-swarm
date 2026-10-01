@@ -48,6 +48,12 @@ for path in "${retained[@]}"; do
   [[ -e "$kit/$path" ]] || fail "export omitted $path"
 done
 
+# Every satellite runs the scaffold's verification list as written; a check it
+# names but the export drops fails there with "No such file".
+while read -r path; do
+  [[ -e "$kit/$path" ]] || fail "exported .agents/AGENTS.md names $path, which the export drops"
+done < <(grep -oE '\.agents/[A-Za-z0-9_./-]+\.(sh|py)' "$kit/.agents/AGENTS.md" | sort -u)
+
 # A hook that starts writing a new runtime state file leaves the kit's
 # gitignore fragment behind, and every target then commits that state. The
 # repository's own ignore rules are the source of truth for what is transient.
@@ -121,5 +127,35 @@ cp -R "$kit" "$work/lean"
 rm -rf "$work/lean/.agents/mcp-servers/security-mcp"
 python3 "$work/lean/export/drop-server.py" "$work/lean" security-mcp >/dev/null
 python3 "$work/lean/.agents/mcp.py" >/dev/null
+
+# merge-kit applies only the carrier's change, keeps the satellite's edits and
+# deletions, and leaves a same-line edit on both sides to a hand merge.
+base="$work/base-kit" sat="$work/satellite"
+cp -R "$kit" "$base"
+printf 'old line\n' >"$base/.agents/README.md"
+printf 'one\ntwo\nthree\nfour\nfive\n' >"$base/.agents/playbooks/hostile-review.md"
+printf 'skill base\n' >"$base/.agents/skills/qa-verifier/AGENTS.md"
+printf 'persona base\n' >"$base/.agents/personas/mechanic.md"
+rm "$base/.agents/test-codex.sh"
+cp -R "$base" "$sat"
+rm -rf "$sat/export"
+printf 'ONE\ntwo\nthree\nfour\nfive\n' >"$sat/.agents/playbooks/hostile-review.md"
+rm "$sat/.agents/skills/qa-verifier/AGENTS.md"
+printf 'persona satellite\n' >"$sat/.agents/personas/mechanic.md"
+printf 'persona kit\n' >"$kit/.agents/personas/mechanic.md"
+printf 'one\ntwo\nthree\nfour\nFIVE\n' >"$kit/.agents/playbooks/hostile-review.md"
+before="$(cd "$sat" && find . -type f -exec cksum {} + | sort)"
+python3 "$kit/export/merge-kit.py" "$sat" "$base" "$kit" >/dev/null && fail "merge-kit hid a conflict"
+[[ "$(cd "$sat" && find . -type f -exec cksum {} + | sort)" == "$before" ]] \
+  || fail "merge-kit wrote without --apply"
+out="$(python3 "$kit/export/merge-kit.py" "$sat" "$base" "$kit" --apply)" && fail "merge-kit hid a conflict"
+cmp -s "$sat/.agents/README.md" "$kit/.agents/README.md" || fail "merge-kit skipped a carrier update"
+[[ "$(cat "$sat/.agents/playbooks/hostile-review.md")" == $'ONE\ntwo\nthree\nfour\nFIVE' ]] \
+  || fail "merge-kit lost one side of a clean merge"
+[[ ! -e "$sat/.agents/skills/qa-verifier/AGENTS.md" ]] || fail "merge-kit restored a satellite deletion"
+[[ -e "$sat/.agents/test-codex.sh" ]] || fail "merge-kit skipped a carrier addition"
+grep -q '^<<<<<<< satellite' "$sat/.agents/personas/mechanic.md" || fail "merge-kit hid a same-line conflict"
+grep -q 'conflict: 1' <<<"$out" || fail "merge-kit miscounted conflicts: $out"
+[[ -L "$sat/.claude/skills/workloop" ]] || fail "merge-kit wrote through a linked directory"
 
 echo "Export checks passed."
