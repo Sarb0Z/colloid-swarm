@@ -197,7 +197,11 @@ gate is not wired there. The toggle is `hooks.wait_gate.enabled`.
 writing to a hosted management API when that script is outside the
 repository, untracked, or edited since the last commit, and inline code that
 does the same (`hooks/lib/hosted-scripts.py`); the committed, unchanged script
-asks like any outward mutation. Detection is textual — a management host and a
+asks like any outward mutation. No argument removes the refusal. The ask is
+removed only for a script that `dry_run_commands` declares, and only when its
+`--dry-run` is on: bare, followed by a word outside the boolean vocabulary, or
+set to an on-value such as `true`. Any occurrence that is off, empty, or an
+unknown `=` value makes the run live. Detection is textual — a management host and a
 write signal in the file the command runs — so SDK clients and CLIs spawned
 from a script are not seen. See decision `hosted-writes-need-committed-code`.
 
