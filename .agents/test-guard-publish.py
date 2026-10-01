@@ -362,6 +362,15 @@ with tempfile.TemporaryDirectory() as tmp:
                     "./scripts/verify.sh", "ls switch-on"):
         reason = guard.verdict("Bash", {"command": command}, outward)
         check(f"quiet on a read or dry run: {command}", reason is None, reason or "")
+    # A script whose flag takes a value reads `--dry-run false` as a live run.
+    for command in ("./scripts/deploy.sh --dry-run false", "./scripts/deploy.sh --dry-run FALSE",
+                    "./scripts/deploy.sh --dry-run 0", "./scripts/deploy.sh --dry-run no",
+                    "./scripts/deploy.sh --dry-run off"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"a dry-run flag switched off is a live run: {command}", reason is not None, "quiet")
+    for command in ("./scripts/deploy.sh --dry-run true", "./scripts/deploy.sh --dry-run --prod"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"quiet on a dry run followed by a value or flag: {command}", reason is None, reason or "")
     # -n is git's rehearsal flag, not these scripts': deploy.sh ignores it.
     for command in ("./scripts/deploy.sh -n", "scripts/deploy.sh -vn", "./scripts/deploy.sh -newer"):
         reason = guard.verdict("Bash", {"command": command}, outward)
