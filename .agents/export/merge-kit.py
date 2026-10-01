@@ -62,6 +62,8 @@ def files(root):
     descending into it would write through the link into its target."""
     found = {}
     for directory, subdirectories, names in os.walk(root, followlinks=False):
+        # Running a kit's scripts leaves bytecode in it; that is not kit content.
+        subdirectories[:] = [d for d in subdirectories if d != "__pycache__"]
         here = pathlib.Path(directory)
         linked = [d for d in subdirectories if (here / d).is_symlink()]
         for name in names + linked:
