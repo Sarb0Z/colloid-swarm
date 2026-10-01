@@ -100,12 +100,17 @@ CONTROL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "time"
 # (`firestore:delete`), so neither fits a prefix table or a host prefix rule.
 # The verb decides; the groups below only configure the local CLI.
 GCLOUD_LOCAL_GROUPS = {"config", "auth", "components", "info", "help", "version",
-                       "topic", "cheat-sheet", "feedback", "init"}
+                       "topic", "cheat-sheet", "feedback", "init", "emulators"}
+GCLOUD_TRACKS = {"alpha", "beta", "preview"}
 GCLOUD_WRITES = {"create", "delete", "update", "deploy", "set", "unset", "patch",
                  "import", "enable", "disable", "undelete", "restore", "replace",
-                 "rollback", "add-iam-policy-binding", "remove-iam-policy-binding",
-                 "set-iam-policy", "submit", "execute", "add", "remove", "cancel",
-                 "resize", "start", "stop", "reset", "promote", "rm", "mv"}
+                 "rollback", "submit", "execute", "add", "remove", "cancel",
+                 "resize", "start", "stop", "reset", "promote", "rm", "mv",
+                 "publish", "migrate", "export", "run", "call", "apply"}
+# A verb family: `set-traffic`, `add-iam-policy-binding`, `enable-oslogin`.
+GCLOUD_WRITE_PREFIXES = ("add-", "remove-", "set-", "update-", "create-", "delete-",
+                         "enable-", "disable-")
+GCLOUD_READS = {"describe", "list", "get", "read", "tail", "ls", "cat", "du"}
 FIREBASE_WRITES = {"delete", "set", "unset", "remove", "update", "push", "import",
                    "disable", "enable", "clone", "create", "install", "uninstall",
                    "destroy", "rollback"}
@@ -172,15 +177,27 @@ def positionals(words, value_flags=frozenset()):
 
 def gcloud_reason(rest):
     """gcloud's verb is the last word of its group path; a flag value
-    (`--project p`) is not part of the path."""
+    (`--project p`) is not part of the path.
+
+    The word after the release track is always a group, never a verb, so
+    `run` there is Cloud Run and `emulators` there is the local emulator; the
+    same words further down are a verb (`scheduler jobs run`) or an operand
+    (`run deploy emulators`). The first word that reads or writes is the verb:
+    the operands after a read (`describe update-checker`) are names.
+    """
     path = positionals(rest, VALUE_FLAGS["gcloud"])
-    if not path or path[0] in GCLOUD_LOCAL_GROUPS or "emulators" in path:
+    start = 1 if path[:1] and path[0] in GCLOUD_TRACKS else 0
+    if len(path) <= start or path[start] in GCLOUD_LOCAL_GROUPS:
         return None
-    for index, word in enumerate(path):
-        if word in GCLOUD_WRITES:
+    for index in range(start + 1, len(path)):
+        word = path[index]
+        if word in GCLOUD_READS or word.startswith(("get-", "list-", "describe-")):
+            return None
+        if word in GCLOUD_WRITES or word.startswith(GCLOUD_WRITE_PREFIXES):
             return f"gcloud {' '.join(path[:index + 1])} mutates the hosted project."
-        if word == "cp" and path[-1].startswith("gs://"):
-            return "gcloud storage cp uploads to a hosted bucket."
+        # A copy or sync writes only when a bucket is the destination.
+        if word in ("cp", "rsync") and path[-1].startswith("gs://"):
+            return f"gcloud storage {word} uploads to a hosted bucket."
     return None
 
 
@@ -405,21 +422,30 @@ def outward_targets(words, shell):
     return [words[0]]
 
 
-# A script whose flag takes a value reads `--dry-run false` as a live run.
-SWITCHED_OFF = {"false", "f", "0", "no", "n", "off"}
+# The boolean vocabulary a dry-run flag's value is read in. A value outside
+# both sets after `=` may mean off to the script, so it is a live run.
+SWITCHED_ON = {"true", "t", "1", "yes", "y", "on"}
+SWITCHED_OFF = {"false", "f", "0", "no", "n", "off", "", "disabled"}
 
 
 def rehearsal(args):
-    """True when the arguments ask for a dry run and none switches it off.
-    A script reads the last occurrence, so any switched-off one may win."""
+    """True when the arguments ask for a dry run and every occurrence is on.
+
+    A script reads the last occurrence, so any one that is not on may win.
+    `--dry-run=<v>` is on only for a value in SWITCHED_ON. A separate word
+    after a bare `--dry-run` is its value only when it is in the boolean
+    vocabulary; any other word (`--dry-run production`) is an operand, so the
+    flag was bare and on. A script that takes such a word as the flag's value
+    is one the repository must not declare in dry_run_commands.
+    """
     values = []
     for index, word in enumerate(args):
         if word == "--dry-run":
-            following = args[index + 1] if index + 1 < len(args) else ""
-            values.append(following)
+            following = args[index + 1].strip().lower() if index + 1 < len(args) else None
+            values.append(following not in SWITCHED_OFF)
         elif word.startswith("--dry-run="):
-            values.append(word.split("=", 1)[1])
-    return bool(values) and not any(v.lower() in SWITCHED_OFF for v in values)
+            values.append(word.split("=", 1)[1].strip().lower() in SWITCHED_ON)
+    return bool(values) and all(values)
 
 
 def rule_outward(words, outward, shell, rehearsals=()):
