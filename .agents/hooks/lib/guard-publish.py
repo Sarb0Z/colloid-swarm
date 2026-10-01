@@ -408,20 +408,16 @@ def rehearsal(args):
     return bool(values) and not any(v.lower() in SWITCHED_OFF for v in values)
 
 
-def matches(target, entry):
-    """The listed path, any path ending in it, or its bare name after a `cd`."""
-    normalized = target.lstrip("./")
-    return (normalized == entry or normalized.endswith("/" + entry)
-            or os.path.basename(normalized) == os.path.basename(entry))
-
-
 def rule_outward(words, outward, shell, rehearsals=()):
     for target in outward_targets(words, shell):
+        normalized = target.lstrip("./")
         for entry in outward:
-            # A script that writes to production is worth an ask under whatever
-            # path it was reached by. Reads never get here — the command word
-            # is `cat` or `grep`, not the script.
-            if matches(target, entry):
+            # The listed path, any path ending in it, or its bare name after a
+            # `cd`: a script that writes to production is worth an ask under
+            # whatever path it was reached by. Reads never get here — the command
+            # word is `cat` or `grep`, not the script.
+            if (normalized == entry or normalized.endswith("/" + entry)
+                    or os.path.basename(normalized) == os.path.basename(entry)):
                 # Only --dry-run on a script declared to honour it rehearses.
                 # `-n` is git's convention, not these scripts'.
                 if entry in rehearsals and rehearsal(words[1:]):
