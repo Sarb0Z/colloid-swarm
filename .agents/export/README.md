@@ -66,7 +66,11 @@ python3 /tmp/kit-new/export/merge-kit.py <target> /tmp/kit-base /tmp/kit-new --a
 ```
 
 The merge keeps every file the target deleted (a pruned skill or stack pack
-stays pruned) and reports the root `AGENTS.md` for step 3. A first sync has no
+stays pruned) and does not add a carrier file under a directory the target
+pruned. It applies a change to the executable bit, and a three-way merge keeps
+CRLF line endings. It decides every path before it writes: a kit directory
+where the target has a file is a conflict, not a partial apply. It reports the
+root `AGENTS.md` for step 3. A first sync has no
 base; it copies the kit.
 
 1. Reconcile `export/gitignore-fragment` on every sync, not only the first:
@@ -131,7 +135,10 @@ will keep it.
   extend this list and never shrinks it. Under
   `hooks.guard_publish.dry_run_commands`, name only the listed entries whose
   code reads `--dry-run` and rehearses; every other listed script asks even
-  with the flag, because a script that ignores it deploys anyway.
+  with the flag, because a script that ignores it deploys anyway. The same
+  list governs a committed script that writes to a hosted management API.
+  Declare a script only when it reads a bare `--dry-run` as on and takes no
+  word other than a boolean as the flag's value.
 - **Skills**: keep what the work uses, by name, and delete the rest with their
   host links. A backend keeps security, scalability, code review, research,
   QA, and workloop; a customer web app adds frontend, responsive web, and

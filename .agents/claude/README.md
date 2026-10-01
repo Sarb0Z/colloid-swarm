@@ -73,6 +73,13 @@ the prompt shows.
 a prompt on every read teaches the operator to approve without reading. The
 parser inspects the method and gates the writes.
 
+The `gcloud` and `firebase` writes are hook-only, except `firebase deploy`.
+`gcloud` puts its verb at the end of a group path of any depth (`gcloud
+services api-keys delete`), and `firebase` puts it after a colon namespace
+(`firestore:delete`). A prefix rule cannot state either shape. A global flag
+before the verb (`firebase -P prod deploy`) also defeats the one prefix rule.
+With `guard_publish` disabled, no prompt gates these writes.
+
 ### MCP tools
 
 Both layers above read a shell command, so an outward mutation issued through an
