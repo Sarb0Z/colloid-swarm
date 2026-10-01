@@ -146,18 +146,42 @@ rm "$sat/.agents/skills/qa-verifier/AGENTS.md"
 printf 'persona satellite\n' >"$sat/.agents/personas/mechanic.md"
 printf 'persona kit\n' >"$kit/.agents/personas/mechanic.md"
 printf 'one\ntwo\nthree\nfour\nFIVE\n' >"$kit/.agents/playbooks/hostile-review.md"
+# A carrier file added under a skill or MCP bundle the satellite pruned stays out.
+rm -rf "$sat/.agents/skills/perf-budget" "$sat/.agents/mcp-servers/security-mcp"
+printf 'new\n' >"$kit/.agents/skills/perf-budget/new.md"
+printf 'new\n' >"$kit/.agents/mcp-servers/security-mcp/new.js"
+# A mode-only carrier change is a change.
+chmod +x "$kit/.agents/rules/documentation.md"
+# Line endings survive a three-way merge.
+printf 'a\r\nb\r\nc\r\nd\r\ne\r\n' >"$base/.agents/playbooks/crlf.md"
+printf 'A\r\nb\r\nc\r\nd\r\ne\r\n' >"$sat/.agents/playbooks/crlf.md"
+printf 'a\r\nb\r\nc\r\nd\r\nE\r\n' >"$kit/.agents/playbooks/crlf.md"
+# A new kit directory where the satellite holds a file is a conflict, found
+# before anything is written.
+printf 'satellite file\n' >"$sat/.agents/blocked"
+mkdir -p "$kit/.agents/blocked"
+printf 'kit file\n' >"$kit/.agents/blocked/inner.md"
 before="$(cd "$sat" && find . -type f -exec cksum {} + | sort)"
 python3 "$kit/export/merge-kit.py" "$sat" "$base" "$kit" >/dev/null && fail "merge-kit hid a conflict"
 [[ "$(cd "$sat" && find . -type f -exec cksum {} + | sort)" == "$before" ]] \
   || fail "merge-kit wrote without --apply"
-out="$(python3 "$kit/export/merge-kit.py" "$sat" "$base" "$kit" --apply)" && fail "merge-kit hid a conflict"
+out="$(python3 "$kit/export/merge-kit.py" "$sat" "$base" "$kit" --apply 2>&1)" && fail "merge-kit hid a conflict"
+grep -q Traceback <<<"$out" && fail "merge-kit crashed mid-apply: $out"
 cmp -s "$sat/.agents/README.md" "$kit/.agents/README.md" || fail "merge-kit skipped a carrier update"
 [[ "$(cat "$sat/.agents/playbooks/hostile-review.md")" == $'ONE\ntwo\nthree\nfour\nFIVE' ]] \
   || fail "merge-kit lost one side of a clean merge"
 [[ ! -e "$sat/.agents/skills/qa-verifier/AGENTS.md" ]] || fail "merge-kit restored a satellite deletion"
 [[ -e "$sat/.agents/test-codex.sh" ]] || fail "merge-kit skipped a carrier addition"
 grep -q '^<<<<<<< satellite' "$sat/.agents/personas/mechanic.md" || fail "merge-kit hid a same-line conflict"
-grep -q 'conflict: 1' <<<"$out" || fail "merge-kit miscounted conflicts: $out"
+grep -q 'conflict: 2' <<<"$out" || fail "merge-kit miscounted conflicts: $out"
+grep -q '\.agents/blocked/inner\.md' <<<"$out" || fail "merge-kit did not report a file blocking a kit directory"
+[[ "$(cat "$sat/.agents/blocked")" == 'satellite file' ]] || fail "merge-kit overwrote a satellite file blocking a kit directory"
+[[ ! -e "$sat/.agents/skills/perf-budget" ]] || fail "merge-kit restored a pruned skill"
+[[ ! -e "$sat/.agents/mcp-servers/security-mcp" ]] || fail "merge-kit restored a pruned MCP bundle"
+grep -q 'kept-deleted' <<<"$out" || fail "merge-kit did not report a pruned addition: $out"
+[[ -x "$sat/.agents/rules/documentation.md" ]] || fail "merge-kit skipped a mode-only carrier change"
+cmp -s "$sat/.agents/playbooks/crlf.md" <(printf 'A\r\nb\r\nc\r\nd\r\nE\r\n') \
+  || fail "merge-kit lost CRLF line endings in a three-way merge"
 [[ -L "$sat/.claude/skills/workloop" ]] || fail "merge-kit wrote through a linked directory"
 [[ -e "$sat/.agents/hooks/lib/__pycache__/config.pyc" ]] || fail "merge-kit treated bytecode as kit content"
 
