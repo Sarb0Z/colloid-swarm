@@ -211,8 +211,10 @@ exit 0.
 
 Drive the deployed publish adapter with every invocation form of each listed
 script — `./x.sh`, `bash x.sh`, `VAR=1 ./x.sh`, `python3 ../tools/x.py`,
-`cd dir && ./x.sh`, `x.sh -n` — and expect an ask; expect quiet on `cat`,
-`grep`, and the literal `--dry-run`. Then `workloop.py init --verify` with the
+`cd dir && ./x.sh`, `x.sh -n`, `x.sh --dry-run` — and expect an ask; expect
+quiet on `cat` and `grep`, and on `--dry-run` only for a script declared in
+`dry_run_commands`. Never declare a script to quiet a failing probe: one that
+ignores the flag deploys with it. Then `workloop.py init --verify` with the
 deploy script and with `rm -rf /`, expecting a refusal that names the guard.
 
 Once committed, have `qa-verifier` reproduce the gating claim from a fresh

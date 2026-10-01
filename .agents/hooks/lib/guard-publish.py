@@ -95,7 +95,21 @@ RUNNER_VALUE_FLAGS = {"-p", "--package"}
 RUNNER_CALL_FLAGS = {"-c", "--call"}      # npx -c "<shell>" runs its value
 CONTROL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "time", "{"}
 # Names a command must mention before the shell parser is worth loading.
-GATED_NAMES = ({"git", "gh", "docker"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
+# gcloud ends a group path of any depth with its verb (`gcloud services
+# api-keys delete`), and firebase namespaces verbs with colons
+# (`firestore:delete`), so neither fits a prefix table or a host prefix rule.
+# The verb decides; the groups below only configure the local CLI.
+GCLOUD_LOCAL_GROUPS = {"config", "auth", "components", "info", "help", "version",
+                       "topic", "cheat-sheet", "feedback", "init"}
+GCLOUD_WRITES = {"create", "delete", "update", "deploy", "set", "unset", "patch",
+                 "import", "enable", "disable", "undelete", "restore", "replace",
+                 "rollback", "add-iam-policy-binding", "remove-iam-policy-binding",
+                 "set-iam-policy", "submit", "execute", "add", "remove", "cancel",
+                 "resize", "start", "stop", "reset", "promote", "rm", "mv"}
+FIREBASE_WRITES = {"delete", "set", "unset", "remove", "update", "push", "import",
+                   "disable", "enable", "clone", "create", "install", "uninstall",
+                   "destroy", "rollback"}
+GATED_NAMES = ({"git", "gh", "docker", "gcloud"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
                | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
 VERCEL_VALUE_FLAGS = {"--cwd", "-Q", "--global-config", "-A", "--local-config",
@@ -130,6 +144,29 @@ def vercel_reason(words):
         index += 1
     if not positionals or positionals[0] in DEPLOY_VERBS["vercel"]:
         return "vercel deploys or mutates the hosted project."
+    return None
+
+
+def gcloud_reason(rest):
+    """gcloud's verb is the last word of its group path; a flag value
+    (`--project p`) is not part of the path."""
+    path, skip = [], False
+    for word in rest:
+        if skip:
+            skip = False
+        elif word.startswith("-"):
+            skip = "=" not in word and word in ("--project", "--account", "--configuration",
+                                                 "--impersonate-service-account", "--region",
+                                                 "--zone", "--format", "--verbosity")
+        else:
+            path.append(word)
+    if not path or path[0] in GCLOUD_LOCAL_GROUPS or "emulators" in path:
+        return None
+    for index, word in enumerate(path):
+        if word in GCLOUD_WRITES:
+            return f"gcloud {' '.join(path[:index + 1])} mutates the hosted project."
+        if word == "cp" and path[-1].startswith("gs://"):
+            return "gcloud storage cp uploads to a hosted bucket."
     return None
 
 
@@ -184,6 +221,12 @@ def rule_bash(command, shell):
         return "docker push publishes the image to the registry."
     if name == "vercel":
         return vercel_reason(rest)
+    if name == "gcloud":
+        return gcloud_reason(rest)
+    if name == "firebase":
+        positional = [word for word in rest if not word.startswith("-")]
+        if positional and positional[0].split(":")[-1] in FIREBASE_WRITES:
+            return f"firebase {positional[0]} writes to the hosted project."
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
         positional = [word for word in rest if not word.startswith("-")]
