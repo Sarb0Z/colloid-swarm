@@ -28,7 +28,6 @@ detect:
 - Pass external effects (subprocess runners, the clock, the filesystem, IPC senders) as parameters at module boundaries. The entry point wires the real implementations, and tests pass fakes. Logic code does not import `node:child_process` or similar.
 - Where a project spans processes (Electron main and renderer, server and browser), the shared request and response types live in one module that both sides import. Browser code never imports a Node module, and the IPC boundary is a validation boundary.
 - Use `async` and `await`. Use `Promise.all` only for operations that are truly independent. Add `AbortSignal` only where a caller cancels.
-- Shared test fakes and fixtures live in one support directory: extend them, do not copy them. Mark slow tests that run real tools so the default suite stays fast, and run them in the full suite before a commit.
 
 ## Abnormal Cases and Rationale
 - A framework pack wins wherever it conflicts with this pack. Examples: the classes, decorators and injector of NestJS, the default exports and file names of the Next.js and Expo routers, and React error-boundary classes.
