@@ -296,6 +296,15 @@ loses Codex or Kimi coverage.
 - **Teardown and post-edit additions:** per-cell attribution in
   `teardown-gate`, and a process cap in `post-edit-check`
   (`colloid-post-edit-no-process-cap`).
+- **An observer that writes notes for the person.** The note names an outward
+  action taken, a decision made without asking, a claim no command backs, or a
+  skipped review or QA step. It is built from `$.model.fork`, a `system` notice
+  that the model never reads, and `$.state` for dismissed topics. It is
+  Claude Code's "You should know" pattern, which cannot run here with telemetry
+  off (`.agents/knowledge/research/2026-10-03-side-agent-observers.md`). It
+  lands only after a replay of past transcripts shows what it catches that the
+  regex hooks miss. The same replay decides whether it absorbs M5. It never
+  gates a call (invariant 1).
 - **A turn-end citation check** for answers that assert external facts.
   `search-and-cite/AGENTS.md` says the skill enforces nothing mechanically.
 
