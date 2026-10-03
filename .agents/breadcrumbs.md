@@ -27,7 +27,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`AGENTS.md` is still 17,615 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
-- **A malformed `policy.json` empties the publish guard's script list** — `config.py` reports the parse error on stderr, but every listed deploy script runs without an ask until the file is fixed. Should the guard ask on every command meanwhile?
+- **A malformed `policy.json` empties the publish guard's script list** — every listed deploy script then runs without an ask (reproduced 2026-10-03), and the stderr report prints three times per command. Should the guard ask on everything until it parses?
 - **Delegation is re-typed per session** — ten September prompts across four satellites asked for it; `AGENTS.md` already makes it the default and prose has not held. Add a gate (a Stop check on undelegated long turns), or accept?
 
 ## Work
