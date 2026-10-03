@@ -114,6 +114,26 @@ def scalar(fm, key):
     return " ".join(raw.split()).strip("\"'")
 
 
+def prose(text):
+    """text without fenced code blocks and inline code spans. Markdown renders
+    neither as a link, so a sample document or file tree inside a fence is an
+    example, not a reference the model follows. A fence closes only on a line of
+    its own character at least as long, and an unclosed fence runs to the end,
+    as in CommonMark."""
+    out, fence = [], None
+    for line in text.splitlines():
+        m = re.match(r" {0,3}(`{3,}|~{3,})", line)
+        if fence is None:
+            if m:
+                fence = m.group(1)
+            else:
+                out.append(re.sub(r"(`+).+?\1", " ", line))
+        elif m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) \
+                and not line.strip().strip(fence[0]):
+            fence = None
+    return "\n".join(out)
+
+
 if have_selection:
     paths = []
     for g in given:
@@ -179,7 +199,7 @@ for path in paths:
     if body > 500:
         errors.append(f"{rel}: body is {body} lines, over the 500-line guidance")
 
-    for target in LINK.findall(src):
+    for target in LINK.findall(prose(src)):
         if EXTERNAL.match(target):
             continue
         if not os.path.isfile(os.path.join(d, target)):
@@ -195,7 +215,7 @@ for path in paths:
         # partial-read condition. A back-link to SKILL.md or an external URL
         # does not.
         outward = []
-        for t in LINK.findall(text):
+        for t in LINK.findall(prose(text)):
             if EXTERNAL.match(t):
                 continue
             resolved = os.path.realpath(os.path.join(os.path.dirname(ref), t))
