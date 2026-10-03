@@ -247,6 +247,14 @@ assert_marker_once "$ft_compact_context"
 assert_not_contains "$ft_compact_context" 'Context was just compacted'
 [[ -f "$ft/.agents/.compaction-pending" ]] || fail 'disabled compact context consumed marker'
 
+# The restated policy defers commit timing to the repository and sizes the
+# trivial exception without a clock, because it ships to every satellite.
+tt_compact_context="$(context_of "$(run_policy "$tt" compact)")"
+assert_contains "$tt_compact_context" 'Context was just compacted'
+assert_contains "$tt_compact_context" "the repository's commit rule decides when commits land"
+assert_not_contains "$tt_compact_context" 'only when the user asks'
+assert_not_contains "$tt_compact_context" 'minutes'
+
 # Both behaviors off: emit nothing and do not change operational state.
 ff="$(make_fixture both-off)"
 write_config "$ff" false false
