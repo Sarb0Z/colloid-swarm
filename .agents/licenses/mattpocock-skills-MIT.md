@@ -10,17 +10,27 @@ License below.
 | `grilling/SKILL.md` | `skills/productivity/grilling/SKILL.md` |
 | `domain-modeling/SKILL.md` | `skills/engineering/domain-modeling/SKILL.md` |
 | `domain-modeling/GLOSSARY-FORMAT.md` | `skills/engineering/domain-modeling/GLOSSARY-FORMAT.md` |
-| `domain-modeling/ADR-FORMAT.md` | `skills/engineering/domain-modeling/ADR-FORMAT.md` |
 
 These upstream files are not carried:
 
+- `skills/engineering/domain-modeling/ADR-FORMAT.md`. Decisions go to
+  `.agents/decisions.md`, as the next list states.
 - Each skill's `agents/openai.yaml`. It holds Codex display metadata, and Codex
   reads the `SKILL.md` frontmatter.
 - The wrapper skills `grill-me` and `grill-with-docs`. Each one only invokes
   `grilling`, or `grilling` and `domain-modeling`, so `/grilling` starts the
   same interview.
 
-The carried files are byte-identical to the source.
+`grilling/SKILL.md` and `domain-modeling/GLOSSARY-FORMAT.md` are byte-identical
+to the source. `domain-modeling/SKILL.md` differs from the source in these ways:
+
+- It records a decision as an entry in `.agents/decisions.md`, and not as an
+  ADR under `docs/adr/`. It states the entry shape inline, because a
+  satellite's copy of that file may not state it. It keeps the source's three
+  tests for when a decision earns a record.
+- Its description and both file-structure diagrams name `.agents/decisions.md`
+  in place of `docs/adr/`. In a repository with several contexts, one
+  `.agents/decisions.md` holds the decisions for every context.
 
 ## License
 
