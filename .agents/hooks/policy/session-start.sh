@@ -168,7 +168,8 @@ unit (A). Classify it immediately — never drift into B unscoped.
 
 Blocking — A cannot complete correctly without B. Before pivoting:
 1. Checkpoint A: update the todo list and note the current file/line. Do not
-   commit to checkpoint; commits happen only when the user asks.
+   commit an unfinished A as the checkpoint: every commit builds and passes
+   its checks, and the repository's commit rule decides when commits land.
 2. B becomes the new scoped unit — re-plan and hostile-review it.
 3. Finish B end-to-end.
 4. Return to A from the checkpoint.
@@ -181,7 +182,7 @@ stable id, referenced from code as \`debt: <id>\` rather than narrated inline.
 If B must be investigated before it can even be classified, delegate that to a
 subagent so it runs in an isolated context.
 
-Trivial exception — a fix under ~15 minutes in a file A already touches may be
+Trivial exception — a fix of a few lines in a file A already touches may be
 done inline. Everything else goes through this gate.
 EOF
   fi
