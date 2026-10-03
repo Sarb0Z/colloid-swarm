@@ -266,6 +266,38 @@ loses Codex or Kimi coverage.
 - The user sees: a large slice cannot end without its review. The reviewer
   always receives the exact contract.
 
+**M7 · Tool-list pruning, always on** (new; the operator's standing goal)
+
+- Today: the main thread defers MCP tools behind tool search, but a subagent
+  that names a server gets every schema up front. A `qa-verifier` received all
+  25 Playwright tools and no ToolSearch, and a bare `permissions.deny` did not
+  remove the denied one. Ten tools carry about 90% of 5,040 Playwright calls,
+  and three were never called. Anthropic says tool choice degrades past 30–50
+  tools (`.agents/knowledge/research/2026-10-03-tool-list-pruning.md`).
+- Measure:
+  - A mod logs each `tool.describe` it sees: the tool, its description length,
+    whether it is deferred, and the agent. It reports the session's tool budget
+    with a `/tools` command.
+  - `.agents/tool-usage.py` counts calls per tool and per persona from the
+    transcripts.
+  - Together they say which tools each surface loads and which it uses.
+- Prune, from the usage data, per surface:
+  - Main thread: keep tool search on, and never set `ENABLE_TOOL_SEARCH=false`.
+    The mod answers `isDeferred: true` for tools under a usage floor.
+    `.agents/mcp.json` keeps servers off until a task needs them.
+  - Personas: each `tools` list names only the tools its role calls. Denied
+    tools go in `disallowedTools`. Add `ToolSearch` where a persona keeps a
+    whole server, once a probe on this version shows the schemas defer.
+- Gate: `test-permissions.sh` fails when a persona exposes more tools than its
+  budget, starting at 30 per Anthropic's statement, or a tool the usage data
+  shows no call for. Each Claude Code update re-runs the probe and the
+  measurement.
+- The user sees: smaller tool lists in every agent, kept that way by a test, and
+  a `/tools` report of what a session loads.
+- Loss: none. Personas, permissions and mods are Claude-only already.
+- Depends on: slice 0 for the mod half. The persona and gate half needs no mod
+  and can land first.
+
 ### Keep as settings hooks
 
 - **Shared with Codex or Kimi, with no measured failure a mod removes:**
@@ -353,6 +385,9 @@ next one starts.
    skill text updated.
 4. **M5,** the provenance gate. The settings hook, its files and its test go.
 5. **M6,** after ruling A1.
+
+M7's persona and gate half needs no mod and may land at any point, slice 0
+included. Its mod half (`/tools` and the deferral answers) lands after slice 1.
 
 A slice that replaces a settings hook deletes the hook. It also deletes its
 settings entries, its dot-file cleanup in `session-start.sh`, and its test. All
