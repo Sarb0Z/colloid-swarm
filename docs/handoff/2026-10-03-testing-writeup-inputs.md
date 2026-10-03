@@ -21,6 +21,58 @@ rules stay out of `AGENTS.md` and the stack packs until the write-up lands.
 - "currently test churn is so high that many of our repos are not in a healthy
   condition despite passing all tests"
 
+Later the same day:
+
+- "anecdotally, this is why i've been slowly pushing for formal verification in
+  the codebase over unit tests / it's a little bit harder to write down trivial
+  theorems / most theorems you'd bother writing have some meat to them (like
+  'this indexer doesn't forget files' or 'if there's an error, it will retry a
+  bounded number of times')"
+- "this is why my stance is to allow the agent to slop it up while you're
+  feeling like it, but to then at some point sit down and create
+  developer-sanctioned highly important tests that specifically encode shit you
+  actually care about, and to have claude clean up the other stuff as
+  appropriate / in general, tests that just check trivial properties is bad"
+- "Like, if you are building a complex and difficult to use tool which agents
+  may easily break by accident, you want a test that actually verifies if it
+  works end-to-end, and which the agents can use to check it / whether you need
+  this really depends on the domain and on how solved it is"
+
+The operator's statement of the rule, verbatim:
+
+> Tests are a budget, not a goal. Write a test only where a silent regression
+> would be expensive or the behaviour is subtle enough that a plausible edit
+> could break it without anyone noticing (dedup keys, ordering, cancellation,
+> share/penalty maths, anything the spec pins with a number); do not test what
+> a type or the compiler already guarantees, and do not test glue. Aim for a
+> small suite where every test failing means something real is broken.
+
+## Mechanism candidates (lead's analysis, not adopted)
+
+- **Two classes of test.** Tests the developer sanctions encode the behavior
+  they care about. An agent may not change or delete one without asking, and a
+  failure there is always a finding. Every other test is agent-written and
+  disposable: a later cleanup pass may prune or rewrite it. This addresses both
+  failure modes in the operator's first point. The sanctioned suite is frozen
+  unless the operator agrees, and the rest may change when that is convenient.
+  It needs a marker that a hook can read, such as a directory or a tag, plus a
+  guard that asks before an edit to a sanctioned test.
+- **A verifier changes nothing to pass.** An obstacle that a verifier meets is a
+  finding. It edits no data, saved state, fixtures or seed rows to get past it.
+  This closes the gap from the incident above.
+- **An end-to-end check for tools that agents can break.** This repository
+  already works that way for its gates: `test-permissions.sh` fires the real
+  hook, and `test-stack-packs.sh` drives the real gate against fixture
+  repositories. Those are the tests an agent runs to learn whether it broke the
+  tool.
+- **Theorems where the tooling exists.** Properties such as "the indexer does
+  not forget files" or "a retry is bounded" are candidates for property-based
+  tests or formal proofs, not example tests. Which tools fit depends on each
+  stack (for example, Hypothesis, fast-check or proptest for property tests,
+  and Lean, Dafny, Kani or TLA+ for proofs). None of them was evaluated here.
+- **Measure the cleanup.** The churn table above, rerun after a cleanup pass,
+  shows whether the suite got smaller and stabler.
+
 ## Incident
 
 The operator's report: "I had a tester subagent which ran into issues, some
