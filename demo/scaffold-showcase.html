@@ -284,15 +284,15 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, eighteen enforcement hooks, seventeen skills, and an evidence trail —
+      A hostile-review workflow, nineteen enforcement hooks, nineteen skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">Research → plan → attack → implement → attack. Principles, communication, delegation.</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">11 gates · 5 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">18 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">12 gates · 5 context injectors · 1 evidence trail · 2 checkpoints, on the session lifecycle.</span><span class="m-n">19 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
-      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">17 skills</span></a>
+      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">19 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
       <a href="#tracking"><span class="m-name">tracking</span><span class="m-desc">No tombstone comments — deferred work and standing tradeoffs get typed ledgers.</span><span class="m-n">2 ledgers</span></a>
       <a href="#config"><span class="m-name">config</span><span class="m-desc">Every hook, threshold, and behavior is a switch in one committed file.</span><span class="m-n">config.json</span></a>
@@ -371,7 +371,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 96 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 109 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change ships to production. Do not ship placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks. Meet that bar on the first pass, not after review catches it.
 
@@ -436,6 +436,19 @@ Size work and effort in tokens (context/output budget), never wall-clock time. &
 
 ### No backwards compatibility
 Remove stubs and dead code completely. If something is unused or being replaced, delete it outright.
+
+### Errors fail loudly
+Never swallow an error in code you write or change: a failure is reported through the project&#x27;s logger or raised. A hook that must not block reports on stderr and exits 0. Do not add speculative error handling — trust internal code and framework guarantees, and validate at each system boundary, on the side that enforces it: user input, external APIs, files, and other processes. A service that faces users tells a user&#x27;s mistake from a defect: bad input gets a specific error that says what to fix, and a generic internal error is reserved for defects and infrastructure failures. When a new code path can fail, ask whether normal use can trigger that failure; if it can, give it its own error. The stack packs state the language-specific forms.
+
+### Commits split along seams
+Land significant work as a sequence of small commits, each with a one-sentence story, split along seams that carry meaning — never mechanically per file or per layer:
+- A refactor that the feature motivated is its own commit and lands before the feature.
+- A defect fixed along the way is its own commit, however small.
+- A behavior change to an existing system is separate from the refactor that enabled it and the feature that exposed it; it is the commit people search for later.
+- A vendored drop stands alone.
+- What only works together stays together: the halves of a feature that cannot run apart, data and the code that loads it.
+
+Every commit builds and passes its checks, so the history bisects. A review fix folds into the commit it belongs to — `git commit --fixup=&lt;sha&gt;`, then `GIT_SEQUENCE_EDITOR=true git rebase --autosquash -x &#x27;&lt;checks&gt;&#x27; &lt;upstream&gt;` — only while that commit is on no remote branch, not yet integrated by a workloop run, and in a tree no other session is writing. Otherwise, or when the fold conflicts (`git rebase --abort`), it lands as a trailing commit whose message names the commit it corrects. This governs how to split; when to commit is set elsewhere. When the work stays uncommitted, propose the split in the report.
 
 ### Durable state, not session lore
 Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### &lt;id&gt;`, condition, trigger, rework cost; code says `debt: &lt;id&gt;`); settled decisions and what would reopen them in `decisions.md`; external observations in `knowledge/`. Operator and machine facts go to the gitignored `CLAUDE.local.md`, never to a committed file. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
@@ -561,7 +574,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 249 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 250 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -731,7 +744,8 @@ unit (A). Classify it immediately — never drift into B unscoped.
 
 Blocking — A cannot complete correctly without B. Before pivoting:
 1. Checkpoint A: update the todo list and note the current file/line. Do not
-   commit to checkpoint; commits happen only when the user asks.
+   commit an unfinished A as the checkpoint: every commit builds and passes
+   its checks, and the repository&#x27;s commit rule decides when commits land.
 2. B becomes the new scoped unit — re-plan and hostile-review it.
 3. Finish B end-to-end.
 4. Return to A from the checkpoint.
@@ -744,7 +758,7 @@ stable id, referenced from code as \`debt: &lt;id&gt;\` rather than narrated inl
 If B must be investigated before it can even be classified, delegate that to a
 subagent so it runs in an isolated context.
 
-Trivial exception — a fix under ~15 minutes in a file A already touches may be
+Trivial exception — a fix of a few lines in a file A already touches may be
 done inline. Everything else goes through this gate.
 EOF
   fi
@@ -2100,6 +2114,50 @@ fi
 </code></pre></details>
             </article>
             <article class="hook" data-t="gate">
+              <div class="top"><span class="id">denied-tool</span><span class="badge gate">gate</span></div>
+              <p class="what">[denied-tool card — what it does for the reader, one or two sentences]</p>
+              <div class="io"><b>in</b> {tool_name} &nbsp;→&nbsp; <b>out</b> exit 2 + remedy | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 38 lines</span></summary><div class="srcpath">.agents/hooks/policy/denied-tool.sh</div><pre><code>#!/usr/bin/env bash
+# Claude policy: refuse a tool that `permissions.deny` names, with the reason and
+# what to use instead, read from ../lib/denied-tools.json.
+#
+# Input  (stdin JSON): {&quot;tool_name&quot;: &quot;&lt;tool&gt;&quot;, &quot;project_dir&quot;: &quot;&lt;repo&gt;&quot;}
+# Output: exit 2 + stderr remedy on a listed tool; exit 0 otherwise.
+#
+# The deny rule enforces the refusal and removes the tool from the main thread&#x27;s
+# list. A subagent whose `tools` names the server still sees the tool, and the
+# host&#x27;s bare denial gives it nothing to do next. This hook guards against that
+# dead end with a remedy; the deny rule stays the floor.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+table=&quot;$repo/.agents/hooks/lib/denied-tools.json&quot;
+
+[[ &quot;$(python3 &quot;$repo/.agents/hooks/lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.denied_tool.enabled=true)&quot; == yes ]] || exit 0
+
+if [[ ! -f &quot;$table&quot; ]]; then
+  echo &quot;denied-tool: $table is missing; the remedy cannot be read.&quot; &gt;&amp;2
+  exit 0
+fi
+
+# The heredoc below is python&#x27;s stdin, so the payload travels as an argument.
+payload=&quot;$(cat)&quot;
+
+exec python3 - &quot;$table&quot; &quot;$payload&quot; &lt;&lt;&#x27;PY&#x27;
+import json
+import sys
+
+tool = json.loads(sys.argv[2] or &quot;{}&quot;).get(&quot;tool_name&quot;) or &quot;&quot;
+entry = json.load(open(sys.argv[1])).get(tool)
+if entry is None:
+    sys.exit(0)
+print(f&quot;{tool} is denied in this repository: {entry[&#x27;why&#x27;]}. Instead, {entry[&#x27;instead&#x27;]}.&quot;, file=sys.stderr)
+sys.exit(2)
+PY
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
               <div class="top"><span class="id">parallel-writers-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Denies a second writing cell while one is already live, so two agents never edit one tree at once. The way through is a coordinated run: each writer gets its own provisioned worktree, and the composed result is verified once. A cell that only reads says so by opening its prompt with <code>READ-ONLY</code>; the lead&#x27;s own edit is denied while an uncoordinated writer is out.</p>
               <div class="io"><b>in</b> {subagent_type, prompt} &nbsp;→&nbsp; <b>out</b> deny + the workloop commands | exit 0</div>
@@ -2721,8 +2779,8 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
   if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
     while IFS= read -r line; do
       [[ -z &quot;$line&quot; ]] &amp;&amp; continue
-      prettier_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
-      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
+      IFS=$&#x27;\t&#x27; read -r prettier_bin _ rest &lt;&lt;&lt; &quot;$line&quot;
+      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;$rest&quot;
       # Stay in $proj: prettier finds its config from each file&#x27;s own path, so
       # the workspace&#x27;s .prettierrc applies either way.
       &quot;$prettier_bin&quot; --write --log-level silent &quot;${jsfiles[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
@@ -2730,9 +2788,9 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
 
     while IFS= read -r line; do
       [[ -z &quot;$line&quot; ]] &amp;&amp; continue
-      eslint_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
-      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
-      (cd &quot;${eslint_bin%/node_modules/.bin/*}&quot; &amp;&amp; &quot;$eslint_bin&quot; --fix &quot;${jsfiles[@]}&quot;) &gt;/dev/null 2&gt;&amp;1 || true
+      IFS=$&#x27;\t&#x27; read -r eslint_bin eslint_cwd rest &lt;&lt;&lt; &quot;$line&quot;
+      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;$rest&quot;
+      (cd &quot;$eslint_cwd&quot; &amp;&amp; &quot;$eslint_bin&quot; --fix &quot;${jsfiles[@]}&quot;) &gt;/dev/null 2&gt;&amp;1 || true
     done &lt;&lt;&lt; &quot;$(js_groups eslint)&quot;
   else
     # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for
@@ -2741,13 +2799,13 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
     # majors.
     while IFS= read -r line; do
       [[ -z &quot;$line&quot; ]] &amp;&amp; continue
-      eslint_bin=&quot;${line%%$&#x27;\t&#x27;*}&quot;
-      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;${line#*$&#x27;\t&#x27;}&quot;
+      IFS=$&#x27;\t&#x27; read -r eslint_bin eslint_cwd rest &lt;&lt;&lt; &quot;$line&quot;
+      IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;$rest&quot;
       # Keep the exit status. ESLint exits 2 with empty stdout when it cannot
       # resolve a config, which a stdout-only reader cannot tell apart from a
       # clean run — the same trap the --format note above describes, one level up.
       eslint_rc=0
-      eslint_raw=&quot;$(cd &quot;${eslint_bin%/node_modules/.bin/*}&quot; &amp;&amp; &quot;$eslint_bin&quot; --format json &quot;${jsfiles[@]}&quot; 2&gt;/dev/null)&quot; || eslint_rc=$?
+      eslint_raw=&quot;$(cd &quot;$eslint_cwd&quot; &amp;&amp; &quot;$eslint_bin&quot; --format json &quot;${jsfiles[@]}&quot; 2&gt;/dev/null)&quot; || eslint_rc=$?
       if [[ &quot;$eslint_rc&quot; -ne 0 &amp;&amp; -z &quot;$eslint_raw&quot; ]]; then
         issues+=$&#x27;\n&#x27;&quot;[eslint] exited $eslint_rc with no report — ${eslint_bin#$proj/} could not run (most often no resolvable config). Nothing was linted.&quot;$&#x27;\n&#x27;
         continue
@@ -7004,6 +7062,110 @@ over any summary of it, and note what was read directly.
 number is the least verified thing in most reports.
 </code></pre></details>
             </article>
+        <article class="card"><div class="kicker">Planning</div><h3>grilling</h3><p>[grilling card — what it does for the reader, one sentence]</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 28 lines</span></summary><div class="srcpath">.agents/skills/grilling/SKILL.md</div><pre><code>---
+name: grilling
+description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any &#x27;grill&#x27; trigger phrases.
+---
+
+Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
+
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven&#x27;t heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user&#x27;s answers before the next round.
+
+Format a round like so:
+
+```
+❓ **Q1** - **&lt;question title&gt;**: &lt;question body, might be multiple paragraphs, including multiple choices&gt;
+
+➡️ &lt;your recommended answer&gt;
+
+---
+
+❓ **Q2** - **&lt;question title&gt;**: &lt;question body, might be multiple paragraphs, including multiple choices&gt;
+
+➡️ &lt;your recommended answer&gt;
+```
+
+Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
+
+Finding _facts_ is your job, never the user&#x27;s. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it; don&#x27;t ask the user for anything you could look up yourself. Don&#x27;t block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report; ask the rest of the frontier now. The _decisions_ are the user&#x27;s: put each to them and wait.
+
+The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
+</code></pre></details>
+            </article>
+        <article class="card"><div class="kicker">Planning</div><h3>domain-modeling</h3><p>[domain-modeling card — what it does for the reader, one sentence]</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 70 lines</span></summary><div class="srcpath">.agents/skills/domain-modeling/SKILL.md</div><pre><code>---
+name: domain-modeling
+description: Build and sharpen a project&#x27;s domain model. Use when discussing codebase terminology, writing or editing a GLOSSARY.md, or recording a domain decision in .agents/decisions.md.
+---
+
+# Domain Modeling
+
+Actively build and sharpen the project&#x27;s domain model as you design. This is the *active* discipline: challenging terms, inventing edge-case scenarios, and writing the glossary and decisions down the moment they crystallise. (Merely *reading* `GLOSSARY.md` for vocabulary is not this skill: that&#x27;s a one-line habit any skill can do. This skill is for when you&#x27;re changing the model, not just consuming it.)
+
+## File structure
+
+Most repos have a single context:
+
+```
+/
+├── GLOSSARY.md
+├── .agents/
+│   └── decisions.md
+└── src/
+```
+
+If a `GLOSSARY-MAP.md` exists at the root, the repo has multiple contexts. The map points to where each one lives:
+
+```
+/
+├── GLOSSARY-MAP.md
+├── .agents/
+│   └── decisions.md                  ← decisions for every context
+├── src/
+│   ├── ordering/
+│   │   └── GLOSSARY.md
+│   └── billing/
+│       └── GLOSSARY.md
+```
+
+Create files lazily: only when you have something to write. If no `GLOSSARY.md` exists, create one when the first term is resolved.
+
+## During the session
+
+### Challenge against the glossary
+
+When the user uses a term that conflicts with the existing language in `GLOSSARY.md`, call it out immediately. &quot;Your glossary defines &#x27;cancellation&#x27; as X, but you seem to mean Y. Which is it?&quot;
+
+### Sharpen fuzzy language
+
+When the user uses vague or overloaded terms, propose a precise canonical term. &quot;You&#x27;re saying &#x27;account&#x27;: do you mean the Customer or the User? Those are different things.&quot;
+
+### Discuss concrete scenarios
+
+When domain relationships are being discussed, stress-test them with specific scenarios. Invent scenarios that probe edge cases and force the user to be precise about the boundaries between concepts.
+
+### Cross-reference with code
+
+When the user states how something works, check whether the code agrees. If you find a contradiction, surface it: &quot;Your code cancels entire Orders, but you just said partial cancellation is possible. Which is right?&quot;
+
+### Update GLOSSARY.md inline
+
+When a term is resolved, update `GLOSSARY.md` right there. Don&#x27;t batch these up: capture them as they happen. Use the format in [GLOSSARY-FORMAT.md](./GLOSSARY-FORMAT.md).
+
+`GLOSSARY.md` should be totally devoid of implementation details. Do not treat `GLOSSARY.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
+
+### Offer decision entries sparingly
+
+Only offer to record a decision in `.agents/decisions.md` when all three are true:
+
+1. **Hard to reverse**: the cost of changing your mind later is meaningful
+2. **Surprising without context**: a future reader will wonder &quot;why did they do it this way?&quot;
+3. **The result of a real trade-off**: there were genuine alternatives and you picked one for specific reasons
+
+If any of the three is missing, skip the entry. Write it as a `### &lt;id&gt;` heading (a kebab slug) with one line each for **Decision** (what holds now, including what was declined), **Why** and **Reopens when**. When a decision changes, rewrite its entry; never add a second entry for the same question.
+</code></pre></details>
+            </article>
         <article class="card"><div class="kicker">Craft</div><h3>mobile-responsive-web</h3><p>Mobile-first correctness with a premium feel: viewport units, container queries, fluid type, touch targets, safe-area insets, Core Web Vitals, and mandatory real-device testing.</p>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 257 lines</span></summary><div class="srcpath">.agents/skills/mobile-responsive-web/SKILL.md</div><pre><code>---
 name: mobile-responsive-web
@@ -7896,10 +8058,11 @@ reproduction of the named claim. Return only the contract report.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>qa-verifier.md</h3><p>Verifies changed observable behavior with focused executable scenarios.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 59 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 60 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;mcp__playwright__*&quot;]
+disallowedTools: [&quot;mcp__playwright__browser_run_code_unsafe&quot;]
 model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
 mcpServers: [&quot;playwright&quot;]
@@ -8445,7 +8608,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 71 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 78 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -8471,19 +8634,24 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **Unpaywall&#x27;s live path has never been called** — the unit tests stub the fetcher, and a real call needs a mailbox in `RESEARCH_MCP_CONTACT_EMAIL`. Which address should it use?
 - **No skill uses `context: fork`, `disallowed-tools`, `model`, `effort`, or `paths`** — all are supported. Forking pentesting, security-audit and seo-geo-growth-audit is the obvious first use. Adopt, or leave unused?
 - **Requiring `AGENTS.md` per skill is a fleet migration** — claude-code-boilerplate (23 of 24), writing-coach (8 of 8) and career-ops (1 of 1) have none, so `lint-skills.sh` red-lights their whole run at the next transplant. Wanted, or scope the rule?
-- **`AGENTS.md` is still 11,397 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
+- **`AGENTS.md` is still 17,615 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
+- **A malformed `policy.json` empties the publish guard&#x27;s script list** — `config.py` reports the parse error on stderr, but every listed deploy script runs without an ask until the file is fixed. Should the guard ask on every command meanwhile?
 - **Delegation is re-typed per session** — ten September prompts across four satellites asked for it; `AGENTS.md` already makes it the default and prose has not held. Add a gate (a Stop check on undelegated long turns), or accept?
 
 ## Work
 
+- **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
+- **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: Xcode lacks its first-launch components and an iOS runtime, and there is no Android SDK. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
+- **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
+- **`teardown-gate.sh` reads any commit as &quot;work done&quot;** — &quot;Commits split along seams&quot; now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
+- **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator&#x27;s write-up on the purpose of testing; adopt rules from it only after that lands.
 - **`guard-destructive.py`&#x27;s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x`, `bash -lc &#x27;rm -rf ~/x&#x27;` and `timeout 600 eas build` pass both guards. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and `-lc`/`-ec`, tested per guard.
 - **`guard-publish.py` keeps `@&lt;version&gt;` on runner operands** — `npx eas-cli@16 submit` misses a listed `eas-cli`, so each pinned tag must be listed separately (Meridian mobile). Strip the version before matching, with test rows.
 - **`guard-publish.py` reads flags only as typed** — `bun run db:reset --linked` passes `--linked` through the alias and resets the linked database with no prompt (MemoGo). Decide whether alias arguments reach the Supabase rule, or state the limit.
 - **`guard-publish.py`&#x27;s Supabase table misses hosted verbs** — `config push`, `functions delete`, `storage`, `sso`, `domains`, `postgres-config` and `network-restrictions` get no decision (MemoGo). Add them beside `DEPLOY_VERBS`, with test rows.
 - **`guard-publish.py` is silent on a listed script run over SSH** — `ssh host &#x27;cd /opt/app &amp;&amp; bash scripts/deploy.sh&#x27;` gets no decision from either guard (Mailstation, 2026-09-30). Match listed paths inside an `ssh` remote command, with a test row.
-- **`guard-publish.py` trusts a literal `--dry-run` on any script** — a script that ignores its arguments deploys with no prompt (Mailstation&#x27;s `lambda/website-scraper/deploy.sh`). Honour `--dry-run` only for scripts the policy marks as supporting it.
 - **`guard-publish.py` has no rule for a typed `aws` mutation** — `aws lambda update-function-code …` gets no decision, unlike the listed deploy scripts. Add the AWS CLI&#x27;s mutating verbs beside the Supabase ones, with test rows.
 - **`wait-gate.py` reads an `&amp;` in a trailing comment as a background** — `echo hi # a &amp; b` is refused with the run_in_background remedy. Strip unquoted trailing comments before `split_operators`, with a test row.
 - **Satellites lack the 2026-09-27 harness changes** — the wait gate, the hosted-script refusal, the writer-gate fix and the contract edits reach a satellite only through a sync pass. Carry them in the next sync.
@@ -8509,13 +8677,15 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
 - **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `&lt;run&gt;/&lt;lane&gt;` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.
 - **The SSH rule is a deny-list under a read-only promise** — it denies only named forms, so each new spelling ships after a loss. Decide whether to deny every remote command that is not a known read-only tool.
-- **The vendored scaffold breaks a satellite&#x27;s ESLint** — taxdrop-one-live&#x27;s `eslint .` linted `.agents/mcp-servers/*/dist/server.js` into 13 errors and a red CI until `.agents/**` was ignored (2026-09-30). Add that ignore step to `export/README.md`.
 - **`hosted-scripts.py` misreads `uv run --with &lt;pkg&gt;`** — it takes the `--with` value as the command, so `uv run --with psycopg2-binary python3 ../tools/copy-env-to-prod.py` asks instead of denying. Skip option values in the runner parse, with a test row.
-- **The exported `.agents/AGENTS.md` lists two tests the export drops** — `test-export.sh` and `test-stack-packs.sh` fail with &quot;No such file&quot; in every satellite. Strip carrier-only lines in `export-scaffold.py`, or mark them `colloid-only`.
-- **`export/README.md` lacks the 2026-09-30 transplant lessons** — enumerate every tracked script (not only `scripts/`), reconcile the gitignore fragment on every sync, and merge three-way against the last-synced kit. Fold them into its Sync and Adapt steps.
-- **No stack pack covers Flutter** — two satellites are Flutter, and the carrier ships packs only for Expo, NestJS, Next.js and Rails, so both keep zero packs. Write one, or state the gap.
+- **No stack pack covers Flutter** — two satellites are Flutter, and the carrier has no Flutter or Dart pack, so both keep zero packs. Write one, or state the gap.
 - **The post-edit check does not cover Dart** — it dispatches on Python, TypeScript and JavaScript, so a Flutter satellite&#x27;s main language has no automatic gate after an edit. Add `dart analyze`, or record the limit.
 - **`fetch_readable` falls back to a capture of any age** — one measured capture was 146 days old, which is history rather than current content. Return the capture age, or take a caller-supplied maximum and refuse past it.
+- **The Codex developer text names `fable`** — `.agents/codex/config.toml` tells Codex to delegate &quot;up to `fable`&quot;, a Claude-only model, so every Codex-first satellite reads a tier it cannot dispatch. Name Codex&#x27;s own tiers there.
+- **The publish guard misses `terraform apply` and `tsx`/`ts-node` runners** — ravi-travels documents a direct `terraform apply tfplan` for production, and `tsx &lt;script&gt;` or `ts-node-transpile-only &lt;script&gt;` never reaches the outward list. Gate `terraform apply|destroy|import` and add those runners to `INTERPRETERS`.
+- **Outward entries also match by bare file name** — customer-delivery-web&#x27;s `deploy/provision.sh` makes `.agents/provision.sh` ask, and `e2e/judge/cli.ts` makes any `cli.ts` ask. Match the bare name only after a `cd` into the listed directory.
+- **Earlier satellites have not declared `dry_run_commands`** — after their next sync, TaxDrop, MemoGo, Parchi and Mailstation ask on every `&lt;listed script&gt; --dry-run`. Read each listed script&#x27;s argument parser and declare only those that rehearse.
+- **A global flag hides the verb for five deploy CLIs** — `wrangler --env prod deploy`, `fly -a app deploy` and like supabase, railway and netlify forms get no decision. Add each CLI&#x27;s value flags to `VALUE_FLAGS`.
 </code></pre></details>
             </article>
         <article class="card">
@@ -8743,7 +8913,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 101 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -8775,6 +8945,9 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
       &quot;enabled&quot;: true
     },
     &quot;guard_publish&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;denied_tool&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;wait_gate&quot;: {
