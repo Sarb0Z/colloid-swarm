@@ -40,6 +40,9 @@ jobs:
       - name: Skill format link rules
         run: .agents/test-lint-skills.sh
 
+      - name: Status strip
+        run: .agents/test-statusline.sh
+
       - name: Breadcrumb shape
         run: python3 .agents/lint-breadcrumbs.py
 

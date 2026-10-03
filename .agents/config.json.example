@@ -99,6 +99,9 @@
     },
     "pre_compact": {
       "enabled": true
+    },
+    "status_strip": {
+      "enabled": true
     }
   }
 }
