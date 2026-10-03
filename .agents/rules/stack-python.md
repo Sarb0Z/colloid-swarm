@@ -18,7 +18,6 @@ detect:
 - Never use a mutable default (`def f(items=[])`). Default to `None` and create the value inside the function.
 - A bare `except:` and `except Exception: pass` are defects. Report the failure through the project's logger, or raise it.
 - Pass external effects (subprocess runners, HTTP clients, the clock, filesystem-heavy helpers) as parameters at module and stage boundaries. The entry point wires the real implementations, and tests pass fakes. Logic code does not import `subprocess` or similar.
-- Shared test fakes and fixtures live in one support directory: extend them, do not copy them. Mark slow tests that run real tools (with pytest, a `-m slow` style marker) so the default suite stays fast.
 
 ## Abnormal Cases and Rationale
 - A mutable default is created once, when the function is defined, so every call shares it and one call's changes reach the next.

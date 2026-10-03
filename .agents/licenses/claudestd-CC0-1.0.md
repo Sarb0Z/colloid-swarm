@@ -31,4 +31,5 @@ The language packs have these differences from the source:
 - It limits every rule to code that the agent writes or changes. The source
   targets new projects.
 - It lets framework packs win wherever they conflict.
-- It makes pytest a convention where the project has it, not a mandate.
+- It holds the source's testing rules for the testing write-up
+  (`docs/handoff/2026-10-03-testing-writeup-inputs.md`) instead of the packs.
