@@ -252,6 +252,17 @@ them at startup and resume, and deleting the live
 file is the manual reset for a cell known to have died. The toggle is
 `hooks.parallel_writers.enabled`.
 
+`claude/statusline.sh` is the status strip, wired as Claude's project
+`statusLine`, so it replaces each person's own status line in every scaffold
+repository. It draws two rows: the account badge, project, branch and dirty
+count, lines changed, PR and session; then model, effort, the context fill,
+the rate-limit windows and the output style. The badge comes from
+`CLAUDE_PROFILE` when the launcher exports it, else from a `~/.claude-<name>`
+config folder. It needs `jq`, and says so on the strip when `jq` is missing;
+its icons need a Nerd Font. The toggle is `hooks.status_strip.enabled`.
+Switched off in `policy.json` or `config.json`, it runs the person's own user
+`statusLine` instead. See decision `status-strip-as-statusline-command`.
+
 Codex hashes hook declarations. After changing `.agents/codex/hooks.json` or a
 Codex hook command, inspect it and run:
 
@@ -312,6 +323,7 @@ python3 .agents/test-hosted-scripts.py
 .agents/test-mcp.sh
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
+.agents/test-statusline.sh
 .agents/test-codex.sh
 .agents/test-export.sh
 python3 demo/check-inventory.py
