@@ -295,6 +295,7 @@ python3 .agents/check-stack-packs.py
 ```sh
 python3 .agents/check-layout.py
 .agents/lint-skills.sh
+.agents/test-lint-skills.sh
 .agents/test-session-start.sh
 .agents/test-workloop.sh
 .agents/test-post-edit-check.sh
