@@ -37,6 +37,9 @@ jobs:
       - name: Skill format
         run: .agents/lint-skills.sh
 
+      - name: Skill format link rules
+        run: .agents/test-lint-skills.sh
+
       - name: Breadcrumb shape
         run: python3 .agents/lint-breadcrumbs.py
 
