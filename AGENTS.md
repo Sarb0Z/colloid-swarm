@@ -43,6 +43,8 @@ Production and staging state follows infrastructure-as-code: hosting settings, e
 ### Copy in the user's voice
 Text that speaks for the user or the product — marketing and landing copy, onboarding and empty-state prose, emails and messages to customers, announcements and posts, reports written in the user's name, and creative text such as dialogue or story — is the user's voice, and a first draft sticks. Models match a voice poorly even from a sample, so do not draft it: leave an obvious placeholder such as `[Hero headline — offer, one line]` and ask the user for the text or its direction — what each piece must say, and to whom — in one question that lists every placeholder. This is the one placeholder the production bar allows; each stays listed as open in the report until the user supplies it. Functional text — labels, error and validation messages, logs, technical documentation — is the agent's to write.
 
+Tests do not pin user-facing copy. Assert relations instead — non-empty, distinct across states that must read differently, equal across states that must read the same — so the copy can change without touching a test. An exact string stays correct where the output is the contract (serialization, parsers, formatters) or the test wrote the fixture itself.
+
 ### Comments and documentation
 Write for a reader who never saw the old code. A comment earns its place by saying what the code cannot: a non-obvious why, a subtle constraint, a surprising tradeoff, or a signpost over a chunk of a long linear process — "Resolve overlaps, nearest first" above the loop beats extracting a function called once. Say what a path guards against, not when it once failed; keep history only when it guards a real regression ("don't revert to the double-precision form; it loses the low bits at Q32 scale"). No tombstones: nothing describes removed or replaced behavior.
 
@@ -63,6 +65,19 @@ Size work and effort in tokens (context/output budget), never wall-clock time. "
 
 ### No backwards compatibility
 Remove stubs and dead code completely. If something is unused or being replaced, delete it outright.
+
+### Errors fail loudly
+Never swallow an error in code you write or change: a failure is reported through the project's logger or raised. A hook that must not block reports on stderr and exits 0. Do not add speculative error handling — trust internal code and framework guarantees, and validate at each system boundary, on the side that enforces it: user input, external APIs, files, and other processes. A service that faces users tells a user's mistake from a defect: bad input gets a specific error that says what to fix, and a generic internal error is reserved for defects and infrastructure failures. When a new code path can fail, ask whether normal use can trigger that failure; if it can, give it its own error. The stack packs state the language-specific forms.
+
+### Commits split along seams
+Land significant work as a sequence of small commits, each with a one-sentence story, split along seams that carry meaning — never mechanically per file or per layer:
+- A refactor that the feature motivated is its own commit and lands before the feature.
+- A defect fixed along the way is its own commit, however small.
+- A behavior change to an existing system is separate from the refactor that enabled it and the feature that exposed it; it is the commit people search for later.
+- A vendored drop stands alone.
+- What only works together stays together: the halves of a feature that cannot run apart, data and the code that loads it.
+
+Every commit builds and passes its checks, so the history bisects. A review fix folds into the commit it belongs to — `git commit --fixup=<sha>`, then `GIT_SEQUENCE_EDITOR=true git rebase --autosquash -x '<checks>' <upstream>` — only while that commit is on no remote branch, not yet integrated by a workloop run, and in a tree no other session is writing. Otherwise, or when the fold conflicts (`git rebase --abort`), it lands as a trailing commit whose message names the commit it corrects. This governs how to split; when to commit is set elsewhere. When the work stays uncommitted, propose the split in the report.
 
 ### Durable state, not session lore
 Describe the present, not change history. Repository state and executable tests own completed behavior and reproducible evidence. Put unresolved work in `breadcrumbs.md`; standing tradeoffs and evidenced recurring architecture classes in `debt-log.md` (`### <id>`, condition, trigger, rework cost; code says `debt: <id>`); settled decisions and what would reopen them in `decisions.md`; external observations in `knowledge/`. Operator and machine facts go to the gitignored `CLAUDE.local.md`, never to a committed file. Report evidence that fits none of those stores in the current response. For a newly discovered subproject: checkpoint and re-scope if blocking, file one line if non-blocking, fix inline only when trivial and already open.
