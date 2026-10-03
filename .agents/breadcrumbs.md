@@ -27,6 +27,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`AGENTS.md` is still 17,615 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
+- **A malformed `policy.json` empties the publish guard's script list** — `config.py` reports the parse error on stderr, but every listed deploy script runs without an ask until the file is fixed. Should the guard ask on every command meanwhile?
 - **Delegation is re-typed per session** — ten September prompts across four satellites asked for it; `AGENTS.md` already makes it the default and prose has not held. Add a gate (a Stop check on undelegated long turns), or accept?
 
 ## Work
@@ -34,7 +35,6 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
 - **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: Xcode lacks its first-launch components and an iOS runtime, and there is no Android SDK. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
-- **`hooks/lib/config.py` treats a malformed `policy.json` as empty** — a syntax error silently turns every hook back on and drops its `dry_run_commands`; reproduced 2026-10-03. Report the parse error on stderr, and decide whether a broken policy fails closed.
 - **`teardown-gate.sh` reads any commit as "work done"** — "Commits split along seams" now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator's write-up on the purpose of testing; adopt rules from it only after that lands.
 - **`session-start.sh`'s post-compaction policy text contradicts the contract** — "a fix under ~15 minutes" breaks estimate-in-tokens, and "commits happen only when the user asks" conflicts with the output style's commit-as-you-go. Restate both after the operator rules on commits.
