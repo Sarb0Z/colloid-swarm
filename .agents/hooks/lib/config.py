@@ -17,7 +17,10 @@ of reasoning about JSON. Any other default prints as it stands.
 A toggle that defaults on is off only when the files say exactly `false`, and a
 toggle that defaults off is on only when they say exactly `true`. An absent
 file, unreadable JSON, or a key whose parent is not an object all yield the
-default: the files state the exceptions, and their absence is not one.
+default: the files state the exceptions, and their absence is not one. A file
+that exists but cannot be read as a JSON object is reported on stderr, because
+its exceptions vanish with it: a hook the repository turned off comes back on,
+and a script the publish guard must ask about is no longer listed.
 """
 
 import json
@@ -37,9 +40,17 @@ def _read_json(path):
     try:
         with open(path, encoding="utf-8") as source:
             document = json.load(source)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
-    return document if isinstance(document, dict) else {}
+    except (OSError, ValueError) as error:
+        print(f"config.py: {path} is unreadable ({error}); every key in it falls back to its default",
+              file=sys.stderr)
+        return {}
+    if not isinstance(document, dict):
+        print(f"config.py: {path} holds {json.dumps(document)[:40]}, not a JSON object; "
+              "every key in it falls back to its default", file=sys.stderr)
+        return {}
+    return document
 
 
 def _overlay(base, top):
