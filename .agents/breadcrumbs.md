@@ -32,6 +32,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 ## Work
 
 - **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
+- **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: no simulator runtime is selected, there is no Android SDK, and Appium was never called. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator; no slice has started. Start slice 1, vendoring `grilling` and `domain-modeling`.
 - **`hooks/lib/config.py` treats a malformed `policy.json` as empty** — a syntax error silently turns every hook back on and drops its `dry_run_commands`; reproduced 2026-10-03. Report the parse error on stderr, and decide whether a broken policy fails closed.
 - **`teardown-gate.sh` reads any commit as "work done"** — "Commits split along seams" now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
