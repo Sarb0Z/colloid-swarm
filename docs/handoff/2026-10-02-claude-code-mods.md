@@ -67,10 +67,20 @@ Sources: the declarations Claude Code 2.1.287 writes (`claude-code.d.ts`), the
 bundled `plugin-authoring` reference, the hooks documentation, and the `mods/`
 folder of `anthropics/claude-code`.
 
-- The classic hook chain is `[managed settings hooks, ...hooks modules, the
-  other settings hooks as core]`. `classic.PreToolUse` fires inside `tool.call`.
-  It fires beneath every mod's `tool.call` hook (d.ts, `ClassicEventOf`,
-  `PreToolUseResult`).
+- The declared classic hook chain is `[managed settings hooks, ...hooks
+  modules, the other settings hooks as core]`, with `classic.PreToolUse`
+  beneath every mod's `tool.call` hook (d.ts, `ClassicEventOf`). Observed in
+  slice 0, that holds only in `claude plugin test`: in a live 2.1.288 session a
+  mod's `classic.PreToolUse` hook is never called. No candidate may depend on
+  it until a release changes that.
+- A settings-hook deny reaches a mod's `tool.call` as an errored result
+  (`isError`), not as a `deny` field (slice 0).
+- A mod the operator installs (the session's mods folder, a `--plugin-dir`)
+  runs above a mod the repository ships in the `tool.call` chain (slice 0).
+- The auto-mode classifier refuses an agent's work on a mod that turns a hook's
+  ask or deny into allow, as "Auto-Mode Bypass": writing it, validating it, and
+  reading its results. Such work runs in manual mode, each step approved by the
+  operator (slice 0).
 - When several PreToolUse settings hooks disagree, precedence is: deny > defer >
   ask > allow. An exit-2 block routes the same way as deny. All matching hooks
   run in parallel. For an `allow`, deny and ask rules are still evaluated
@@ -99,18 +109,20 @@ folder of `anthropics/claude-code`.
   exists (`anthropics/claude-code` `mods/README.md`). The `CLAUDE.md ->
   AGENTS.md` symlink loads the contract once.
 
-Not yet observed. Slice 0 must settle these before any slice depends on them:
+Slice 0 results (`.agents/knowledge/research/2026-10-03-claude-code-mods-slice-0.md`):
 
-- **P1.** `$.ui.ask` from a `tool.call` hook holds a Bash call in an `auto`-mode
-  session until the person answers.
-- **P2.** A subagent's tool call reaches the same hook. Its dialog shows in the
-  main interface.
-- **P3.** `tool.call`'s `e.tool_use_id` equals the `tool_use_id` in the
-  PreToolUse settings-hook payload for the same call.
-- **P4.** A mod under the project's `.claude/skills/<name>` is a symlink into
-  `.agents/claude/mods/`. It loads at startup. No hot-reload question appears
-  in a fresh clone after workspace trust.
-- **P5.** `claude plugin test` runs on a CI runner with no Claude login.
+- **P1 holds.** `$.ui.ask` from a `tool.call` hook held a main-thread Bash call
+  in an `auto`-mode session until the person answered (observed by the
+  operator).
+- **P2 holds.** A subagent's tool call reached the same hook with its
+  `agentId`, and the dialog showed in the main interface.
+- **P3 holds.** `tool.call`'s `e.tool_use_id` equals the `toolUseID` of the
+  PreToolUse settings-hook result for the same call.
+- **P4 holds in this checkout.** A mod linked from the project's
+  `.claude/skills/<name>` into `.agents/claude/mods/` loaded at startup and
+  reloaded on save. A fresh clone after workspace trust is untested.
+- **P5 is open.** `claude plugin test` runs locally; a CI runner with no Claude
+  login is untested. Slice 1 settles it.
 
 ## Portability today
 
@@ -169,7 +181,9 @@ loses Codex or Kimi coverage.
 - High-stakes. QA must reproduce the following. A call that `guard-destructive`
   blocks—`git push --force`—stays denied after `Run it`. With the mod absent,
   an auto-mode `git push` is denied as today.
-- Depends on: P1, P2, P3.
+- Depends on: P1, P2 and P3, which hold. It uses `tool.call` alone, never
+  `classic.PreToolUse`. The auto-mode classifier refuses an agent's work on
+  it, so its slice runs in manual mode with the operator approving each step.
 
 **M2 · Load visibility** (new; needed by the first wholesale replacement)
 
@@ -298,6 +312,38 @@ loses Codex or Kimi coverage.
 - Depends on: slice 0 for the mod half. The persona and gate half needs no mod
   and can land first.
 
+**M8 · Status strip** (replaces the operator's `statusLine` script)
+
+- Today: `~/.local/bin/claude-statusline.sh` draws two rows: profile, project,
+  branch, dirty count, ahead and behind, lines changed, PR, worktree, session
+  name and duration; then model, effort, thinking, fast mode, a context bar,
+  the 5-hour and 7-day limits, and the output style. Both accounts wire it
+  through their user `settings.json`. It lives in no repository, so a satellite
+  or another machine never gets it. Each refresh starts a shell, `jq` and up to
+  four `git` processes, and it draws only in a terminal.
+- Mod, `colloid-status`:
+  - An `AbovePrompt` band (`ui.render`) draws the same two rows on every
+    surface, the desktop app included.
+  - Context fill, the limit windows and cost come from `$.session.usage()`,
+    refreshed on `session.measure`. Model from `$.session.model()`, branch from
+    `$.session.repo()`, effort and output style from `$.settings.read()`. The
+    dirty count and ahead/behind run `git` by argv on `turn.complete`, not on
+    every redraw.
+  - The profile label is a machine fact, so it comes from the ignored
+    `config.json` (`hooks.status_strip.profiles`, config folder to label); with
+    none, the row shows no label.
+  - Session name, vim mode and PR state have no API found yet. The slice checks
+    each one and drops what has no source.
+- Loss: none. The `statusLine` command is Claude-only too.
+- Open ruling S1: what draws the strip in a repository without the scaffold.
+  (a) The user `statusLine` keeps the script for those repositories, and each
+  scaffold repository turns it off in its project settings so the band is the
+  only strip. (b) The script retires and only scaffold repositories show a
+  strip. (c) The script moves into the scaffold as a committed `statusLine`
+  command and no mod is built. Recommended: (a).
+- The user sees: the same strip in every scaffold repository and surface, kept
+  in Git.
+
 ### Keep as settings hooks
 
 - **Shared with Codex or Kimi, with no measured failure a mod removes:**
@@ -371,23 +417,25 @@ loses Codex or Kimi coverage.
 Each slice works end to end, is hostile-reviewed and QA'd, and lands before the
 next one starts.
 
-0. **Probe.** Restart this session with the throwaway probe mod (outside the
-   repository) and observe P1 to P4. Record the results in
-   `.agents/knowledge/research/`, then delete the probe. This needs the person:
-   the restart, the dialog answers, and an auto-mode session. If P1, P2 or P3
-   fails, M1 is dropped and this spec is revised before slice 1.
-1. **Packaging and M1.** The mods directory, its links and layout check,
-   `test-mods.sh`, the CI job (P5), the token path in `guard-publish` with its
-   test rows, then the dialog mod. `publish-guard-denies-where-no-prompt` is
+0. **Probe.** Done on 2026-10-03: P1 to P4 hold, and the probe is deleted.
+1. **Packaging and M8.** The mods directory, its links and layout check,
+   `test-mods.sh`, the CI job (P5), and the export carrying the mods, landed
+   with the status strip. A display-only mod proves the packaging without the
+   approval path's stakes. Needs ruling S1.
+2. **M1.** The token path in `guard-publish` with its test rows, then the
+   dialog mod, built in manual mode. `publish-guard-denies-where-no-prompt` is
    rewritten to describe the dialog path.
-2. **M3,** the delegation gate.
-3. **M2 and M4:** load visibility, then workloop push and wake, with the
+3. **M3,** the delegation gate.
+4. **M2 and M4:** load visibility, then workloop push and wake, with the
    skill text updated.
-4. **M5,** the provenance gate. The settings hook, its files and its test go.
-5. **M6,** after ruling A1.
+5. **M5,** the provenance gate. The settings hook, its files and its test go.
+6. **M6,** after ruling A1.
+7. **Observer replay.** Replay past transcripts through the observer's prompt
+   and compare its notes with what the regex hooks caught. The observer mod
+   lands only if the replay shows catches the hooks miss.
 
-M7's persona and gate half needs no mod and may land at any point, slice 0
-included. Its mod half (`/tools` and the deferral answers) lands after slice 1.
+M7's persona and gate half needs no mod and may land at any point. Its mod half
+(`/tools` and the deferral answers) lands after slice 1.
 
 A slice that replaces a settings hook deletes the hook. It also deletes its
 settings entries, its dot-file cleanup in `session-start.sh`, and its test. All
@@ -400,3 +448,6 @@ deletions happen in the same slice.
   - (a) No: nothing is written or read outside the session, so M6 proceeds.
   - (b) Yes: M6 is dropped.
   - Recommended: (a).
+- **S1.** What draws the status strip in a repository without the scaffold. The
+  options are under M8. Recommended: keep the script there, and turn it off in
+  scaffold repositories so the band is the only strip.
