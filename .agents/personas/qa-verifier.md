@@ -2,6 +2,7 @@
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
 tools: ["Read", "Glob", "Grep", "Bash", "mcp__playwright__*"]
+disallowedTools: ["mcp__playwright__browser_run_code_unsafe"]
 model: "sonnet"
 effort: "medium"
 mcpServers: ["playwright"]

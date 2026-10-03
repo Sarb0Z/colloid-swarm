@@ -1,0 +1,6 @@
+{
+  "mcp__playwright__browser_run_code_unsafe": {
+    "why": "it runs arbitrary JavaScript in the Playwright server process (Playwright calls it RCE-equivalent), outside every shell guard, in a browser that can carry the operator's synced session cookies",
+    "instead": "use the other browser tools: browser_evaluate for JavaScript inside the page, browser_snapshot, browser_click, browser_fill_form, browser_wait_for, browser_network_requests and the rest. For a multi-step flow, write a Playwright test in the repository and run it with Bash, where the shell guards apply. Carry on with the task; do not stop on this denial"
+  }
+}
