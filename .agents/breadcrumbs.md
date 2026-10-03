@@ -32,12 +32,11 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 ## Work
 
 - **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
-- **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: no simulator runtime is selected, there is no Android SDK, and Appium was never called. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
-- **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator; no slice has started. Start slice 1, vendoring `grilling` and `domain-modeling`.
+- **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: Xcode lacks its first-launch components and an iOS runtime, and there is no Android SDK. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
+- **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
 - **`hooks/lib/config.py` treats a malformed `policy.json` as empty** — a syntax error silently turns every hook back on and drops its `dry_run_commands`; reproduced 2026-10-03. Report the parse error on stderr, and decide whether a broken policy fails closed.
 - **`teardown-gate.sh` reads any commit as "work done"** — "Commits split along seams" now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator's write-up on the purpose of testing; adopt rules from it only after that lands.
-- **`qa-verifier`'s `disallowedTools` is unobserved** — persona files load only at session start, so whether it prunes a tool that `mcp__playwright__*` names is untested. In a fresh session, have a `qa-verifier` list its `mcp__playwright__` tools.
 - **`session-start.sh`'s post-compaction policy text contradicts the contract** — "a fix under ~15 minutes" breaks estimate-in-tokens, and "commits happen only when the user asks" conflicts with the output style's commit-as-you-go. Restate both after the operator rules on commits.
 - **`guard-destructive.py`'s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x`, `bash -lc 'rm -rf ~/x'` and `timeout 600 eas build` pass both guards. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and `-lc`/`-ec`, tested per guard.
 - **`guard-publish.py` keeps `@<version>` on runner operands** — `npx eas-cli@16 submit` misses a listed `eas-cli`, so each pinned tag must be listed separately (Meridian mobile). Strip the version before matching, with test rows.

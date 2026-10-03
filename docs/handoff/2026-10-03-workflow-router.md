@@ -192,6 +192,10 @@ Each slice works end to end before the next one starts.
    - The five inline workflows and the five playbook files.
    - The review-of-the-review pass in `hostile-review.md`.
    - A probe of plan-mode approval in auto mode.
+   - An operator command that runs `grilling` and `domain-modeling` together.
+     The operator asked for "something like /grillme to help build a domain
+     model". Upstream's `grill-with-docs` wrapper has that shape. Slice 1 did
+     not carry it, because its description names ADRs.
 
    The six steps leave in the same commit, so no workflow is ever without a
    procedure.
