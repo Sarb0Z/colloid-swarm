@@ -270,6 +270,20 @@ malformed_context="$(context_of "$malformed_output")"
 assert_marker_once "$malformed_context"
 assert_contains "$malformed_context" 'fixture breadcrumb'
 
+# A broken file drops the exceptions it states, so the reader reports it; an
+# absent file states none, so the reader stays quiet.
+config_stderr() {  # <fixture> -> what config.py writes to stderr
+  python3 "$1/.agents/hooks/lib/config.py" "$1/.agents/config.json" hooks.session_start.enabled=true 2>&1 >/dev/null
+}
+[[ -z "$(config_stderr "$missing")" ]] || fail 'config.py reported an absent policy or config'
+printf '%s\n' '{"hooks": {"teardown_gate": {"enabled": false},}}' > "$malformed/.agents/policy.json"
+broken_err="$(config_stderr "$malformed")"
+[[ "$broken_err" == *"$malformed/.agents/policy.json is unreadable"* ]] || fail "malformed policy.json not reported: $broken_err"
+[[ "$broken_err" == *"$malformed/.agents/config.json is unreadable"* ]] || fail "malformed config.json not reported: $broken_err"
+printf '%s\n' '[]' > "$malformed/.agents/policy.json"
+[[ "$(config_stderr "$malformed")" == *"policy.json holds [], not a JSON object"* ]] || fail 'non-object policy.json not reported'
+rm "$malformed/.agents/policy.json"
+
 # Valid JSON with a non-object root also uses the default-on behavior.
 index=0
 for root_value in 'null' '[]' '"text"' '42'; do
