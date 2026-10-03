@@ -32,6 +32,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 ## Work
 
 - **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
+- **`qa-verifier`'s `disallowedTools` is unobserved** — persona files load only at session start, so whether it prunes a tool that `mcp__playwright__*` names is untested. In a fresh session, have a `qa-verifier` list its `mcp__playwright__` tools.
 - **`session-start.sh`'s post-compaction policy text contradicts the contract** — "a fix under ~15 minutes" breaks estimate-in-tokens, and "commits happen only when the user asks" conflicts with the output style's commit-as-you-go. Restate both after the operator rules on commits.
 - **`guard-destructive.py`'s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x`, `bash -lc 'rm -rf ~/x'` and `timeout 600 eas build` pass both guards. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and `-lc`/`-ec`, tested per guard.
 - **`guard-publish.py` keeps `@<version>` on runner operands** — `npx eas-cli@16 submit` misses a listed `eas-cli`, so each pinned tag must be listed separately (Meridian mobile). Strip the version before matching, with test rows.

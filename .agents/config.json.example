@@ -32,6 +32,9 @@
     "guard_publish": {
       "enabled": true
     },
+    "denied_tool": {
+      "enabled": true
+    },
     "wait_gate": {
       "enabled": true
     },

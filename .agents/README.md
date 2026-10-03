@@ -137,7 +137,12 @@ run it again at any time.
 
 An agent that uses the `playwright` server acts as you on the listed sites. It
 can read the cookie values through the network and evaluate tools. Claude
-denies `browser_run_code_unsafe` on this server. Codex and Kimi have no
+denies `browser_run_code_unsafe` on this server. The deny rule removes the tool
+from the main thread's list. A subagent whose `tools` names the server still
+sees it, so `qa-verifier` removes it with `disallowedTools`.
+`hooks/policy/denied-tool.sh` answers any remaining call with the reason and
+the tools to use instead, read from `hooks/lib/denied-tools.json`. Its toggle
+is `hooks.denied_tool.enabled`. Codex and Kimi have no
 per-tool gate (debt `colloid-outward-gating-claude-only`). List only the sites
 that the agent must use while you are signed in.
 

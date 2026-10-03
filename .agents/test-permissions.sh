@@ -11,7 +11,9 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo" <<'PY'
 import fnmatch
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -98,6 +100,63 @@ for name in sorted(outward | set(HOST_OUTWARD)):
             f"{name} is outward but permissions.deny covers none of "
             f"{', '.join(missing)}; add mcp__{name}__<verb>* to "
             ".agents/claude/settings.json"
+        )
+
+# A deny rule removes its tool from the main thread's list, but a subagent whose
+# `tools` names the server still sees the tool and receives a bare denial with
+# nothing to do next. Each denied tool therefore carries a remedy, the remedy
+# hook's matcher covers it, and every persona that would expose it removes it.
+remedies = json.loads((source / ".agents/hooks/lib/denied-tools.json").read_text())
+for tool in REQUIRED_DENY:
+    if tool not in remedies:
+        raise SystemExit(f"{tool} is denied but .agents/hooks/lib/denied-tools.json gives no remedy for it")
+for tool in remedies:
+    if tool not in deny_rules:
+        raise SystemExit(f"denied-tools.json names {tool}, which permissions.deny does not deny")
+matchers = [
+    entry.get("matcher", "")
+    for entry in settings.get("hooks", {}).get("PreToolUse", [])
+    if any("denied-tool.sh" in hook.get("command", "") for hook in entry.get("hooks", []))
+]
+for tool in remedies:
+    if not any(re.fullmatch(matcher, tool) for matcher in matchers):
+        raise SystemExit(f"no PreToolUse denied-tool.sh entry matches {tool}; add it to the matcher")
+
+
+def frontmatter_list(persona, text, key, absent):
+    # An omitted `tools` list inherits every tool, so it reads as "*". Any form
+    # other than an inline JSON list fails, because a misread list exposes nothing.
+    if not re.search(rf"^{key}:", text, re.MULTILINE):
+        return absent
+    found = re.search(rf"^{key}:\s*(\[.*\])\s*$", text, re.MULTILINE)
+    if found is None:
+        raise SystemExit(f"{persona.name}: write {key} as an inline JSON list so this check can read it")
+    return json.loads(found.group(1))
+
+
+for persona in sorted((source / ".agents/personas").glob("*.md")):
+    text = persona.read_text()
+    exposed = frontmatter_list(persona, text, "tools", ["*"])
+    removed = frontmatter_list(persona, text, "disallowedTools", [])
+    for tool in remedies:
+        if any(fnmatch.fnmatchcase(tool, p) for p in exposed) and not any(
+            fnmatch.fnmatchcase(tool, p) for p in removed
+        ):
+            raise SystemExit(f"{persona.name} exposes the denied {tool}; add it to disallowedTools")
+
+# Fire the hook the way the host does: a listed tool is refused with its remedy,
+# any other tool passes.
+adapter = source / ".claude/hooks/adapter.sh"
+for tool, expect in [(next(iter(remedies)), 2), ("mcp__playwright__browser_click", 0)]:
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": {}})
+    ran = subprocess.run(
+        [str(adapter), "denied-tool.sh"], input=event, capture_output=True, text=True,
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(source)},
+    )
+    if ran.returncode != expect or (expect == 2 and "Instead," not in ran.stderr):
+        raise SystemExit(
+            f"denied-tool.sh on {tool}: exit {ran.returncode}, stderr {ran.stderr.strip()!r}; "
+            "if hooks.denied_tool.enabled is false in policy.json or config.json, the hook is off by choice"
         )
 
 print(
