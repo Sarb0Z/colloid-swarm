@@ -312,38 +312,6 @@ loses Codex or Kimi coverage.
 - Depends on: slice 0 for the mod half. The persona and gate half needs no mod
   and can land first.
 
-**M8 · Status strip** (replaces the operator's `statusLine` script)
-
-- Today: `~/.local/bin/claude-statusline.sh` draws two rows: profile, project,
-  branch, dirty count, ahead and behind, lines changed, PR, worktree, session
-  name and duration; then model, effort, thinking, fast mode, a context bar,
-  the 5-hour and 7-day limits, and the output style. Both accounts wire it
-  through their user `settings.json`. It lives in no repository, so a satellite
-  or another machine never gets it. Each refresh starts a shell, `jq` and up to
-  four `git` processes, and it draws only in a terminal.
-- Mod, `colloid-status`:
-  - An `AbovePrompt` band (`ui.render`) draws the same two rows on every
-    surface, the desktop app included.
-  - Context fill, the limit windows and cost come from `$.session.usage()`,
-    refreshed on `session.measure`. Model from `$.session.model()`, branch from
-    `$.session.repo()`, effort and output style from `$.settings.read()`. The
-    dirty count and ahead/behind run `git` by argv on `turn.complete`, not on
-    every redraw.
-  - The profile label is a machine fact, so it comes from the ignored
-    `config.json` (`hooks.status_strip.profiles`, config folder to label); with
-    none, the row shows no label.
-  - Session name, vim mode and PR state have no API found yet. The slice checks
-    each one and drops what has no source.
-- Loss: none. The `statusLine` command is Claude-only too.
-- Open ruling S1: what draws the strip in a repository without the scaffold.
-  (a) The user `statusLine` keeps the script for those repositories, and each
-  scaffold repository turns it off in its project settings so the band is the
-  only strip. (b) The script retires and only scaffold repositories show a
-  strip. (c) The script moves into the scaffold as a committed `statusLine`
-  command and no mod is built. Recommended: (a).
-- The user sees: the same strip in every scaffold repository and surface, kept
-  in Git.
-
 ### Keep as settings hooks
 
 - **Shared with Codex or Kimi, with no measured failure a mod removes:**
@@ -396,6 +364,9 @@ loses Codex or Kimi coverage.
   recorded failure, and constant false positives.
 - **Dropping per-skill `AGENTS.md`.** `.claude/rules/` path scoping already
   delivers it at the right moment.
+- **The status strip as a mod.** A band above the prompt would reach the
+  desktop app, but the operator ruled for the committed `statusLine` script.
+  See decision `status-strip-as-statusline-command`.
 
 ## Packaging
 
@@ -418,19 +389,19 @@ Each slice works end to end, is hostile-reviewed and QA'd, and lands before the
 next one starts.
 
 0. **Probe.** Done on 2026-10-03: P1 to P4 hold, and the probe is deleted.
-1. **Packaging and M8.** The mods directory, its links and layout check,
-   `test-mods.sh`, the CI job (P5), and the export carrying the mods, landed
-   with the status strip. A display-only mod proves the packaging without the
-   approval path's stakes. Needs ruling S1.
-2. **M1.** The token path in `guard-publish` with its test rows, then the
-   dialog mod, built in manual mode. `publish-guard-denies-where-no-prompt` is
-   rewritten to describe the dialog path.
-3. **M3,** the delegation gate.
-4. **M2 and M4:** load visibility, then workloop push and wake, with the
+1. **Packaging and M1.** First the mods directory, its links and layout check,
+   `test-mods.sh`, the CI job, and the export carrying the mods, proven with a
+   pass-through M1 and its firing test before any dialog code, so P5 settles
+   first. Then the token path in
+   `guard-publish` with its test rows, then the dialog mod, built in manual mode.
+   `publish-guard-denies-where-no-prompt` is rewritten to describe the dialog
+   path.
+2. **M3,** the delegation gate.
+3. **M2 and M4:** load visibility, then workloop push and wake, with the
    skill text updated.
-5. **M5,** the provenance gate. The settings hook, its files and its test go.
-6. **M6,** after ruling A1.
-7. **Observer replay.** Replay past transcripts through the observer's prompt
+4. **M5,** the provenance gate. The settings hook, its files and its test go.
+5. **M6,** after ruling A1.
+6. **Observer replay.** Replay past transcripts through the observer's prompt
    and compare its notes with what the regex hooks caught. The observer mod
    lands only if the replay shows catches the hooks miss.
 
@@ -448,6 +419,3 @@ deletions happen in the same slice.
   - (a) No: nothing is written or read outside the session, so M6 proceeds.
   - (b) Yes: M6 is dropped.
   - Recommended: (a).
-- **S1.** What draws the status strip in a repository without the scaffold. The
-  options are under M8. Recommended: keep the script there, and turn it off in
-  scaffold repositories so the band is the only strip.

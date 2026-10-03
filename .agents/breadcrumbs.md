@@ -32,7 +32,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
-- **`docs/handoff/2026-10-02-claude-code-mods.md`** — slice 0 is done (P1 to P4 hold; a mod's `classic.PreToolUse` never fires live). Slice 1, packaging with the status-strip mod, waits on ruling S1.
+- **`docs/handoff/2026-10-02-claude-code-mods.md`** — slice 0 is done (P1 to P4 hold; a mod's `classic.PreToolUse` never fires live). Slice 1 is packaging, then M1 in manual mode.
 - **`docs/handoff/2026-10-03-session-handoff.md`** — the iOS 27.0 simulator, Appium 3.8.0 with xcuitest, and Maestro 2.11.0 are installed; Android is not. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
 - **`teardown-gate.sh` reads every `appium` word as a server** — `npm install -g appium`, `appium driver install` and `appium driver list` armed it after exiting. Match only a server start (`appium` alone or `appium server`), with a test row.
