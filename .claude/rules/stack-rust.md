@@ -1,0 +1,1 @@
+../../.agents/rules/stack-rust.md

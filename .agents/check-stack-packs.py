@@ -104,7 +104,9 @@ def main():
     if not PACKS.is_dir():
         return 0
 
-    files = tracked()
+    # The scaffold ships its own sources under .agents/ (the MCP servers carry a
+    # tsconfig.json), so a file there says nothing about the repository's stack.
+    files = [f for f in tracked() if not f.startswith(".agents/")]
     stale = []
     packs = sorted(PACKS.glob("stack-*.md"))
     for pack in packs:

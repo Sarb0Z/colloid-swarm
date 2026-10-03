@@ -106,6 +106,20 @@ report="$(run "$mono" || true)"
   || fail 'a Next.js app under apps/ must satisfy the Next.js pack'
 ok 'a marker inside a monorepo package is found'
 
+# --- The scaffold's own files select no stack -------------------------------
+# Every satellite carries `.agents/mcp-servers/*/tsconfig.json`. Read as a
+# marker, it keeps the TypeScript pack alive in a repository with no
+# TypeScript, which is the stale pack this gate exists to remove.
+vendored="$(build vendored .agents/mcp-servers/research-mcp/tsconfig.json next.config.js)"
+dir="$vendored"; pack typescript '**/*.ts **/*.tsx' '**/tsconfig.json'
+git -C "$vendored" add -A
+[[ "$(run "$vendored" || true)" == *"stack-typescript.md"* ]] \
+  || fail 'a tsconfig.json under .agents/ must not satisfy the TypeScript pack'
+printf '{}\n' > "$vendored/tsconfig.json"; git -C "$vendored" add -A
+[[ "$(run "$vendored" || true)" != *"stack-typescript.md"* ]] \
+  || fail "the repository's own tsconfig.json must satisfy the TypeScript pack"
+ok 'a marker under .agents/ selects no stack; one outside it does'
+
 # --- detect: is required ----------------------------------------------------
 # `paths:` says when a rule loads; `detect:` says whether the stack is here.
 # Expo Router and the Next.js App Router both own `app/**/*.tsx`, so a gate
