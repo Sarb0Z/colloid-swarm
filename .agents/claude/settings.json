@@ -317,5 +317,9 @@
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$CLAUDE_PROJECT_DIR/.agents/claude/statusline.sh\""
   }
 }
