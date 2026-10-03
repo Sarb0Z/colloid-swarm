@@ -32,8 +32,8 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
-- **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
-- **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: Xcode lacks its first-launch components and an iOS runtime, and there is no Android SDK. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
+- **`docs/handoff/2026-10-02-claude-code-mods.md`** — slice 0 is done (P1 to P4 hold; a mod's `classic.PreToolUse` never fires live). Slice 1, packaging with the status-strip mod, waits on ruling S1.
+- **`docs/handoff/2026-10-03-session-handoff.md`** — the iOS 27.0 simulator, Appium 3.8.0 with xcuitest, and Maestro 2.11.0 are installed; Android is not. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
 - **`teardown-gate.sh` reads any commit as "work done"** — "Commits split along seams" now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator's write-up on the purpose of testing; adopt rules from it only after that lands.
