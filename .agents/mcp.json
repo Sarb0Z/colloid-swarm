@@ -18,8 +18,10 @@
       "enabled": true,
       "codex_startup_timeout_sec": 30,
       "type": "stdio",
-      "command": "npx",
+      "command": "python3",
       "args": [
+        "${REPO_ROOT}/.agents/playwright-session.py",
+        "npx",
         "-y",
         "@playwright/mcp@0.0.83",
         "--config",

@@ -173,8 +173,12 @@ def render(repo, settings, environ, rotate=False):
     if (profile / "Default/Cookies").is_file():
         # Branded Chrome encrypts cookies with the login Keychain key, and
         # Playwright's default mock keychain cannot decrypt the synced ones.
+        # playwright-session.py starts each server on its own copy of this
+        # directory: one profile admits one browser, and sessions run in parallel.
         browser["userDataDir"] = str(profile)
         launch["ignoreDefaultArgs"] = ["--use-mock-keychain"]
+    else:
+        browser["isolated"] = True
     context = {key: settings[name] for name, key in CONTEXT_OPTIONS.items()
                if settings[name] is not None}
     if context:
