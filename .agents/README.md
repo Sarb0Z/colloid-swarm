@@ -16,6 +16,9 @@ second model registry.
 | `mcp.json` | `.mcp.json` | `.codex/config.toml` | `.kimi-code/mcp.json` |
 | `lsp.json` | Claude plugins | none | none |
 
+`lsp.json` finds each language server on `PATH` only. A server that lives in a
+repository-local toolchain does not start unless it is on `PATH`.
+
 Run `python3 .agents/check-layout.py` after changing a persona, skill, rule, or
 host link. It validates scaffold-owned links and leaves operator files alone.
 
