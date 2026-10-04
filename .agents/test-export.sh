@@ -48,7 +48,8 @@ retained=(
   .agents/workloop.py .agents/skills/workloop/SKILL.md \
   .claude/agents/implementer.md .codex/agents/implementer.toml \
   .codex/hooks.json .github/lsp.json CLAUDE.md export/README.md export/drop-server.py \
-  .worktreeinclude .claude/skills/colloid-publish-approval/hooks/register.ts
+  .worktreeinclude .claude/skills/colloid-publish-approval/hooks/register.ts \
+  .agents/check-clean-tree.sh
 )
 for path in "${retained[@]}"; do
   [[ -e "$kit/$path" ]] || fail "export omitted $path"
@@ -106,6 +107,18 @@ PY
   || fail "exported CLAUDE.md does not target AGENTS.md"
 cmp -s "$kit/CLAUDE.md" "$kit/AGENTS.md" \
   || fail "exported Claude root authority differs from AGENTS.md"
+
+# The CI tree-cleanliness gate passes on a clean checkout and names the stray
+# file on a dirty one, from any working directory inside the repository.
+tree="$work/source"
+git -C "$tree" checkout --quiet -- .agents/debt-log.md
+(cd "$tree/.agents" && "$tree/.agents/check-clean-tree.sh" >/dev/null) \
+  || fail "check-clean-tree.sh failed on a clean checkout"
+touch "$tree/stray-file"
+out="$(cd "$tree/.agents" && "$tree/.agents/check-clean-tree.sh" 2>&1)" \
+  && fail "check-clean-tree.sh passed on a dirty tree"
+grep -q 'stray-file' <<<"$out" || fail "check-clean-tree.sh did not list the stray file"
+rm "$tree/stray-file"
 
 python3 "$kit/.agents/check-layout.py" >/dev/null
 mkdir -p "$kit/apps/example"
