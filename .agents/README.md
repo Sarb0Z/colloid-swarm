@@ -78,6 +78,7 @@ The `playwright` server launches branded Chrome with the config file
 section, the server keeps its own window and network. The profile does not
 depend on the settings. Each session gets its own browser, so two sessions can
 use the browser at the same time. `playwright-session.py` starts the server.
+The config also refuses direct navigation to the literal cloud metadata origins `169.254.169.254`, `[fd00:ec2::254]` and `[::ffff:a9fe:a9fe]`. Playwright MCP says blocked origins are not a security boundary and do not apply to redirects, so a page that redirects there still gets through. IPv6 hosts are blocked on the default port only.
 When `.agents/.browser/profile` holds a synced cookie store, the launcher copies
 the cookies and `Local State` of that profile to a temporary directory, starts
 the server on the copy, and deletes the copy when the server ends. Without a
