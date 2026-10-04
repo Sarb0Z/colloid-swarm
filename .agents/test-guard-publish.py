@@ -82,6 +82,10 @@ ASK = [
     ("Bash", {"command": "nice -n 5 vercel --prod"}),
     ("Bash", {"command": "caffeinate -i docker push repo/img"}),
     ("Bash", {"command": "uv run --with x wrangler deploy"}),
+    ("Bash", {"command": "npx wrangler@3 deploy"}),
+    ("Bash", {"command": "npx -w apps/web vercel deploy --prod"}),
+    ("Bash", {"command": "bunx vercel@latest --prod"}),
+    ("Bash", {"command": "pnpm dlx vercel@39 --prod"}),
     ("PowerShell", {"command": "git push origin main"}),
     ("Monitor", {"command": "while true; do git push; sleep 60; done"}),
     ("Artifact", {"file_path": "/tmp/report.html", "favicon": "x"}),
@@ -136,6 +140,8 @@ PASS = [
     ("Bash", {"command": "timeout 60 git status"}),
     ("Bash", {"command": "bash -lc 'git log'"}),
     ("Bash", {"command": "command -v vercel"}),
+    ("Bash", {"command": "npx wrangler@3 dev"}),
+    ("Bash", {"command": "npx vercel@latest ls"}),
     ("Bash", {"command": "gh workflow list"}),
     ("Artifact", {"action": "list"}),
     ("Artifact", {"url": "https://claude.ai/x", "action": "comments"}),
@@ -453,6 +459,15 @@ with tempfile.TemporaryDirectory() as tmp:
               reason or "quiet")
     reason = guard.verdict("Bash", {"command": "timeout 600 eas build"}, ["eas"])
     check("a listed command behind timeout asks", reason is not None, "quiet")
+    # A runner's pinned version is not part of the package name.
+    for command in ("npx eas-cli@16 submit", "npx eas-cli@latest build -p ios",
+                    "bunx eas-cli@16.3.1 submit", "pnpm dlx eas-cli@16 submit",
+                    "npx @acme/deploy@2 run", "npx -y @acme/deploy@^2.1 run"):
+        reason = guard.verdict("Bash", {"command": command}, ["eas-cli", "@acme/deploy"])
+        check(f"asks on a listed package pinned to a version: {command}", reason is not None, "quiet")
+    for command in ("npx eas-cli-helper@16 submit", "npx @acme/other@2 run", "npx prettier@3 --check ."):
+        reason = guard.verdict("Bash", {"command": command}, ["eas-cli", "@acme/deploy"])
+        check(f"quiet on another package pinned to a version: {command}", reason is None, reason or "")
     for command in ("cat scripts/deploy.sh", "grep vercel scripts/deploy.sh",
                     "./scripts/deploy.sh --dry-run",
                     "./scripts/verify.sh", "ls switch-on"):
