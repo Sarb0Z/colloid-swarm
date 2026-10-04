@@ -34,8 +34,17 @@
 #   docker   on completion — a container, a compose stack, a build watcher, or a
 #   build    on completion   booted emulator carries image pulls, migrations,
 #   emulator on completion   warm caches, or a minute of boot time. Due once a
-#                            commit lands; reported alongside any other block
-#                            before that, never blocking alone.
+#                            `git push` runs after it started; reported
+#                            alongside any other block before that, never
+#                            blocking alone.
+#
+# COMPLETION IS A PUSH. A commit is not: work lands in per-chunk commits
+# mid-unit, and a container torn down at each would be rebuilt for the next.
+# The end of the session would be the other signal, but no hook can use it:
+# Stop fires at every turn end with nothing that marks the last one, and a
+# SessionEnd hook runs after the agent can no longer act. So before a push the
+# on-completion tier is listed as "tear down before the session ends" and
+# nothing more.
 #
 # These are heuristics, and the block says so. An agent that still needs a
 # resource says which and why in its reply instead of tearing it down.
@@ -70,7 +79,7 @@ enabled="$(python3 "$lib/config.py" "$repo/.agents/config.json" hooks.teardown_g
 # every Bash and browser call, so a second process would be paid thousands of
 # times a session.
 read -r -d '' parse <<'PY' || true
-import json, re, sys
+import importlib.util, json, os, re, sys
 
 try:
     p = json.loads(sys.stdin.read() or "{}")
@@ -370,13 +379,39 @@ elif raw_command:
         elif WATCHER.search(clause):
             verdicts.append("+watcher\t" + label(clause))
 
+# A push is read with guard-destructive's shell parser, so every spelling the
+# guards see — `git -C dir push`, `timeout 60 git push`, `bash -c "git push"` —
+# counts here too. It is replayed after the command's other verdicts: a
+# container the same command starts after the push then comes due at once, a
+# spurious block the agent answers by naming it, where the reverse order would
+# miss one started before the push.
+def pushes(text):
+    path = os.path.join(sys.argv[1], "guard-destructive.py")
+    spec = importlib.util.spec_from_file_location("guard_destructive", path)
+    shell = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shell)
+    for command in shell.normalize(text):
+        words = shell.lead(command.words)
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:])
+        if words and shell.base(words[0]) == "git":
+            verb, rest = shell.git_verb(words)
+            letters, longs, _ = shell.parts(rest)
+            if verb == "push" and "n" not in letters and "--dry-run" not in longs:
+                return True
+    return False
+
+
+if raw_command and re.search(r"\bpush\b", raw_command) and pushes(raw_command):
+    verdicts.append("=push")
+
 print(s("project_dir"))
 print(s("event"))
 print(re.sub(r"[^A-Za-z0-9_-]", "", s("session_id")))
 print("yes" if p.get("stop_hook_active") else "no")
 print("\n".join(verdicts))
 PY
-parsed="$(python3 -c "$parse")"
+parsed="$(python3 -c "$parse" "$lib")"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 event="$(printf '%s\n' "$parsed" | sed -n '2p')"
 session="$(printf '%s\n' "$parsed" | sed -n '3p')"
@@ -407,18 +442,12 @@ due_why() {
   case "$1" in
     browser)  printf 'a page holds a renderer process and buys nothing after the screenshot' ;;
     device)   printf 'a driver session holds the device and blocks the next run against it' ;;
-    docker)   printf 'due now that a commit landed; it was worth keeping while the work ran' ;;
-    build)    printf 'due now that a commit landed; the warm cache was worth keeping until then' ;;
-    emulator) printf 'due now that a commit landed; a boot costs a minute, so it was worth keeping' ;;
+    docker)   printf 'due now that the work was pushed; it was worth keeping while the work ran' ;;
+    build)    printf 'due now that the work was pushed; the warm cache was worth keeping until then' ;;
+    emulator) printf 'due now that the work was pushed; a boot costs a minute, so it was worth keeping' ;;
     *)        printf 'restarts in seconds, so it is not worth holding between turns' ;;
   esac
 }
-
-# The commit count is the "work is complete" signal, and it is a COUNT rather
-# than a sha for the reason session-wrap.sh gives: a sha merely moves on
-# `--amend`, `rebase`, or `checkout`, none of which close a unit of work.
-commits="$(git -C "$proj" rev-list --count HEAD 2>/dev/null || true)"
-[[ "$commits" =~ ^[0-9]+$ ]] || commits=""
 
 case "$event" in
 PostToolUse)
@@ -460,14 +489,21 @@ PostToolUse)
             mv "$tmp" "$pending"
           fi
           grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;
-      # kind, the commit count when it was started, then the label. The count
-      # makes "a commit has landed since" answerable per resource.
+      # kind, `waiting` until a push makes it due, then the label.
       # `opened` tracks the LAST open in the batch, so the reminder names an
       # entry the pending file actually holds rather than one a later clause in
       # the same command replaced.
       +*) kind="${verdict#+}"; kind="${kind%%	*}"
-          printf '%s\t%s\t%s\n' "$kind" "${commits:--}" "${verdict#*	}" >> "$pending"
+          printf '%s\t%s\t%s\n' "$kind" "waiting" "${verdict#*	}" >> "$pending"
           opened="$verdict" ;;
+      # A push makes every on-completion entry recorded so far due, and re-arms
+      # a block already spent on other resources.
+      =push)
+          on_completion='$1=="docker" || $1=="build" || $1=="emulator"'
+          if [[ -f "$pending" ]] && awk -F'\t' "($on_completion) && \$2 != \"pushed\" {found=1} END {exit !found}" "$pending"; then
+            awk -F'\t' 'BEGIN {OFS="\t"} $1 == "#blocked" {next} '"$on_completion"' {$2 = "pushed"} {print}' \
+              "$pending" > "$tmp" && mv "$tmp" "$pending"
+          fi ;;
     esac
   done <<< "$verdicts"
 
@@ -499,23 +535,21 @@ Stop)
   entries="$(grep -v '^#' "$pending" | awk '!seen[$0]++')"
   [[ -n "$entries" ]] || exit 0
 
-  # Split by tier. A `docker` or `build` entry is due only once a commit landed
-  # after it started — that is "the work is complete", the cheapest signal a
-  # hook can read. Without git there is no signal, so those entries never make a
-  # block happen on their own; they ride along on one and stay recorded until
-  # they are torn down.
+  # Split by tier. An on-completion entry is due only once a push ran after it
+  # started; before that it rides along on a block another class caused and
+  # stays recorded until it is torn down.
   due=""
   waiting=""
   while IFS= read -r entry; do
     [[ -z "$entry" ]] && continue
     kind="${entry%%	*}"
     rest="${entry#*	}"
-    started="${rest%%	*}"
+    state="${rest%%	*}"
     text="${rest#*	}"
     line="  - [$kind] $text"$'\n'"     -> $(howto "$kind")  ($(due_why "$kind"))"
     case "$kind" in
       docker|build|emulator)
-        if [[ -n "$commits" && "$started" =~ ^[0-9]+$ ]] && (( commits > started )); then
+        if [[ "$state" == "pushed" ]]; then
           due="${due}${line}"$'\n'
         else
           waiting="${waiting}${line}"$'\n'
@@ -530,7 +564,7 @@ Stop)
     printf 'Resources you started this session are still running:\n'
     printf '%s' "$due"
     if [[ -n "$waiting" ]]; then
-      printf 'Still useful while the work continues, but tear these down before the session ends:\n'
+      printf 'Still useful while the work continues, but tear these down before you push or the session ends:\n'
       printf '%s' "$waiting"
     fi
     printf 'Tear down the ones listed as due, then report the turn done. These are heuristics: if you still need one, keep it and say which and why in your reply. This gate blocks once per batch, until a teardown clears it or a new resource re-arms it.\n'

@@ -4419,7 +4419,7 @@ esac
               <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container or a booted emulator once the work is finished. The block names each open resource and the command that closes it.</p>
               <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 543 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 577 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
@@ -4455,8 +4455,17 @@ esac
 #   docker   on completion — a container, a compose stack, a build watcher, or a
 #   build    on completion   booted emulator carries image pulls, migrations,
 #   emulator on completion   warm caches, or a minute of boot time. Due once a
-#                            commit lands; reported alongside any other block
-#                            before that, never blocking alone.
+#                            `git push` runs after it started; reported
+#                            alongside any other block before that, never
+#                            blocking alone.
+#
+# COMPLETION IS A PUSH. A commit is not: work lands in per-chunk commits
+# mid-unit, and a container torn down at each would be rebuilt for the next.
+# The end of the session would be the other signal, but no hook can use it:
+# Stop fires at every turn end with nothing that marks the last one, and a
+# SessionEnd hook runs after the agent can no longer act. So before a push the
+# on-completion tier is listed as &quot;tear down before the session ends&quot; and
+# nothing more.
 #
 # These are heuristics, and the block says so. An agent that still needs a
 # resource says which and why in its reply instead of tearing it down.
@@ -4491,7 +4500,7 @@ enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.js
 # every Bash and browser call, so a second process would be paid thousands of
 # times a session.
 read -r -d &#x27;&#x27; parse &lt;&lt;&#x27;PY&#x27; || true
-import json, re, sys
+import importlib.util, json, os, re, sys
 
 try:
     p = json.loads(sys.stdin.read() or &quot;{}&quot;)
@@ -4791,13 +4800,39 @@ elif raw_command:
         elif WATCHER.search(clause):
             verdicts.append(&quot;+watcher\t&quot; + label(clause))
 
+# A push is read with guard-destructive&#x27;s shell parser, so every spelling the
+# guards see — `git -C dir push`, `timeout 60 git push`, `bash -c &quot;git push&quot;` —
+# counts here too. It is replayed after the command&#x27;s other verdicts: a
+# container the same command starts after the push then comes due at once, a
+# spurious block the agent answers by naming it, where the reverse order would
+# miss one started before the push.
+def pushes(text):
+    path = os.path.join(sys.argv[1], &quot;guard-destructive.py&quot;)
+    spec = importlib.util.spec_from_file_location(&quot;guard_destructive&quot;, path)
+    shell = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shell)
+    for command in shell.normalize(text):
+        words = shell.lead(command.words)
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:])
+        if words and shell.base(words[0]) == &quot;git&quot;:
+            verb, rest = shell.git_verb(words)
+            letters, longs, _ = shell.parts(rest)
+            if verb == &quot;push&quot; and &quot;n&quot; not in letters and &quot;--dry-run&quot; not in longs:
+                return True
+    return False
+
+
+if raw_command and re.search(r&quot;\bpush\b&quot;, raw_command) and pushes(raw_command):
+    verdicts.append(&quot;=push&quot;)
+
 print(s(&quot;project_dir&quot;))
 print(s(&quot;event&quot;))
 print(re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, s(&quot;session_id&quot;)))
 print(&quot;yes&quot; if p.get(&quot;stop_hook_active&quot;) else &quot;no&quot;)
 print(&quot;\n&quot;.join(verdicts))
 PY
-parsed=&quot;$(python3 -c &quot;$parse&quot;)&quot;
+parsed=&quot;$(python3 -c &quot;$parse&quot; &quot;$lib&quot;)&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 event=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
 session=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
@@ -4828,18 +4863,12 @@ due_why() {
   case &quot;$1&quot; in
     browser)  printf &#x27;a page holds a renderer process and buys nothing after the screenshot&#x27; ;;
     device)   printf &#x27;a driver session holds the device and blocks the next run against it&#x27; ;;
-    docker)   printf &#x27;due now that a commit landed; it was worth keeping while the work ran&#x27; ;;
-    build)    printf &#x27;due now that a commit landed; the warm cache was worth keeping until then&#x27; ;;
-    emulator) printf &#x27;due now that a commit landed; a boot costs a minute, so it was worth keeping&#x27; ;;
+    docker)   printf &#x27;due now that the work was pushed; it was worth keeping while the work ran&#x27; ;;
+    build)    printf &#x27;due now that the work was pushed; the warm cache was worth keeping until then&#x27; ;;
+    emulator) printf &#x27;due now that the work was pushed; a boot costs a minute, so it was worth keeping&#x27; ;;
     *)        printf &#x27;restarts in seconds, so it is not worth holding between turns&#x27; ;;
   esac
 }
-
-# The commit count is the &quot;work is complete&quot; signal, and it is a COUNT rather
-# than a sha for the reason session-wrap.sh gives: a sha merely moves on
-# `--amend`, `rebase`, or `checkout`, none of which close a unit of work.
-commits=&quot;$(git -C &quot;$proj&quot; rev-list --count HEAD 2&gt;/dev/null || true)&quot;
-[[ &quot;$commits&quot; =~ ^[0-9]+$ ]] || commits=&quot;&quot;
 
 case &quot;$event&quot; in
 PostToolUse)
@@ -4881,14 +4910,21 @@ PostToolUse)
             mv &quot;$tmp&quot; &quot;$pending&quot;
           fi
           grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
-      # kind, the commit count when it was started, then the label. The count
-      # makes &quot;a commit has landed since&quot; answerable per resource.
+      # kind, `waiting` until a push makes it due, then the label.
       # `opened` tracks the LAST open in the batch, so the reminder names an
       # entry the pending file actually holds rather than one a later clause in
       # the same command replaced.
       +*) kind=&quot;${verdict#+}&quot;; kind=&quot;${kind%%	*}&quot;
-          printf &#x27;%s\t%s\t%s\n&#x27; &quot;$kind&quot; &quot;${commits:--}&quot; &quot;${verdict#*	}&quot; &gt;&gt; &quot;$pending&quot;
+          printf &#x27;%s\t%s\t%s\n&#x27; &quot;$kind&quot; &quot;waiting&quot; &quot;${verdict#*	}&quot; &gt;&gt; &quot;$pending&quot;
           opened=&quot;$verdict&quot; ;;
+      # A push makes every on-completion entry recorded so far due, and re-arms
+      # a block already spent on other resources.
+      =push)
+          on_completion=&#x27;$1==&quot;docker&quot; || $1==&quot;build&quot; || $1==&quot;emulator&quot;&#x27;
+          if [[ -f &quot;$pending&quot; ]] &amp;&amp; awk -F&#x27;\t&#x27; &quot;($on_completion) &amp;&amp; \$2 != \&quot;pushed\&quot; {found=1} END {exit !found}&quot; &quot;$pending&quot;; then
+            awk -F&#x27;\t&#x27; &#x27;BEGIN {OFS=&quot;\t&quot;} $1 == &quot;#blocked&quot; {next} &#x27;&quot;$on_completion&quot;&#x27; {$2 = &quot;pushed&quot;} {print}&#x27; \
+              &quot;$pending&quot; &gt; &quot;$tmp&quot; &amp;&amp; mv &quot;$tmp&quot; &quot;$pending&quot;
+          fi ;;
     esac
   done &lt;&lt;&lt; &quot;$verdicts&quot;
 
@@ -4920,23 +4956,21 @@ Stop)
   entries=&quot;$(grep -v &#x27;^#&#x27; &quot;$pending&quot; | awk &#x27;!seen[$0]++&#x27;)&quot;
   [[ -n &quot;$entries&quot; ]] || exit 0
 
-  # Split by tier. A `docker` or `build` entry is due only once a commit landed
-  # after it started — that is &quot;the work is complete&quot;, the cheapest signal a
-  # hook can read. Without git there is no signal, so those entries never make a
-  # block happen on their own; they ride along on one and stay recorded until
-  # they are torn down.
+  # Split by tier. An on-completion entry is due only once a push ran after it
+  # started; before that it rides along on a block another class caused and
+  # stays recorded until it is torn down.
   due=&quot;&quot;
   waiting=&quot;&quot;
   while IFS= read -r entry; do
     [[ -z &quot;$entry&quot; ]] &amp;&amp; continue
     kind=&quot;${entry%%	*}&quot;
     rest=&quot;${entry#*	}&quot;
-    started=&quot;${rest%%	*}&quot;
+    state=&quot;${rest%%	*}&quot;
     text=&quot;${rest#*	}&quot;
     line=&quot;  - [$kind] $text&quot;$&#x27;\n&#x27;&quot;     -&gt; $(howto &quot;$kind&quot;)  ($(due_why &quot;$kind&quot;))&quot;
     case &quot;$kind&quot; in
       docker|build|emulator)
-        if [[ -n &quot;$commits&quot; &amp;&amp; &quot;$started&quot; =~ ^[0-9]+$ ]] &amp;&amp; (( commits &gt; started )); then
+        if [[ &quot;$state&quot; == &quot;pushed&quot; ]]; then
           due=&quot;${due}${line}&quot;$&#x27;\n&#x27;
         else
           waiting=&quot;${waiting}${line}&quot;$&#x27;\n&#x27;
@@ -4951,7 +4985,7 @@ Stop)
     printf &#x27;Resources you started this session are still running:\n&#x27;
     printf &#x27;%s&#x27; &quot;$due&quot;
     if [[ -n &quot;$waiting&quot; ]]; then
-      printf &#x27;Still useful while the work continues, but tear these down before the session ends:\n&#x27;
+      printf &#x27;Still useful while the work continues, but tear these down before you push or the session ends:\n&#x27;
       printf &#x27;%s&#x27; &quot;$waiting&quot;
     fi
     printf &#x27;Tear down the ones listed as due, then report the turn done. These are heuristics: if you still need one, keep it and say which and why in your reply. This gate blocks once per batch, until a teardown clears it or a new resource re-arms it.\n&#x27;
