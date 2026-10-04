@@ -219,8 +219,8 @@ def sync(repo, source, settings_path):
         raise SyncError("Chrome is running on the source profile; quit Chrome, then rerun")
     profile = repo / playwright.PROFILE
     if profile_locked(profile):
-        raise SyncError("the Playwright browser is running on its profile; "
-                        "close it or end the agent session, then rerun")
+        raise SyncError("a browser is running on the synced profile, which agent sessions copy "
+                        "and never open; close that browser, then rerun")
     target = profile / "Default/Cookies"
     playwright.prepare_dir(repo, target)
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

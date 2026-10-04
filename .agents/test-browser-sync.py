@@ -89,7 +89,7 @@ def rows_of(path):
 def fixture(root):
     agents = root / ".agents"
     (agents / "codex").mkdir(parents=True)
-    for name in ("mcp.py", "mcp_codex.py", "mcp_playwright.py", "browser-sync.py"):
+    for name in ("mcp.py", "mcp_codex.py", "mcp_playwright.py", "browser-sync.py", "playwright-session.py"):
         shutil.copy2(here / name, agents / name)
     (agents / "codex/config.toml").write_text('model = "fixture"\n')
     (agents / "mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {
@@ -142,6 +142,7 @@ try:
     check("sync succeeds", status == 0, err)
     expected = sorted((host, top) for host, top, kept in ROWS if kept)
     check("only listed sites' cookies are copied", rows_of(target) == expected, rows_of(target))
+    expected_after_sync = expected
     check("output carries no cookie names, values, or unlisted hosts", not leaked(out + err), leaked(out + err))
     check("output counts per listed site", "zillow.com: 4" in out and "listed.localhost: 1" in out and "www.example.com: 2" in out, out)
     check("output names listed sites with no cookies", "No cookies for: nothing-here.org" in out, out)
@@ -157,6 +158,58 @@ try:
     porcelain = subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"],
                                capture_output=True, text=True, check=True).stdout
     check("git status shows nothing under .agents/.browser", ".browser" not in porcelain, porcelain)
+
+    # Every server process gets its own browser profile: the config carries the
+    # source profile for the launcher to copy, and the unsynced case is isolated.
+    check("a synced config does not claim isolation", "isolated" not in config, config)
+    launcher = agents / "playwright-session.py"
+    (profile / "Local State").write_text('{"fixture": true}')
+    (profile / "Default/Cache").mkdir()
+    (profile / "Default/Cache/blob").write_text("cache")
+    probe = ("import json,os,sys;"
+             "c=json.load(open(sys.argv[sys.argv.index('--config')+1]))['browser'];"
+             "d=c['userDataDir'];print(d);print(sorted(os.path.relpath(os.path.join(r,f),d) "
+             "for r,_,fs in os.walk(d) for f in fs));print(oct(os.stat(d).st_mode&0o777))")
+    command = [sys.executable, str(launcher), sys.executable, "-c", probe, "--config",
+               str(agents / ".browser/playwright.json"), "--extra"]
+    runs = [subprocess.run(command, capture_output=True, text=True) for _ in range(2)]
+    check("the launcher runs its command and passes the exit status", all(r.returncode == 0 for r in runs),
+          [r.stderr for r in runs])
+    copies = [r.stdout.splitlines()[0] for r in runs]
+    check("each launch gets a different profile directory, not the source",
+          copies[0] != copies[1] and str(profile) not in copies, copies)
+    check("the copy holds the cookie store and Local State, no cache",
+          runs[0].stdout.splitlines()[1] == "['Default/Cookies', 'Local State']", runs[0].stdout)
+    check("the copy is private", runs[0].stdout.splitlines()[2] == "0o700", runs[0].stdout)
+    shutil.rmtree(profile / "Default/Cache")
+    check("the copy is gone when the command ends", not any(Path(c).exists() for c in copies)
+          and not any(Path(c).parent.exists() for c in copies), copies)
+    check("the copy holds the synced cookies",
+          rows_of(target) == expected_after_sync, "source unchanged")
+    sleeper = subprocess.Popen(
+        [sys.executable, str(launcher), sys.executable, "-c",
+         "import json,sys,time;print(json.load(open(sys.argv[sys.argv.index('--config')+1]))"
+         "['browser']['userDataDir'],flush=True);time.sleep(60)",
+         "--config", str(agents / ".browser/playwright.json")],
+        stdout=subprocess.PIPE, text=True)
+    held = Path(sleeper.stdout.readline().strip())
+    check("the copy exists while the command runs", held.is_dir(), held)
+    sleeper.terminate()
+    sleeper.wait(timeout=15)
+    check("SIGTERM to the launcher ends the command and deletes the copy",
+          not held.exists() and not held.parent.exists(), held)
+    refused_run = subprocess.run([sys.executable, str(launcher), "true"], capture_output=True, text=True)
+    check("a command without --config is refused by name",
+          refused_run.returncode != 0 and "needs --config" in refused_run.stderr, refused_run.stderr)
+
+    unsynced = agents / ".browser/profile.hold"
+    profile.rename(unsynced)
+    subprocess.run([sys.executable, str(agents / "mcp.py")], check=True)
+    isolated_config = json.loads((agents / ".browser/playwright.json").read_text())["browser"]
+    check("without a synced profile the server runs isolated",
+          isolated_config.get("isolated") is True and "userDataDir" not in isolated_config, isolated_config)
+    unsynced.rename(profile)
+    subprocess.run([sys.executable, str(agents / "mcp.py")], check=True)
 
     # Rerun: same result, stale sidecars gone, the rest of the profile kept.
     Path(f"{target}-journal").write_text("stale")
@@ -257,7 +310,7 @@ try:
 
     live = f"fixture-host-{os.getpid()}"
     (profile / "SingletonLock").symlink_to(live)
-    check("a Playwright profile in use is refused", *refused(["--source", str(source)], "Playwright browser is running"))
+    check("a synced profile in use by a browser is refused", *refused(["--source", str(source)], "running on the synced profile"))
     (profile / "SingletonLock").unlink()
     (source / "SingletonLock").symlink_to(live)
     check("a source Chrome in use is refused", *refused(["--source", str(source)], "quit Chrome"))

@@ -76,8 +76,14 @@ The `playwright` server launches branded Chrome with the config file
 `policy.json` must not set this section, and `mcp.py` refuses it there.
 `config.json.example` shows each setting with its default. With no `browser`
 section, the server keeps its own window and network. The profile does not
-depend on the settings: when `.agents/.browser/profile` holds a synced cookie
-store, the server uses that profile; otherwise it uses its own.
+depend on the settings. Each session gets its own browser, so two sessions can
+use the browser at the same time. `playwright-session.py` starts the server.
+When `.agents/.browser/profile` holds a synced cookie store, the launcher copies
+the cookies and `Local State` of that profile to a temporary directory, starts
+the server on the copy, and deletes the copy when the server ends. Without a
+synced store, the config sets `isolated` and the browser keeps its profile in
+memory. In both cases, a login that the agent makes in its browser does not
+persist to the next session.
 
 | Setting | Effect |
 | --- | --- |
@@ -96,8 +102,10 @@ session. `mcp.py sync --settings FILE` reads the settings from FILE instead of
 
 ### Sync your Chrome into the Playwright browser
 
-The Playwright browser never drives your Chrome. It uses its own profile,
-`.agents/.browser/profile`. `browser-sync.py` copies into that profile only the
+The Playwright browser never drives your Chrome. Each session starts from a
+copy of its own profile, `.agents/.browser/profile`. The synced cookies load in
+every session. No session opens that profile directly.
+`browser-sync.py` copies into that profile only the
 cookies of the sites that you list. It copies no other data.
 
 1. List the sites in `.agents/config.json`, for example
@@ -136,7 +144,8 @@ works on macOS only, because Chrome seals the cookies with the macOS Keychain
 key. It prints the number of cookies for each listed site and the listed sites
 that have no cookies. It never prints cookie names or values. It replaces only
 the cookie store, so the other state of the Playwright profile stays. You can
-run it again at any time.
+run it again at any time. A session that is already running keeps the cookies
+that it copied at its start. Restart the session to load new cookies.
 
 An agent that uses the `playwright` server acts as you on the listed sites. It
 can read the cookie values through the network and evaluate tools. Claude
