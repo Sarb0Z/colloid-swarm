@@ -349,11 +349,14 @@ grep -q '^docker' "$pending" && fail "docker compose down must clear the contain
 grep -q '^build' "$pending" || fail "docker compose down must not touch the build watcher"
 ok "a teardown clears only its own class"
 
-# ── the completion signal: a commit landing ──────────────────────────────────
+# ── the completion signal: a push, not a commit ─────────────────────────────
+# A commit lands mid-unit, so it leaves the on-completion tier pending; a push
+# hands the work off and makes it due.
 gitdir="$scratch/repo"
 mkdir -p "$gitdir/.agents/hooks/policy" "$gitdir/.agents/hooks/lib"
 cp "$gate" "$gitdir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$gitdir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" \
+  "$repo/.agents/hooks/lib/guard-destructive.py" "$gitdir/.agents/hooks/lib/"
 git -C "$gitdir" init -q
 git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
 gate="$gitdir/.agents/hooks/policy/teardown-gate.sh"
@@ -361,11 +364,53 @@ pending="$gitdir/.agents/.teardown-pending-s1"
 dir="$gitdir"
 
 sh 'docker compose up -d' >/dev/null
-stop; [[ $rc -eq 0 ]] || fail "a container must not block before a commit lands: $err"
+sh 'tsc --watch' true >/dev/null
+stop; [[ $rc -eq 0 ]] || fail "a container must not block mid-work: $err"
 git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m second
-stop; [[ $rc -eq 2 && "$err" == *"[docker]"* && "$err" == *"commit landed"* ]] \
-  || fail "a container must come due once a commit lands (rc=$rc): $err"
-ok "a landed commit makes containers and build watchers due"
+sh 'git commit -m "wire the push signal"' >/dev/null
+stop; [[ $rc -eq 0 ]] || fail "a landed commit must leave containers pending (rc=$rc): $err"
+grep -q '^docker' "$pending" && grep -q '^build' "$pending" || fail "a commit must not drop the entries: $(cat "$pending")"
+ok "a commit leaves containers and build watchers pending without blocking"
+
+for command in 'git push --dry-run' 'git push -n origin main' 'echo git push' 'grep -rn "git push" .' \
+               'git commit -m "git push later"' 'git log --grep push'; do
+  sh "$command" >/dev/null
+  stop; [[ $rc -eq 0 ]] || fail "'$command' is not a push and must not make containers due: $err"
+done
+ok "a dry run or a mention of a push is not a push"
+
+sh 'git push origin HEAD' >/dev/null
+stop; [[ $rc -eq 2 && "$err" == *"[docker]"* && "$err" == *"[build]"* && "$err" == *"push"* ]] \
+  || fail "a push must make containers and build watchers due (rc=$rc): $err"
+ok "a push makes containers and build watchers due and blocks"
+
+sh 'docker compose down' >/dev/null
+sh 'pkill -f tsc' >/dev/null
+[[ ! -e "$pending" ]] || fail "teardown must clear: $(cat "$pending")"
+sh 'git push' >/dev/null
+sh 'docker compose up -d' >/dev/null
+stop; [[ $rc -eq 0 ]] || fail "a container started after the push is not due until the next one: $err"
+ok "a resource started after a push waits for the next push"
+
+# A push after a spent block re-arms it: the block named other resources.
+mcp mcp__playwright__browser_navigate '{"url":"http://localhost:3000"}' >/dev/null
+stop; [[ $rc -eq 2 && "$err" == *"[browser]"* ]] || fail "the browser must block: $err"
+mcp mcp__playwright__browser_close >/dev/null
+stop; [[ $rc -eq 0 ]] || fail "the spent block must not repeat: $err"
+sh 'git push -u origin feature' >/dev/null
+stop; [[ $rc -eq 2 && "$err" == *"[docker]"* ]] || fail "a push must re-arm a spent block (rc=$rc): $err"
+ok "a push re-arms the one-shot block"
+
+for command in 'git -C /srv/app push origin main' 'timeout 60 git push' 'env GIT_SSH_COMMAND=ssh git push' \
+               'bash -lc "git push origin main"' 'cd sub && git push' 'if true; then git push; fi' \
+               'git -c push.default=current push'; do
+  rm -f "$pending"
+  sh 'docker compose up -d' >/dev/null
+  sh "$command" >/dev/null
+  stop; [[ $rc -eq 2 && "$err" == *"[docker]"* ]] || fail "'$command' is a push (rc=$rc): $err"
+done
+rm -f "$pending"
+ok "every push spelling the shell parser reads counts"
 
 # ── identity and the config toggle ───────────────────────────────────────────
 [[ -z "$(printf '{"project_dir":"%s","event":"PostToolUse","session_id":"","tool_name":"mcp__playwright__browser_navigate","tool_input":{"url":"http://x"}}' "$dir" | bash "$gate")" ]] \
