@@ -107,8 +107,12 @@ export const register: Register = on => {
     if (answer === REFUSE) {
       return { deny: `The user refused this call in the ${$.plugin.name} dialog. Do not retry it or work around it; ask the user what they want instead.` }
     }
+    if (answer === RUN) {
+      await $.fs.write(`${repo}/.agents/.publish-approved-${tool_use_id}`, '')
+      return next(e)
+    }
     // Typed text under "Other" is not an approval; the guard decides alone.
-    if (answer === RUN) await $.fs.write(`${repo}/.agents/.publish-approved-${tool_use_id}`, '')
+    $.ui.log(`${$.plugin.name}: the dialog answered ${JSON.stringify(answer)}, not "${RUN}"; the guard decides this call alone`, { to: 'debug' })
     return next(e)
   }).catch(($, e, next) => {
     $.ui.log(`${$.plugin.name}: ${next.error.message}; the guard decides this call alone`)
