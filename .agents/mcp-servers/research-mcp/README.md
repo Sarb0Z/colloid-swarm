@@ -69,6 +69,20 @@ redirects, so the address guard runs on **every hop**, not once at entry:
 - A live page that is an anti-bot challenge counts as a block, not as content.
   The server reports `failure: "blocked"` and reads the archive instead.
 
+## robots.txt
+
+The server does not read `robots.txt`. It fetches a page only because the
+caller asked for that page.
+
+- A single read that a user directed is exempt from `robots.txt`. The server
+  acts for the user, like a browser does.
+- The server does not support enumeration or crawling. It has no tool that
+  follows links on its own, lists a site, or reads many pages from one request.
+  Do not use it to do these things.
+- The server limits the request rate for each host. The minimum gap is
+  `RESEARCH_MCP_MIN_HOST_INTERVAL_MS`. This limit protects the host. It does not
+  replace the rule above.
+
 Requests identify themselves as `colloid-research-mcp/<version>`, with the
 contact address when one is configured.
 
