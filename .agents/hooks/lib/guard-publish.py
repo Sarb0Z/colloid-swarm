@@ -111,7 +111,6 @@ ARTIFACT_REASONS = {
 }
 RUNNERS = {"npx", "pnpx", "bunx"}
 RUNNER_CALL_FLAGS = {"-c", "--call"}      # npx -c "<shell>" runs its value
-CONTROL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "time", "{"}
 # Names a command must mention before the shell parser is worth loading.
 # gcloud ends a group path of any depth with its verb (`gcloud services
 # api-keys delete`), and firebase namespaces verbs with colons
@@ -297,7 +296,7 @@ def aws_reason(rest):
 
 def rule_bash(command, shell):
     words = shell.lead(command.words)
-    while words and words[0] in CONTROL_KEYWORDS:
+    while words and words[0] in shell.CONTROL_KEYWORDS:
         words = shell.lead(words[1:])
     # `npx <tool> ...` runs the tool; drop the runner and its own options so
     # the tool's rule sees the tool's arguments untouched. `npx -c "<shell>"`
@@ -493,17 +492,39 @@ def rule_script(words, outward, shell, rehearsals, here, depth):
     return None
 
 
+_config = []
+
+
+def config_module():
+    """config.py, loaded once per process so each file it reads is parsed and
+    reported once; None when it is not beside this file — the toggle and the
+    script list must never be the reason the guard cannot answer."""
+    if not _config:
+        path = os.path.join(HERE, "config.py")
+        module = None
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("colloid_config", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        _config.append(module)
+    return _config[0]
+
+
 def read_setting(repo, key, default):
-    """A layered policy.json/config.json value, or the default when config.py
-    is not beside this file — the toggle and the script list must never be the
-    reason the guard cannot answer."""
-    path = os.path.join(HERE, "config.py")
-    if not os.path.exists(path):
+    """A layered policy.json/config.json value, or the default without config.py."""
+    module = config_module()
+    if module is None:
         return default
-    spec = importlib.util.spec_from_file_location("colloid_config", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     return module.read(module.load(os.path.join(repo, ".agents", "config.json")), key, default)
+
+
+def unparsed(repo):
+    """The repository-relative policy and config files that do not parse."""
+    module = config_module()
+    if module is None:
+        return []
+    return [os.path.relpath(path, repo)
+            for path in module.unparsed(os.path.join(repo, ".agents", "config.json"))]
 
 
 def enabled(repo):
@@ -525,12 +546,9 @@ def outward_commands(repo):
     # ordinary layering a config.json naming one local script would replace
     # the repository's whole list, and every deploy it named would run silent.
     agents = os.path.join(repo, ".agents")
-    path = os.path.join(HERE, "config.py")
-    if not os.path.exists(path):
+    module = config_module()
+    if module is None:
         return []
-    spec = importlib.util.spec_from_file_location("colloid_config", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     listed = []
     for name in ("policy.json", "config.json"):
         document = module._read_json(os.path.join(agents, name))
@@ -549,12 +567,9 @@ def dry_run_commands(repo):
     the repository makes once, in review. An operator's config.json may add
     gates, never this exemption.
     """
-    path = os.path.join(HERE, "config.py")
-    if not os.path.exists(path):
+    module = config_module()
+    if module is None:
         return []
-    spec = importlib.util.spec_from_file_location("colloid_config", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     document = module._read_json(os.path.join(repo, ".agents", "policy.json"))
     entries = module.read(document, "hooks.guard_publish.dry_run_commands", [])
     return cleaned_entries(entries if isinstance(entries, list) else [])
@@ -608,6 +623,39 @@ def outward_targets(words, shell):
             targets += [unversioned(t) for t in targets if unversioned(t) != t]
         return targets
     return [words[0]]
+
+
+SCRIPT_FILE = re.compile(r"\.(?:py|mjs|cjs|js|mts|cts|ts|sh|bash|zsh|rb)$")
+
+
+def repository_script(word, repo):
+    """True when a word names a script file in the repository: a relative path
+    or a script file name, or an absolute path inside the repository."""
+    path = os.path.expanduser(word)
+    if os.path.isabs(path):
+        return path.startswith(repo.rstrip("/") + "/")
+    return "/" in path or bool(SCRIPT_FILE.search(path))
+
+
+def could_run_outward(text, shell, repo):
+    """True when a command line could run a script the repository lists as
+    outward, with no list to check it against: a package-manager script run, an
+    interpreter running a repository script, or a repository script run by path."""
+    for command in shell.normalize(text):
+        words = shell.lead(command.words)
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:])
+        if not words:
+            continue
+        if script_call(words, shell):
+            return True
+        name = shell.base(words[0])
+        if words[0] in INTERPRETERS or name in INTERPRETERS or name.startswith("python3."):
+            if any(repository_script(target, repo) for target in outward_targets(words, shell)):
+                return True
+        elif "/" in words[0] and repository_script(words[0], repo):
+            return True
+    return False
 
 
 # The boolean vocabulary a dry-run flag's value is read in. A value outside
@@ -798,6 +846,16 @@ def main():
             return 0
         start = cwd if isinstance(cwd, str) and cwd else project if isinstance(project, str) and project else repo
         reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals, start)
+        broken = unparsed(repo)
+        command = tool_input.get("command")
+        if broken and tool_name in ("Bash", "PowerShell", "Monitor") and isinstance(command, str):
+            if not reason and could_run_outward(command, load_shell_parser(), repo):
+                reason = "This command could run a script the repository lists as outward."
+            if reason:
+                names = " and ".join(broken)
+                reason += (f" {names} does not parse, so the guard cannot read which scripts "
+                           f"are outward and asks on every command that could run one. "
+                           f"Fix the JSON in {names} to restore the list.")
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0

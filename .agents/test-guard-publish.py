@@ -432,6 +432,53 @@ with tempfile.TemporaryDirectory() as tmp:
           forced.returncode == 0 and forced.stdout.strip() != "",
           forced.stdout.strip() or "no envelope emitted")
 
+# A policy file that does not parse hides which scripts are outward, so while it
+# is broken the guard asks on every command that could run one, names the file,
+# and reports the parse failure once per call.
+for broken_name in ("policy.json", "config.json"):
+    with tempfile.TemporaryDirectory() as tmp:
+        agents = pathlib.Path(tmp) / ".agents"
+        agents.mkdir()
+        (agents / broken_name).write_text('{"hooks": {"guard_publish": ')
+
+        def call(command, mode="default"):
+            return run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command},
+                                   "permission_mode": mode, "cwd": tmp}), tmp)
+
+        for command in ("npm run anything", "pnpm deploy", "bash scripts/x.sh",
+                        "./scripts/x.sh", "npx tsx scripts/seed.ts", "python3 tools/sync.py",
+                        "cd scripts && sh ./x.sh", "git push"):
+            result = call(command)
+            out = json.loads(result.stdout or "{}").get("hookSpecificOutput", {})
+            check(f"broken {broken_name}: asks on {command}",
+                  out.get("permissionDecision") == "ask"
+                  and f".agents/{broken_name}" in out.get("permissionDecisionReason", "")
+                  and "fix" in out.get("permissionDecisionReason", "").lower(),
+                  f"got: {result.stdout.strip() or 'silence'}")
+            check(f"broken {broken_name}: the parse report prints once for {command}",
+                  result.stderr.count("config.py:") == 1, result.stderr)
+        result = call("npm run anything", "auto")
+        out = json.loads(result.stdout or "{}").get("hookSpecificOutput", {})
+        check(f"broken {broken_name}: denies where no prompt reaches the user",
+              out.get("permissionDecision") == "deny"
+              and f".agents/{broken_name}" in out.get("permissionDecisionReason", ""),
+              f"got: {result.stdout.strip() or 'silence'}")
+        for command in ("ls -la", "cat scripts/x.sh", "rg deploy scripts/", "python3 -c 'print(1)'"):
+            result = call(command)
+            check(f"broken {broken_name}: quiet on {command}", result.stdout.strip() == "",
+                  result.stdout.strip())
+
+with tempfile.TemporaryDirectory() as tmp:
+    agents = pathlib.Path(tmp) / ".agents"
+    agents.mkdir()
+    (agents / "policy.json").write_text(json.dumps({"hooks": {"guard_publish": {
+        "outward_commands": ["scripts/deploy.sh"]}}}))
+    for command in ("npm run anything", "bash scripts/x.sh", "./scripts/x.sh"):
+        result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command},
+                                 "permission_mode": "default", "cwd": tmp}), tmp)
+        check(f"a valid policy.json leaves an unlisted script quiet: {command}",
+              result.stdout.strip() == "" and result.stderr == "", result.stdout + result.stderr)
+
 # A repository's own deploy script shows the guard no vercel or gh word, so the
 # repository lists it in the tracked policy.json and the guard asks by path.
 with tempfile.TemporaryDirectory() as tmp:
