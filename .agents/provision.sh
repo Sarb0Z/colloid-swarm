@@ -33,6 +33,9 @@
 #     tries again rather than trusting a half-built tree, and the block
 #     it prints says what kind of failure this is. Agents read a red test
 #     as a code defect; a missing module is not one.
+#   * Each lockfile that installs is remembered under the aggregate hash
+#     until every install has succeeded, so a rerun after a deadline or a
+#     failure resumes at the lockfile that did not finish.
 #   * One install per checkout at a time. Two isolated subagents starting
 #     in the same worktree would otherwise race inside node_modules.
 #
@@ -75,6 +78,10 @@ case "$gitdir" in
 esac
 memo="$gitdir/colloid-provisioned"
 lockdir="$gitdir/colloid-provision.lock"
+
+sha256_stdin() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -c1-64; else sha256sum | cut -c1-64; fi
+}
 
 # --- discover lockfiles -----------------------------------------------------
 # One line per lockfile: "<manager>\t<path>". Per ecosystem, a lockfile at
@@ -230,11 +237,7 @@ hash_lockfiles() {
 $dev"
     fi
   done <<<"$lockfiles"
-  if command -v shasum >/dev/null 2>&1; then
-    printf '%s\n' "$paths" | tr '\n' '\0' | xargs -0 cat | shasum -a 256 | cut -c1-64
-  else
-    printf '%s\n' "$paths" | tr '\n' '\0' | xargs -0 cat | sha256sum | cut -c1-64
-  fi
+  printf '%s\n' "$paths" | tr '\n' '\0' | xargs -0 cat | sha256_stdin
 }
 hash="$(hash_lockfiles)"
 if (( hash_only )); then echo "$hash"; exit 0; fi
@@ -308,6 +311,18 @@ if current; then
   exit 0
 fi
 rm -f "$memo"
+
+# Per-lockfile memo, kept under the aggregate hash: a repository whose installs
+# together outrun the deadline resumes at the lockfile that failed instead of
+# starting over. A different aggregate hash discards the old parts.
+parts="$memo.parts"
+for old_parts in "$parts"/*; do
+  [[ -d "$old_parts" && "$old_parts" != "$parts/$hash" ]] && rm -rf "$old_parts"
+done
+mkdir -p "$parts/$hash"
+part_key() {  # <manager> <cwd>
+  printf '%s %s' "$1" "$2" | sha256_stdin
+}
 
 # --- run each install under the deadline ------------------------------------
 run_with_deadline() {
@@ -384,7 +399,7 @@ share_from="${PROVISION_SHARE_FROM:-}"
 [[ "$share_from" == "$dir" ]] && share_from=""
 
 file_hash() {
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -c1-64; else sha256sum "$1" | cut -c1-64; fi
+  sha256_stdin <"$1"
 }
 
 
@@ -424,9 +439,16 @@ installed=""
 while IFS=$'\t' read -r manager path; do
   [[ -n "$manager" ]] || continue
   cwd="$(dirname "$path")"
+  part="$parts/$hash/$(part_key "$manager" "$cwd")"
+  if [[ -f "$part" ]]; then
+    rel="${cwd#"$dir"}"; rel="${rel#/}"
+    installed="${installed}${installed:+, }$manager:${rel:-.} (already installed)"
+    continue
+  fi
   if try_share "$manager" "$path" "$cwd"; then
     rel="${cwd#"$dir"}"; rel="${rel#/}"
     installed="${installed}${installed:+, }$manager:${rel:-.} (shared from $share_from)"
+    : >"$part"
     continue
   fi
   # Never let a JS manager run over links into another checkout's tree.
@@ -468,9 +490,11 @@ while IFS=$'\t' read -r manager path; do
     exit 1
   fi
   rm -f "$log"
+  : >"$part"
   rel="${cwd#"$dir"}"; rel="${rel#/}"
   installed="${installed}${installed:+, }$manager:${rel:-.}"
 done <<<"$lockfiles"
 
 printf '%s' "$hash" >"$memo"
+rm -rf "$parts"
 echo "provision: installed $installed ($hash)"
