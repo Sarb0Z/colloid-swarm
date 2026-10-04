@@ -755,6 +755,45 @@ with tempfile.TemporaryDirectory() as tmp:
         reason = guard.verdict("Bash", {"command": command}, js_outward, ["db:verify"])
         check(f"quiet on a local or read-only script: {command}", reason is None, reason or "")
 
+    # A package.json script runs its command with the arguments appended, so
+    # the rules read the command it resolves to, arguments included.
+    app = pathlib.Path(tmp) / "app"
+    (app / "sub").mkdir(parents=True)
+    (app / "package.json").write_text(json.dumps({"scripts": {
+        "db:reset": "supabase db reset", "deploy": "wrangler deploy", "release": "bun run deploy",
+        "lint": "eslint .", "ship": "echo built", "postship": "git push", "test": "vitest"}}))
+    for command in ("bun run db:reset --linked", "npm run db:reset -- --linked", "pnpm db:reset --linked",
+                    "yarn db:reset --db-url postgres://x/db", "pnpm run db:reset --linked", "bun run deploy",
+                    "npm run release", "npm run ship", "cd sub && bun run db:reset --linked"):
+        reason = guard.verdict("Bash", {"command": command}, (), (), str(app))
+        check(f"asks on a script alias that resolves to an outward command: {command}", reason is not None, "quiet")
+    for command in ("bun run db:reset", "npm run lint", "bun run lint --fix", "pnpm install", "bun test",
+                    "npm run missing", "yarn lint"):
+        reason = guard.verdict("Bash", {"command": command}, (), (), str(app))
+        check(f"quiet on a script alias that resolves to a local command: {command}", reason is None, reason or "")
+    # Every manager runs a script's pre- and post- hooks around it.
+    (app / "package.json").write_text(json.dumps({"scripts": {
+        "db:reset": "supabase db reset", "deploy": "wrangler deploy", "release": "echo tagged",
+        "prerelease": "git push origin main", "lint": "eslint .", "ship": "echo built",
+        "postship": "git push", "test": "vitest"}}))
+    for command in ("bun run release", "pnpm run release", "yarn release"):
+        reason = guard.verdict("Bash", {"command": command}, (), (), str(app))
+        check(f"asks on a script whose pre- hook is outward: {command}", reason is not None, "quiet")
+    # A package.json on this machine says nothing about a script the far host runs.
+    reason = guard.verdict("Bash", {"command": f"ssh prod 'cd {app} && npm run ship'"}, (), (), str(app))
+    check("a script run over ssh is not resolved against a local package.json", reason is None, reason or "")
+    # Editors on Windows save package.json with a byte-order mark; npm reads it.
+    bom = pathlib.Path(tmp) / "bom"
+    bom.mkdir()
+    (bom / "package.json").write_text("\ufeff" + json.dumps({"scripts": {
+        "lint": "eslint .", "deploy": "wrangler deploy"}}), encoding="utf-8")
+    reason = guard.verdict("Bash", {"command": "npm run lint"}, (), (), str(bom))
+    check("quiet on a benign script in a package.json with a byte-order mark", reason is None, reason or "")
+    reason = guard.verdict("Bash", {"command": "npm run deploy"}, (), (), str(bom))
+    check("asks on a deploy script in a package.json with a byte-order mark", reason is not None, "quiet")
+    reason = guard.verdict("Bash", {"command": "bun run deploy --dry-run"}, ["deploy"], ["deploy"], str(app))
+    check("a declared alias rehearsal is not undone by resolving the alias", reason is None, reason or "")
+
     # An operator's config.json extends the repository's list; it cannot
     # replace it, or one local entry would silence every listed deploy.
     (agents / "config.json").write_text(json.dumps({"hooks": {"guard_publish": {

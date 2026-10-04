@@ -38,6 +38,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
@@ -404,24 +405,96 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
     return None
 
 
-def judge(text, outward, shell, rehearsals, here, depth=0):
+def judge(text, outward, shell, rehearsals, here, depth=0, remote=False):
     """The reason to ask for a command line run from directory `here` (empty
-    when unknown), following its `cd`s and the command it runs over ssh."""
+    when unknown), following its `cd`s, the package.json scripts it runs, and
+    the command it runs over ssh. `remote` marks a line the far host runs,
+    whose package.json scripts are that host's and unreadable from here."""
     for command in shell.normalize(text):
         reason = rule_bash(command, shell)
         if reason:
             return reason
         words = shell.lead(command.words)
-        remote = shell.ssh_remote(command.words)
-        if remote and depth < 2:
+        if not remote and os.path.isabs(here) and depth < 3:
+            reason = rule_script(words, outward, shell, rehearsals, here, depth)
+            if reason:
+                return reason
+        far = shell.ssh_remote(command.words)
+        if far and depth < 2:
             # The far host's working directory is its own; nothing here locates it.
-            reason = judge(remote, outward, shell, rehearsals, "", depth + 1)
+            reason = judge(far, outward, shell, rehearsals, "", depth + 1, remote=True)
         elif words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1]:
             here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
         elif outward:
             reason = rule_outward(words, outward, shell, rehearsals, here)
         if reason:
             return reason
+    return None
+
+
+SCRIPT_RUN_VERBS = {"run", "run-script", "rum", "urn"}
+# npm runs these scripts by their own name; the other managers run any script
+# named in place of a subcommand.
+NPM_SCRIPT_VERBS = {"start", "test", "stop", "restart"}
+
+
+def script_call(words, shell):
+    """(manager, script name, arguments) when the words run a package.json
+    script, else None. The arguments are what the manager appends to it."""
+    manager = shell.base(words[0]) if words else ""
+    if manager not in NPM_PUBLISHERS:
+        return None
+    rest = words[1:]
+    while rest and rest[0].startswith("-"):
+        rest = rest[1:]
+    if rest[:1] and rest[0] in SCRIPT_RUN_VERBS:
+        rest = rest[1:]
+    elif not rest or (manager == "npm" and rest[0] not in NPM_SCRIPT_VERBS):
+        return None
+    if not rest:
+        return None
+    args = rest[1:]
+    return manager, rest[0], args[1:] if args[:1] == ["--"] else args
+
+
+def package_scripts(here):
+    """(directory, scripts) of the nearest package.json at or above `here`,
+    the one a package manager reads; (None, {}) when there is none."""
+    directory = here
+    while True:
+        path = os.path.join(directory, "package.json")
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8-sig") as handle:
+                document = json.load(handle)
+            scripts = document.get("scripts") if isinstance(document, dict) else None
+            return directory, scripts if isinstance(scripts, dict) else {}
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return None, {}
+        directory = parent
+
+
+def rule_script(words, outward, shell, rehearsals, here, depth):
+    """Judge the command a package.json script runs, with the arguments typed
+    after its name appended as the manager appends them, and its pre- and
+    post- hooks. Whether a manager runs those depends on its version and
+    settings, which this guard cannot see, so they are read for every one."""
+    call = script_call(words, shell)
+    if not call:
+        return None
+    manager, name, args = call
+    # The repository's declaration that this alias rehearses covers its body.
+    if name in rehearsals and rehearsal(args):
+        return None
+    root, scripts = package_scripts(here)
+    for script in (name, f"pre{name}", f"post{name}"):
+        body = scripts.get(script)
+        if not isinstance(body, str):
+            continue
+        line = body + "".join(" " + shlex.quote(arg) for arg in args) if script == name else body
+        reason = judge(line, outward, shell, rehearsals, root, depth + 1)
+        if reason:
+            return f"The package.json script {script} runs `{body}`: {reason}"
     return None
 
 
@@ -728,8 +801,8 @@ def main():
         if hosted and hosted[0] == "deny":
             refuse(hosted[1])
             return 0
-        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals,
-                                                  cwd if isinstance(cwd, str) and cwd else None)
+        start = cwd if isinstance(cwd, str) and cwd else project if isinstance(project, str) and project else repo
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals, start)
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0
