@@ -24,6 +24,7 @@ printf '%s\n' "$*" >> "$dir/npm.log"
 pwd >> "$dir/npm.pwd.log"
 : > "$dir/npm.ran"
 [[ -f "$dir/npm.sleep" ]] && sleep "$(cat "$dir/npm.sleep")"
+[[ -f "$dir/npm.fail.$(basename "$PWD")" ]] && exit 1
 rc=0
 [[ -f "$dir/npm.rc" ]] && rc="$(cat "$dir/npm.rc")"
 exit "$rc"
@@ -394,5 +395,22 @@ set +e; err="$(PATH="$scratch/nodebin:$PATH" "$prov" "$nvm_fix" 2>&1 >/dev/null)
 [[ "$err" == *"environment failure"* ]] || fail "the mismatch lacks the environment-failure sentence: $err"
 [[ ! -e "$scratch/npm.ran" ]] || fail "npm ran under the wrong node"
 ok ".nvmrc is matched by major; lts/* is skipped with a note; a mismatch fails before installing"
+
+# 16. a rerun after a partial failure skips the lockfiles that already installed
+part="$scratch/partial"; mkdir -p "$part/a" "$part/b"; git init -q "$part"; git -C "$part" config user.email t@t; git -C "$part" config user.name t
+printf '{"name":"a","lockfileVersion":3}\n' > "$part/a/package-lock.json"
+printf '{"name":"b","lockfileVersion":3}\n' > "$part/b/package-lock.json"
+git -C "$part" add -A; git -C "$part" commit -qm locks
+: > "$scratch/npm.pwd.log"; : > "$scratch/npm.fail.b"
+set +e; "$prov" "$part" >/dev/null 2>&1; rc=$?; set -e
+[[ $rc -eq 1 ]] || fail "the failing second lockfile must fail the run (rc=$rc)"
+[[ ! -f "$(gitdir "$part")/colloid-provisioned" ]] || fail "aggregate memo written after a partial failure"
+rm -f "$scratch/npm.fail.b"; : > "$scratch/npm.pwd.log"
+out="$("$prov" "$part")" || fail "rerun failed: $out"
+[[ "$(grep -c '/a$' "$scratch/npm.pwd.log")" == 0 && "$(grep -c '/b$' "$scratch/npm.pwd.log")" == 1 ]] \
+  || fail "the rerun must install only b: $(cat "$scratch/npm.pwd.log")"
+[[ "$out" == *"npm:a (already installed)"* && "$out" == *"npm:b"* ]] || fail "the skipped lockfile is not reported: $out"
+[[ -f "$(gitdir "$part")/colloid-provisioned" ]] || fail "aggregate memo missing after the rerun succeeded"
+ok "a rerun skips the lockfile that installed and runs only the one that failed"
 
 printf '\nall provision tests passed\n'
