@@ -293,9 +293,10 @@ def rule_bash(command, shell):
     return None
 
 
-def verdict(tool_name, tool_input, outward=(), rehearsals=()):
+def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
     """The reason to ask, or None. `outward` is the repository's script list;
-    `rehearsals` names the entries whose --dry-run really rehearses."""
+    `rehearsals` names the entries whose --dry-run really rehearses; `cwd` is
+    the directory the command starts in, when the host names it."""
     if tool_name in ("Bash", "PowerShell", "Monitor"):
         text = tool_input.get("command")
         if not isinstance(text, str) or not text.strip():
@@ -306,12 +307,16 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=()):
         if gated.isdisjoint(re.findall(r"[A-Za-z0-9_.-]+", text)):
             return None
         shell = load_shell_parser()
+        here = cwd or ""
         for command in shell.normalize(text):
             reason = rule_bash(command, shell)
             if reason:
                 return reason
-            if outward:
-                reason = rule_outward(shell.lead(command.words), outward, shell, rehearsals)
+            words = shell.lead(command.words)
+            if words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1]:
+                here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
+            elif outward:
+                reason = rule_outward(words, outward, shell, rehearsals, here)
                 if reason:
                     return reason
         return None
@@ -472,16 +477,19 @@ def rehearsal(args):
     return bool(values) and all(values)
 
 
-def rule_outward(words, outward, shell, rehearsals=()):
+def rule_outward(words, outward, shell, rehearsals=(), here=""):
+    """`here` is the directory the command runs in, as far as the command's
+    own `cd`s and the session's working directory say; empty when unknown."""
     for target in outward_targets(words, shell):
         normalized = target.lstrip("./")
+        located = os.path.normpath(os.path.join(here, target)) if here else ""
         for entry in outward:
-            # The listed path, any path ending in it, or its bare name after a
-            # `cd`: a script that writes to production is worth an ask under
-            # whatever path it was reached by. Reads never get here — the command
-            # word is `cat` or `grep`, not the script.
-            if (normalized == entry or normalized.endswith("/" + entry)
-                    or os.path.basename(normalized) == os.path.basename(entry)):
+            # The listed path, or any path ending in it, as typed or as located
+            # from `here`: a script that writes to production is worth an ask
+            # under whatever path it was reached by. A bare file name alone
+            # proves nothing — `.agents/provision.sh` is not `deploy/provision.sh`.
+            # Reads never get here — the command word is `cat` or `grep`.
+            if any(path == entry or path.endswith("/" + entry) for path in (normalized, located)):
                 # Only --dry-run on a script declared to honour it rehearses.
                 # `-n` is git's convention, not these scripts'.
                 if entry in rehearsals and rehearsal(words[1:]):
@@ -629,7 +637,8 @@ def main():
         if hosted and hosted[0] == "deny":
             refuse(hosted[1])
             return 0
-        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals)
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals,
+                                                  cwd if isinstance(cwd, str) and cwd else None)
     except Exception:
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0

@@ -459,6 +459,20 @@ with tempfile.TemporaryDirectory() as tmp:
               reason or "quiet")
     reason = guard.verdict("Bash", {"command": "timeout 600 eas build"}, ["eas"])
     check("a listed command behind timeout asks", reason is not None, "quiet")
+    # A listed path matches by its directory too: the bare file name counts
+    # only once a `cd`, or the session's working directory, puts it there.
+    nested = ["deploy/provision.sh", "e2e/judge/cli.ts"]
+    for command, cwd in (("cd deploy && ./provision.sh", None), ("cd e2e/judge && npx tsx cli.ts", None),
+                         ("bash deploy/provision.sh", None), ("cd /srv/app/deploy; bash provision.sh", None),
+                         ("cd e2e && cd judge && node ./cli.ts", None), ("./provision.sh", "/srv/app/deploy"),
+                         ("cd ../deploy && ./provision.sh", "/srv/app/e2e")):
+        reason = guard.verdict("Bash", {"command": command}, nested, cwd=cwd)
+        check(f"asks on a listed path reached by its directory: {command} (cwd {cwd})", reason is not None, "quiet")
+    for command, cwd in ((".agents/provision.sh", None), ("bash .agents/provision.sh /tmp/wt", None),
+                         ("npx tsx src/cli.ts", None), ("cd src && npx tsx cli.ts", None),
+                         ("./provision.sh", "/srv/app/.agents"), ("cd deploy && ./other.sh && ../provision.sh", None)):
+        reason = guard.verdict("Bash", {"command": command}, nested, cwd=cwd)
+        check(f"quiet on a file sharing only a listed name: {command} (cwd {cwd})", reason is None, reason or "")
     # A runner's pinned version is not part of the package name.
     for command in ("npx eas-cli@16 submit", "npx eas-cli@latest build -p ios",
                     "bunx eas-cli@16.3.1 submit", "pnpm dlx eas-cli@16 submit",
