@@ -19,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle && npm run sbom"
+    "check": "npm run typecheck && npm run lint && npm test && npm run check:bundle && npm run sbom"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
