@@ -47,3 +47,20 @@ export async function findSnapshot(
     original,
   };
 }
+
+const DAY_MS = 86_400_000;
+
+/**
+ * When a capture was taken and how old it is. The archive falls back to a
+ * capture of any age, so the caller needs this to judge whether the text
+ * still describes the page today.
+ */
+export function captureAge(timestamp: string, now: number): { capturedAt: string; ageDays: number } {
+  const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(timestamp);
+  if (!match) throw new Error(`Wayback timestamp is not YYYYMMDDhhmmss: ${timestamp}`);
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number) as [
+    number, number, number, number, number, number,
+  ];
+  const captured = Date.UTC(year, month - 1, day, hour, minute, second);
+  return { capturedAt: new Date(captured).toISOString(), ageDays: Math.floor((now - captured) / DAY_MS) };
+}

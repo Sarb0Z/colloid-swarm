@@ -4,7 +4,7 @@ Repository-owned MCP server for reading the public web. Two tools:
 
 | Tool | Job |
 | --- | --- |
-| `fetch_readable` | Fetch a page or PDF, return the main text without navigation, advertising or boilerplate. Reads Wayback captures for dead URLs. |
+| `fetch_readable` | Fetch a page or PDF, return the main text without navigation, advertising or boilerplate. Reads Wayback captures for dead URLs and reports each capture's time and age in days. |
 | `resolve_open_access` | Resolve a DOI or paper title to legally readable open-access copies through Crossref, Unpaywall and arXiv. |
 
 ## Why it exists
