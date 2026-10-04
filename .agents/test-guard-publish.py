@@ -473,6 +473,27 @@ with tempfile.TemporaryDirectory() as tmp:
                          ("./provision.sh", "/srv/app/.agents"), ("cd deploy && ./other.sh && ../provision.sh", None)):
         reason = guard.verdict("Bash", {"command": command}, nested, cwd=cwd)
         check(f"quiet on a file sharing only a listed name: {command} (cwd {cwd})", reason is None, reason or "")
+    # TypeScript runners name the script they run like any interpreter.
+    for command in ("tsx scripts/seed-prod.ts", "npx tsx scripts/seed-prod.ts --env prod",
+                    "ts-node scripts/seed-prod.ts", "ts-node-transpile-only scripts/seed-prod.ts"):
+        reason = guard.verdict("Bash", {"command": command}, ["scripts/seed-prod.ts"])
+        check(f"asks on a listed script run by a TypeScript runner: {command}", reason is not None, "quiet")
+    reason = guard.verdict("Bash", {"command": "tsx scripts/seed-local.ts"}, ["scripts/seed-prod.ts"])
+    check("quiet on an unlisted script run by tsx", reason is None, reason or "")
+    # terraform changes live infrastructure and its remote state on these
+    # verbs; planning, validating and formatting touch neither.
+    for command in ("terraform apply", "terraform apply tfplan", "terraform -chdir=infra apply -auto-approve",
+                    "terraform destroy", "terraform import aws_s3_bucket.b b", "tofu apply tfplan",
+                    "terraform state rm aws_instance.web", "terraform taint aws_instance.web",
+                    "terraform workspace delete staging"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a terraform write: {command}", reason is not None, "quiet")
+    for command in ("terraform plan -out tfplan", "terraform validate", "terraform fmt -check -recursive",
+                    "terraform init", "terraform show tfplan", "terraform output -json",
+                    "terraform state list", "terraform -chdir=infra plan", "tofu plan",
+                    "terraform workspace select staging"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a terraform read or local step: {command}", reason is None, reason or "")
     # A runner's pinned version is not part of the package name.
     for command in ("npx eas-cli@16 submit", "npx eas-cli@latest build -p ios",
                     "bunx eas-cli@16.3.1 submit", "pnpm dlx eas-cli@16 submit",
