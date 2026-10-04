@@ -8,10 +8,16 @@ changed a production Vercel project, Supabase auth and GitHub secrets from /tmp.
 """
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+
+# A caller such as `git rebase -x` exports these; the git calls below must
+# reach only their own temporary repositories.
+for _name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"):
+    os.environ.pop(_name, None)
 
 here = pathlib.Path(__file__).resolve().parent
 guard = here / "hooks" / "lib" / "guard-publish.py"
