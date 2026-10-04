@@ -96,9 +96,9 @@ candidates, scenarios, measurements, decision rule and wiring are below.
   fnm's Node 24. Maestro 2.11.0 is installed from the `mobile-dev-inc/tap`
   Homebrew tap, with Java 21.
 - Android is not installed: no SDK and no `adb`.
-- `teardown-gate.sh` reads every `appium` word as a server start (breadcrumb).
-  Fix it before the trial, or every Appium install and driver command arms the
-  gate.
+- `teardown-gate.sh` records an Appium server only when `appium` is the command
+  run, bare or as `server`. An install and the driver, plugin and setup
+  subcommands do not arm it.
 
 ### Candidates
 
@@ -152,7 +152,7 @@ if adopted; a dated research entry with the measurements.
 
 ### Next action
 
-Fix the `teardown-gate.sh` Appium reading. Then, in a session started in
+In a session started in
 `~/Projects/MemoGo/mobile-app` with Colima running, run
 `python3 .agents/mcp.py enable appium-mcp`, add mobile-mcp the same way, restart
 the session, and run the scenarios.
@@ -229,7 +229,7 @@ writes the write-up; testing rules are adopted only after it lands.
 
 1. The operator restarts Claude Code in auto mode; the agent runs the
    `publish-approval` live QA (section 1).
-2. The agent fixes the `teardown-gate.sh` Appium reading, then runs the mobile
-   trial on MemoGo (section 2) in a window with Colima up.
+2. The agent runs the mobile trial on MemoGo (section 2) in a window with
+   Colima up.
 3. The agent starts router slice 2 in plan mode (section 3).
 4. The operator answers the rulings in section 6 when convenient.

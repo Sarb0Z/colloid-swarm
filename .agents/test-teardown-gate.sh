@@ -258,6 +258,16 @@ sh 'npx expo start --ios' true >/dev/null
 [[ "$(grep -c '^server' "$pending")" == 3 ]] || fail "appium/metro/expo: $(cat "$pending")"
 [[ -z "$(sh 'appium --version')" ]] || fail "'appium --version' is not a server"
 sh 'pkill -f appium' >/dev/null
+for c in 'npm install -g appium' 'appium driver install xcuitest' 'appium driver list --installed' \
+         'appium plugin list' 'appium setup' 'npx appium driver list'; do
+  sh "$c" true >/dev/null
+  [[ ! -e "$pending" ]] || fail "'$c' exits when done and is not a server: $(cat "$pending")"
+done
+for c in 'appium' 'appium server --port 4723' 'nohup appium > appium.log 2>&1' 'npx -y appium --port 4723'; do
+  sh "$c" true >/dev/null
+  grep -q '^server' "$pending" || fail "'$c' starts the appium server and must record"
+  rm -f "$pending"
+done
 mcp mcp__appium-mcp__prepare_ios_simulator '{"deviceName":"iPhone 15 Pro"}' >/dev/null
 grep -q '^emulator' "$pending" || fail "prepare_ios_simulator boots a device and must record"
 rm -f "$pending"
