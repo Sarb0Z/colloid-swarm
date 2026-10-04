@@ -19,6 +19,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+# A caller such as `git rebase -x` exports these; the git calls below must
+# reach only their own temporary repositories.
+for _name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"):
+    os.environ.pop(_name, None)
+
 here = Path(__file__).resolve().parent
 fails = 0
 

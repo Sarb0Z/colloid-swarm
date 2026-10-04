@@ -66,6 +66,7 @@ python3 .agents/check-layout.py
 .agents/test-lint-skills.sh
 python3 .agents/lint-breadcrumbs.py
 python3 .agents/lint-decisions.py
+python3 .agents/check-test-isolation.py
 .agents/test-session-start.sh
 .agents/test-done-prime.sh
 .agents/test-workloop.sh

@@ -2,6 +2,9 @@
 # Firing tests for the status strip: rendering, the account badge, the toggle's
 # hand-over to the person's own status line, and a missing jq.
 set -euo pipefail
+# A caller such as `git rebase -x` exports these; the git calls below must
+# reach only their own temporary repositories.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"

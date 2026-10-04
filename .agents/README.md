@@ -318,6 +318,7 @@ python3 .agents/check-layout.py
 .agents/test-review-contract.sh
 python3 .agents/lint-breadcrumbs.py
 python3 .agents/lint-decisions.py
+python3 .agents/check-test-isolation.py
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py

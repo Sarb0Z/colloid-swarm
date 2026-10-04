@@ -49,6 +49,9 @@ jobs:
       - name: Decision shape
         run: python3 .agents/lint-decisions.py
 
+      - name: Test isolation
+        run: python3 .agents/check-test-isolation.py
+
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
