@@ -14,7 +14,6 @@ skill() {  # <name> <SKILL.md body> -> skill directory
   local d="$scratch/$1"
   mkdir -p "$d"
   printf -- '---\nname: %s\ndescription: Probe the link rules.\n---\n\n%s\n' "$1" "$2" >"$d/SKILL.md"
-  printf '# Rules\n' >"$d/AGENTS.md"
   printf '%s' "$d"
 }
 
@@ -47,3 +46,8 @@ out="$("$lint" "$d/SKILL.md")" && fail "a link after the closing fence passed"
 [[ "$out" == *"ALSO-GONE.md"* ]] || fail "a link after the closing fence was not checked: $out"
 [[ "$out" != *"'./GONE.md'"* ]] || fail "a tilde line closed a backtick fence: $out"
 ok "only a matching fence closes a fenced block"
+
+d="$(skill bare 'A skill with no AGENTS.md beside it.')"
+[[ ! -e "$d/AGENTS.md" ]] || fail "the probe skill unexpectedly has an AGENTS.md"
+"$lint" "$d/SKILL.md" >/dev/null || fail "a skill without AGENTS.md was rejected"
+ok "a skill needs no AGENTS.md"

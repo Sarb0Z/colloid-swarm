@@ -39,12 +39,13 @@ def expected_links() -> dict[Path, str]:
         raise SystemExit(f"layout: skill/rule name collision: {sorted(collisions)}")
     for skill in skills:
         links[Path(".claude/skills") / skill.name] = f"../../.agents/skills/{skill.name}"
-        links[Path(".claude/rules") / f"{skill.name}.md"] = (
-            f"../../.agents/skills/{skill.name}/AGENTS.md"
-        )
-        links[Path(".github/instructions") / f"00-{skill.name}.instructions.md"] = (
-            f"../../.agents/skills/{skill.name}/AGENTS.md"
-        )
+        if (skill / "AGENTS.md").is_file():
+            links[Path(".claude/rules") / f"{skill.name}.md"] = (
+                f"../../.agents/skills/{skill.name}/AGENTS.md"
+            )
+            links[Path(".github/instructions") / f"00-{skill.name}.instructions.md"] = (
+                f"../../.agents/skills/{skill.name}/AGENTS.md"
+            )
     for rule in rules:
         links[Path(".claude/rules") / rule.name] = f"../../.agents/rules/{rule.name}"
         links[Path(".github/instructions") / f"01-{rule.stem}.instructions.md"] = (

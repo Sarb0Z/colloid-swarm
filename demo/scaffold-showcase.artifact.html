@@ -7784,7 +7784,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 114 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 115 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
 
 from pathlib import Path
@@ -7825,12 +7825,13 @@ def expected_links() -&gt; dict[Path, str]:
         raise SystemExit(f&quot;layout: skill/rule name collision: {sorted(collisions)}&quot;)
     for skill in skills:
         links[Path(&quot;.claude/skills&quot;) / skill.name] = f&quot;../../.agents/skills/{skill.name}&quot;
-        links[Path(&quot;.claude/rules&quot;) / f&quot;{skill.name}.md&quot;] = (
-            f&quot;../../.agents/skills/{skill.name}/AGENTS.md&quot;
-        )
-        links[Path(&quot;.github/instructions&quot;) / f&quot;00-{skill.name}.instructions.md&quot;] = (
-            f&quot;../../.agents/skills/{skill.name}/AGENTS.md&quot;
-        )
+        if (skill / &quot;AGENTS.md&quot;).is_file():
+            links[Path(&quot;.claude/rules&quot;) / f&quot;{skill.name}.md&quot;] = (
+                f&quot;../../.agents/skills/{skill.name}/AGENTS.md&quot;
+            )
+            links[Path(&quot;.github/instructions&quot;) / f&quot;00-{skill.name}.instructions.md&quot;] = (
+                f&quot;../../.agents/skills/{skill.name}/AGENTS.md&quot;
+            )
     for rule in rules:
         links[Path(&quot;.claude/rules&quot;) / rule.name] = f&quot;../../.agents/rules/{rule.name}&quot;
         links[Path(&quot;.github/instructions&quot;) / f&quot;01-{rule.stem}.instructions.md&quot;] = (

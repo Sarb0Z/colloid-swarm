@@ -23,7 +23,7 @@ paths:
 - Keep the scaffold small. Add a generator only when a real artifact cannot be represented directly or linked.
 - A persona is a cached hot path, not the only legal subagent. Give it only the tools, skills, MCP servers, hooks, and memory its role repeatedly needs.
 - Claude persona configuration belongs in YAML frontmatter. Codex model and effort remain invocation-time controls; its TOML description states the exact dispatch.
-- Every skill follows Agent Skills format and carries `AGENTS.md`; `lint-skills.sh` is the authority for its enforceable limits.
+- Every skill follows Agent Skills format; `lint-skills.sh` is the authority for its enforceable limits.
 - Put load-bearing skill instructions first: compaction may retain only the beginning of long skills.
 - A hook policy ships with a direct firing test. Prefer testing observable behavior over mutation machinery that tests the test harness.
 - Hook payloads travel on stdin. Keep adapters thin and shared behavior in `hooks/policy/` or `hooks/lib/`.
@@ -38,7 +38,7 @@ Read the nearest `AGENTS.md` before editing a subtree. Canonical scoped files us
 | --- | --- |
 | Scaffold | `.agents/AGENTS.md` |
 | Claude adapter | `.agents/claude/AGENTS.md` |
-| Skill | `.agents/skills/<name>/AGENTS.md` |
+| Skill (optional) | `.agents/skills/<name>/AGENTS.md` |
 | Path or stack rule | `.agents/rules/<name>.md` |
 
 <!-- colloid-only -->
