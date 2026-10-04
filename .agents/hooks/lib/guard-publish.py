@@ -141,11 +141,25 @@ FIREBASE_WRITES = {"delete", "set", "unset", "remove", "update", "push", "import
 # <alias_or_project_id>`, `--account <email>`, `--token <token>` and `-c,
 # --config <path>` take a value; `--json`, `--debug` and the interactivity
 # switches do not. `--flag=value` carries its own value and needs no entry.
+#
+# wrangler's yargs globals (workers-sdk packages/wrangler/src/index.ts). flyctl
+# and the Supabase CLI are cobra programs, which find the verb past any flag
+# and its value and let the verb parse it, so a verb's own value flags count
+# too: flyctl's from internal/flag/flag.go, Supabase's globals from
+# `supabase --help` (2.119) plus `--project-ref` and `--db-url`. railway (clap)
+# and netlify (commander) reject an option before the verb, so neither has a row.
 VALUE_FLAGS = {
     "firebase": {"-P", "--project", "--account", "--token", "-c", "--config"},
     "gcloud": {"--project", "--account", "--configuration", "--impersonate-service-account",
                "--region", "--zone", "--format", "--verbosity"},
+    "wrangler": {"--cwd", "-c", "--config", "-e", "--env", "--env-file", "--profile"},
+    "fly": {"-t", "--access-token", "-a", "--app", "-c", "--config", "-e", "--env", "-i", "--image",
+            "-s", "--signal", "-o", "--org", "-r", "--region", "-g", "--process-group"},
+    "supabase": {"--workdir", "--profile", "-o", "--output", "--output-format", "--network-id",
+                 "--dns-resolver", "--agent", "--log-level", "--completions",
+                 "--project-ref", "--db-url"},
 }
+VALUE_FLAGS["flyctl"] = VALUE_FLAGS["fly"]
 GATED_NAMES = ({"git", "gh", "docker", "gcloud"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
                | set(HOSTED_VERBS) | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
@@ -242,7 +256,7 @@ def unversioned(spec):
 
 
 def supabase_storage_reason(rest):
-    path = positionals(rest, SUPABASE_STORAGE_VALUED)
+    path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS["supabase"])
     if path[:1] != ["storage"] or "--local" in rest:
         return None
     verb = path[1] if len(path) > 1 else None
