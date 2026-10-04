@@ -11,6 +11,9 @@
 # proxy variables are removed from every run, so an operator's endpoint never
 # reaches these assertions.
 set -euo pipefail
+# A caller such as `git rebase -x` exports these; the git calls below must
+# reach only their own temporary repositories.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo" <<'PY'
 import json, os, shutil, stat, subprocess, sys, tempfile, tomllib
