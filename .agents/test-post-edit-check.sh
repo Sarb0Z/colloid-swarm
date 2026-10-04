@@ -94,4 +94,75 @@ run '["apps/web/src/a.ts"]'
   || fail "a hoisted eslint must run from the workspace that holds the flat config, got: $err"
 ok "a hoisted eslint lints a workspace file against that workspace's flat config"
 
+# Dart: `dart format` rewrites in the write entry, and the analyzer reports in
+# the check entry, from the package that owns the file — the nearest ancestor
+# holding a pubspec.yaml. A Flutter package is analyzed by `flutter analyze`,
+# which resolves the Flutter SDK that plain `dart analyze` cannot. The stubs log
+# their arguments and working directory so the shape of each run is observable.
+bin="$scratch/bin"; mkdir -p "$bin" "$dir/app/lib" "$dir/pkg/lib"
+for tool in dart flutter; do
+  cat > "$bin/$tool" <<'SH'
+#!/usr/bin/env bash
+tool="$(basename "$0")"
+printf '%s %s | %s\n' "$tool" "$*" "$PWD" >> "$STUB_LOG_DIR/$tool.log"
+[[ "$1" == analyze ]] && { printf '  error - %s - probe/dart-analyze-ran\n' "$tool"; exit 3; }
+exit 0
+SH
+  chmod +x "$bin/$tool"
+done
+printf 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n' > "$dir/app/pubspec.yaml"
+printf 'name: pkg\n' > "$dir/pkg/pubspec.yaml"
+printf 'void main() {}\n' > "$dir/app/lib/main.dart"
+printf 'void main() {}\n' > "$dir/pkg/lib/a.dart"
+mkdir -p "$dir/app/.dart_tool" "$dir/pkg/.dart_tool"
+printf '{}\n' > "$dir/app/.dart_tool/package_config.json"
+printf '{}\n' > "$dir/pkg/.dart_tool/package_config.json"
+run_dart() {  # <mode> <json files array> -> sets rc, err; PATH carries the stubs
+  set +e
+  err="$(printf '{"project_dir":"%s","files":%s}' "$proj" "$2" \
+    | STUB_LOG_DIR="$scratch" PATH="$bin:$PATH" POST_EDIT_MODE="$1" bash "$policy" 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+}
+: > "$scratch/dart.log"; : > "$scratch/flutter.log"
+run_dart check '["app/lib/main.dart"]'
+[[ $rc -eq 2 && "$err" == *"probe/dart-analyze-ran"* ]] || fail "a Flutter file must be analyzed, got rc=$rc: $err"
+[[ "$(cat "$scratch/flutter.log")" == "flutter analyze --no-pub $proj/app/lib/main.dart | $proj/app" ]] \
+  || fail "flutter analyze must run from the package on the edited file, got: $(cat "$scratch/flutter.log")"
+[[ ! -s "$scratch/dart.log" ]] || fail "a Flutter package must not be analyzed by dart"
+ok "a Flutter file is analyzed by flutter analyze --no-pub from its package"
+
+run_dart check '["pkg/lib/a.dart"]'
+[[ $rc -eq 2 && "$err" == *"probe/dart-analyze-ran"* ]] || fail "a Dart file must be analyzed, got rc=$rc: $err"
+[[ "$(cat "$scratch/dart.log")" == "dart analyze $proj/pkg/lib/a.dart | $proj/pkg" ]] \
+  || fail "dart analyze must run from the package on the edited file, got: $(cat "$scratch/dart.log")"
+ok "a plain Dart file is analyzed by dart analyze from its package"
+
+: > "$scratch/dart.log"
+run_dart write '["pkg/lib/a.dart"]'
+[[ $rc -eq 0 ]] || fail "the write entry must exit 0, got $rc: $err"
+[[ "$(cat "$scratch/dart.log")" == "dart format $proj/pkg/lib/a.dart | $proj" ]] \
+  || fail "write mode must run dart format on the edited file, got: $(cat "$scratch/dart.log")"
+ok "write mode formats a Dart file and never analyzes it"
+
+# An unresolved package is skipped with a note: analyzing it would run pub get.
+mv "$dir/pkg/.dart_tool/package_config.json" "$scratch/pc.json"
+: > "$scratch/dart.log"
+run_dart check '["pkg/lib/a.dart"]'
+[[ $rc -eq 0 ]] || fail "an unresolved package must not fail the hook, got rc=$rc: $err"
+[[ "$err" == *"dart pub get"* ]] || fail "the skip must say to run dart pub get, got: $err"
+[[ ! -s "$scratch/dart.log" ]] || fail "an unresolved package must not be analyzed"
+mv "$dir/app/.dart_tool/package_config.json" "$scratch/pc.json"
+run_dart check '["app/lib/main.dart"]'
+[[ $rc -eq 0 && "$err" == *"flutter pub get"* ]] || fail "an unresolved Flutter package must be skipped with a note, got rc=$rc: $err"
+ok "an unresolved package is skipped with a pub get note, exit-neutral"
+
+# Without a Dart toolchain the language is skipped silently, like the others.
+set +e
+err="$(printf '{"project_dir":"%s","files":["app/lib/main.dart"]}' "$proj" \
+  | PATH="/usr/bin:/bin" POST_EDIT_MODE=check /bin/bash "$policy" 2>&1 >/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 0 && -z "$err" ]] || fail "a missing dart must be silent, got rc=$rc: $err"
+ok "a missing Dart toolchain is skipped silently"
+
 printf '\nALL PASS\n'

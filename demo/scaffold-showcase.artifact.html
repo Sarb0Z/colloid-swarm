@@ -2584,7 +2584,7 @@ exit 0
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 466 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 524 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
@@ -2597,14 +2597,14 @@ exit 0
 # tree. $POST_EDIT_MODE selects one:
 #
 #   write  — every fixer and formatter (ruff --fix, ruff format, prettier
-#            --write, eslint --fix), then the advisory scans on the added
+#            --write, eslint --fix, dart format), then the advisory scans on the added
 #            lines. Exits 0 always and reports through additionalContext, so an
 #            advisory never rides the channel that carries type failures.
 #            This entry MUST stay synchronous: a formatter running in the
 #            background can read a file, be overtaken by the agent&#x27;s next edit,
 #            and write the pre-edit content back over it.
 #   check  — gates that only report: ruff check, eslint, tsc --noEmit per workspace,
-#            pyright per environment, and the skill-format linter. Exits 2 with
+#            pyright per environment, dart or flutter analyze per package, and the skill-format linter. Exits 2 with
 #            the findings on stderr. Nothing here rewrites a file the agent
 #            edited, so this is the entry that runs in the background under
 #            asyncRewake, where the slow typecheckers cost the session nothing.
@@ -2734,6 +2734,7 @@ ts_edited=&quot;&quot;      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=&quot;&quot;   # all JS/TS — linted by eslint, formatted by prettier
 reformatted=&quot;&quot;    # files a fixer rewrote beyond the agent&#x27;s own edit
 py_edited=&quot;&quot;      # .py — type-checked by pyright (ruff runs inline below)
+dart_edited=&quot;&quot;    # .dart — formatted by dart format, analyzed per package
 skills_edited=&quot;&quot;  # skills/&lt;name&gt;/*.md — frontmatter and layout, per skill
 
 # Every fixer rewrites files, and the agent&#x27;s next Edit carries an old_string
@@ -2793,6 +2794,9 @@ while IFS= read -r f; do
       ;;
     *.js|*.jsx|*.mjs|*.cjs)
       js_ts_edited+=$&#x27;\n&#x27;&quot;$f&quot;
+      ;;
+    *.dart)
+      dart_edited+=$&#x27;\n&#x27;&quot;$f&quot;
       ;;
     */.agents/skills/*/*.md)
       # Any file in a skill can break that skill&#x27;s layout rules. The linter
@@ -2970,6 +2974,60 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot
   done &lt;&lt;&lt; &quot;$(printf &#x27;%s&#x27; &quot;$py_pairs&quot; | cut -f1,2 | sort -u)&quot;
 fi
 
+# Dart: one format pass over every edited file, and one analyze run per package.
+# The analyzer resolves pubspec.yaml and analysis_options.yaml from its working
+# directory, so each file is analyzed from the nearest ancestor that holds a
+# pubspec.yaml. A package that depends on the Flutter SDK is analyzed by
+# `flutter analyze`: plain `dart analyze` cannot resolve `package:flutter`, and
+# reports every import as missing. A missing binary is skipped silently.
+if [[ -n &quot;$dart_edited&quot; ]]; then
+  dart_files=()
+  while IFS= read -r df; do
+    [[ -n &quot;$df&quot; ]] &amp;&amp; dart_files+=(&quot;$df&quot;)
+  done &lt;&lt;&lt; &quot;$dart_edited&quot;
+
+  if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
+    command -v dart &gt;/dev/null 2&gt;&amp;1 &amp;&amp;
+      dart format &quot;${dart_files[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
+  else
+    dart_pairs=&quot;&quot;
+    for df in &quot;${dart_files[@]}&quot;; do
+      pkg=&quot;${df%/*}&quot;
+      while [[ &quot;$pkg&quot; != &quot;$proj&quot; &amp;&amp; ! -f &quot;$pkg/pubspec.yaml&quot; ]]; do pkg=&quot;${pkg%/*}&quot;; done
+      dart_pairs+=&quot;$pkg&quot;$&#x27;\t&#x27;&quot;$df&quot;$&#x27;\n&#x27;
+    done
+    while IFS= read -r pkg; do
+      [[ -z &quot;$pkg&quot; ]] &amp;&amp; continue
+      no_pub=()
+      if [[ -f &quot;$pkg/pubspec.yaml&quot; ]] &amp;&amp; grep -Eq &#x27;^[[:space:]]+sdk:[[:space:]]*flutter[[:space:]]*$&#x27; &quot;$pkg/pubspec.yaml&quot; &amp;&amp;
+         command -v flutter &gt;/dev/null 2&gt;&amp;1; then
+        analyzer=flutter
+        no_pub=(--no-pub)    # flutter analyze runs `pub get` by default
+      elif command -v dart &gt;/dev/null 2&gt;&amp;1; then
+        analyzer=dart
+      else
+        continue
+      fi
+      # Both analyzers need a resolved package. Resolving here would reach the
+      # network and write pubspec.lock and .dart_tool/, which a report-only hook
+      # must not do, so a package never fetched is skipped with a note instead.
+      if [[ ! -f &quot;$pkg/.dart_tool/package_config.json&quot; ]]; then
+        echo &quot;post-edit-check: skipped $analyzer analyze for ${pkg#$proj}/ — dependencies are not resolved. Run \`$analyzer pub get\` there.&quot; &gt;&amp;2
+        continue
+      fi
+      pkg_files=()
+      while IFS=$&#x27;\t&#x27; read -r w df; do
+        [[ &quot;$w&quot; == &quot;$pkg&quot; ]] &amp;&amp; pkg_files+=(&quot;$df&quot;)
+      done &lt;&lt;&lt; &quot;$dart_pairs&quot;
+      # A nonzero exit is the report. Only the analyzer&#x27;s own output is shown,
+      # so a run that failed without saying why still names the tool.
+      if ! dart_out=&quot;$(cd &quot;$pkg&quot; &amp;&amp; &quot;$analyzer&quot; analyze ${no_pub[@]+&quot;${no_pub[@]}&quot;} &quot;${pkg_files[@]}&quot; 2&gt;&amp;1)&quot;; then
+        issues+=$&#x27;\n&#x27;&quot;[$analyzer analyze] ${pkg#$proj}/ (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$dart_out&quot;$&#x27;\n&#x27;
+      fi
+    done &lt;&lt;&lt; &quot;$(printf &#x27;%s&#x27; &quot;$dart_pairs&quot; | cut -f1 | sort -u)&quot;
+  fi
+fi
+
 if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
   after_sums=&quot;$(sums &quot;$files&quot;)&quot;
   while IFS= read -r line; do
@@ -3038,7 +3096,7 @@ fi
 
 if [[ -n &quot;$reformatted&quot; ]]; then
   advisories+=&quot;
-Advisory — a formatter rewrote these files after your edit (ruff, prettier or
+Advisory — a formatter rewrote these files after your edit (ruff, prettier, dart format or
 eslint --fix). Their contents no longer match what you wrote, so an Edit whose
 old_string predates this will fail. Re-read the file before your next edit,
 check the diff before you describe it, and say so if the reformatting is larger
