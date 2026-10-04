@@ -327,7 +327,9 @@ python3 .agents/test-browser-sync.py
 .agents/test-mods.sh
 .agents/test-codex.sh
 .agents/test-export.sh
+# colloid-only
 python3 demo/check-inventory.py
+# /colloid-only
 ```
 
 `test-review-contract.sh` runs `review-harness/bin/extract-contract.sh --check`,
