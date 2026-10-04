@@ -26,6 +26,8 @@ Everything below is committed on `main` in `colloid-swarm`. Commits through
 | `f3e0277` | The mods handoff records slice 1, P5, and the dialog's idle auto-resolve |
 | `b6b3e61` | `teardown-gate.sh` records an Appium server only when `appium` is the command run |
 | `cdda55f`, `c5addb7` | The mod logs a non-approving dialog answer; the Claude adapter passes `tool_use_id` to the publish guard |
+| 32 commits after `0a1560b` | Breadcrumb burndown: guards, gates, Codex, MCP servers, export kit, Flutter pack and Dart check; review in `docs/reviews/2026-10-04-burndown.md` |
+| `fa2ab68`, `386de30`, `342aeb0` | Tests clear `GIT_*` before running git (with `check-test-isolation.py`); settings ask rules for the new deploy verbs; tier-neutral delegation line |
 
 ## 1. `publish-approval` mod: done
 
@@ -60,14 +62,23 @@ candidates, scenarios, measurements, decision rule and wiring are below.
 | `@mobilenext/mobile-mcp` | Live exploration | Read its README for its requirements before the first run. |
 | Maestro | Committed end-to-end check | YAML flows in `.maestro/`. Check whether it ships an MCP server; if it does, it is also a live-exploration candidate. |
 
-### Target: MemoGo
+### Target: Meridian (held by the operator)
 
-`~/Projects/MemoGo/mobile-app`, branch `main`. Expo 56, React Native 0.85,
-`expo-router`, `expo-dev-client`, a prebuilt `ios/`, bundle ID `com.memogo.app`,
-bun. The backend is local Supabase (`bun run db:start`), which needs Colima
-running. Build with `bunx expo run:ios --configuration Release`, so no Metro
-server is needed. Follow MemoGo's own `AGENTS.md` for anything that lands
-there.
+The operator moved the trial to `~/Projects/Meridian/meridian-profit-mobile-app`
+on 2026-10-04, then held it. Branch `main`. Expo 54, React Native 0.81,
+`expo-router`, `expo-dev-client`, a prebuilt `ios/`, bun, Clerk sign-in. Its
+`.env` points at the hosted staging API (`api-staging.meridianprofitsapp.com`)
+and a Clerk test instance (`pk_test`), so sign-in, sign-up and any created data
+reach hosted services. Its `AGENTS.md` already names Appium MCP as the only
+device surface. `node_modules` is installed; `ios/Pods` is not.
+
+- Before any run: the operator rules how far the trial may go against staging
+  (read-only sign-in with a test account, creating data, signing up, or a local
+  backend), and where the test account's credentials live.
+- Build with `SENTRY_DISABLE_AUTO_UPLOAD=true`: the Release build's Xcode phase
+  otherwise uploads debug files to Sentry.
+- Scenarios 2 to 4 map to sign in, add a service (only if the ruling allows a
+  write), and relaunch.
 
 ### Scenarios (the same for every tool)
 
@@ -104,10 +115,9 @@ if adopted; a dated research entry with the measurements.
 
 ### Next action
 
-In a session started in
-`~/Projects/MemoGo/mobile-app` with Colima running, run
-`python3 .agents/mcp.py enable appium-mcp`, add mobile-mcp the same way, restart
-the session, and run the scenarios.
+Ask the operator for the staging ruling above. Then, in a session started in
+`~/Projects/Meridian/meridian-profit-mobile-app`, enable `appium-mcp` there, add
+mobile-mcp the same way, restart the session, and run the scenarios.
 
 ## 3. Workflow router
 
@@ -165,6 +175,8 @@ writes the write-up; testing rules are adopted only after it lands.
 ## 7. Cleanup
 
 - `/tmp/workflow-mining` is already gone (checked 2026-10-04).
+- `/tmp/pa-live.txt`: the debug log of the session that ran the live QA. Delete
+  it once that session is restarted without `--debug-file`.
 - The Docker image `node:24-bookworm-slim` (351 MB) was pulled for the P5 probe.
   Remove it with `docker image rm node:24-bookworm-slim` if nothing else uses it.
 
@@ -178,7 +190,7 @@ writes the write-up; testing rules are adopted only after it lands.
 
 ## Next action, in order
 
-1. The agent runs the mobile trial on MemoGo (section 2) in a window with
-   Colima up.
+1. The operator rules on the Meridian mobile trial's use of staging (section
+   2); then the agent runs it.
 2. The agent starts router slice 2 in plan mode (section 3).
 3. The operator answers the rulings in section 6 when convenient.

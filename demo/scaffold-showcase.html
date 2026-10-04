@@ -8807,7 +8807,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 78 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -8838,60 +8838,30 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
 - **A malformed `policy.json` empties the publish guard&#x27;s script list** — every listed deploy script then runs without an ask (reproduced 2026-10-03), and the stderr report prints three times per command. Should the guard ask on everything until it parses?
 - **Delegation is re-typed per session** — ten September prompts across four satellites asked for it; `AGENTS.md` already makes it the default and prose has not held. Add a gate (a Stop check on undelegated long turns), or accept?
+- **The SSH rule is a deny-list under a read-only promise** — it denies only named forms, so each new spelling ships after a loss. Deny every remote command except known read-only tools, or keep the list?
+- **`teardown-gate.sh` reads any commit as &quot;work done&quot;** — per-chunk commits land mid-unit (the reopen condition of `teardown-tiered-by-restart-cost`), so containers come due early. Re-key the signal to a push or session end, or accept?
 
 ## Work
 
+- **`guard-publish.py` misses workspace and bin forms** — `pnpm -C apps/web run deploy`, `npm --prefix`, `bun --cwd` and `pnpm exec vercel deploy` get no decision. Follow directory flags; judge a missing script name as a command.
+- **`guard-destructive.py`&#x27;s `lead()` misses more wrappers** — `env -S &#x27;&lt;cmd&gt;&#x27;`, `xargs`, `stdbuf`, `doas`, `bash --rcfile x -c`, `uv --directory x run` and `time -o out` hide a denied command. Add them, tested per guard.
+- **`fetch_readable` trusts the Wayback stamp&#x27;s format** — a non-14-digit stamp fails the read after the fetch, and a blocked capture reports no age. Validate the stamp in `findSnapshot`; add age fields on the blocked path.
+- **`teardown-gate.sh` clears containers on quoted `workloop.py reap`** — prose that names the literal script form inside a commit message still counts as a teardown. Read only an executed `workloop.py` clause, with a test row.
+- **Kimi&#x27;s teardown hook may miss `TaskStop`** — Claude gates `TaskStop|KillShell|KillBash`; `.kimi/config.toml.example`&#x27;s teardown hook was not checked against Kimi&#x27;s `TaskStop`. Check the Kimi hook docs and widen the matcher if it applies.
+- **`workloop.py review` resolves the reference in the lane&#x27;s worktree** — a review report kept in the main checkout cannot be referenced, so the lead must copy it into each worktree. Resolve the reference against the main checkout.
+- **Both MCP servers pin `@types/node` to 20.19** — the engines floor is now `&gt;=22.0.0`. Move `@types/node` to the 22 line with `npm install -D`, then run each server&#x27;s check.
 - **`docs/handoff/2026-10-02-claude-code-mods.md`** — slice 1 (the `publish-approval` mod) passed its live QA on 2026-10-04. Slice 2, M3 the delegation gate, is next.
-- **`docs/handoff/2026-10-04-session-handoff.md`** — the iOS 27.0 simulator, Appium 3.8.0 with xcuitest, and Maestro 2.11.0 are installed; Android is not. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
+- **`docs/handoff/2026-10-04-session-handoff.md`** — the mobile trial now targets Meridian&#x27;s app (`meridian-profit-mobile-app`), held by the user. It talks to hosted staging and Clerk&#x27;s test instance: get the user&#x27;s ruling on how far it may go before running it.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
-- **`teardown-gate.sh` reads any commit as &quot;work done&quot;** — &quot;Commits split along seams&quot; now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator&#x27;s write-up on the purpose of testing; adopt rules from it only after that lands.
-- **`guard-destructive.py`&#x27;s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x`, `bash -lc &#x27;rm -rf ~/x&#x27;` and `timeout 600 eas build` pass both guards. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and `-lc`/`-ec`, tested per guard.
-- **`guard-publish.py` keeps `@&lt;version&gt;` on runner operands** — `npx eas-cli@16 submit` misses a listed `eas-cli`, so each pinned tag must be listed separately (Meridian mobile). Strip the version before matching, with test rows.
-- **`guard-publish.py` reads flags only as typed** — `bun run db:reset --linked` passes `--linked` through the alias and resets the linked database with no prompt (MemoGo). Decide whether alias arguments reach the Supabase rule, or state the limit.
-- **`guard-publish.py`&#x27;s Supabase table misses hosted verbs** — `config push`, `functions delete`, `storage`, `sso`, `domains`, `postgres-config` and `network-restrictions` get no decision (MemoGo). Add them beside `DEPLOY_VERBS`, with test rows.
-- **`guard-publish.py` is silent on a listed script run over SSH** — `ssh host &#x27;cd /opt/app &amp;&amp; bash scripts/deploy.sh&#x27;` gets no decision from either guard (Mailstation, 2026-09-30). Match listed paths inside an `ssh` remote command, with a test row.
-- **`guard-publish.py` has no rule for a typed `aws` mutation** — `aws lambda update-function-code …` gets no decision, unlike the listed deploy scripts. Add the AWS CLI&#x27;s mutating verbs beside the Supabase ones, with test rows.
-- **`wait-gate.py` reads an `&amp;` in a trailing comment as a background** — `echo hi # a &amp; b` is refused with the run_in_background remedy. Strip unquoted trailing comments before `split_operators`, with a test row.
-- **Satellites lack the 2026-09-27 harness changes** — the wait gate, the hosted-script refusal, the writer-gate fix and the contract edits reach a satellite only through a sync pass. Carry them in the next sync.
-- **The exported `.agents/README.md` keeps its Kimi prose when a target drops `.kimi/`** — the host table and `.kimi-code/mcp.json` lines dangle in both TaxDrop repos. Wrap them in `colloid-only` markers, or add a Kimi-drop step to the guide.
-- **`teardown-gate.sh` blocks on containers `workloop.py reap` already removed** — the stop-classifier knows `docker stop` and `docker compose down`, not the controller&#x27;s own reap, so a reaped lane stays pending. Teach it the reap command, or verify liveness before blocking.
-- **`provenance-gate.sh` sees only text the host has flushed** — on 2.1.258 one session stopped writing mid-turn assistant text rows, so the gate read nothing and the Stop gate caught the turn. Re-test on a later host.
-- **`session-wrap.sh` blocks under `codex exec`** — the command completes, then `request_user_input` fails because exec mode cannot answer the full-wrap/skip prompt. Detect exec mode and skip the prompt.
-- **Nothing validates `.agents/codex/hooks.json`** — `codex mcp list` reads only `config.toml`, so a malformed hooks.json still exits 0. It is the other file that can fail a whole Codex session. Cover it with the `hooks/list` driver.
-- **`research-mcp`&#x27;s robots.txt policy is unwritten** — it fetches on the caller&#x27;s behalf without consulting robots.txt, as every reader tool does, and rate-limits per host. State the rule: user-directed single reads exempt, enumeration not.
-- **`security-mcp`&#x27;s `check` repairs instead of failing** — it runs `build` before `check:bundle`, so a stale committed `dist/` is silently regenerated and passes. `research-mcp` omits `build` and fails loudly. Drop `build`.
-- **`export-scaffold.py` leaves colloid-only passages in `.agents/README.md`** — the `fixtures/review-episodes/` row, the `../demo/` fragment, and the `.github/copilot-instructions.md` lines. A table row cannot take `&lt;!-- colloid-only --&gt;`; needs `SUBSTITUTIONS` or reordering.
-- **`.agents/lsp.json` resolves language servers from PATH only** — a repository keeping its toolchain repo-local gets a server that never starts, silently. Give it `post-edit-check.sh`&#x27;s walk-up resolution, or state that LSP is PATH-only.
-- **The root `AGENTS.md` Layers table names a symlink as canonical** — it lists `.claude/AGENTS.md` for the Claude adapter layer, but that path links to `.agents/claude/AGENTS.md`, and the same paragraph forbids editing through a symlink.
-- **`.kimi/config.toml.example:55` gates `Bash` alone** — `.agents/claude/settings.json` gates `Bash|PowerShell|Monitor`. Check the Kimi hook docs, then widen the matcher or record that Kimi exposes no background shell. Codex has no Monitor.
-- **Both MCP servers declare `node &gt;=20.19.0`** — Node 20 reached end of life on 2026-04-30 and CI runs 22 and 24. Raise the floor to `&gt;=22.0.0`, so the declared constraint names something supported and tested.
-- **`ci.yml` duplicates the working-tree assertion across two jobs** — eight lines each, and two copies is where they drift. Factor it into a `.agents/` script both jobs call, which also carries it into the export kit.
-- **`test-codex.sh`&#x27;s skip-Kimi branch never runs here** — this repository always ships `.kimi/config.toml.example`, so only a transplant exercises it. Add a stripped fixture the way `test-export.sh` builds its lean kit.
-- **`decisions.md` has no shape lint** — `lint-breadcrumbs.py` gates breadcrumbs, nothing checks that each `### &lt;id&gt;` entry carries Decision, Why, and Reopens-when lines. Add the check when an entry first ships without one.
-- **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry with no `hooks` key, left where the genome layer was stripped. Confirm the host ignores it, then check whether `export-scaffold.py` can emit it again.
-- **Sandbox registry allowlist** — `sandbox.network.allowedDomains` could carry the common package registries, but `strictAllowlist` is user- or managed-scope only, so the repository cannot enforce it. Suggest the list in `CLAUDE.local.md` guidance, or leave the sandbox to the operator.
-- **Turborepo cache across worktrees** — its local cache is keyed by task hash and shared across a repository&#x27;s worktrees: a second lane&#x27;s build hits the first&#x27;s; add one line to the Next.js stack pack when a target uses turbo.
-- **`provision.sh` honours `.python-version` but not `.nvmrc`** — a lane whose branch bumps the Node pin still runs the main checkout&#x27;s runtime. Read it and fail by name when unmet, or state the limit in the workloop skill.
-- **`provision.sh` memoizes all-or-nothing** — a repository whose installs together outrun the 540 s deadline restarts from zero every attempt. Add a per-lockfile memo so a rerun skips what already succeeded, keyed under the aggregate hash.
-- **`parallel-writers-gate.sh` trusts the brief header** — `WORKLOOP WORKER BRIEF` in a prompt exempts the dispatch without checking that the run and lane exist. Capture `&lt;run&gt;/&lt;lane&gt;` and confirm the lane in `.workloop-state.json` has a worktree outside the checkout.
-- **The SSH rule is a deny-list under a read-only promise** — it denies only named forms, so each new spelling ships after a loss. Decide whether to deny every remote command that is not a known read-only tool.
-- **`hosted-scripts.py` misreads `uv run --with &lt;pkg&gt;`** — it takes the `--with` value as the command, so `uv run --with psycopg2-binary python3 ../tools/copy-env-to-prod.py` asks instead of denying. Skip option values in the runner parse, with a test row.
-- **No stack pack covers Flutter** — two satellites are Flutter, and the carrier has no Flutter or Dart pack, so both keep zero packs. Write one, or state the gap.
-- **The post-edit check does not cover Dart** — it dispatches on Python, TypeScript and JavaScript, so a Flutter satellite&#x27;s main language has no automatic gate after an edit. Add `dart analyze`, or record the limit.
-- **`fetch_readable` falls back to a capture of any age** — one measured capture was 146 days old, which is history rather than current content. Return the capture age, or take a caller-supplied maximum and refuse past it.
-- **The Codex developer text names `fable`** — `.agents/codex/config.toml` tells Codex to delegate &quot;up to `fable`&quot;, a Claude-only model, so every Codex-first satellite reads a tier it cannot dispatch. Name Codex&#x27;s own tiers there.
-- **The publish guard misses `terraform apply` and `tsx`/`ts-node` runners** — ravi-travels documents a direct `terraform apply tfplan` for production, and `tsx &lt;script&gt;` or `ts-node-transpile-only &lt;script&gt;` never reaches the outward list. Gate `terraform apply|destroy|import` and add those runners to `INTERPRETERS`.
-- **Outward entries also match by bare file name** — customer-delivery-web&#x27;s `deploy/provision.sh` makes `.agents/provision.sh` ask, and `e2e/judge/cli.ts` makes any `cli.ts` ask. Match the bare name only after a `cd` into the listed directory.
-- **Earlier satellites have not declared `dry_run_commands`** — after their next sync, TaxDrop, MemoGo, Parchi and Mailstation ask on every `&lt;listed script&gt; --dry-run`. Read each listed script&#x27;s argument parser and declare only those that rehearse.
-- **A global flag hides the verb for five deploy CLIs** — `wrangler --env prod deploy`, `fly -a app deploy` and like supabase, railway and netlify forms get no decision. Add each CLI&#x27;s value flags to `VALUE_FLAGS`.
+- **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry left by an older export; the current `export-scaffold.py` cannot emit it. Delete it at the next ravi-travels sync.
 </code></pre></details>
             </article>
         <article class="card">
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 176 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 182 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -9067,6 +9037,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — the `publish-approval` mod&#x27;s approval is a plain file, `.agents/.publish-approved-&lt;tool_use_id&gt;`, and `guard-publish.py` turns its ask or deny into allow for that one call while `hooks.publish_approval.enabled` is on. A process the model started earlier, such as a background shell or a parallel subagent, can read a pending call&#x27;s id from the session transcript on disk and write the file itself. That is most likely while the mod holds the call in its dialog: if the user then dismisses the dialog, the forged token still allows the call. Acceptable: the guard&#x27;s threat model is the model&#x27;s honest mistake, not an adversary with a shell (`colloid-guard-destructive-honest-mistake-only`), and forging takes a deliberate sequence of transcript reads and a file write that no honest mistake produces.
 - **Trigger** — a transcript showing a model write or read a `.publish-approved-*` path, or the guard being relied on against a prompt-injected agent.
 - **Rework** — make the writer one the model&#x27;s processes cannot imitate: Claude Code&#x27;s Bash sandbox with `denyWrite` on `.agents/.publish-approved-*` plus permission deny rules for Write and Edit on that path, or drop the guard-side allow and let the dialog only explain the deny. Either is a new review of the boundary, a few hundred lines with tests.
+
+### provenance-gate-reads-flushed-text
+
+- **Condition** — `provenance-gate.sh` judges a turn from the assistant text rows the host has already written to the transcript. On Claude Code 2.1.258 one session stopped writing mid-turn text rows, so the gate read nothing and only the Stop gate caught the turn. Acceptable: the Stop gate reads the final message, so a turn the provenance gate misses is still checked once.
+- **Trigger** — a turn whose transcript lacks assistant text rows the user saw on screen, on any host release.
+- **Rework** — read the turn&#x27;s text from a host event that carries it, such as a mod&#x27;s message events, instead of the transcript file; a new hook input path and its tests.
 </code></pre></details>
             </article>
         <article class="card">
