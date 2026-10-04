@@ -22,7 +22,9 @@ did the same. In bypassPermissions mode nothing prompts by design, and dontAsk
 turns a prompt into a denial anyway. So the guard asks only in the modes known
 to prompt, denies in every other and says how the user approves — switch the
 mode and answer the prompt, or run the command themselves — because a call the
-user never saw is not approved.
+user never saw is not approved. The publish-approval mod adds a third way: an
+approval in its dialog, which reaches the user in every mode, leaves a token
+that turns this guard's ask or deny into allow for that one call.
 
 Scope: Bash publish/push/deploy commands, and every Artifact action that
 reaches claude.ai — publishing a page, adding or deleting one of its files, and
@@ -37,6 +39,7 @@ import json
 import os
 import re
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -494,6 +497,54 @@ def emit(reason, mode):
     }}))
 
 
+# The publish-approval mod (.agents/claude/mods/publish-approval) asks the user
+# in a dialog that reaches them in every mode, then writes this token for the
+# one call they approved. The window bounds a token whose call some other hook
+# denied before this guard read it. The token is a plain file: a process the
+# model started earlier can read a pending call's id from the transcript and
+# write one, which is within this guard's threat model (an honest mistake, not
+# an adversary with a shell) and recorded as debt `publish-token-forgeable`.
+APPROVAL_TOKEN = ".publish-approved-"
+APPROVAL_WINDOW_SECONDS = 120
+TOOL_USE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def approved_in_dialog(repo, tool_use_id, now):
+    """Consume the dialog's token for this call: true once, while it is fresh.
+    Expired tokens of other calls are removed on the way."""
+    directory = os.path.join(repo, ".agents")
+    try:
+        names = [name for name in os.listdir(directory) if name.startswith(APPROVAL_TOKEN)]
+    except FileNotFoundError:
+        return False
+    wanted = (APPROVAL_TOKEN + tool_use_id
+              if isinstance(tool_use_id, str) and TOOL_USE_ID.fullmatch(tool_use_id) else None)
+    approved = False
+    for name in names:
+        path = os.path.join(directory, name)
+        try:
+            fresh = now - os.path.getmtime(path) <= APPROVAL_WINDOW_SECONDS
+            if name != wanted and fresh:
+                continue
+            os.remove(path)
+        except FileNotFoundError:
+            continue                   # another hook consumed or pruned it first
+        except OSError as error:
+            print(f"guard-publish: cannot read or remove {path} ({error}); it approves nothing",
+                  file=sys.stderr)
+            continue
+        approved = approved or (name == wanted and fresh)
+    return approved
+
+
+def allow(reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": reason,
+    }}))
+
+
 def refuse(reason):
     """Deny whatever the mode: the remedy is the agent's, not the user's."""
     print(json.dumps({"hookSpecificOutput": {
@@ -562,6 +613,13 @@ def main():
         emit("The publish guard could not evaluate this tool call.", mode)
         return 0
     if not reason:
+        return 0
+    # Only a rule's ask is answerable in the dialog. The hosted-write refusal
+    # above and the could-not-evaluate paths never read a token.
+    # debt: publish-token-forgeable -- with the mod switched off, no token is read.
+    if (read_setting(repo, "hooks.publish_approval.enabled", True)
+            and approved_in_dialog(repo, payload.get("tool_use_id"), time.time())):
+        allow(reason + " The user approved this call in the publish-approval dialog.")
         return 0
     emit(reason, mode)
     return 0
