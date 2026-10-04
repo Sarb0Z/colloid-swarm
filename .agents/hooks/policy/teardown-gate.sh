@@ -191,6 +191,8 @@ DOCKER_OPEN = re.compile(
 DOCKER_CLOSE = re.compile(
     # `docker container stop` is the modern spelling of `docker stop`.
     r"\bdocker(?:-compose|\s+compose)?\s+(?:container\s+)?(?:down|stop|kill|rm)\b"
+    # The workloop controller removes lane- and run-labelled resources itself.
+    r"|\bworkloop\.py\s(?:[^|;&<>\n]*\s)?(?:reap|release-stale|teardown)\b"
 )
 SERVER = re.compile(
     # The package-manager form allows what a monorepo puts between the manager
