@@ -225,12 +225,14 @@ try:
     assert example["browser"] == mcp_playwright.DEFAULTS, example["browser"]
 
     # The default browser: with nothing configured the server keeps its own
-    # profile, context, and network, as it did before the config existed.
+    # context and network, and an in-memory profile, so two sessions never
+    # contend for one profile directory.
     browser_dir = agents / ".browser"
     browser_path = browser_dir / "playwright.json"
     run()
     assert json.loads(browser_path.read_text()) == {
-        "browser": {"browserName": "chromium", "launchOptions": {"channel": "chrome"}},
+        "browser": {"browserName": "chromium", "launchOptions": {"channel": "chrome"},
+                    "isolated": True},
         "webmcp": False}, browser_path.read_text()
     assert stat.S_IMODE(browser_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(browser_dir.stat().st_mode) == 0o700
@@ -281,9 +283,11 @@ try:
     run()
     assert browser()["userDataDir"] == str(profile.resolve()), browser()
     assert browser()["launchOptions"]["ignoreDefaultArgs"] == ["--use-mock-keychain"]
+    assert "isolated" not in browser(), browser()
     shutil.rmtree(profile)
     run()
     assert "userDataDir" not in browser() and "ignoreDefaultArgs" not in browser()["launchOptions"]
+    assert browser()["isolated"] is True, browser()
 
     # Proxy: explicit, fed from the environment, one stored session token.
     token_path = browser_dir / "session-token"
