@@ -1266,7 +1266,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 671 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1138 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
 and say why.
 
@@ -1308,6 +1308,10 @@ class Command:
 
 
 SHELLS = {&quot;sh&quot;, &quot;bash&quot;, &quot;zsh&quot;, &quot;dash&quot;, &quot;ksh&quot;}
+# Words that open or close a compound command; the command they guard follows
+# in the same segment. guard-publish and teardown-gate strip the same set.
+CONTROL_KEYWORDS = {&quot;if&quot;, &quot;then&quot;, &quot;else&quot;, &quot;elif&quot;, &quot;fi&quot;, &quot;do&quot;, &quot;done&quot;, &quot;while&quot;, &quot;until&quot;,
+                    &quot;time&quot;, &quot;!&quot;, &quot;{&quot;, &quot;}&quot;}
 # `-c` alone or in a cluster (`-lc`, `-ec`): the shell runs its next word.
 SHELL_BODY_FLAG = re.compile(r&quot;-[A-Za-z]*c[A-Za-z]*&quot;)
 # Shell options whose value is the next word (`-o pipefail`).
@@ -1418,15 +1422,66 @@ def cut_redirects(words):
     return kept, targets
 
 
+# A word made only of redirection characters, with an optional descriptor
+# number in front (`2&gt;`, `&gt;&gt;`, `&amp;&gt;`, `&lt;&lt;&lt;`): the operator itself, not a word it
+# is attached to.
+REDIRECT_WORD = re.compile(r&quot;[0-9]*[&lt;&gt;&amp;|-]*&quot;)
+
+
+def separate_redirects(segment):
+    &quot;&quot;&quot;The segment with a space before every unquoted redirection that is glued
+    to a word, so `echo hi&gt;/etc/motd` tokenizes as `echo hi &gt;/etc/motd`.
+
+    A descriptor number (`2&gt;&amp;1`) stays with its operator, as the shell reads it:
+    only an all-digit word in front is a descriptor.&quot;&quot;&quot;
+    out, quote, start, index = [], None, 0, 0
+    while index &lt; len(segment):
+        char = segment[index]
+        if quote:
+            out.append(char)
+            if char == &quot;\\&quot; and quote == &#x27;&quot;&#x27; and index + 1 &lt; len(segment):
+                out.append(segment[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in &quot;&#x27;\&quot;&quot;:
+            quote = char
+            out.append(char)
+        elif char == &quot;\\&quot; and index + 1 &lt; len(segment):
+            out.extend((char, segment[index + 1]))
+            index += 2
+            continue
+        elif char.isspace():
+            out.append(char)
+            start = len(out)
+        else:
+            if char in &quot;&lt;&gt;&quot;:
+                word = &quot;&quot;.join(out[start:])
+                if not REDIRECT_WORD.fullmatch(word):
+                    # `cmd&amp;&gt;log`: the `&amp;` opens the redirect.
+                    cut = len(out) - 1 if word.endswith(&quot;&amp;&quot;) else len(out)
+                    out.insert(cut, &quot; &quot;)
+                    start = cut + 1
+            out.append(char)
+        index += 1
+    return &quot;&quot;.join(out)
+
+
+def tokens(segment):
+    &quot;&quot;&quot;(words, output targets) of one segment; raises ValueError when it does not
+    tokenize.&quot;&quot;&quot;
+    return cut_redirects(shlex.split(separate_redirects(segment), comments=True))
+
+
 def normalize(text, depth=0):
     &quot;&quot;&quot;Every command the text runs, as tokens with one quote layer stripped.&quot;&quot;&quot;
     commands = []
     for segment in segments(strip_heredocs(text)):
         try:
-            words = shlex.split(segment, comments=True)
+            words, targets = tokens(segment)
         except ValueError:
             continue
-        words, targets = cut_redirects(words)
         if not words:
             continue
         commands.append(Command(words, targets))
@@ -1505,6 +1560,10 @@ def lead(words):
         else:
             break
         while index &lt; len(words) and words[index].startswith(&quot;-&quot;) and words[index] != &quot;-&quot;:
+            # `env -S &#x27;&lt;words&gt;&#x27;` splits its value into the command it runs.
+            split = env_split(words, index) if name == &quot;env&quot; else None
+            if split is not None:
+                return lead(split)
             # `command -v` looks a name up and runs nothing.
             if name == &quot;command&quot; and words[index] in (&quot;-v&quot;, &quot;-V&quot;):
                 return []
@@ -1512,6 +1571,24 @@ def lead(words):
         if name == &quot;timeout&quot;:
             index += 1
     return words[index:]
+
+
+def env_split(words, index):
+    &quot;&quot;&quot;The words `env -S`/`--split-string` at words[index] runs, or None when the
+    word is another option. A value that does not tokenize stays one word.&quot;&quot;&quot;
+    word = words[index]
+    if word in (&quot;-S&quot;, &quot;--split-string&quot;):
+        value, rest = (words[index + 1] if index + 1 &lt; len(words) else &quot;&quot;), words[index + 2:]
+    elif word.startswith(&quot;--split-string=&quot;):
+        value, rest = word.split(&quot;=&quot;, 1)[1], words[index + 1:]
+    elif word.startswith(&quot;-S&quot;):
+        value, rest = word[2:], words[index + 1:]
+    else:
+        return None
+    try:
+        return shlex.split(value) + rest
+    except ValueError:
+        return [value] + rest
 
 
 def parts(args):
@@ -1620,22 +1697,19 @@ def rule_git(command, project=&quot;&quot;):
     return None
 
 
-SSH_VALUED = set(&quot;-b -c -D -E -e -F -I -i -J -L -l -m -O -o -p -Q -R -S -W -w&quot;.split())
-SERVICE_VERBS = {&quot;restart&quot;, &quot;stop&quot;, &quot;start&quot;, &quot;reload&quot;, &quot;enable&quot;, &quot;disable&quot;, &quot;daemon-reload&quot;}
-PACKAGE_VERBS = {&quot;install&quot;, &quot;remove&quot;, &quot;purge&quot;, &quot;upgrade&quot;, &quot;dist-upgrade&quot;, &quot;autoremove&quot;,
-                 &quot;erase&quot;, &quot;uninstall&quot;, &quot;add&quot;}
-PACKAGE_TOOLS = {&quot;apt&quot;, &quot;apt-get&quot;, &quot;yum&quot;, &quot;dnf&quot;, &quot;apk&quot;, &quot;zypper&quot;, &quot;pip&quot;, &quot;pip3&quot;,
-                 &quot;npm&quot;, &quot;pnpm&quot;, &quot;yarn&quot;}
-CONTAINER_TOOLS = {&quot;docker&quot;, &quot;docker-compose&quot;, &quot;podman&quot;, &quot;nerdctl&quot;}
-CONTAINER_VERBS = {&quot;prune&quot;, &quot;rm&quot;, &quot;rmi&quot;, &quot;down&quot;, &quot;stop&quot;, &quot;restart&quot;, &quot;kill&quot;}
-FIND_EXEC = {&quot;-exec&quot;, &quot;-execdir&quot;, &quot;-ok&quot;, &quot;-okdir&quot;}
+# ssh option letters that take a value, attached (`-p2222`) or as the next word.
+SSH_VALUED = set(&quot;BbcDEeFIiJLlmOoPpQRSWw&quot;)
+# Options under which ssh logs in to nothing: print its configuration or its
+# version, or talk to a running control master.
+SSH_NO_LOGIN = set(&quot;GVO&quot;)
+REMOTE_COMMAND = re.compile(r&quot;\s*remotecommand\b&quot;, re.I)
 # The only device paths that discard or echo. Every other entry under /dev is
 # storage or hardware, and a redirect onto it is the worst write there is.
 DEVICE_SINKS = (&quot;/dev/null&quot;, &quot;/dev/zero&quot;, &quot;/dev/stdout&quot;, &quot;/dev/stderr&quot;, &quot;/dev/tty&quot;, &quot;/dev/fd/&quot;)
 
 
 def persistent(path):
-    &quot;&quot;&quot;True when a path on the remote host outlives the command.
+    &quot;&quot;&quot;True when a redirect onto this path on the remote host outlives the command.
 
     Everything on that host is production, so a relative path counts too: it is
     the remote home. A scratch root, a device sink, and a bare descriptor
@@ -1650,99 +1724,492 @@ def persistent(path):
     return True
 
 
-def delegated(words):
-    &quot;&quot;&quot;The commands `find -exec` hands off, or `xargs` runs, as Commands.
-
-    Both re-enter `normalize`, so a delete hidden in `sh -c &#x27;...&#x27;` is read too.
-    xargs&#x27;s own flags take values (`-I {}`), so every suffix of its words is
-    tried as the command start; a suffix that begins with a flag value names
-    no command and decides nothing.
-    &quot;&quot;&quot;
-    found = []
-    name = base(words[0])
-    if name == &quot;find&quot;:
-        index = 1
-        while index &lt; len(words):
-            if words[index] in FIND_EXEC:
-                end = index + 1
-                while end &lt; len(words) and words[end] not in (&quot;;&quot;, &quot;+&quot;):
-                    end += 1
-                found.extend(normalize(&quot; &quot;.join(shlex.quote(word) for word in words[index + 1:end]), depth=1))
-                index = end
+def operands_past(args, valued):
+    &quot;&quot;&quot;The operands of args, skipping each flag in `valued` together with its value.&quot;&quot;&quot;
+    found, index = [], 0
+    while index &lt; len(args):
+        word = args[index]
+        if word.startswith(&quot;-&quot;) and word != &quot;-&quot;:
+            index += 2 if word in valued else 1
+        else:
+            found.append(word)
             index += 1
-    elif name == &quot;xargs&quot;:
-        for start in range(1, len(words)):
-            found.extend(normalize(&quot; &quot;.join(shlex.quote(word) for word in words[start:]), depth=1))
     return found
 
 
-def mutating(command):
-    &quot;&quot;&quot;True when the command changes the state of the host that runs it.
+def always(args, depth):
+    return True
 
-    Deletion counts in every spelling, not only `rm -rf`: `find -delete`, a
-    delete handed to `-exec` or `xargs`, a container prune or teardown, a
-    journal vacuum, `truncate`, and a redirect that empties a file. A move or
-    copy counts when it lands outside scratch.
-    &quot;&quot;&quot;
-    words = lead(command.words)
-    if not words:
+
+def find_reads(args, depth):
+    &quot;&quot;&quot;find reads unless it deletes, writes a list file, or hands off a command
+    that is not itself a read.&quot;&quot;&quot;
+    if {&quot;-delete&quot;, &quot;-fprint&quot;, &quot;-fprint0&quot;, &quot;-fprintf&quot;, &quot;-fls&quot;} &amp; set(args):
         return False
-    name, rest = base(words[0]), words[1:]
+    index = 0
+    while index &lt; len(args):
+        if args[index] in (&quot;-exec&quot;, &quot;-execdir&quot;, &quot;-ok&quot;, &quot;-okdir&quot;):
+            end = index + 1
+            while end &lt; len(args) and args[end] not in (&quot;;&quot;, &quot;+&quot;):
+                end += 1
+            if not reads(args[index + 1:end], depth + 1):
+                return False
+            index = end
+        index += 1
+    return True
+
+
+XARGS_VALUED = {&quot;-I&quot;, &quot;-L&quot;, &quot;-n&quot;, &quot;-P&quot;, &quot;-s&quot;, &quot;-E&quot;, &quot;-d&quot;, &quot;-a&quot;, &quot;--max-args&quot;,
+                &quot;--max-procs&quot;, &quot;--max-lines&quot;, &quot;--delimiter&quot;, &quot;--arg-file&quot;, &quot;--eof&quot;}
+
+
+def xargs_reads(args, depth):
+    index = 0
+    while index &lt; len(args) and args[index].startswith(&quot;-&quot;):
+        index += 2 if args[index] in XARGS_VALUED else 1
+    # With no command, xargs runs echo.
+    return reads(args[index:], depth + 1) if index &lt; len(args) else True
+
+
+def sed_writes(script):
+    &quot;&quot;&quot;True when a sed script writes a file or runs a command: the `w`, `W` and
+    `e` commands, or an `s` command carrying the `w` or `e` flag.&quot;&quot;&quot;
+    size = len(script)
+
+    def past(at, delimiter):
+        while at &lt; size and script[at] != delimiter:
+            at += 2 if script[at] == &quot;\\&quot; else 1
+        return at + 1
+
+    def address(at):
+        if at &lt; size and script[at].isdigit():
+            while at &lt; size and (script[at].isdigit() or script[at] == &quot;~&quot;):
+                at += 1
+        elif at &lt; size and script[at] == &quot;$&quot;:
+            at += 1
+        elif at &lt; size and script[at] == &quot;/&quot;:
+            at = past(at + 1, &quot;/&quot;)
+        elif at + 1 &lt; size and script[at] == &quot;\\&quot;:
+            at = past(at + 2, script[at + 1])
+        while at &lt; size and script[at] in &quot;IM&quot;:
+            at += 1
+        return at
+
+    index = 0
+    while index &lt; size:
+        if script[index] in &quot; \t\n;{}!&quot;:
+            index += 1
+            continue
+        index = address(index)
+        if index &lt; size and script[index] == &quot;,&quot;:
+            index += 1
+            if index &lt; size and script[index] in &quot;+~&quot;:
+                index += 1
+                while index &lt; size and script[index].isdigit():
+                    index += 1
+            else:
+                index = address(index)
+        while index &lt; size and script[index] in &quot; \t!&quot;:
+            index += 1
+        if index &gt;= size:
+            break
+        command = script[index]
+        index += 1
+        if command in &quot;wWe&quot;:
+            return True
+        if command in &quot;sy&quot; and index &lt; size:
+            delimiter = script[index]
+            index = past(past(index + 1, delimiter), delimiter)
+            flags = index
+            while index &lt; size and (script[index] in &quot;gpiImMew&quot; or script[index].isdigit()):
+                index += 1
+            if command == &quot;s&quot; and {&quot;w&quot;, &quot;e&quot;} &amp; set(script[flags:index]):
+                return True
+        elif command in &quot;aicrRbtT:&quot;:
+            # Text, a file name or a label runs to the end of the line; a label
+            # also ends at `;`.
+            while index &lt; size and script[index] != &quot;\n&quot; and not (command in &quot;btT&quot; and script[index] == &quot;;&quot;):
+                index += 1
+    return False
+
+
+def sed_reads(args, depth):
+    &quot;&quot;&quot;sed reads unless it edits in place, loads a script file this guard cannot
+    see, or runs a script that writes or executes.&quot;&quot;&quot;
+    scripts, operands, index = [], [], 0
+    while index &lt; len(args):
+        word = args[index]
+        index += 1
+        if word.startswith(&quot;--&quot;):
+            name, attached, value = word.partition(&quot;=&quot;)
+            if name.startswith((&quot;--in-place&quot;, &quot;--file&quot;)):
+                return False
+            if name in (&quot;--expression&quot;, &quot;--line-length&quot;) and not attached:
+                value = args[index] if index &lt; len(args) else &quot;&quot;
+                index += 1
+            if name == &quot;--expression&quot;:
+                scripts.append(value)
+        elif word.startswith(&quot;-&quot;) and word != &quot;-&quot;:
+            for at, letter in enumerate(word[1:], 1):
+                if letter in &quot;if&quot;:
+                    return False
+                if letter in &quot;el&quot;:
+                    value = word[at + 1:]
+                    if not value:
+                        value = args[index] if index &lt; len(args) else &quot;&quot;
+                        index += 1
+                    if letter == &quot;e&quot;:
+                        scripts.append(value)
+                    break
+        else:
+            operands.append(word)
+    return not any(sed_writes(script) for script in scripts or operands[:1])
+
+
+# A command run through `system()` or a pipe (`print | &quot;sh&quot;`, `&quot;date&quot; | getline`);
+# `||` is logical or. And output a print sends to a file.
+AWK_RUNS = re.compile(r&quot;\bsystem\s*\(|(?&lt;!\|)\|(?!\|)&quot;)
+AWK_REDIRECT = re.compile(r&quot;\bprintf?\b[^;{}]*&gt;&quot;)
+
+
+def awk_reads(args, depth):
+    &quot;&quot;&quot;awk reads unless its program runs a command or writes a file, or comes
+    from a file or extension this guard cannot see.&quot;&quot;&quot;
+    program, index = None, 0
+    while index &lt; len(args):
+        word = args[index]
+        index += 1
+        if word.startswith(&quot;--&quot;) and word != &quot;--&quot;:
+            if word.split(&quot;=&quot;, 1)[0].startswith((&quot;--file&quot;, &quot;--exec&quot;, &quot;--include&quot;, &quot;--load&quot;, &quot;--source&quot;)):
+                return False
+        elif word.startswith(&quot;-&quot;) and word not in (&quot;-&quot;, &quot;--&quot;):
+            if word[1] in &quot;fEile&quot;:
+                return False
+            if word[1] in &quot;vF&quot; and len(word) == 2:
+                index += 1
+        elif program is None:
+            program = word
+    return program is not None and not AWK_RUNS.search(program) and not AWK_REDIRECT.search(program)
+
+
+def sort_reads(args, depth):
+    letters, longs, _ = parts(args)
+    return &quot;o&quot; not in letters and &quot;--output&quot; not in longs
+
+
+def uniq_reads(args, depth):
+    # A second operand is the file uniq writes.
+    return len(parts(args)[2]) &lt; 2
+
+
+SET_CLOCK = re.compile(r&quot;\d{4,12}(\.\d\d)?&quot;)
+
+
+def date_reads(args, depth):
+    letters, longs, operands = parts(args)
+    return (&quot;s&quot; not in letters and &quot;--set&quot; not in longs
+            and not any(SET_CLOCK.fullmatch(operand) for operand in operands))
+
+
+def hostname_reads(args, depth):
+    letters, longs, operands = parts(args)
+    return not operands and not {&quot;F&quot;, &quot;b&quot;} &amp; letters and not {&quot;--file&quot;, &quot;--boot&quot;} &amp; longs
+
+
+def top_reads(args, depth):
+    # Without batch mode top waits for a terminal the remote command lacks.
+    return &quot;b&quot; in parts(args)[0]
+
+
+def nginx_reads(args, depth):
+    letters = parts(args)[0]
+    return &quot;s&quot; not in letters and bool({&quot;t&quot;, &quot;T&quot;, &quot;v&quot;, &quot;V&quot;} &amp; letters)
+
+
+JOURNAL_WRITES = (&quot;--vacuum&quot;, &quot;--rotate&quot;, &quot;--flush&quot;, &quot;--sync&quot;, &quot;--relinquish-var&quot;, &quot;--cursor-file&quot;,
+                  &quot;--smart-relinquish-var&quot;, &quot;--setup-keys&quot;, &quot;--update-catalog&quot;)
+
+
+def journalctl_reads(args, depth):
+    return not any(flag.startswith(JOURNAL_WRITES) for flag in parts(args)[1])
+
+
+SYSTEMCTL_VALUED = {&quot;-H&quot;, &quot;--host&quot;, &quot;-M&quot;, &quot;--machine&quot;, &quot;-t&quot;, &quot;--type&quot;, &quot;-p&quot;, &quot;--property&quot;,
+                    &quot;-n&quot;, &quot;--lines&quot;, &quot;-o&quot;, &quot;--output&quot;, &quot;--state&quot;}
+SYSTEMCTL_READS = {&quot;status&quot;, &quot;is-active&quot;, &quot;is-enabled&quot;, &quot;is-failed&quot;, &quot;list-units&quot;,
+                   &quot;list-unit-files&quot;, &quot;list-timers&quot;, &quot;list-sockets&quot;, &quot;list-dependencies&quot;,
+                   &quot;show&quot;, &quot;cat&quot;}
+
+
+def systemctl_reads(args, depth):
+    verbs = operands_past(args, SYSTEMCTL_VALUED)
+    # Bare `systemctl` lists units.
+    return not verbs or verbs[0] in SYSTEMCTL_READS
+
+
+DOCKER_VALUED = {&quot;-H&quot;, &quot;--host&quot;, &quot;-c&quot;, &quot;--context&quot;, &quot;--config&quot;, &quot;-l&quot;, &quot;--log-level&quot;,
+                 &quot;--tlscacert&quot;, &quot;--tlscert&quot;, &quot;--tlskey&quot;,
+                 &quot;-f&quot;, &quot;--file&quot;, &quot;-p&quot;, &quot;--project-name&quot;, &quot;--project-directory&quot;,
+                 &quot;--env-file&quot;, &quot;--profile&quot;}
+DOCKER_READS = {&quot;ps&quot;, &quot;logs&quot;, &quot;inspect&quot;, &quot;images&quot;, &quot;version&quot;, &quot;info&quot;, &quot;top&quot;, &quot;port&quot;,
+                &quot;diff&quot;, &quot;history&quot;, &quot;stats&quot;, &quot;events&quot;}
+DOCKER_GROUP_READS = {
+    &quot;system&quot;: {&quot;df&quot;, &quot;info&quot;, &quot;events&quot;},
+    &quot;container&quot;: {&quot;ls&quot;, &quot;list&quot;, &quot;ps&quot;, &quot;inspect&quot;, &quot;logs&quot;, &quot;top&quot;, &quot;port&quot;, &quot;diff&quot;, &quot;stats&quot;},
+    &quot;image&quot;: {&quot;ls&quot;, &quot;list&quot;, &quot;inspect&quot;, &quot;history&quot;},
+    &quot;network&quot;: {&quot;ls&quot;, &quot;list&quot;, &quot;inspect&quot;},
+    &quot;volume&quot;: {&quot;ls&quot;, &quot;list&quot;, &quot;inspect&quot;},
+    &quot;context&quot;: {&quot;ls&quot;, &quot;list&quot;, &quot;inspect&quot;, &quot;show&quot;},
+    &quot;compose&quot;: {&quot;ps&quot;, &quot;logs&quot;, &quot;config&quot;, &quot;images&quot;, &quot;top&quot;, &quot;ls&quot;, &quot;version&quot;},
+}
+
+
+def docker_reads(args, depth):
+    verbs = operands_past(args, DOCKER_VALUED)
+    if not verbs:
+        return False
+    if verbs[0] in DOCKER_GROUP_READS:
+        return verbs[1:2] != [] and verbs[1] in DOCKER_GROUP_READS[verbs[0]]
+    return verbs[0] in DOCKER_READS
+
+
+def compose_reads(args, depth):
+    return docker_reads([&quot;compose&quot;] + args, depth)
+
+
+KUBECTL_VALUED = {&quot;-n&quot;, &quot;--namespace&quot;, &quot;--context&quot;, &quot;--kubeconfig&quot;, &quot;--cluster&quot;, &quot;--user&quot;,
+                  &quot;-s&quot;, &quot;--server&quot;, &quot;-l&quot;, &quot;--selector&quot;, &quot;-o&quot;, &quot;--output&quot;, &quot;-c&quot;,
+                  &quot;--container&quot;, &quot;--tail&quot;, &quot;--since&quot;}
+KUBECTL_READS = {&quot;get&quot;, &quot;describe&quot;, &quot;logs&quot;, &quot;top&quot;, &quot;version&quot;, &quot;explain&quot;, &quot;api-resources&quot;,
+                 &quot;api-versions&quot;, &quot;cluster-info&quot;, &quot;events&quot;}
+KUBECTL_GROUP_READS = {
+    &quot;config&quot;: {&quot;view&quot;, &quot;get-contexts&quot;, &quot;current-context&quot;, &quot;get-clusters&quot;},
+    &quot;auth&quot;: {&quot;can-i&quot;, &quot;whoami&quot;},
+    &quot;rollout&quot;: {&quot;status&quot;, &quot;history&quot;},
+}
+
+
+def kubectl_reads(args, depth):
+    verbs = operands_past(args, KUBECTL_VALUED)
+    if not verbs:
+        return False
+    if verbs[0] in KUBECTL_GROUP_READS:
+        return verbs[1:2] != [] and verbs[1] in KUBECTL_GROUP_READS[verbs[0]]
+    return verbs[0] in KUBECTL_READS
+
+
+GIT_READS = {&quot;log&quot;, &quot;status&quot;, &quot;diff&quot;, &quot;show&quot;, &quot;rev-parse&quot;, &quot;blame&quot;, &quot;ls-files&quot;, &quot;ls-tree&quot;,
+             &quot;cat-file&quot;, &quot;describe&quot;, &quot;shortlog&quot;, &quot;grep&quot;}
+# Options under which a git read writes a file or runs a program.
+GIT_RUNS = (&quot;--output&quot;, &quot;--open-files-in-pager&quot;, &quot;--ext-diff&quot;, &quot;-O&quot;)
+BRANCH_VALUED = {&quot;--contains&quot;, &quot;--no-contains&quot;, &quot;--merged&quot;, &quot;--no-merged&quot;, &quot;--points-at&quot;,
+                 &quot;--sort&quot;, &quot;--format&quot;}
+BRANCH_WRITES = {&quot;--delete&quot;, &quot;--move&quot;, &quot;--copy&quot;, &quot;--force&quot;, &quot;--track&quot;, &quot;--no-track&quot;,
+                 &quot;--set-upstream-to&quot;, &quot;--unset-upstream&quot;, &quot;--edit-description&quot;, &quot;--create-reflog&quot;}
+TAG_WRITES = {&quot;--delete&quot;, &quot;--annotate&quot;, &quot;--sign&quot;, &quot;--force&quot;, &quot;--message&quot;, &quot;--file&quot;, &quot;--edit&quot;,
+              &quot;--local-user&quot;}
+
+
+def git_reads(args, depth):
+    words = [&quot;git&quot;] + args
+    index = 1
+    # Global `-c`, `--config-env` and `--exec-path` choose the programs git runs.
+    while index &lt; len(words) and words[index].startswith(&quot;-&quot;):
+        if words[index].startswith((&quot;-c&quot;, &quot;--config-env&quot;, &quot;--exec-path&quot;)):
+            return False
+        index += 2 if words[index] in GIT_VALUED else 1
+    verb, rest = git_verb(words)
+    if any(word.split(&quot;=&quot;, 1)[0].startswith(GIT_RUNS) for word in rest):
+        return False
     letters, longs, operands = parts(rest)
-    if name == &quot;systemctl&quot; and SERVICE_VERBS &amp; set(rest):
-        return True
-    if name == &quot;postsuper&quot; or (name == &quot;postqueue&quot; and {&quot;f&quot;, &quot;d&quot;} &amp; letters):
-        return True
-    if name in PACKAGE_TOOLS and PACKAGE_VERBS &amp; set(rest):
-        return True
-    if name == &quot;crontab&quot; and {&quot;e&quot;, &quot;r&quot;} &amp; letters:
-        return True
-    if name == &quot;tee&quot; or name in (&quot;kill&quot;, &quot;killall&quot;, &quot;pkill&quot;):
-        return True
-    if name == &quot;sed&quot; and &quot;i&quot; in letters:
-        return True
-    if name in (&quot;rm&quot;, &quot;truncate&quot;):
-        return True
-    if name == &quot;mv&quot; and any(persistent(operand) for operand in operands):
-        return True
-    if name == &quot;cp&quot; and operands and persistent(operands[-1]):
-        return True
-    if name == &quot;find&quot; and &quot;-delete&quot; in rest:
-        return True
-    if name in (&quot;find&quot;, &quot;xargs&quot;) and any(mutating(nested) for nested in delegated(words)):
-        return True
-    if name in CONTAINER_TOOLS and CONTAINER_VERBS &amp; set(operands):
-        return True
-    if name == &quot;journalctl&quot; and any(flag.startswith(&quot;--vacuum&quot;) for flag in longs):
-        return True
-    return any(persistent(target) for target in command.targets)
+    if verb == &quot;branch&quot;:
+        if set(&quot;dDmMcCfut&quot;) &amp; letters or BRANCH_WRITES &amp; longs:
+            return False
+        return not operands_past(rest, BRANCH_VALUED) or &quot;l&quot; in letters or &quot;--list&quot; in longs
+    if verb == &quot;remote&quot;:
+        return rest in ([], [&quot;-v&quot;], [&quot;--verbose&quot;]) or rest[:1] == [&quot;get-url&quot;]
+    if verb == &quot;tag&quot;:
+        if set(&quot;dasfmFeu&quot;) &amp; letters or TAG_WRITES &amp; longs:
+            return False
+        return not rest or &quot;l&quot; in letters or &quot;--list&quot; in longs
+    return verb in GIT_READS
+
+
+def ss_reads(args, depth):
+    letters, longs, _ = parts(args)
+    return &quot;K&quot; not in letters and &quot;--kill&quot; not in longs
+
+
+def crontab_reads(args, depth):
+    letters = parts(args)[0]
+    return &quot;l&quot; in letters and letters &lt;= {&quot;l&quot;, &quot;u&quot;} and not operands_past(args, {&quot;-u&quot;})
+
+
+def dmesg_reads(args, depth):
+    letters, longs, _ = parts(args)
+    return not set(&quot;cCnDE&quot;) &amp; letters and not any(
+        flag.startswith((&quot;--clear&quot;, &quot;--read-clear&quot;, &quot;--console&quot;)) for flag in longs)
+
+
+IP_VALUED = {&quot;-n&quot;, &quot;-netns&quot;, &quot;-f&quot;, &quot;-family&quot;, &quot;-rc&quot;, &quot;-rcvbuf&quot;, &quot;-l&quot;, &quot;-loops&quot;}
+IP_OBJECTS = {&quot;a&quot;, &quot;addr&quot;, &quot;address&quot;, &quot;l&quot;, &quot;link&quot;, &quot;r&quot;, &quot;ro&quot;, &quot;route&quot;, &quot;n&quot;, &quot;neigh&quot;,
+              &quot;neighbor&quot;, &quot;neighbour&quot;, &quot;ru&quot;, &quot;rule&quot;, &quot;m&quot;, &quot;maddr&quot;, &quot;maddress&quot;}
+
+
+def ip_reads(args, depth):
+    verbs = operands_past(args, IP_VALUED)
+    if not verbs or verbs[0] not in IP_OBJECTS:
+        return False
+    # ip accepts any prefix of a verb: `ip a s` is `ip address show`.
+    verb = verbs[1] if len(verbs) &gt; 1 else &quot;show&quot;
+    return verb in (&quot;ls&quot;, &quot;lst&quot;, &quot;get&quot;) or &quot;show&quot;.startswith(verb) or &quot;list&quot;.startswith(verb)
+
+
+CURL_WRITE_LETTERS = set(&quot;XdTFoOKcD&quot;)
+CURL_WRITES = (&quot;--request&quot;, &quot;--data&quot;, &quot;--upload-file&quot;, &quot;--form&quot;, &quot;--output&quot;, &quot;--remote-name&quot;,
+               &quot;--config&quot;, &quot;--json&quot;, &quot;--cookie-jar&quot;, &quot;--dump-header&quot;, &quot;--trace&quot;, &quot;--libcurl&quot;,
+               &quot;--stderr&quot;, &quot;--create-dirs&quot;, &quot;--etag-save&quot;, &quot;--hsts&quot;, &quot;--alt-svc&quot;)
+
+
+def curl_reads(args, depth):
+    &quot;&quot;&quot;A plain fetch: no request method, body, upload, or file written.&quot;&quot;&quot;
+    letters, longs, _ = parts(args)
+    return not CURL_WRITE_LETTERS &amp; letters and not any(flag.startswith(CURL_WRITES) for flag in longs)
+
+
+def pm2_reads(args, depth):
+    verbs = [word for word in args if not word.startswith(&quot;-&quot;)]
+    return verbs[:1] in ([&quot;logs&quot;], [&quot;list&quot;], [&quot;ls&quot;])
+
+
+def ssh_parse(words):
+    &quot;&quot;&quot;(option letters, option values, remote command) of an `ssh` invocation,
+    or None when the words are not one. ssh joins its remote words with spaces,
+    and so does this.&quot;&quot;&quot;
+    words = lead(words)
+    if not words or base(words[0]) != &quot;ssh&quot;:
+        return None
+    letters, values, index = set(), [], 1
+    while index &lt; len(words) and words[index].startswith(&quot;-&quot;) and words[index] != &quot;-&quot;:
+        word = words[index]
+        index += 1
+        if word == &quot;--&quot;:
+            break
+        for at, letter in enumerate(word[1:], 1):
+            letters.add(letter)
+            if letter in SSH_VALUED:
+                value = word[at + 1:]
+                if not value and index &lt; len(words):
+                    value = words[index]
+                    index += 1
+                values.append((letter, value))
+                break
+    return letters, values, &quot; &quot;.join(words[index + 1:])
 
 
 def ssh_remote(words):
     &quot;&quot;&quot;The command an `ssh` invocation runs on the far host, or None when the
-    words are not one. ssh joins its remote words with spaces, and so does this.&quot;&quot;&quot;
-    words = lead(words)
-    if not words or base(words[0]) != &quot;ssh&quot;:
-        return None
-    index = 1
-    while index &lt; len(words) and words[index].startswith(&quot;-&quot;):
-        index += 2 if words[index] in SSH_VALUED else 1
-    return &quot; &quot;.join(words[index + 1:])
+    words are not one.&quot;&quot;&quot;
+    parsed = ssh_parse(words)
+    return None if parsed is None else parsed[2]
+
+
+def runs_unseen(letters, values, remote):
+    &quot;&quot;&quot;True when ssh runs commands this guard cannot read: a RemoteCommand
+    option, or a login shell, which with no terminal executes its stdin.&quot;&quot;&quot;
+    if any(letter == &quot;o&quot; and REMOTE_COMMAND.match(value) for letter, value in values):
+        return True
+    return not remote and not letters &amp; SSH_NO_LOGIN
+
+
+def ssh_reads(args, depth):
+    &quot;&quot;&quot;A hop to another host reads when what it runs there reads.&quot;&quot;&quot;
+    letters, values, far = ssh_parse([&quot;ssh&quot;] + args)
+    return not runs_unseen(letters, values, far) and (not far or remote_offender(far, depth + 1) is None)
+
+
+# The remote tools that only read, each with the test that keeps a given call
+# of it a read. Anything absent is denied: the list grows by a reviewed entry,
+# never by a loss that taught a new spelling.
+REMOTE_READS = {
+    **{name: always for name in (
+        &quot;ls&quot;, &quot;cat&quot;, &quot;zcat&quot;, &quot;head&quot;, &quot;tail&quot;, &quot;less&quot;, &quot;more&quot;, &quot;grep&quot;, &quot;egrep&quot;, &quot;fgrep&quot;,
+        &quot;rg&quot;, &quot;stat&quot;, &quot;df&quot;, &quot;du&quot;, &quot;free&quot;, &quot;uptime&quot;, &quot;ps&quot;, &quot;uname&quot;, &quot;whoami&quot;, &quot;id&quot;,
+        &quot;printenv&quot;, &quot;which&quot;, &quot;file&quot;, &quot;wc&quot;, &quot;tr&quot;, &quot;cut&quot;, &quot;echo&quot;, &quot;printf&quot;,
+        &quot;cd&quot;, &quot;pwd&quot;, &quot;true&quot;, &quot;false&quot;, &quot;test&quot;, &quot;[&quot;, &quot;[[&quot;, &quot;read&quot;,
+        &quot;netstat&quot;, &quot;lsof&quot;, &quot;readlink&quot;, &quot;sha256sum&quot;, &quot;md5sum&quot;, &quot;tac&quot;, &quot;zgrep&quot;, &quot;jq&quot;)},
+    &quot;find&quot;: find_reads, &quot;xargs&quot;: xargs_reads, &quot;sed&quot;: sed_reads, &quot;awk&quot;: awk_reads,
+    &quot;gawk&quot;: awk_reads, &quot;mawk&quot;: awk_reads, &quot;sort&quot;: sort_reads, &quot;uniq&quot;: uniq_reads,
+    &quot;date&quot;: date_reads, &quot;hostname&quot;: hostname_reads, &quot;top&quot;: top_reads,
+    &quot;nginx&quot;: nginx_reads, &quot;journalctl&quot;: journalctl_reads, &quot;systemctl&quot;: systemctl_reads,
+    &quot;docker&quot;: docker_reads, &quot;podman&quot;: docker_reads, &quot;docker-compose&quot;: compose_reads,
+    &quot;kubectl&quot;: kubectl_reads, &quot;git&quot;: git_reads, &quot;ssh&quot;: ssh_reads, &quot;ss&quot;: ss_reads,
+    &quot;crontab&quot;: crontab_reads, &quot;dmesg&quot;: dmesg_reads, &quot;ip&quot;: ip_reads, &quot;curl&quot;: curl_reads,
+    &quot;pm2&quot;: pm2_reads,
+}
+# Assignments a remote read may carry: locale and time zone change how output
+# is printed, while any other variable (`LD_PRELOAD`, `PAGER`, `GIT_EXTERNAL_DIFF`)
+# can make a reader run a program.
+SAFE_ASSIGNMENT = re.compile(r&quot;(?:LC_[A-Z_]+|LANG|TZ)=&quot;)
+
+
+def reads(words, depth):
+    &quot;&quot;&quot;True when the command words, run on the far host, only read.&quot;&quot;&quot;
+    while words and words[0] in CONTROL_KEYWORDS:
+        words = words[1:]
+    if words[:1] == [&quot;for&quot;]:
+        return True
+    command = lead(words)
+    prefix = words[:len(words) - len(command)] if words[len(words) - len(command):] == command else words
+    if any(ASSIGNMENT.match(word) and not SAFE_ASSIGNMENT.match(word) for word in prefix):
+        return False
+    if not command:
+        # `sudo -s`, `sudo -i` and a bare `sudo` start a shell that reads stdin;
+        # otherwise nothing left is an assignment, `env` printing itself, or
+        # `command -v`.
+        return not any(base(word) in (&quot;sudo&quot;, &quot;doas&quot;) for word in prefix)
+    name, args = base(command[0]), command[1:]
+    if name in SHELLS:
+        body = shell_body(args)
+        return depth &lt; 3 and body is not None and remote_offender(body, depth + 1) is None
+    test = REMOTE_READS.get(name)
+    return test is not None and test(args, depth)
+
+
+def remote_offender(text, depth=0):
+    &quot;&quot;&quot;The first clause of a remote command line that is not a read, or None.
+
+    A sequence or pipeline reads only when every clause does. A clause that does
+    not tokenize is returned too: the far shell may read it differently.
+    &quot;&quot;&quot;
+    for segment in segments(strip_heredocs(text)):
+        try:
+            words, targets = tokens(segment)
+        except ValueError:
+            return segment
+        if any(persistent(target) for target in targets) or not reads(words, depth):
+            return segment
+    return None
 
 
 def rule_ssh(command, project=&quot;&quot;):
-    remote = ssh_remote(command.words)
-    if remote is None:
+    parsed = ssh_parse(command.words)
+    if parsed is None:
         return None
-    # Everything on the far host is production: a command that merely changes
-    # state there is denied, and so is anything the local rules would deny,
-    # with no project carve-out because no remote path is this working tree.
-    for nested in normalize(remote, depth=1):
-        if mutating(nested) or any(rule(nested, &quot;&quot;) for rule in RULES):
-            return (&quot;Production mutation via SSH is forbidden from local sessions. Ship the &quot;
-                    &quot;change through the repo and the approved deploy path; production access &quot;
-                    &quot;is read-only here.&quot;)
-    return None
+    letters, values, remote = parsed
+    if runs_unseen(letters, values, remote):
+        return (&quot;ssh with no remote command, or with a RemoteCommand option, runs commands &quot;
+                &quot;this guard cannot read: a tool call has no terminal, so a login shell &quot;
+                &quot;executes whatever reaches its stdin. Run one read-only command per call &quot;
+                &quot;as `ssh host &#x27;&lt;command&gt;&#x27;`; for a login or a tunnel, ask the user to run &quot;
+                &quot;it with the ! prefix.&quot;)
+    offender = remote_offender(remote)
+    if offender is None:
+        return None
+    return (f&quot;Remote commands over SSH are limited to known read-only tools, and &quot;
+            f&quot;`{offender}` is not one. Ship a change through the repo and the approved &quot;
+            &quot;deploy path; for a read the list lacks, ask the user to run it with the ! &quot;
+            &quot;prefix, or propose the entry to the user.&quot;)
 
 
 REMOTE_PATH = re.compile(r&quot;^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+:&quot;)
