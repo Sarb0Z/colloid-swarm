@@ -54,7 +54,7 @@ source: <url, or who was in the room>
 ```
 
 A `research` entry uses the write-up structure in the `market-researcher`
-skill, including its `[P]`/`[S]`/`[?]`/`[A]` grade on every claim. A
+skill, including its `[P]`/`[S]`/`[?]`/`[A]`/`[M]` grade on every claim. A
 `transcript` entry adds a `participants:` field and carries the raw text below.
 
 Never revise an entry to match later facts. Write a new entry and let the index

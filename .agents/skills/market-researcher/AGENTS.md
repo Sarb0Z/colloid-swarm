@@ -10,7 +10,7 @@ paths:
 ## Business Invariants
 - This is a documentation-only prompt skill — no runtime entry point. Do not re-add a `skill.ts` or a "Runtime Implementation" section; that was plugin-wrapper cruft pointing at a file that never existed.
 - `brief-template.md` must not restate what `.agents/personas/researcher.md` already carries (escalation ladder, corroboration rules, source dating, honesty clause, `CLAIMS / SOURCES / GAPS` shape). Two copies drift, and the brief is the copy nobody updates. It carries only the market-research-specific additions.
-- `[P]`/`[S]`/`[?]` is a provenance axis and does not replace the researcher contract's `conf:`. Both ride on the claim line. Collapsing them loses the high-agreement-folklore case, which is the one this skill exists to catch.
+- `[P]`/`[S]`/`[?]`/`[A]`/`[M]` is a provenance axis and does not replace the researcher contract's `conf:`. Both ride on the claim line. Collapsing them loses the high-agreement-folklore case, which is the one this skill exists to catch.
 - A `[?]` must always say which kind it is — `unchecked` or `no primary`. They are opposite objects: unfinished work versus a completed negative result. One mark for both is how a real finding gets re-opened as a to-do.
 - Every trigger phrase in the `description` needs three things: a method in the body, a numbered checklist step that reaches it, and a section in the write-up structure that gives its findings a home. A phrase with only the first two advertises a capability the tracked workflow never arrives at. When trimming or adding, check all three.
 - Tier 4 covers both halves of the user signal. Complaints alone produce a gap list with no sense of what is load-bearing; satisfaction drivers and switching triggers are what say which gaps matter.

@@ -6793,7 +6793,7 @@ build either; if a comment claims it does, the comment goes.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Research</div><h3>market-researcher</h3><p>Competitor teardowns, pricing, sizing, and prior art &mdash; sweeping peer-reviewed literature, not just competitor pages. Grades every claim by source quality and flags widely-repeated numbers that have no primary source.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 455 lines</span></summary><div class="srcpath">.agents/skills/market-researcher/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 461 lines</span></summary><div class="srcpath">.agents/skills/market-researcher/SKILL.md</div><pre><code>---
 name: market-researcher
 description: Market and competitor research whose output someone will build on — feature teardowns, pricing, market sizing, prior art, and whether a mechanic works in practice. Looks past the segment to whoever implements a mechanic best in any industry, and sweeps peer-reviewed literature, not just competitor pages. Mines recurring complaints to find unfilled gaps, works out why each is unfixed, and infers a competitor architecture from what they cannot repair. Grades every claim by source quality and flags widely-repeated numbers with no primary source. Use when scoping a feature or product: what competitors ship and where they fall short, how other products solve a problem, market size and growth, what users request or churn over, how the space is priced, where the unmet gaps are, or what prior art says before an architecture decision. Trigger phrases: market research, competitor analysis, competitive landscape, market size, TAM, pricing analysis, market gap, blue ocean, is there demand for this, prior art.
 ---
@@ -7059,12 +7059,18 @@ instead of blending everything into equal-authority prose.
 | `[S]` | Credible secondary: a reporter or practitioner who cites their source |
 | `[?]` | Unverified. **Do not build on.** Always say which kind: `[?] unchecked` — nobody looked yet; or `[?] no primary` — someone looked and none exists |
 | `[A]` | Our own analysis. No source claims it; we inferred it from the graded claims around it. Say what it rests on |
+| `[M]` | Measured here: a command the author ran and whose output they read. Name the command, the version, and the machine |
 
 `[A]` exists because in-house judgement has nowhere else to go. It is not `[P]`
 or `[S]` — nobody published it — and it is not `[?]`, which says *do not build
 on*, while a write-up&#x27;s conclusions are exactly what the reader must build on.
 Left unmarked, analysis borrows the authority of the graded rows beside it; left
 as `[S]`, it impersonates a source. Mark it and the reader can weigh it.
+
+`[M]` is first-party evidence, not inference: it outranks `[A]` and sits beside
+`[P]` for what it observed, but it holds only for the version and environment
+that produced it. A measurement left as `[A]` reads as a guess; one left
+unmarked borrows a vendor&#x27;s authority it never had.
 
 The two kinds of `[?]` are opposite objects and one mark hides the difference:
 `unchecked` is unfinished work, while `no primary` is a completed search with a

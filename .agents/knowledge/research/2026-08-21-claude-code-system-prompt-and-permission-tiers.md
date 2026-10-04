@@ -11,7 +11,7 @@ Two kinds of claim, graded apart. Readings of the shipped binary are `[P]` — i
 is the implementation, not a description of one — but the build is minified, so
 an interpretation error is possible and each claim below quotes the token it
 rests on. Behavioral claims come from runs on one machine, one version, macOS
-only, and are marked `[A]` with the command that produced them.
+only, and are marked `[M]` with the command that produced them.
 
 Not checked: Windows, Linux, the IDE extension, the desktop app, cloud
 sessions, and any enterprise-managed configuration.
@@ -68,7 +68,7 @@ agent loop.
 
 ## `ask` outranks `allow`, measured
 
-`[A]` A user-tier `permissions.ask` rule beat a project-tier `allow` rule.
+`[M]` A user-tier `permissions.ask` rule beat a project-tier `allow` rule.
 Method: a scratch git repository whose `.claude/settings.local.json` allowed
 both `Bash(git push:*)` and the exact `Bash(git push origin main)`, with
 `Bash(git push:*)` in `~/.claude/settings.json` `permissions.ask`; then
@@ -76,16 +76,16 @@ both `Bash(git push:*)` and the exact `Bash(git push origin main)`, with
 command did not execute. The harness returned: *"Claude requested permissions
 to use Bash, but you haven't granted it yet."*
 
-`[A]` A user-tier rule set applies with no project configuration at all. In a
+`[M]` A user-tier rule set applies with no project configuration at all. In a
 scratch repository with no scaffold, a session quoted a `~/.claude`
 output-style rule back verbatim, and `git push origin main` was refused before
 execution.
 
-`[A]` In `-p` (headless) mode an `ask` cannot prompt, so it resolves as a
+`[M]` In `-p` (headless) mode an `ask` cannot prompt, so it resolves as a
 refusal. This makes `ask` rules testable headlessly, and it means a headless
 automation that needs a gated command will fail rather than hang.
 
-`[A]` A compound command is evaluated per part: `git push origin main 2>&1;
+`[M]` A compound command is evaluated per part: `git push origin main 2>&1;
 echo ...` was refused with *"This Bash command contains multiple operations"*
 even where the bare command had an allow rule. Do not conclude a rule failed
 from a compound-command refusal.
