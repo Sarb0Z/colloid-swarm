@@ -73,25 +73,20 @@ DEPLOY_VERBS = {
     "railway": {"up", "deploy"},
     "supabase": {"db push", "functions deploy", "secrets set", "secrets unset",
                  "projects create", "projects delete",
-                 "branches create", "branches delete"},
-}
-# More outward verbs, read the same way. These have no `.claude/settings.json`
-# permissions.ask rule, which test-guard-publish requires of every DEPLOY_VERBS
-# row, so they are gated by this hook alone.
-HOSTED_VERBS = {
+                 "branches create", "branches delete", "branches update",
+                 "branches pause", "branches unpause",
+                 "config push", "functions delete", "sso add", "sso remove", "sso update",
+                 "domains create", "domains reverify", "domains activate", "domains delete",
+                 "postgres-config update", "postgres-config delete",
+                 "network-restrictions update", "vanity-subdomains activate",
+                 "vanity-subdomains delete", "ssl-enforcement update", "network-bans remove",
+                 "backups restore", "encryption update-root-key", "orgs create",
+                 "notebooks push"},
     "terraform": {"apply", "destroy", "import", "refresh", "taint", "untaint", "force-unlock",
                   "state rm", "state mv", "state push", "state replace-provider",
                   "workspace delete"},
 }
-HOSTED_VERBS["tofu"] = HOSTED_VERBS["terraform"]
-HOSTED_VERBS["supabase"] = {
-    "config push", "functions delete", "sso add", "sso remove", "sso update",
-    "domains create", "domains reverify", "domains activate", "domains delete",
-    "postgres-config update", "postgres-config delete", "network-restrictions update",
-    "vanity-subdomains activate", "vanity-subdomains delete", "ssl-enforcement update",
-    "network-bans remove", "backups restore", "encryption update-root-key", "branches update",
-    "branches pause", "branches unpause", "orgs create", "notebooks push",
-}
+DEPLOY_VERBS["tofu"] = DEPLOY_VERBS["terraform"]
 # `supabase storage` reaches the linked project unless `--local` says
 # otherwise, and `cp` writes there only when its destination is an `ss://` path.
 SUPABASE_STORAGE_VALUED = {"--cache-control", "--content-type", "-j", "--jobs", "--project-ref"}
@@ -177,7 +172,7 @@ AWS_READS = {"scan", "query", "wait", "tail", "help"}
 AWS_QUIET = {("logs", "start-query"), ("logs", "stop-query"), ("logs", "start-live-tail"),
              ("eks", "update-kubeconfig"), ("sso", "login"), ("codeartifact", "login")}
 GATED_NAMES = ({"git", "gh", "docker", "gcloud", "aws"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
-               | set(HOSTED_VERBS) | set(REMOTE_FLAG_VERBS) | RUNNERS)
+               | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
 VERCEL_VALUE_FLAGS = {"--cwd", "-Q", "--global-config", "-A", "--local-config",
                       "-S", "--scope", "-t", "--token"}
@@ -362,12 +357,12 @@ def rule_bash(command, shell):
             return f"firebase {positional[0]} writes to the hosted project."
     if name == "supabase" and (reason := supabase_storage_reason(rest)):
         return reason
-    if name in DEPLOY_VERBS or name in HOSTED_VERBS or name in REMOTE_FLAG_VERBS:
+    if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
         positional = positionals(rest, VALUE_FLAGS.get(name, ()))
         phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
         for phrase in phrases:
-            if phrase in DEPLOY_VERBS.get(name, set()) | HOSTED_VERBS.get(name, set()):
+            if phrase in DEPLOY_VERBS.get(name, set()):
                 return f"{name} {phrase} deploys or mutates the hosted project."
         verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
         for phrase in phrases:
