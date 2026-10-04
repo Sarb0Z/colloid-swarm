@@ -1273,7 +1273,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 600 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 622 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
 and say why.
 
@@ -1440,6 +1440,28 @@ def normalize(text, depth=0):
             if payload:
                 commands.extend(normalize(payload[0], depth + 1))
     return commands
+
+
+# Options of the package runners (`uv run`, `uvx`, `npx`, `bunx`, `pnpx`) that
+# take a separate value, which names a package, index or file and never the
+# command the runner starts. Read from `uv run --help` and `uvx --help`
+# (uv 0.12) and npm&#x27;s `npx --package`/`--call`.
+RUNNER_VALUED = {
+    &quot;--extra&quot;, &quot;--no-extra&quot;, &quot;--group&quot;, &quot;--no-group&quot;, &quot;--only-group&quot;,
+    &quot;--no-editable-package&quot;, &quot;--env-file&quot;, &quot;-w&quot;, &quot;--with&quot;, &quot;--with-editable&quot;,
+    &quot;--with-requirements&quot;, &quot;--package&quot;, &quot;--python-platform&quot;, &quot;--index&quot;,
+    &quot;--default-index&quot;, &quot;-i&quot;, &quot;--index-url&quot;, &quot;--extra-index-url&quot;, &quot;-f&quot;,
+    &quot;--find-links&quot;, &quot;--index-strategy&quot;, &quot;--keyring-provider&quot;, &quot;-P&quot;,
+    &quot;--upgrade-package&quot;, &quot;--upgrade-group&quot;, &quot;--resolution&quot;, &quot;--prerelease&quot;,
+    &quot;--prerelease-package&quot;, &quot;--fork-strategy&quot;, &quot;--exclude-newer&quot;,
+    &quot;--exclude-newer-package&quot;, &quot;--no-sources-package&quot;, &quot;--reinstall-package&quot;,
+    &quot;--link-mode&quot;, &quot;-C&quot;, &quot;--config-setting&quot;, &quot;--config-settings-package&quot;,
+    &quot;--no-build-isolation-package&quot;, &quot;--no-build-package&quot;, &quot;--no-binary-package&quot;,
+    &quot;--cache-dir&quot;, &quot;--refresh-package&quot;, &quot;-p&quot;, &quot;--python&quot;, &quot;--color&quot;,
+    &quot;--allow-insecure-host&quot;, &quot;--directory&quot;, &quot;--project&quot;, &quot;--config-file&quot;,
+    &quot;--from&quot;, &quot;-c&quot;, &quot;--constraints&quot;, &quot;-b&quot;, &quot;--build-constraints&quot;, &quot;--overrides&quot;,
+    &quot;--torch-backend&quot;, &quot;--call&quot;,
+}
 
 
 def base(word):
