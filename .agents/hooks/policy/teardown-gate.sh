@@ -207,7 +207,11 @@ SERVER = re.compile(
       | \bnest\s+start\b
       | \bexpo\s+start\b
       | \breact-native\s+start\b
-      | \bappium\b(?!\s*-{1,2}(?:v|version|help))
+      # Appium serves only when it is the command run, bare or as `server`;
+      # `npm install -g appium` and its driver, plugin and setup subcommands
+      # exit when done.
+      | ^(?:(?:npx|bunx|yarn|pnpm\s+exec)\s+(?:-\S+\s+)*)?appium\b
+        (?!\s+(?:driver|plugin|setup)\b)(?!\s+-{1,2}(?:v|version|h|help)\b)
       | \b(?:bin/)?rails\s+(?:s|server)\b
       | \bpython[0-9.]*\s+-m\s+http\.server\b
       | \b(?:uvicorn|gunicorn|daphne|hypercorn)\b
