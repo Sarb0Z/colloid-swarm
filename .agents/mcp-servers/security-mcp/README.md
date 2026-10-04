@@ -14,7 +14,7 @@ The result contains coverage for the root, crawl, content-discovery, and templat
 
 The scanner accepts zero or one credential set. It does not run principal-to-principal differential tests. The coverage result marks IDOR, BOLA, BFLA, privilege escalation, and tenant isolation as untested. The prompt catalog keeps the instructions for a separate authorized workflow, but the scanner does not emit findings for these classes.
 
-Use Node.js 20.19 or newer. Run these commands from this directory:
+Use Node.js 22 or newer. Run these commands from this directory:
 
 ```sh
 npm ci --ignore-scripts

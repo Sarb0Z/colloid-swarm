@@ -6,7 +6,7 @@
   "description": "Repository-owned MCP server for bounded security checks against authorized targets.",
   "type": "module",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.0.0"
   },
   "main": "dist/server.js",
   "bin": {
