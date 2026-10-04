@@ -94,7 +94,6 @@ ARTIFACT_REASONS = {
     "delete_asset": "Artifact delete_asset permanently removes a file from the published page.",
 }
 RUNNERS = {"npx", "pnpx", "bunx"}
-RUNNER_VALUE_FLAGS = {"-p", "--package"}
 RUNNER_CALL_FLAGS = {"-c", "--call"}      # npx -c "<shell>" runs its value
 CONTROL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "time", "{"}
 # Names a command must mention before the shell parser is worth loading.
@@ -204,6 +203,24 @@ def gcloud_reason(rest):
     return None
 
 
+def runner_width(words, shell):
+    """How many words name a package runner at the start: `npx` is one,
+    `pnpm dlx`, `yarn dlx` and `bun x` are two, anything else none."""
+    name = shell.base(words[0]) if words else ""
+    if name in RUNNERS:
+        return 1
+    if (name in ("pnpm", "yarn") and words[1:2] == ["dlx"]) or (name == "bun" and words[1:2] == ["x"]):
+        return 2
+    return 0
+
+
+def unversioned(spec):
+    """A package spec without its version: `eas-cli@16` is `eas-cli`, and
+    `@scope/pkg@1` is `@scope/pkg`; the scope's own `@` is not a version."""
+    at = spec.find("@", 1)
+    return spec[:at] if at > 0 else spec
+
+
 def rule_bash(command, shell):
     words = shell.lead(command.words)
     while words and words[0] in CONTROL_KEYWORDS:
@@ -211,8 +228,8 @@ def rule_bash(command, shell):
     # `npx <tool> ...` runs the tool; drop the runner and its own options so
     # the tool's rule sees the tool's arguments untouched. `npx -c "<shell>"`
     # runs its value as a command, so that string is judged on its own.
-    while words and shell.base(words[0]) in RUNNERS:
-        words = words[1:]
+    while runner_width(words, shell):
+        words = words[runner_width(words, shell):]
         while words and words[0].startswith("-"):
             if words[0] in RUNNER_CALL_FLAGS:
                 for inner in shell.normalize(words[1] if len(words) > 1 else ""):
@@ -221,7 +238,8 @@ def rule_bash(command, shell):
                         return reason
                 words = words[2:]
             else:
-                words = words[2:] if words[0] in RUNNER_VALUE_FLAGS else words[1:]
+                words = words[2:] if words[0] in shell.RUNNER_VALUED else words[1:]
+        words = [unversioned(words[0])] + words[1:] if words else words
     if not words:
         return None
     name, rest = shell.base(words[0]), words[1:]
@@ -421,7 +439,10 @@ def outward_targets(words, shell):
         return []
     name = shell.base(words[0])
     if words[0] in INTERPRETERS or name in INTERPRETERS or name.startswith("python3."):
-        return [w for w in words[1:] if not w.startswith("-") and w != "run"]
+        targets = [w for w in words[1:] if not w.startswith("-") and w != "run"]
+        if runner_width(words, shell):
+            targets += [unversioned(t) for t in targets if unversioned(t) != t]
+        return targets
     return [words[0]]
 
 
