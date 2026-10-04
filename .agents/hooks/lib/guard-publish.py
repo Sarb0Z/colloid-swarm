@@ -74,6 +74,15 @@ DEPLOY_VERBS = {
                  "projects create", "projects delete",
                  "branches create", "branches delete"},
 }
+# More outward verbs, read the same way. These have no `.claude/settings.json`
+# permissions.ask rule, which test-guard-publish requires of every DEPLOY_VERBS
+# row, so they are gated by this hook alone.
+HOSTED_VERBS = {
+    "terraform": {"apply", "destroy", "import", "refresh", "taint", "untaint", "force-unlock",
+                  "state rm", "state mv", "state push", "state replace-provider",
+                  "workspace delete"},
+}
+HOSTED_VERBS["tofu"] = HOSTED_VERBS["terraform"]
 # Verbs that are local by default and reach the hosted project only when a flag
 # says so. Gating them unconditionally would ask on every `supabase db reset`,
 # which is how a developer rebuilds the Docker stack several times an hour; an
@@ -127,7 +136,7 @@ VALUE_FLAGS = {
                "--region", "--zone", "--format", "--verbosity"},
 }
 GATED_NAMES = ({"git", "gh", "docker", "gcloud"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
-               | set(REMOTE_FLAG_VERBS) | RUNNERS)
+               | set(HOSTED_VERBS) | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
 VERCEL_VALUE_FLAGS = {"--cwd", "-Q", "--global-config", "-A", "--local-config",
                       "-S", "--scope", "-t", "--token"}
@@ -279,12 +288,12 @@ def rule_bash(command, shell):
         positional = positionals(rest, VALUE_FLAGS["firebase"])
         if positional and positional[0].split(":")[-1] in FIREBASE_WRITES:
             return f"firebase {positional[0]} writes to the hosted project."
-    if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
+    if name in DEPLOY_VERBS or name in HOSTED_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
         positional = positionals(rest, VALUE_FLAGS.get(name, ()))
         phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
         for phrase in phrases:
-            if phrase in DEPLOY_VERBS.get(name, ()):
+            if phrase in DEPLOY_VERBS.get(name, set()) | HOSTED_VERBS.get(name, set()):
                 return f"{name} {phrase} deploys or mutates the hosted project."
         verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
         for phrase in phrases:
@@ -424,6 +433,7 @@ def cleaned_entries(listed):
 INTERPRETERS = {
     "bash", "sh", "zsh", "dash", "source", ".", "python", "python3", "node", "uv",
     "bun", "bunx", "npm", "npx", "pnpm", "pnpx", "yarn", "deno",
+    "tsx", "ts-node", "ts-node-transpile-only",
 }
 
 
