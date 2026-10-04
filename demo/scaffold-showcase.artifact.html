@@ -3314,7 +3314,7 @@ exit 0
               <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
               <p class="what">On magnitude escalation (none → trivial → diff → large) offers a clean-up + report wrap, and asks the user — full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 trigger | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 439 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 456 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;stop_hook_active&quot;: bool,
@@ -3748,6 +3748,23 @@ fi
 
 if ! record_state &quot;$next_fired&quot; &quot;$next_investigated&quot; &quot;$next_implemented&quot;; then
   sections=&quot;&quot;
+fi
+
+# Both prompts end in a question to the user. `codex exec` has no one to answer
+# it, so the turn would fail on a refused request_user_input after the work is
+# done. The Stop payload carries no run mode; Codex records it on the
+# transcript&#x27;s first line as session_meta.payload.source. State was already
+# recorded above, so a skipped wrap does not re-arm itself.
+if [[ -n &quot;$sections&quot; &amp;&amp; -n &quot;$transcript&quot; &amp;&amp; -f &quot;$transcript&quot; ]]; then
+  launch_source=&quot;$(head -n 1 &quot;$transcript&quot; | python3 -c &#x27;
+import json, sys
+try:
+    meta = json.loads(sys.stdin.readline())
+    print(meta[&quot;payload&quot;][&quot;source&quot;] if meta.get(&quot;type&quot;) == &quot;session_meta&quot; else &quot;&quot;)
+except (ValueError, KeyError, TypeError):
+    print(&quot;&quot;)
+&#x27;)&quot;
+  [[ &quot;$launch_source&quot; == &quot;exec&quot; ]] &amp;&amp; sections=&quot;&quot;
 fi
 
 [[ -z &quot;$sections&quot; ]] &amp;&amp; exit 0
