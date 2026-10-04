@@ -185,6 +185,99 @@ missing = sorted(name for name in names if name not in result.stdout)
 if missing:
     raise SystemExit(f"test-codex: Codex did not expose project MCP records: {missing}")
 PY
+  # `codex mcp list` reads only config.toml, so a malformed hooks.json passes it.
+  # hooks/list is the loader that parses hooks.json. A scratch CODEX_HOME that
+  # trusts the project keeps the operator's own config out of the result and
+  # unwritten; Codex reports a parse failure as a warning on an empty hook list.
+  python3 - "$repo" <<'PY'
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+repo = Path(sys.argv[1])
+
+
+def host_hooks(project: Path, home: Path):
+    """Return (hooks, diagnostics) as Codex's hooks/list reports them for project."""
+    home.mkdir(exist_ok=True)
+    (home / "config.toml").write_text(
+        f'[projects."{project.resolve()}"]\ntrust_level = "trusted"\n')
+    proc = subprocess.Popen(
+        ["codex", "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, text=True, env={**os.environ, "CODEX_HOME": str(home)})
+
+    def send(message):
+        proc.stdin.write(json.dumps(message) + "\n")
+        proc.stdin.flush()
+
+    try:
+        send({"id": 0, "method": "initialize",
+              "params": {"clientInfo": {"name": "test-codex", "version": "1"}}})
+        send({"method": "initialized"})
+        send({"id": 1, "method": "hooks/list", "params": {"cwds": [str(project)]}})
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if not select.select([proc.stdout], [], [], 1)[0]:
+                continue
+            line = proc.stdout.readline()
+            if not line:
+                break
+            reply = json.loads(line)
+            if reply.get("id") != 1:
+                continue
+            if "error" in reply:
+                return [], [f"hooks/list failed: {reply['error']}"]
+            entries = reply["result"]["data"]
+            hooks = [h for e in entries for h in e.get("hooks", [])]
+            notes = [n for e in entries for n in (e.get("warnings") or []) + (e.get("errors") or [])]
+            return hooks, notes
+        return [], ["hooks/list did not answer within 30 seconds"]
+    finally:
+        proc.terminate()
+        proc.wait()
+
+
+def hook_problems(project: Path, home: Path):
+    declared = sum(len(group.get("hooks", []))
+                   for groups in json.loads((project / ".codex/hooks.json").read_text())["hooks"].values()
+                   for group in groups)
+    hooks, notes = host_hooks(project, home)
+    problems = list(notes)
+    if len(hooks) != declared:
+        problems.append(f"Codex loaded {len(hooks)} of {declared} declared hooks")
+    return problems
+
+
+def stage(root: Path, document: str) -> Path:
+    (root / ".codex").mkdir(parents=True)
+    (root / ".codex/hooks.json").write_text(document)
+    return root
+
+
+with tempfile.TemporaryDirectory() as scratch:
+    scratch = Path(scratch)
+    # Codex resolves a git worktree's project layer to the main checkout, so
+    # loading the repository in place would judge a different hooks.json than
+    # the one under test. A staged copy is judged wherever the suite runs.
+    source = (repo / ".agents/codex/hooks.json").read_text()
+    problems = hook_problems(stage(scratch / "real", source), scratch / "real-home")
+    if problems:
+        raise SystemExit("test-codex: Codex did not load .agents/codex/hooks.json:\n  " + "\n  ".join(problems))
+
+    # The check must be able to fail: a copy with a handler type Codex rejects
+    # has to be reported, or the pass above proves nothing.
+    document = json.loads(source)
+    next(iter(document["hooks"].values()))[0]["hooks"][0]["type"] = "nonsense"
+    broken = stage(scratch / "broken", json.dumps(document))
+    if not hook_problems(broken, scratch / "broken-home"):
+        raise SystemExit("test-codex: the hooks/list check accepted a malformed hooks.json")
+PY
   loader=passed
 fi
 
