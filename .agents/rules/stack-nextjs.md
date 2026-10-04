@@ -25,6 +25,7 @@ detect:
 ## Abnormal Cases and Rationale
 - A `'use client'` file that imports a server-only module fails at build with an unhelpful trace. Mark the module with `import 'server-only'` so the error names the real boundary crossing.
 - An environment variable reaches the browser only through the `NEXT_PUBLIC_` prefix. A secret named with that prefix is published, and the build reports nothing.
+- Turborepo's local cache is keyed by task hash and shared across every worktree of a repository, so a hit from another lane is correct only when `turbo.json` declares every input and environment variable the task reads. An undeclared one serves stale output; run with `--force` to rebuild.
 
 ## Out of Scope
 - Do not restate visual design rules here. `.agents/rules/frontend.md` owns those.
