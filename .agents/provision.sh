@@ -21,6 +21,9 @@
 #   * Hash the lockfiles and remember the hash inside the checkout's own
 #     git dir. Same hash next time → nothing runs. A branch that only
 #     changes source pays nothing; one that changes a lockfile reinstalls.
+#   * A JS lockfile's `.nvmrc` must match the active node's major version;
+#     a mismatch fails by name before any install, and an alias such as
+#     `lts/*` is skipped with a note.
 #   * Lifecycle scripts stay off unless PROVISION_ALLOW_SCRIPTS=1. This
 #     script runs from a hook and from the controller, neither of which
 #     passes a PreToolUse guard, so an install here executes whatever a
@@ -81,6 +84,8 @@ js_root=""
 for name in pnpm-lock.yaml bun.lock bun.lockb yarn.lock package-lock.json; do
   [[ -f "$dir/$name" ]] && { js_root="$name"; break; }
 done
+
+is_js() { case "$1" in npm|pnpm|bun|yarn) return 0 ;; *) return 1 ;; esac; }
 
 manager_for() {
   case "$1" in
@@ -234,6 +239,37 @@ $dev"
 hash="$(hash_lockfiles)"
 if (( hash_only )); then echo "$hash"; exit 0; fi
 
+# --- the Node pin ------------------------------------------------------------
+# A lane whose branch bumps `.nvmrc` must not install under the main checkout's
+# runtime. A major-version match is enough; aliases such as `lts/*` name no
+# version and are skipped with a note.
+check_node_pin() {  # <js lockfile dir>
+  local probe="$1" pin want have
+  while :; do
+    if [[ -f "$probe/.nvmrc" ]]; then
+      pin="$(head -n1 "$probe/.nvmrc" | tr -d '[:space:]')"
+      want="${pin#v}"; want="${want%%.*}"
+      if [[ ! "$want" =~ ^[0-9]+$ ]]; then
+        echo "provision: $probe/.nvmrc says '$pin', not a version; node check skipped" >&2
+        return 0
+      fi
+      have="$(node --version 2>/dev/null)" || have=""
+      if [[ -z "$have" || "${have#v}" != "$want" && "${have#v}" != "$want".* ]]; then
+        echo "provision: $probe/.nvmrc asks for node $pin and the active node is ${have:-missing}" >&2
+        echo "$FAILURE_SENTENCE" >&2
+        return 1
+      fi
+      return 0
+    fi
+    [[ "$probe" == "$dir" || "$probe" == "/" ]] && break
+    probe="$(dirname "$probe")"
+  done
+}
+while IFS=$'\t' read -r manager path; do
+  is_js "$manager" || continue
+  check_node_pin "$(dirname "$path")" || exit 1
+done <<<"$lockfiles"
+
 current() { [[ -f "$memo" ]] && [[ "$(cat "$memo")" == "$hash" ]]; }
 if current; then
   echo "provision: current $hash"
@@ -351,7 +387,6 @@ file_hash() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -c1-64; else sha256sum "$1" | cut -c1-64; fi
 }
 
-is_js() { case "$1" in npm|pnpm|bun|yarn) return 0 ;; *) return 1 ;; esac; }
 
 # A workspace install links node_modules/<pkg> relatively into the source
 # checkout's packages/, so a lane sharing it would test the source's copy of
