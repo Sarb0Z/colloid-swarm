@@ -5958,7 +5958,7 @@ change verified.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>pentesting</h3><p>The adversarial complement to <code>security-audit</code>: assumes the codebase is hostile and asks what an attacker tries first. Fans out recon on distinct surfaces, hand-verifies the load-bearing finding, then chains them.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 225 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 224 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
 name: pentesting
 description: &gt;
   Adversarial red-team method. Open-ended attack-surface analysis that complements the
@@ -5969,7 +5969,6 @@ description: &gt;
   Use when the user types &quot;pentest&quot;, &quot;/pentest&quot;, &quot;/pentest &lt;surface&gt;&quot;, &quot;red team&quot;, &quot;attack
   my code&quot;, &quot;find breaches&quot;, &quot;hack my project&quot;, &quot;what could an attacker do&quot;, or after a
   meaningful change that hasn&#x27;t had adversarial review.
-context: fork
 ---
 
 # Pentesting Skill
@@ -8812,7 +8811,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 49 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 50 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -8848,6 +8847,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`pentesting` is not forked** — it fans out recon subagents, and nested spawning under `context: fork` depends on `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, whose default the docs do not state. Run a forked pentest live; fork it if the recon agents start.
 - **`playwright-reader` still opens one persistent profile** — enabled in two sessions, the second finds it locked, as `playwright` did before `playwright-session.py`. Launch it through that script too, with a two-session check.
 - **`guard-publish.py` misses workspace and bin forms** — `pnpm -C apps/web run deploy`, `npm --prefix`, `bun --cwd` and `pnpm exec vercel deploy` get no decision. Follow directory flags; judge a missing script name as a command.
 - **`guard-destructive.py`&#x27;s `lead()` misses more wrappers** — `env -S &#x27;&lt;cmd&gt;&#x27;`, `xargs`, `stdbuf`, `doas`, `bash --rcfile x -c`, `uv --directory x run` and `time -o out` hide a denied command. Add them, tested per guard.
