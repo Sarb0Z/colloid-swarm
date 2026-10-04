@@ -1,0 +1,5 @@
+{
+  "name": "publish-approval",
+  "version": "1.0.0",
+  "description": "Asks the user in a dialog before a push, deploy or publish the publish guard gates, in every permission mode."
+}

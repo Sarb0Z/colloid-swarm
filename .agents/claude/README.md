@@ -58,6 +58,24 @@ disabled. It does not hold the shapes in the paragraph above. Do not read the
 two layers as equivalent: with the hook off, coverage is the listed prefixes
 only.
 
+In auto, bypassPermissions and dontAsk modes no prompt reaches the user, so
+`guard-publish.sh` denies instead of asking (`publish-guard-denies-where-no-prompt`
+in `decisions.md`). The `publish-approval` mod (see Mods below) gives the user
+an approval that reaches them in every mode. Before the call runs, it asks
+`guard-publish.py` by argv whether it would ask. If so, it opens Claude Code's
+own question dialog with the whole command, quoted so control characters show,
+and the guard's reason; a command too long to show whole gets no dialog. "Run it" writes
+`.agents/.publish-approved-<tool_use_id>`. The guard consumes that token within
+120 seconds and answers "allow" on its ask path only. "Refuse" denies the call.
+Anything else leaves the guard's answer standing: a dismissal, text typed under
+Other, a dialog that resolved while the user was idle, or a run with no one to
+ask. The hosted-write refusal never reads a token, and a deny from any other
+hook, such as `guard-destructive.sh` on `git push --force`, still wins. With
+`hooks.publish_approval.enabled` off, the guard reads no token and behaves as
+described above. The token is a plain file, so it holds against the model's
+mistakes, not against a model working to forge one (debt
+`publish-token-forgeable`).
+
 `test-guard-publish.py` asserts both directions. Every rule must name a command
 that `guard-publish.sh` also treats as an outward mutation, so no rule prompts
 on a benign command. Every plain form must have a rule, so disabling the hook
@@ -149,6 +167,34 @@ not carry a separate mapping. Unsupported or empty tool shapes write no row.
 | `*__resolve_open_access` with `query` | `search`, query |
 | Context7 `*__resolve-library-id` / `*__query-docs` with `query` | `search`, query |
 | plugin Exa with `url`, otherwise `query` | `fetch` URL, otherwise `search` query |
+
+## Mods
+
+A mod is a Claude Code plugin whose hooks are a TypeScript module loaded once
+into the session. The rule for what becomes one is
+`mods-where-value-exceeds-portability` in `decisions.md`; the plan is
+`docs/handoff/2026-10-02-claude-code-mods.md`.
+
+Each mod lives in `mods/<name>/`: `.claude-plugin/plugin.json`,
+`hooks/hooks.json`, `hooks/register.ts`, and `tests/*.test.ts`.
+`.claude/skills/colloid-<name>` links to it, because Claude Code loads a
+plugin folder it finds under the project's `.claude/skills/`.
+`check-layout.py` derives that link from the folder. Claude Code writes type
+declarations into `.claude-plugin/types/` each time it loads a mod; they are
+gitignored.
+
+A mod reads its switch at session start through `hooks/lib/config.py`, so
+`policy.json` and `config.json` switch it like a settings hook:
+`hooks.<name>.enabled`. It runs existing Python policy by argv and never ports
+it.
+
+`test-mods.sh` runs `claude plugin validate` and `claude plugin test` on every
+mod. Both run with no login. CI runs them against the Claude Code version that
+`ci.yml` pins. A Claude Code release older than 2.1.287 loads no mods.
+
+| Mod | What the user sees |
+| --- | --- |
+| `publish-approval` | A dialog before a push, deploy or publish, in every permission mode (see Gating outward mutations) |
 
 ## Personas
 

@@ -102,6 +102,9 @@
     },
     "status_strip": {
       "enabled": true
+    },
+    "publish_approval": {
+      "enabled": true
     }
   }
 }

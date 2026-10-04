@@ -139,6 +139,28 @@ jobs:
             exit 1
           fi
 
+  # A mod's tests run inside the Claude Code binary itself, with no login.
+  # The pin is the release the mods were written and validated against; raise
+  # it deliberately, after `claude plugin validate` and the tests pass on the
+  # new one locally.
+  mods:
+    name: Claude Code mods
+    runs-on: ubuntu-latest
+    env:
+      CLAUDE_CODE_VERSION: '2.1.288'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install Claude Code
+        run: npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - name: Mods
+        run: .agents/test-mods.sh
+
   servers:
     name: ${{ matrix.server }} on node ${{ matrix.node }}
     runs-on: ubuntu-latest
