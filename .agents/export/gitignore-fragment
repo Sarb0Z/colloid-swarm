@@ -21,6 +21,8 @@
 .agents/.cells-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
+.agents/.publish-approved-*
+.agents/claude/mods/*/.claude-plugin/types/
 .agents/.kimi-pending-findings-*
 .agents/browser-extensions/
 # Session artefacts a playwright MCP server drops beside the project.

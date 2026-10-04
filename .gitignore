@@ -16,6 +16,9 @@
 .agents/.kimi-pending-findings-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
+.agents/.publish-approved-*
+# Type declarations Claude Code writes beside a mod each time it loads one.
+.agents/claude/mods/*/.claude-plugin/types/
 
 # Per-operator local config and secrets (carry the framework, not the keys).
 **/settings.local.json
