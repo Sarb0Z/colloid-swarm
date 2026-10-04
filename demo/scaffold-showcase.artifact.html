@@ -2250,7 +2250,7 @@ PY
               <div class="top"><span class="id">parallel-writers-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Denies a second writing cell while one is already live, so two agents never edit one tree at once. The way through is a coordinated run: each writer gets its own provisioned worktree, and the composed result is verified once. A cell that only reads says so by opening its prompt with <code>READ-ONLY</code>; the lead&#x27;s own edit is denied while an uncoordinated writer is out.</p>
               <div class="io"><b>in</b> {subagent_type, prompt} &nbsp;→&nbsp; <b>out</b> deny + the workloop commands | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 227 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 242 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: two writers never edit one checkout at once outside
 # a workloop run.
 #
@@ -2267,8 +2267,10 @@ PY
 #                  first line is READ-ONLY passes. Otherwise the first writer
 #                  of a turn passes and is counted; a writer dispatched while
 #                  any other writer is counted or live is denied, with the
-#                  three commands that make it a lane. A prompt that is a
-#                  workloop brief is counted but never denied: it is a lane.
+#                  three commands that make it a lane. A prompt whose brief
+#                  header names a lane the controller holds, in a worktree
+#                  outside this checkout, is counted but never denied: it is a
+#                  lane. A header alone is only text and gets no exemption.
 #   PreToolUse Edit/Write, main agent — the lead&#x27;s own edit while an
 #                  uncoordinated writer is live is the same collision from
 #                  the other side, and is denied unless a workloop run is
@@ -2333,7 +2335,21 @@ line(p.get(&quot;project_dir&quot;)); line(p.get(&quot;event&quot;)); ident(p.ge
 ident(p.get(&quot;agent_id&quot;)); line(p.get(&quot;agent_type&quot;)); line(p.get(&quot;tool_name&quot;))
 line(ti.get(&quot;subagent_type&quot;) or &quot;general-purpose&quot;)
 prompt = str(ti.get(&quot;prompt&quot;) or &quot;&quot;)
-if re.search(r&quot;WORKLOOP (WORKER|REVIEWER|QA) BRIEF&quot;, prompt):
+root = os.path.realpath(str(p.get(&quot;project_dir&quot;) or &quot;.&quot;))
+# A header is only text anyone can type; it exempts the dispatch when the
+# controller really holds that lane with a worktree outside this checkout.
+def real_lane(prompt):
+    header = re.search(r&quot;WORKLOOP (?:WORKER|REVIEWER|QA) BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)&quot;, prompt)
+    if not header:
+        return False
+    try:
+        with open(os.path.join(root, &quot;.agents&quot;, &quot;.workloop-state.json&quot;)) as f:
+            lane = json.load(f)[&quot;runs&quot;][header.group(1)][&quot;lanes&quot;][header.group(2)]
+        workspace = os.path.realpath(lane[&quot;workspace&quot;])
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return workspace != root and not workspace.startswith(root + os.sep)
+if real_lane(prompt):
     print(&quot;brief&quot;)
 elif re.match(r&quot;\s*READ-ONLY\b&quot;, prompt):
     print(&quot;read-only&quot;)
@@ -2341,7 +2357,6 @@ else:
     print(&quot;plain&quot;)
 # An edit whose every target lies outside the checkout cannot collide with a
 # cell working in it. A relative path is the checkout&#x27;&quot;&#x27;&quot;&#x27;s.
-root = os.path.realpath(str(p.get(&quot;project_dir&quot;) or &quot;.&quot;))
 paths = [v for v in (ti.get(&quot;file_path&quot;), ti.get(&quot;notebook_path&quot;)) if isinstance(v, str) and v]
 paths += [e[&quot;file_path&quot;] for e in ti.get(&quot;edits&quot;) or [] if isinstance(e, dict) and isinstance(e.get(&quot;file_path&quot;), str)]
 def inside(path):
