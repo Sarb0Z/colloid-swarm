@@ -8807,7 +8807,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 49 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -8843,6 +8843,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`playwright-reader` still opens one persistent profile** — enabled in two sessions, the second finds it locked, as `playwright` did before `playwright-session.py`. Launch it through that script too, with a two-session check.
 - **`guard-publish.py` misses workspace and bin forms** — `pnpm -C apps/web run deploy`, `npm --prefix`, `bun --cwd` and `pnpm exec vercel deploy` get no decision. Follow directory flags; judge a missing script name as a command.
 - **`guard-destructive.py`&#x27;s `lead()` misses more wrappers** — `env -S &#x27;&lt;cmd&gt;&#x27;`, `xargs`, `stdbuf`, `doas`, `bash --rcfile x -c`, `uv --directory x run` and `time -o out` hide a denied command. Add them, tested per guard.
 - **`fetch_readable` trusts the Wayback stamp&#x27;s format** — a non-14-digit stamp fails the read after the fetch, and a blocked capture reports no age. Validate the stamp in `findSnapshot`; add age fields on the blocked path.

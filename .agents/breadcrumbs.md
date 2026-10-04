@@ -34,6 +34,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`playwright-reader` still opens one persistent profile** — enabled in two sessions, the second finds it locked, as `playwright` did before `playwright-session.py`. Launch it through that script too, with a two-session check.
 - **`guard-publish.py` misses workspace and bin forms** — `pnpm -C apps/web run deploy`, `npm --prefix`, `bun --cwd` and `pnpm exec vercel deploy` get no decision. Follow directory flags; judge a missing script name as a command.
 - **`guard-destructive.py`'s `lead()` misses more wrappers** — `env -S '<cmd>'`, `xargs`, `stdbuf`, `doas`, `bash --rcfile x -c`, `uv --directory x run` and `time -o out` hide a denied command. Add them, tested per guard.
 - **`fetch_readable` trusts the Wayback stamp's format** — a non-14-digit stamp fails the read after the fetch, and a blocked capture reports no age. Validate the stamp in `findSnapshot`; add age fields on the blocked path.
