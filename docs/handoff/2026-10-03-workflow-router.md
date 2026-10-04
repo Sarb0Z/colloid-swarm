@@ -180,7 +180,7 @@ step:
 
 Each slice works end to end before the next one starts.
 
-1. **Vendor `grilling` and `domain-modeling`** from `mattpocock/skills` (MIT) as
+1. **Done (`de1f830`, `60f642b`).** Vendor `grilling` and `domain-modeling` from `mattpocock/skills` (MIT) as
    one vendored commit. Include the sibling files that `domain-modeling` links,
    `GLOSSARY-FORMAT.md` (and not `ADR-FORMAT.md`, per decision 2). Record any fork (for example, the
    ADR rule) in each skill's `AGENTS.md`, and add the MIT notice to
