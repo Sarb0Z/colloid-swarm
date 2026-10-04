@@ -92,6 +92,11 @@ folder of `anthropics/claude-code`.
   `permission_mode`, `cwd`, or `agentId`. `tool.call`'s `e` adds `agentId`.
   `$.session.cwd()` and `$.session.id()` exist. No call returns the permission
   mode.
+- The question dialog can resolve itself after the user idles (`afkTimeoutMs`
+  on the AskUserQuestion result), which `$.ui.ask`'s label hides. A mod may
+  not call AskUserQuestion through `$.tool.call` ("that is $.ui.ask"), so a
+  mod that must tell an answer from an idle timeout hooks `tool.call` on
+  AskUserQuestion and turns that result into a deny.
 - `$.ui.ask(question, options)` opens Claude Code's own question dialog as a
   `tool.call` of `AskUserQuestion`. It goes through every other hook. It
   resolves to the chosen label or typed text. It rejects when dismissed and
@@ -121,8 +126,9 @@ Slice 0 results (`.agents/knowledge/research/2026-10-03-claude-code-mods-slice-0
 - **P4 holds in this checkout.** A mod linked from the project's
   `.claude/skills/<name>` into `.agents/claude/mods/` loaded at startup and
   reloaded on save. A fresh clone after workspace trust is untested.
-- **P5 is open.** `claude plugin test` runs locally; a CI runner with no Claude
-  login is untested. Slice 1 settles it.
+- **P5 holds.** `claude plugin validate` and `claude plugin test` passed in a
+  bare `node:24-bookworm-slim` container with Claude Code 2.1.288 installed
+  from npm and no login or environment (2026-10-04).
 
 ## Portability today
 
@@ -170,11 +176,15 @@ loses Codex or Kimi coverage.
   dialog". The hosted-write deny path ignores tokens. Every other hook still runs. Any `deny` among them wins by
   the documented precedence.
 - Fail-safe both ways:
-  - Without the mod, no token exists, so today's ask and deny stand.
+  - With `hooks.publish_approval.enabled` off, the guard reads no token, so
+    today's ask and deny stand.
   - A wrong `cwd` in step 1—a subagent in a worktree—costs at most a dialog
     whose approval the real run ignores, or no dialog and today's deny.
-  - The model cannot forge a token. `tool_use_id` is minted when the call is
-    issued, after any command that could write one.
+  - The token holds against the model's mistakes, not against forgery: a
+    process the model started earlier can read a pending call's id from the
+    transcript and write one. Accepted as debt `publish-token-forgeable`.
+  - A command too long to show whole gets no dialog; the dialog quotes the
+    command so control characters cannot hide part of it.
 - The user sees: one dialog for every publish, in every mode, waiting for an
   answer. In `default` mode it replaces the hook's native prompt. A matching
   `ask` rule in settings still prompts after it.
@@ -389,13 +399,12 @@ Each slice works end to end, is hostile-reviewed and QA'd, and lands before the
 next one starts.
 
 0. **Probe.** Done on 2026-10-03: P1 to P4 hold, and the probe is deleted.
-1. **Packaging and M1.** First the mods directory, its links and layout check,
-   `test-mods.sh`, the CI job, and the export carrying the mods, proven with a
-   pass-through M1 and its firing test before any dialog code, so P5 settles
-   first. Then the token path in
-   `guard-publish` with its test rows, then the dialog mod, built in manual mode.
-   `publish-guard-denies-where-no-prompt` is rewritten to describe the dialog
-   path.
+1. **Packaging and M1.** Built on 2026-10-04: `.agents/claude/mods/publish-approval`,
+   its `.claude/skills/colloid-publish-approval` link, `check-layout.py`,
+   `test-mods.sh`, the CI job pinned to 2.1.288, the token path in
+   `guard-publish` with its test rows, and the rewritten
+   `publish-guard-denies-where-no-prompt`. It is done once the live QA in a
+   restarted session passes.
 2. **M3,** the delegation gate.
 3. **M2 and M4:** load visibility, then workloop push and wake, with the
    skill text updated.
