@@ -68,7 +68,7 @@ def writes_hosted(text):
     return True
 
 
-def runs(words):
+def runs(words, shell):
     """The script operand one command runs, or None."""
     if not words:
         return None
@@ -79,7 +79,10 @@ def runs(words):
         return words[1]
     # `npx tsx x.ts` runs x.ts; `npx tsc x.ts` only type-checks it.
     if name in RUNNERS:
-        words = [w for w in words[1:] if not w.startswith("-") and w != "run"]
+        rest, index = words[1:], 0
+        while index < len(rest) and (rest[index].startswith("-") or rest[index] == "run"):
+            index += 2 if rest[index] in shell.RUNNER_VALUED else 1
+        words = rest[index:]
         if not words:
             return None
         if SCRIPT.fullmatch(words[0]):
@@ -107,7 +110,7 @@ def executed(command, shell, cwd):
         if words and words[0] in ("cd", "pushd") and len(words) > 1 and "$" not in words[1]:
             here = resolve(words[1], here)
             continue
-        script = runs(words)
+        script = runs(words, shell)
         if script:
             args = words[words.index(script) + 1:] if script in words else []
             found.append((resolve(script, here), tuple(args)))
