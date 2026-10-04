@@ -156,7 +156,19 @@ will keep it.
   Codex only; Claude still loads the user-level one.
 - **Hosts**: keep `.kimi/` only when the target uses Kimi. Preserve the
   target's CI and adapt its checks; never copy this repository's workflow
-  over it.
+  over it. To drop Kimi, remove all of these together, or the kit text names
+  files that no longer exist:
+  - the `.kimi/` directory and the `.kimi-code/` directory;
+  - the `.kimi-code/mcp.json` and `.agents/.kimi-pending-findings-*` lines in
+    `.gitignore`;
+  - the Kimi column of the host table at the top of `.agents/README.md`, and
+    the `.kimi-code/mcp.json` cell in the `mcp.json` row;
+  - the Kimi sentences in `.agents/README.md`: the Claude, Codex, and Kimi
+    list in the destructive-command paragraph, "Codex and Kimi have no"
+    (the denied-tool and background-flag paragraphs), the `SubagentStart`
+    clause in the parallel-writers paragraph, and the `AgentSwarm` sentence.
+  Then run `grep -rniE 'kimi' .agents AGENTS.md` and decide each remaining hit;
+  hook and test code that names Kimi as one adapter may stay.
 - **Runtime**: a Python repository needs `.python-version` for the provisioner
   to build the right venv, and the linter the post-edit hook runs must be in
   the pinned dev requirements — a venv without `ruff` skips the check
