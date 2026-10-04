@@ -434,6 +434,23 @@ if ! record_state "$next_fired" "$next_investigated" "$next_implemented"; then
   sections=""
 fi
 
+# Both prompts end in a question to the user. `codex exec` has no one to answer
+# it, so the turn would fail on a refused request_user_input after the work is
+# done. The Stop payload carries no run mode; Codex records it on the
+# transcript's first line as session_meta.payload.source. State was already
+# recorded above, so a skipped wrap does not re-arm itself.
+if [[ -n "$sections" && -n "$transcript" && -f "$transcript" ]]; then
+  launch_source="$(head -n 1 "$transcript" | python3 -c '
+import json, sys
+try:
+    meta = json.loads(sys.stdin.readline())
+    print(meta["payload"]["source"] if meta.get("type") == "session_meta" else "")
+except (ValueError, KeyError, TypeError):
+    print("")
+')"
+  [[ "$launch_source" == "exec" ]] && sections=""
+fi
+
 [[ -z "$sections" ]] && exit 0
 printf '%s' "$sections" >&2
 exit 2
