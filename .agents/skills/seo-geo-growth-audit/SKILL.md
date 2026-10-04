@@ -3,6 +3,7 @@ name: seo-geo-growth-audit
 description: "Audits and improves the discoverability of the deployed site a codebase drives: technical SEO (crawlability, sitemaps, robots, canonicals, metadata), structured data (JSON-LD), GEO/AI-search visibility (llms.txt, entity signals, AI-crawler policy), Core Web Vitals, analytics and UTM attribution, and growth systems (content engines, programmatic SEO, lead capture, conversion). Fingerprints the stack first and adapts to any framework; audits both repository code and the live site; produces a scored report with evidence, a prioritized P0-P3 fix plan, implemented fixes, and post-fix verification. Use when asked for an SEO audit, GEO audit, growth audit, or pre-launch checklist; when organic traffic is flat or conversions underperform; when setting up analytics attribution; or when improving AI search visibility in ChatGPT, Perplexity, or Gemini. Trigger phrases: SEO audit, why is organic traffic flat, AI search visibility, llms.txt, structured data, sitemap problems, Core Web Vitals."
 metadata:
   version: "2.0"
+context: fork
 ---
 
 # SEO, GEO, Analytics and Organic Growth Audit
