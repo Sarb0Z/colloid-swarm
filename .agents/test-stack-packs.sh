@@ -48,6 +48,7 @@ build() {
   pack expo   '**/app/**/*.tsx **/src/app/**/*.tsx **/app.config.* **/eas.json **/metro.config.*' '**/app.json **/app.config.* **/eas.json'
   pack nestjs '**/src/**/*.module.ts **/src/**/*.controller.ts **/src/main.ts' '**/nest-cli.json'
   pack rails  '**/app/**/*.rb **/config/**/*.rb' '**/config/routes.rb **/Gemfile'
+  pack flutter '**/*.dart **/pubspec.yaml **/analysis_options.yaml' '**/pubspec.yaml'
   printf '{}' > "$dir/.agents/config.json.example"
   local path
   for path in "$@"; do
@@ -90,9 +91,19 @@ done
 [[ "$report" == *"git rm"* ]] || fail 'the report must carry the command that fixes it'
 ok 'a stale pack is named, and the matching one is not'
 
+# --- A nested Flutter app counts as the stack -------------------------------
+# Bitely keeps its app at app/snday_hub/pubspec.yaml, two levels down.
+flut="$(build flutter-app app/snday_hub/pubspec.yaml app/snday_hub/lib/main.dart)"
+report="$(run "$flut" || true)"
+[[ "$report" != *"stack-flutter.md"* ]] || fail 'a nested pubspec.yaml must satisfy the Flutter pack'
+[[ "$report" == *"stack-nextjs.md"* ]] || fail 'a Flutter app must not satisfy the Next.js pack'
+bare="$(build no-flutter next.config.js)"
+[[ "$(run "$bare" || true)" == *"stack-flutter.md"* ]] || fail 'a repository with no pubspec.yaml must be told to drop the Flutter pack'
+ok 'a pubspec.yaml selects the Flutter pack, and its absence flags it'
+
 # --- After the transplant strips them ---------------------------------------
 git -C "$sat" rm -qf .agents/rules/stack-expo.md .agents/rules/stack-nestjs.md \
-                     .agents/rules/stack-rails.md
+                     .agents/rules/stack-rails.md .agents/rules/stack-flutter.md
 rc "$sat" || fail 'the gate must pass once the stale packs are gone'
 ok 'stripping the stale packs turns the gate green'
 
