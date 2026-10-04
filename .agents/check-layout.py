@@ -50,6 +50,11 @@ def expected_links() -> dict[Path, str]:
         links[Path(".github/instructions") / f"01-{rule.stem}.instructions.md"] = (
             f"../../.agents/rules/{rule.name}"
         )
+    # Claude Code loads a plugin folder found under the project's .claude/skills.
+    mods = ROOT / ".agents/claude/mods"
+    if mods.is_dir():
+        for mod in sorted(path for path in mods.iterdir() if (path / ".claude-plugin/plugin.json").is_file()):
+            links[Path(".claude/skills") / f"colloid-{mod.name}"] = f"../../.agents/claude/mods/{mod.name}"
     for name in ("demo", "tensium-trial"):
         if (ROOT / name / "AGENTS.md").is_file():
             links[Path(".github/instructions") / f"{name}.instructions.md"] = (
