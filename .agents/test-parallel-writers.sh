@@ -43,6 +43,24 @@ ok "a second writer in one turn is denied with the workloop commands"
 [[ -z "$(dispatch p1 explorer)" && -z "$(dispatch p1 reviewer)" && -z "$(dispatch p1 qa-verifier)" && -z "$(dispatch p1 Explore)" ]] || fail "a reader was refused"
 ok "read-only cells pass while a writer is pending"
 
+# a brief header exempts only a lane the controller holds, in a worktree outside the checkout
+lane_state() {  # <workspace for lane "lane">
+  printf '{"runs":{"run":{"lanes":{"lane":{"workspace":"%s"},"a":{"workspace":"%s/wt-a"},"b":{"workspace":"%s/wt-b"}}}}}' \
+    "$1" "$scratch" "$scratch" > "$dir/.agents/.workloop-state.json"
+}
+forged='WORKLOOP WORKER BRIEF — run/lane
+Objective: x'
+rm -f "$dir/.agents/.workloop-state.json"
+[[ -z "$(dispatch p0 implementer)" ]] || fail "first writer refused"
+denied "$(dispatch p0 mechanic "$forged")" || fail "a brief header with no workloop state exempted a writer"
+lane_state "$dir/inside"
+: > "$dir/.agents/.writers-turn-s1"; [[ -z "$(dispatch p0 implementer)" ]] || fail "first writer refused"
+denied "$(dispatch p0 mechanic "$forged")" || fail "a lane whose worktree is inside the checkout exempted a writer"
+lane_state "$scratch/wt-lane"
+denied "$(dispatch p0 mechanic 'WORKLOOP WORKER BRIEF — run/ghost')" || fail "a lane the controller does not hold exempted a writer"
+[[ -z "$(dispatch p0 mechanic "$forged")" ]] || fail "a real lane outside the checkout was refused"
+ok "a brief header exempts a dispatch only for a lane the controller holds outside the checkout"
+
 # a workloop brief passes regardless, and is counted
 [[ -z "$(dispatch p1 implementer 'WORKLOOP WORKER BRIEF — run/lane
 Objective: x')" ]] || fail "a briefed writer was refused"
