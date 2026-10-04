@@ -503,6 +503,18 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("npx eas-cli-helper@16 submit", "npx @acme/other@2 run", "npx prettier@3 --check ."):
         reason = guard.verdict("Bash", {"command": command}, ["eas-cli", "@acme/deploy"])
         check(f"quiet on another package pinned to a version: {command}", reason is None, reason or "")
+    # The command an ssh session runs on the far host is read like a local one.
+    for command in ("ssh host 'cd /opt/app && bash scripts/deploy.sh'",
+                    "ssh -p 2222 -i key.pem deploy@host ./scripts/deploy.sh --prod",
+                    "ssh host 'cd /opt/app/scripts && ./deploy.sh'",
+                    "ssh host 'cd /opt/app && git push origin main'",
+                    "ssh -o BatchMode=yes host \"cd /srv && npx wrangler deploy\""):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"asks on an outward command run over ssh: {command}", reason is not None, "quiet")
+    for command in ("ssh host 'cat /opt/app/scripts/deploy.sh'", "ssh host uptime",
+                    "ssh host 'ls /opt/app/scripts'", "ssh host 'cd /opt/app && git status'"):
+        reason = guard.verdict("Bash", {"command": command}, outward)
+        check(f"quiet on a read over ssh: {command}", reason is None, reason or "")
     for command in ("cat scripts/deploy.sh", "grep vercel scripts/deploy.sh",
                     "./scripts/deploy.sh --dry-run",
                     "./scripts/verify.sh", "ls switch-on"):
