@@ -388,20 +388,7 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
         gated = GATED_NAMES | {os.path.basename(entry) for entry in outward}
         if gated.isdisjoint(re.findall(r"[A-Za-z0-9_.-]+", text)):
             return None
-        shell = load_shell_parser()
-        here = cwd or ""
-        for command in shell.normalize(text):
-            reason = rule_bash(command, shell)
-            if reason:
-                return reason
-            words = shell.lead(command.words)
-            if words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1]:
-                here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
-            elif outward:
-                reason = rule_outward(words, outward, shell, rehearsals, here)
-                if reason:
-                    return reason
-        return None
+        return judge(text, outward, load_shell_parser(), rehearsals, cwd or "")
     if tool_name == "Artifact":
         action = tool_input.get("action")
         if action in ARTIFACT_READ_ACTIONS:
@@ -414,6 +401,27 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
         # must name itself rather than borrow the publish wording.
         return (f"Artifact {action} is not a known read-only action and may "
                 "change the published page.")
+    return None
+
+
+def judge(text, outward, shell, rehearsals, here, depth=0):
+    """The reason to ask for a command line run from directory `here` (empty
+    when unknown), following its `cd`s and the command it runs over ssh."""
+    for command in shell.normalize(text):
+        reason = rule_bash(command, shell)
+        if reason:
+            return reason
+        words = shell.lead(command.words)
+        remote = shell.ssh_remote(command.words)
+        if remote and depth < 2:
+            # The far host's working directory is its own; nothing here locates it.
+            reason = judge(remote, outward, shell, rehearsals, "", depth + 1)
+        elif words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1]:
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
+        elif outward:
+            reason = rule_outward(words, outward, shell, rehearsals, here)
+        if reason:
+            return reason
     return None
 
 

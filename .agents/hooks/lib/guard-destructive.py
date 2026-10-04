@@ -450,14 +450,22 @@ def mutating(command):
     return any(persistent(target) for target in command.targets)
 
 
-def rule_ssh(command, project=""):
-    words = lead(command.words)
+def ssh_remote(words):
+    """The command an `ssh` invocation runs on the far host, or None when the
+    words are not one. ssh joins its remote words with spaces, and so does this."""
+    words = lead(words)
     if not words or base(words[0]) != "ssh":
         return None
     index = 1
     while index < len(words) and words[index].startswith("-"):
         index += 2 if words[index] in SSH_VALUED else 1
-    remote = " ".join(words[index + 1:])
+    return " ".join(words[index + 1:])
+
+
+def rule_ssh(command, project=""):
+    remote = ssh_remote(command.words)
+    if remote is None:
+        return None
     # Everything on the far host is production: a command that merely changes
     # state there is denied, and so is anything the local rules would deny,
     # with no project carve-out because no remote path is this working tree.
