@@ -61,6 +61,13 @@ user or plugin server names still merge normally; project config is not a
 machine-wide allowlist. `codex_enabled: false` omits a provider-incompatible
 record.
 
+A server that needs an operator-specific value, such as `research-mcp`'s
+`RESEARCH_MCP_CONTACT_EMAIL`, gets it from the `mcp_env` section of the ignored
+`config.json`: server name, then variable name, then value. `mcp.py` adds the
+values to that server's `env` in the generated, ignored host files, so a
+tracked file never holds them. `config.json.example` lists the key with an
+empty value, which adds nothing.
+
 `sources` names the tools whose calls produce a source the provenance ledger
 must record — a tool list, or `["*"]` for a server with no distinctive tool
 name. `sources-matcher.py` builds every host's `sources-capture` hook matcher

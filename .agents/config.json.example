@@ -25,6 +25,11 @@
     "proxy_env": "PLAYWRIGHT_PROXY",
     "proxy_bypass": []
   },
+  "mcp_env": {
+    "research-mcp": {
+      "RESEARCH_MCP_CONTACT_EMAIL": ""
+    }
+  },
   "hooks": {
     "guard_destructive": {
       "enabled": true
