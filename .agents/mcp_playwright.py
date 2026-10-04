@@ -37,6 +37,18 @@ CONTEXT_OPTIONS = {"user_agent": "userAgent", "locale": "locale",
 # Playwright proxies loopback unless the bypass list names a loopback host, so
 # a proxied session would send local dev servers to the proxy vendor.
 LOOPBACK = ["localhost", "*.localhost", "127.0.0.1", "[::1]"]
+# Literal cloud metadata origins refused on direct navigation. Playwright MCP
+# documents blocked origins as no security boundary, and they do not apply to
+# redirects, so this stops only a typed or linked metadata URL, not a page that
+# redirects there. Its `host:*` glob needs a literal ":" in the URL, so IPv4
+# takes a bare entry for the default port beside the `:*` one. It cannot express
+# a wildcard port for an IPv6 host: those are blocked on the default port only.
+# Chromium normalizes ::ffff:169.254.169.254 to the hex form listed here.
+METADATA_V4 = "169.254.169.254"
+METADATA_V6 = ["[fd00:ec2::254]", "[::ffff:a9fe:a9fe]"]
+BLOCKED_ORIGINS = [origin for scheme in ("http", "https")
+                   for origin in (f"{scheme}://{METADATA_V4}", f"{scheme}://{METADATA_V4}:*",
+                                  *(f"{scheme}://{host}" for host in METADATA_V6))]
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TOKEN_SHAPE = re.compile(r"[0-9a-f]{12}")
 
@@ -186,7 +198,7 @@ def render(repo, settings, environ, rotate=False):
     token = None
     if settings["proxy"]:
         launch["proxy"], token = _proxy(repo, settings, environ, rotate)
-    return {"browser": browser, "webmcp": False}, token
+    return {"browser": browser, "network": {"blockedOrigins": BLOCKED_ORIGINS}, "webmcp": False}, token
 
 
 def prepare_dir(repo, target):

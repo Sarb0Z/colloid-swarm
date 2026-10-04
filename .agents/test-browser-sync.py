@@ -162,6 +162,13 @@ try:
     # Every server process gets its own browser profile: the config carries the
     # source profile for the launcher to copy, and the unsynced case is isolated.
     check("a synced config does not claim isolation", "isolated" not in config, config)
+    full = json.loads((agents / ".browser/playwright.json").read_text())
+    blocked = full.get("network", {}).get("blockedOrigins", [])
+    check("the config blocks the cloud metadata addresses on every scheme, any port for IPv4",
+          sorted(blocked) == sorted(
+              origin for scheme in ("http", "https")
+              for origin in (f"{scheme}://169.254.169.254", f"{scheme}://169.254.169.254:*",
+                             f"{scheme}://[fd00:ec2::254]", f"{scheme}://[::ffff:a9fe:a9fe]")), blocked)
     launcher = agents / "playwright-session.py"
     (profile / "Local State").write_text('{"fixture": true}')
     (profile / "Default/Cache").mkdir()
