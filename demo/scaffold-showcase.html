@@ -7598,7 +7598,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 109 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 114 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
 
 from pathlib import Path
@@ -7650,6 +7650,11 @@ def expected_links() -&gt; dict[Path, str]:
         links[Path(&quot;.github/instructions&quot;) / f&quot;01-{rule.stem}.instructions.md&quot;] = (
             f&quot;../../.agents/rules/{rule.name}&quot;
         )
+    # Claude Code loads a plugin folder found under the project&#x27;s .claude/skills.
+    mods = ROOT / &quot;.agents/claude/mods&quot;
+    if mods.is_dir():
+        for mod in sorted(path for path in mods.iterdir() if (path / &quot;.claude-plugin/plugin.json&quot;).is_file()):
+            links[Path(&quot;.claude/skills&quot;) / f&quot;colloid-{mod.name}&quot;] = f&quot;../../.agents/claude/mods/{mod.name}&quot;
     for name in (&quot;demo&quot;, &quot;tensium-trial&quot;):
         if (ROOT / name / &quot;AGENTS.md&quot;).is_file():
             links[Path(&quot;.github/instructions&quot;) / f&quot;{name}.instructions.md&quot;] = (
@@ -8608,7 +8613,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 78 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 79 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -8637,14 +8642,15 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`AGENTS.md` is still 17,615 bytes** — the last open item of `docs/handoff/2026-08-08-scaffold-audit.md`; the other five are done. Roughly 3,800 bytes are conditional blocks belonging in `.agents/AGENTS.md` and a path-scoped rule. Split it?
 - **The grade scale has no mark for a first-party measurement** — `knowledge/research/2026-08-21-claude-code-system-prompt-and-permission-tiers.md` records commands run and outputs read, graded `[A]`, whose definition is inference. Widen `[A]`, or add a mark?
 - **The nine MCP deny rules have never been loaded by a host** — settings are read at startup and these were written in the session that added them. In a fresh session, does `/permissions` list all nine?
-- **A malformed `policy.json` empties the publish guard&#x27;s script list** — `config.py` reports the parse error on stderr, but every listed deploy script runs without an ask until the file is fixed. Should the guard ask on every command meanwhile?
+- **A malformed `policy.json` empties the publish guard&#x27;s script list** — every listed deploy script then runs without an ask (reproduced 2026-10-03), and the stderr report prints three times per command. Should the guard ask on everything until it parses?
 - **Delegation is re-typed per session** — ten September prompts across four satellites asked for it; `AGENTS.md` already makes it the default and prose has not held. Add a gate (a Stop check on undelegated long turns), or accept?
 
 ## Work
 
-- **`docs/handoff/2026-10-02-claude-code-mods.md`** — no slice of the mods migration has started; slice 0 needs a session restart with the probe mod loaded. Run slice 0 and record its results.
-- **`docs/handoff/2026-10-03-session-handoff.md`** — mobile QA has no device tooling: Xcode lacks its first-launch components and an iOS runtime, and there is no Android SDK. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
+- **`docs/handoff/2026-10-02-claude-code-mods.md`** — slice 1 (packaging and the `publish-approval` mod) is built and committed. Restart the session in auto mode and run its live QA against `/tmp/pa-qa/clone`, then measure the added latency per Bash call.
+- **`docs/handoff/2026-10-03-session-handoff.md`** — the iOS 27.0 simulator, Appium 3.8.0 with xcuitest, and Maestro 2.11.0 are installed; Android is not. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
+- **`teardown-gate.sh` reads every `appium` word as a server** — `npm install -g appium`, `appium driver install` and `appium driver list` armed it after exiting. Match only a server start (`appium` alone or `appium server`), with a test row.
 - **`teardown-gate.sh` reads any commit as &quot;work done&quot;** — &quot;Commits split along seams&quot; now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator&#x27;s write-up on the purpose of testing; adopt rules from it only after that lands.
 - **`guard-destructive.py`&#x27;s `lead()` misses common wrappers** — `timeout 5 rm -rf ~/x`, `bash -lc &#x27;rm -rf ~/x&#x27;` and `timeout 600 eas build` pass both guards. Teach it `timeout N`, `nice`, `caffeinate`, `uv run`, absolute `env` and `-lc`/`-ec`, tested per guard.
@@ -8692,7 +8698,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 170 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 176 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -8862,6 +8868,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — `provision.sh` treats a `requirements.txt` whose every requirement is `==`-pinned as a lockfile and installs it into a `.venv`. Such a file pins direct dependencies only; transitive ones resolve from the index at install time, so two lanes provisioned days apart can differ in a package neither branch names. Accepted because the alternative was no environment at all for a repository that ships this way, and lanes of one run provision minutes apart from the same index.
 - **Trigger** — a lane&#x27;s suite goes red on a package absent from both requirements files, or a repository adopts `pip-compile` / `uv pip compile` output (recognisable by `# via` provenance lines) — then the pin check should require the closure and this entry retires.
 - **Rework cost** — ~15 lines in `pinned_requirements`, plus the target repository generating a compiled requirements file.
+
+### publish-token-forgeable
+
+- **Condition** — the `publish-approval` mod&#x27;s approval is a plain file, `.agents/.publish-approved-&lt;tool_use_id&gt;`, and `guard-publish.py` turns its ask or deny into allow for that one call while `hooks.publish_approval.enabled` is on. A process the model started earlier, such as a background shell or a parallel subagent, can read a pending call&#x27;s id from the session transcript on disk and write the file itself. That is most likely while the mod holds the call in its dialog: if the user then dismisses the dialog, the forged token still allows the call. Acceptable: the guard&#x27;s threat model is the model&#x27;s honest mistake, not an adversary with a shell (`colloid-guard-destructive-honest-mistake-only`), and forging takes a deliberate sequence of transcript reads and a file write that no honest mistake produces.
+- **Trigger** — a transcript showing a model write or read a `.publish-approved-*` path, or the guard being relied on against a prompt-injected agent.
+- **Rework** — make the writer one the model&#x27;s processes cannot imitate: Claude Code&#x27;s Bash sandbox with `denyWrite` on `.agents/.publish-approved-*` plus permission deny rules for Write and Edit on that path, or drop the guard-side allow and let the dialog only explain the deny. Either is a new review of the boundary, a few hundred lines with tests.
 </code></pre></details>
             </article>
         <article class="card">
@@ -8913,7 +8925,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 110 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -9013,6 +9025,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
       &quot;enabled&quot;: true
     },
     &quot;pre_compact&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;status_strip&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;publish_approval&quot;: {
       &quot;enabled&quot;: true
     }
   }
