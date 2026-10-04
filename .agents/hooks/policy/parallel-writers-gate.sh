@@ -15,8 +15,10 @@
 #                  first line is READ-ONLY passes. Otherwise the first writer
 #                  of a turn passes and is counted; a writer dispatched while
 #                  any other writer is counted or live is denied, with the
-#                  three commands that make it a lane. A prompt that is a
-#                  workloop brief is counted but never denied: it is a lane.
+#                  three commands that make it a lane. A prompt whose brief
+#                  header names a lane the controller holds, in a worktree
+#                  outside this checkout, is counted but never denied: it is a
+#                  lane. A header alone is only text and gets no exemption.
 #   PreToolUse Edit/Write, main agent — the lead's own edit while an
 #                  uncoordinated writer is live is the same collision from
 #                  the other side, and is denied unless a workloop run is
@@ -81,7 +83,21 @@ line(p.get("project_dir")); line(p.get("event")); ident(p.get("session_id")); id
 ident(p.get("agent_id")); line(p.get("agent_type")); line(p.get("tool_name"))
 line(ti.get("subagent_type") or "general-purpose")
 prompt = str(ti.get("prompt") or "")
-if re.search(r"WORKLOOP (WORKER|REVIEWER|QA) BRIEF", prompt):
+root = os.path.realpath(str(p.get("project_dir") or "."))
+# A header is only text anyone can type; it exempts the dispatch when the
+# controller really holds that lane with a worktree outside this checkout.
+def real_lane(prompt):
+    header = re.search(r"WORKLOOP (?:WORKER|REVIEWER|QA) BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)", prompt)
+    if not header:
+        return False
+    try:
+        with open(os.path.join(root, ".agents", ".workloop-state.json")) as f:
+            lane = json.load(f)["runs"][header.group(1)]["lanes"][header.group(2)]
+        workspace = os.path.realpath(lane["workspace"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return workspace != root and not workspace.startswith(root + os.sep)
+if real_lane(prompt):
     print("brief")
 elif re.match(r"\s*READ-ONLY\b", prompt):
     print("read-only")
@@ -89,7 +105,6 @@ else:
     print("plain")
 # An edit whose every target lies outside the checkout cannot collide with a
 # cell working in it. A relative path is the checkout'"'"'s.
-root = os.path.realpath(str(p.get("project_dir") or "."))
 paths = [v for v in (ti.get("file_path"), ti.get("notebook_path")) if isinstance(v, str) and v]
 paths += [e["file_path"] for e in ti.get("edits") or [] if isinstance(e, dict) and isinstance(e.get("file_path"), str)]
 def inside(path):
