@@ -264,12 +264,18 @@ instead of blending everything into equal-authority prose.
 | `[S]` | Credible secondary: a reporter or practitioner who cites their source |
 | `[?]` | Unverified. **Do not build on.** Always say which kind: `[?] unchecked` — nobody looked yet; or `[?] no primary` — someone looked and none exists |
 | `[A]` | Our own analysis. No source claims it; we inferred it from the graded claims around it. Say what it rests on |
+| `[M]` | Measured here: a command the author ran and whose output they read. Name the command, the version, and the machine |
 
 `[A]` exists because in-house judgement has nowhere else to go. It is not `[P]`
 or `[S]` — nobody published it — and it is not `[?]`, which says *do not build
 on*, while a write-up's conclusions are exactly what the reader must build on.
 Left unmarked, analysis borrows the authority of the graded rows beside it; left
 as `[S]`, it impersonates a source. Mark it and the reader can weigh it.
+
+`[M]` is first-party evidence, not inference: it outranks `[A]` and sits beside
+`[P]` for what it observed, but it holds only for the version and environment
+that produced it. A measurement left as `[A]` reads as a guess; one left
+unmarked borrows a vendor's authority it never had.
 
 The two kinds of `[?]` are opposite objects and one mark hides the difference:
 `unchecked` is unfinished work, while `no primary` is a completed search with a
