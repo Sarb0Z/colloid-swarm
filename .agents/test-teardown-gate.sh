@@ -198,6 +198,21 @@ sh 'docker container stop pg' >/dev/null
 [[ ! -e "$pending" ]] || fail "'docker container stop' must clear: $(cat "$pending")"
 ok "combined short flags record; the container subcommand clears"
 
+# The workloop controller removes lane-labelled containers itself.
+for verb in "reap burndown gates" "release-stale burndown gates" "teardown burndown"; do
+  sh 'docker compose up -d' >/dev/null
+  sh ".agents/workloop.py --state .agents/.workloop-state.json $verb" >/dev/null
+  [[ ! -e "$pending" ]] || fail "'workloop.py $verb' must clear containers: $(cat "$pending")"
+done
+sh 'docker compose up -d' >/dev/null
+sh '.agents/workloop.py status burndown' >/dev/null
+sh 'git commit -m "treat workloop reap and release-stale as teardowns"' >/dev/null
+sh 'gh pr create --body "the workloop teardown step"' >/dev/null
+grep -q '^docker' "$pending" || fail "prose naming a workloop verb must not clear containers"
+grep -q '^docker' "$pending" || fail "'workloop.py status' removes nothing and must not clear"
+sh 'docker compose down' >/dev/null
+ok "the controller's reap, release-stale and teardown clear containers"
+
 # A server started through `npm run dev` is stopped through `npm run stop`.
 sh 'npm run dev' true >/dev/null
 sh 'npm run stop' >/dev/null

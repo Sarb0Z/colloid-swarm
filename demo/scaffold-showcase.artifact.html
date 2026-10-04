@@ -3853,7 +3853,7 @@ esac
               <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container or a booted emulator once the work is finished. The block names each open resource and the command that closes it.</p>
               <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 541 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 543 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
@@ -4046,6 +4046,8 @@ DOCKER_OPEN = re.compile(
 DOCKER_CLOSE = re.compile(
     # `docker container stop` is the modern spelling of `docker stop`.
     r&quot;\bdocker(?:-compose|\s+compose)?\s+(?:container\s+)?(?:down|stop|kill|rm)\b&quot;
+    # The workloop controller removes lane- and run-labelled resources itself.
+    r&quot;|\bworkloop\.py\s(?:[^|;&amp;&lt;&gt;\n]*\s)?(?:reap|release-stale|teardown)\b&quot;
 )
 SERVER = re.compile(
     # The package-manager form allows what a monorepo puts between the manager
