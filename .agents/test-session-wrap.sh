@@ -34,11 +34,14 @@ with open(path, "w") as out:
 EOF
 }
 
-codex_transcript() {  # <path> <tool calls>
+codex_transcript() {  # <path> <tool calls> [session source]
   python3 - "$@" <<'EOF'
 import json, sys
 path, calls = sys.argv[1], int(sys.argv[2])
+source = sys.argv[3] if len(sys.argv) > 3 else None
 with open(path, "w") as out:
+    if source:
+        out.write(json.dumps({"type": "session_meta", "payload": {"source": source}}) + "\n")
     for i in range(calls):
         kind = "function_call" if i % 2 else "custom_tool_call"
         out.write(json.dumps({"type": "response_item", "payload": {"type": kind}}) + "\n")
@@ -77,6 +80,19 @@ codex_transcript "$scratch/codex.jsonl" 61
 out="$(judged codex "$scratch/codex.jsonl")"
 [[ "$out" == *"A long session (61 tool calls)"* ]] || fail "61 Codex tool calls did not fire: $out"
 ok "Codex function_call and custom_tool_call items count as tool calls"
+
+# `codex exec` has no one to answer the full-wrap/skip question; the prompt would
+# end in a failed request_user_input. Codex records the launch mode as
+# session_meta.payload.source, which the Stop payload does not carry.
+codex_transcript "$scratch/codex-exec.jsonl" 61 exec
+out="$(judged codex-exec "$scratch/codex-exec.jsonl")"
+[[ -z "$out" ]] || fail "a codex exec session was prompted: $out"
+ok "a codex exec session is never prompted"
+
+codex_transcript "$scratch/codex-cli.jsonl" 61 cli
+out="$(judged codex-cli "$scratch/codex-cli.jsonl")"
+[[ "$out" == *"A long session (61 tool calls)"* ]] || fail "an interactive Codex session did not fire: $out"
+ok "an interactive Codex session still fires"
 
 printf 'not json\n{"type":"assistant","message":{"content":"plain"}}\n' > "$scratch/odd.jsonl"
 out="$(judged odd "$scratch/odd.jsonl")"
