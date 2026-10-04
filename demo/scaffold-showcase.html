@@ -1273,7 +1273,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 663 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 671 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
 and say why.
 
@@ -1725,14 +1725,22 @@ def mutating(command):
     return any(persistent(target) for target in command.targets)
 
 
-def rule_ssh(command, project=&quot;&quot;):
-    words = lead(command.words)
+def ssh_remote(words):
+    &quot;&quot;&quot;The command an `ssh` invocation runs on the far host, or None when the
+    words are not one. ssh joins its remote words with spaces, and so does this.&quot;&quot;&quot;
+    words = lead(words)
     if not words or base(words[0]) != &quot;ssh&quot;:
         return None
     index = 1
     while index &lt; len(words) and words[index].startswith(&quot;-&quot;):
         index += 2 if words[index] in SSH_VALUED else 1
-    remote = &quot; &quot;.join(words[index + 1:])
+    return &quot; &quot;.join(words[index + 1:])
+
+
+def rule_ssh(command, project=&quot;&quot;):
+    remote = ssh_remote(command.words)
+    if remote is None:
+        return None
     # Everything on the far host is production: a command that merely changes
     # state there is denied, and so is anything the local rules would deny,
     # with no project carve-out because no remote path is this working tree.
