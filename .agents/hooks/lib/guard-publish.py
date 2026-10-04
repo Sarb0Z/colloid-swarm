@@ -160,7 +160,22 @@ VALUE_FLAGS = {
                  "--project-ref", "--db-url"},
 }
 VALUE_FLAGS["flyctl"] = VALUE_FLAGS["fly"]
-GATED_NAMES = ({"git", "gh", "docker", "gcloud"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
+# AWS CLI v2 global options that take a value (docs.aws.amazon.com/cli/latest/
+# reference/index.html); the CLI accepts them before the service too.
+AWS_VALUE_FLAGS = {"--region", "--profile", "--output", "--query", "--endpoint-url", "--ca-bundle",
+                   "--cli-read-timeout", "--cli-connect-timeout", "--color", "--cli-binary-format",
+                   "--cli-error-format"}
+# The read operations are the allowlist, so an operation this guard does not
+# recognize asks: AWS adds services faster than any write list could follow.
+AWS_READ_PREFIXES = ("get-", "list-", "describe-", "head-", "batch-get-", "lookup-", "filter-",
+                     "search-", "select-", "simulate-", "validate-", "estimate-")
+AWS_READS = {"scan", "query", "wait", "tail", "help"}
+# Operations that only read, query, or write local credentials and config:
+# Logs Insights queries and live tails, a role session, a kubeconfig entry, a
+# login token.
+AWS_QUIET = {("logs", "start-query"), ("logs", "stop-query"), ("logs", "start-live-tail"),
+             ("eks", "update-kubeconfig"), ("sso", "login"), ("codeartifact", "login")}
+GATED_NAMES = ({"git", "gh", "docker", "gcloud", "aws"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
                | set(HOSTED_VERBS) | set(REMOTE_FLAG_VERBS) | RUNNERS)
 # Vercel global options that take a value, and ones that only read.
 VERCEL_VALUE_FLAGS = {"--cwd", "-Q", "--global-config", "-A", "--local-config",
@@ -265,6 +280,25 @@ def supabase_storage_reason(rest):
     return None
 
 
+def aws_reason(rest):
+    path = positionals(rest, AWS_VALUE_FLAGS)
+    if len(path) < 2 or path[0] in ("configure", "help"):
+        return None
+    service, operation = path[0], path[1]
+    if service == "s3":
+        buckets = [word for word in path[2:] if word.startswith("s3://")]
+        # cp and sync write only toward a bucket; a bucket as the sole source is a download.
+        toward = bool(buckets) and not (operation in ("cp", "sync") and buckets == path[2:3])
+        if operation in ("rm", "rb", "mb", "website") or (operation in ("cp", "sync", "mv") and toward):
+            return f"aws s3 {operation} writes to a hosted bucket."
+        return None
+    if (operation in AWS_READS or operation.startswith(AWS_READ_PREFIXES)
+            or (service, operation) in AWS_QUIET
+            or (service == "sts" and operation.startswith("assume-role"))):
+        return None
+    return f"aws {service} {operation} mutates the hosted account."
+
+
 def rule_bash(command, shell):
     words = shell.lead(command.words)
     while words and words[0] in CONTROL_KEYWORDS:
@@ -319,6 +353,8 @@ def rule_bash(command, shell):
         return vercel_reason(rest)
     if name == "gcloud":
         return gcloud_reason(rest)
+    if name == "aws":
+        return aws_reason(rest)
     if name == "firebase":
         positional = positionals(rest, VALUE_FLAGS["firebase"])
         if positional and positional[0].split(":")[-1] in FIREBASE_WRITES:

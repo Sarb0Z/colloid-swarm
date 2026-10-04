@@ -641,6 +641,47 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase --workdir apps/api start", "supabase -o json status"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on a local verb after a global flag: {command}", reason is None, reason or "")
+    # The AWS CLI names a write by its operation's verb family; a global flag
+    # before the service does not hide it, and s3 writes only toward a bucket.
+    for command in ("aws lambda update-function-code --function-name f --zip-file fileb://f.zip",
+                    "aws --region us-east-1 --profile prod lambda update-function-code --function-name f",
+                    "aws --profile=prod s3 sync ./dist s3://bucket", "aws s3 cp ./f s3://b/f --acl public-read",
+                    "aws s3 mv s3://a/x s3://a/y", "aws s3 rm s3://b/key", "aws s3 rb s3://b", "aws s3 mb s3://new",
+                    "aws cloudformation deploy --template-file t.yml --stack-name s",
+                    "aws ec2 terminate-instances --instance-ids i-1", "aws ec2 run-instances --image-id ami-1",
+                    "aws ec2 start-instances --instance-ids i-1", "aws ec2 stop-instances --instance-ids i-1",
+                    "aws iam attach-role-policy --role-name r --policy-arn a",
+                    "aws iam detach-role-policy --role-name r --policy-arn a",
+                    "aws dynamodb put-item --table-name t --item {}",
+                    "aws rds modify-db-instance --db-instance-identifier d",
+                    "aws ssm put-parameter --name n --value v", "aws lambda invoke --function-name f out.json",
+                    "aws secretsmanager create-secret --name n", "aws --output json ecs update-service --cluster c",
+                    "aws s3api delete-object --bucket b --key k",
+                    "aws route53 change-resource-record-sets --hosted-zone-id Z --change-batch file://c.json",
+                    "aws sns publish --topic-arn t --message m", "aws sqs purge-queue --queue-url u",
+                    "aws dynamodb batch-write-item --request-items file://i.json",
+                    "aws kms schedule-key-deletion --key-id k", "aws rds-data execute-statement --sql x",
+                    "aws ecs execute-command --cluster c --task t --command sh",
+                    "aws ec2 release-address --allocation-id a"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on an AWS write: {command}", reason is not None, "quiet")
+    for command in ("aws sts get-caller-identity", "aws s3 ls s3://b", "aws s3 cp s3://b/f ./f",
+                    "aws s3 sync s3://b ./local", "aws ec2 describe-instances", "aws lambda list-functions",
+                    "aws logs tail /aws/lambda/f --follow", "aws configure", "aws configure set region us-east-1",
+                    "aws --region us-east-1 --profile prod ec2 describe-instances",
+                    "aws logs start-query --log-group-name g --query-string q", "aws s3 presign s3://b/k",
+                    "aws ecr get-login-password", "aws --version", "aws help", "aws lambda help", "aws s3api get-object --bucket b --key k o",
+                    "aws eks update-kubeconfig --name prod", "aws logs start-live-tail --log-group-identifiers g",
+                    "aws sts assume-role --role-arn r --role-session-name s", "aws sso login --profile p",
+                    "aws codeartifact login --tool npm --domain d", "aws dynamodb scan --table-name t",
+                    "aws dynamodb query --table-name t", "aws dynamodb batch-get-item --request-items x",
+                    "aws s3api head-object --bucket b --key k", "aws cloudformation wait stack-create-complete",
+                    "aws cloudtrail lookup-events", "aws logs filter-log-events --log-group-name g",
+                    "aws iam simulate-principal-policy --policy-source-arn a",
+                    "aws cloudformation validate-template --template-body x",
+                    "aws pricing get-products --service-code AmazonEC2"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on an AWS read or local command: {command}", reason is None, reason or "")
     # The hosted-only management verbs: config, functions, storage, SSO,
     # custom domains, Postgres settings and network rules.
     for command in ("supabase config push", "supabase config push --project-ref abcd",
