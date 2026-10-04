@@ -55,6 +55,11 @@
 # .claude/settings.json `env` (this repo sets "auto:5" — load upfront
 # while schemas fit under 5% of context, defer the overflow).
 
+# Bash alone, where Claude's settings gate Bash|PowerShell|Monitor: Kimi has one
+# shell tool and no PowerShell or Monitor tool. A background command is Bash
+# with run_in_background, so this matcher already sees it
+# (https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html;
+# tool registry checked in kimi-code 2.1.1).
 [[hooks]]
 event = "PreToolUse"
 matcher = "Bash"
