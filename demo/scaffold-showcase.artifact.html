@@ -4745,7 +4745,7 @@ an explicit coverage gap; the honesty membrane does not depend on the ledger.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 294 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 295 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
 name: security-audit
 description: &gt;
   Comprehensive source-only adversarial security review of a full-stack codebase. Use this skill
@@ -4754,6 +4754,7 @@ description: &gt;
   for &quot;security review&quot;, &quot;security audit&quot;, &quot;check my codebase&quot;, &quot;find vulnerabilities&quot;, or a
   request to assess pasted code. It does not contact a live target; use dynamic-security-scan for
   an explicitly authorized localhost or staging scan.
+context: fork
 ---
 
 # Security Audit Skill
@@ -5404,11 +5405,12 @@ If those conditions are not met, leave explicit, actionable feedback and push fo
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Growth</div><h3>seo-geo-growth-audit</h3><p>Discoverability audit of the deployed site: technical SEO, structured data, GEO/AI-search, Core Web Vitals, attribution — scored, with P0–P3 fixes.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 143 lines</span></summary><div class="srcpath">.agents/skills/seo-geo-growth-audit/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 144 lines</span></summary><div class="srcpath">.agents/skills/seo-geo-growth-audit/SKILL.md</div><pre><code>---
 name: seo-geo-growth-audit
 description: &quot;Audits and improves the discoverability of the deployed site a codebase drives: technical SEO (crawlability, sitemaps, robots, canonicals, metadata), structured data (JSON-LD), GEO/AI-search visibility (llms.txt, entity signals, AI-crawler policy), Core Web Vitals, analytics and UTM attribution, and growth systems (content engines, programmatic SEO, lead capture, conversion). Fingerprints the stack first and adapts to any framework; audits both repository code and the live site; produces a scored report with evidence, a prioritized P0-P3 fix plan, implemented fixes, and post-fix verification. Use when asked for an SEO audit, GEO audit, growth audit, or pre-launch checklist; when organic traffic is flat or conversions underperform; when setting up analytics attribution; or when improving AI search visibility in ChatGPT, Perplexity, or Gemini. Trigger phrases: SEO audit, why is organic traffic flat, AI search visibility, llms.txt, structured data, sitemap problems, Core Web Vitals.&quot;
 metadata:
   version: &quot;2.0&quot;
+context: fork
 ---
 
 # SEO, GEO, Analytics and Organic Growth Audit
@@ -5948,7 +5950,7 @@ change verified.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>pentesting</h3><p>The adversarial complement to <code>security-audit</code>: assumes the codebase is hostile and asks what an attacker tries first. Fans out recon on distinct surfaces, hand-verifies the load-bearing finding, then chains them.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 224 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 225 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
 name: pentesting
 description: &gt;
   Adversarial red-team method. Open-ended attack-surface analysis that complements the
@@ -5959,6 +5961,7 @@ description: &gt;
   Use when the user types &quot;pentest&quot;, &quot;/pentest&quot;, &quot;/pentest &lt;surface&gt;&quot;, &quot;red team&quot;, &quot;attack
   my code&quot;, &quot;find breaches&quot;, &quot;hack my project&quot;, &quot;what could an attacker do&quot;, or after a
   meaningful change that hasn&#x27;t had adversarial review.
+context: fork
 ---
 
 # Pentesting Skill

@@ -7,6 +7,7 @@ description: >
   for "security review", "security audit", "check my codebase", "find vulnerabilities", or a
   request to assess pasted code. It does not contact a live target; use dynamic-security-scan for
   an explicitly authorized localhost or staging scan.
+context: fork
 ---
 
 # Security Audit Skill
