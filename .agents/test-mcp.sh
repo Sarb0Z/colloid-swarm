@@ -233,6 +233,7 @@ try:
     assert json.loads(browser_path.read_text()) == {
         "browser": {"browserName": "chromium", "launchOptions": {"channel": "chrome"},
                     "isolated": True},
+        "network": {"blockedOrigins": mcp_playwright.BLOCKED_ORIGINS},
         "webmcp": False}, browser_path.read_text()
     assert stat.S_IMODE(browser_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(browser_dir.stat().st_mode) == 0o700
