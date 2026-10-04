@@ -32,7 +32,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
-- **`docs/handoff/2026-10-04-session-handoff.md`** — the `publish-approval` mod's first live run showed no dialog; the switch now settles on the first gated call. Restart in auto mode and run section 1's QA.
+- **`docs/handoff/2026-10-02-claude-code-mods.md`** — slice 1 (the `publish-approval` mod) passed its live QA on 2026-10-04. Slice 2, M3 the delegation gate, is next.
 - **`docs/handoff/2026-10-04-session-handoff.md`** — the iOS 27.0 simulator, Appium 3.8.0 with xcuitest, and Maestro 2.11.0 are installed; Android is not. Run the trial of Appium, mobile-mcp and Maestro on MemoGo that the handoff describes.
 - **`docs/handoff/2026-10-03-workflow-router.md`** — the workflow router is planned and settled with the operator, and slice 1 (`grilling` and `domain-modeling`) has landed. Start slice 2, the router as one unit.
 - **`teardown-gate.sh` reads any commit as "work done"** — "Commits split along seams" now commits mid-unit, which is the reopen condition of `teardown-tiered-by-restart-cost`. Re-key the done signal, or confirm the false teardown prompts are rare.

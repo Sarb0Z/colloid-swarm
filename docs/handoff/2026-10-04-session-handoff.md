@@ -9,8 +9,8 @@ Each section ends with its exact next action.
 
 ## Current state
 
-Everything below is committed on `main` in `colloid-swarm`. Nothing is pushed,
-so no CI run has seen any of it.
+Everything below is committed on `main` in `colloid-swarm`. Commits through
+`1346346` are pushed and CI passed on them, the mods job included.
 
 | Commit | What landed |
 |---|---|
@@ -24,64 +24,16 @@ so no CI run has seen any of it.
 | `92842b6` | `guard-publish` allows the one call approved in the publish dialog (token path) |
 | `61d66e4` | Mods slice 1: the `publish-approval` mod, `.agents/claude/mods/`, `test-mods.sh`, and a CI job pinned to Claude Code 2.1.288 |
 | `f3e0277` | The mods handoff records slice 1, P5, and the dialog's idle auto-resolve |
+| `b6b3e61` | `teardown-gate.sh` records an Appium server only when `appium` is the command run |
+| `cdda55f`, `c5addb7` | The mod logs a non-approving dialog answer; the Claude adapter passes `tool_use_id` to the publish guard |
 
-## 1. `publish-approval` mod: live QA
+## 1. `publish-approval` mod: done
 
-### What it does
-
-In auto, bypassPermissions and dontAsk modes, `guard-publish` denies a push,
-deploy or publish, because no permission prompt reaches the user. The mod asks
-the guard by argv whether it would ask. If so, it opens Claude Code's question
-dialog with the whole command and the guard's reason. "Run it" writes
-`.agents/.publish-approved-<tool_use_id>`; the guard consumes it within 120
-seconds and answers "allow". "Refuse" denies the call. A dismissal, typed
-text, a dialog that resolved while the user was idle, or a command too long to
-show leaves the guard's own answer. Full design: `.agents/claude/README.md`,
-"Gating outward mutations" and "Mods".
-
-### Evidence so far
-
-- `claude plugin validate` and `claude plugin test` pass with no login, in a
-  bare `node:24-bookworm-slim` container with Claude Code 2.1.288 from npm (P5).
-- `test-mods.sh`: 13 tests pass. `test-guard-publish.py`: all pass; the token
-  rows fail against the guard before `92842b6`. Strict `tsc` is clean against
-  the build's declarations.
-- The hostile review's two P1 findings are dispositioned. The dialog showed
-  only 600 characters but approved the whole command: fixed. The token is
-  forgeable by a process the model starts: accepted as debt
-  `publish-token-forgeable`, pending the operator's ruling in section 6.
-
-### The first live attempt failed
-
-On 2026-10-04 the mod was listed as `publish-approval@skills-dir`, loaded, but
-an auto-mode `git push` was denied with no dialog. Run by hand, the config read
-said `yes` and the guard said `ask`. Temporary tracing to `/tmp/pa-debug.log`
-wrote nothing, either after the edit or on the push.
-
-The working theory: the mod read its switch only in `session.start`, which a
-plugin loaded with the session does not see, and the traced edit never
-hot-reloaded. Commit `61d66e4` now settles the switch on the first gated call,
-with a test for a session that never sends `session.start`. This is unverified
-live. If the next attempt also shows no dialog, the hooks are not running at
-all: add a trace again and confirm that a write from the mod reaches disk.
-
-### Next action
-
-1. The operator restarts Claude Code in `colloid-swarm` in auto mode.
-2. Run four pushes against `/tmp/pa-qa/clone`, whose `origin` is the local bare
-   repository `/tmp/pa-qa/remote.git`, so nothing leaves the machine:
-   - `git -C /tmp/pa-qa/clone push -u origin main`: the dialog shows; after
-     "Run it" the push succeeds.
-   - `git -C /tmp/pa-qa/clone push --force origin main`: after "Run it",
-     `guard-destructive` still blocks it.
-   - A push answered "Refuse" is denied with the refusal text.
-   - With `"publish_approval": {"enabled": false}` under `hooks` in
-     `.agents/config.json` and a restart, an auto-mode push is denied as before.
-3. Measure the time the mod's guard probe adds to a Bash call.
-4. Record the result in the mods handoff, then delete `/tmp/pa-qa`.
-
-If `/tmp/pa-qa` is gone (macOS clears `/tmp` on reboot), recreate it: a bare
-repository with `git init --bare -b main`, a clone of it, and two empty commits.
+The live QA passed on 2026-10-04; the result is in the mods handoff, slice 1.
+The QA found that the Claude adapter dropped `tool_use_id`, so no dialog
+approval could match its token (`c5addb7`). A debug-log line now records a
+dialog answer that is neither "Run it" nor "Refuse" (`cdda55f`). Mods slice 2
+(M3, the delegation gate) is next in `docs/handoff/2026-10-02-claude-code-mods.md`.
 
 ## 2. Mobile QA trial
 
@@ -212,24 +164,21 @@ writes the write-up; testing rules are adopted only after it lands.
 
 ## 7. Cleanup
 
-- `/tmp/pa-qa`: delete after the live QA in section 1.
 - `/tmp/workflow-mining` is already gone (checked 2026-10-04).
 - The Docker image `node:24-bookworm-slim` (351 MB) was pulled for the P5 probe.
   Remove it with `docker image rm node:24-bookworm-slim` if nothing else uses it.
 
 ## Limitations
 
-- The mod has not run live; every claim about it comes from the engine's test
-  kit and the type declarations.
-- The CI job for mods has not run, because nothing is pushed.
-- A mod type-check needs the declarations Claude Code writes when a mod loads or
-  the plugin-authoring skill runs, so `test-mods.sh` does not type-check.
+- A mod type-check needs the declarations Claude Code writes when the
+  plugin-authoring skill runs or a mod loads from a `--plugin-dir` folder. A mod
+  loaded from `.claude/skills/` gets none (observed 2026-10-04), so
+  `test-mods.sh` does not type-check.
+- The off-switch check ran in a headless session, not an interactive restart.
 
 ## Next action, in order
 
-1. The operator restarts Claude Code in auto mode; the agent runs the
-   `publish-approval` live QA (section 1).
-2. The agent runs the mobile trial on MemoGo (section 2) in a window with
+1. The agent runs the mobile trial on MemoGo (section 2) in a window with
    Colima up.
-3. The agent starts router slice 2 in plan mode (section 3).
-4. The operator answers the rulings in section 6 when convenient.
+2. The agent starts router slice 2 in plan mode (section 3).
+3. The operator answers the rulings in section 6 when convenient.

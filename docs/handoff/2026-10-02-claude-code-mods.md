@@ -403,8 +403,15 @@ next one starts.
    its `.claude/skills/colloid-publish-approval` link, `check-layout.py`,
    `test-mods.sh`, the CI job pinned to 2.1.288, the token path in
    `guard-publish` with its test rows, and the rewritten
-   `publish-guard-denies-where-no-prompt`. It is done once the live QA in a
-   restarted session passes.
+   `publish-guard-denies-where-no-prompt`. Done on 2026-10-04: the live QA
+   passed against a local bare remote. "Run it" let a push through with no
+   second prompt; `guard-destructive` still blocked `push --force` after "Run
+   it"; "Refuse" denied with the refusal text; with
+   `hooks.publish_approval.enabled` off, a fresh session showed no dialog and
+   the guard decided alone. The guard probe adds a median 45 ms (34 to 57 ms,
+   17 calls) to each Bash call. The QA found that the Claude adapter's
+   `normalize-hook.py` did not pass `tool_use_id`, so no token could match;
+   `test-guard-publish.py` now maps its token rows through that normalizer.
 2. **M3,** the delegation gate.
 3. **M2 and M4:** load visibility, then workloop push and wake, with the
    skill text updated.
