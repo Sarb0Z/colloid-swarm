@@ -115,6 +115,12 @@ with tempfile.TemporaryDirectory() as scratch:
         ("npx tsc only type-checks, so it passes", "npx tsc --noEmit tools/deploy.ts", "default", "pass"),
         ("npx tsx runs the script, so it is read", "npx tsx tools/deploy.ts", "default", "deny"),
         ("uv run python runs the script, so it is read", "uv run python tools/untracked.py", "default", "deny"),
+        ("a runner option's value is not the command",
+         "uv run --with psycopg2-binary python3 tools/untracked.py", "default", "deny"),
+        ("npx --package names the package, not the command",
+         "npx --package typescript tsx tools/deploy.ts", "default", "deny"),
+        ("uvx --from names the package, not the command",
+         "uvx --from httpie python3 tools/untracked.py", "default", "deny"),
         ("an application's own payment calls are not infrastructure", "node checkout.ts", "default", "pass"),
         ("an ordinary command passes", "ls -la", "default", "pass"),
     ]

@@ -167,6 +167,28 @@ def normalize(text, depth=0):
     return commands
 
 
+# Options of the package runners (`uv run`, `uvx`, `npx`, `bunx`, `pnpx`) that
+# take a separate value, which names a package, index or file and never the
+# command the runner starts. Read from `uv run --help` and `uvx --help`
+# (uv 0.12) and npm's `npx --package`/`--call`.
+RUNNER_VALUED = {
+    "--extra", "--no-extra", "--group", "--no-group", "--only-group",
+    "--no-editable-package", "--env-file", "-w", "--with", "--with-editable",
+    "--with-requirements", "--package", "--python-platform", "--index",
+    "--default-index", "-i", "--index-url", "--extra-index-url", "-f",
+    "--find-links", "--index-strategy", "--keyring-provider", "-P",
+    "--upgrade-package", "--upgrade-group", "--resolution", "--prerelease",
+    "--prerelease-package", "--fork-strategy", "--exclude-newer",
+    "--exclude-newer-package", "--no-sources-package", "--reinstall-package",
+    "--link-mode", "-C", "--config-setting", "--config-settings-package",
+    "--no-build-isolation-package", "--no-build-package", "--no-binary-package",
+    "--cache-dir", "--refresh-package", "-p", "--python", "--color",
+    "--allow-insecure-host", "--directory", "--project", "--config-file",
+    "--from", "-c", "--constraints", "-b", "--build-constraints", "--overrides",
+    "--torch-backend", "--call",
+}
+
+
 def base(word):
     return os.path.basename(word)
 
