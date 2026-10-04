@@ -120,6 +120,15 @@ out="$(cd "$tree/.agents" && "$tree/.agents/check-clean-tree.sh" 2>&1)" \
 grep -q 'stray-file' <<<"$out" || fail "check-clean-tree.sh did not list the stray file"
 rm "$tree/stray-file"
 
+# decisions.md is dropped from the kit, so the shipped lint passes on its
+# absence; on the source it rejects an entry that lost a required line.
+python3 "$kit/.agents/lint-decisions.py" >/dev/null || fail "lint-decisions.py failed in a kit with no decisions.md"
+python3 "$tree/.agents/lint-decisions.py" >/dev/null || fail "lint-decisions.py rejects the committed decisions.md"
+sed 's/^- \*\*Why\*\*/- **Because**/' "$tree/.agents/decisions.md" >"$work/broken-decisions.md"
+if python3 "$tree/.agents/lint-decisions.py" "$work/broken-decisions.md" >/dev/null 2>&1; then
+  fail "lint-decisions.py accepted an entry with no Why line"
+fi
+
 python3 "$kit/.agents/check-layout.py" >/dev/null
 mkdir -p "$kit/apps/example"
 touch "$kit/apps/example/AGENTS.md"
