@@ -83,12 +83,23 @@ HOSTED_VERBS = {
                   "workspace delete"},
 }
 HOSTED_VERBS["tofu"] = HOSTED_VERBS["terraform"]
+HOSTED_VERBS["supabase"] = {
+    "config push", "functions delete", "sso add", "sso remove", "sso update",
+    "domains create", "domains reverify", "domains activate", "domains delete",
+    "postgres-config update", "postgres-config delete", "network-restrictions update",
+    "vanity-subdomains activate", "vanity-subdomains delete", "ssl-enforcement update",
+    "network-bans remove", "backups restore", "encryption update-root-key", "branches update",
+    "branches pause", "branches unpause", "orgs create", "notebooks push",
+}
+# `supabase storage` reaches the linked project unless `--local` says
+# otherwise, and `cp` writes there only when its destination is an `ss://` path.
+SUPABASE_STORAGE_VALUED = {"--cache-control", "--content-type", "-j", "--jobs", "--project-ref"}
 # Verbs that are local by default and reach the hosted project only when a flag
 # says so. Gating them unconditionally would ask on every `supabase db reset`,
 # which is how a developer rebuilds the Docker stack several times an hour; an
 # ask that fires on routine local work is one people learn to dismiss.
 REMOTE_FLAG_VERBS = {
-    "supabase": ({"db reset", "migration up", "migration repair", "db dump"},
+    "supabase": ({"db reset", "migration up", "migration repair", "db dump", "seed buckets"},
                  {"--linked", "--db-url"}),
 }
 # The read set is the allowlist, so an action this guard does not recognize asks:
@@ -230,6 +241,16 @@ def unversioned(spec):
     return spec[:at] if at > 0 else spec
 
 
+def supabase_storage_reason(rest):
+    path = positionals(rest, SUPABASE_STORAGE_VALUED)
+    if path[:1] != ["storage"] or "--local" in rest:
+        return None
+    verb = path[1] if len(path) > 1 else None
+    if verb in ("rm", "mv") or (verb == "cp" and path[-1].startswith("ss:")):
+        return f"supabase storage {verb} writes to the linked project's storage."
+    return None
+
+
 def rule_bash(command, shell):
     words = shell.lead(command.words)
     while words and words[0] in CONTROL_KEYWORDS:
@@ -288,6 +309,8 @@ def rule_bash(command, shell):
         positional = positionals(rest, VALUE_FLAGS["firebase"])
         if positional and positional[0].split(":")[-1] in FIREBASE_WRITES:
             return f"firebase {positional[0]} writes to the hosted project."
+    if name == "supabase" and (reason := supabase_storage_reason(rest)):
+        return reason
     if name in DEPLOY_VERBS or name in HOSTED_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
         positional = positionals(rest, VALUE_FLAGS.get(name, ()))

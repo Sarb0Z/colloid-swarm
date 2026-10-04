@@ -623,6 +623,41 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase db reset --db-url postgres://host/db"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted Supabase command: {command}", reason is not None, "quiet")
+    # The hosted-only management verbs: config, functions, storage, SSO,
+    # custom domains, Postgres settings and network rules.
+    for command in ("supabase config push", "supabase config push --project-ref abcd",
+                    "supabase functions delete hello", "supabase storage rm ss:///avatars/a.png",
+                    "supabase storage rm -r ss:///avatars --linked", "supabase storage mv ss:///b/a ss:///b/c",
+                    "supabase storage cp ./a.png ss:///avatars/a.png",
+                    "supabase storage cp --cache-control no-cache -r ./dir ss:///b",
+                    "supabase sso add --type saml --metadata-url https://idp/x", "supabase sso remove 1234",
+                    "supabase sso update 1234 --domains a.com", "supabase domains create --custom-hostname a.com",
+                    "supabase domains activate", "supabase domains delete", "supabase domains reverify",
+                    "supabase postgres-config update --config max_connections=100",
+                    "supabase postgres-config delete --config max_connections",
+                    "supabase network-restrictions update --db-allow-cidr 10.0.0.0/8",
+                    "supabase vanity-subdomains activate --desired-subdomain acme",
+                    "supabase ssl-enforcement update --enable-db-ssl-enforcement",
+                    "supabase network-bans remove --db-unban-ip 1.2.3.4",
+                    "supabase backups restore --timestamp 1700000000", "supabase encryption update-root-key",
+                    "supabase branches update preview --git-branch main", "supabase branches pause preview",
+                    "supabase branches unpause preview", "supabase orgs create acme",
+                    "supabase notebooks push", "supabase seed buckets --linked"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a hosted Supabase management verb: {command}", reason is not None, "quiet")
+    for command in ("supabase config pull", "supabase functions list", "supabase functions download hello",
+                    "supabase functions serve", "supabase functions new hello",
+                    "supabase storage ls ss:///avatars", "supabase storage cp ss:///avatars/a.png ./a.png",
+                    "supabase storage cp -r ss:///bucket/docs .", "supabase storage rm --local ss:///b/a",
+                    "supabase storage cp --local ./a.png ss:///b/a.png", "supabase sso list", "supabase sso show 1234",
+                    "supabase sso info", "supabase domains get", "supabase postgres-config get",
+                    "supabase network-restrictions get", "supabase ssl-enforcement get",
+                    "supabase vanity-subdomains check-availability --desired-subdomain acme",
+                    "supabase network-bans get", "supabase backups list", "supabase encryption get-root-key",
+                    "supabase branches list", "supabase branches get preview", "supabase orgs list",
+                    "supabase notebooks pull", "supabase seed buckets"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a Supabase read or local verb: {command}", reason is None, reason or "")
     for command in ("supabase db reset", "supabase migration up", "supabase start",
                     "supabase status", "supabase stop", "supabase db diff",
                     "supabase migration new add_memos",
