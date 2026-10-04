@@ -107,7 +107,14 @@ base; it copies the kit.
    enabled — must not be tracked; it breaks every other clone. The fragment
    ignores them; `git rm --cached` the ones a target already tracks and say so
    in the commit.
-8. Remove the `export/` directory last; the steps above read from it.
+8. Declare `dry_run_commands` for a target that lacks it. A target synced
+   before the key existed asks on every `<listed script> --dry-run`. Read the
+   argument parser of each script in `hooks.guard_publish.outward_commands`
+   and list in `policy.json` under `hooks.guard_publish.dry_run_commands`
+   only the scripts whose flag truly rehearses: it reads a bare `--dry-run`
+   as on, takes no value word other than a boolean, and writes nothing
+   hosted when on. A script that ignores the flag stays off the list.
+9. Remove the `export/` directory last; the steps above read from it.
 
 ## Adapt
 
