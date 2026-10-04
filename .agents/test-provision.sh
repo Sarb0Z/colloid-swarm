@@ -372,4 +372,27 @@ out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" .)" || fai
 [[ "$out" == *"(shared from"* && "$out" == *"bundle:"* && -f "$share_lane/node_modules/.colloid-shared" ]] || fail "a Gemfile.lock beside the lockfile removed the shared directory: $out"
 ok "a non-JS lockfile in the same directory leaves the shared link in place"
 
+# 15. a .nvmrc the active node does not satisfy fails by name, before any install
+nvm_fix="$scratch/nvmrc"; git init -q "$nvm_fix"; git -C "$nvm_fix" config user.email t@t; git -C "$nvm_fix" config user.name t
+printf '{"name":"n","lockfileVersion":3}\n' > "$nvm_fix/package-lock.json"
+git -C "$nvm_fix" add -A; git -C "$nvm_fix" commit -qm lock
+mkdir -p "$scratch/nodebin"
+printf '#!/usr/bin/env bash\necho v22.11.0\n' > "$scratch/nodebin/node"; chmod +x "$scratch/nodebin/node"
+rm -f "$scratch/npm.ran"
+for pin in v22 22 22.11.0; do
+  printf '%s\n' "$pin" > "$nvm_fix/.nvmrc"
+  PATH="$scratch/nodebin:$PATH" "$prov" "$nvm_fix" >/dev/null 2>&1 || fail ".nvmrc '$pin' must accept node v22.11.0"
+  rm -f "$(gitdir "$nvm_fix")/colloid-provisioned"
+done
+printf 'lts/*\n' > "$nvm_fix/.nvmrc"
+out="$(PATH="$scratch/nodebin:$PATH" "$prov" "$nvm_fix" 2>&1)" || fail ".nvmrc lts/* must skip the check: $out"
+[[ "$out" == *"not a version"* ]] || fail "the skipped .nvmrc check is not noted: $out"
+rm -f "$(gitdir "$nvm_fix")/colloid-provisioned" "$scratch/npm.ran"
+printf 'v24\n' > "$nvm_fix/.nvmrc"
+set +e; err="$(PATH="$scratch/nodebin:$PATH" "$prov" "$nvm_fix" 2>&1 >/dev/null)"; rc=$?; set -e
+[[ $rc -eq 1 && "$err" == *".nvmrc"* && "$err" == *"v24"* && "$err" == *"v22.11.0"* ]] || fail "a node major mismatch must fail naming .nvmrc and both versions (rc=$rc): $err"
+[[ "$err" == *"environment failure"* ]] || fail "the mismatch lacks the environment-failure sentence: $err"
+[[ ! -e "$scratch/npm.ran" ]] || fail "npm ran under the wrong node"
+ok ".nvmrc is matched by major; lts/* is skipped with a note; a mismatch fails before installing"
+
 printf '\nall provision tests passed\n'
