@@ -151,23 +151,17 @@ mobile-mcp the same way, restart the session, and run the scenarios.
 Inputs: `docs/handoff/2026-10-03-testing-writeup-inputs.md`. The operator
 writes the write-up; testing rules are adopted only after it lands.
 
-## 6. Rulings that wait on the operator
+## 6. Rulings
 
-- **Forgeable approval token.** Accept as debt `publish-token-forgeable` (the
-  current state), or make it unforgeable with Claude Code's Bash sandbox
-  (`denyWrite` on `.agents/.publish-approved-*` plus deny rules for Write and
-  Edit), a few hundred lines and a new review.
-- **A malformed `policy.json`.** `config.py` now reports it, but the publish
-  guard's script list is still empty while it is broken, so listed deploy
-  scripts run without an ask. Should the guard ask on everything until it
-  parses? (Open decision in `breadcrumbs.md`.)
+The operator ruled on every open decision on 2026-10-04; the results landed
+the same day (`docs/reviews/2026-10-04-burndown.md` records the review). Still
+open from this list:
+
 - **Showcase copy.** Three placeholders in `demo/scaffold-showcase.html` wait
   for the operator's text: `[denied-tool card — what it does for the reader, one
   or two sentences]`, `[grilling card — what it does for the reader, one
   sentence]`, `[domain-modeling card — what it does for the reader, one
   sentence]`.
-- **The nine MCP deny rules.** In a fresh session, does `/permissions` list all
-  nine?
 - **The upstream bug report** (a bare `permissions.deny` does not remove an MCP
   tool from a subagent that names the server): draft only when the operator
   asks; filing publishes under the operator's account.
