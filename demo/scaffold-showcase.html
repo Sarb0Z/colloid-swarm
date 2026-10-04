@@ -512,7 +512,7 @@ paths:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Stack pack</div><h3>stack-nextjs.md</h3><p>Concrete framework rules at a house-convention bar, not hedged toward neutrality. The scaffold carries a pack per stack and selects none — a transplant deletes what the target does not run, and a gate fails on the ones it missed.</p><div class="foot"><code>paths:</code> says when it loads · <code>detect:</code> says whether the stack is here</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 30 lines</span></summary><div class="srcpath">.agents/rules/stack-nextjs.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 31 lines</span></summary><div class="srcpath">.agents/rules/stack-nextjs.md</div><pre><code>---
 applyTo: &#x27;**/app/**/*.tsx,**/app/**/*.ts,**/src/app/**/*.tsx,**/src/app/**/*.ts,**/next.config.*,**/middleware.ts&#x27;
 paths:
   - &#x27;**/app/**/*.tsx&#x27;
@@ -539,6 +539,7 @@ detect:
 ## Abnormal Cases and Rationale
 - A `&#x27;use client&#x27;` file that imports a server-only module fails at build with an unhelpful trace. Mark the module with `import &#x27;server-only&#x27;` so the error names the real boundary crossing.
 - An environment variable reaches the browser only through the `NEXT_PUBLIC_` prefix. A secret named with that prefix is published, and the build reports nothing.
+- Turborepo&#x27;s local cache is keyed by task hash and shared across every worktree of a repository, so a hit from another lane is correct only when `turbo.json` declares every input and environment variable the task reads. An undeclared one serves stale output; run with `--force` to rebuild.
 
 ## Out of Scope
 - Do not restate visual design rules here. `.agents/rules/frontend.md` owns those.
