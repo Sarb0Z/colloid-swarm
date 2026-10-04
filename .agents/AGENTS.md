@@ -13,7 +13,7 @@ paths:
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
-- `config.json.example` defines hook defaults. `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` is the ignored per-operator override layered on top. Same shape; `hooks/lib/config.py` reads both. The publish guard reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: an exemption from an ask is a repository decision, so `config.json` cannot declare one.
+- `config.json.example` defines hook defaults. `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` is the ignored per-operator override layered on top. While either file fails to parse, the publish guard asks on every command that could run a listed script. Same shape; `hooks/lib/config.py` reads both. The publish guard reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: an exemption from an ask is a repository decision, so `config.json` cannot declare one.
 - `mcp.json` is the MCP registry and its project state. Change it through `python3 .agents/mcp.py enable|disable <name>` when possible; commit intentional state changes.
 - `personas/*.md` are Claude-native definitions and `.claude/agents/*.md` links to them. `.codex/agents/*.toml` are static Codex definitions. Model/effort is explicit in those files, not generated from a tier registry.
 - `check-layout.py` verifies scaffold-owned links. It never creates, rewrites, or prunes operator files.
