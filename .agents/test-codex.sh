@@ -138,7 +138,21 @@ claude_source = next(
 for tool in ("WebSearch", "WebFetch", "mcp__context7__query-docs"):
     if re.fullmatch(claude_source["matcher"], tool) is None:
         raise SystemExit(f"Claude source matcher misses {tool}")
+PY
 
+# Prints `checked` or `skipped`. A kit exported without Kimi has no
+# .kimi/config.toml.example, and the check must pass there too.
+check_kimi() {
+  python3 - "$1" <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+repo = Path(sys.argv[1])
+with (repo / ".agents/mcp.json").open(encoding="utf-8") as stream:
+    registry = json.load(stream)["mcpServers"]
 kimi_path = repo / ".kimi/config.toml.example"
 if kimi_path.is_file():
     kimi_config_text = kimi_path.read_text()
@@ -159,7 +173,25 @@ if kimi_path.is_file():
             continue
         if re.fullmatch(kimi_source["matcher"], tool) is None:
             raise SystemExit(f"Kimi source matcher misses {tool}")
+    print("checked")
+else:
+    print("skipped")
 PY
+}
+
+check_kimi_in() {  # <root> <expected: checked|skipped>
+  local got
+  got="$(check_kimi "$1")"
+  [[ "$got" == "$2" ]] || { echo "test-codex: Kimi check reported '$got', expected '$2' for $1" >&2; exit 1; }
+}
+
+[[ -f "$repo/.kimi/config.toml.example" ]] && check_kimi_in "$repo" checked || check_kimi_in "$repo" skipped
+# The branch above only runs where Kimi ships; this one runs everywhere.
+stripped="$(mktemp -d)"
+trap 'rm -rf "$stripped"' EXIT
+mkdir -p "$stripped/.agents"
+cp "$repo/.agents/mcp.json" "$stripped/.agents/mcp.json"
+check_kimi_in "$stripped" skipped
 
 loader=skipped
 if command -v codex >/dev/null 2>&1; then
