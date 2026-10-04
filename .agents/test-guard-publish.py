@@ -234,9 +234,16 @@ with tempfile.TemporaryDirectory() as tmp:
         os.utime(path, (stamp, stamp))
         return path
 
+    # A Claude Code payload, mapped by the adapter's own normalizer, so the id
+    # the token is named for is the one the guard receives in a live session.
     def decide(call_id, mode="auto", command="git push"):
-        result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command},
-                                 "tool_use_id": call_id, "permission_mode": mode}), str(repo))
+        claude = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                             "tool_input": {"command": command}, "tool_use_id": call_id,
+                             "permission_mode": mode, "cwd": str(repo)})
+        mapped = subprocess.run([sys.executable, str(here / "claude" / "normalize-hook.py"),
+                                 "guard-publish.sh", str(repo)],
+                                input=claude, capture_output=True, text=True, check=True)
+        result = run(mapped.stdout, str(repo))
         return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout.strip() else None
 
     approved = token("toolu_A")
