@@ -40,6 +40,10 @@ class Command:
 
 
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
+# `-c` alone or in a cluster (`-lc`, `-ec`): the shell runs its next word.
+SHELL_BODY_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
+# Shell options whose value is the next word (`-o pipefail`).
+SHELL_VALUED = {"-o", "+o", "-O", "+O"}
 OPERATORS = ";\n&|()`"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # `<<` opens a heredoc; `<<<` is a herestring and carries no body.
@@ -160,11 +164,21 @@ def normalize(text, depth=0):
         commands.append(Command(words, targets))
         # `sh -c '<command>'` runs its argument. Read it as one.
         run = lead(words)
-        if depth < 2 and run and base(run[0]) in SHELLS and "-c" in run:
-            payload = run[run.index("-c") + 1:]
-            if payload:
-                commands.extend(normalize(payload[0], depth + 1))
+        if depth < 2 and run and base(run[0]) in SHELLS:
+            payload = shell_body(run[1:])
+            if payload is not None:
+                commands.extend(normalize(payload, depth + 1))
     return commands
+
+
+def shell_body(args):
+    """The command string a shell's `-c` runs, or None when it runs none."""
+    index = 0
+    while index < len(args) and args[index][:1] in "-+" and args[index] not in ("-", "--"):
+        if SHELL_BODY_FLAG.fullmatch(args[index]):
+            return args[index + 1] if index + 1 < len(args) else None
+        index += 2 if args[index] in SHELL_VALUED else 1
+    return None
 
 
 # Options of the package runners (`uv run`, `uvx`, `npx`, `bunx`, `pnpx`) that
@@ -193,14 +207,42 @@ def base(word):
     return os.path.basename(word)
 
 
+# Commands that run the rest of the line, each with the options it reads a
+# separate value for. `timeout` also takes its duration before the command.
+WRAPPERS = {
+    "sudo": {"-u", "-g", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "-R"},
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P", "-L", "-U"},
+    "command": set(),
+    "exec": {"-a"},
+    "nohup": set(),
+    "time": set(),
+    "nice": {"-n", "--adjustment"},
+    "caffeinate": {"-t", "-w"},
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+}
+
+
 def lead(words):
-    """The command words, past any environment prefix."""
+    """The command words, past any environment prefix or wrapper."""
     index = 0
-    while index < len(words) and (
-        ASSIGNMENT.match(words[index])
-        or words[index] in ("sudo", "env", "command", "exec", "nohup", "time")
-    ):
-        index += 1
+    while index < len(words):
+        name = base(words[index])
+        if ASSIGNMENT.match(words[index]):
+            index += 1
+            continue
+        if name == "uv" and words[index + 1:index + 2] == ["run"]:
+            valued, index = RUNNER_VALUED, index + 2
+        elif name in WRAPPERS:
+            valued, index = WRAPPERS[name], index + 1
+        else:
+            break
+        while index < len(words) and words[index].startswith("-") and words[index] != "-":
+            # `command -v` looks a name up and runs nothing.
+            if name == "command" and words[index] in ("-v", "-V"):
+                return []
+            index += 2 if words[index] in valued else 1
+        if name == "timeout":
+            index += 1
     return words[index:]
 
 
@@ -499,7 +541,6 @@ SYNC_SCRIPT = "browser-sync.py"
 # `git add` and a commit message that names the script.
 NON_RUNNERS = {"cat", "less", "more", "head", "tail", "grep", "egrep", "rg", "wc",
                "ls", "stat", "file", "diff", "cmp", "echo", "printf", "git"}
-SHELL_BODY_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
 
 
 def synthetic_source(value):

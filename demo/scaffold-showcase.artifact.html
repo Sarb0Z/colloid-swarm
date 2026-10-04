@@ -1265,7 +1265,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The fail-closed floor. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, and destructive SQL via <code>psql</code>/<code>mysql</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE).</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 622 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 663 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
 and say why.
 
@@ -1307,6 +1307,10 @@ class Command:
 
 
 SHELLS = {&quot;sh&quot;, &quot;bash&quot;, &quot;zsh&quot;, &quot;dash&quot;, &quot;ksh&quot;}
+# `-c` alone or in a cluster (`-lc`, `-ec`): the shell runs its next word.
+SHELL_BODY_FLAG = re.compile(r&quot;-[A-Za-z]*c[A-Za-z]*&quot;)
+# Shell options whose value is the next word (`-o pipefail`).
+SHELL_VALUED = {&quot;-o&quot;, &quot;+o&quot;, &quot;-O&quot;, &quot;+O&quot;}
 OPERATORS = &quot;;\n&amp;|()`&quot;
 ASSIGNMENT = re.compile(r&quot;^[A-Za-z_][A-Za-z0-9_]*=&quot;)
 # `&lt;&lt;` opens a heredoc; `&lt;&lt;&lt;` is a herestring and carries no body.
@@ -1427,11 +1431,21 @@ def normalize(text, depth=0):
         commands.append(Command(words, targets))
         # `sh -c &#x27;&lt;command&gt;&#x27;` runs its argument. Read it as one.
         run = lead(words)
-        if depth &lt; 2 and run and base(run[0]) in SHELLS and &quot;-c&quot; in run:
-            payload = run[run.index(&quot;-c&quot;) + 1:]
-            if payload:
-                commands.extend(normalize(payload[0], depth + 1))
+        if depth &lt; 2 and run and base(run[0]) in SHELLS:
+            payload = shell_body(run[1:])
+            if payload is not None:
+                commands.extend(normalize(payload, depth + 1))
     return commands
+
+
+def shell_body(args):
+    &quot;&quot;&quot;The command string a shell&#x27;s `-c` runs, or None when it runs none.&quot;&quot;&quot;
+    index = 0
+    while index &lt; len(args) and args[index][:1] in &quot;-+&quot; and args[index] not in (&quot;-&quot;, &quot;--&quot;):
+        if SHELL_BODY_FLAG.fullmatch(args[index]):
+            return args[index + 1] if index + 1 &lt; len(args) else None
+        index += 2 if args[index] in SHELL_VALUED else 1
+    return None
 
 
 # Options of the package runners (`uv run`, `uvx`, `npx`, `bunx`, `pnpx`) that
@@ -1460,14 +1474,42 @@ def base(word):
     return os.path.basename(word)
 
 
+# Commands that run the rest of the line, each with the options it reads a
+# separate value for. `timeout` also takes its duration before the command.
+WRAPPERS = {
+    &quot;sudo&quot;: {&quot;-u&quot;, &quot;-g&quot;, &quot;-p&quot;, &quot;-C&quot;, &quot;-D&quot;, &quot;-r&quot;, &quot;-t&quot;, &quot;-U&quot;, &quot;-T&quot;, &quot;-R&quot;},
+    &quot;env&quot;: {&quot;-u&quot;, &quot;--unset&quot;, &quot;-C&quot;, &quot;--chdir&quot;, &quot;-S&quot;, &quot;--split-string&quot;, &quot;-P&quot;, &quot;-L&quot;, &quot;-U&quot;},
+    &quot;command&quot;: set(),
+    &quot;exec&quot;: {&quot;-a&quot;},
+    &quot;nohup&quot;: set(),
+    &quot;time&quot;: set(),
+    &quot;nice&quot;: {&quot;-n&quot;, &quot;--adjustment&quot;},
+    &quot;caffeinate&quot;: {&quot;-t&quot;, &quot;-w&quot;},
+    &quot;timeout&quot;: {&quot;-s&quot;, &quot;--signal&quot;, &quot;-k&quot;, &quot;--kill-after&quot;},
+}
+
+
 def lead(words):
-    &quot;&quot;&quot;The command words, past any environment prefix.&quot;&quot;&quot;
+    &quot;&quot;&quot;The command words, past any environment prefix or wrapper.&quot;&quot;&quot;
     index = 0
-    while index &lt; len(words) and (
-        ASSIGNMENT.match(words[index])
-        or words[index] in (&quot;sudo&quot;, &quot;env&quot;, &quot;command&quot;, &quot;exec&quot;, &quot;nohup&quot;, &quot;time&quot;)
-    ):
-        index += 1
+    while index &lt; len(words):
+        name = base(words[index])
+        if ASSIGNMENT.match(words[index]):
+            index += 1
+            continue
+        if name == &quot;uv&quot; and words[index + 1:index + 2] == [&quot;run&quot;]:
+            valued, index = RUNNER_VALUED, index + 2
+        elif name in WRAPPERS:
+            valued, index = WRAPPERS[name], index + 1
+        else:
+            break
+        while index &lt; len(words) and words[index].startswith(&quot;-&quot;) and words[index] != &quot;-&quot;:
+            # `command -v` looks a name up and runs nothing.
+            if name == &quot;command&quot; and words[index] in (&quot;-v&quot;, &quot;-V&quot;):
+                return []
+            index += 2 if words[index] in valued else 1
+        if name == &quot;timeout&quot;:
+            index += 1
     return words[index:]
 
 
@@ -1766,7 +1808,6 @@ SYNC_SCRIPT = &quot;browser-sync.py&quot;
 # `git add` and a commit message that names the script.
 NON_RUNNERS = {&quot;cat&quot;, &quot;less&quot;, &quot;more&quot;, &quot;head&quot;, &quot;tail&quot;, &quot;grep&quot;, &quot;egrep&quot;, &quot;rg&quot;, &quot;wc&quot;,
                &quot;ls&quot;, &quot;stat&quot;, &quot;file&quot;, &quot;diff&quot;, &quot;cmp&quot;, &quot;echo&quot;, &quot;printf&quot;, &quot;git&quot;}
-SHELL_BODY_FLAG = re.compile(r&quot;-[A-Za-z]*c[A-Za-z]*&quot;)
 
 
 def synthetic_source(value):

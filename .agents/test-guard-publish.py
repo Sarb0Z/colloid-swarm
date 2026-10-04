@@ -75,6 +75,13 @@ ASK = [
     ("Bash", {"command": "docker push repo/img:latest"}),
     ("Bash", {"command": "gh workflow run deploy.yml"}),
     ("Bash", {"command": "gh release upload v1 dist.tgz"}),
+    # A wrapper that runs the rest of the line does not hide the publish.
+    ("Bash", {"command": "timeout 600 git push"}),
+    ("Bash", {"command": "bash -lc 'git push origin main'"}),
+    ("Bash", {"command": "/usr/bin/env npm publish"}),
+    ("Bash", {"command": "nice -n 5 vercel --prod"}),
+    ("Bash", {"command": "caffeinate -i docker push repo/img"}),
+    ("Bash", {"command": "uv run --with x wrangler deploy"}),
     ("PowerShell", {"command": "git push origin main"}),
     ("Monitor", {"command": "while true; do git push; sleep 60; done"}),
     ("Artifact", {"file_path": "/tmp/report.html", "favicon": "x"}),
@@ -126,6 +133,9 @@ PASS = [
     ("Bash", {"command": "npx create-react-app my-app"}),
     ("Bash", {"command": "docker build -t repo/img ."}),
     ("Bash", {"command": "netlify status"}),
+    ("Bash", {"command": "timeout 60 git status"}),
+    ("Bash", {"command": "bash -lc 'git log'"}),
+    ("Bash", {"command": "command -v vercel"}),
     ("Bash", {"command": "gh workflow list"}),
     ("Artifact", {"action": "list"}),
     ("Artifact", {"url": "https://claude.ai/x", "action": "comments"}),
@@ -441,6 +451,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reason = guard.verdict("Bash", {"command": command}, outward)
         check(f"asks on a listed script: {command}", reason is not None and "hosted system" in (reason or ""),
               reason or "quiet")
+    reason = guard.verdict("Bash", {"command": "timeout 600 eas build"}, ["eas"])
+    check("a listed command behind timeout asks", reason is not None, "quiet")
     for command in ("cat scripts/deploy.sh", "grep vercel scripts/deploy.sh",
                     "./scripts/deploy.sh --dry-run",
                     "./scripts/verify.sh", "ls switch-on"):
