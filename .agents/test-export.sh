@@ -28,6 +28,12 @@ leaked="$(grep -rniE 'genome|mutagen|panspermia|\bswarm\b' "$kit" \
   2>/dev/null | grep -v '^Binary' || true)"
 [[ -z "$leaked" ]] || { printf '%s\n' "$leaked" >&2; fail "export leaked source-only behavior"; }
 
+# The README's verification list and tables are read in the target, which has
+# no demo/ or review fixtures; a row or command naming them dangles there.
+if grep -nE 'demo/|fixtures/review-episodes|\.\./demo' "$kit/.agents/README.md" >&2; then
+  fail "exported .agents/README.md names a path the export drops"
+fi
+
 for path in \
   .agents/genome.sh .agents/mutagen.sh .agents/skills/panspermia-mutation \
   .agents/eval .agents/fixtures .agents/breadcrumbs.md .agents/debt-log.md \
