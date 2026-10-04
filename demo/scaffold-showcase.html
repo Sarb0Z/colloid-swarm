@@ -9345,7 +9345,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 36 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 37 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -9367,6 +9367,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **`workloop.py` cannot close a run landed outside `integrate`** — when main moves past the run base, `integrate` fails on main&#x27;s fixes and `teardown` refuses. Add `abandon &lt;run&gt;` that removes the worktrees and the run.
 - **The root `AGENTS.md` rewrite** — ruled 2026-10-04: split out situational blocks (17.6 KB), raise the register, move Claude-specific terms to the adapter, and build router slice 2 with delegation per workflow. Plan it in plan mode.
 - **`docs/handoff/2026-10-02-claude-code-mods.md` slice 2** — the user ruled for the delegation gate (M3) on 2026-10-04. Build it after the contract rewrite, so the gate enforces what the workflows ask for.
 - **`pentesting` is not forked** — it fans out recon subagents, and nested spawning under `context: fork` depends on `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, whose default the docs do not state. Run a forked pentest live; fork it if the recon agents start.
