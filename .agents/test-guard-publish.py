@@ -623,6 +623,24 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase db reset --db-url postgres://host/db"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted Supabase command: {command}", reason is not None, "quiet")
+    # A deploy CLI's value-taking global flag sits before the verb without
+    # becoming it.
+    for command in ("wrangler --env prod deploy", "wrangler -e prod deploy",
+                    "wrangler -c wrangler.prod.toml deploy", "wrangler --config w.toml --env production publish",
+                    "npx wrangler --env-file .env.prod deploy", "wrangler --cwd apps/worker deploy",
+                    "fly -a web deploy", "flyctl --app web deploy", "fly -c fly.prod.toml deploy",
+                    "fly -t TOKEN deploy", "fly -r ord -a web deploy",
+                    "supabase --workdir apps/api db push", "supabase --profile prod functions deploy hello",
+                    "supabase -o json secrets set A=1", "supabase --project-ref abcd config push",
+                    "supabase --workdir apps/api storage rm ss:///b/a",
+                    "supabase --network-id n db reset --linked"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a deploy verb after a global flag: {command}", reason is not None, "quiet")
+    for command in ("wrangler --env prod dev", "wrangler -e prod tail", "fly -a web status",
+                    "fly -a web logs", "supabase --workdir apps/api db reset",
+                    "supabase --workdir apps/api start", "supabase -o json status"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a local verb after a global flag: {command}", reason is None, reason or "")
     # The hosted-only management verbs: config, functions, storage, SSO,
     # custom domains, Postgres settings and network rules.
     for command in ("supabase config push", "supabase config push --project-ref abcd",
