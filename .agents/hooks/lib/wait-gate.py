@@ -77,12 +77,38 @@ def unwrap(words):
     return words
 
 
+def strip_comments(text):
+    """Drop each unquoted `#...` comment; `a#b` and a quoted `#` are not one."""
+    out, quote, i = [], "", 0
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\" and quote == '"' and i + 1 < len(text):
+                out.append(char)
+                i += 1
+                char = text[i]
+            elif char == quote:
+                quote = ""
+        elif char == "\\" and i + 1 < len(text):
+            out.append(char)
+            i += 1
+            char = text[i]
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (not out or out[-1].isspace() or out[-1] in ";&|("):
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
 def scan(text, nested=False):
     """(top-level sleep seconds, longest sleep in a loop or payload, backgrounded, waits)."""
     top, inner, background, waits, depth = 0.0, 0.0, [], False, 0
-    # A full-line comment is prose; an `&` in it is not an operator.
-    code = "\n".join(line for line in parser.strip_heredocs(text).split("\n")
-                     if not line.lstrip().startswith("#"))
+    # Comment text is prose; an `&` in it is not an operator.
+    code = strip_comments(parser.strip_heredocs(text))
     for segment, operator in parser.split_operators(code):
         try:
             words = shlex.split(segment, comments=True)

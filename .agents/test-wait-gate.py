@@ -45,6 +45,8 @@ BLOCK = [
     "while kill -0 123 2>/dev/null; do sleep 10; done; tail log",
     "timeout 600 bash -c 'until grep -q DONE log; do sleep 30; done'",
     "bash -c 'sleep 300; tail x.log'",
+    "echo 'a # b' & srv",
+    "echo a#b & srv",
     "sleep 2; tail -12 /private/tmp/claude-501/-Users-mac-Projects-x/abc/tasks/bv1hhywk6.output",
     "until [ -s /private/tmp/claude-501/p/s/tasks/b72i5hegt.output ]; do sleep 1; done",
     "(bun run judge --local > /tmp/p4-judge.log 2>&1; echo EXIT=$? >> /tmp/p4-judge.log) &",
@@ -70,6 +72,9 @@ ALLOW = [
     "grep -rn sleep src/",
     "cat <<'EOF' > notes.md\nsleep 900\nnpm run dev &\nEOF",
     "python3 -c 'import time; print(1)'",
+    "echo hi # a & b",
+    "echo hi  # sleep 600",
+    "ls; # start it & later",
     "set -e\n# ── Analytics & tracking\ndefaults write com.apple.finder X -bool YES",
     "",
 ]

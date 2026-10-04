@@ -1950,7 +1950,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">wait-gate</span><span class="badge gate">gate</span></div>
               <p class="what">No blind waiting. Refuses a main-agent <code>sleep</code> over 5&nbsp;s, a sleep that polls a background task&rsquo;s output, and a process started with a bare <code>&amp;</code>; the denial names the wait that ends when the thing happens.</p>
               <div class="io"><b>in</b> {command, run_in_background} &nbsp;→&nbsp; <b>out</b> exit 2 + remedy | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 162 lines</span></summary><div class="srcpath">.agents/hooks/lib/wait-gate.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 188 lines</span></summary><div class="srcpath">.agents/hooks/lib/wait-gate.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command waits blind, and say what to do instead.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;, &quot;run_in_background&quot;: bool}
@@ -2029,12 +2029,38 @@ def unwrap(words):
     return words
 
 
+def strip_comments(text):
+    &quot;&quot;&quot;Drop each unquoted `#...` comment; `a#b` and a quoted `#` are not one.&quot;&quot;&quot;
+    out, quote, i = [], &quot;&quot;, 0
+    while i &lt; len(text):
+        char = text[i]
+        if quote:
+            if char == &quot;\\&quot; and quote == &#x27;&quot;&#x27; and i + 1 &lt; len(text):
+                out.append(char)
+                i += 1
+                char = text[i]
+            elif char == quote:
+                quote = &quot;&quot;
+        elif char == &quot;\\&quot; and i + 1 &lt; len(text):
+            out.append(char)
+            i += 1
+            char = text[i]
+        elif char in &quot;&#x27;\&quot;&quot;:
+            quote = char
+        elif char == &quot;#&quot; and (not out or out[-1].isspace() or out[-1] in &quot;;&amp;|(&quot;):
+            while i &lt; len(text) and text[i] != &quot;\n&quot;:
+                i += 1
+            continue
+        out.append(char)
+        i += 1
+    return &quot;&quot;.join(out)
+
+
 def scan(text, nested=False):
     &quot;&quot;&quot;(top-level sleep seconds, longest sleep in a loop or payload, backgrounded, waits).&quot;&quot;&quot;
     top, inner, background, waits, depth = 0.0, 0.0, [], False, 0
-    # A full-line comment is prose; an `&amp;` in it is not an operator.
-    code = &quot;\n&quot;.join(line for line in parser.strip_heredocs(text).split(&quot;\n&quot;)
-                     if not line.lstrip().startswith(&quot;#&quot;))
+    # Comment text is prose; an `&amp;` in it is not an operator.
+    code = strip_comments(parser.strip_heredocs(text))
     for segment, operator in parser.split_operators(code):
         try:
             words = shlex.split(segment, comments=True)
