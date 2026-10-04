@@ -72709,6 +72709,14 @@ async function findSnapshot(http, url, timestamp) {
     original
   };
 }
+var DAY_MS = 864e5;
+function captureAge(timestamp, now) {
+  const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(timestamp);
+  if (!match) throw new Error(`Wayback timestamp is not YYYYMMDDhhmmss: ${timestamp}`);
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const captured = Date.UTC(year, month - 1, day, hour, minute, second);
+  return { capturedAt: new Date(captured).toISOString(), ageDays: Math.floor((now - captured) / DAY_MS) };
+}
 
 // src/mcp/tools/fetch-readable.tool.ts
 var fetchReadableInputSchema = external_exports.object({
@@ -72890,7 +72898,7 @@ async function handleFetchReadable(input, http) {
     requestedUrl: input.url,
     source,
     contentType: response.contentType,
-    ...archiveTimestamp ? { archiveTimestamp } : {},
+    ...archiveTimestamp ? { archiveTimestamp, ...archiveAgeFields(archiveTimestamp) } : {},
     // Carried separately from the character cap below: they answer different
     // questions and a caller keys its retry on them differently.
     bodyTruncated: response.truncated,
@@ -72946,6 +72954,10 @@ async function handleFetchReadable(input, http) {
     ...cap(article.text, input.maxChars),
     notes
   };
+}
+function archiveAgeFields(timestamp) {
+  const { capturedAt, ageDays } = captureAge(timestamp, Date.now());
+  return { archiveCapturedAt: capturedAt, archiveAgeDays: ageDays };
 }
 function cap(text, maxChars) {
   if (text.length <= maxChars) return { text, chars: text.length, truncated: false };

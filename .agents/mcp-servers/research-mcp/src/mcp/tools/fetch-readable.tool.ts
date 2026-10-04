@@ -4,7 +4,7 @@ import { FetchError, type Fetcher, isBinary } from '../../core/http-client.js';
 import { detectChallenge } from '../../core/challenge.js';
 import type { ArticleLink } from '../../core/readable.js';
 import { canonicalUrl, extractArticle, extractPdfText } from '../../core/readable.js';
-import { findSnapshot } from '../../core/wayback.js';
+import { captureAge, findSnapshot } from '../../core/wayback.js';
 
 export const fetchReadableInputSchema = z.object({
   url: z.string().min(1).describe('Absolute http(s) URL to read.'),
@@ -66,6 +66,10 @@ export interface ReadableResult {
   contentType: string;
   canonicalUrl?: string | null;
   archiveTimestamp?: string;
+  /** ISO-8601 time the capture was taken. Present only when `source` is `archive`. */
+  archiveCapturedAt?: string;
+  /** Whole days between the capture and now. Present only when `source` is `archive`. */
+  archiveAgeDays?: number;
   title?: string | null;
   byline?: string | null;
   siteName?: string | null;
@@ -266,7 +270,9 @@ export async function handleFetchReadable(
     requestedUrl: input.url,
     source,
     contentType: response.contentType,
-    ...(archiveTimestamp ? { archiveTimestamp } : {}),
+    ...(archiveTimestamp
+      ? { archiveTimestamp, ...archiveAgeFields(archiveTimestamp) }
+      : {}),
     // Carried separately from the character cap below: they answer different
     // questions and a caller keys its retry on them differently.
     bodyTruncated: response.truncated,
@@ -318,6 +324,11 @@ export async function handleFetchReadable(
     ...cap(article.text, input.maxChars),
     notes,
   };
+}
+
+function archiveAgeFields(timestamp: string): { archiveCapturedAt: string; archiveAgeDays: number } {
+  const { capturedAt, ageDays } = captureAge(timestamp, Date.now());
+  return { archiveCapturedAt: capturedAt, archiveAgeDays: ageDays };
 }
 
 function cap(text: string, maxChars: number): { text: string; chars: number; truncated: boolean } {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FetchError, type Fetcher, type FetchResult } from '../core/http-client.js';
 import { handleFetchReadable } from '../mcp/tools/fetch-readable.tool.js';
 
@@ -188,5 +188,42 @@ describe('fetch_readable on an archived page', () => {
     );
     expect(out.url).toBe(CAPTURE);
     expect(out.requestedUrl).toBe(ORIGINAL);
+  });
+
+  describe('capture age', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('reports when the capture was taken and how many days old it is', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-15T02:04:09Z'));
+      const out = await handleFetchReadable(
+        { url: ORIGINAL, archived: true, maxChars: 120_000 },
+        new ArchiveFetcher(),
+      );
+      expect(out.archiveCapturedAt).toBe('2026-04-22T02:04:09.000Z');
+      expect(out.archiveAgeDays).toBe(146);
+    });
+
+    it('reports the age when the capture replaced a failed live read', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-04-23T02:04:09Z'));
+      const out = await handleFetchReadable(
+        { url: ORIGINAL, archived: false, maxChars: 120_000 },
+        new ChallengedFetcher(),
+      );
+      expect(out.source).toBe('archive');
+      expect(out.archiveAgeDays).toBe(1);
+    });
+
+    it('omits both fields for a live read', async () => {
+      const live: Fetcher = { fetch: async (url) => result(url, CAPTURED_HTML) };
+      const out = await handleFetchReadable(
+        { url: ORIGINAL, archived: false, maxChars: 120_000 },
+        live,
+      );
+      expect(out.source).toBe('live');
+      expect(out).not.toHaveProperty('archiveCapturedAt');
+      expect(out).not.toHaveProperty('archiveAgeDays');
+    });
   });
 });
