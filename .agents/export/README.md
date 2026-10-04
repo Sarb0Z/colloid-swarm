@@ -114,7 +114,11 @@ base; it copies the kit.
    only the scripts whose flag truly rehearses: it reads a bare `--dry-run`
    as on, takes no value word other than a boolean, and writes nothing
    hosted when on. A script that ignores the flag stays off the list.
-9. Remove the `export/` directory last; the steps above read from it.
+9. Diff each skill the satellite has edited against the carrier's kit
+   (`diff -ru /tmp/kit-new/.agents/skills/<name> <target>/.agents/skills/<name>`).
+   The satellite keeps its edits; report the ones that fill a general gap, not
+   a local adaptation, so the carrier can fold them back into its own skill.
+10. Remove the `export/` directory last; the steps above read from it.
 
 ## Adapt
 
