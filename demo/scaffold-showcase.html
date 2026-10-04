@@ -1459,7 +1459,7 @@ def shell_body(args):
 # Options of the package runners (`uv run`, `uvx`, `npx`, `bunx`, `pnpx`) that
 # take a separate value, which names a package, index or file and never the
 # command the runner starts. Read from `uv run --help` and `uvx --help`
-# (uv 0.12) and npm&#x27;s `npx --package`/`--call`.
+# (uv 0.12) and npm&#x27;s `npx --package`/`--call`/`--workspace`.
 RUNNER_VALUED = {
     &quot;--extra&quot;, &quot;--no-extra&quot;, &quot;--group&quot;, &quot;--no-group&quot;, &quot;--only-group&quot;,
     &quot;--no-editable-package&quot;, &quot;--env-file&quot;, &quot;-w&quot;, &quot;--with&quot;, &quot;--with-editable&quot;,
@@ -1474,7 +1474,7 @@ RUNNER_VALUED = {
     &quot;--cache-dir&quot;, &quot;--refresh-package&quot;, &quot;-p&quot;, &quot;--python&quot;, &quot;--color&quot;,
     &quot;--allow-insecure-host&quot;, &quot;--directory&quot;, &quot;--project&quot;, &quot;--config-file&quot;,
     &quot;--from&quot;, &quot;-c&quot;, &quot;--constraints&quot;, &quot;-b&quot;, &quot;--build-constraints&quot;, &quot;--overrides&quot;,
-    &quot;--torch-backend&quot;, &quot;--call&quot;,
+    &quot;--torch-backend&quot;, &quot;--call&quot;, &quot;--workspace&quot;,
 }
 
 
