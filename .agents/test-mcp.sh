@@ -182,6 +182,43 @@ try:
     assert token["headers"]["Authorization"] == "Bearer fixture-key"
     assert "enabled" not in token
 
+    # `mcp_env` in the ignored config.json adds env values to a named server in
+    # every host's output; an empty value adds nothing, so an unset key is inert.
+    def server_env(config):
+        (agents / "config.json").write_text(json.dumps(config))
+
+    server_env({"mcp_env": {"fx-plain": {"FX_CONTACT": "operator@fixture.test"}}})
+    run()
+    assert json.loads((work / ".mcp.json").read_text())["mcpServers"]["fx-plain"]["env"] \
+        == {"FX_CONTACT": "operator@fixture.test"}
+    assert json.loads(kimi.read_text())["mcpServers"]["fx-plain"]["env"] \
+        == {"FX_CONTACT": "operator@fixture.test"}
+    assert tomllib.loads((work / ".codex/config.toml").read_text())["mcp_servers"]["fx-plain"]["env"] \
+        == {"FX_CONTACT": "operator@fixture.test"}
+    # A value with quotes and a newline must still leave Codex's TOML parseable.
+    server_env({"mcp_env": {"fx-plain": {"FX_CONTACT": 'a"b\\c\nd'}}})
+    run()
+    assert tomllib.loads((work / ".codex/config.toml").read_text())["mcp_servers"]["fx-plain"]["env"] \
+        == {"FX_CONTACT": 'a"b\\c\nd'}
+    server_env({"mcp_env": {"fx-plain": {"FX_CONTACT": "operator@fixture.test"}}})
+    run()
+    assert "mcp_env" not in (agents / "mcp.json").read_text()
+    server_env({"mcp_env": {"fx-plain": {"FX_CONTACT": ""}}})
+    run()
+    assert "env" not in json.loads((work / ".mcp.json").read_text())["mcpServers"]["fx-plain"]
+    for config, message in (
+        ({"mcp_env": {"no-such": {"A": "b"}}}, "mcp_env names unknown server"),
+        ({"mcp_env": {"fx-plain": {"A": 1}}}, "mcp_env.fx-plain must map"),
+        ({"mcp_env": []}, "must be an object"),
+        ({"mcp_env": {"fx-plain": {"not a name": "b"}}}, "is not an environment variable name"),
+        ({"mcp_env": {"fx-sse": {"A": "b"}}}, "is not a stdio server"),
+    ):
+        server_env(config)
+        rejected = refuse()
+        assert rejected.returncode and message in rejected.stderr, (config, rejected.stderr)
+    (agents / "config.json").unlink()
+    run()
+
     # playwright-reader without an installed extension must refuse and change
     # nothing — neither the generated outputs nor the registry's own toggle.
     before = {path: path.read_bytes() for path in outputs}

@@ -7919,7 +7919,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 295 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 322 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Build native MCP configuration from the tracked registry.
 
 Usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...
@@ -8078,6 +8078,31 @@ def _resolve(server, name, repo, virtual_paths=()):
     return value
 
 
+def _overlay_env(servers, section, source):
+    &quot;&quot;&quot;Add the operator&#x27;s `mcp_env` values to the named servers&#x27; `env`.
+
+    The values live in the ignored config.json, never in the tracked registry,
+    and reach the generated host files, which are ignored too. An empty value
+    is an unset key and adds nothing.
+    &quot;&quot;&quot;
+    if not isinstance(section, dict):
+        _fail(f&quot;mcp_env in {source} must be an object&quot;)
+    for name, values in section.items():
+        if name not in servers:
+            _fail(f&quot;mcp_env names unknown server {name!r}&quot;)
+        if servers[name].get(&quot;type&quot;) != &quot;stdio&quot;:
+            _fail(f&quot;mcp_env names {name!r}, which is not a stdio server&quot;)
+        if not isinstance(values, dict) or not all(
+                isinstance(key, str) and isinstance(value, str) for key, value in values.items()):
+            _fail(f&quot;mcp_env.{name} must map variable names to strings&quot;)
+        for key in values:
+            if not playwright.ENV_NAME.fullmatch(key):
+                _fail(f&quot;mcp_env.{name}: {key!r} is not an environment variable name&quot;)
+        filled = {key: value for key, value in values.items() if value}
+        if filled:
+            servers[name][&quot;env&quot;] = {**servers[name].get(&quot;env&quot;, {}), **filled}
+
+
 def _public(server):
     return {key: value for key, value in server.items() if key not in META}
 
@@ -8158,6 +8183,8 @@ def _build(repo, doc=None, settings_path=None, rotate=False):
         name: _resolve(server, name, repo, virtual)
         for name, server in raw.items()
     }
+    source = settings_path or repo / &quot;.agents/config.json&quot;
+    _overlay_env(servers, playwright.read_config(source).get(&quot;mcp_env&quot;, {}), source)
     enabled = {name: _public(server) for name, server in servers.items() if server[&quot;enabled&quot;]}
     return doc, {
         &quot;browser&quot;: browser, &quot;token&quot;: token, &quot;rotate&quot;: rotate,
@@ -9106,7 +9133,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 110 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 115 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -9132,6 +9159,11 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
     &quot;proxy&quot;: false,
     &quot;proxy_env&quot;: &quot;PLAYWRIGHT_PROXY&quot;,
     &quot;proxy_bypass&quot;: []
+  },
+  &quot;mcp_env&quot;: {
+    &quot;research-mcp&quot;: {
+      &quot;RESEARCH_MCP_CONTACT_EMAIL&quot;: &quot;&quot;
+    }
   },
   &quot;hooks&quot;: {
     &quot;guard_destructive&quot;: {

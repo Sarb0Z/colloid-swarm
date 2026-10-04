@@ -157,6 +157,31 @@ def _resolve(server, name, repo, virtual_paths=()):
     return value
 
 
+def _overlay_env(servers, section, source):
+    """Add the operator's `mcp_env` values to the named servers' `env`.
+
+    The values live in the ignored config.json, never in the tracked registry,
+    and reach the generated host files, which are ignored too. An empty value
+    is an unset key and adds nothing.
+    """
+    if not isinstance(section, dict):
+        _fail(f"mcp_env in {source} must be an object")
+    for name, values in section.items():
+        if name not in servers:
+            _fail(f"mcp_env names unknown server {name!r}")
+        if servers[name].get("type") != "stdio":
+            _fail(f"mcp_env names {name!r}, which is not a stdio server")
+        if not isinstance(values, dict) or not all(
+                isinstance(key, str) and isinstance(value, str) for key, value in values.items()):
+            _fail(f"mcp_env.{name} must map variable names to strings")
+        for key in values:
+            if not playwright.ENV_NAME.fullmatch(key):
+                _fail(f"mcp_env.{name}: {key!r} is not an environment variable name")
+        filled = {key: value for key, value in values.items() if value}
+        if filled:
+            servers[name]["env"] = {**servers[name].get("env", {}), **filled}
+
+
 def _public(server):
     return {key: value for key, value in server.items() if key not in META}
 
@@ -237,6 +262,8 @@ def _build(repo, doc=None, settings_path=None, rotate=False):
         name: _resolve(server, name, repo, virtual)
         for name, server in raw.items()
     }
+    source = settings_path or repo / ".agents/config.json"
+    _overlay_env(servers, playwright.read_config(source).get("mcp_env", {}), source)
     enabled = {name: _public(server) for name, server in servers.items() if server["enabled"]}
     return doc, {
         "browser": browser, "token": token, "rotate": rotate,

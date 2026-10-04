@@ -113,13 +113,18 @@ def _read(path, label):
     return document if isinstance(document, dict) else {}
 
 
+def read_config(source):
+    """The operator's config document, empty when the file is absent."""
+    return _read(source, str(source))
+
+
 def load_settings(repo, path=None):
     """The validated browser settings: `path`, else `.agents/config.json`, over DEFAULTS."""
     if "browser" in _read(repo / ".agents/policy.json", ".agents/policy.json"):
         raise SettingsError("browser settings belong in the ignored .agents/config.json, "
                             "not the tracked .agents/policy.json")
     source = path or repo / ".agents/config.json"
-    section = _read(source, str(source)).get("browser", {})
+    section = read_config(source).get("browser", {})
     if not isinstance(section, dict):
         raise SettingsError(f"browser in {source} must be an object")
     return _validate(section)
