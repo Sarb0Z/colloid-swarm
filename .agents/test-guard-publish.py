@@ -220,6 +220,79 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a missing shell parser leaves a non-publish command quiet",
           result.returncode == 0 and result.stdout.strip() == "")
 
+# The publish-approval dialog's token: one fresh token for this exact call turns
+# a rule's ask into allow in any mode, once. Nothing else reads it.
+with tempfile.TemporaryDirectory() as tmp:
+    repo = pathlib.Path(tmp)
+    agents = repo / ".agents"
+    agents.mkdir()
+
+    def token(call_id, age=0):
+        path = agents / f".publish-approved-{call_id}"
+        path.write_text("")
+        stamp = path.stat().st_mtime - age
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def decide(call_id, mode="auto", command="git push"):
+        result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command},
+                                 "tool_use_id": call_id, "permission_mode": mode}), str(repo))
+        return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout.strip() else None
+
+    approved = token("toolu_A")
+    out = decide("toolu_A")
+    check("a fresh dialog token allows its call in auto mode",
+          out["permissionDecision"] == "allow" and "publish-approval dialog" in out["permissionDecisionReason"]
+          and not approved.exists(), f"got: {out}")
+    out = decide("toolu_A")
+    check("the token is spent on first use", out["permissionDecision"] == "deny", f"got: {out}")
+
+    other = token("toolu_B")
+    out = decide("toolu_C")
+    check("another call's token neither allows nor is spent",
+          out["permissionDecision"] == "deny" and other.exists(), f"got: {out}")
+
+    stale = token("toolu_D", age=121)
+    out = decide("toolu_D")
+    check("a token past the window is removed and the call denied",
+          out["permissionDecision"] == "deny" and not stale.exists(), f"got: {out}")
+
+    token("x")
+    out = decide("../.publish-approved-x")
+    check("a malformed call id never names a token", out["permissionDecision"] == "deny", f"got: {out}")
+
+    (agents / ".publish-approved-toolu_dir").mkdir()
+    os.utime(agents / ".publish-approved-toolu_dir", (0, 0))
+    result = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                             "tool_use_id": "toolu_G", "permission_mode": "auto"}), str(repo))
+    check("an unremovable token path is reported and approves nothing",
+          result.returncode == 0 and json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+          and "approves nothing" in result.stderr, f"got: {result.stdout} {result.stderr}")
+    (agents / ".publish-approved-toolu_dir").rmdir()
+
+    (agents / "policy.json").write_text('{"hooks": {"publish_approval": {"enabled": false}}}')
+    switched_off = token("toolu_H")
+    out = decide("toolu_H")
+    check("with the dialog switched off, the guard reads no token",
+          out["permissionDecision"] == "deny" and switched_off.exists(), f"got: {out}")
+    (agents / "policy.json").unlink()
+    switched_off.unlink()
+
+    kept = token("toolu_E")
+    check("a quiet call leaves the token alone",
+          decide("toolu_E", command="ls") is None and kept.exists())
+
+    # The hosted-write refusal is the agent's to fix, not the user's to approve.
+    # The host is assembled here so this file does not read as such a script.
+    host = "api." + "vercel.com"
+    script = repo / "setup.py"
+    script.write_text(f'import urllib.request\nurllib.request.urlopen(urllib.request.Request('
+                      f'"https://{host}/v9/projects/web", data=b"{{}}", method="PATCH"))\n')
+    refused = token("toolu_F")
+    out = decide("toolu_F", mode="default", command=f"python3 {script}")
+    check("the hosted-write refusal ignores a dialog token",
+          out is not None and out["permissionDecision"] == "deny" and refused.exists(), f"got: {out}")
+
 adapter = here / "claude" / "adapter.sh"
 claude_payload = {"session_id": "t", "hook_event_name": "PreToolUse", "cwd": str(here.parent),
                   "permission_mode": "default",
