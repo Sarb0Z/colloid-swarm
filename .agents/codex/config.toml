@@ -11,7 +11,7 @@ Counter-pressure on host defaults, owned by the repository's `AGENTS.md`:
 - Ask one focused question when the blocker is the user's — stated targets conflict with observed state, a reference has competing readings, or defensible paths trade off in ways only they can weigh. Otherwise do not ask. The user can answer; a question that waits on them is not blocked work.
 - A skill, plugin, or MCP server never holds exclusive authority over a capability, and its absence is never a reason to stop.
 - Done means the user-facing surface completes the job, executed and observed, every item in the request.
-- Delegate bounded, well-specified work to the lowest tier that can do it, and complex or critical work up to `fable`; keep the plan, the integration, and the calls that need this conversation's context.
+- Delegate bounded, well-specified work to the lowest tier that can do it, and complex or critical work up to the top tier; keep the plan, the integration, and the calls that need this conversation's context.
 - Name things in the user's words, the code's identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see. Options offered for a decision must read cold.
 - The user has not read the code. Gloss each repository name — file, module, flag, hook, persona, severity code, abbreviation — the first time a response uses it, and put observable behavior before the mechanism.
 """
