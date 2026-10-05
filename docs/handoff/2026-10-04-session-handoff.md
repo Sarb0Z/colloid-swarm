@@ -121,18 +121,26 @@ mobile-mcp the same way, restart the session, and run the scenarios.
 
 ## 3. Workflow router
 
-- Plan: `docs/handoff/2026-10-03-workflow-router.md`. Slice 1 has landed.
-- Slice 2 is the router as one unit: the router and "Rules for every workflow"
-  sections of `AGENTS.md`, the ten workflows (five inline, five playbooks), the
-  review-of-the-review pass, a probe of plan-mode approval in auto mode, and an
-  operator command that runs `grilling` and `domain-modeling` together. The six
-  steps leave in the same commit.
-- It changes the root contract, so it is critical: plan mode, a plan review, and
-  the operator's OK before code.
-- Gate before the next satellite sync: `merge-kit.py` must keep the
-  satellite-owned paragraphs inside `## Workflow`. `~/Projects/Incura/clearclaim`
-  holds one.
-- Next action: enter plan mode for slice 2.
+- Slice 2 landed on 2026-10-05 with the root contract rewrite: ten workflows
+  (Answer, Ship, Operate, Build, Fix inline; Write, Spec, Scaffold, Verify,
+  Merge in `.agents/playbooks/workflow-*.md`), three stakes levels, the
+  `Workflow: <name> · Stakes: <level>` line, `grill-me`, the review of the
+  review in `hostile-review.md`, and `lint-contract.py` holding the root under
+  18,800 bytes.
+- The plan-approval probe (2026-10-04, Claude Code 2.1.289) found that
+  unattended runs offer no plan-approval tool and auto mode has none, so human
+  gates stop and report.
+- Not done, by the operator's direction: the QA claim (three Claude and three
+  Codex runs each stating `Workflow: Fix`) and the hostile review of the diff.
+  Unattended Claude runs on this machine start in default mode because
+  `~/.claude/settings.json` sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`; pass
+  `--settings '{"env":{"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB":"0"}}'` to probe them.
+- Before the next satellite sync, `.agents/export/README.md` step 3 carries the
+  old-to-new heading map. clearclaim's four work-packet paragraphs and
+  customer-delivery-web's two "External actions" paragraphs are the
+  satellite-owned text inside replaced sections.
+- Next: router slice 3 (`session-wrap` reads the workflow line), then mods
+  slice 2 (the delegation gate).
 
 ## 4. Status strip
 
@@ -157,11 +165,10 @@ The operator ruled on every open decision on 2026-10-04; the results landed
 the same day (`docs/reviews/2026-10-04-burndown.md` records the review). Still
 open from this list:
 
-- **Showcase copy.** Three placeholders in `demo/scaffold-showcase.html` wait
-  for the operator's text: `[denied-tool card — what it does for the reader, one
-  or two sentences]`, `[grilling card — what it does for the reader, one
-  sentence]`, `[domain-modeling card — what it does for the reader, one
-  sentence]`.
+- **Showcase copy.** Placeholders in `demo/scaffold-showcase.html` wait for
+  the operator's text: the `denied-tool`, `grilling`, `grill-me` and
+  `domain-modeling` cards (what each does for the reader, one sentence), and
+  the contract band's routing strip title, strip text, note, and menu line.
 - **The upstream bug report** (a bare `permissions.deny` does not remove an MCP
   tool from a subagent that names the server): draft only when the operator
   asks; filing publishes under the operator's account.
@@ -186,5 +193,5 @@ open from this list:
 
 1. The operator rules on the Meridian mobile trial's use of staging (section
    2); then the agent runs it.
-2. The agent starts router slice 2 in plan mode (section 3).
+2. The agent starts router slice 3 (section 3).
 3. The operator answers the rulings in section 6 when convenient.

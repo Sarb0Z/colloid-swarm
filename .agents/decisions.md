@@ -58,7 +58,7 @@ never append a second entry for the same question.
 ### options-over-single-answer
 
 - **Decision** — Agent instructions carry no "give one solution only" rule. A firm recommendation with the live alternatives is the standard.
-- **Why** — A single-answer rule conflicts with the Verify-with-user rule and with Workflow step 2, and the operator wants to guide direction rather than receive it.
+- **Why** — A single-answer rule conflicts with the Verify-with-user rule and with the Build workflow's plan step, and the operator wants to guide direction rather than receive it.
 - **Reopens when** — The operator asks for single answers, or option-heavy responses are observed to delay decisions.
 
 ### plugin-absorption-policy

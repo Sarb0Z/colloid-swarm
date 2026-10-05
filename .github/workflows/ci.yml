@@ -123,6 +123,9 @@ jobs:
             echo '::notice title=Codex loader check skipped::codex is not on PATH; static persona and project-config checks still ran.'
           fi
 
+      - name: Root contract size
+        run: python3 .agents/lint-contract.py
+
       - name: Export kit
         run: .agents/test-export.sh
 

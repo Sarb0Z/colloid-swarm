@@ -20,8 +20,8 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 
 ## Work
 
+- **The root `AGENTS.md` rewrite is unreviewed** — the user deferred its hostile review and the `Workflow: Fix` QA runs on 2026-10-05. Review the rewrite's diff, then run the QA claim in the session handoff, section 3.
 - **`workloop.py` cannot close a run landed outside `integrate`** — when main moves past the run base, `integrate` fails on main's fixes and `teardown` refuses. Add `abandon <run>` that removes the worktrees and the run.
-- **The root `AGENTS.md` rewrite** — ruled 2026-10-04: split out situational blocks (17.6 KB), raise the register, move Claude-specific terms to the adapter, and build router slice 2 with delegation per workflow. Plan it in plan mode.
 - **`docs/handoff/2026-10-02-claude-code-mods.md` slice 2** — the user ruled for the delegation gate (M3) on 2026-10-04. Build it after the contract rewrite, so the gate enforces what the workflows ask for.
 - **`pentesting` is not forked** — it fans out recon subagents, and nested spawning under `context: fork` depends on `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, whose default the docs do not state. Run a forked pentest live; fork it if the recon agents start.
 - **`playwright-reader` still opens one persistent profile** — enabled in two sessions, the second finds it locked, as `playwright` did before `playwright-session.py`. Launch it through that script too, with a two-session check.
