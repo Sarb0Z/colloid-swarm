@@ -63,6 +63,7 @@ MANIFEST = {
     "page-load-audit":                    ".agents/skills/page-load-audit/SKILL.md",
     "market-researcher":                  ".agents/skills/market-researcher/SKILL.md",
     "grilling":                           ".agents/skills/grilling/SKILL.md",
+    "grill-me":                           ".agents/skills/grill-me/SKILL.md",
     "domain-modeling":                    ".agents/skills/domain-modeling/SKILL.md",
     "mobile-responsive-web":              ".agents/skills/mobile-responsive-web/SKILL.md",
     "react-native-expert":                ".agents/skills/react-native-expert/SKILL.md",
