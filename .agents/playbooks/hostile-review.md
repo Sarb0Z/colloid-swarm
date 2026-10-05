@@ -90,3 +90,13 @@ identify the shared subsystem and compare cumulative patch complexity
 with redesign; separate deadline containment from the long-term architecture.
 After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
+
+## Review of the review
+
+Critical stakes add one pass after the code review and before the lead's
+dispositions. A second cell, given the artifact and the findings but not the
+first reviewer's reasoning, labels each finding supported or unsupported, with
+a reason. It never removes a finding. Every `P0` or `P1` it labels unsupported
+goes to the operator's walk-through with that reason, so the operator sees every
+blocking finding. Several reviewers on separate axes, and this pass, count as
+one round.
