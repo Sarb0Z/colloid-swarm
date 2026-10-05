@@ -92,8 +92,27 @@ base; it copies the kit.
    paragraph inside a kit-owned section (an intro sentence, a note under
    Workflow) is replaced with it unless captured first; a repository that nests
    the contract under its own heading needs every kit heading shifted to match.
-   After the merge, diff the heading list against the previous commit — a
-   missing title is a lost section.
+   After the merge, diff the heading list against the previous commit and
+   check every change against the heading map below; a missing title the map
+   does not account for is a lost section.
+
+   A target last synced before the workflow router (2026-10-05) carries the old
+   headings. Map them, and re-parent each target-owned section and paragraph
+   under its new parent, keeping its depth relative to that parent:
+
+   | Old heading | New home |
+   |---|---|
+   | `## Workflow` (six steps) | `## Routing` and `## Rules for every workflow`; a target paragraph there moves under `## Routing` as its own `### <Repository> workflow` |
+   | `## Behavior` | `## Conduct`; a target `###` under it stays under `## Conduct` |
+   | `### Fixes live in the repository` (older kits) | `### Changes live in the repository` |
+   | `### Comments and documentation`, `### Tooling for agent development`, `### No backwards compatibility`, `### Latest stable by default`, `### Estimate in tokens, not time` | `### Craft`, one bullet each |
+   | `### Long-running work`, `### Tear down what you start` | `## Commits and processes`, detail in `.agents/playbooks/processes.md` |
+   | `### Commits split along seams` | `## Commits and processes`, detail in `.agents/playbooks/commits.md` |
+   | `## Subagent Delegation` | `## Delegation`; the model names move to `.agents/claude/delegation.md` |
+
+   Every other kit heading keeps its title. A target rule that restates a moved
+   paragraph (a satellite's "commit and push only when asked") stays the
+   target's: it outranks the output style there.
 4. Delete every `stack-*.md` whose `detect:` markers the target does not have,
    with its `.claude/rules/` and `.github/instructions/01-*` links. Keep every
    stack it genuinely runs.
@@ -157,7 +176,7 @@ will keep it.
   research; nothing keeps a mobile-native skill without a mobile app. A kept
   skill can name a dropped one in its frontmatter — grep the kit and the
   authored `AGENTS.md` for every dropped name; `.agents/knowledge/README.md`
-  and the Workflow section both do.
+  and the root's Routing section both do.
 - **Servers** (`.agents/mcp.json`): `context7` and `research-mcp` on
   everywhere; `playwright` on where there is a browser surface; the rest
   registered and off until a task turns one on. Keep repository-owned bundles

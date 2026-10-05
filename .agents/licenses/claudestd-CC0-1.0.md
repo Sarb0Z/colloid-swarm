@@ -7,7 +7,7 @@ dedicated to the public domain under CC0 1.0
 (https://creativecommons.org/publicdomain/zero/1.0/), so no notice is required.
 This file records the provenance.
 
-Root `AGENTS.md` adapts two sections of `CLAUDE-general.md` from the same commit, "Errors fail loudly" and "Commits split along seams". They differ from the source in these ways:
+Two sections adapt `CLAUDE-general.md` from the same commit: "Errors fail loudly" in the root `AGENTS.md`, and "Split along seams" with "Folding a review fix" in `.agents/playbooks/commits.md`. They differ from the source in these ways:
 
 - They limit the error rule to code that the agent writes or changes, and let a hook that must not block exit 0.
 - They say "validate at each system boundary, on the side that enforces it" where the source says "only validate at system boundaries".
