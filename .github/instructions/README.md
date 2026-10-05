@@ -27,7 +27,7 @@ tree rather than repeated here.
 | Tool | Mechanism |
 | --- | --- |
 | GitHub Copilot | `.github/instructions/*.instructions.md` symlinks → canonical; scoped by `applyTo` |
-| Claude Code | layer `CLAUDE.md` symlinks → sibling `AGENTS.md` (lazy nested loading); `.claude/rules/*.md` symlinks → skill canonicals; scoped by `paths` |
+| Claude Code | layer `CLAUDE.md` symlinks → sibling `AGENTS.md` (lazy nested loading); `.claude/rules/*.md` symlinks → skill canonicals, scoped by `paths`, plus the unscoped `delegation.md` → `.agents/claude/delegation.md` |
 | Codex / Kimi | read `AGENTS.md` natively; root `AGENTS.md` directs them to subtree files |
 
 ## Dual Frontmatter (Load-Bearing)
