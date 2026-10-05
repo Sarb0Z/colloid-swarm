@@ -530,6 +530,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         "Run only the narrowest acceptance for your slice. Do not run the end-to-end or browser suite here: integrate runs --verify once over the merged tree.",
         f"Progress: {command} heartbeat {args.run} {args.lane} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
         "Do not edit outside owned paths. Preserve unrelated work. Record executable evidence before handoff.",
+        "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",
         supervised,
         f"State: {command} status {args.run}",
         f"Claim: {command} claim {args.run} {args.lane} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls.",

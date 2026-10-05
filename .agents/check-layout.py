@@ -24,6 +24,8 @@ def expected_links() -> dict[Path, str]:
         Path(".github/instructions/agents.instructions.md"): "../../.agents/AGENTS.md",
         Path(".github/instructions/claude.instructions.md"): "../../.claude/AGENTS.md",
         Path(".github/lsp.json"): "../.agents/lsp.json",
+        # Claude-only: binds the contract's capability tiers to models.
+        Path(".claude/rules/delegation.md"): "../../.agents/claude/delegation.md",
     }
     for persona in sorted((ROOT / ".agents/personas").glob("*.md")):
         links[Path(".claude/agents") / persona.name] = (

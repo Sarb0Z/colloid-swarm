@@ -8317,7 +8317,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 116 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 118 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
 
 from pathlib import Path
@@ -8343,6 +8343,8 @@ def expected_links() -&gt; dict[Path, str]:
         Path(&quot;.github/instructions/agents.instructions.md&quot;): &quot;../../.agents/AGENTS.md&quot;,
         Path(&quot;.github/instructions/claude.instructions.md&quot;): &quot;../../.claude/AGENTS.md&quot;,
         Path(&quot;.github/lsp.json&quot;): &quot;../.agents/lsp.json&quot;,
+        # Claude-only: binds the contract&#x27;s capability tiers to models.
+        Path(&quot;.claude/rules/delegation.md&quot;): &quot;../../.agents/claude/delegation.md&quot;,
     }
     for persona in sorted((ROOT / &quot;.agents/personas&quot;).glob(&quot;*.md&quot;)):
         links[Path(&quot;.claude/agents&quot;) / persona.name] = (
@@ -8998,7 +9000,7 @@ number of decisions covered. Do not delegate.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a cell reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b> — with a severity floor so a speculative note cannot block the round. Fired at workflow steps 3 and 6.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 92 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 102 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
@@ -9090,6 +9092,16 @@ identify the shared subsystem and compare cumulative patch complexity
 with redesign; separate deadline containment from the long-term architecture.
 After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
+
+## Review of the review
+
+Critical stakes add one pass after the code review and before the lead&#x27;s
+dispositions. A second cell, given the artifact and the findings but not the
+first reviewer&#x27;s reasoning, labels each finding supported or unsupported, with
+a reason. It never removes a finding. Every `P0` or `P1` it labels unsupported
+goes to the operator&#x27;s walk-through with that reason, so the operator sees every
+blocking finding. Several reviewers on separate axes, and this pass, count as
+one round.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
