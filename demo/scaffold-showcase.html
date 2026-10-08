@@ -7781,28 +7781,27 @@ number is the least verified thing in most reports.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Planning</div><h3>grilling</h3><p>[grilling card — what it does for the reader, one sentence]</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 28 lines</span></summary><div class="srcpath">.agents/skills/grilling/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 27 lines</span></summary><div class="srcpath">.agents/skills/grilling/SKILL.md</div><pre><code>---
 name: grilling
 description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any &#x27;grill&#x27; trigger phrases.
 ---
 
 Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
 
-Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven&#x27;t heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user&#x27;s answers before the next round.
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven&#x27;t heard yet. Ask the whole frontier in one round, each question with your recommended answer. Then wait for the user&#x27;s answers before the next round.
 
-Format a round like so:
+Ask a round through the host&#x27;s question tool where it has one (in Claude Code, `AskUserQuestion`); otherwise ask in plain prose. Give every question:
 
-```
-❓ **Q1** - **&lt;question title&gt;**: &lt;question body, might be multiple paragraphs, including multiple choices&gt;
+- the decision and why it matters now, in plain sentences that read cold, with the facts that bear on it;
+- two to four options in all, within the tool&#x27;s limits, each saying what it concretely changes;
+- your recommended answer as the first option, marked as recommended, with its reason;
+- unless the options exhaust the space, a last option to explore others.
 
-➡️ &lt;your recommended answer&gt;
+Put facts that several questions share in a short message before the round; each question&#x27;s own context goes in its question text and option descriptions. When the tool caps how many questions one call carries, a round spans consecutive calls.
 
----
+Choosing to explore keeps the question open: widen the option set from the code, prior art, and how others solve the problem, dispatching a sub-agent for the facts, and bring the wider set back in the next round. A free-text answer always stands in place of any option.
 
-❓ **Q2** - **&lt;question title&gt;**: &lt;question body, might be multiple paragraphs, including multiple choices&gt;
-
-➡️ &lt;your recommended answer&gt;
-```
+Without a question tool, number the questions and end each with your recommendation. In either form, use no emoji or decorative markers.
 
 Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
 
@@ -7822,7 +7821,7 @@ description: Runs the grilling interview and the domain-modeling discipline toge
 Run two skills as one session:
 
 1. Read `.agents/skills/grilling/SKILL.md` and `.agents/skills/domain-modeling/SKILL.md` in full before the first question.
-2. Interview by `grilling`&#x27;s rounds: the whole frontier of the design tree per round, numbered, each question with a recommended answer.
+2. Interview by `grilling`&#x27;s rounds: the whole frontier of the design tree per round, through the host&#x27;s question tool, each question with a recommended answer.
 3. Between rounds, apply `domain-modeling`: challenge every term the answers introduce, test it against an edge-case scenario, and write the settled term to `GLOSSARY.md` and any settled decision to `.agents/decisions.md` the moment it crystallises, not at the end.
 4. End when the frontier is empty. Report the decisions recorded, the glossary terms added or changed, and the branches the operator deferred.
 </code></pre></details>
@@ -9388,7 +9387,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each. The SessionStart hook re-surfaces unaddressed items at the top of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 37 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 40 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -9425,6 +9424,9 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`docs/handoff/2026-10-04-session-handoff.md`** — the mobile trial now targets Meridian&#x27;s app (`meridian-profit-mobile-app`), held by the user. It talks to hosted staging and Clerk&#x27;s test instance: get the user&#x27;s ruling on how far it may go before running it.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator&#x27;s write-up on the purpose of testing; adopt rules from it only after that lands.
 - **`ravi-travels` carries a stray `&quot;SubagentStart&quot;: [{}]`** — an empty hook entry left by an older export; the current `export-scaffold.py` cannot emit it. Delete it at the next ravi-travels sync.
+- **Sessions launched from a product folder load no guards** — the folder has no settings, so nothing fires and nothing reports it. If it recurs after `hook-script-lookup`, add a blocking product-folder settings file or a user-level warning hook.
+- **`Kalpa/becoming-api` and `writing-coach-wt-bulk-export` resolve hooks only through `CLAUDE_PROJECT_DIR`** — outside the scaffold, so `hook-script-lookup` misses them. Apply its lookup form by hand, or sync them.
+- **`session-wrap.sh` blames a session for files dirty before it began** — its uncommitted ladder reads all of `git status`. Record each dirty file&#x27;s hash at session start, and count only files changed since.
 </code></pre></details>
             </article>
         <article class="card">
