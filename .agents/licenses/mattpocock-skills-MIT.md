@@ -21,8 +21,18 @@ These upstream files are not carried:
   `grilling`, or `grilling` and `domain-modeling`, so `/grilling` starts the
   same interview.
 
-`grilling/SKILL.md` and `domain-modeling/GLOSSARY-FORMAT.md` are byte-identical
-to the source. `domain-modeling/SKILL.md` differs from the source in these ways:
+`domain-modeling/GLOSSARY-FORMAT.md` is byte-identical to the source.
+`grilling/SKILL.md` differs from the source in these ways:
+
+- It asks each round through the host's question tool, with plain prose as the
+  fallback, in place of the source's emoji-marked `Q1`/`Q2` template. Each
+  question still carries its context and a recommended answer, now as the
+  first option, and a round larger than the tool's per-call cap spans several
+  calls.
+- A question whose options are not exhaustive ends with an option to explore
+  others, which keeps it open for a wider option set in the next round.
+
+`domain-modeling/SKILL.md` differs from the source in these ways:
 
 - It records a decision as an entry in `.agents/decisions.md`, and not as an
   ADR under `docs/adr/`. It states the entry shape inline, because a
