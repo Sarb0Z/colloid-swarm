@@ -35,3 +35,4 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
 - **`docs/handoff/2026-10-04-session-handoff.md`** — the mobile trial now targets Meridian's app (`meridian-profit-mobile-app`), held by the user. It talks to hosted staging and Clerk's test instance: get the user's ruling on how far it may go before running it.
 - **`docs/handoff/2026-10-03-testing-writeup-inputs.md`** — the testing rules wait on the operator's write-up on the purpose of testing; adopt rules from it only after that lands.
 - **`ravi-travels` carries a stray `"SubagentStart": [{}]`** — an empty hook entry left by an older export; the current `export-scaffold.py` cannot emit it. Delete it at the next ravi-travels sync.
+- **`session-wrap.sh` blames a session for files dirty before it began** — its uncommitted ladder reads all of `git status`. Record each dirty file's hash at session start, and count only files changed since.
