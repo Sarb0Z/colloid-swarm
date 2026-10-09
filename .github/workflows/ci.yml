@@ -44,7 +44,7 @@ jobs:
         run: .agents/test-statusline.sh
 
       - name: SEO quick-audit file checks
-        run: .agents/test-seo-quick-audit.sh
+        run: .agents/skills/seo-geo-growth-audit/scripts/test-quick-audit.sh
 
       - name: Breadcrumb shape
         run: python3 .agents/lint-breadcrumbs.py
