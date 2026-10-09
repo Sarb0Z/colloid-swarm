@@ -82,6 +82,10 @@ source — a build step may inline or rewrite either.
 
 **Detection question:** does any render-blocking chain leave the origin?
 `grep -oE 'https?://[^"'\''() ]+' <served-stylesheet>` answers it in one line.
+Then sweep the served scripts for code fetched from another origin at run
+time — a dynamic `import()` of a CDN URL, a module worker loaded from one.
+Those do not block first paint, but the feature behind them hangs the same
+way, and a module script served with the wrong MIME type is refused outright.
 
 **The decisive experiment.** Refusal and hang are different faults with
 different symptoms, and only the experiment tells them apart:
@@ -219,6 +223,14 @@ Ship the guard with tests that pin both halves — audible when absent, never
 fatal — and prove they detect the defect by restoring the silent return and
 watching the first one fail. A failed source-map upload must not fail the
 build either; if a comment claims it does, the comment goes.
+
+Two gaps the bundle-based monitor cannot close. A page that loads outside the
+bundle (a hand-written HTML page, a static funnel page) needs its own
+dependency-free reporter: a plain script tag that posts errors to a
+rate-limited endpoint, caps reports per page load, deduplicates, and can never
+throw itself. And a health check that runs on the machine it watches cannot
+see that machine go down: at least one probe runs from outside, and a refused
+or erroring probe reads as unknown, never as healthy.
 
 ## §7 Verification discipline
 
