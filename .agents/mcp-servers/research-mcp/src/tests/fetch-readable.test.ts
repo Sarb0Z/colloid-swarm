@@ -129,6 +129,23 @@ describe('fetch_readable when the capture is itself the wall', () => {
     expect(out.text ?? '').not.toContain('Checking your browser');
   });
 
+  it('still reports when the blocked capture was taken and how old it is', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-04-23T02:04:09Z'));
+    try {
+      const out = await handleFetchReadable(
+        { url: ORIGINAL, archived: true, maxChars: 120_000 },
+        new WalledFetcher(),
+      );
+      expect(out.failure).toBe('blocked');
+      expect(out.archiveTimestamp).toBe(TIMESTAMP);
+      expect(out.archiveCapturedAt).toBe('2026-04-22T02:04:09.000Z');
+      expect(out.archiveAgeDays).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('catches it on an explicitly requested capture too', async () => {
     const out = await handleFetchReadable(
       { url: ORIGINAL, archived: true, maxChars: 120_000 },
@@ -225,5 +242,26 @@ describe('fetch_readable on an archived page', () => {
       expect(out).not.toHaveProperty('archiveCapturedAt');
       expect(out).not.toHaveProperty('archiveAgeDays');
     });
+  });
+});
+
+describe('fetch_readable when the index returns a malformed timestamp', () => {
+  it('rejects it with a specific error before fetching the capture', async () => {
+    const requested: string[] = [];
+    const http: Fetcher = {
+      fetch: async (url) => {
+        requested.push(url);
+        return result(
+          url,
+          JSON.stringify([['timestamp', 'original', 'statuscode'], ['20260422', ORIGINAL, '200']]),
+          'application/json',
+        );
+      },
+    };
+    await expect(
+      handleFetchReadable({ url: ORIGINAL, archived: true, maxChars: 120_000 }, http),
+    ).rejects.toThrow(/not YYYYMMDDhhmmss: 20260422/);
+    expect(requested).toHaveLength(1);
+    expect(requested[0]).toContain('/cdx/');
   });
 });

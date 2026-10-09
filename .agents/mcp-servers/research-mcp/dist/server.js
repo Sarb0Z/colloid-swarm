@@ -72684,6 +72684,7 @@ async function extractPdfText(bytes) {
 }
 
 // src/core/wayback.ts
+var CAPTURE_STAMP = /^\d{14}$/;
 async function findSnapshot(http, url, timestamp) {
   const query2 = new URLSearchParams({
     url,
@@ -72703,6 +72704,9 @@ async function findSnapshot(http, url, timestamp) {
   const stamp = typeof row[0] === "string" ? row[0] : null;
   const original = typeof row[1] === "string" ? row[1] : null;
   if (!stamp || !original) return null;
+  if (!CAPTURE_STAMP.test(stamp)) {
+    throw new Error(`Wayback index returned a timestamp that is not YYYYMMDDhhmmss: ${stamp}`);
+  }
   return {
     url: `https://web.archive.org/web/${stamp}id_/${original}`,
     timestamp: stamp,
@@ -72887,7 +72891,7 @@ async function handleFetchReadable(input, http) {
         contentType: response.contentType,
         notes,
         failure: "blocked",
-        ...archiveTimestamp ? { archiveTimestamp } : {},
+        ...archiveTimestamp ? { archiveTimestamp, ...archiveAgeFields(archiveTimestamp) } : {},
         error: `The archived capture is itself an anti-bot challenge (matched /${archivedChallenge}/)`
       };
     }

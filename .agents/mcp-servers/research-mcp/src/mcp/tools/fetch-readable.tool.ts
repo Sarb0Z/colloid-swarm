@@ -258,7 +258,9 @@ export async function handleFetchReadable(
       return {
         ok: false, url: response.url, requestedUrl: input.url, source: 'archive',
         contentType: response.contentType, notes, failure: 'blocked',
-        ...(archiveTimestamp ? { archiveTimestamp } : {}),
+        ...(archiveTimestamp
+          ? { archiveTimestamp, ...archiveAgeFields(archiveTimestamp) }
+          : {}),
         error: `The archived capture is itself an anti-bot challenge (matched /${archivedChallenge}/)`,
       };
     }
