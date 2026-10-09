@@ -8,7 +8,9 @@ profile directory lock each other out. When FILE names a `userDataDir`, this
 launcher copies the cookie store and Chrome's `Local State` from that
 directory into a private temporary directory, runs COMMAND against a config
 that points at the copy, and deletes the copy when COMMAND ends. A config
-without `userDataDir` runs unchanged: the generator marks it `isolated`.
+with neither `userDataDir` nor `isolated` (the reader, whose extensions need a
+persistent profile) gets an empty private profile. A config marked `isolated`
+runs unchanged.
 """
 
 import json
@@ -33,18 +35,19 @@ def private_config(command, scratch):
         raise SystemExit("playwright-session: the command needs --config FILE")
     at = command.index("--config") + 1
     config = json.loads(Path(command[at]).read_text())
-    source = config.get("browser", {}).get("userDataDir")
-    if source is None:
+    browser = config.setdefault("browser", {})
+    source = browser.get("userDataDir")
+    if source is None and browser.get("isolated"):
         return command
     copy = scratch / "profile"
     (copy / "Default").mkdir(parents=True)
     copy.chmod(0o700)
     (copy / "Default").chmod(0o700)
     for relative in COPIED:
-        original = Path(source) / relative
-        if original.is_file():
+        original = Path(source or "") / relative
+        if source is not None and original.is_file():
             shutil.copy2(original, copy / relative)
-    config["browser"]["userDataDir"] = str(copy)
+    browser["userDataDir"] = str(copy)
     private = scratch / "playwright.json"
     private.write_text(json.dumps(config))
     return command[:at] + [str(private)] + command[at + 1:]

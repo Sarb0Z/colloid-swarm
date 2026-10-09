@@ -33,8 +33,10 @@
       "sources": ["browser_navigate"],
       "enabled": false,
       "type": "stdio",
-      "command": "npx",
+      "command": "python3",
       "args": [
+        "${REPO_ROOT}/.agents/playwright-session.py",
+        "npx",
         "-y",
         "@playwright/mcp@0.0.83",
         "--config",
