@@ -209,6 +209,34 @@ try:
     check("a command without --config is refused by name",
           refused_run.returncode != 0 and "needs --config" in refused_run.stderr, refused_run.stderr)
 
+    # The reader has extensions, so it needs a persistent profile and cannot be
+    # `isolated`; its config names no profile, and the launcher must give each
+    # session an empty private one that keeps the launch args.
+    reader_config = work / "reader.json"
+    reader_config.write_text(json.dumps({"browser": {"browserName": "chromium", "launchOptions": {
+        "channel": "chromium", "args": ["--load-extension=/x/ublock-lite"]}}, "webmcp": False}))
+    reader_probe = ("import json,os,sys;"
+                    "c=json.load(open(sys.argv[sys.argv.index('--config')+1]))['browser'];"
+                    "d=c['userDataDir'];open(os.path.join(d,'SingletonLock'),'x').close();"
+                    "print(d);print(c['launchOptions']['args']);print(sorted(os.listdir(d)))")
+    reader_command = [sys.executable, str(launcher), sys.executable, "-c", reader_probe, "--config", str(reader_config)]
+    held_reader = [subprocess.Popen(reader_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                   for _ in range(2)]
+    reader_runs = [(p.communicate(), p.returncode) for p in held_reader]
+    check("two reader launches both take their profile lock", all(code == 0 for _, code in reader_runs),
+          [out[1] for out, _ in reader_runs])
+    reader_lines = [out[0].splitlines() for out, _ in reader_runs]
+    check("each reader launch gets its own empty profile that keeps the extension args",
+          reader_lines[0][0] != reader_lines[1][0]
+          and all(l[1] == "['--load-extension=/x/ublock-lite']" and l[2] == "['Default', 'SingletonLock']"
+                  for l in reader_lines), reader_lines)
+    check("a reader profile is gone when its launch ends",
+          not any(Path(l[0]).exists() for l in reader_lines), reader_lines)
+    registry = json.loads((here / "mcp.json").read_text())["mcpServers"]
+    check("the registry launches playwright-reader through the session launcher",
+          registry["playwright-reader"]["args"][0].endswith("/.agents/playwright-session.py"),
+          registry["playwright-reader"])
+
     unsynced = agents / ".browser/profile.hold"
     profile.rename(unsynced)
     subprocess.run([sys.executable, str(agents / "mcp.py")], check=True)
