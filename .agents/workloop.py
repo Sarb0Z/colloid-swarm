@@ -758,6 +758,38 @@ def cmd_integrate(args: argparse.Namespace) -> None:
     print(f"PASS: integrated {', '.join(order)} in {workspace}; verify passed")
 
 
+def release_run(repo: Path, run_name: str, lanes: dict[str, tuple[str, str | None]], integration: dict,
+                head: str, discard: bool) -> tuple[list[str], list[str], list[str], int]:
+    """Reap the run's containers, remove its worktrees, delete its merged branches.
+
+    Every step records its outcome rather than raising, so a directory an
+    operator already deleted by hand, or a branch git refuses to drop, leaves
+    a report instead of a run that no command can move forward. A branch whose
+    commits `head` does not contain is kept unless `discard` is set.
+    Returns (removed worktrees, kept branches, errors, docker resources removed).
+    """
+    removed, kept, errors = [], [], []
+    docker_result = wd.reap(run_name, sorted(lanes))
+    errors.extend(docker_result["failed"])
+    wg.git(repo, "worktree", "prune", check=False)
+    targets = [(f"lane {name}", workspace, branch, f"not merged into {head[:12]}") for name, (workspace, branch) in sorted(lanes.items())]
+    targets.append(("integration", integration.get("workspace"), f"{run_name}/integration",
+                    "carries the verified composition; land it, then rerun teardown"))
+    for label, workspace, branch, keep_reason in targets:
+        if workspace and wg.remove_worktree(repo, Path(workspace)):
+            removed.append(workspace)
+        tip = wg.branch_tip(repo, branch) if branch else None
+        if not tip:
+            continue
+        if discard or wg.is_ancestor(repo, tip, head):
+            reason = wg.delete_branch(repo, branch)
+            if reason:
+                errors.append(f"{label}: could not delete {branch}: {reason}")
+        else:
+            kept.append(f"{branch} ({keep_reason})")
+    return removed, kept, errors, wd.removed_count(docker_result)
+
+
 def cmd_teardown(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
@@ -768,30 +800,7 @@ def cmd_teardown(args: argparse.Namespace) -> None:
         head = wg.head_of(repo)
         lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in run["lanes"].items()}
         integration = run.get("integration") or {}
-    # Every step records its outcome and the teardown is written whatever
-    # happened, so a directory an operator already deleted by hand, or a
-    # branch git refuses to drop, leaves a report rather than a run that no
-    # command can move forward.
-    removed, kept, errors = [], [], []
-    docker_result = wd.reap(args.run, sorted(lanes))
-    docker_removed = wd.removed_count(docker_result)
-    errors.extend(docker_result["failed"])
-    wg.git(repo, "worktree", "prune", check=False)
-    targets = [(f"lane {name}", workspace, branch, f"not merged into {head[:12]}") for name, (workspace, branch) in sorted(lanes.items())]
-    targets.append(("integration", integration.get("workspace"), f"{args.run}/integration",
-                    "carries the verified composition; land it, then rerun teardown"))
-    for label, workspace, branch, keep_reason in targets:
-        if workspace and wg.remove_worktree(repo, Path(workspace)):
-            removed.append(workspace)
-        tip = wg.branch_tip(repo, branch) if branch else None
-        if not tip:
-            continue
-        if wg.is_ancestor(repo, tip, head):
-            reason = wg.delete_branch(repo, branch)
-            if reason:
-                errors.append(f"{label}: could not delete {branch}: {reason}")
-        else:
-            kept.append(f"{branch} ({keep_reason})")
+    removed, kept, errors, docker_removed = release_run(repo, args.run, lanes, integration, head, discard=False)
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         run["torn_down"] = {"at": now(), "removed": removed, "kept": kept, "errors": errors}
@@ -803,6 +812,27 @@ def cmd_teardown(args: argparse.Namespace) -> None:
         for line in errors:
             print(line, file=sys.stderr)
         fail("teardown finished with errors; rerun after resolving them")
+
+
+def cmd_abandon(args: argparse.Namespace) -> None:
+    """Close a run whose work landed outside integrate, e.g. after main moved on."""
+    with ReadStore(state_path(args.state)) as data:
+        run = run_of(data, args.run)
+        repo = Path(run["repo"])
+        head = wg.head_of(repo)
+        lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in run["lanes"].items()}
+        integration = run.get("integration") or {}
+    removed, kept, errors, docker_removed = release_run(repo, args.run, lanes, integration, head, args.discard_branches)
+    # A failure leaves the run in state: rerunning abandon retries what is left.
+    if errors:
+        for line in errors:
+            print(line, file=sys.stderr)
+        fail(f"abandon finished with errors; run {args.run!r} is still in state, rerun after resolving them")
+    with Store(state_path(args.state)) as data:
+        del data["runs"][args.run]
+    print(f"abandoned {args.run!r}: removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)")
+    for line in kept:
+        print(f"kept branch {line}; delete it yourself or rerun with --discard-branches")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -823,6 +853,7 @@ def parser() -> argparse.ArgumentParser:
     provision = sub.add_parser("provision"); provision.add_argument("run"); provision.add_argument("lane"); provision.set_defaults(func=cmd_provision)
     integrate = sub.add_parser("integrate"); integrate.add_argument("run"); integrate.add_argument("--workspace", required=True); integrate.set_defaults(func=cmd_integrate)
     teardown = sub.add_parser("teardown"); teardown.add_argument("run"); teardown.set_defaults(func=cmd_teardown)
+    abandon = sub.add_parser("abandon"); abandon.add_argument("run"); abandon.add_argument("--discard-branches", action="store_true", help="also delete lane branches whose commits HEAD does not contain"); abandon.set_defaults(func=cmd_abandon)
     brief = sub.add_parser("brief"); brief.add_argument("run"); brief.add_argument("lane"); brief.add_argument("--role", choices=("worker", "reviewer", "qa"), default="worker"); brief.set_defaults(func=cmd_brief)
     status = sub.add_parser("status"); status.add_argument("run"); status.set_defaults(func=cmd_status)
     send = sub.add_parser("send"); send.add_argument("run"); send.add_argument("--from-lane", required=True); send.add_argument("--to-lane", required=True); send.add_argument("--agent", required=True); send.add_argument("--kind", choices=("finding", "blocked", "evidence-ready", "status"), required=True); send.add_argument("--message", required=True); send.add_argument("--reference", default=""); send.add_argument("--requires-ack", action="store_true"); send.set_defaults(func=cmd_send)

@@ -280,6 +280,31 @@ expect PASS "${tool[@]}" check dirtyint
 ok "teardown prunes a hand-deleted lane and check still passes"
 
 
+# ── abandon closes a run whose work landed outside integrate ─────────────────
+"${tool[@]}" init aband --objective x --acceptance y --repo "$work"
+"${tool[@]}" add-lane aband one --worker implementer --workspace "$scratch/lane-ab" --path src
+"${tool[@]}" claim aband one --agent ab1
+printf 'landed elsewhere\n' >> "$scratch/lane-ab/src/app.txt"; commit "$scratch/lane-ab" ab
+mkdir -p "$work/moved"; printf 'main moved\n' > "$work/moved/x.txt"; commit "$work" 'main moves past the run base'
+if "${tool[@]}" teardown aband 2>/dev/null; then fail 'teardown closed an unfinished run'; fi
+: > "$DOCKER_LOG"
+out="$("${tool[@]}" abandon aband 2>&1)"; grep -q 'abandoned' <<<"$out" || fail "abandon failed: $out"
+grep -q 'kept branch aband/one' <<<"$out" || fail "abandon did not report the branch it kept: $out"
+[[ ! -d "$scratch/lane-ab" ]] || fail 'abandon left the lane worktree'
+git -C "$work" rev-parse --verify -q aband/one >/dev/null || fail 'abandon deleted a branch HEAD does not contain'
+if "${tool[@]}" status aband 2>/dev/null; then fail 'abandon left the run in state'; fi
+grep -q 'label=colloid.run=aband' "$DOCKER_LOG" || fail "abandon did not reap the run's labelled containers"
+git -C "$work" branch -q -D aband/one
+ok "abandon removes worktrees and the run, reaps containers, and keeps a branch HEAD does not contain"
+"${tool[@]}" init aband3 --objective x --acceptance y --repo "$work"
+"${tool[@]}" add-lane aband3 one --worker implementer --workspace "$scratch/lane-ab3" --path src
+"${tool[@]}" claim aband3 one --agent ab3
+printf 'more\n' >> "$scratch/lane-ab3/src/app.txt"; commit "$scratch/lane-ab3" ab3
+expect 'abandoned' "${tool[@]}" abandon aband3 --discard-branches
+! git -C "$work" rev-parse --verify -q aband3/one >/dev/null || fail '--discard-branches kept the branch'
+ok "abandon --discard-branches deletes an unmerged lane branch"
+
+
 # ── a sparse lane carries only its owned directories ─────────────────────────
 "${tool[@]}" init sparse --objective x --acceptance y --repo "$work" --verify 'true'
 sp="$scratch/lane-sparse"
