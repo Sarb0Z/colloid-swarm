@@ -8,6 +8,8 @@ export interface Snapshot {
   original: string;
 }
 
+const CAPTURE_STAMP = /^\d{14}$/;
+
 /**
  * Resolves the newest successful capture through the CDX index.
  *
@@ -39,6 +41,11 @@ export async function findSnapshot(
   const stamp = typeof row[0] === 'string' ? row[0] : null;
   const original = typeof row[1] === 'string' ? row[1] : null;
   if (!stamp || !original) return null;
+  // Checked before the capture is fetched: a malformed stamp would otherwise
+  // fail only when the age is computed, after the fetch has been spent.
+  if (!CAPTURE_STAMP.test(stamp)) {
+    throw new Error(`Wayback index returned a timestamp that is not YYYYMMDDhhmmss: ${stamp}`);
+  }
   // `id_` returns the captured bytes verbatim: no rewritten links, no injected
   // toolbar, so extraction sees the page as it was served.
   return {
