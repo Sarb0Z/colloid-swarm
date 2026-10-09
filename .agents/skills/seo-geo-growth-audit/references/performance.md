@@ -40,7 +40,7 @@ Performance is a ranking signal and a conversion multiplier. Audit the build con
 
 | ID | Check | Verify by |
 |----|-------|-----------|
-| PF-10 | Font strategy: self-hosted or framework fonts with `display: swap` (or `optional` for non-critical faces), preload only the critical family; no stylesheet `@import` of a font host, which blocks rendering on that host | Font config module; grep CSS for `@import url(` (real failure mode: a self-hosting font package installed while the stylesheet still imports the font host) |
+| PF-10 | Font strategy: self-hosted or framework fonts with `display: swap` (or `optional` for non-critical faces), preload only the critical family; no stylesheet `@import` of a font host, which blocks rendering on that host, and no synchronous font-loader script in the head (a `webfont.js`-style loader without `async` or `defer` blocks parsing on a third-party host) | Font config module; grep CSS for `@import url(`; list head scripts without `async`/`defer` (real failure mode: a self-hosting font package installed while the stylesheet still imports the font host) |
 | PF-11 | Below-the-fold code split via dynamic imports on the heaviest pages — check the homepage first; it is often the one page nobody split | Grep `dynamic(`/lazy imports per page |
 | PF-12 | Streaming SSR: Suspense boundaries with skeleton fallbacks around slow data sections | Grep `Suspense` on data-heavy templates |
 | PF-13 | `content-visibility: auto` utility applied to long below-fold sections | CSS + usage grep |

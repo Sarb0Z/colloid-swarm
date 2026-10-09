@@ -8,7 +8,7 @@ Measurement infrastructure: tag loading that protects performance, an event laye
 - Event instrumentation checks (AA-07 to AA-09)
 - Attribution checks (AA-10 to AA-17)
 - Persistence and data-model checks (AA-18 to AA-21)
-- Conversion integrity checks (AA-22 to AA-26)
+- Conversion integrity checks (AA-22 to AA-29)
 - Adaptable pattern: deferred tag-manager loader
 - Adaptable pattern: sessionStorage attribution module
 - Anti-patterns
@@ -63,6 +63,9 @@ Measurement infrastructure: tag loading that protects performance, an event laye
 | AA-24 | A server-side conversion (measurement-protocol purchase, webhook-driven signup) carries the browser's analytics client or session ID, captured on the page and passed through checkout metadata, so it joins the visitor's session | Read the server event payload; an ID minted by the payment provider puts the funnel before the purchase under a different identity |
 | AA-25 | Links in product-sent emails that bring people back or invite others (share a report, invite a colleague, activation emails) carry a source or campaign parameter | Grep the mailer templates' link builders; without it, invite-driven signups report as direct |
 | AA-26 | Environment-switched measurement behaves per environment: analytics on in production only, and a build-time-inlined flag (`NEXT_PUBLIC_*`, `VITE_*`) is never relied on to differ between staging and production from one build | Read where each flag is evaluated; one artifact cannot serve both environments when the value is inlined at build |
+| AA-27 | A hand-off to another origin (marketing site to app subdomain, checkout host, scheduling or form vendor) carries the UTM parameters, the ad click ID (`gclid`, `msclkid`, `fbclid`), and the analytics client ID (a cross-domain linker or an explicit parameter), so the conversion on the far side joins the visit that earned it. Moving that hand-off to a new target re-tests attribution before the old one is retired | Click through each hand-off with tagged parameters and read the URL and the far side's first event; a conversion that reports as direct or self-referral on the far side has lost the chain |
+| AA-28 | Each completed form or checkout fires exactly one conversion: no double fire from both a platform's built-in success event and a tag-manager trigger, and no repeat when the confirmation page reloads or is revisited | Submit once in a test environment and count conversion hits in the network log; reload the confirmation page and count again |
+| AA-29 | Every third-party tag is inventoried with an owner and a purpose; tags that need consent where the site operates load only after it; session replay and heatmap tools mask form inputs so personal data never reaches them | List the script hosts a page loads (the quick audit prints them); read the consent wiring; record a replay of a form fill and look for the typed values |
 
 ## Adaptable pattern: deferred tag-manager loader (Next.js App Router)
 

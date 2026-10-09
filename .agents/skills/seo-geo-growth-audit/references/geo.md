@@ -33,7 +33,7 @@ Visibility in AI answers. Google's AI Overviews and AI Mode draw on the ordinary
 
 ## Answer-shaped content checks
 
-General content quality that helps every engine extract an answer. Google states none of it is required for its AI features, and that rewriting or splitting content for AI is unnecessary; producing page variants to match AI "fan-out" queries falls under its scaled-content-abuse policy.
+General content quality that helps every engine extract an answer. Google states none of it is required for its AI features, and that rewriting or splitting content for AI is unnecessary; producing page variants to match AI "fan-out" queries falls under its scaled-content-abuse policy. Microsoft's guidance for Bing and Copilot does recommend them ("Clear headings, tables, and FAQ sections help surface key information", Bing Webmaster Blog, 2026-02-10), and warns that AI systems may not render answers hidden in tabs or expandable menus (Microsoft Advertising, 2025-10-08), so these checks earn their place with readers and non-Google engines; score them as such, never as a Google ranking lever.
 
 | ID | Check | Verify by |
 |----|-------|-----------|

@@ -4,7 +4,7 @@ Machine-readable entity and content markup. In Google it earns a rich result onl
 
 ## Contents
 
-- Checks (SD-01 to SD-11)
+- Checks (SD-01 to SD-13)
 - Schema type map
 - Adaptable pattern: safe JSON-LD injection
 - Anti-patterns
@@ -19,11 +19,13 @@ Machine-readable entity and content markup. In Google it earns a rich result onl
 | SD-04 | Ratings and review counts come from real data; zero hardcoded `aggregateRating` values | Grep `aggregateRating` and trace every instance to a data source (real failure mode: a fabricated 4.9/13,542 rating shipped site-wide — a manual-action risk). Google's review-snippet guidelines also exclude fake and undisclosed incentivized reviews |
 | SD-05 | Field semantics are correct: `numberOfEmployees` means employees (not marketplace pool size), `datePublished` means published (not fetched), `author` is a real person or org | Review every numeric or factual claim in schema builders |
 | SD-06 | HTML is stripped from text fields before injection (`striptags` or equivalent, applied in the builder) | Read the schema builder utilities |
-| SD-07 | All image/url/logo references are absolute URLs | Grep for relative paths inside schema builders |
+| SD-07 | All image/url/logo references are absolute URLs; the page's main entity (the `WebPage`, `Article`, or `Product` the page is about) has a `url` equal to the page's canonical, and breadcrumb `item` values sit on the canonical host (practice: Google documents no host rule, but a mismatch splits signals between hosts) | Grep for relative paths inside schema builders; on the live site compare each JSON-LD URL with the page's `rel="canonical"` (real failure modes: entity URLs on the apex host while pages canonicalize to `www`; an article `url` pointing at the CMS collection path instead of the public one) |
 | SD-08 | `@context: "https://schema.org"` present; related schemas on one page combined in a single `@graph` array rather than scattered script tags | View source |
 | SD-09 | Injection is a server-rendered plain `<script type="application/ld+json">`; framework-specific loader props (Next.js `strategy=`) are invalid on native script tags and JSON-LD must never be deferred — crawlers read the initial HTML | `grep -rn '<script' --include='*.jsx' \| grep 'strategy='` (real failure mode: five templates shipping the invalid attribute) |
 | SD-10 | Markup validates and eligible types actually earn enhancements in Search Console | Google's Rich Results Test for types Google supports; validator.schema.org for everything else (the Rich Results Test no longer checks retired types); Search Console enhancement reports |
 | SD-11 | No type is recommended for a Google rich result Google no longer shows: confirm it in the current Search gallery first. Retired: HowTo (2023), sitelinks search box (2024), Course Info, Claim Review, Estimated Salary, Learning Video, Special Announcement, Vehicle Listing (2025), FAQ (May 2026). Dataset markup feeds Dataset Search only | developers.google.com/search/docs/appearance/structured-data/search-gallery and the Search Central changelog |
+| SD-12 | No empty or placeholder values: no empty strings in `sameAs`, `name`, `url`, or `image`, no unfilled template fields (a CMS field left blank renders `""` into every page of the collection). Star ratings on `Organization` or `LocalBusiness` (and their subtypes) are ineligible when the entity controls the reviews about itself, including reviews shown through an embedded third-party widget; a site that reviews other businesses stays eligible | Parse every JSON-LD block on a sample of each template and list empty values; developers.google.com/search/docs/appearance/structured-data/review-snippet for the self-serving rule |
+| SD-13 | Publication dates (`datePublished`, `dateModified`, `uploadDate`) are ISO 8601 with a time zone (Google recommends one and otherwise assumes Googlebot's), `dateModified` is never earlier than `datePublished`, neither is in the future, and both match the dates shown on the page. Forward-looking dates (`startDate`, `priceValidUntil`, `validThrough`) are out of scope | Compare the two fields on a sample of articles; a modified date earlier than the published one usually means the CMS's publish and update fields are mapped the wrong way round |
 
 ## Schema type map
 
@@ -39,7 +41,7 @@ Apply where the site has the corresponding content. Absence of a type is only a 
 | `HowTo` | Optional on step-by-step guides for non-Google parsers; earns no Google rich result |
 | `FAQPage` | Optional on FAQ sections (`Question`/`acceptedAnswer` pairs, plain text) for non-Google parsers; earns no Google rich result |
 | `ItemList` / `CollectionPage` | Listings, directories, category pages |
-| `BlogPosting` / `Article` / `TechArticle` | Posts, case studies, engineering content (author, publisher, dates, image) |
+| `BlogPosting` / `Article` / `NewsArticle` | Posts, case studies, engineering content (author, publisher, dates, image); these are the three types Google's Article documentation lists, so prefer them over subtypes such as `TechArticle` |
 | `BreadcrumbList` | Every major page type |
 | `ProfilePage` + `Person` | People/professional profiles |
 | `PodcastEpisode` + `PodcastSeries` | Podcast pages (ISO 8601 `duration`) |

@@ -33,7 +33,7 @@ Absence of an engine is only a finding when the business has a use for it.
 | CS-10 | Stale-content regeneration: scripts or crons refresh content older than N days, with dry-run, concurrency, and retry controls (pattern below) | scripts/ directory |
 | CS-11 | CMS sync direction verified, not assumed: inbound webhooks OR script/endpoint-triggered sync — either is fine, but the audit must state which exists, and every sync path must end in a cache purge | Trace one content update from CMS to live page |
 | CS-12 | Draft/preview mode for editors (covered as TS-20; confirm it spans all content types) | Grep draft-mode usage per content route |
-| CS-13 | Internal linking engine: related content, breadcrumbs, and contextual in-body links to conversion pages (link injection scripts are a validated approach) | Components + any link-injection scripts |
+| CS-13 | Internal linking engine: related content, breadcrumbs, and contextual in-body links to the pages that acquire customers, not only to other articles (link injection scripts are a validated approach). Link targets come from the live URL inventory, not a hand-kept list that covers a fraction of the pages; when a URL changes, a script rewrites every stored link to it rather than leaving a redirect hop in the content (TS-40) | Components + any link-injection scripts. Count, across a sample of articles, how many of the acquisition pages receive any in-body link; compare the generator's target list with the sitemap |
 
 ## Credibility checks
 
