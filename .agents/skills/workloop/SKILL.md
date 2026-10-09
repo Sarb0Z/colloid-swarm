@@ -174,6 +174,12 @@ deletes a branch only when the repository's HEAD already contains it; the
 `<run>/integration` branch carries the verified composition, so land it first
 and rerun `teardown` to drop it.
 
+`abandon <run>` closes a run whose work landed another way, such as after main
+moved past the base so `integrate` and `teardown` refuse. It reaps the run's
+labelled containers, removes the lane and integration worktrees, and deletes
+the run from state. It deletes only branches the repository's HEAD already
+contains and names the rest; `--discard-branches` deletes those too.
+
 ## Complete the cycle
 
 Only the independent QA result advances the run. `check` is the completion
