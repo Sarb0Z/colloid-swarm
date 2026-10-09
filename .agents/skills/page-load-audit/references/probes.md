@@ -155,9 +155,10 @@ with a change that survives minification; a trailing comment does not.
 ```sh
 V1=$(ls dist/assets/vendor-*.js | xargs -n1 basename | paste -sd' ' -)
 E1=$(grep -oE 'index-[^"]+\.js' dist/index.html | head -1)
-sed -i '' 's/"Start Your Journey"/"Start Your Journey Now"/' src/constants/hero.ts   # a rendered literal
+F=<source file holding a rendered string literal>
+sed -i '' 's/"<rendered literal>"/"<rendered literal> Now"/' "$F"
 <build>
-git checkout -- src/constants/hero.ts
+git checkout -- "$F"
 V2=$(ls dist/assets/vendor-*.js | xargs -n1 basename | paste -sd' ' -)
 E2=$(grep -oE 'index-[^"]+\.js' dist/index.html | head -1)
 [ "$E1" != "$E2" ] && echo "entry changed (correct)"

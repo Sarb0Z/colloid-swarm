@@ -137,4 +137,4 @@ await User.create({ ...allowlisted, role: 'user' });
 await User.update(req.body, { where: { id: req.user.id } });
 ```
 
-The guard on one write path does not cover the others. **Test:** `PATCH /me` (or `/profile`, `/account`) with `role`/`isAdmin`/domain-role (`student→teacher`, `member→owner`); read back to confirm the field was ignored. Every write path that reaches the identity model needs the same allowlist — validate the escalation-bearing field on all of them, not just registration.
+The guard on one write path does not cover the others. **Test:** `PATCH /me` (or `/profile`, `/account`) with `role`/`isAdmin`/domain-role (`viewer→editor`, `member→owner`); read back to confirm the field was ignored. Every write path that reaches the identity model needs the same allowlist — validate the escalation-bearing field on all of them, not just registration.
