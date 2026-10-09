@@ -39,8 +39,9 @@ GX=(--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-
 # Code-file whitelist for checks that would false-positive on docs/markdown
 INC=(--include='*.js' --include='*.jsx' --include='*.ts' --include='*.tsx' --include='*.vue' --include='*.svelte' --include='*.astro' --include='*.html' --include='*.php' --include='*.erb' --include='*.py')
 srcgrep() { grep -rE "${GX[@]}" "$@" "$REPO_DIR" 2>/dev/null; }
-probe()   { curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null || echo 000; }
-probe_head() { local c; c=$(curl -sS -o /dev/null -I -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null || echo 000)
+# curl prints 000 for a failed request through -w itself, so a failure needs no fallback output
+probe()   { curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null; true; }
+probe_head() { local c; c=$(curl -sS -o /dev/null -I -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null)
   case "$c" in 405|501) probe "$1";; *) echo "$c";; esac; }
 fetch()   { curl -sS --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null; }
 # fetch_doc URL -> DOC_CODE, DOC_TYPE, DOC_BODY. A single-page app's catch-all
@@ -51,11 +52,11 @@ fetch_doc() {
   DOC_BODY=${out%$'\n'*}; out=${out##*$'\n'}
   DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
 }
-# head_doc URL -> DOC_CODE, DOC_TYPE without the body
+# head_doc URL [CURL-OPTS...] -> DOC_CODE, DOC_TYPE without the body
 head_doc() {
-  local out
-  out=$(curl -sS -o /dev/null -I -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null) || out="000 "
-  case "${out%% *}" in 405|501) out=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null) || out="000 ";; esac
+  local out u="$1"; shift
+  out=$(curl -sS -o /dev/null -I -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 "
+  case "${out%% *}" in 405|501) out=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 ";; esac
   DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
 }
 html_type() { case "$(printf '%s' "$DOC_TYPE" | tr 'A-Z' 'a-z')" in text/html*|application/xhtml*) return 0;; esac; return 1; }
@@ -66,12 +67,13 @@ is_html() { # on the last fetch_doc: an HTML content type, or a body that opens 
   case "$head" in '<!doctypehtml'*|'<html>'*|'<html'[a-z]*'='*) return 0;; esac
   return 1
 }
-# live_file PATH ID -> 0 when PATH serves a real file; otherwise emits FAIL for ID
+# live_file PATH ID [STATUS] -> 0 when PATH serves a real file; otherwise emits STATUS (default FAIL) for ID
 live_file() {
+  local st="${3:-FAIL}"
   fetch_doc "$BASE_URL$1"
-  if [ "$DOC_CODE" != 200 ]; then emit FAIL "$2" "live $1 -> $DOC_CODE"; return 1; fi
-  if [ -z "$DOC_BODY" ]; then emit FAIL "$2" "live $1 -> 200 with an empty body"; return 1; fi
-  if is_html; then emit FAIL "$2" "live $1 answers with an HTML page (${DOC_TYPE:-no content-type}) - a catch-all route is serving it, so the file is not deployed"; return 1; fi
+  if [ "$DOC_CODE" != 200 ]; then emit "$st" "$2" "live $1 -> $DOC_CODE"; return 1; fi
+  if [ -z "$DOC_BODY" ]; then emit "$st" "$2" "live $1 -> 200 with an empty body"; return 1; fi
+  if is_html; then emit "$st" "$2" "live $1 answers with an HTML page (${DOC_TYPE:-no content-type}) - a catch-all route is serving it, so the file is not deployed"; return 1; fi
 }
 srcfind() { # srcfind FIND-PREDICATES... -> files outside build output, deps, and agent tooling
   find "$REPO_DIR" -mindepth 1 \( -name node_modules -o -name .git -o -name .next -o -name dist -o -name build -o -name out -o -name .nuxt \
@@ -209,28 +211,51 @@ else
   HOST=${BASE_URL#*://}
   # TS-23 canonical host
   [ "${BASE_URL#https://}" != "$BASE_URL" ] && emit PASS TS-23 "HTTPS base" || emit FAIL TS-23 "BASE_URL is not HTTPS"
-  HTTP_RED=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "http://$HOST/" 2>/dev/null || echo 000)
+  HTTP_RED=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "http://$HOST/" 2>/dev/null)
   case "$HTTP_RED" in 301|308) emit PASS TS-23 "http -> https redirects ($HTTP_RED)";; 000) emit WARN TS-23 "http variant unreachable";; *) emit WARN TS-23 "http variant returned $HTTP_RED (expect 301/308)";; esac
   case "$HOST" in www.*) ALT="${HOST#www.}";; *) ALT="www.$HOST";; esac
-  ALT_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "https://$ALT/" 2>/dev/null || echo 000)
+  ALT_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "https://$ALT/" 2>/dev/null)
   case "$ALT_CODE" in 301|308) emit PASS TS-23 "www/apex variant redirects ($ALT_CODE)";; 200) emit FAIL TS-23 "both $HOST and $ALT serve 200 - duplicate host";; 000) emit WARN TS-23 "alt host $ALT unreachable (may be unconfigured DNS)";; *) emit WARN TS-23 "alt host $ALT returned $ALT_CODE";; esac
   # robots live + GE-04 AI crawler policy
   if live_file /robots.txt TS-21; then
     ROBOTS=$DOC_BODY
     emit PASS TS-21 "live robots.txt ($(printf '%s' "$ROBOTS" | grep -c 'Sitemap:') Sitemap directive(s))"
+    # Robots-honouring training and search-index tokens (references/geo.md, crawler classes).
+    # A group naming the token beats `*`; stacked User-agent lines share one group.
     AIRPT=""
-    for t in GPTBot ClaudeBot anthropic-ai PerplexityBot Google-Extended CCBot; do
-      v=$(printf '%s\n' "$ROBOTS" | awk -v ua="$t" 'BEGIN{f=0;done=0}
-        tolower($0) ~ "^user-agent:[ \t]*"tolower(ua) {f=1;next}
-        f && tolower($0) ~ /^user-agent:/ {exit}
-        f && tolower($0) ~ /^disallow:[ \t]*\/[ \t]*$/ {print "explicit-block";done=1;exit}
-        f && tolower($0) ~ /^(allow|disallow):/ {print "explicit-allow";done=1;exit}
-        END{if(!done) print f ? "mentioned" : "unspecified"}')
+    for t in GPTBot OAI-SearchBot ClaudeBot Claude-SearchBot PerplexityBot Google-Extended Applebot Applebot-Extended \
+             Meta-ExternalAgent Meta-WebIndexer Amazonbot Amzn-SearchBot MistralAI-Training MistralAI-Index DuckAssistBot CCBot; do
+      v=$(printf '%s\n' "$ROBOTS" | tr -d '\r' | sed $'1s/^\xef\xbb\xbf//' | awk -v ua="$t" '
+        BEGIN { ua = tolower(ua) }
+        { line = $0; sub(/#.*/, "", line); low = tolower(line) }
+        low ~ /^[ \t]*user-agent[ \t]*:/ {
+          v = low; sub(/^[ \t]*user-agent[ \t]*:/, "", v); gsub(/[ \t]/, "", v)
+          if (!in_ua) { cur_named = 0; cur_wild = 0 }
+          in_ua = 1
+          if (v == ua) { cur_named = 1; named = 1 }
+          if (v == "*") { cur_wild = 1; wild = 1 }
+          next
+        }
+        low ~ /^[ \t]*(allow|disallow)[ \t]*:/ {
+          in_ua = 0
+          key = low; sub(/[ \t]*:.*/, "", key); gsub(/[ \t]/, "", key)
+          val = low; sub(/^[^:]*:/, "", val); gsub(/[ \t]/, "", val)
+          if (val == "/*") val = "/"
+          if (val == "/" && cur_named) { if (key == "disallow") nblock = 1; else nallow = 1 }
+          if (val == "/" && cur_wild) { if (key == "disallow") wblock = 1; else wallow = 1 }
+          next
+        }
+        END {
+          if (named) print ((nblock && !nallow) ? "explicit-block" : "explicit-allow")
+          else if (wild && wblock && !wallow) print "wildcard-block"
+          else print "unspecified"
+        }')
       AIRPT="$AIRPT $t=$v"
     done
+    SIGNAL=$(printf '%s\n' "$ROBOTS" | tr -d '\r' | grep -iE '^[[:space:]]*content-signal[[:space:]]*:' | head -1 | sed -E 's/^[[:space:]]*//')
     case "$AIRPT" in
-      *unspecified*) emit WARN GE-04 "AI crawler policy:$AIRPT (unspecified = default, not a decision)";;
-      *) emit PASS GE-04 "AI crawler policy fully explicit:$AIRPT";;
+      *unspecified*) emit WARN GE-04 "AI crawler policy:$AIRPT${SIGNAL:+ | $SIGNAL} (unspecified = default, not a decision)";;
+      *) emit PASS GE-04 "AI crawler policy fully explicit:$AIRPT${SIGNAL:+ | $SIGNAL}";;
     esac
   fi
   # TS-01/TS-02 sitemap index + children resolve
@@ -264,21 +289,49 @@ else
     fi
   fi
   # GE-01/GE-03 llms.txt live
-  live_file /llms.txt GE-01 && emit PASS GE-01 "live /llms.txt (200, ${DOC_TYPE:-no content-type})"
+  # llms.txt is optional (Google Search ignores it), so its absence warns rather than fails
+  LLMS_OK=""
+  live_file /llms.txt GE-01 WARN && { LLMS_OK=1; emit PASS GE-01 "live /llms.txt (200, ${DOC_TYPE:-no content-type})"; }
   fetch_doc "$BASE_URL/llms-full.txt"
   [ "$DOC_CODE" = 200 ] && [ -n "$DOC_BODY" ] && ! is_html && emit PASS GE-03 "/llms-full.txt present (optional)" \
     || emit SKIP GE-03 "/llms-full.txt absent (optional)"
   # Homepage head signals
-  HP=$(fetch "$BASE_URL/" | tr -d '\n\r')
+  # One fetch, following redirects; every head check below reads the page it ended on, which is
+  # not the homepage when the probe hit an error, a login, or a bot challenge.
+  HP=$(curl -sS -L --max-time "$TIMEOUT" -A "$UA" -w '\n%{http_code} %{url_effective}' "$BASE_URL/" 2>/dev/null) || HP=$'\n000 '"$BASE_URL/"
+  HP_END=${HP##*$'\n'}; HP=$(printf '%s' "${HP%$'\n'*}" | tr -d '\n\r')
+  if [ "${HP_END%% *}" != 200 ]; then emit WARN TS-13 "homepage probe ended at ${HP_END#* } with ${HP_END%% *} - the head checks below read that response"
+  else case "${HP_END#* }" in *login*|*signin*|*sign-in*|*/auth*|*challenge*) emit WARN TS-13 "homepage probe ended at ${HP_END#* } - the head checks below read that page, not the homepage";; esac; fi
   TITLE=$(printf '%s' "$HP" | grep -oE '<title[^>]*>[^<]*' | head -1 | sed 's/<title[^>]*>//')
   [ -n "$TITLE" ] && emit PASS TS-13 "homepage <title> (${#TITLE} chars): ${TITLE:0:80}" || emit FAIL TS-13 "homepage missing <title>"
   printf '%s' "$HP" | grep -q 'name="description"' && emit PASS TS-13 "meta description present" || emit FAIL TS-13 "homepage missing meta description"
   printf '%s' "$HP" | grep -q 'rel="canonical"' && emit PASS TS-14 "homepage canonical present" || emit WARN TS-14 "homepage canonical missing"
-  printf '%s' "$HP" | grep -q 'property="og:image"' && emit PASS TS-17 "og:image present" || emit WARN TS-17 "homepage og:image missing"
+  OG=$(printf '%s' "$HP" | grep -oiE "<meta[^>]+(property|name)=[\"']og:image[\"'][^>]*>" | head -1 \
+    | sed -nE "s/.*content=[\"']([^\"']+)[\"'].*/\\1/p" | sed 's/&amp;/\&/g')
+  if [ -z "$OG" ]; then emit WARN TS-17 "homepage og:image missing"
+  else
+    case "$OG" in
+      //*) OG="${BASE_URL%%://*}:$OG";;
+      /*) OG="$BASE_URL$OG";;
+      http://*|https://*) ;;
+      *) OG="$BASE_URL/$OG";;
+    esac
+    head_doc "$OG" -L
+    case "$DOC_CODE $(printf '%s' "$DOC_TYPE" | tr 'A-Z' 'a-z')" in
+      "200 image/"*) emit PASS TS-17 "og:image resolves ($OG -> $DOC_TYPE)";;
+      *) emit FAIL TS-17 "og:image $OG -> $DOC_CODE ${DOC_TYPE:-no content-type} - link previews get no image";;
+    esac
+  fi
   printf '%s' "$HP" | grep -q 'name="twitter:card"' && emit PASS TS-18 "twitter:card present" || emit WARN TS-18 "twitter:card missing"
   NLD=$(printf '%s' "$HP" | grep -o 'application/ld+json' | wc -l | tr -d ' ')
   [ "$NLD" -gt 0 ] && emit PASS SD-01 "homepage renders $NLD JSON-LD block(s)" || emit WARN SD-01 "no JSON-LD in homepage HTML"
-  printf '%s' "$HP" | grep -q 'rel="llms"' && emit PASS GE-02 "rel=llms discovery link present" || emit WARN GE-02 "no rel=llms link in head"
+  if [ -z "$LLMS_OK" ]; then emit SKIP GE-02 "no llms.txt to point at"
+  else
+    DESC_TAG=$(printf '%s' "$HP" | grep -oiE '<link[^>]+>' | grep -i 'describedby' | grep -i 'llms\.txt' | head -1)
+    DESC_HDR=$(curl -sS -o /dev/null -D - -L --max-time "$TIMEOUT" -A "$UA" "$BASE_URL/" 2>/dev/null | tr -d '\r' | grep -i '^link:' | grep -i 'describedby' | grep -i 'llms\.txt' | head -1)
+    if [ -n "$DESC_TAG$DESC_HDR" ]; then emit PASS GE-02 "rel=describedby points at llms.txt (${DESC_TAG:+link element}${DESC_TAG:+${DESC_HDR:+ and }}${DESC_HDR:+Link header})"
+    else emit WARN GE-02 "llms.txt live but no rel=describedby link or Link header points at it"; fi
+  fi
   # TS-27 soft-404
   NF=$(probe "$BASE_URL/definitely-missing-page-$$-audit")
   [ "$NF" = 404 ] && emit PASS TS-27 "garbage URL returns 404" || emit FAIL TS-27 "garbage URL returns $NF (soft-404 if 200)"
