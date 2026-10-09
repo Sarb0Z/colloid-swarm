@@ -86,6 +86,9 @@ Then sweep the served scripts for code fetched from another origin at run
 time — a dynamic `import()` of a CDN URL, a module worker loaded from one.
 Those do not block first paint, but the feature behind them hangs the same
 way, and a module script served with the wrong MIME type is refused outright.
+After correcting a content type or cache header on a hashed or long-cached
+asset, change its URL as well (a new hash or a version query): browsers that
+cached the bad response keep serving it from cache.
 
 **The decisive experiment.** Refusal and hang are different faults with
 different symptoms, and only the experiment tells them apart:

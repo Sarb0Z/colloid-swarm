@@ -34,7 +34,7 @@ Performance is a ranking signal and a conversion multiplier. Audit the build con
 | PF-06 | LCP image gets `priority`/`fetchPriority="high"`, plus `<link rel="preload">` for hero assets | Root layout + hero components |
 | PF-07 | `sizes` on every responsive image | Grep image components missing `sizes` |
 | PF-08 | dns-prefetch + preconnect only for third-party origins that load after first paint (tag manager, scheduling widgets). A render-blocking dependency on an origin the site does not control is removed, not warmed up — see PF-21 | Root layout head |
-| PF-09 | Long-lived caching: 1-year immutable for hashed static assets/images/fonts; stale-while-revalidate for cacheable HTML, with framework data requests excluded from those rules (see technical-seo TS-30) | Headers config + `curl -sI` on an asset and a page |
+| PF-09 | Long-lived caching: 1-year immutable for hashed static assets/images/fonts; stale-while-revalidate for cacheable HTML, with framework data requests excluded from those rules (see technical-seo TS-30); after correcting a header on a long-cached asset, change its URL, because browsers keep the cached copy | Headers config + `curl -sI` on an asset and a page |
 
 ## Rendering strategy checks
 
