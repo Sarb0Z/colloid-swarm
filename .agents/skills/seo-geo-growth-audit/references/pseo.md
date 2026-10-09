@@ -31,7 +31,7 @@ Does the business serve multiple locations/categories/attributes?
 | PS-01 | The PSEO subsystem is actually LIVE, not just shipped: middleware kill-switches, redirects-to-home, or commented-out rewrites disable it invisibly | Curl 2-3 generated URLs in production; a 308 to the homepage means the whole layer is dormant (real failure mode) |
 | PS-02 | Dimension data centralized in config modules (locations, categories, salaries, currencies, timezones), not scattered in templates | Find the data layer; every template reads from it |
 | PS-03 | Unique title/description/OG per combination, with real differentiating data (local salary, count, availability) injected | Read `generateMetadata` on the PSEO route |
-| PS-04 | Dynamic structured data per combination: `Service` with `areaServed`, `FAQPage`, `BreadcrumbList` | Read the PSEO page schema builders |
+| PS-04 | Dynamic structured data per combination: `Service` with `areaServed` and `BreadcrumbList` (`FAQPage` earns no Google rich result; see SD-11) | Read the PSEO page schema builders |
 | PS-05 | Dynamic FAQs inject the specific category/location/data into questions AND answers | Read the FAQ generator |
 | PS-06 | Real data per combination (listings, market rates, testimonials filtered to the market) — not the same content with a swapped city name | Compare two rendered combinations |
 | PS-07 | Cross-links between related combinations (same category other locations, same location other categories) | Read the internal-linking section of the template |
@@ -77,6 +77,7 @@ if (isPseoHost(request.headers.get('host'))) {
 | Anti-pattern | Why it is bad | Fix |
 |--------------|---------------|-----|
 | PSEO pages without quality gates | Doorway-page penalty risk; thin duplicates dilute the domain | Conditional noindex until threshold (PS-08) |
+| Page variants generated to match AI "fan-out" queries | Google treats variants made to manipulate rankings as scaled content abuse, including in AI answers | One substantive page per real intent; combinations only where each page carries distinct data |
 | Counting shipped-but-disabled PSEO as implemented | The audit reports capability the site does not have; growth forecasts built on it are fiction | Verify live (PS-01); report built-vs-live explicitly |
 | Same template text with only the city swapped | Near-duplicate content at scale | Inject real per-combination data (PS-06) or shrink the page set |
 | hreflang across pages that do not differ by region | Wasted crawl signals, alternate-cluster confusion | Country-level only, with x-default (PS-10) |

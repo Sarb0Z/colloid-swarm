@@ -8,6 +8,7 @@ Measurement infrastructure: tag loading that protects performance, an event laye
 - Event instrumentation checks (AA-07 to AA-09)
 - Attribution checks (AA-10 to AA-17)
 - Persistence and data-model checks (AA-18 to AA-21)
+- Conversion integrity checks (AA-22 to AA-26)
 - Adaptable pattern: deferred tag-manager loader
 - Adaptable pattern: sessionStorage attribution module
 - Anti-patterns
@@ -52,6 +53,16 @@ Measurement infrastructure: tag loading that protects performance, an event laye
 | AA-19 | Lead model carries attribution fields (source/medium/campaign/term, referrer, landing page) and a status pipeline (`new -> contacted -> qualified -> proposal_sent -> closed_won/lost`) | Schema |
 | AA-20 | No dead models: every analytics/lead table in the schema has code writing to it (real failure mode: a perfectly designed lead model with zero references while inserts go to a bare contacts table) | Grep model names across the codebase |
 | AA-21 | Server-side forwarding to CRM/notification channels includes the attribution, and notification sends are environment-gated (production or explicit override flag) | Notification builder + env checks |
+
+## Conversion integrity checks
+
+| ID | Check | Verify by |
+|----|-------|-----------|
+| AA-22 | A site with a conversion goal (signup, install, lead magnet, purchase) and no measurement at all is a P0 finding, not "not applicable" | Grep for any analytics client, server-side event, or CDN beacon; walk the main conversion and ask what records it |
+| AA-23 | Every conversion path fires its event: paid, free, $0 after a promo code, redirect returns, and webhook-only completions | List the paths from the checkout and signup code; trigger each in a test environment (real failure mode: purchase steps never fired for checkouts a promo code discounted to $0) |
+| AA-24 | A server-side conversion (measurement-protocol purchase, webhook-driven signup) carries the browser's analytics client or session ID, captured on the page and passed through checkout metadata, so it joins the visitor's session | Read the server event payload; an ID minted by the payment provider puts the funnel before the purchase under a different identity |
+| AA-25 | Links in product-sent emails that bring people back or invite others (share a report, invite a colleague, activation emails) carry a source or campaign parameter | Grep the mailer templates' link builders; without it, invite-driven signups report as direct |
+| AA-26 | Environment-switched measurement behaves per environment: analytics on in production only, and a build-time-inlined flag (`NEXT_PUBLIC_*`, `VITE_*`) is never relied on to differ between staging and production from one build | Read where each flag is evaluated; one artifact cannot serve both environments when the value is inlined at build |
 
 ## Adaptable pattern: deferred tag-manager loader (Next.js App Router)
 
@@ -131,4 +142,5 @@ export function buildUtmQueryString() {
 | Stripping `utm_*` from the URL before analytics loads | Deferred vendor never sees the campaign; sessions report as direct | Strip click IDs only; keep UTMs (AA-13) |
 | UTM params appended to internal links | Session fragmentation, duplicate URLs, self-referral noise | Store once in sessionStorage; never rewrite internal links (AA-16) |
 | Loading the tag manager immediately | Blocks LCP; performance pays for measurement | Defer until interaction/timeout (AA-01) |
+| "No analytics" scored as not applicable | A funnel nobody measures cannot be improved or defended | AA-22 |
 | Attribution that dies in Slack | Notifications are not a database; cohort analysis impossible | Persist attribution columns on the lead row (AA-18) |

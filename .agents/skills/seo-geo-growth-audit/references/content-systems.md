@@ -17,8 +17,8 @@ Absence of an engine is only a finding when the business has a use for it.
 | ID | Check | Verify by |
 |----|-------|-----------|
 | CS-01 | Blog: multi-level categories, TOC, reading-progress, comments, related/recent posts | Route structure + components |
-| CS-02 | FAQ hub: multi-tier routes for long-tail queries (`/faqs` -> `/faqs/topic` -> `/faqs/topic/question`), each tier with FAQPage schema | Route tree |
-| CS-03 | Guides/roadmaps: step-by-step content carrying `HowTo`/`LearningResource` schema | Templates |
+| CS-02 | FAQ hub: multi-tier routes for long-tail queries (`/faqs` -> `/faqs/topic` -> `/faqs/topic/question`), each tier answering one question in its own words (FAQPage markup is optional and earns no Google rich result; see SD-11) | Route tree |
+| CS-03 | Guides/roadmaps: step-by-step content with an `Article` or `LearningResource` builder; `HowTo` markup earns no Google rich result (SD-11) | Templates |
 | CS-04 | Podcast/media pages: transcript on-page (indexable), timestamps, ISO 8601 durations in schema | Episode template |
 | CS-05 | Case studies with concrete outcomes (before/after, numbers) | Templates + content sample |
 | CS-06 | Resource library (templates, checklists, downloadables) as lead-magnet inventory | Routes |
