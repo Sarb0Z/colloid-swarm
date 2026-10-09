@@ -33,6 +33,7 @@ Copy this checklist and track progress:
 ```
 Audit progress:
 - [ ] 0. Fingerprint stack + inventory existing SEO docs
+- [ ] 0b. Classify the go-to-market motion per template
 - [ ] 1. Run scripts/quick-audit.sh (evidence baseline)
 - [ ] 2. Layer 1: technical SEO foundation
 - [ ] 3. Layer 2: structured data
@@ -49,11 +50,16 @@ Audit progress:
 
 Then settle two things before scoring anything. **Purpose:** is this a public site that wants to be found, a private app, or a mixed product with a public front? For a private surface the audit's job is to confirm it stays out of the index (TS-34) and that crawler files still serve; mark the growth layers not applicable rather than failing them. **Serving platform:** identify it from live response headers (`server`, `via`, platform request-ID headers), not from config files — a `vercel.json` or `_headers` file in a repository served by something else is dead evidence, and every redirect, header, and rewrite claim must be re-tested live.
 
+**Step 0b — Go-to-market motion.** Load [references/gtm-motions.md](references/gtm-motions.md) and classify each page template by how the business wins customers through it (product-led signup, sales-led demo, local lead generation, marketplace, store, app install, content, developer tools, programmatic data, partner channel, regulated advice). The motion decides which checks carry weight, what the conversion is, and which failures are fatal (GM-01 to GM-04). Ask the owner for the revenue split across motions when the site mixes them, and record both in the report header.
+
 **Step 1 — Baseline.** Run:
 
 ```bash
-bash scripts/quick-audit.sh <repo-dir> <base-url>
+bash scripts/quick-audit.sh <repo-dir> <base-url> [--sample N] [--max-links N]
+bash scripts/quick-audit.sh --no-repo <base-url>   # live site only, no repository checks
 ```
+
+`--sample N` fetches up to N sitemap pages, 3 per URL family before any family gets a fourth, without following redirects, and checks each one's status, indexability, metadata, JSON-LD, inline scripts, and head resources (default 40, `0` turns it off); `--max-links N` probes that many of their internal links (default 60). Measured runs made 9 requests (a single-page app with no sitemap), 29 (a site whose homepage is the whole sample), and 57 (`--sample 20 --max-links 30`). With the defaults the sample adds at most 171 requests (10 index children, 39 pages, 2 per probed link when HEAD is refused, 2 app-association files) to at most 217 for the live checks (2 per sitemap-index child, capped by `--max-children`), plus the redirect hops the live checks follow. At most 4 requests run at once, each bounded by `--timeout`.
 
 Capture the output — its `[FAIL]`/`[WARN]` lines with check IDs are your first evidence, and SUMMARY maps failed IDs to the reference file to load. The script degrades gracefully: without a BASE_URL (or network) it runs static checks only; findings never affect its exit code.
 
@@ -90,6 +96,7 @@ Assign every finding one tier by criteria, not by category:
 ```markdown
 # Discoverability audit — <site> (<date>)
 Stack: <framework/router/CDN> | Base URL: <url> | Quick-audit: <PASS/FAIL/WARN counts>
+Motion: <M-id per template, e.g. M3 location pages + M5 checkout> | Revenue split: <share per motion, from the owner>
 
 ## Scorecard
 | Layer | Verdict | P0 | P1 | Top issue |
@@ -122,14 +129,15 @@ Stack: <framework/router/CDN> | Base URL: <url> | Quick-audit: <PASS/FAIL/WARN c
 
 | File | Covers | Load when |
 |------|--------|-----------|
-| [references/technical-seo.md](references/technical-seo.md) | Sitemaps, metadata, canonicals, robots, URL hygiene, client rendering, private surfaces, companion-app files (TS-*) | Pass 2, always |
-| [references/structured-data.md](references/structured-data.md) | JSON-LD types, retired rich results, quality rules, injection (SD-*) | Pass 3, always |
+| [references/gtm-motions.md](references/gtm-motions.md) | Go-to-market motions, how to detect each, what each weights, documented AI-answer and spam-policy facts (GM-*) | Step 0b, always |
+| [references/technical-seo.md](references/technical-seo.md) | Sitemaps, metadata, canonicals, robots, URL hygiene, client rendering and script-only fixes, internal link graph, injected code, private surfaces, companion-app files, serving platforms (TS-*) | Pass 2, always |
+| [references/structured-data.md](references/structured-data.md) | JSON-LD types, retired rich results, quality rules (hosts, empty values, dates), injection (SD-*) | Pass 3, always |
 | [references/geo.md](references/geo.md) | Crawler classes and AI-feature controls, llms.txt, entity signals, AI-visibility measurement (GE-*) | Pass 4, always |
 | [references/performance.md](references/performance.md) | CWV targets, build/rendering, RUM, third-party and asset weight (PF-*) | Pass 5, always |
-| [references/analytics-attribution.md](references/analytics-attribution.md) | Tag loading, events, UTM, lead data model, conversion integrity (AA-*) | Pass 6, if conversions matter |
+| [references/analytics-attribution.md](references/analytics-attribution.md) | Tag loading, events, UTM, lead data model, conversion integrity, cross-origin hand-offs, tag inventory (AA-*) | Pass 6, if conversions matter |
 | [references/content-systems.md](references/content-systems.md) | Content engines, freshness, E-E-A-T (CS-*) | Pass 7a, if content play exists |
 | [references/pseo.md](references/pseo.md) | Programmatic pages, quality gates, kill-switches (PS-*) | Pass 7b, only if combination pages apply |
-| [references/leads-conversion.md](references/leads-conversion.md) | Forms, capture, abuse protection, list and mailing hygiene, claim and CTA integrity (LC-*) | Pass 7c, if lead capture exists |
+| [references/leads-conversion.md](references/leads-conversion.md) | Forms, capture, abuse protection, list and mailing hygiene, claim and CTA integrity, referral and comparison pages (LC-*) | Pass 7c, if lead capture exists |
 
 ## Verify fixes
 
