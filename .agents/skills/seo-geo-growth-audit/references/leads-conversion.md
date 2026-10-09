@@ -9,7 +9,7 @@ The machinery that turns organic visitors into recorded leads. Audit for capture
 - Conversion element checks (LC-16 to LC-25)
 - Lead magnet and list checks (LC-26 to LC-32)
 - Mailing checks (LC-33 to LC-35)
-- Claim and CTA integrity checks (LC-36 to LC-41)
+- Claim and CTA integrity checks (LC-36 to LC-43)
 - Reference: landing-page order in shipped products
 - Adaptable pattern: partial lead capture
 - Anti-patterns
@@ -79,11 +79,13 @@ The machinery that turns organic visitors into recorded leads. Audit for capture
 | ID | Check | Verify by |
 |----|-------|-----------|
 | LC-36 | The primary above-the-fold CTA reaches the product's primary conversion — the store or install for an app, signup for SaaS — not a support form | Click the hero CTA |
-| LC-37 | Every claim is bounded by evidence: numeric social proof ("12,000+ users", "5.0 rating") has a source; illustrative results are labelled as samples; "exact" and comparative claims stay within what the product measures; a hidden or commented-out component leaves no claim string live in the content layer | Grep the content files for numbers and superlatives and trace each |
-| LC-38 | Plan, price, and free-tier claims match the store listing and the product (see GE-09) | Compare the pricing and FAQ copy with the listing and the in-app purchases |
+| LC-37 | Every claim is bounded by evidence: numeric social proof ("12,000+ users", "5.0 rating") has a source; illustrative results are labelled as samples; "exact" and comparative claims stay within what the product measures; a hidden or commented-out component leaves no claim string live in the content layer. A live counter (customers served, savings delivered) has one source shared by every page that shows it, and its fallback when that source fails is hidden or labelled, never a stale hardcoded figure presented as live | Grep the content files for numbers and superlatives and trace each; compare the same counter across pages and with its data source switched off |
+| LC-38 | Plan, price, and free-tier claims match the store listing and the product (see GE-09), on every surface: old landing pages, partner pages, and llms.txt carry the current prices, and a payment-timing promise in a title or headline ("pay nothing unless…", "free until…") matches when the product actually charges | Compare the pricing and FAQ copy with the listing and the in-app purchases; grep every page and file for each retired price; read the checkout for when payment is taken |
 | LC-39 | A deploy check blocks placeholder copy (`[Hero headline — …]`, lorem ipsum, template slogans) from shipping | The deploy script or CI; grep the built pages |
 | LC-40 | Pages an app store requires (privacy policy, account deletion, support) are reachable on the web, match the URLs in the listing, are named for what they contain, and are indexed or `noindex` by decision | Fetch each URL from the listing |
 | LC-41 | Every claim about where or whom the product serves — the trust line, testimonials, FAQ answers, `areaServed` in structured data, meta descriptions — matches the markets it serves today, and eligibility is enforced on the server, not only in the copy | After any change to the served markets, grep pages, schema, and sitemap for the regions that were dropped |
+| LC-42 | A referral or partner programme works end to end: the referral link or code survives every redirect, signup, and checkout step and reaches the order or account record, and the terms (reward, commission, who qualifies) read the same on every page that states them | Follow a referral link through signup in a test environment and find the code on the resulting record; grep pages for each stated reward |
+| LC-43 | Comparison and "best X" pages disclose the publisher's interest when the publisher ranks itself, date the competitor facts they state, and cite where each came from | Read each comparison page for a disclosure and dated sources; a competitor price with no date goes stale silently |
 
 ## Reference: landing-page order in shipped products
 
