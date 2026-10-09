@@ -305,6 +305,23 @@ expect 'abandoned' "${tool[@]}" abandon aband3 --discard-branches
 ok "abandon --discard-branches deletes an unmerged lane branch"
 
 
+# ── a review report kept in the main checkout is a valid reference ───────────
+"${tool[@]}" init mainref --objective x --acceptance y --repo "$work" --supervised
+"${tool[@]}" add-lane mainref w --worker implementer --workspace "$scratch/lane-mr-w" --path src
+"${tool[@]}" add-lane mainref r --worker reviewer --workspace "$scratch/lane-mr-r" --path tests
+"${tool[@]}" claim mainref w --agent mrw; "${tool[@]}" claim mainref r --agent mrr
+printf 'w\n' >> "$scratch/lane-mr-w/src/app.txt"; commit "$scratch/lane-mr-w" mrw
+"${tool[@]}" submit mainref w --evidence ok
+mkdir -p "$work/docs/reviews"; printf 'report\n' > "$work/docs/reviews/main-only.md"
+expect 'does not claim to interrupt' "${tool[@]}" attention mainref w --severity P1 --message m --reference docs/reviews/main-only.md#p1
+expect 'sent' "${tool[@]}" send mainref --from-lane r --to-lane w --agent mrr --kind finding --message m --reference docs/reviews/main-only.md#p1
+"${tool[@]}" ack mainref w --agent mrw
+"${tool[@]}" submit mainref w --evidence ok
+expect 'existing file in the main checkout or the lane worktree' "${tool[@]}" review mainref w --reference docs/reviews/absent.md#ok --result accept
+expect 'recorded accept review' "${tool[@]}" review mainref w --reference docs/reviews/main-only.md#ok --result accept
+ok "attention, send, and review resolve a reference against the main checkout"
+
+
 # ── a sparse lane carries only its owned directories ─────────────────────────
 "${tool[@]}" init sparse --objective x --acceptance y --repo "$work" --verify 'true'
 sp="$scratch/lane-sparse"

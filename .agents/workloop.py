@@ -58,17 +58,27 @@ def overlaps(left: list[str], right: list[str]) -> bool:
     return any(owned(path, right) for path in left) or any(owned(path, left) for path in right)
 
 
-def canonical_reference(value: str, workspace: Path) -> str:
+def canonical_reference(value: str, roots: list[Path]) -> str:
+    """Validate a review reference as a file in the first of `roots` that has it.
+
+    A report kept in the main checkout is reachable from every lane; one the
+    lane committed in its own worktree resolves there.
+    """
     file_name, separator, anchor = value.partition("#")
     normalized = normalize_path(file_name)
-    candidate = (workspace / normalized).resolve()
-    try:
-        candidate.relative_to(workspace.resolve())
-    except ValueError:
-        fail(f"review reference escapes the repository: {value!r}")
-    if not candidate.is_file():
-        fail(f"review reference must name an existing repository file: {value!r}")
-    return normalized + ("#" + anchor if separator else "")
+    for root in roots:
+        candidate = (root / normalized).resolve()
+        try:
+            candidate.relative_to(root.resolve())
+        except ValueError:
+            fail(f"review reference escapes the repository: {value!r}")
+        if candidate.is_file():
+            return normalized + ("#" + anchor if separator else "")
+    fail(f"review reference must name an existing file in the main checkout or the lane worktree: {value!r}")
+
+
+def reference_roots(run: dict, lane: dict) -> list[Path]:
+    return [Path(run["repo"]), require_workspace(lane)]
 
 
 def event_id(run: str, action: str, lane: str, detail: str) -> str:
@@ -386,7 +396,7 @@ def cmd_review(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] != "review":
             fail(f"lane is {lane['state']}, not awaiting final review")
-        reference = canonical_reference(args.reference, require_workspace(lane))
+        reference = canonical_reference(args.reference, reference_roots(run, lane))
         if args.result == "accept":
             lane["state"] = "reviewed"
         else:
@@ -404,7 +414,7 @@ def cmd_attention(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] not in {"active", "review", "reopened"}:
             fail(f"lane is {lane['state']}; attention applies only to live work")
-        reference = canonical_reference(args.reference, require_workspace(lane)) if args.reference else ""
+        reference = canonical_reference(args.reference, reference_roots(run, lane)) if args.reference else ""
         lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
         record(args.run, run, "attention", args.lane, args.severity + ": " + args.message, args.event_id)
     print("\n".join((
@@ -569,7 +579,7 @@ def cmd_send(args: argparse.Namespace) -> None:
             fail("cannot send a peer message to a reviewed lane")
         if len(run["messages"]) >= run["message_limit"]:
             fail(f"message limit {run['message_limit']} reached; archive or complete the run before adding more")
-        reference = canonical_reference(args.reference, require_workspace(sender)) if args.reference else ""
+        reference = canonical_reference(args.reference, reference_roots(run, sender)) if args.reference else ""
         key = args.event_id or event_id(args.run, "message", args.to_lane, args.message)
         run["messages"].append({"id": key, "at": now(), "from": args.from_lane, "to": args.to_lane,
                                 "agent": args.agent, "kind": args.kind, "message": args.message,
