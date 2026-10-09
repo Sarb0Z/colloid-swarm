@@ -95,5 +95,6 @@ export async function generateMetadata({ params }) {
 |--------------|---------------|-----|
 | `force-dynamic` on sitemap routes | Uncached DB query on every crawler hit; crawlers hit sitemaps constantly | ISR with revalidate 3600+ |
 | Sitemap listed in the index without a live route/rewrite | Silent 404 wastes crawl budget and erodes crawler trust in the index | Enforce TS-02 in CI or via the quick-audit script |
+| `robots.txt` or `sitemap.xml` kept outside the directory the build publishes (`public/` for Vite, Next.js, and most bundlers) | A single-page app's catch-all answers the path `200` with its index page, so crawlers get HTML and the site looks fine to a status-only check | Keep the file in the published directory; TS-21 and TS-01 fail a live answer that is HTML |
 | Robots-blocking URL sets that the sitemap submits | Contradictory crawl signals; pages may index URL-only with no snippet | Make it a documented decision or fix whichever side is wrong |
 | Hardcoded year/month in titles | Goes stale and then signals neglect | Compute freshness at render/revalidate time |
