@@ -9,7 +9,7 @@ The machinery that turns organic visitors into recorded leads. Audit for capture
 - Conversion element checks (LC-16 to LC-25)
 - Lead magnet and list checks (LC-26 to LC-32)
 - Mailing checks (LC-33 to LC-35)
-- Claim and CTA integrity checks (LC-36 to LC-40)
+- Claim and CTA integrity checks (LC-36 to LC-41)
 - Reference: landing-page order in shipped products
 - Adaptable pattern: partial lead capture
 - Anti-patterns
@@ -64,7 +64,7 @@ The machinery that turns organic visitors into recorded leads. Audit for capture
 | LC-29 | The signup endpoint reveals nothing and absorbs abuse: the same response for new and already-listed addresses; a filled honeypot returns success and writes nothing; a global rate limit on top of per-IP limits; raw addresses kept out of logs; an insert-only database login; any return-to parameter accepted only as a same-site path | Read the handler and its logging; probe a duplicate address and a `//other-host` return path |
 | LC-30 | A failed lead write raises an alert | A digest that counts stored rows reads a failing insert as no demand |
 | LC-31 | A public lookup or calculator that triggers a paid vendor call is rate-limited per IP, checks coverage before calling, and returns only what the page needs | Trace the handler to the vendor call |
-| LC-32 | An eligibility or coverage dead end ("not available in your area yet") captures the visitor into a waitlist with the reason and the page it came from, rather than ending the funnel | Walk each refusal path |
+| LC-32 | An eligibility or coverage dead end ("not available in your area yet") captures the visitor into a waitlist with the reason and the page it came from, rather than ending the funnel. Refusals are told apart by cause: "not available here" only when ineligibility is confirmed, and a missing, expired, or unreadable input gets a page saying what to fix; each refusal is logged with its reason so the funnel can count them | Walk each refusal path with a confirmed-ineligible input and with a malformed one |
 
 ## Mailing checks
 
@@ -83,6 +83,7 @@ The machinery that turns organic visitors into recorded leads. Audit for capture
 | LC-38 | Plan, price, and free-tier claims match the store listing and the product (see GE-09) | Compare the pricing and FAQ copy with the listing and the in-app purchases |
 | LC-39 | A deploy check blocks placeholder copy (`[Hero headline — …]`, lorem ipsum, template slogans) from shipping | The deploy script or CI; grep the built pages |
 | LC-40 | Pages an app store requires (privacy policy, account deletion, support) are reachable on the web, match the URLs in the listing, are named for what they contain, and are indexed or `noindex` by decision | Fetch each URL from the listing |
+| LC-41 | Every claim about where or whom the product serves — the trust line, testimonials, FAQ answers, `areaServed` in structured data, meta descriptions — matches the markets it serves today, and eligibility is enforced on the server, not only in the copy | After any change to the served markets, grep pages, schema, and sitemap for the regions that were dropped |
 
 ## Reference: landing-page order in shipped products
 
