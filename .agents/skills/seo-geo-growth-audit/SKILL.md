@@ -47,6 +47,8 @@ Audit progress:
 
 **Step 0 — Fingerprint.** Identify framework and router, rendering model (SSG/ISR/SSR), hosting/CDN (this determines where redirects and bot rules live), and the production BASE_URL (ask the user if not obvious). Then search the repo for existing SEO documentation (`grep -ril "seo\|checklist" --include="*.md" .`) — read anything found and defer to page-type-specific rules.
 
+Then settle two things before scoring anything. **Purpose:** is this a public site that wants to be found, a private app, or a mixed product with a public front? For a private surface the audit's job is to confirm it stays out of the index (TS-34) and that crawler files still serve; mark the growth layers not applicable rather than failing them. **Serving platform:** identify it from live response headers (`server`, `via`, platform request-ID headers), not from config files — a `vercel.json` or `_headers` file in a repository served by something else is dead evidence, and every redirect, header, and rewrite claim must be re-tested live.
+
 **Step 1 — Baseline.** Run:
 
 ```bash
@@ -62,7 +64,7 @@ Capture the output — its `[FAIL]`/`[WARN]` lines with check IDs are your first
 | 2 | Technical SEO | Can crawlers find, fetch, and index the right URLs? | [references/technical-seo.md](references/technical-seo.md) | Never |
 | 3 | Structured data | Do machines get accurate entity/content markup? | [references/structured-data.md](references/structured-data.md) | Never |
 | 4 | GEO | Will AI engines discover and cite this site correctly? | [references/geo.md](references/geo.md) | Never |
-| 5 | Performance | Do CWV meet targets, and is anyone measuring them? | [references/performance.md](references/performance.md) | Never |
+| 5 | Performance | Do CWV meet targets, and is anyone measuring them? | [references/performance.md](references/performance.md) | Never; for a blank or stalled page, use the `page-load-audit` skill where the repository carries it |
 | 6 | Analytics | Does measurement fire, and does attribution survive to the CRM? | [references/analytics-attribution.md](references/analytics-attribution.md) | Site has no conversion goal |
 | 7a | Content systems | Do engines produce, refresh, and interlink credible content? | [references/content-systems.md](references/content-systems.md) | Pure product/app site with no content play |
 | 7b | Programmatic SEO | Are combination pages worth indexing — and actually live? | [references/pseo.md](references/pseo.md) | No repeatable location/category combinations |
@@ -79,9 +81,9 @@ Capture the output — its `[FAIL]`/`[WARN]` lines with check IDs are your first
 Assign every finding one tier by criteria, not by category:
 
 - **P0 — blocks indexing or measurement entirely.** Fix immediately. Examples: missing/broken robots.txt or sitemap; site-wide noindex mistakes; no HTTPS; analytics not firing at all; lead form not persisting leads; soft-404s on real pages.
-- **P1 — indexed but underperforming.** Fix this sprint. Examples: no structured data on key templates; missing OG images; LCP > 4s; zero funnel events behind a loaded analytics vendor; thin pages indexed without quality gates; no llms.txt.
+- **P1 — indexed but underperforming.** Fix this sprint. Examples: no structured data on key templates; missing or unresolvable OG images; LCP > 4s; zero funnel events behind a loaded analytics vendor; thin pages indexed without quality gates; client-rendered public routes that serve one shared title and canonical.
 - **P2 — compounding growth infrastructure.** Fix this quarter. Examples: no content freshness pipeline; no RUM/CWV monitoring; attribution not persisted to the datastore; missing PSEO layer where combinations exist; no partial-lead capture.
-- **P3 — marginal or speculative.** Backlog. Examples: llms-full.txt; dynamic OG image generation; server-side tag manager; voice-search markup.
+- **P3 — marginal or speculative.** Backlog. Examples: llms.txt and llms-full.txt (Google Search ignores them; useful only for other consumers); dynamic OG image generation; server-side tag manager.
 
 ## Report template
 
@@ -120,24 +122,25 @@ Stack: <framework/router/CDN> | Base URL: <url> | Quick-audit: <PASS/FAIL/WARN c
 
 | File | Covers | Load when |
 |------|--------|-----------|
-| [references/technical-seo.md](references/technical-seo.md) | Sitemaps, metadata, canonicals, robots, URL hygiene (TS-*) | Pass 2, always |
-| [references/structured-data.md](references/structured-data.md) | JSON-LD types, quality rules, injection (SD-*) | Pass 3, always |
-| [references/geo.md](references/geo.md) | llms.txt, AI-crawler policy, entity signals (GE-*) | Pass 4, always |
-| [references/performance.md](references/performance.md) | CWV targets, build/rendering, RUM (PF-*) | Pass 5, always |
-| [references/analytics-attribution.md](references/analytics-attribution.md) | Tag loading, events, UTM, lead data model (AA-*) | Pass 6, if conversions matter |
+| [references/technical-seo.md](references/technical-seo.md) | Sitemaps, metadata, canonicals, robots, URL hygiene, client rendering, private surfaces, companion-app files (TS-*) | Pass 2, always |
+| [references/structured-data.md](references/structured-data.md) | JSON-LD types, retired rich results, quality rules, injection (SD-*) | Pass 3, always |
+| [references/geo.md](references/geo.md) | Crawler classes and AI-feature controls, llms.txt, entity signals, AI-visibility measurement (GE-*) | Pass 4, always |
+| [references/performance.md](references/performance.md) | CWV targets, build/rendering, RUM, third-party and asset weight (PF-*) | Pass 5, always |
+| [references/analytics-attribution.md](references/analytics-attribution.md) | Tag loading, events, UTM, lead data model, conversion integrity (AA-*) | Pass 6, if conversions matter |
 | [references/content-systems.md](references/content-systems.md) | Content engines, freshness, E-E-A-T (CS-*) | Pass 7a, if content play exists |
 | [references/pseo.md](references/pseo.md) | Programmatic pages, quality gates, kill-switches (PS-*) | Pass 7b, only if combination pages apply |
-| [references/leads-conversion.md](references/leads-conversion.md) | Forms, capture, abuse protection, CTAs (LC-*) | Pass 7c, if lead capture exists |
+| [references/leads-conversion.md](references/leads-conversion.md) | Forms, capture, abuse protection, list and mailing hygiene, claim and CTA integrity (LC-*) | Pass 7c, if lead capture exists |
 
 ## Verify fixes
 
 A finding closes only when live behavior changes:
 
 1. Re-run the relevant quick-audit section (or the specific `curl`) and confirm the check flips.
-2. Structured-data fixes: validate the rendered page in the Google Rich Results test.
+2. Structured-data fixes: validate the rendered page in Google's Rich Results Test for types Google supports, and in validator.schema.org for the rest.
 3. Indexation fixes: confirm the directive in the live HTML/headers, then request reindexing in Search Console.
 4. Performance fixes: re-measure (PageSpeed Insights) — lab first, watch field data over the following weeks.
-5. Append each closure to the report's verification log with evidence.
+5. AI-visibility fixes: watch Search Console's generative AI performance report and Bing Webmaster Tools' AI Performance report over the following weeks (GE-16).
+6. Append each closure to the report's verification log with evidence.
 
 ## Scope boundaries
 
