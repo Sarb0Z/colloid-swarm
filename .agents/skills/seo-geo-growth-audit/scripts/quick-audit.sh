@@ -4,7 +4,7 @@
 # Static checks always run; live checks run only when BASE_URL is reachable.
 # Exit 0 when the audit ran (findings never change the exit code); 2 on usage errors.
 set -u
-LC_ALL=C
+export LC_ALL=C
 
 REPO_DIR="."
 BASE_URL="${BASE_URL:-}"
@@ -56,12 +56,12 @@ fetch_doc() {
 head_doc() {
   local out u="$1"; shift
   out=$(curl -sS -o /dev/null -I -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 "
-  case "${out%% *}" in 405|501) out=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 ";; esac
+  case "${out%% *}" in 2??) ;; *) out=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 ";; esac
   DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
 }
 html_type() { case "$(printf '%s' "$DOC_TYPE" | tr 'A-Z' 'a-z')" in text/html*|application/xhtml*) return 0;; esac; return 1; }
-is_html() { # on the last fetch_doc: an HTML content type, or a body that opens as an HTML document
-  html_type && return 0
+is_html() { html_type || body_is_html; }  # on the last fetch_doc
+body_is_html() { # on the last fetch_doc: the body opens as an HTML document
   local head
   head=$(printf '%s' "${DOC_BODY:0:512}" | sed $'1s/^\xef\xbb\xbf//' | tr -d ' \t\r\n' | tr 'A-Z' 'a-z')
   case "$head" in '<!doctypehtml'*|'<html>'*|'<html'[a-z]*'='*) return 0;; esac
@@ -73,10 +73,11 @@ live_file() {
   fetch_doc "$BASE_URL$1"
   if [ "$DOC_CODE" != 200 ]; then emit "$st" "$2" "live $1 -> $DOC_CODE"; return 1; fi
   if [ -z "$DOC_BODY" ]; then emit "$st" "$2" "live $1 -> 200 with an empty body"; return 1; fi
-  if is_html; then emit "$st" "$2" "live $1 answers with an HTML page (${DOC_TYPE:-no content-type}) - a catch-all route is serving it, so the file is not deployed"; return 1; fi
+  if body_is_html; then emit "$st" "$2" "live $1 answers with an HTML page (${DOC_TYPE:-no content-type}) - a catch-all route is serving it, so the file is not deployed"; return 1; fi
+  if html_type; then emit WARN "$2" "live $1 serves file content labelled ${DOC_TYPE} - fix the content type; some crawlers reject it"; fi
 }
 srcfind() { # srcfind FIND-PREDICATES... -> files outside build output, deps, and agent tooling
-  find "$REPO_DIR" -mindepth 1 \( -name node_modules -o -name .git -o -name .next -o -name dist -o -name build -o -name out -o -name .nuxt \
+  find -H "$REPO_DIR" -mindepth 1 \( -name node_modules -o -name .git -o -name .next -o -name dist -o -name build -o -name out -o -name .nuxt \
     -o -name .svelte-kit -o -name vendor -o -name .agents -o -name .claude -o -name .kimi-code -o -name .cursor \) -prune \
     -o -type f \( "$@" \) -print 2>/dev/null
 }
@@ -111,7 +112,8 @@ shipped() { awk '{ p = "/" $0 } index(p, "/public/") || index(p, "/static/")'; }
 unshipped() { awk '{ p = "/" $0 } !index(p, "/public/") && !index(p, "/static/")'; }
 # TS-21 robots source
 ROBOTS_SHIPPED=$(srcfind -name robots.txt | rel | shipped | head -1)
-ROBOTS_ROUTE=$(srcfind -name 'robots.*' ! -name '*.txt' | rel | head -1)
+ROUTE_EXT='\.(js|jsx|ts|tsx|mjs|cjs|php|rb|py)$'
+ROBOTS_ROUTE=$(srcfind -name 'robots.*' ! -name '*.txt' | rel | grep -E "(^|/)robots$ROUTE_EXT" | head -1)
 ROBOTS_STRAY=$(srcfind -name robots.txt | rel | unshipped | head -1)
 if [ -n "$ROBOTS_SHIPPED" ]; then emit PASS TS-21 "robots source found ($ROBOTS_SHIPPED)"
 elif [ -n "$ROBOTS_ROUTE" ]; then emit PASS TS-21 "robots route found ($ROBOTS_ROUTE)"
@@ -121,7 +123,8 @@ elif [ -n "$ROBOTS_STRAY" ]; then emit PASS TS-21 "robots source found ($ROBOTS_
 else emit FAIL TS-21 "no robots.txt file or robots route found"; fi
 # TS-01/TS-03 sitemap sources + orphan heuristic
 SM_STATIC=$(srcfind -name '*sitemap*.xml' | rel | shipped | wc -l | tr -d ' ')
-SM_ROUTES=$(srcfind -path '*sitemap*route.*' -o -name 'sitemap.*' ! -name '*.xml' | wc -l | tr -d ' ')
+SM_ROUTES=$(srcfind -path '*sitemap*route.*' -o -name 'sitemap.*' ! -name '*.xml' | rel \
+  | grep -E "((^|/)sitemap(\.xml)?|sitemap[^/]*/route)$ROUTE_EXT" | grep -cvE '\.(test|spec)\.' || true)
 SM_STRAY=$(srcfind -name '*sitemap*.xml' | rel | unshipped | head -3 | tr '\n' ' ')
 if [ "$SM_STATIC" -gt 0 ] || [ "$SM_ROUTES" -gt 0 ]; then
   emit PASS TS-01 "sitemap sources: $SM_STATIC static file(s), $SM_ROUTES route file(s)"
@@ -220,12 +223,10 @@ else
   if live_file /robots.txt TS-21; then
     ROBOTS=$DOC_BODY
     emit PASS TS-21 "live robots.txt ($(printf '%s' "$ROBOTS" | grep -c 'Sitemap:') Sitemap directive(s))"
-    # Robots-honouring training and search-index tokens (references/geo.md, crawler classes).
-    # A group naming the token beats `*`; stacked User-agent lines share one group.
-    AIRPT=""
-    for t in GPTBot OAI-SearchBot ClaudeBot Claude-SearchBot PerplexityBot Google-Extended Applebot Applebot-Extended \
-             Meta-ExternalAgent Meta-WebIndexer Amazonbot Amzn-SearchBot MistralAI-Training MistralAI-Index DuckAssistBot CCBot; do
-      v=$(printf '%s\n' "$ROBOTS" | tr -d '\r' | sed $'1s/^\xef\xbb\xbf//' | awk -v ua="$t" '
+    # robots_verdict TOKEN -> explicit-block | explicit-allow | wildcard-block | unspecified, read as a
+    # crawler reads robots.txt: a group naming the token beats `*`; stacked User-agent lines share one group.
+    robots_verdict() {
+      printf '%s\n' "$ROBOTS" | tr -d '\r' | sed $'1s/^\xef\xbb\xbf//' | awk -v ua="$1" '
         BEGIN { ua = tolower(ua) }
         { line = $0; sub(/#.*/, "", line); low = tolower(line) }
         low ~ /^[ \t]*user-agent[ \t]*:/ {
@@ -249,9 +250,17 @@ else
           if (named) print ((nblock && !nallow) ? "explicit-block" : "explicit-allow")
           else if (wild && wblock && !wallow) print "wildcard-block"
           else print "unspecified"
-        }')
+        }'
+    }
+    # Robots-honouring training and search-index tokens (references/geo.md, crawler classes).
+    # A group naming the token beats `*`; stacked User-agent lines share one group.
+    AIRPT=""
+    for t in GPTBot OAI-SearchBot ClaudeBot Claude-SearchBot PerplexityBot Google-Extended Applebot Applebot-Extended \
+             Meta-ExternalAgent Meta-WebIndexer Amazonbot Amzn-SearchBot MistralAI-Training MistralAI-Index DuckAssistBot CCBot; do
+      v=$(robots_verdict "$t")
       AIRPT="$AIRPT $t=$v"
     done
+    [ "$(robots_verdict '*')" = explicit-block ] && emit WARN TS-21 "the * group disallows / - Googlebot and every crawler without its own group are blocked; right only for a private surface"
     SIGNAL=$(printf '%s\n' "$ROBOTS" | tr -d '\r' | grep -iE '^[[:space:]]*content-signal[[:space:]]*:' | head -1 | sed -E 's/^[[:space:]]*//')
     case "$AIRPT" in
       *unspecified*) emit WARN GE-04 "AI crawler policy:$AIRPT${SIGNAL:+ | $SIGNAL} (unspecified = default, not a decision)";;
@@ -262,7 +271,7 @@ else
   if live_file /sitemap.xml TS-01; then
     SM=$DOC_BODY
     LOCS=$(printf '%s' "$SM" | tr -d '\n\r' | sed -e 's/<!\[CDATA\[//g' -e 's/\]\]>//g' \
-      | grep -oE '<([A-Za-z0-9]+:)?loc>[^<]+</([A-Za-z0-9]+:)?loc>' | sed -E 's/<[^>]*>//g' | tr -d ' \t')
+      | grep -oE '<([A-Za-z0-9]+:)?loc>[^<]+</([A-Za-z0-9]+:)?loc>' | grep -vE '^<(image|video|news|xhtml):' | sed -E 's/<[^>]*>//g' | tr -d ' \t')
     NLOC=$(printf '%s\n' "$LOCS" | grep -c . || true)
     if ! printf '%s' "$SM" | grep -qE '<([A-Za-z0-9]+:)?(sitemapindex|urlset)'; then
       emit FAIL TS-01 "live /sitemap.xml holds neither <urlset> nor <sitemapindex>"
@@ -301,7 +310,8 @@ else
   HP=$(curl -sS -L --max-time "$TIMEOUT" -A "$UA" -w '\n%{http_code} %{url_effective}' "$BASE_URL/" 2>/dev/null) || HP=$'\n000 '"$BASE_URL/"
   HP_END=${HP##*$'\n'}; HP=$(printf '%s' "${HP%$'\n'*}" | tr -d '\n\r')
   if [ "${HP_END%% *}" != 200 ]; then emit WARN TS-13 "homepage probe ended at ${HP_END#* } with ${HP_END%% *} - the head checks below read that response"
-  else case "${HP_END#* }" in *login*|*signin*|*sign-in*|*/auth*|*challenge*) emit WARN TS-13 "homepage probe ended at ${HP_END#* } - the head checks below read that page, not the homepage";; esac; fi
+  else HP_PATH=${HP_END#* }; HP_PATH=${HP_PATH#*://}; case "$HP_PATH" in */*) HP_PATH=/${HP_PATH#*/};; *) HP_PATH=/;; esac
+    case "$HP_PATH" in *login*|*signin*|*sign-in*|/auth|/auth/*|*challenge*) emit WARN TS-13 "homepage probe ended at ${HP_END#* } - the head checks below read that page, not the homepage";; esac; fi
   TITLE=$(printf '%s' "$HP" | grep -oE '<title[^>]*>[^<]*' | head -1 | sed 's/<title[^>]*>//')
   [ -n "$TITLE" ] && emit PASS TS-13 "homepage <title> (${#TITLE} chars): ${TITLE:0:80}" || emit FAIL TS-13 "homepage missing <title>"
   printf '%s' "$HP" | grep -q 'name="description"' && emit PASS TS-13 "meta description present" || emit FAIL TS-13 "homepage missing meta description"

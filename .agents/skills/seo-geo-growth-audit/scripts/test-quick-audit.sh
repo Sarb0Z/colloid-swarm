@@ -5,8 +5,7 @@
 # site that serves none of them.
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-audit="$repo/.agents/skills/seo-geo-growth-audit/scripts/quick-audit.sh"
+audit="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/quick-audit.sh"
 scratch="$(mktemp -d)"
 server_pid=""
 stop_server() { [ -z "$server_pid" ] || { kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; server_pid=""; }; }
@@ -53,7 +52,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "/": page(b'<meta property="og:image" content="/og.png"><link rel="describedby" href="/llms.txt">'),
                 "/og.png": PNG,
                 "/robots.txt": (TEXT, b"User-agent: *\nAllow: /\nSitemap: " + base.encode() + b"/sitemap.xml\n"),
-                "/sitemap.xml": ("application/xml", URLSET % (b"<url><loc>%s/</loc></url><url><loc>%s/faq</loc></url>" % (base.encode(), base.encode()))),
+                "/sitemap.xml": ("application/xml", URLSET % (b"<url><loc>%s/</loc><image:image><image:loc>%s/a.png</image:loc></image:image></url><url><loc>%s/faq</loc></url>" % (base.encode(), base.encode(), base.encode()))),
                 "/llms.txt": (TEXT, b"# App\n"),
             }
         elif MODE == "policy":
@@ -71,7 +70,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif MODE == "og-no-head":
             routes = {"/": page(b'<meta property="og:image" content="/og.png">'), "/og.png": PNG}
             if self.command == "HEAD" and self.path == "/og.png":
-                routes["/og.png"] = ("text/plain", b"", 405)
+                routes["/og.png"] = ("text/plain", b"", 403)
+        elif MODE == "typed-html":
+            routes = {"/robots.txt": ("text/html", b"User-agent: *\nAllow: /\n")}
+        elif MODE == "authors":
+            routes = {"/": ("text/plain", b"", 302, {"Location": "/authors"}), "/authors": page(b"")}
         elif MODE == "redirect":
             routes = {"/": ("text/plain", b"", 302, {"Location": "/home"}), "/home": page(b"")}
         elif MODE == "login":
@@ -152,7 +155,7 @@ ok "a catch-all that answers every file path with its index page fails robots, s
 
 serve good; out="$(audit_live)"
 has "$out" "[PASS] TS-21 - live robots.txt (1 Sitemap directive(s))" "real robots.txt"
-has "$out" "[PASS] TS-01 - live urlset sitemap with 2 URLs" "real sitemap"
+has "$out" "[PASS] TS-01 - live urlset sitemap with 2 URLs" "real sitemap; image locs are not page URLs"
 has "$out" "[PASS] GE-01 - live /llms.txt (200" "real llms.txt"
 has "$out" "[PASS] TS-17 - og:image resolves" "real og:image"
 has "$out" "[PASS] GE-02 - rel=describedby points at llms.txt (link element)" "describedby link element"
@@ -177,6 +180,7 @@ serve policy; out="$(audit_live)"
 has "$out" "GPTBot=explicit-block OAI-SearchBot=explicit-allow ClaudeBot=explicit-block" "stacked user-agent group and a named allow"
 has "$out" "PerplexityBot=wildcard-block" "a token with no group of its own falls back to *"
 has "$out" "| Content-Signal: search=yes, ai-train=no" "content signal reported"
+has "$out" "[WARN] TS-21 - the * group disallows /" "a wildcard block of / is called out"
 ok "crawler policy reads stacked groups, falls back to the wildcard group, and reports content signals"
 
 serve policy-edge; out="$(audit_live)"
@@ -192,6 +196,16 @@ for mode in og-protocol-relative og-relative og-entity og-no-head; do
 done
 ok "og:image resolves protocol-relative, relative, entity-encoded, and HEAD-refusing forms"
 
+serve typed-html; out="$(audit_live)"
+has "$out" "[WARN] TS-21 - live /robots.txt serves file content labelled text/html" "real robots.txt with an HTML content type"
+has "$out" "[PASS] TS-21 - live robots.txt" "real robots.txt with an HTML content type still parses"
+lacks "$out" "catch-all route is serving it" "a real file is not reported as the catch-all"
+ok "a real file with the wrong content type warns instead of reading as the catch-all"
+
+serve authors; out="$(audit_live)"
+lacks "$out" "homepage probe ended" "a redirect to /authors is not a login page"
+ok "the login heuristic reads the path, not every URL containing auth"
+
 serve redirect; out="$(audit_live)"
 has "$out" "[PASS] TS-13 - homepage <title> (4 chars): Home" "head checks read the redirect target"
 lacks "$out" "homepage probe ended" "a redirect to a real page raises no probe warning"
@@ -206,7 +220,7 @@ has "$out" "[WARN] GE-02 - llms.txt live but no rel=describedby" "describedby po
 ok "describedby counts only when it points at llms.txt, in a link element or a Link header"
 
 serve quirks; out="$(audit_live)"
-has "$out" "[FAIL] TS-21 - live /robots.txt answers with an HTML page (TEXT/HTML)" "upper-case HTML content type"
+has "$out" "[WARN] TS-21 - live /robots.txt serves file content labelled TEXT/HTML" "upper-case HTML content type on a non-HTML body"
 has "$out" "[PASS] TS-01 - live urlset sitemap with 2 URLs" "prefixed sitemap with CDATA and padded locs"
 has "$out" "[PASS] GE-01 - live /llms.txt (200, text/markdown)" "markdown llms.txt holding an angle-bracket line"
 ok "content types match case-insensitively, prefixed sitemaps parse, and only a leading HTML document counts as HTML"
@@ -238,6 +252,16 @@ out="$("$audit" "$(fixture routed app/robots.ts app/sitemap.ts)")"
 has "$out" "[PASS] TS-21 - robots route found (app/robots.ts)" "robots route"
 has "$out" "[PASS] TS-01 - sitemap sources: 0 static file(s), 1 route file(s)" "sitemap route"
 ok "framework routes pass"
+
+out="$("$audit" "$(fixture decoys public/favicon.ico public/sitemap.xsl public/sitemap.html app/robots.test.ts app/sitemap.test.ts)")"
+has "$out" "[FAIL] TS-21 - no robots.txt file or robots route found" "robots decoys"
+has "$out" "[FAIL] TS-01 - no sitemap files or routes found" "sitemap decoys"
+ok "a sitemap stylesheet, an HTML sitemap page, and test files are not robots or sitemap sources"
+
+ln -s "$scratch/shipped" "$scratch/linked"
+out="$("$audit" "$scratch/linked")"
+has "$out" "[PASS] TS-21 - robots source found (public/robots.txt)" "repository reached through a symlink"
+ok "a repository path that is a symlink is searched"
 
 out="$("$audit" "$(fixture build app/robots.ts app/sitemap.ts)")"
 has "$out" "[PASS] TS-21 - robots route found" "repo directory named build"
