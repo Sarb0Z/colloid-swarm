@@ -1,30 +1,45 @@
 #!/usr/bin/env bash
 # quick-audit.sh — evidence baseline for the seo-geo-growth-audit skill.
-# Usage: quick-audit.sh [REPO_DIR] [BASE_URL] [--max-children N] [--timeout SECS]
-# Static checks always run; live checks run only when BASE_URL is reachable.
+# Usage: quick-audit.sh [REPO_DIR | --no-repo] [BASE_URL] [--sample N] [--max-links N] [--max-children N] [--timeout SECS]
+# Static checks run unless --no-repo; live and sampled-page checks run only when BASE_URL is reachable.
+# --sample N pages from the sitemap (default 40, 0 disables); --max-links N internal links probed (default 60).
 # Exit 0 when the audit ran (findings never change the exit code); 2 on usage errors.
 set -u
 export LC_ALL=C
 
 REPO_DIR="."
+NO_REPO=""
 BASE_URL="${BASE_URL:-}"
 MAX_CHILDREN=100   # index children to verify; caps runtime on huge sitemap indexes
 TIMEOUT=10         # per-request curl timeout in seconds
+SAMPLE_N=40        # sitemap pages fetched and analyzed, homepage included
+MAX_LINKS=60       # internal links probed for TS-40
+MAX_BODY=5242880   # bytes read from any one response body
 UA="seo-geo-growth-audit/2.0 (+quick-audit.sh)"
+HERE=$(cd "$(dirname "$0")" && pwd)
 
-usage() { sed -n '2,5p' "$0"; exit "${1:-0}"; }
+usage() { sed -n '2,6p' "$0"; exit "${1:-0}"; }
+count_arg() { case "${2:-}" in ''|*[!0-9]*) echo "$1 needs a non-negative integer, got '${2:-}'" >&2; usage 2;; esac; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --help|-h) usage 0 ;;
+    --no-repo) NO_REPO=1; shift ;;
     --max-children) MAX_CHILDREN="${2:-100}"; shift 2 ;;
     --timeout) TIMEOUT="${2:-10}"; shift 2 ;;
+    --sample) count_arg "$1" "${2:-}"; SAMPLE_N=$2; shift 2 ;;
+    --max-links) count_arg "$1" "${2:-}"; MAX_LINKS=$2; shift 2 ;;
     http://*|https://*) BASE_URL="${1%/}"; shift ;;
     -*) echo "unknown flag: $1" >&2; usage 2 ;;
     *) REPO_DIR="$1"; shift ;;
   esac
 done
-[ -d "$REPO_DIR" ] || { echo "REPO_DIR not found: $REPO_DIR" >&2; exit 2; }
+[ -n "$NO_REPO" ] || [ -d "$REPO_DIR" ] || { echo "REPO_DIR not found: $REPO_DIR" >&2; exit 2; }
 while [ "$REPO_DIR" != / ] && [ "${REPO_DIR%/}" != "$REPO_DIR" ]; do REPO_DIR=${REPO_DIR%/}; done
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/quick-audit.XXXXXX") || { echo "cannot create a temporary directory" >&2; exit 1; }
+trap 'rm -rf "$WORK"' EXIT
+trap 'exit 1' HUP INT TERM
+PAGES="$WORK/pages"; STOP="$WORK/stop"
+mkdir -p "$PAGES"
 
 P=0; F=0; W=0; S=0; FAILED_IDS=""
 emit() { # emit STATUS ID detail...
@@ -39,25 +54,61 @@ GX=(--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-
 # Code-file whitelist for checks that would false-positive on docs/markdown
 INC=(--include='*.js' --include='*.jsx' --include='*.ts' --include='*.tsx' --include='*.vue' --include='*.svelte' --include='*.astro' --include='*.html' --include='*.php' --include='*.erb' --include='*.py')
 srcgrep() { grep -rE "${GX[@]}" "$@" "$REPO_DIR" 2>/dev/null; }
+# Every request: GET or HEAD only, http(s) only (redirects included), the URL passed as --url and taken
+# literally (-g), so brackets and braces in a sitemap or link URL never expand into extra requests.
+# --compressed: some CDNs send a cached gzip body even when the client never asked for one.
+req() { curl -s -g --compressed --proto =http,https --proto-redir =http,https --max-time "$TIMEOUT" -A "$UA" "$@"; }
+# body CURL-ARGS... -> at most MAX_BODY bytes: --max-filesize refuses a declared larger body, head -c
+# cuts an undeclared one. Returns curl's exit status; a %{stderr} write-out survives the cut.
+body() { req --max-filesize "$MAX_BODY" "$@" | head -c "$MAX_BODY"; return "${PIPESTATUS[0]}"; }
 # curl prints 000 for a failed request through -w itself, so a failure needs no fallback output
-probe()   { curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null; true; }
-probe_head() { local c; c=$(curl -sS -o /dev/null -I -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null)
+probe()   { { body -w '%{stderr}%{http_code}' --url "$1" >/dev/null; } 2>&1; true; }
+probe_head() { local c; c=$(req -o /dev/null -I -w '%{http_code}' --url "$1")
   case "$c" in 405|501) probe "$1";; *) echo "$c";; esac; }
-fetch()   { curl -sS --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null; }
-# fetch_doc URL -> DOC_CODE, DOC_TYPE, DOC_BODY. A single-page app's catch-all
+fetch()   { body --url "$1"; }
+# fetch_doc URL -> DOC_CODE, DOC_TYPE, DOC_BODY, DOC_RC. A single-page app's catch-all
 # answers every path 200 with its index page, so a file check needs all three.
 fetch_doc() {
-  local out
-  out=$(curl -sS --max-time "$TIMEOUT" -A "$UA" -w '\n%{http_code} %{content_type}' "$1" 2>/dev/null) || out=$'\n000 '
-  DOC_BODY=${out%$'\n'*}; out=${out##*$'\n'}
-  DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
+  local meta
+  body -w '%{stderr}%{http_code} %{content_type}' --url "$1" >"$WORK/doc.body" 2>"$WORK/doc.meta"; DOC_RC=$?
+  DOC_BODY=$(cat "$WORK/doc.body"); meta=$(cat "$WORK/doc.meta")
+  [ "$DOC_RC" = 0 ] || meta="000 "
+  DOC_CODE=${meta%% *}; DOC_TYPE=${meta#* }
 }
 # head_doc URL [CURL-OPTS...] -> DOC_CODE, DOC_TYPE without the body
 head_doc() {
   local out u="$1"; shift
-  out=$(curl -sS -o /dev/null -I -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 "
-  case "${out%% *}" in 2??) ;; *) out=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$@" "$u" 2>/dev/null) || out="000 ";; esac
+  out=$(req -o /dev/null -I -w '%{http_code} %{content_type}' "$@" --url "$u") || out="000 "
+  case "${out%% *}" in 2??) ;; *) out=$({ body -w '%{stderr}%{http_code} %{content_type}' "$@" --url "$u" >/dev/null; } 2>&1) || out="000 ";; esac
   DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
+}
+# fetch_page ID URL MODE DIR -> DIR/ID.row: url, curl exit, status, redirects, final URL, content type,
+# redirect target (tab-separated); DIR/ID.hdr holds the response headers.
+#   follow: GET following redirects, body kept in DIR/ID.body   get: GET without following, body kept
+#   head: HEAD without following                                probe: HEAD without following, GET if refused
+# A 429 writes STOP, so callers issue no further requests.
+fetch_page() {
+  local id="$1" u="$2" m="$3" d="$4" rc out=/dev/null
+  local w='%{stderr}%{http_code}\t%{num_redirects}\t%{url_effective}\t%{content_type}\t%{redirect_url}'
+  case "$m" in follow|get) out="$d/$id.body";; esac
+  case "$m" in
+    follow) body -L --max-redirs 5 -D "$d/$id.hdr" -w "$w" --url "$u" >"$out" 2>"$d/$id.meta";;
+    get) body -D "$d/$id.hdr" -w "$w" --url "$u" >"$out" 2>"$d/$id.meta";;
+    head) req -I -o /dev/null -D "$d/$id.hdr" -w "$w" --url "$u" 2>"$d/$id.meta";;
+    probe) req -I -o /dev/null -D "$d/$id.hdr" -w "$w" --url "$u" 2>"$d/$id.meta"
+      case "$(cut -f1 "$d/$id.meta")" in 2??|3??) true;; *) body -D "$d/$id.hdr" -w "$w" --url "$u" >/dev/null 2>"$d/$id.meta";; esac;;
+  esac
+  rc=$?
+  printf '%s\t%s\t%s\n' "$u" "$rc" "$(cat "$d/$id.meta")" >"$d/$id.row"
+  [ "$(cut -f1 "$d/$id.meta")" != 429 ] || printf '%s\n' "$u" >"$STOP"
+}
+row_field() { cut -f"$2" "$1"; }  # row_field ROWFILE N
+# sitemap_locs < XML -> page <loc> values, one per line, CDATA unwrapped and XML entities decoded
+sitemap_locs() {
+  tr -d '\n\r' | sed -e 's/<!\[CDATA\[//g' -e 's/\]\]>//g' \
+    | grep -oE '<([A-Za-z0-9]+:)?loc>[^<]+</([A-Za-z0-9]+:)?loc>' | grep -vE '^<(image|video|news|xhtml):' | sed -E 's/<[^>]*>//g' | tr -d ' \t' \
+    | sed -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&quot;/"/g' -e "s/&apos;/'/g" -e "s/&#0*39;/'/g" -e "s/&#[xX]0*27;/'/g" \
+      -e 's/&#0*38;/\&/g' -e 's/&#[xX]0*26;/\&/g' -e 's/&amp;/\&/g'
 }
 html_type() { case "$(printf '%s' "$DOC_TYPE" | tr 'A-Z' 'a-z')" in text/html*|application/xhtml*) return 0;; esac; return 1; }
 is_html() { html_type || body_is_html; }  # on the last fetch_doc
@@ -71,6 +122,7 @@ body_is_html() { # on the last fetch_doc: the body opens as an HTML document
 live_file() {
   local st="${3:-FAIL}"
   fetch_doc "$BASE_URL$1"
+  if [ "$DOC_RC" = 63 ]; then emit WARN "$2" "live $1 declares a body over the $((MAX_BODY / 1048576)) MB audit cap - not read"; return 1; fi
   if [ "$DOC_CODE" != 200 ]; then emit "$st" "$2" "live $1 -> $DOC_CODE"; return 1; fi
   if [ -z "$DOC_BODY" ]; then emit "$st" "$2" "live $1 -> 200 with an empty body"; return 1; fi
   if body_is_html; then emit "$st" "$2" "live $1 answers with an HTML page (${DOC_TYPE:-no content-type}) - a catch-all route is serving it, so the file is not deployed"; return 1; fi
@@ -82,9 +134,42 @@ srcfind() { # srcfind FIND-PREDICATES... -> files outside build output, deps, an
     -o -type f \( "$@" \) -print 2>/dev/null
 }
 
+# Serving-platform fingerprints (references/technical-seo.md, serving platforms): NAME<tab>header regex.
+# The generator meta joins the headers as a `generator:` line; cf-ray alone only says "behind Cloudflare".
+PLATFORM_PRINTS='Vercel	^(x-vercel-id:|server: *vercel)
+Netlify	^(x-nf-request-id:|server: *netlify)
+Webflow	^(x-wf-page-id:|x-wf-region:|generator: *webflow)
+Shopify	^powered-by: *shopify
+Wix	^(x-wix-request-id:|generator: *wix)
+WordPress.com	^(host-header: *wordpress\.com|generator: *wordpress\.com)
+Squarespace	^server: *squarespace
+Framer	^(server: *framer|generator: *framer)
+Render	^x-render-origin-server:
+Fly.io	^(fly-request-id:|server: *fly/)
+Railway	^server: *railway
+GitHub Pages	^(x-github-request-id:|server: *github\.com)
+WordPress	^generator: *wordpress
+nginx	^server: *nginx
+Apache	^server: *apache'
+# platform_of HEADERS BODY -> PLATFORM name (or unknown) and PLATFORM_EVIDENCE
+platform_of() {
+  local lines gen name re hit
+  gen=$(head -c 65536 "$2" | tr -d '\n\r' | grep -oiE "<meta[^>]+name=[\"']?generator[\"' ][^>]*>" | head -1 \
+    | sed -nE "s/.*content=[\"']([^\"']+)[\"'].*/\\1/p")
+  lines=$(tr -d '\r' <"$1"; [ -z "$gen" ] || printf 'generator: %s\n' "$gen")
+  PLATFORM=unknown; PLATFORM_EVIDENCE=""
+  while IFS='	' read -r name re; do
+    hit=$(grep -iE -m1 "$re" <<<"$lines") || continue
+    PLATFORM=$name; PLATFORM_EVIDENCE=${hit:0:80}; break
+  done <<<"$PLATFORM_PRINTS"
+  grep -qi '^cf-ray:' <<<"$lines" && PLATFORM_EVIDENCE="${PLATFORM_EVIDENCE:+$PLATFORM_EVIDENCE; }behind Cloudflare"
+  : "${PLATFORM_EVIDENCE:=no fingerprint}"
+}
+
 echo "## STACK"
 FRAMEWORK=unknown; ROUTER=none; PKG="$REPO_DIR/package.json"
-if [ -f "$PKG" ]; then
+if [ -n "$NO_REPO" ]; then FRAMEWORK=n/a; ROUTER=n/a
+elif [ -f "$PKG" ]; then
   for f in next nuxt @sveltejs/kit astro @remix-run gatsby vite; do
     grep -q "\"$f" "$PKG" && { FRAMEWORK="$f"; break; }
   done
@@ -99,11 +184,20 @@ if [ "$FRAMEWORK" = next ]; then
   { [ -d "$REPO_DIR/app" ] || [ -d "$REPO_DIR/src/app" ]; } && ROUTER=app
   { [ -d "$REPO_DIR/pages" ] || [ -d "$REPO_DIR/src/pages" ]; } && ROUTER="${ROUTER:+$ROUTER+}pages"
 fi
-CONFIG_FILE=$(ls "$REPO_DIR"/next.config.* "$REPO_DIR"/nuxt.config.* "$REPO_DIR"/astro.config.* "$REPO_DIR"/svelte.config.* "$REPO_DIR"/remix.config.* 2>/dev/null | head -1)
-echo "FRAMEWORK=$FRAMEWORK ROUTER=$ROUTER CONFIG=${CONFIG_FILE:-none} REPO=$REPO_DIR BASE_URL=${BASE_URL:-none}"
+CONFIG_FILE=""
+[ -n "$NO_REPO" ] || CONFIG_FILE=$(ls "$REPO_DIR"/next.config.* "$REPO_DIR"/nuxt.config.* "$REPO_DIR"/astro.config.* "$REPO_DIR"/svelte.config.* "$REPO_DIR"/remix.config.* 2>/dev/null | head -1)
+echo "FRAMEWORK=$FRAMEWORK ROUTER=$ROUTER CONFIG=${CONFIG_FILE:-none} REPO=$([ -n "$NO_REPO" ] && echo n/a || printf '%s' "$REPO_DIR") BASE_URL=${BASE_URL:-none}"
+# One homepage fetch serves the platform fingerprint, the live head checks, and the sample.
+HOME_CODE=000
+if [ -n "$BASE_URL" ]; then
+  fetch_page 0 "$BASE_URL/" follow "$PAGES"
+  HOME_CODE=$(row_field "$PAGES/0.row" 3)
+  if [ "$HOME_CODE" != 000 ]; then platform_of "$PAGES/0.hdr" "$PAGES/0.body"; echo "PLATFORM=$PLATFORM ($PLATFORM_EVIDENCE)"; fi
+fi
 
 echo ""
 echo "## STATIC"
+if [ -n "$NO_REPO" ]; then emit SKIP STATIC "--no-repo: repository checks not run"; else
 # Static files ship from a public/ or static/ directory; a copy anywhere else is
 # invisible to the build. A repository with neither serves its root as is.
 PUB=""; for d in public static; do [ -d "$REPO_DIR/$d" ] && { PUB="$d"; break; }; done
@@ -203,21 +297,22 @@ GSP=$(srcgrep -l 'generateStaticParams' | wc -l | tr -d ' ')
 emit PASS PS-09 "generateStaticParams in $GSP file(s) (0 is fine if no PSEO layer)"
 MW=$(ls "$REPO_DIR"/middleware.* "$REPO_DIR"/src/middleware.* 2>/dev/null | head -1)
 [ -n "$MW" ] && grep -qE 'redirect' "$MW" && emit WARN PS-01 "middleware performs redirects ($MW) - verify no kill-switch is silently disabling shipped surfaces"
+fi
 
 echo ""
 echo "## LIVE"
 if [ -z "$BASE_URL" ]; then
   emit SKIP LIVE "no BASE_URL provided - static checks only"
-elif [ "$(probe "$BASE_URL/")" = 000 ]; then
+elif [ "$HOME_CODE" = 000 ]; then
   emit SKIP LIVE "network unreachable for $BASE_URL - static checks only"
 else
   HOST=${BASE_URL#*://}
   # TS-23 canonical host
   [ "${BASE_URL#https://}" != "$BASE_URL" ] && emit PASS TS-23 "HTTPS base" || emit FAIL TS-23 "BASE_URL is not HTTPS"
-  HTTP_RED=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "http://$HOST/" 2>/dev/null)
+  HTTP_RED=$(probe "http://$HOST/")
   case "$HTTP_RED" in 301|308) emit PASS TS-23 "http -> https redirects ($HTTP_RED)";; 000) emit WARN TS-23 "http variant unreachable";; *) emit WARN TS-23 "http variant returned $HTTP_RED (expect 301/308)";; esac
   case "$HOST" in www.*) ALT="${HOST#www.}";; *) ALT="www.$HOST";; esac
-  ALT_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "https://$ALT/" 2>/dev/null)
+  ALT_CODE=$(probe "https://$ALT/")
   case "$ALT_CODE" in 301|308) emit PASS TS-23 "www/apex variant redirects ($ALT_CODE)";; 200) emit FAIL TS-23 "both $HOST and $ALT serve 200 - duplicate host";; 000) emit WARN TS-23 "alt host $ALT unreachable (may be unconfigured DNS)";; *) emit WARN TS-23 "alt host $ALT returned $ALT_CODE";; esac
   # robots live + GE-04 AI crawler policy
   if live_file /robots.txt TS-21; then
@@ -270,14 +365,13 @@ else
   # TS-01/TS-02 sitemap index + children resolve
   if live_file /sitemap.xml TS-01; then
     SM=$DOC_BODY
-    LOCS=$(printf '%s' "$SM" | tr -d '\n\r' | sed -e 's/<!\[CDATA\[//g' -e 's/\]\]>//g' \
-      | grep -oE '<([A-Za-z0-9]+:)?loc>[^<]+</([A-Za-z0-9]+:)?loc>' | grep -vE '^<(image|video|news|xhtml):' | sed -E 's/<[^>]*>//g' | tr -d ' \t')
+    LOCS=$(printf '%s' "$SM" | sitemap_locs)
     NLOC=$(printf '%s\n' "$LOCS" | grep -c . || true)
-    if ! printf '%s' "$SM" | grep -qE '<([A-Za-z0-9]+:)?(sitemapindex|urlset)'; then
+    if ! grep -qE '<([A-Za-z0-9]+:)?(sitemapindex|urlset)' <<<"$SM"; then
       emit FAIL TS-01 "live /sitemap.xml holds neither <urlset> nor <sitemapindex>"
     elif [ "$NLOC" -eq 0 ]; then
       emit FAIL TS-01 "live /sitemap.xml lists no <loc> entries"
-    elif printf '%s' "$SM" | grep -qE '<([A-Za-z0-9]+:)?sitemapindex'; then
+    elif grep -qE '<([A-Za-z0-9]+:)?sitemapindex' <<<"$SM"; then
       emit PASS TS-01 "live sitemap index with $NLOC children"
       BAD=0; CHECKED=0
       for u in $LOCS; do
@@ -305,17 +399,18 @@ else
   [ "$DOC_CODE" = 200 ] && [ -n "$DOC_BODY" ] && ! is_html && emit PASS GE-03 "/llms-full.txt present (optional)" \
     || emit SKIP GE-03 "/llms-full.txt absent (optional)"
   # Homepage head signals
-  # One fetch, following redirects; every head check below reads the page it ended on, which is
+  # The STACK fetch followed redirects; every head check below reads the page it ended on, which is
   # not the homepage when the probe hit an error, a login, or a bot challenge.
-  HP=$(curl -sS -L --max-time "$TIMEOUT" -A "$UA" -w '\n%{http_code} %{url_effective}' "$BASE_URL/" 2>/dev/null) || HP=$'\n000 '"$BASE_URL/"
-  HP_END=${HP##*$'\n'}; HP=$(printf '%s' "${HP%$'\n'*}" | tr -d '\n\r')
+  if [ "$(row_field "$PAGES/0.row" 2)" = 0 ]; then
+    HP_END="$HOME_CODE $(row_field "$PAGES/0.row" 5)"; HP=$(tr -d '\n\r' <"$PAGES/0.body")
+  else HP_END="000 $BASE_URL/"; HP=""; fi
   if [ "${HP_END%% *}" != 200 ]; then emit WARN TS-13 "homepage probe ended at ${HP_END#* } with ${HP_END%% *} - the head checks below read that response"
   else HP_PATH=${HP_END#* }; HP_PATH=${HP_PATH#*://}; case "$HP_PATH" in */*) HP_PATH=/${HP_PATH#*/};; *) HP_PATH=/;; esac
     case "$HP_PATH" in *login*|*signin*|*sign-in*|/auth|/auth/*|*challenge*) emit WARN TS-13 "homepage probe ended at ${HP_END#* } - the head checks below read that page, not the homepage";; esac; fi
   TITLE=$(printf '%s' "$HP" | grep -oE '<title[^>]*>[^<]*' | head -1 | sed 's/<title[^>]*>//')
   [ -n "$TITLE" ] && emit PASS TS-13 "homepage <title> (${#TITLE} chars): ${TITLE:0:80}" || emit FAIL TS-13 "homepage missing <title>"
-  printf '%s' "$HP" | grep -q 'name="description"' && emit PASS TS-13 "meta description present" || emit FAIL TS-13 "homepage missing meta description"
-  printf '%s' "$HP" | grep -q 'rel="canonical"' && emit PASS TS-14 "homepage canonical present" || emit WARN TS-14 "homepage canonical missing"
+  grep -q 'name="description"' <<<"$HP" && emit PASS TS-13 "meta description present" || emit FAIL TS-13 "homepage missing meta description"
+  grep -q 'rel="canonical"' <<<"$HP" && emit PASS TS-14 "homepage canonical present" || emit WARN TS-14 "homepage canonical missing"
   OG=$(printf '%s' "$HP" | grep -oiE "<meta[^>]+(property|name)=[\"']og:image[\"'][^>]*>" | head -1 \
     | sed -nE "s/.*content=[\"']([^\"']+)[\"'].*/\\1/p" | sed 's/&amp;/\&/g')
   if [ -z "$OG" ]; then emit WARN TS-17 "homepage og:image missing"
@@ -332,13 +427,13 @@ else
       *) emit FAIL TS-17 "og:image $OG -> $DOC_CODE ${DOC_TYPE:-no content-type} - link previews get no image";;
     esac
   fi
-  printf '%s' "$HP" | grep -q 'name="twitter:card"' && emit PASS TS-18 "twitter:card present" || emit WARN TS-18 "twitter:card missing"
+  grep -q 'name="twitter:card"' <<<"$HP" && emit PASS TS-18 "twitter:card present" || emit WARN TS-18 "twitter:card missing"
   NLD=$(printf '%s' "$HP" | grep -o 'application/ld+json' | wc -l | tr -d ' ')
   [ "$NLD" -gt 0 ] && emit PASS SD-01 "homepage renders $NLD JSON-LD block(s)" || emit WARN SD-01 "no JSON-LD in homepage HTML"
   if [ -z "$LLMS_OK" ]; then emit SKIP GE-02 "no llms.txt to point at"
   else
     DESC_TAG=$(printf '%s' "$HP" | grep -oiE '<link[^>]+>' | grep -i 'describedby' | grep -i 'llms\.txt' | head -1)
-    DESC_HDR=$(curl -sS -o /dev/null -D - -L --max-time "$TIMEOUT" -A "$UA" "$BASE_URL/" 2>/dev/null | tr -d '\r' | grep -i '^link:' | grep -i 'describedby' | grep -i 'llms\.txt' | head -1)
+    DESC_HDR=$(tr -d '\r' <"$PAGES/0.hdr" | grep -i '^link:' | grep -i 'describedby' | grep -i 'llms\.txt' | head -1)
     if [ -n "$DESC_TAG$DESC_HDR" ]; then emit PASS GE-02 "rel=describedby points at llms.txt (${DESC_TAG:+link element}${DESC_TAG:+${DESC_HDR:+ and }}${DESC_HDR:+Link header})"
     else emit WARN GE-02 "llms.txt live but no rel=describedby link or Link header points at it"; fi
   fi
@@ -346,6 +441,13 @@ else
   NF=$(probe "$BASE_URL/definitely-missing-page-$$-audit")
   [ "$NF" = 404 ] && emit PASS TS-27 "garbage URL returns 404" || emit FAIL TS-27 "garbage URL returns $NF (soft-404 if 200)"
 fi
+
+. "$HERE/sample.sh"
+echo ""
+echo "## SAMPLE"
+if [ "$SAMPLE_N" -eq 0 ]; then emit SKIP SAMPLE "--sample 0: sampled-page checks not run"
+elif [ -z "$BASE_URL" ] || [ "$HOME_CODE" = 000 ]; then emit SKIP SAMPLE "needs a reachable BASE_URL"
+else sample_section; fi
 
 echo ""
 echo "## SUMMARY"

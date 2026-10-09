@@ -141,7 +141,7 @@ serve() {  # <mode> -> starts the test server; audit_live then runs against it
   for _ in $(seq 50); do [ -s "$scratch/port" ] && break; sleep 0.1; done
   [ -s "$scratch/port" ] || fail "test server for '$1' did not start"
 }
-audit_live() { "$audit" "$empty_repo" "http://127.0.0.1:$(cat "$scratch/port")" --timeout 3; }
+audit_live() { "$BASH" "$audit" "$empty_repo" "http://127.0.0.1:$(cat "$scratch/port")" --timeout 3; }
 has() { [[ "$1" == *"$2"* ]] || fail "$3: expected '$2' in:"$'\n'"$1"; }
 lacks() { [[ "$1" != *"$2"* ]] || fail "$3: unexpected '$2' in:"$'\n'"$1"; }
 
@@ -233,46 +233,49 @@ fixture() {  # <name> <files...> -> fixture repo path holding those files
   printf '%s' "$d"
 }
 
-out="$("$audit" "$(fixture stray public/favicon.ico robots.txt sitemap.xml)")"
+out="$("$BASH" "$audit" "$(fixture stray public/favicon.ico robots.txt sitemap.xml)")"
 has "$out" "[WARN] TS-21 - robots.txt is not under public/" "robots.txt outside public/"
 has "$out" "[WARN] TS-01 - sitemap XML not under public/, the directory the build ships: sitemap.xml -" "sitemap outside public/"
 ok "robots.txt and sitemap.xml beside a public/ directory warn that the build does not ship them"
 
-out="$("$audit" "$(fixture shipped public/robots.txt public/sitemap.xml)")"
+out="$("$BASH" "$audit" "$(fixture shipped public/robots.txt public/sitemap.xml)")"
 has "$out" "[PASS] TS-21 - robots source found (public/robots.txt)" "robots.txt in public/"
 has "$out" "[PASS] TS-01 - sitemap sources: 1 static file(s), 0 route file(s)" "sitemap in public/"
 ok "files in public/ pass"
 
-out="$("$audit" "$(fixture monorepo public/favicon.ico apps/web/public/robots.txt apps/web/public/sitemap.xml)")"
+out="$("$BASH" "$audit" "$(fixture monorepo public/favicon.ico apps/web/public/robots.txt apps/web/public/sitemap.xml)")"
 has "$out" "[PASS] TS-21 - robots source found (apps/web/public/robots.txt)" "robots.txt in a nested public/"
 has "$out" "[PASS] TS-01 - sitemap sources: 1 static file(s)" "sitemap in a nested public/"
 ok "files in an app's own public/ pass in a monorepo"
 
-out="$("$audit" "$(fixture routed app/robots.ts app/sitemap.ts)")"
+out="$("$BASH" "$audit" "$(fixture routed app/robots.ts app/sitemap.ts)")"
 has "$out" "[PASS] TS-21 - robots route found (app/robots.ts)" "robots route"
 has "$out" "[PASS] TS-01 - sitemap sources: 0 static file(s), 1 route file(s)" "sitemap route"
 ok "framework routes pass"
 
-out="$("$audit" "$(fixture decoys public/favicon.ico public/sitemap.xsl public/sitemap.html app/robots.test.ts app/sitemap.test.ts)")"
+out="$("$BASH" "$audit" "$(fixture decoys public/favicon.ico public/sitemap.xsl public/sitemap.html app/robots.test.ts app/sitemap.test.ts)")"
 has "$out" "[FAIL] TS-21 - no robots.txt file or robots route found" "robots decoys"
 has "$out" "[FAIL] TS-01 - no sitemap files or routes found" "sitemap decoys"
 ok "a sitemap stylesheet, an HTML sitemap page, and test files are not robots or sitemap sources"
 
 ln -s "$scratch/shipped" "$scratch/linked"
-out="$("$audit" "$scratch/linked")"
+out="$("$BASH" "$audit" "$scratch/linked")"
 has "$out" "[PASS] TS-21 - robots source found (public/robots.txt)" "repository reached through a symlink"
 ok "a repository path that is a symlink is searched"
 
-out="$("$audit" "$(fixture build app/robots.ts app/sitemap.ts)")"
+out="$("$BASH" "$audit" "$(fixture build app/robots.ts app/sitemap.ts)")"
 has "$out" "[PASS] TS-21 - robots route found" "repo directory named build"
 has "$out" "[PASS] TS-01 - sitemap sources: 0 static file(s), 1 route file(s)" "repo directory named build"
 ok "a repository whose own directory is named like build output is still searched"
 
 root="$(fixture rootserved robots.txt sitemap.xml)"
 for arg in "$root" "$root/" "$root//"; do
-  out="$("$audit" "$arg")"
+  out="$("$BASH" "$audit" "$arg")"
   has "$out" "[PASS] TS-21 - robots source found (robots.txt)" "root-served robots.txt via '$arg'"
   has "$out" "[PASS] TS-01 - sitemap file(s) at the served root: sitemap.xml" "root-served sitemap via '$arg'"
   lacks "$(grep "^\[" <<<"$out")" "$root" "absolute path in a finding via '$arg'"
 done
 ok "with no public directory, files at the root pass, with or without a trailing slash"
+
+# The sampled-page checks carry their own fixture server.
+"$BASH" "$(dirname "${BASH_SOURCE[0]}")/test-sample.sh"
