@@ -24,6 +24,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -d "$REPO_DIR" ] || { echo "REPO_DIR not found: $REPO_DIR" >&2; exit 2; }
+while [ "$REPO_DIR" != / ] && [ "${REPO_DIR%/}" != "$REPO_DIR" ]; do REPO_DIR=${REPO_DIR%/}; done
 
 P=0; F=0; W=0; S=0; FAILED_IDS=""
 emit() { # emit STATUS ID detail...
@@ -42,6 +43,41 @@ probe()   { curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$U
 probe_head() { local c; c=$(curl -sS -o /dev/null -I -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null || echo 000)
   case "$c" in 405|501) probe "$1";; *) echo "$c";; esac; }
 fetch()   { curl -sS --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null; }
+# fetch_doc URL -> DOC_CODE, DOC_TYPE, DOC_BODY. A single-page app's catch-all
+# answers every path 200 with its index page, so a file check needs all three.
+fetch_doc() {
+  local out
+  out=$(curl -sS --max-time "$TIMEOUT" -A "$UA" -w '\n%{http_code} %{content_type}' "$1" 2>/dev/null) || out=$'\n000 '
+  DOC_BODY=${out%$'\n'*}; out=${out##*$'\n'}
+  DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
+}
+# head_doc URL -> DOC_CODE, DOC_TYPE without the body
+head_doc() {
+  local out
+  out=$(curl -sS -o /dev/null -I -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null) || out="000 "
+  case "${out%% *}" in 405|501) out=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time "$TIMEOUT" -A "$UA" "$1" 2>/dev/null) || out="000 ";; esac
+  DOC_CODE=${out%% *}; DOC_TYPE=${out#* }
+}
+html_type() { case "$(printf '%s' "$DOC_TYPE" | tr 'A-Z' 'a-z')" in text/html*|application/xhtml*) return 0;; esac; return 1; }
+is_html() { # on the last fetch_doc: an HTML content type, or a body that opens as an HTML document
+  html_type && return 0
+  local head
+  head=$(printf '%s' "${DOC_BODY:0:512}" | sed $'1s/^\xef\xbb\xbf//' | tr -d ' \t\r\n' | tr 'A-Z' 'a-z')
+  case "$head" in '<!doctypehtml'*|'<html>'*|'<html'[a-z]*'='*) return 0;; esac
+  return 1
+}
+# live_file PATH ID -> 0 when PATH serves a real file; otherwise emits FAIL for ID
+live_file() {
+  fetch_doc "$BASE_URL$1"
+  if [ "$DOC_CODE" != 200 ]; then emit FAIL "$2" "live $1 -> $DOC_CODE"; return 1; fi
+  if [ -z "$DOC_BODY" ]; then emit FAIL "$2" "live $1 -> 200 with an empty body"; return 1; fi
+  if is_html; then emit FAIL "$2" "live $1 answers with an HTML page (${DOC_TYPE:-no content-type}) - a catch-all route is serving it, so the file is not deployed"; return 1; fi
+}
+srcfind() { # srcfind FIND-PREDICATES... -> files outside build output, deps, and agent tooling
+  find "$REPO_DIR" -mindepth 1 \( -name node_modules -o -name .git -o -name .next -o -name dist -o -name build -o -name out -o -name .nuxt \
+    -o -name .svelte-kit -o -name vendor -o -name .agents -o -name .claude -o -name .kimi-code -o -name .cursor \) -prune \
+    -o -type f \( "$@" \) -print 2>/dev/null
+}
 
 echo "## STACK"
 FRAMEWORK=unknown; ROUTER=none; PKG="$REPO_DIR/package.json"
@@ -65,15 +101,31 @@ echo "FRAMEWORK=$FRAMEWORK ROUTER=$ROUTER CONFIG=${CONFIG_FILE:-none} REPO=$REPO
 
 echo ""
 echo "## STATIC"
+# Static files ship from a public/ or static/ directory; a copy anywhere else is
+# invisible to the build. A repository with neither serves its root as is.
+PUB=""; for d in public static; do [ -d "$REPO_DIR/$d" ] && { PUB="$d"; break; }; done
+rel() { awk -v r="$REPO_DIR/" '{ if (index($0, r) == 1) $0 = substr($0, length(r) + 1); print }'; }
+shipped() { awk '{ p = "/" $0 } index(p, "/public/") || index(p, "/static/")'; }
+unshipped() { awk '{ p = "/" $0 } !index(p, "/public/") && !index(p, "/static/")'; }
 # TS-21 robots source
-if [ -f "$REPO_DIR/public/robots.txt" ] || srcgrep -l --include='robots.*' 'robots|Disallow' >/dev/null; then
-  emit PASS TS-21 "robots source found ($(ls "$REPO_DIR/public/robots.txt" 2>/dev/null || srcgrep -l --include='robots.*' 'Disallow|rules' | head -1))"
+ROBOTS_SHIPPED=$(srcfind -name robots.txt | rel | shipped | head -1)
+ROBOTS_ROUTE=$(srcfind -name 'robots.*' ! -name '*.txt' | rel | head -1)
+ROBOTS_STRAY=$(srcfind -name robots.txt | rel | unshipped | head -1)
+if [ -n "$ROBOTS_SHIPPED" ]; then emit PASS TS-21 "robots source found ($ROBOTS_SHIPPED)"
+elif [ -n "$ROBOTS_ROUTE" ]; then emit PASS TS-21 "robots route found ($ROBOTS_ROUTE)"
+elif [ -n "$ROBOTS_STRAY" ] && [ -n "$PUB" ]; then
+  emit WARN TS-21 "$ROBOTS_STRAY is not under $PUB/, the directory the build ships - the live site likely lacks it; verify live"
+elif [ -n "$ROBOTS_STRAY" ]; then emit PASS TS-21 "robots source found ($ROBOTS_STRAY)"
 else emit FAIL TS-21 "no robots.txt file or robots route found"; fi
 # TS-01/TS-03 sitemap sources + orphan heuristic
-SM_STATIC=$(find "$REPO_DIR/public" -maxdepth 1 -name '*sitemap*.xml' 2>/dev/null | wc -l | tr -d ' ')
-SM_ROUTES=$(find "$REPO_DIR" -path '*node_modules*' -prune -o -type f \( -path '*sitemap*route.*' -o -name 'sitemap.*' \) -print 2>/dev/null | grep -vE 'node_modules|\.next|public/' | wc -l | tr -d ' ')
+SM_STATIC=$(srcfind -name '*sitemap*.xml' | rel | shipped | wc -l | tr -d ' ')
+SM_ROUTES=$(srcfind -path '*sitemap*route.*' -o -name 'sitemap.*' ! -name '*.xml' | wc -l | tr -d ' ')
+SM_STRAY=$(srcfind -name '*sitemap*.xml' | rel | unshipped | head -3 | tr '\n' ' ')
 if [ "$SM_STATIC" -gt 0 ] || [ "$SM_ROUTES" -gt 0 ]; then
   emit PASS TS-01 "sitemap sources: $SM_STATIC static file(s), $SM_ROUTES route file(s)"
+elif [ -n "$SM_STRAY" ] && [ -n "$PUB" ]; then
+  emit WARN TS-01 "sitemap XML not under $PUB/, the directory the build ships: ${SM_STRAY% } - the live site likely lacks it; verify live"
+elif [ -n "$SM_STRAY" ]; then emit PASS TS-01 "sitemap file(s) at the served root: ${SM_STRAY% }"
 else emit FAIL TS-01 "no sitemap files or routes found"; fi
 if [ "$FRAMEWORK" = next ] && [ -n "${CONFIG_FILE:-}" ] && [ "$SM_ROUTES" -gt 1 ]; then
   ORPHANS=""
@@ -85,8 +137,9 @@ if [ "$FRAMEWORK" = next ] && [ -n "${CONFIG_FILE:-}" ] && [ "$SM_ROUTES" -gt 1 
                     || emit PASS TS-03 "no orphan sitemap routes detected"
 else emit SKIP TS-03 "orphan heuristic: needs Next.js config + multiple sitemap routes"; fi
 # GE-01 llms.txt static
-[ -f "$REPO_DIR/public/llms.txt" ] && emit PASS GE-01 "public/llms.txt present ($(wc -l < "$REPO_DIR/public/llms.txt" | tr -d ' ') lines)" \
-  || emit WARN GE-01 "no public/llms.txt (may be served by a route; verify live)"
+LLMS="$REPO_DIR/${PUB:+$PUB/}llms.txt"
+[ -f "$LLMS" ] && emit PASS GE-01 "${PUB:+$PUB/}llms.txt present ($(wc -l < "$LLMS" | tr -d ' ') lines)" \
+  || emit WARN GE-01 "no ${PUB:+$PUB/}llms.txt (may be served by a route; verify live)"
 # TS-13 dynamic metadata coverage
 if [ "$FRAMEWORK" = next ]; then
   GM=$(srcgrep -l --include='*.jsx' --include='*.tsx' --include='*.js' --include='*.ts' 'generateMetadata' | wc -l | tr -d ' ')
@@ -162,8 +215,8 @@ else
   ALT_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "https://$ALT/" 2>/dev/null || echo 000)
   case "$ALT_CODE" in 301|308) emit PASS TS-23 "www/apex variant redirects ($ALT_CODE)";; 200) emit FAIL TS-23 "both $HOST and $ALT serve 200 - duplicate host";; 000) emit WARN TS-23 "alt host $ALT unreachable (may be unconfigured DNS)";; *) emit WARN TS-23 "alt host $ALT returned $ALT_CODE";; esac
   # robots live + GE-04 AI crawler policy
-  ROBOTS=$(fetch "$BASE_URL/robots.txt")
-  if [ -n "$ROBOTS" ]; then
+  if live_file /robots.txt TS-21; then
+    ROBOTS=$DOC_BODY
     emit PASS TS-21 "live robots.txt ($(printf '%s' "$ROBOTS" | grep -c 'Sitemap:') Sitemap directive(s))"
     AIRPT=""
     for t in GPTBot ClaudeBot anthropic-ai PerplexityBot Google-Extended CCBot; do
@@ -179,20 +232,26 @@ else
       *unspecified*) emit WARN GE-04 "AI crawler policy:$AIRPT (unspecified = default, not a decision)";;
       *) emit PASS GE-04 "AI crawler policy fully explicit:$AIRPT";;
     esac
-  else emit FAIL TS-21 "no live /robots.txt"; fi
+  fi
   # TS-01/TS-02 sitemap index + children resolve
-  SM=$(fetch "$BASE_URL/sitemap.xml")
-  if [ -z "$SM" ]; then emit FAIL TS-01 "live /sitemap.xml missing or empty"
-  else
-    LOCS=$(printf '%s' "$SM" | tr -d '\n\r' | grep -oE '<loc>[^<]+</loc>' | sed -e 's/<loc>//' -e 's|</loc>||')
+  if live_file /sitemap.xml TS-01; then
+    SM=$DOC_BODY
+    LOCS=$(printf '%s' "$SM" | tr -d '\n\r' | sed -e 's/<!\[CDATA\[//g' -e 's/\]\]>//g' \
+      | grep -oE '<([A-Za-z0-9]+:)?loc>[^<]+</([A-Za-z0-9]+:)?loc>' | sed -E 's/<[^>]*>//g' | tr -d ' \t')
     NLOC=$(printf '%s\n' "$LOCS" | grep -c . || true)
-    if printf '%s' "$SM" | grep -q '<sitemapindex'; then
+    if ! printf '%s' "$SM" | grep -qE '<([A-Za-z0-9]+:)?(sitemapindex|urlset)'; then
+      emit FAIL TS-01 "live /sitemap.xml holds neither <urlset> nor <sitemapindex>"
+    elif [ "$NLOC" -eq 0 ]; then
+      emit FAIL TS-01 "live /sitemap.xml lists no <loc> entries"
+    elif printf '%s' "$SM" | grep -qE '<([A-Za-z0-9]+:)?sitemapindex'; then
       emit PASS TS-01 "live sitemap index with $NLOC children"
       BAD=0; CHECKED=0
       for u in $LOCS; do
         [ "$CHECKED" -ge "$MAX_CHILDREN" ] && break
         CHECKED=$((CHECKED+1))
-        c=$(probe_head "$u"); [ "$c" = 200 ] || { BAD=$((BAD+1)); emit FAIL TS-02 "index child $u -> $c"; }
+        head_doc "$u"
+        if [ "$DOC_CODE" != 200 ]; then BAD=$((BAD+1)); emit FAIL TS-02 "index child $u -> $DOC_CODE"
+        elif html_type; then BAD=$((BAD+1)); emit FAIL TS-02 "index child $u answers with an HTML page - a catch-all route is serving it"; fi
       done
       [ "$BAD" -eq 0 ] && emit PASS TS-02 "all $CHECKED index children resolve 200"
       FIRST=$(printf '%s\n' "$LOCS" | head -1)
@@ -205,9 +264,10 @@ else
     fi
   fi
   # GE-01/GE-03 llms.txt live
-  LLMS_CODE=$(probe "$BASE_URL/llms.txt")
-  [ "$LLMS_CODE" = 200 ] && emit PASS GE-01 "live /llms.txt (200)" || emit FAIL GE-01 "/llms.txt -> $LLMS_CODE"
-  [ "$(probe "$BASE_URL/llms-full.txt")" = 200 ] && emit PASS GE-03 "/llms-full.txt present (optional)" || emit SKIP GE-03 "/llms-full.txt absent (optional)"
+  live_file /llms.txt GE-01 && emit PASS GE-01 "live /llms.txt (200, ${DOC_TYPE:-no content-type})"
+  fetch_doc "$BASE_URL/llms-full.txt"
+  [ "$DOC_CODE" = 200 ] && [ -n "$DOC_BODY" ] && ! is_html && emit PASS GE-03 "/llms-full.txt present (optional)" \
+    || emit SKIP GE-03 "/llms-full.txt absent (optional)"
   # Homepage head signals
   HP=$(fetch "$BASE_URL/" | tr -d '\n\r')
   TITLE=$(printf '%s' "$HP" | grep -oE '<title[^>]*>[^<]*' | head -1 | sed 's/<title[^>]*>//')
