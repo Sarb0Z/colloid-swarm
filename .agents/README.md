@@ -247,6 +247,16 @@ the checkout, and Kimi's `SubagentStart` is observation-only and cannot block
 a start; on both, parallel writers go through `workloop.py`, which provisions
 each lane itself.
 
+`worktree-sessions.sh`, under Claude only, keeps a session that enters a
+worktree under `.claude/worktrees/` — mid-session or with `claude --worktree` —
+listed by `/resume` in the repository root, where Claude Code would otherwise
+file it under the worktree's own folder. It makes that folder in
+`~/.claude/projects/` a symlink to the root's. Because that rearranges a
+person's session store outside the repository, it is opt-in: the toggle is
+`hooks.worktree_sessions.enabled`, default off, and the operator-wide
+registration is in `.agents/claude/README.md`. See decision
+`worktree-sessions-opt-in`.
+
 `workloop-inbox.sh` turns the controller's durable inbox into push: at
 subagent start a cell hears its host agent id and claims its lane with it;
 between tool calls it hears each unread message for that lane once; at every

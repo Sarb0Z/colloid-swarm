@@ -19,9 +19,18 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | `ui-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `files`, `stop_hook_active` |
 | `teardown-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `tool_input`, `stop_hook_active` |
 | `pre-compact.sh` | `project_dir`, `trigger` |
+| `worktree-sessions.sh` | `project_dir`, `event`, `tool_name`, `tool_input`, `cwd` |
 <!-- colloid-only -->
 | `genome-inject.sh` | `project_dir`, `subagent_type` |
 <!-- /colloid-only -->
+
+`worktree-sessions.sh` (Claude only) keeps a session that enters a worktree under `.claude/worktrees/` listed by `/resume` in the repository root. It symlinks the worktree's folder in `~/.claude/projects/` to the root's, which rearranges the operator's session store outside the repository, so it is opt-in: `hooks.worktree_sessions.enabled` defaults off and is read from the session repository. An operator who wants it in every repository adds this command to user settings under PreToolUse and PostToolUse (matcher `EnterWorktree`) and SessionStart, with `<checkout>` the absolute path of a scaffold checkout:
+
+```sh
+[ -x "<checkout>/.agents/hooks/policy/worktree-sessions.sh" ] || { echo "worktree-sessions: no policy at <checkout>" >&2; exit 0; }; WORKTREE_SESSIONS_DEFAULT=true "<checkout>/.claude/hooks/adapter.sh" worktree-sessions.sh; exit 0
+```
+
+The guard keeps a moved or older checkout from reaching the adapter's missing-policy answer, which asks or denies on PreToolUse. A repository that says `false` in `policy.json` or `config.json` still wins, so a `config.json` copied whole from `config.json.example` turns the operator's registration off in that repository; delete the key there to inherit it. `python3 .agents/hooks/lib/worktree-sessions.py sweep --dry-run` lists folders that predate the hook. Never run `claude purge` on a worktree's folder: it follows the symlink to the root's history.
 
 `.claude/output-styles/colloid.md` links to `output-style.md`, and `settings.json` selects it with `outputStyle`. With `keep-coding-instructions: true` it appends to the system prompt of the main conversation without replacing the host's coding instructions; subagents do not receive it. `.agents/codex/config.toml` mirrors the same text as `developer_instructions`, and `test-codex.sh` fails when the two drift. An operator who wants another style sets `outputStyle` in `.claude/settings.local.json`.
 

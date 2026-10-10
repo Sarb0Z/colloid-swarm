@@ -46,6 +46,9 @@
     "genome_inject": {
       "enabled": true
     },
+    "worktree_sessions": {
+      "enabled": false
+    },
     "worktree_provision": {
       "enabled": true,
       "allow_scripts": false,
