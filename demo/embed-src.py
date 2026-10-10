@@ -44,6 +44,7 @@ MANIFEST = {
     "provenance-gate":   ".agents/hooks/policy/provenance-gate.sh",
     "teardown-gate":     ".agents/hooks/policy/teardown-gate.sh",
     "worktree-provision": ".agents/hooks/policy/worktree-provision.sh",
+    "worktree-sessions": ".agents/hooks/policy/worktree-sessions.sh",
     "parallel-writers-gate": ".agents/hooks/policy/parallel-writers-gate.sh",
     "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
     # skills (SKILL.md only)
