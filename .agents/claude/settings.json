@@ -204,6 +204,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main parallel-writers-gate.sh"
           }
         ]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-sessions.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -274,6 +283,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh teardown-gate.sh"
           }
         ]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-sessions.sh"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -322,6 +340,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main session-start.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-sessions.sh"
           }
         ]
       }

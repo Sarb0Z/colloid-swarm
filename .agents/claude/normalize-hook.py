@@ -93,6 +93,13 @@ def normalize(payload, policy, repo):
         # worktree root for an isolated cell, the checkout otherwise.
         out["cwd"] = payload.get("cwd", "")
         out["agent_type"] = payload.get("agent_type", "")
+    elif policy == "worktree-sessions.sh":
+        # cwd is where the session now runs: inside the worktree after
+        # EnterWorktree and at a `claude --worktree` start.
+        out["event"] = payload.get("hook_event_name", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
+        out["cwd"] = payload.get("cwd", "")
     elif policy == "sources-capture.sh":
         agent = payload.get("agent_type")
         out["agent"] = (agent if isinstance(agent, str) else "main").strip() or "main"
