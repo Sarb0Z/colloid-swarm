@@ -76,6 +76,9 @@ jobs:
       - name: Worktree-provision policy
         run: .agents/test-worktree-provision.sh
 
+      - name: Worktree-sessions policy
+        run: .agents/test-worktree-sessions.sh
+
       - name: Parallel-writers gate
         run: .agents/test-parallel-writers.sh
 
