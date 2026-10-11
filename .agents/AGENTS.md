@@ -9,7 +9,7 @@ paths:
 ## Ownership
 
 - `.agents/` is canonical; host paths are static adapters or symlinks. Never edit through a symlink.
-- Runtime ledgers (`.sources-ledger`, `.wrap-state-*`, `.compaction-pending`, `.workloop-state.json`) are gitignored state.
+- Runtime ledgers (`.sources-ledger`, `.wrap-state-*`, `.wrap-edits-*`, `.wrap-commits-*`, `.compaction-pending`, `.workloop-state.json`) and the in-tree `worklog/` are gitignored state.
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
