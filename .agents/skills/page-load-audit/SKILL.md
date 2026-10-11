@@ -19,15 +19,15 @@ description: >
 
 # Page load audit
 
-A page that will not load is three faults wearing one symptom. This skill separates them, proves which one is live, fixes what the repository controls, and hands the operator the exact steps for what it does not.
+A page that will not load is three faults wearing one symptom, and the report that arrives names only the symptom — down, blank, slow — in the words of someone who cannot see the network. This skill separates the three, proves which one is live, fixes what the repository controls, and hands the operator the exact steps for what it does not.
 
-The method generalises; the evidence does not. Worked numbers from one system live in [`references/worked-example.md`](references/worked-example.md), and the probe scripts in [`references/probes.md`](references/probes.md).
+The method generalises; the evidence does not, and one system's byte counts in this file would date it the week they were measured. Worked numbers from one system live in [`references/worked-example.md`](references/worked-example.md), and the probe scripts in [`references/probes.md`](references/probes.md).
 
 The skill fits a report that the site is down, blank, or slow for some users and not others; a CDN in front of the origin while assets still travel the whole way; an entry bundle that makes first paint late; and errors in production that nothing reports. Do not use it for backend latency under load; that is `scalability-audit`.
 
 ## §1 Triage: read the symptom before touching anything
 
-**Three states, three causes.** Settle which one is live from the evidence, not from the wording of the report.
+**Three states, three causes.** Settle which one is live from the evidence, not from the wording of the report: a user who sees white says the site is down, and a fix aimed at the network leaves the stalled render-blocking resource exactly where it was.
 
 | What the user sees | What it means | Where to look |
 | --- | --- | --- |
@@ -37,16 +37,16 @@ The skill fits a report that the site is down, blank, or slow for some users and
 
 The padlock is the tell. TLS completed and a document was served, so the network path works; something after the HTML gates the app — a render-blocking resource that never settles, or a script that never finishes downloading.
 
-**Prove what is alive** with read-only probes before forming a hypothesis:
+**Prove what is alive** with read-only probes before forming a hypothesis; a hypothesis formed first chooses its own probes, and they agree with it.
 
 - The root document: status, `cache-control`, the CDN cache header.
 - One hashed asset the document references: status, cache headers, ETag.
 - One authenticated API route: a `401` proves the backend and its auth middleware are both running, and a `404` on GET from a POST-only route is proof of life too.
 - The health route: inspect whether it returns the app's HTML. A single-page app served with a catch-all (`try_files … /index.html`) answers `200` for a dead backend, and an uptime monitor pointed there measures the web server, not the API.
 
-**Prove the deployed build is the current one.** Take a string the newest commit introduced and grep the live bundle for it. Staleness is a cheaper explanation than a defect, so eliminate it first.
+**Prove the deployed build is the current one.** Take a string the newest commit introduced and grep the live bundle for it. Staleness is a cheaper explanation than a defect, so eliminate it first: the fault being hunted in the repository may already be fixed there and simply not be live.
 
-**Read analytics with the survivorship caveat.** Core Web Vitals and similar beacons fire after the page paints; a user looking at a blank page never fires one, so the affected cohort is invisible in those charts by construction. Look instead at visits diverging from page views — sessions failing to start while those that start behave normally — and at the P99 tail, not the median.
+**Read analytics with the survivorship caveat.** Core Web Vitals and similar beacons fire after the page paints; a user looking at a blank page never fires one, so the affected cohort is invisible in those charts by construction. Look instead at visits diverging from page views — sessions failing to start while those that start behave normally — and at the P99 tail, not the median. The chart looks healthy because the broken sessions never reached it.
 
 ## §2 Render-blocking third parties
 
@@ -54,7 +54,7 @@ Two things alone gate first paint and the deferred module script: parser-inserte
 
 **Detection question:** does any render-blocking chain leave the origin? `grep -oE 'https?://[^"'\''() ]+' <served-stylesheet>` answers it in one line. Sweep the served scripts next for code fetched from another origin at run time — a dynamic `import()` of a CDN URL, a module worker loaded from one. Those do not block first paint, but the feature behind them hangs the same way, and a module script served with the wrong MIME type is refused outright. After correcting a content type or cache header on a hashed or long-cached asset, change its URL as well (a new hash or a version query): browsers that cached the bad response keep serving it from cache.
 
-**The decisive experiment.** Refusal and hang are different faults with different symptoms, and only the experiment tells them apart:
+**The decisive experiment.** Refusal and hang are different faults with different symptoms — one costs a typeface, the other the whole page — and only the experiment tells them apart:
 
 | Condition | Simulate with | Predicts |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Two things alone gate first paint and the deferred module script: parser-inserte
 | Host **hangs** | intercept and never resolve | **Page never renders; root stays empty** |
 | Host answers late | delay by N seconds, then continue | Blank for N seconds, then renders |
 
-A network that filters silently drops packets, and that is a hang, not a refusal. Run the experiment in the engine of the reported browser; sample the DOM on a timer — root child count, visible text length, stylesheet count, computed body background — rather than waiting on load events that never fire; and screenshot with a short timeout, because `screenshot()` itself waits on the still-loading page. The script is in [`references/probes.md`](references/probes.md).
+A network that filters silently drops packets, and that is a hang, not a refusal — which is how the user behind the filter sees white while the developer whose request is refused sees a slightly wrong font and calls the site fine. Run the experiment in the engine of the reported browser; sample the DOM on a timer — root child count, visible text length, stylesheet count, computed body background — rather than waiting on load events that never fire; and screenshot with a short timeout, because `screenshot()` itself waits on the still-loading page. The script is in [`references/probes.md`](references/probes.md).
 
 **Find the cache that hides it.** Read `cache-control` on the third-party resource. A short private lifetime makes every browser re-fetch on a schedule, so the fault looks intermittent and per-user, and "clear your cache" guarantees the failing request; say so before that advice goes out.
 
@@ -78,7 +78,7 @@ When every asset's cache header reads `BYPASS` or `MISS` (`cf-cache-status`, `x-
 4. **`Vary` on anything but `Accept-Encoding`?** Most CDNs will not store one. `Vary: Origin` is the signature of CORS middleware, which means a process with middleware answered a request for a static file.
 5. **Browser cache TTL override?** An origin that sends `immutable` for a year while the browser sees four hours means the CDN is rewriting it. Fixing the origin changes nothing a browser sees until that override is set to respect origin headers, so sequence the fix accordingly.
 
-**Which process answered?** The ETag says. A strong hex ETag (`"68c0f2ad-3aa1b2"`) is a web server serving from disk; a weak decimal one (`W/"3841394-1788963021492"`) is a runtime static handler. When the repository's web-server config says "serve from disk" and the live ETag says "runtime", the live config is not the repository's file. Prove the drift with headers, then make applying the config a script rather than a runbook paragraph:
+**Which process answered?** The ETag says. A strong hex ETag (`"68c0f2ad-3aa1b2"`) is a web server serving from disk; a weak decimal one (`W/"3841394-1788963021492"`) is a runtime static handler. When the repository's web-server config says "serve from disk" and the live ETag says "runtime", the live config is not the repository's file. Prove the drift with headers, then make applying the config a script rather than a runbook paragraph, because a paragraph is reapplied by hand, a little differently each time, and drift is what it produces:
 
 - copy the live config aside first, and restore it when the syntax check fails;
 - treat the syntax check as the gate, and reload only after it;
@@ -91,9 +91,9 @@ Purge the CDN once after the origin headers change, so entries stored with the o
 
 **Measure first.** Attribute the entry chunk's bytes to packages, source areas, and pages by walking its source map. A number typed into a comment drifts from the truth within days; compute it every time. If source maps emit only when an upload token is present, add a build script that forces them on **and suppresses the upload plugin** — otherwise measuring bundle size publishes a release and then deletes the maps it uploaded.
 
-Apply the levers in this order, and measure after each; skipping the measurement turns a lever into a guess.
+Apply the levers in this order, and measure after each. Skipping the measurement turns a lever into a guess, and a guess in a lever table reads exactly like a result.
 
-**Lever 1 — heavy leaf libraries on demand.** Spreadsheet, PDF, and chart libraries are usually a quarter of the chunk and reach a fraction of visitors. Move the import inside the handler that needs it, and mind the trap: **a single static import anywhere defeats every dynamic import of the same package.** One memoised loader per library, with every call site going through it.
+**Lever 1 — heavy leaf libraries on demand.** Spreadsheet, PDF, and chart libraries are usually a quarter of the chunk and reach a fraction of visitors. Move the import inside the handler that needs it, and mind the trap: **a single static import anywhere defeats every dynamic import of the same package.** The static import pins the package into the eager chunk, and every lazy call site then fetches nothing it was not already carrying. One memoised loader per library, with every call site going through it.
 
 **Lever 2 — routes on demand.** Lazy-load pages, keeping eager only the routes a visitor reaches before logging in: a lazy route costs a second round trip, and that waterfall lands on the cold first visit. Those pages are small. Put one suspense boundary around the router, with a named-export unwrap helper if the pages export names. Forecast with care: lazy-loading a page evicts a component only when nothing eager imports it, so the shared-components figure is an upper bound, not a prediction. Heavy libraries reached only by lazy pages leave on their own. In-app navigation shows no fallback when the router runs navigation in a transition; verify on a throttled link rather than assuming.
 
@@ -101,11 +101,11 @@ Apply the levers in this order, and measure after each; skipping the measurement
 
 **Leave the cycle-breakers alone.** A module imported both statically and dynamically, because the dynamic import breaks a circular dependency, is not a size defect; the bundler is only noting that the dynamic import cannot split it.
 
-Re-run the full route sweep after Lever 3, the one lever that fails at runtime.
+Re-run the full route sweep after Lever 3. It is the one lever that fails at runtime, after the build has gone green.
 
 ## §5 Images
 
-Size each raster to roughly twice its largest CSS display box, not to the source, and read every call site: the same file may render at 130 px in one place and 400 px in another. Store photographs in a lossy format; a photograph saved as PNG is pure waste. Delete the files nothing references, grepping the source for each name. A file that doubles as tab icon and placeholder avatar keeps its name, extension, and box and is palette-quantised instead of resized; flat artwork with a few dozen colours loses nothing. Inspect the two heaviest compressions by eye — fine UI text in a screenshot is the worst case.
+Size each raster to roughly twice its largest CSS display box — enough for a high-density screen — not to the source, and read every call site: the same file may render at 130 px in one place and 400 px in another. Store photographs in a lossy format; a photograph saved as PNG is pure waste. Delete the files nothing references, grepping the source for each name. A file that doubles as tab icon and placeholder avatar keeps its name, extension, and box and is palette-quantised instead of resized; flat artwork with a few dozen colours loses nothing. Inspect the two heaviest compressions by eye — fine UI text in a screenshot is the worst case.
 
 ## §6 Monitoring that announces its absence
 
@@ -125,7 +125,7 @@ Two gaps lie beyond the bundle-based monitor. A page that loads outside the bund
 - Sweep routes in a browser: every public route, protected routes redirecting, the catch-all, no console errors, no stuck fallback — twice when a lever touches chunk boundaries.
 - A guard without a test that fails in its absence is a comment.
 - Stop every server and browser the audit started before reporting.
-- "Pre-existing" is not a disposition. A failing check the audit ran is the audit's to fix or file, in that order.
+- "Pre-existing" is not a disposition; it says when a failure arrived, not what happens to it. A failing check the audit ran is the audit's to fix or file, in that order.
 
 ## Output
 
@@ -138,5 +138,5 @@ Two gaps lie beyond the bundle-based monitor. A page that loads outside the bund
 
 - The advice already given to users may be wrong. "Clear your cache" against a render-blocking hang makes the fault certain; verify it before it goes out again.
 - Screenshots of dashboards are evidence. Read the header row: a badge naming the plan, a TTL, a rule count.
-- Do not test an upload plugin with real credentials. An invalid token and an endpoint pointed at a closed local port prove the wiring without publishing.
+- Do not test an upload plugin with real credentials. An invalid token and an endpoint pointed at a closed local port prove the wiring without publishing; a real token turns a measurement into a release.
 - The reporting browser matters. Engines differ in whether a stalled stylesheet blocks the deferred script; test the one in the screenshot.
