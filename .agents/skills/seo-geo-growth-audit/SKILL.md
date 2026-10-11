@@ -1,34 +1,26 @@
 ---
 name: seo-geo-growth-audit
-description: "Audits and improves the discoverability of the deployed site a codebase drives: technical SEO (crawlability, sitemaps, robots, canonicals, metadata), structured data (JSON-LD), GEO/AI-search visibility (llms.txt, entity signals, AI-crawler policy), Core Web Vitals, analytics and UTM attribution, and growth systems (content engines, programmatic SEO, lead capture, conversion). Fingerprints the stack first and adapts to any framework; audits both repository code and the live site; produces a scored report with evidence, a prioritized P0-P3 fix plan, implemented fixes, and post-fix verification. Use when asked for an SEO audit, GEO audit, growth audit, or pre-launch checklist; when organic traffic is flat or conversions underperform; when setting up analytics attribution; or when improving AI search visibility in ChatGPT, Perplexity, or Gemini. Trigger phrases: SEO audit, why is organic traffic flat, AI search visibility, llms.txt, structured data, sitemap problems, Core Web Vitals."
+description: "Audits and improves the discoverability of the deployed site a codebase drives: technical SEO (crawlability, sitemaps, robots, canonicals, metadata), structured data (JSON-LD), GEO and AI-search visibility (llms.txt, entity signals, AI-crawler policy), Core Web Vitals, analytics and UTM attribution, and growth systems (content engines, programmatic SEO, lead capture, conversion). Fingerprints the stack first and adapts to any framework; audits repository code and the live site together; delivers a scored report with evidence, a prioritized P0-P3 fix plan, implemented fixes, and post-fix verification. Use for an SEO audit, GEO audit, growth audit, or pre-launch checklist; when organic traffic is flat or conversions underperform; when setting up analytics attribution; or when improving AI search visibility in ChatGPT, Perplexity, or Gemini. Trigger phrases: SEO audit, why is organic traffic flat, AI search visibility, llms.txt, structured data, sitemap problems, Core Web Vitals."
 metadata:
   version: "2.0"
 context: fork
 ---
 
-# SEO, GEO, Analytics and Organic Growth Audit
+# SEO, GEO, analytics and organic growth audit
 
-Run a full audit-and-improve loop on the discoverability of the deployed site this codebase drives. The skill is portable: it works on any web stack. Code snippets are labeled adaptable patterns (Next.js App Router flavored — translate for other frameworks), and every concrete value in this skill (timeouts, chunk sizes, thresholds) is a validated example from a production system, not a requirement: adapt to the target.
-
-## When to use
-
-- Onboarding a new codebase and mapping its SEO/growth posture
-- Pre-launch checks for marketing sites, landing pages, content platforms
-- Diagnosing flat organic traffic or underperforming conversions
-- Setting up analytics attribution from scratch
-- Preparing for AI-search visibility (ChatGPT, Perplexity, Gemini)
+Run a full audit-and-improve loop on the discoverability of the deployed site this codebase drives, on any web stack. The skill earns its place when a codebase is being onboarded and its SEO and growth posture mapped; before a marketing site, landing page, or content platform launches; when organic traffic is flat or conversions underperform; when analytics attribution is set up from scratch; and when the site is being prepared for AI-search visibility (ChatGPT, Perplexity, Gemini). Code snippets are labeled adaptable patterns, Next.js App Router in flavor and to be translated for other frameworks. Every concrete value here — timeouts, chunk sizes, thresholds — is a validated example from a production system, not a requirement: adapt it to the target.
 
 ## Operating principles
 
-1. **Audit the live site, not just the repo.** Redirects, bot rules, and caching often live at the CDN and are invisible in code; sitemap wiring often breaks only in production.
-2. **Distinguish built from live.** Shipped code may be disabled by kill-switches, commented out, or unmounted. Dormant instrumentation and dead database models count as absent.
-3. **Every finding carries evidence:** a `file:line` reference or a URL plus the observed value. No evidence, no finding.
-4. **Never fabricate signals.** No invented ratings, authors, review counts, or freshness stamps — fixes must use real data or omit the markup.
-5. **Defer to existing docs.** In step 0, inventory SEO checklists/docs already in the target repo; page-type-specific ones override this skill's generic checks for those pages.
+1. **Audit the live site, not only the repository.** Redirects, bot rules, and caching often live at the CDN, invisible in code, and sitemap wiring often breaks only in production.
+2. **Distinguish built from live.** Shipped code may be disabled by a kill-switch, commented out, or unmounted. Dormant instrumentation and dead database models count as absent.
+3. **Every finding carries evidence:** a `file:line` reference, or a URL with the observed value. Without evidence there is no finding.
+4. **Never fabricate signals.** No invented ratings, authors, review counts, or freshness stamps: a fix must use real data or omit the markup.
+5. **Defer to existing docs.** In step 0, inventory the SEO checklists and docs already in the target repository; a page-type-specific one overrides this skill's generic checks for the pages it covers.
 
 ## Audit workflow
 
-Copy this checklist and track progress:
+Copy this checklist and track progress against it:
 
 ```
 Audit progress:
@@ -46,11 +38,11 @@ Audit progress:
 - [ ] 10. Implement P0-first, verify each fix live
 ```
 
-**Step 0 — Fingerprint.** Identify framework and router, rendering model (SSG/ISR/SSR), hosting/CDN (this determines where redirects and bot rules live), and the production BASE_URL (ask the user if not obvious). Then search the repo for existing SEO documentation (`grep -ril "seo\|checklist" --include="*.md" .`) — read anything found and defer to page-type-specific rules.
+**Step 0 — Fingerprint.** Identify the framework and router, the rendering model (SSG, ISR, or SSR), the hosting and CDN — which decide where redirects and bot rules live — and the production BASE_URL, asking the user when it is not obvious. Then search the repository for existing SEO documentation (`grep -ril "seo\|checklist" --include="*.md" .`), read everything it finds, and defer to its page-type-specific rules.
 
-Then settle two things before scoring anything. **Purpose:** is this a public site that wants to be found, a private app, or a mixed product with a public front? For a private surface the audit's job is to confirm it stays out of the index (TS-34) and that crawler files still serve; mark the growth layers not applicable rather than failing them. **Serving platform:** identify it from live response headers (`server`, `via`, platform request-ID headers), not from config files — a `vercel.json` or `_headers` file in a repository served by something else is dead evidence, and every redirect, header, and rewrite claim must be re-tested live.
+Then settle two questions before scoring anything. **Purpose:** a public site that wants to be found, a private app, or a mixed product with a public front. For a private surface the audit's job is to confirm it stays out of the index (TS-34) and that its crawler files still serve; mark the growth layers not applicable rather than failing them. **Serving platform:** read it from live response headers (`server`, `via`, platform request-ID headers), not from config files. A `vercel.json` or `_headers` file in a repository that something else serves is dead evidence, and every claim about a redirect, header, or rewrite must be re-tested live.
 
-**Step 0b — Go-to-market motion.** Load [references/gtm-motions.md](references/gtm-motions.md) and classify each page template by how the business wins customers through it (product-led signup, sales-led demo, local lead generation, marketplace, store, app install, content, developer tools, programmatic data, partner channel, regulated advice). The motion decides which checks carry weight, what the conversion is, and which failures are fatal (GM-01 to GM-04). Ask the owner for the revenue split across motions when the site mixes them, and record both in the report header.
+**Step 0b — Go-to-market motion.** Load [references/gtm-motions.md](references/gtm-motions.md) and classify each page template by how the business wins customers through it: product-led signup, sales-led demo, local lead generation, marketplace, store, app install, content, developer tools, programmatic data, partner channel, or regulated advice. The motion decides which checks carry weight, what the conversion is, and which failures are fatal (GM-01 to GM-04). Where the site mixes motions, ask the owner for the revenue split across them, and record motion and split in the report header.
 
 **Step 1 — Baseline.** Run:
 
@@ -59,11 +51,11 @@ bash scripts/quick-audit.sh <repo-dir> <base-url> [--sample N] [--max-links N]
 bash scripts/quick-audit.sh --no-repo <base-url>   # live site only, no repository checks
 ```
 
-`--sample N` fetches up to N sitemap pages, 3 per URL family before any family gets a fourth, without following redirects, and checks each one's status, indexability, metadata, JSON-LD, inline scripts, and head resources (default 40, `0` turns it off); `--max-links N` probes that many of their internal links (default 60). Measured runs made 9 requests (a single-page app with no sitemap), 29 (a site whose homepage is the whole sample), and 57 (`--sample 20 --max-links 30`). With the defaults the sample adds at most 171 requests (10 index children, 39 pages, 2 per probed link when HEAD is refused, 2 app-association files) to at most 217 for the live checks (2 per sitemap-index child, capped by `--max-children`), plus the redirect hops the live checks follow. At most 4 requests run at once, each bounded by `--timeout`.
+`--sample N` fetches up to N sitemap pages — 3 per URL family before any family gets a fourth, without following redirects — and checks each one's status, indexability, metadata, JSON-LD, inline scripts, and head resources (default 40; `0` turns it off). `--max-links N` probes that many of their internal links (default 60). Measured runs made 9 requests (a single-page app with no sitemap), 29 (a site whose homepage is the whole sample), and 57 (`--sample 20 --max-links 30`). With the defaults the sample adds at most 171 requests (10 index children, 39 pages, 2 per probed link when HEAD is refused, 2 app-association files) to the live checks' at most 217 (2 per sitemap-index child, capped by `--max-children`), plus the redirect hops the live checks follow. At most 4 requests run at once, each bounded by `--timeout`.
 
-Capture the output — its `[FAIL]`/`[WARN]` lines with check IDs are your first evidence, and SUMMARY maps failed IDs to the reference file to load. The script degrades gracefully: without a BASE_URL (or network) it runs static checks only; findings never affect its exit code.
+Capture the output. Its `[FAIL]` and `[WARN]` lines, each with a check ID, are the first evidence, and SUMMARY maps each failed ID to the reference file to load. The script degrades gracefully: without a BASE_URL or a network it runs the static checks alone, and findings never touch its exit code.
 
-**Steps 2-7 — Layer passes.** Work the layers in order; each builds on the previous. Load one reference file at a time, run its checks against repo + live site, and record findings with evidence and a P0-P3 tier.
+**Steps 2-7 — Layer passes.** Work the layers in order; each builds on the one before. Load one reference file at a time, run its checks against the repository and the live site, and record each finding with its evidence and a P0-P3 tier.
 
 | Pass | Layer | Key question | Load | Skip when |
 |------|-------|--------------|------|-----------|
@@ -76,15 +68,15 @@ Capture the output — its `[FAIL]`/`[WARN]` lines with check IDs are your first
 | 7b | Programmatic SEO | Are combination pages worth indexing — and actually live? | [references/pseo.md](references/pseo.md) | No repeatable location/category combinations |
 | 7c | Leads and conversion | Do visitors become recorded, attributed leads? | [references/leads-conversion.md](references/leads-conversion.md) | Site has no lead capture |
 
-**Step 8 — Report.** Fill the template below. Every finding cites a check ID and evidence.
+**Step 8 — Report.** Fill the template below; every finding cites a check ID and its evidence.
 
-**Step 9 — Confirm.** Present the prioritized fix plan; get user sign-off on scope before changing code.
+**Step 9 — Approval.** Present the prioritized fix plan, and change no code before the user approves its scope.
 
-**Step 10 — Implement and verify.** Fix in priority order. Close a finding only per the "Verify fixes" section.
+**Step 10 — Implement and verify.** Fix in priority order. Close a finding only as "Verify fixes" prescribes.
 
 ## Priority matrix
 
-Assign every finding one tier by criteria, not by category:
+Assign every finding one tier, by criterion, not by category:
 
 - **P0 — blocks indexing or measurement entirely.** Fix immediately. Examples: missing/broken robots.txt or sitemap; site-wide noindex mistakes; no HTTPS; analytics not firing at all; lead form not persisting leads; soft-404s on real pages.
 - **P1 — indexed but underperforming.** Fix this sprint. Examples: no structured data on key templates; missing or unresolvable OG images; LCP > 4s; zero funnel events behind a loaded analytics vendor; thin pages indexed without quality gates; client-rendered public routes that serve one shared title and canonical.
@@ -143,13 +135,13 @@ Motion: <M-id per template, e.g. M3 location pages + M5 checkout> | Revenue spli
 
 A finding closes only when live behavior changes:
 
-1. Re-run the relevant quick-audit section (or the specific `curl`) and confirm the check flips.
-2. Structured-data fixes: validate the rendered page in Google's Rich Results Test for types Google supports, and in validator.schema.org for the rest.
-3. Indexation fixes: confirm the directive in the live HTML/headers, then request reindexing in Search Console.
-4. Performance fixes: re-measure (PageSpeed Insights) — lab first, watch field data over the following weeks.
-5. AI-visibility fixes: watch Search Console's generative AI performance report and Bing Webmaster Tools' AI Performance report over the following weeks (GE-16).
-6. Append each closure to the report's verification log with evidence.
+1. Re-run the quick-audit section that raised it, or its specific `curl`, and observe the check flip.
+2. Validate a structured-data fix on the rendered page: in Google's Rich Results Test for the types Google supports, and in validator.schema.org for the rest.
+3. Verify an indexation fix's directive in the live HTML or headers, then request reindexing in Search Console.
+4. Re-measure a performance fix in PageSpeed Insights: lab data first, then watch field data over the following weeks.
+5. Watch an AI-visibility fix over the following weeks in Search Console's generative AI performance report and in Bing Webmaster Tools' AI Performance report (GE-16).
+6. Append each closure to the report's verification log with its evidence.
 
 ## Scope boundaries
 
-Out of scope: keyword research and content strategy, link building/outreach, paid acquisition, and retention mechanics (push notifications, personalization). Recommend separately if asked; do not fold into this audit's matrix.
+Keyword research and content strategy, link building and outreach, paid acquisition, and retention mechanics (push notifications, personalization) lie outside this audit. Recommend them separately when asked, and do not fold them into this audit's matrix.
