@@ -10,13 +10,11 @@ description: >
 context: fork
 ---
 
-# Security Audit Skill
+# Security audit
 
-A systematic, adversarial, full-stack security audit covering every layer, from Phase 1 through Phase 10.
+A systematic, adversarial, full-stack security audit covering every layer, from Phase 1 through Phase 10. It reads source and never touches a running system, so every finding stands on a `file:line` an engineer can open — and every gap it cannot see from the source, it says.
 
----
-
-## Phase 0 — Orient Before You Act
+## Phase 0 — Orient before you act
 
 Before writing any audit output:
 1. `ls` / `tree` the project root to understand the stack (Next.js? Django? Express? Laravel?)
@@ -25,15 +23,17 @@ Before writing any audit output:
 4. Note `.env.example` / config files — never print secrets, just flag patterns
 5. Build a **feature map**: list every route, controller, model, and role you can find before auditing
 
-Document your findings in `security-audit-report.md` from the very first step and **keep updating it continuously** throughout the audit. Never batch findings at the end.
+The feature map comes first because an audit can only clear what it has listed; a route nobody enumerated is a route nobody checked, and it will not appear in the report as a gap — it will not appear at all.
 
----
+Document your findings in `security-audit-report.md` from the very first step and **keep updating it continuously** throughout the audit. Never batch findings at the end. The audit runs in a forked context that can be compacted or cut short; a finding held in memory until the last step dies with it, and a finding on disk does not.
 
-## Execution Contract
+## Execution contract
 
-Read this before starting Phase 1 — it defines how findings get recorded, not just what to look for.
+Read this before starting Phase 1: it defines how findings get recorded, not just what to look for.
 
 ### Work feature by feature, not file by file
+
+The defects worth finding live between layers: a page that hides the admin button, an endpoint that never asks who is calling, a query that scopes to nothing. Read file by file and each layer looks correct alone; trace the feature and the missing check is the gap in the chain.
 
 For each feature:
 1. Identify the frontend components / pages
@@ -45,7 +45,7 @@ For each feature:
 
 ### Finding severity levels
 
-Use these consistently in the report:
+Use these consistently in the report, so a reader can sort by them:
 
 | Level | Meaning |
 |-------|---------|
@@ -55,9 +55,9 @@ Use these consistently in the report:
 | 🔵 LOW | Minor info leak, missing security header, UX-only issue |
 | ⚪ INFO | Best practice gap, not exploitable but worth fixing |
 
-### Report Format
+### Report format
 
-Keep `security-audit-report.md` updated continuously. Use this structure:
+Keep `security-audit-report.md` updated continuously, in this structure:
 
 ```markdown
 # Security Audit Report — [Project Name]
@@ -88,18 +88,15 @@ Keep `security-audit-report.md` updated continuously. Use this structure:
 [List each feature/module audited and the date/time it was completed]
 ```
 
----
-
-## Standing Invariant — Never Trust the Client
+## Standing invariant — never trust the client
 
 Every security-relevant decision — role, auth state, ownership, input validity — must be
 enforced server-side. A client-side equivalent (hidden button, disabled field, browser
-validation, a role read from `localStorage`) is a UX convenience, not a control. The
-checklists below apply this per phase; where a phase names a specific vector (role in a
-request payload, token storage, unvalidated input), that is the concrete check — this
-invariant is why it matters.
-
----
+validation, a role read from `localStorage`) is a UX convenience, not a control: the
+attacker does not use the product's client, and a `curl` against the endpoint never sees the
+button the UI hid. The checklists below apply this per phase; where a phase names a
+specific vector (role in a request payload, token storage, unvalidated input), that is
+the concrete check — this invariant is why it matters.
 
 ## Phase 1 — Authentication & Session Security
 
@@ -117,9 +114,7 @@ invariant is why it matters.
 - [ ] Logged-in users auto-redirected away from `/login`, `/register`?
 
 ### How to verify
-Search for session creation/destruction code and trace what happens when `is_active=false` or equivalent is set. Grep for logout handlers and confirm they call `session.destroy()` / `invalidateToken()` / equivalent.
-
----
+Search for session creation and destruction code, and trace what happens when `is_active=false` or its equivalent is set. Grep for logout handlers and confirm they call `session.destroy()` / `invalidateToken()` / equivalent. A logout that only clears the cookie on the client leaves the session valid on the server, and a stolen copy of it keeps working.
 
 ## Phase 2 — Authorization & Role-Based Access Control (RBAC)
 
@@ -135,9 +130,7 @@ Search for session creation/destruction code and trace what happens when `is_act
 - [ ] Role hierarchy enforced: can a manager grant permissions above their own level?
 
 ### How to verify
-Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth middleware is applied, check that the ownership/role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user/org.
-
----
+Pick 3–5 CRUD endpoints. For each: find the route handler, confirm the auth middleware is applied, confirm the ownership or role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user or org. Router-level middleware proves the caller is logged in, not that the record is theirs; that distance is the whole of IDOR.
 
 ## Phase 3 — Password Reset & Account Recovery
 
@@ -150,8 +143,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Reset form: does accepting the token automatically log the user in (skipping password entry)?
 - [ ] Email oracle: does `/forgot-password` behave differently for registered vs unregistered emails?
 
----
-
 ## Phase 4 — Rate Limiting & Abuse Prevention
 
 ### Checklist
@@ -163,8 +154,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] No endpoint accepts unbounded list operations (always paginated)?
 - [ ] GraphQL: query depth / complexity limits?
 - [ ] Webhooks / callback URLs validated to prevent SSRF?
-
----
 
 ## Phase 5 — Input Validation & Injection
 
@@ -185,8 +174,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Timezone handling consistent — all stored as UTC?
 - [ ] Date math handles edge cases (leap years, DST transitions)?
 
----
-
 ## Phase 6 — API Design & Data Exposure
 
 ### Checklist
@@ -200,8 +187,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Content-Type enforced on uploads?
 - [ ] API versioning — old/deprecated endpoints still active and unprotected?
 - [ ] Unnecessary data returned: audit the 5 most-used endpoints for over-fetching
-
----
 
 ## Phase 7 — Frontend Security
 
@@ -219,8 +204,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Dead-end routes: pages with no back button / navigation?
 - [ ] Error states handled gracefully with meaningful user messages?
 
----
-
 ## Phase 8 — Database & Data Layer
 
 ### Checklist
@@ -233,8 +216,6 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] Indexes on foreign keys and frequently filtered columns?
 - [ ] No raw SQL strings built from user input in the ORM layer?
 - [ ] DB connection pooling configured to prevent resource exhaustion?
-
----
 
 ## Phase 9 — Infrastructure & Configuration
 
@@ -249,13 +230,11 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, check that the auth
 - [ ] File permissions on config files appropriate?
 - [ ] Third-party integrations: API keys scoped to minimum permissions?
 
----
-
 ## Phase 10 — Business Logic & User Flows
 
-This is where real-world bugs hide that automated scanners miss.
+This is where real-world defects hide that automated scanners miss: a scanner knows the shape of an injection, not that "cancelled" must never become "active" again.
 
-### Key questions per feature
+### Questions per feature
 - Can a user take an action they shouldn't at this point in the workflow?
 - What happens if they submit a form twice (duplicate actions)?
 - What happens with edge cases: same email twice, same name twice, empty string, null, very long string?
@@ -273,18 +252,14 @@ This is where real-world bugs hide that automated scanners miss.
 7. **Search** → injection, result scoping, exposure of other users' data?
 8. **Notifications / emails** → triggered by other users' actions inappropriately?
 
----
-
-## Tools to Use During Audit
+## Tools during the audit
 
 Run `npm audit`/`pip-audit`/`bundler-audit` (or the stack equivalent) plus targeted greps for
 secrets, hardcoded values, routes, auth middleware, and raw SQL — see
 `references/grep-patterns.md` for starting commands and how to adapt their globs to the
 detected language.
 
----
-
-## Reference Files
+## Reference files
 
 For deep dives on specific vulnerability classes, read:
 - `references/owasp-top10.md` — OWASP Top 10 with detection patterns
@@ -292,4 +267,4 @@ For deep dives on specific vulnerability classes, read:
 - `references/api-checklist.md` — API-specific security checklist
 - `references/grep-patterns.md` — starting grep commands for dependency, secret, and route discovery
 
-These are loaded only when needed to keep context lean.
+Load these only when needed: each one read in full costs context the audit itself needs.
