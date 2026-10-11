@@ -52,17 +52,17 @@ prose a second time is the failure this playbook exists to stop. A class whose
 rule exists and whose corrections all predate it is **already covered**, however
 loud the quotes.
 
-Check each proposed gate against the harness before building it: a regex that
+Weigh each proposed gate against the harness before building it: a regex that
 fires on 19% of prompts is noise, one that fires on 7% is a reminder. Measure
 the rate on the corpus and record it beside the mining.
 
 ## One class, one change
 
 Every adopted class ships as its own change with a firing test or, for a
-contract edit, the one sentence. Do not batch unrelated classes. Interventions
-that conflict across classes (over-asking against publishing without
-permission) are resolved in one change that states the boundary, with the
-operator's own words as the source.
+contract edit, the one sentence; unrelated classes never share a change.
+Interventions that conflict across classes (over-asking against publishing
+without permission) are resolved in one change that states the boundary, with
+the operator's own words as the source.
 
 ## Record the mining
 

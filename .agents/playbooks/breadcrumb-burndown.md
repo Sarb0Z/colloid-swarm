@@ -4,8 +4,8 @@
 SessionStart hook shows ten of it. This playbook drains the queue.
 
 Run it when the operator asks, or when the count has grown for several sessions
-with nothing coming out. It is its own unit of work with its own budget — never
-fold it into the change that happened to add the last line.
+with nothing coming out. It is its own unit of work with its own budget, never
+folded into the change that happened to add the last line.
 
 ## Open with the count
 
@@ -13,8 +13,8 @@ fold it into the change that happened to add the last line.
 grep -c '^- ' .agents/breadcrumbs.md
 ```
 
-That number is the receipt, before and after. Report both. A burndown that
-cannot state what it removed did not happen.
+That number is the receipt, taken before and after and reported both times. A
+burndown that cannot state what it removed did not happen.
 
 ## Classify every line
 
@@ -35,8 +35,8 @@ one behind, and it must carry the question the operator has to answer — a line
 that has been re-read for months without a question attached is a **delete**,
 not an escalation.
 
-A line that would be fixed but is not bounded is not a fix — convert it, or
-escalate it. Do not leave it as a breadcrumb with a note.
+A line that would be fixed but is not bounded is not a fix: convert it or
+escalate it, and never leave it as a breadcrumb with a note.
 
 ## One fix, one change
 
@@ -56,6 +56,6 @@ describing a shape rather than a backlog.
 ## Close with the count
 
 Report the starting count, the count now, and the per-disposition tally, each
-from a command. Then state what is left and why — the escalations, with their
+from a command, then what is left and why: the escalations, with their
 questions. An operator reading only the last paragraph must learn what they now
 have to decide.
