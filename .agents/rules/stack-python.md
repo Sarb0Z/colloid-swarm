@@ -12,7 +12,7 @@ detect:
 # Python Rules
 
 ## Business Invariants
-- These rules govern code that you write or change. Do not migrate untouched code or change project configuration unless the task asks for it.
+- These rules govern code you write or change. Untouched code stays unmigrated and project configuration unchanged unless the task asks otherwise.
 - A new parameter that the function needs is mandatory: add it without a default, and update the call sites. A default is for a parameter that is optional by nature, such as an optional callback (`on_done=None`) or a natural identity like `steepness=1.0`. A new tuning constant that suits most callers must be a named constant or a mandatory argument.
 - A boolean flag may default to `False` only when it adjusts a side aspect of the same operation. When the flag changes what the function means, write a second function with its own name.
 - Never use a mutable default (`def f(items=[])`). Default to `None` and create the value inside the function.
@@ -24,5 +24,5 @@ detect:
 - A direct `subprocess` import inside logic code removes the seam that a test replaces, so the test must run the real tool or patch a global.
 
 ## Out of Scope
-- Do not restate environment or package management here. The project's manifest and lockfile own them.
+- Environment and package management are not restated here: the project's manifest and lockfile own them.
 - The scaffold's own scripts under `.agents/` follow `.agents/AGENTS.md`.
