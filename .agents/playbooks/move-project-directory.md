@@ -3,14 +3,11 @@
 A directory move is not complete until the agent hosts' session stores point at
 the new path. Claude Code, Codex, and Kimi all key session history by absolute
 path, so a bare `mv` leaves `--resume` and history search unreachable from both
-the old and the new location, and nothing reports it until someone reaches for
-a past session and finds none.
+the old and the new location, and nothing reports it until someone looks.
 
-Rewrite path-valued metadata only. Leave conversation text that mentions the
-old path alone: it is history, and it was true when written. Never touch
-unrelated projects' transcripts, which routinely mention the moved path and are
-the first thing a global search-and-replace reaches. Back up each store before
-the rewrite; for a store of JSONL lines the copy is the only undo.
+Rewrite path-valued metadata only. Conversation text that mentions the old path
+is history; leave it. Unrelated projects' transcripts routinely mention the
+moved path and must not be touched. Back up each store before the rewrite.
 
 | Host | Store | What is keyed by path |
 | --- | --- | --- |
@@ -20,11 +17,10 @@ the rewrite; for a store of JSONL lines the copy is the only undo.
 
 Verify by scanning the migrated transcripts for surviving `cwd` values under the
 old prefix (expect zero), and by parsing `config.toml` with `tomllib` so a broken
-table header fails immediately rather than at the host's next launch.
+table header fails immediately.
 
 A uv virtual environment in the moved tree is a separate casualty: its
 console-script shebangs carry the absolute prefix. Delete `.venv` and re-run
 `uv sync`. `bin/python` is an absolute symlink to the uv-managed interpreter
 outside the project, so the interpreter still launches; do not read that as
-proof the environment survived. The first console script you run is the
-proof, and it fails.
+proof the environment survived.

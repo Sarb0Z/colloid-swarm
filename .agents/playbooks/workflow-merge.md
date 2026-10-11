@@ -1,8 +1,7 @@
 # Workflow: Merge
 
 Triage, test-merge, and review of a pull request. Merging is an outward
-mutation and needs the operator's approval in the session: once the change is on
-a shared branch, undoing it is a second outward mutation, made in public.
+mutation and needs the operator's approval in the session.
 
 | Step | Standard | Critical |
 |---|---|---|
