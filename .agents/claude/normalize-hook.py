@@ -48,6 +48,16 @@ def written_paths(tool_input):
     return files
 
 
+def response_text(response):
+    """A tool's output as text: Bash reports stdout and stderr, others vary."""
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        parts = [response.get(key) for key in ("stdout", "stderr", "output")]
+        return "\n".join(part for part in parts if isinstance(part, str))
+    return ""
+
+
 def normalize(payload, policy, repo):
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
@@ -107,6 +117,18 @@ def normalize(payload, policy, repo):
         out["tool_input"] = tool_input
     elif policy == "post-edit-check.sh":
         out["files"] = written_paths(tool_input)
+    elif policy == "edit-record.sh":
+        # Identity keys the record session-wrap.sh reads. The event and call id
+        # pair a shell call's HEAD snapshot with its result; the tool output
+        # carries workloop integrate's PASS line.
+        out["event"] = payload.get("hook_event_name", "")
+        out["tool_use_id"] = payload.get("tool_use_id") or ""
+        out["session_id"] = payload.get("session_id", "")
+        out["transcript_path"] = payload.get("transcript_path", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["files"] = written_paths(tool_input)
+        out["command"] = tool_input.get("command", "") if isinstance(tool_input.get("command"), str) else ""
+        out["tool_response"] = response_text(payload.get("tool_response"))
     elif policy == "session-wrap.sh":
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
         out["transcript_path"] = payload.get("transcript_path", "")

@@ -99,6 +99,10 @@
     "learning_report": {
       "enabled": false
     },
+    "worklog": {
+      "enabled": false,
+      "dir": ""
+    },
     "learning_output_style": {
       "enabled": true
     },

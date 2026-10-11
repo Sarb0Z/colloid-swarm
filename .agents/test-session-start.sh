@@ -32,7 +32,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/emit-context.py" \
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
-  cp "$repo/.agents/playbooks/learning-output-style.md" "$dir/.agents/playbooks/"
+  cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
   cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
@@ -386,5 +386,85 @@ write_config "$adapters" true true
   fail 'a --agent launch is still the main agent, so the policy must run'
 [[ -z "$(gate "$adapters" ',"agent_type":"Explore","agent_id":"agent_1"')" ]] ||
   fail 'a spawned subagent must not run a --agent main policy'
+
+# The work log. Off by default: nothing about it is injected and no folder
+# outside the tree is consulted, even one the config names.
+wl_off="$(make_fixture worklog-off)"
+printf '{"hooks":{"worklog":{"enabled":false,"dir":"../nowhere"}}}\n' > "$wl_off/.agents/config.json"
+wl_off_context="$(context_of "$(run_policy "$wl_off")")"
+assert_not_contains "$wl_off_context" 'work log'
+assert_not_contains "$wl_off_context" 'Work log'
+assert_not_contains "$wl_off_context" 'nowhere'
+
+# A policy.json cannot switch it on: the folder is one operator's choice.
+printf '{"hooks":{"worklog":{"enabled":true}}}\n' > "$wl_off/.agents/policy.json"
+rm "$wl_off/.agents/config.json"
+assert_not_contains "$(context_of "$(run_policy "$wl_off")")" 'Work log'
+rm "$wl_off/.agents/policy.json"
+
+# Every folder case shares one parent, so siblings are under the test's control.
+wl="$(make_fixture worklog-parent/repo)"
+parent="$(cd "$wl/.." && pwd -P)"
+mkdir -p "$parent/.claude" "$parent/sibling-repo" "$parent/other-repo/inner" "$parent/holder/child" "$parent/worklog" \
+  "$parent/deep/x/y"
+git -C "$parent/sibling-repo" init -q
+git -C "$parent/other-repo" init -q
+git -C "$parent/holder/child" init -q
+git -C "$parent/deep/x/y" init -q
+worklog_config() {  # <dir value>
+  printf '{"hooks":{"worklog":{"enabled":true,"dir":"%s"}}}\n' "$1" > "$wl/.agents/config.json"
+}
+refused() {  # <dir value> <expected reason fragment>
+  local context
+  worklog_config "$1"
+  context="$(context_of "$(run_policy "$wl")")"
+  assert_contains "$context" 'Work log refused:'
+  assert_contains "$context" "$2"
+  assert_contains "$context" 'hooks.worklog.dir in .agents/config.json'
+  assert_not_contains "$context" 'additionalDirectories'
+  assert_not_contains "$context" '# Work log'
+}
+refused '../.claude' 'lies in a hidden folder (.claude)'
+refused '../deep' 'holds a Git repository (x/y)'
+refused '../sibling-repo' 'is a Git repository'
+refused '../other-repo/inner' 'is inside a Git work tree'
+refused '../holder' 'holds a Git repository (child)'
+refused '..' 'is the folder that holds this repository'
+refused '.' 'is this repository or inside it'
+mkdir -p "$wl/docs"
+refused 'docs' 'is this repository or inside it'
+refused '../missing' 'does not exist. Create it yourself'
+refused '/' "is outside $parent"
+[[ ! -e "$parent/missing" ]] || fail 'the work-log check created a folder'
+# A hidden folder anywhere in the resolved path refuses, not only in the setting.
+dotted="$(make_fixture .hidden-parent/repo)"
+mkdir -p "$dotted/../worklog"
+printf '{"hooks":{"worklog":{"enabled":true,"dir":"../worklog"}}}\n' > "$dotted/.agents/config.json"
+dotted_context="$(context_of "$(run_policy "$dotted")")"
+assert_contains "$dotted_context" 'lies in a hidden folder (.hidden-parent)'
+assert_not_contains "$dotted_context" 'additionalDirectories'
+printf 'ok: unsafe work-log folders are refused with the reason and the fix\n'
+
+worklog_config '../worklog'
+wl_context="$(context_of "$(run_policy "$wl")")"
+assert_contains "$wl_context" '# Work log'
+assert_contains "$wl_context" "Today's work log: $parent/worklog/$(date +%Y-%m-%d).md"
+assert_contains "$wl_context" "\"permissions\": {\"additionalDirectories\": [\"$parent/worklog\"]} in .claude/settings.local.json"
+assert_contains "$wl_context" "sandbox_workspace_write.writable_roots = [\"$parent/worklog\"]"
+assert_not_contains "$wl_context" 'Work log refused'
+# Compaction restates it.
+assert_contains "$(context_of "$(run_policy "$wl" compact)")" "Today's work log: $parent/worklog/"
+printf 'ok: a safe folder beside the repository yields the one grant to add\n'
+
+worklog_config ''
+wl_tree="$(context_of "$(run_policy "$wl")")"
+assert_contains "$wl_tree" "Today's work log: $(cd "$wl" && pwd -P)/.agents/worklog/$(date +%Y-%m-%d).md"
+assert_not_contains "$wl_tree" 'additionalDirectories'
+printf 'ok: an empty folder setting keeps the log in .agents/worklog/\n'
+
+# Both other contexts off still leaves the work log on its own toggle.
+printf '{"hooks":{"session_start":{"enabled":false},"learning_output_style":{"enabled":false},"worklog":{"enabled":true,"dir":""}}}\n' \
+  > "$wl/.agents/config.json"
+assert_contains "$(context_of "$(run_policy "$wl")")" "Today's work log:"
 
 printf 'PASS: session-start policy\n'
