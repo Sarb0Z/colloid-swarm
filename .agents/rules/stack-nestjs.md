@@ -28,4 +28,4 @@ detect:
 - An exception thrown outside the request lifecycle — in a scheduled task or a queue consumer — reaches no HTTP filter. Handle it where it is raised.
 
 ## Out of Scope
-- Do not restate database access rules here. The ORM the application chose owns those.
+- Database access rules are not restated here: the ORM the application chose owns them.
