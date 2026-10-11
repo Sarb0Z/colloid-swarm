@@ -111,6 +111,36 @@ ARTIFACT_REASONS = {
 }
 RUNNERS = {"npx", "pnpx", "bunx"}
 RUNNER_CALL_FLAGS = {"-c", "--call"}      # npx -c "<shell>" runs its value
+# `pnpm <word>` and `yarn <word>` run a package binary when the word is not one
+# of the manager's own commands (a script of that name runs first, and is
+# judged separately through package.json). From `pnpm --help` (10) and
+# `yarn --help` (4, plus classic's commands).
+PNPM_COMMANDS = {"add", "i", "install", "it", "install-test", "up", "update", "upgrade", "remove",
+                 "rm", "un", "uninstall", "link", "ln", "unlink", "import", "rebuild", "rb",
+                 "prune", "fetch", "patch", "patch-commit", "patch-remove", "audit", "list", "ls",
+                 "ll", "la", "outdated", "why", "licenses", "run", "run-script", "exec", "test",
+                 "t", "tst", "start", "stop", "restart", "create", "dlx", "init", "publish",
+                 "pack", "deploy", "store", "env", "setup", "config", "c", "get", "set", "root",
+                 "bin", "server", "recursive", "multi", "m", "help", "cat-file", "cat-index",
+                 "find-hash", "doctor", "self-update", "approve-builds", "ignored-builds", "sbom",
+                 "version", "login", "logout", "whoami", "dedupe", "docs", "home", "owner",
+                 "search", "view", "info", "show", "unpublish", "dist-tag", "ping", "cache"}
+YARN_COMMANDS = {"add", "bin", "cache", "config", "constraints", "dedupe", "dlx", "exec",
+                 "explain", "info", "init", "install", "link", "node", "npm", "pack", "patch",
+                 "patch-commit", "plugin", "rebuild", "remove", "run", "search", "set", "stage",
+                 "unlink", "unplug", "up", "upgrade", "upgrade-interactive", "version", "why",
+                 "workspace", "workspaces", "publish", "login", "logout", "test", "start",
+                 "global", "list", "outdated", "audit", "autoclean", "check", "create",
+                 "generate-lock-entry", "import", "licenses", "owner", "policies", "tag",
+                 "team", "help", "sdks", "unpublish"}
+# Options the managers read before their command, with a separate value:
+# `pnpm --filter api exec ...`, `yarn --cwd api ...`.
+MANAGER_VALUED = {"pnpm": {"--filter", "-F", "--filter-prod", "-C", "--dir", "--workspace-dir",
+                           "--reporter", "--loglevel", "--test-pattern",
+                           "--changed-files-ignore-pattern"},
+                  "yarn": {"--cwd"}}
+# Interpreters whose `-m <module>` runs a tool by its module name.
+MODULE_RUNNERS = re.compile(r"python(?:3(?:\.\d+)?)?")
 # Names a command must mention before the shell parser is worth loading.
 # gcloud ends a group path of any depth with its verb (`gcloud services
 # api-keys delete`), and firebase namespaces verbs with colons
@@ -248,14 +278,31 @@ def gcloud_reason(rest):
 
 
 def runner_width(words, shell):
-    """How many words name a package runner at the start: `npx` is one,
-    `pnpm dlx`, `yarn dlx` and `bun x` are two, anything else none."""
+    """How many words name a package runner at the start: `npx` is one;
+    `npm exec`, `bun x` and `python -m` are two; `pnpm` and `yarn` count their
+    own options too, then `dlx`, `exec` or a binary that is not one of their
+    commands (`pnpm --filter api exec`, `yarn workspace api prisma`); anything
+    else none."""
     name = shell.base(words[0]) if words else ""
+    following = words[1] if len(words) > 1 else ""
     if name in RUNNERS:
         return 1
-    if (name in ("pnpm", "yarn") and words[1:2] == ["dlx"]) or (name == "bun" and words[1:2] == ["x"]):
+    if (name == "npm" and following == "exec") or (name == "bun" and following == "x") \
+            or (MODULE_RUNNERS.fullmatch(name) and following == "-m"):
         return 2
-    return 0
+    if name not in ("pnpm", "yarn"):
+        return 0
+    commands = PNPM_COMMANDS if name == "pnpm" else YARN_COMMANDS
+    index = 1
+    while index < len(words) and words[index].startswith("-"):
+        index += 2 if words[index] in MANAGER_VALUED[name] else 1
+    # `yarn workspace <name> <command>` runs the command in that workspace.
+    if name == "yarn" and words[index:index + 1] == ["workspace"] and index + 2 < len(words):
+        index += 2
+    command = words[index] if index < len(words) else ""
+    if command in ("dlx", "exec"):
+        return index + 1
+    return index if command and command not in commands else 0
 
 
 def unversioned(spec):
