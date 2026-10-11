@@ -15,8 +15,9 @@
 # Scope: client-rendered UI (tsx, jsx, vue, svelte, css, scss, html). Server
 # templates are not covered. A screenshot of the wrong page still clears the
 # gate — no host ties a screenshot to a route — so the gate guarantees a look,
-# not the right look. Subagent edits record under the parent session on hosts
-# that share the id, which is unverified. debt: colloid-ui-gate-subagent-session-id
+# not the right look. Claude Code passes a subagent's edits under the parent
+# session's id (observed on 2.1.296); Codex and Kimi are unverified.
+# debt: colloid-ui-gate-subagent-session-id
 # Kimi is not wired: its PostToolUse output is discarded.
 #
 # Input (stdin JSON): {"project_dir", "event": "PostToolUse"|"Stop", "session_id",
