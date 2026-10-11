@@ -8,51 +8,51 @@ description: >
   inventing findings, and reports coverage gaps without storing credentials.
 ---
 
-# Dynamic Security Scan
+# Dynamic security scan
 
-Use this skill only for a dynamic scan. Use `security-audit` or `pentesting` for source-only work.
+This skill is for a dynamic scan only; source-only work belongs to `security-audit` or `pentesting`.
 
-## Authorization Gate
+## Authorization gate
 
-Before any MCP call, state the authorized scope in the conversation:
+Before any MCP call, the conversation states the authorized scope:
 
-- Exact target URL and permitted environment.
-- Operator authorization to test that target now.
-- Non-destructive test limit and approved scan depth.
-- Whether the operator supplied credentials. Do not repeat tokens, cookies, or headers.
+- The exact target URL and the permitted environment.
+- The operator's authorization to test that target now.
+- The non-destructive test limit and the approved scan depth.
+- Whether the operator supplied credentials — never the tokens, cookies, or headers themselves.
 
-Ask for the missing authorization. Do not infer it from repository access, a hostname, or a user role.
+Missing authorization is asked for, never inferred from repository access, a hostname, or a user role.
 
-## Run the Scan
+## The scan
 
 1. Call `validate_target` with the exact target URL.
-2. If it returns `allowed: false`, stop. Report only the validation reason and the missing authorization or configuration that the operator must supply. Do not call `security_scan`, follow redirects, or make another request to that target.
-3. If it returns `allowed: true`, retain its normalized URL and classification. Call `security_scan` once with that normalized URL, an approved `quick`, `standard`, or `deep` scan type, and only operator-supplied credentials. Never enable a server-side prompt loop.
-4. Call `list_security_prompts`. Select prompts that match the returned attack surface and scan scope.
-5. Reason over the returned evidence yourself. A finding must cite evidence from the scan result, identify the endpoint or surface, set severity and confidence, describe impact, and give a remediation. Do not infer a vulnerability from an untested route. Mark uncertain observations as low confidence. Do not claim a class is clean unless the scan evidence covers it.
+2. On `allowed: false`, stop. Report only the validation reason and the authorization or configuration the operator must supply: no `security_scan` call, no redirect followed, no further request to that target.
+3. On `allowed: true`, keep the returned normalized URL and classification, and call `security_scan` once with that normalized URL, an approved `quick`, `standard`, or `deep` scan type, and only operator-supplied credentials. A server-side prompt loop is never enabled.
+4. Call `list_security_prompts` and select the prompts that match the returned attack surface and scan scope.
+5. The agent reasons over the returned evidence itself. A finding cites evidence from the scan result, names the endpoint or surface, sets severity and confidence, describes impact, and gives a remediation. An untested route implies no vulnerability; an uncertain observation is marked low confidence; a class is called clean only where the scan evidence covers it.
 
-Do not use `run_prompt_loop` or `generate_report`. Keep raw scan results in the conversation context only. Do not write reports, progress files, or credentials to disk.
+`run_prompt_loop` and `generate_report` stay unused. Raw scan results live in the conversation context only; reports, progress files, and credentials never reach the disk.
 
 ## Report
 
-Return structured output in this order:
+Structured output, in this order:
 
-1. **Scope:** normalized URL, validation classification, scan type, and non-destructive limit. Never show credentials.
+1. **Scope:** normalized URL, validation classification, scan type, and non-destructive limit. Credentials never appear.
 2. **Coverage:** scanned endpoints or surfaces, completed check classes, request-failure counts, and each blocked or untested class.
-3. **Findings:** highest severity first. Include title, severity, confidence, category, evidence, impact, and remediation. State `No verified findings` when evidence supports none.
-4. **Next action:** the one highest-value remediation or the exact operator action that unblocks coverage.
+3. **Findings:** highest severity first, each with title, severity, confidence, category, evidence, impact, and remediation. `No verified findings` when the evidence supports none.
+4. **Next action:** the one highest-value remediation, or the exact operator action that unblocks coverage.
 
-Do not create a report solely to preserve output. The calling agent owns structured reporting and follow-up reasoning.
+No report is created merely to preserve output: the agent running the scan owns structured reporting and the reasoning that follows.
 
-## Completion Conditions
+## Completion conditions
 
-Complete only when all conditions hold:
+The scan is complete only when every condition holds:
 
-- The caller recorded explicit authorization and exact scope.
+- The session recorded explicit authorization and exact scope.
 - `validate_target` allowed the exact scan URL before the only scan call.
 - The scan completed, or the result names the concrete failure.
-- The prompt registry was considered against returned evidence.
-- Every published finding has evidence and confidence.
-- The report states coverage, gaps, and whether any credentials were supplied without disclosing them.
+- The prompt registry was weighed against the returned evidence.
+- Every published finding carries evidence and confidence.
+- The report states coverage, gaps, and whether credentials were supplied, without disclosing them.
 
-The scan does not prove that the target is secure. It proves only the returned tool coverage and the evidence reviewed in this run.
+A scan proves nothing about whether the target is secure — only the coverage the tools returned and the evidence reviewed in this run.
