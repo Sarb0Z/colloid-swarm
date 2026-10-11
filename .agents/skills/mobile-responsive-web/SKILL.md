@@ -1,56 +1,46 @@
 ---
 name: mobile-responsive-web
 description: >
-  Make web pages and components fully mobile responsive with a premium,
-  mobile-first feel. Use when the user reports mobile layout issues
+  Makes web pages and components fully mobile responsive, with a premium,
+  mobile-first feel. Use when the user reports a mobile layout defect
   (text overflow, truncation, cramped spacing, poor touch targets,
   broken grids, hero cut off behind the address bar, layout shift,
-  sluggish taps), asks to "make it mobile friendly/responsive",
-  optimise Core Web Vitals on mobile, or when building new pages /
-  components that must work cleanly across breakpoints, notched
-  devices, and 200% font scale. Tuned for Next.js 15 + React +
-  Tailwind CSS + Framer Motion + shadcn/ui. Covers viewport units
-  (svh/dvh/lvh), container queries, fluid typography with clamp(),
-  responsive images (Next Image, picture, srcset, AVIF/WebP), touch
-  targets and hover/pointer media queries, safe-area insets,
-  Core Web Vitals (LCP/INP/CLS), and mandatory real-device testing.
+  sluggish taps), asks to "make it mobile friendly/responsive", wants
+  Core Web Vitals optimised on mobile, or when building new pages or
+  components that must hold up across breakpoints, notched devices, and
+  200% font scale. Tuned for Next.js 15 + React + Tailwind CSS + Framer
+  Motion + shadcn/ui. Covers viewport units (svh/dvh/lvh), container
+  queries, fluid typography with clamp(), responsive images (Next Image,
+  picture, srcset, AVIF/WebP), touch targets and hover/pointer media
+  queries, safe-area insets, Core Web Vitals (LCP/INP/CLS), and
+  mandatory real-device testing.
 ---
 
-# Mobile Responsive Web Skill
+# Mobile responsive web
 
-Design constraint-aware components: a card, form, or hero must render
-correctly in a sidebar, a modal, a full-bleed section, or the main column.
+Design every component for the slot it lands in: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column.
 
-## Principles (The Foundation)
+## Principles
 
-These are non-negotiable. Full detail and examples in
-[references/modern-css.md](./references/modern-css.md).
+These bind without exception; [references/modern-css.md](./references/modern-css.md) carries the detail and examples.
 
-1. **Mobile-first CSS.** Author base styles for the smallest viewport;
-   layer `sm:` / `md:` / `lg:` on top. `max-width` queries are banned.
-2. **`svh` for heroes, `dvh` for bottom-anchored.** Never `100vh` /
-   `min-h-screen` — it overflows behind the iOS address bar.
-3. **Fluid typography via `clamp()`.** Not breakpoint ladders. Pair
-   with `break-words`; never `text-balance` on long headings.
-4. **Container queries for reusable components.** When a card lives in
-   multiple slots, switch from media queries to container queries.
-5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2 sets 24 px as
-   the floor; this project uses 48 px as the standard.
-6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)`
-   / Tailwind `hover:*`, and never hide critical info behind hover.
-7. **Safe-area insets on notched devices.** `viewport-fit=cover` +
-   `env(safe-area-inset-*)` for fixed bars and full-bleed content.
+1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` over them; `max-width` queries are banned.
+2. **`svh` for heroes, `dvh` for bottom-anchored elements.** Never `100vh` or `min-h-screen`, which overflow behind the iOS address bar.
+3. **Fluid typography through `clamp()`,** not breakpoint ladders. Pair it with `break-words`; never `text-balance` on long headings.
+4. **Container queries for reusable components.** When a card lives in several slots, query its container, not the viewport.
+5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2's floor is 24 px; this project's standard is 48 px.
+6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)` or Tailwind `hover:*`, and never hide critical information behind hover.
+7. **Safe-area insets on notched devices.** Pair `viewport-fit=cover` with `env(safe-area-inset-*)` on fixed bars and full-bleed content.
 8. **No input `font-size < 16px`.** iOS Safari zooms on focus below 16 px.
-9. **CWV is a design constraint.** LCP, INP, and CLS are evaluated on
-   the mobile crawl; they are not a post-launch audit.
+9. **CWV is a design constraint, not a post-launch audit.** LCP, INP, and CLS are scored on the mobile crawl.
 
-## Core Workflow
+## Core workflow
 
-Follow this 5-step process for every responsive fix:
+Follow these five steps for every responsive fix.
 
-### 1. Audit — Screenshot Current State
+### 1. Audit — screenshot the current state
 
-Capture the page at mobile viewport **before touching any code**.
+Capture the page at mobile viewport **before any code changes**.
 
 ```typescript
 const viewports = [
@@ -60,36 +50,27 @@ const viewports = [
 ]
 ```
 
-Take full-page + hero + scrolled section screenshots. Identify: text
-overflow, truncation, cramped spacing, collapsed images, overlapping
-elements, lazy sections that never load, jank on address-bar show/hide.
+Screenshot the full page, the hero, and a scrolled section, and list every text overflow, truncation, cramped spacing, collapsed image, overlap, lazy section that never loads, and jank as the address bar shows and hides.
 
-### 2. Fix Hero & Above-the-Fold First
+### 2. Fix the hero and above-the-fold first
 
-Highest-impact area; also the LCP element. See
-[references/component-patterns.md](./references/component-patterns.md)
-for hero patterns and [references/performance-cwv.md](./references/performance-cwv.md)
-for LCP rules.
+The highest-impact area, and the LCP element. Hero patterns are in [references/component-patterns.md](./references/component-patterns.md); LCP rules in [references/performance-cwv.md](./references/performance-cwv.md).
 
-### 3. Fix Content Sections Top-to-Bottom
+### 3. Fix content sections top to bottom
 
 Work through [references/audit-checklist.md](./references/audit-checklist.md).
 
-### 4. Fix Navigation & Fixed Elements
+### 4. Fix navigation and fixed elements
 
-Bottom bars, scroll indicators, and sticky CTAs must clear the home
-indicator via safe-area padding.
+Bottom bars, scroll indicators, and sticky CTAs must clear the home indicator through safe-area padding.
 
-### 5. Verify — Screenshots + Mandatory Scenarios
+### 5. Verify — screenshots and the mandatory scenarios
 
-Re-screenshot, then run through the mandatory test scenarios in
-[references/viewport-testing.md](./references/viewport-testing.md)
-(portrait, landscape, landscape + keyboard, 200% font scale, notched
-device, Slow 4G Lighthouse). Run `bun run typecheck` and `bun run lint`.
+Re-screenshot, then run the mandatory scenarios in [references/viewport-testing.md](./references/viewport-testing.md): portrait, landscape, landscape with keyboard, 200% font scale, notched device, and Slow 4G Lighthouse. Run `bun run typecheck` and `bun run lint`.
 
-## Codebase Conventions
+## Codebase conventions
 
-### Tailwind Breakpoints
+### Tailwind breakpoints
 
 | Breakpoint | Width | Use for |
 |-----------|-------|---------|
@@ -97,18 +78,13 @@ device, Slow 4G Lighthouse). Run `bun run typecheck` and `bun run lint`.
 | `md:` | 768px | Major layout shifts (2-col → 1-col) |
 | `lg:` | 1024px | Desktop layouts |
 
-**Always mobile-first**: start with the mobile style, add `md:` / `lg:` for
-larger screens.
-
 ### Container
 
-The `Container` component wraps with `mx-auto px-4` only — it does **not**
-constrain inner content width. Pair it with your own `max-w-5xl`,
-`max-w-2xl`, etc.
+The `Container` component only adds `mx-auto px-4`; it does **not** cap inner width, so pair it with `max-w-5xl`, `max-w-2xl`, or another width class.
 
-### Spacing Scale
+### Spacing scale
 
-Progressive padding — never a single-step value:
+Padding is progressive, never a single-step value:
 
 ```tsx
 <section className='py-10 md:py-16'>        {/* sections */}
@@ -117,7 +93,7 @@ Progressive padding — never a single-step value:
 <h2      className='mb-3 sm:mb-4 md:mb-6'>   {/* headings */}
 ```
 
-Use `gap-*` on containers, not margins on children.
+Space with `gap-*` on containers, not margins on children.
 
 ### Typography
 
@@ -132,7 +108,7 @@ Use `gap-*` on containers, not margins on children.
 >
 ```
 
-### Hero Height
+### Hero height
 
 ```tsx
 // ✅ Stable, no first-paint overflow
@@ -142,7 +118,7 @@ Use `gap-*` on containers, not margins on children.
 <section className='relative min-h-screen'>
 ```
 
-### Form Inputs
+### Form inputs
 
 ```tsx
 // Mobile-premium: label hidden, placeholder + icon
@@ -157,9 +133,9 @@ Use `gap-*` on containers, not margins on children.
 <FormLabel className='hidden md:block'>Destination</FormLabel>
 ```
 
-`text-base` (16 px) on mobile input prevents iOS focus-zoom.
+`text-base` (16 px) on a mobile input stops iOS zooming on focus.
 
-### Safe-Area Insets
+### Safe-area insets
 
 ```tsx
 // Fixed bottom CTA bar clears the home indicator
@@ -169,10 +145,9 @@ Use `gap-*` on containers, not margins on children.
 <section className='pt-[max(env(safe-area-inset-top),1rem)]'>
 ```
 
-Requires `<meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover'>`
-in the root layout.
+Both need `<meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover'>` in the root layout.
 
-### Z-Index Hierarchy
+### Z-index hierarchy
 
 ```
 z-[100] — Mobile scroll indicator (above everything)
@@ -183,7 +158,7 @@ z-20    — Floating action buttons
 z-10    — Card overlays, gradients
 ```
 
-## Quick Reference
+## Quick reference
 
 | Problem | Fix |
 |---------|-----|
@@ -210,12 +185,11 @@ z-10    — Card overlays, gradients
 | INP > 200 ms | Defer third-party scripts, split long tasks, trim DOM |
 | CLS > 0.1 | Set `width`/`height` on every image; size skeletons to final dims |
 
-## Critical Cross-Viewport Traps
+## Cross-viewport traps
 
-### A mobile fix must never break desktop (and vice versa)
+### A mobile fix must never break desktop, nor a desktop fix mobile
 
-When fixing a mobile-specific bug, always verify the same interaction still works
-on desktop. Common breakage patterns:
+After fixing a mobile-specific defect, always verify the same interaction on desktop. Common breakages:
 
 | Mobile bug | Naive fix | Desktop breakage |
 |-----------|-----------|------------------|
@@ -224,34 +198,16 @@ on desktop. Common breakage patterns:
 | Touch targets too small | Increase padding globally | Desktop layout shifts, forms look bloated |
 | Sidebar → drawer on mobile | Move filters into sheet, delete sidebar code | Desktop loses sidebar entirely |
 
-**Rule**: Test the *exact same user flow* on both viewports after any interaction
-fix. The fix in this codebase for the dropdown auto-reopen was to block *only*
-the `useEffect` auto-open path (which fires when GraphQL results return), while
-leaving `onFocus` (manual user intent) untouched. A ref named `suppressAutoOpenRef`
-makes this intent explicit — it does NOT suppress manual reopen.
+**Rule:** after any interaction fix, test the *exact same user flow* on both viewports. This codebase cured the dropdown auto-reopen by blocking *only* the `useEffect` auto-open path, which fires when GraphQL results return, and leaving `onFocus` (manual intent) untouched; the ref name `suppressAutoOpenRef` states that intent and does not suppress a manual reopen.
 
-Worked case studies for this trap class (Card `overflow-hidden` clipping,
-sidebar → bottom sheet, stacked duplicate content, button-group wrap) live in
-[references/anti-patterns.md](./references/anti-patterns.md) under
-"Cross-viewport trap case studies".
+Worked case studies for this trap class — Card `overflow-hidden` clipping, sidebar → bottom sheet, stacked duplicate content, button-group wrap — live in [references/anti-patterns.md](./references/anti-patterns.md) under "Cross-viewport trap case studies".
 
 ## Resources
 
-- **[references/modern-css.md](./references/modern-css.md)** — Mobile-first
-  architecture, `svh`/`dvh`/`lvh`, container queries, fluid `clamp()`,
-  hover/pointer queries, safe-area insets.
-- **[references/responsive-images.md](./references/responsive-images.md)** —
-  Next.js `<Image>`, `<picture>` art direction, srcset/sizes, AVIF/WebP,
-  DPR cap, CLS prevention.
-- **[references/performance-cwv.md](./references/performance-cwv.md)** —
-  LCP/INP/CLS optimisation focused on mobile and on this project's stack.
-- **[references/component-patterns.md](./references/component-patterns.md)** —
-  Codebase-specific component shapes (hero, search form, card grids,
-  mobile menu, scroll indicator).
-- **[references/audit-checklist.md](./references/audit-checklist.md)** —
-  Full pre-ship checklist grouped by concern.
-- **[references/viewport-testing.md](./references/viewport-testing.md)** —
-  Playwright flows and mandatory test scenarios (orientation, 200% font,
-  safe area, Lighthouse).
-- **[references/anti-patterns.md](./references/anti-patterns.md)** — Fast
-  lookup table of what will get flagged in review.
+- **[references/modern-css.md](./references/modern-css.md)** — mobile-first architecture, `svh`/`dvh`/`lvh`, container queries, fluid `clamp()`, hover and pointer queries, safe-area insets.
+- **[references/responsive-images.md](./references/responsive-images.md)** — Next.js `<Image>`, `<picture>` art direction, srcset and sizes, AVIF/WebP, DPR cap, CLS prevention.
+- **[references/performance-cwv.md](./references/performance-cwv.md)** — LCP/INP/CLS optimisation focused on mobile and on this project's stack.
+- **[references/component-patterns.md](./references/component-patterns.md)** — codebase-specific component shapes: hero, search form, card grids, mobile menu, scroll indicator.
+- **[references/audit-checklist.md](./references/audit-checklist.md)** — full pre-ship checklist, grouped by concern.
+- **[references/viewport-testing.md](./references/viewport-testing.md)** — Playwright flows and mandatory test scenarios: orientation, 200% font, safe area, Lighthouse.
+- **[references/anti-patterns.md](./references/anti-patterns.md)** — fast lookup table of what review flags.

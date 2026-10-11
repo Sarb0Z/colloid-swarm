@@ -1,48 +1,17 @@
 ---
 name: react-native-expert
-description: "React Native and Expo engineering patterns: modular-monolith architecture, rendering safety, component and list performance, navigation, platform-specific code, image handling, native UI primitives, animations with Reanimated, React Compiler compatibility, state, fonts, monorepos, storage, and testing. Use when building or reviewing React Native or Expo code, when a mobile screen crashes on render or drops frames in a long list, when navigation or deep linking needs wiring, when platform behaviour diverges between iOS and Android, when a component must be made compiler-safe, or when an Expo native dependency needs monorepo or build configuration. Trigger terms: react-native, react native, expo, mobile, iOS, Android, NativeWind, Reanimated, FlatList, FlashList, React Navigation, safe area, native module, Expo fonts, monorepo."
+description: "React Native and Expo engineering patterns: modular-monolith architecture, rendering safety, component and list performance, navigation, platform-specific code, image handling, native UI primitives, animations with Reanimated, React Compiler compatibility, state, fonts, monorepos, storage, and testing. Use when building or reviewing React Native or Expo code, when a mobile screen crashes on render or drops frames in a long list, when navigation or deep linking needs wiring, when platform behavior diverges between iOS and Android, when a component must be made compiler-safe, or when an Expo native dependency needs monorepo or build configuration. Trigger terms: react-native, react native, expo, mobile, iOS, Android, NativeWind, Reanimated, FlatList, FlashList, React Navigation, safe area, native module, Expo fonts, monorepo."
 ---
 
-# React Native Expert Skill
+# React Native expert
 
-Expert-level React Native patterns, mobile-specific optimizations, navigation, and platform handling.
+Expert React Native and Expo patterns: mobile performance, navigation, and platform divergence.
 
----
-
-## Project Structure
-
-Organize by **feature module**, not by technical layer. A tree of
-`components/`, `screens/`, and `services/` couples every feature to every
-other one and stops any of them being deletable.
-
-```
-src/
-├── app/                  # Routes and composition only
-├── modules/              # Self-contained feature modules
-│   └── <feature>/        # Owns its screens, components, hooks,
-│                         # services, types, stores, validations
-└── shared/               # Primitives used by 2+ modules
-```
-
-A module must be deletable without breaking unrelated features, and must not
-import from another module — promote the shared thing to `src/shared/` on the
-second consumer. Module boundaries, the promotion rule, and the dependency
-direction are in [architecture.md](architecture.md).
-
-Below a handful of screens, a flat layer tree is not yet wrong; the module
-split is what carries an app past that point, so start there rather than
-migrating later.
-
----
-
-## Rendering Safety (CRITICAL)
+## Rendering safety
 
 ### Render text only inside `<Text>`
 
-Every string and text node must be a descendant of `<Text>`. React Native does
-not permit bare text inside `<View>`, `<Pressable>`, or another non-text
-component. See the [React Native Text
-documentation](https://reactnative.dev/docs/text).
+Every string and text node must descend from `<Text>`: React Native permits no bare text inside `<View>`, `<Pressable>`, or any other non-text component (see the [React Native Text documentation](https://reactnative.dev/docs/text)).
 
 ```tsx
 // ❌ BAD - a text node is a direct child of View
@@ -52,12 +21,9 @@ documentation](https://reactnative.dev/docs/text).
 <View><Text>Hello</Text></View>
 ```
 
-### Never use `&&` with potentially-falsy values
+### Never `&&` with a potentially falsy value
 
-Never write `{value && <Component />}` when `value` could be `0` or an empty
-string. Those are falsy but **JSX-renderable** — React Native tries to render the
-bare `0` or `""` outside a `<Text>`, causing a **hard crash in production**. This
-is one of the most common React Native production crashes.
+Never write `{value && <Component />}` when `value` could be `0` or an empty string: both are falsy yet **JSX-renderable**, so React Native renders the bare `0` or `""` outside a `<Text>` and **hard-crashes in production** — on the first empty list, after every non-empty render passed.
 
 ```tsx
 // ❌ BAD - `count && ...` renders a bare `0` when count is 0 → hard crash.
@@ -99,14 +65,28 @@ function Profile({ name, count }: { name: string; count: number }) {
 }
 ```
 
-**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react` to
-catch this automatically.
+**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react`, which catches it mechanically.
 
----
+## Project structure
+
+Organize by **feature module**, not technical layer: a `components/`, `screens/`, `services/` tree couples every feature to every other and makes none deletable.
+
+```
+src/
+├── app/                  # Routes and composition only
+├── modules/              # Self-contained feature modules
+│   └── <feature>/        # Owns its screens, components, hooks,
+│                         # services, types, stores, validations
+└── shared/               # Primitives used by 2+ modules
+```
+
+A module must be deletable without breaking unrelated features and must not import from another module; promote shared code to `src/shared/` at its second consumer. [architecture.md](architecture.md) holds the boundaries, the promotion rule, and the dependency direction.
+
+Below a handful of screens a flat layer tree is not yet wrong; the module split carries an app past that point, so start there rather than migrate later.
 
 ## Reference
 
-Read the file for the area in hand; each is self-contained.
+Read the file for the area in hand; each stands alone.
 
 | Area | File |
 |---|---|
@@ -122,9 +102,7 @@ Read the file for the area in hand; each is self-contained.
 | SecureStore, AsyncStorage, persistence | [storage.md](storage.md) |
 | React Native Testing Library | [testing.md](testing.md) |
 
----
-
-## Quick Reference
+## Quick reference
 
 ```toon
 checklist[20]{area,best_practice}:
