@@ -442,9 +442,9 @@ due_why() {
   case "$1" in
     browser)  printf 'a page holds a renderer process and buys nothing after the screenshot' ;;
     device)   printf 'a driver session holds the device and blocks the next run against it' ;;
-    docker)   printf 'due now that the work was pushed; it was worth keeping while the work ran' ;;
-    build)    printf 'due now that the work was pushed; the warm cache was worth keeping until then' ;;
-    emulator) printf 'due now that the work was pushed; a boot costs a minute, so it was worth keeping' ;;
+    docker)   printf 'the push made it due; it earned its keep while the work ran' ;;
+    build)    printf 'the push made it due; the warm cache earned its keep until then' ;;
+    emulator) printf 'the push made it due; a boot costs a minute, so it earned its keep' ;;
     *)        printf 'restarts in seconds, so it is not worth holding between turns' ;;
   esac
 }
@@ -518,7 +518,7 @@ PostToolUse)
 
   [[ -z "$opened" || "$first" == "no" ]] && exit 0
   kind="${opened#+}"; kind="${kind%%	*}"
-  printf '%s' "Started something that keeps running: ${opened#*	}. Tear it down before you report the work done — $(howto "$kind"). Leftover browsers, servers, and containers hold the machine's memory until it is restarted." \
+  printf '%s' "Started a resource that keeps running: ${opened#*	}. Tear it down before you report the work done — $(howto "$kind"). Leftover browsers, servers, and containers hold the machine's memory until it is restarted." \
     | python3 "$lib/emit-context.py" PostToolUse
   exit 0
   ;;
@@ -567,7 +567,7 @@ Stop)
       printf 'Still useful while the work continues, but tear these down before you push or the session ends:\n'
       printf '%s' "$waiting"
     fi
-    printf 'Tear down the ones listed as due, then report the turn done. These are heuristics: if you still need one, keep it and say which and why in your reply. This gate blocks once per batch, until a teardown clears it or a new resource re-arms it.\n'
+    printf 'Tear down every resource listed as due, then report the turn done. The tiers are heuristics: keep one you still need, and name it and why in your reply. This gate blocks once per batch, until a teardown clears it or a new resource re-arms it.\n'
   } >&2
   exit 2
   ;;

@@ -389,8 +389,8 @@ def rule_rm(command, project=""):
     if not ({"r", "R"} & letters or "--recursive" in longs):
         return None
     if any(broad(operand, project) for operand in operands):
-        return ("Recursive rm on a broad path. This is irreversible — confirm "
-                "with the user, or narrow the path.")
+        return ("Recursive rm on a broad path is irreversible: confirm with the user, "
+                "or narrow the path.")
     return None
 
 
@@ -419,16 +419,16 @@ def rule_git(command, project=""):
     verb, rest = git_verb(words)
     letters, longs, _ = parts(rest)
     if verb == "push" and ({"f"} & letters or {"--force", "--force-with-lease"} & longs):
-        return "Force-push rewrites remote history. Confirm with the user before running."
+        return "Force-push rewrites remote history: confirm with the user first."
     if verb == "reset" and "--hard" in longs:
-        return "git reset --hard discards work irreversibly. Confirm with the user, or use stash/branch."
+        return "git reset --hard destroys uncommitted work: confirm with the user, or stash or branch instead."
     if verb == "clean" and ({"f"} & letters or "--force" in longs):
-        return "git clean deletes untracked work irreversibly. Confirm with the user, or list it first with -n."
+        return "git clean deletes untracked files beyond recovery: confirm with the user, or preview with -n first."
     # `-n` is --no-verify for commit and --dry-run for push. Only one is a bypass.
     if verb == "commit" and ({"n"} & letters or "--no-verify" in longs):
-        return "--no-verify bypasses pre-commit safety checks. Fix the underlying failure instead of bypassing."
+        return "--no-verify skips the pre-commit safety checks: fix the failure they catch instead."
     if verb == "push" and "--no-verify" in longs:
-        return "--no-verify bypasses pre-push safety checks. Fix the underlying failure instead of bypassing."
+        return "--no-verify skips the pre-push safety checks: fix the failure they catch instead."
     return None
 
 
@@ -941,7 +941,7 @@ def rule_ssh(command, project=""):
     offender = remote_offender(remote)
     if offender is None:
         return None
-    return (f"Remote commands over SSH are limited to known read-only tools, and "
+    return (f"SSH admits only known read-only tools, and "
             f"`{offender}` is not one. Ship a change through the repo and the approved "
             "deploy path; for a read the list lacks, ask the user to run it with the ! "
             "prefix, or propose the entry to the user.")
@@ -982,11 +982,11 @@ def rule_sql(command, project=""):
     for word in words[1:]:
         for statement in word.split(";"):
             if DROP.search(statement) or TRUNCATE.search(statement):
-                return ("Destructive DDL detected. Confirm with the user and route the "
-                        "change through migrations.")
+                return ("Destructive DDL: confirm with the user and route the change "
+                        "through migrations.")
             if (DELETE.search(statement) or UPDATE.search(statement)) and not WHERE.search(statement):
-                return ("Unrestricted DELETE/UPDATE (no WHERE clause) detected. Confirm "
-                        "with the user before running.")
+                return ("A DELETE or UPDATE without a WHERE clause: confirm with the user "
+                        "before running.")
     return None
 
 

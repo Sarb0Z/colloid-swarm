@@ -228,7 +228,7 @@ done <<< "$files"
 if [[ "$mode" == "check" && -n "$skills_edited" ]]; then
   linter="$proj/.agents/lint-skills.sh"
   if [[ ! -x "$linter" ]]; then
-    issues+=$'\n'"[lint-skills] cannot run: $linter is missing or not executable."$'\n'"Skill format was not validated. Restore it (chmod +x) rather than proceeding."$'\n'
+    issues+=$'\n'"[lint-skills] cannot run: $linter is missing or not executable."$'\n'"Skill format went unchecked; restore the linter (chmod +x) before proceeding."$'\n'
   elif ! lint_out="$(LINT_SKILLS_PATHS="$skills_edited" "$linter" 2>&1)"; then
     issues+=$'\n'"[lint-skills]"$'\n'"$lint_out"$'\n'
   fi
@@ -426,7 +426,7 @@ if [[ -n "$dart_edited" ]]; then
       # network and write pubspec.lock and .dart_tool/, which a report-only hook
       # must not do, so a package never fetched is skipped with a note instead.
       if [[ ! -f "$pkg/.dart_tool/package_config.json" ]]; then
-        echo "post-edit-check: skipped $analyzer analyze for ${pkg#$proj}/ — dependencies are not resolved. Run \`$analyzer pub get\` there." >&2
+        echo "post-edit-check: skipped $analyzer analyze for ${pkg#$proj}/ — its dependencies are unresolved; run \`$analyzer pub get\` there." >&2
         continue
       fi
       pkg_files=()
@@ -475,9 +475,8 @@ fi
 if [[ "$mode" == "check" ]]; then
   [[ -z "$issues" ]] && exit 0
   cat >&2 <<EOF
-Post-edit checks found issues — fix them before moving on. These are
-scoped to the files you just edited; pre-existing issues elsewhere are
-suppressed.
+Post-edit checks failed — fix them before moving on. Each is scoped to the
+files you just edited; pre-existing failures elsewhere are suppressed.
 $issues
 EOF
   exit 2
@@ -489,10 +488,10 @@ fi
 advisories=""
 
 if [[ -n "$tombstones" ]]; then
-  advisories+="Advisory — possible tombstone comment(s) in your additions. Comments and docs
-describe the code as it is now, not its history; the diff already records the
-change. Move any standing rationale to .agents/debt-log.md and reference it
-inline as \`debt: <id>\`, then delete the narration. If a flagged line is
+  advisories+="Advisory — your additions may narrate history (tombstone comments). Comments
+and docs describe the code as it is; the diff already records the change. Move
+any standing rationale to .agents/debt-log.md, cite it inline as
+\`debt: <id>\`, and delete the narration. If a flagged line is
 legitimate present-tense prose, leave it and continue.
 $tombstones
 "
@@ -500,9 +499,9 @@ fi
 
 if [[ -n "$nullsafety" ]]; then
   advisories+="
-Advisory — possible null-safety gaps in your additions. tsc is blind to these (a
+Advisory — possible null-safety gaps in your additions, invisible to tsc (a
 cast silences it; parsed JSON is \`any\`). Prefer validating the shape or
-narrowing the type over asserting it. If a flagged line is a deliberate,
+narrowing the type to asserting it. If a flagged line is a deliberate,
 proven-safe assertion, leave it and continue.
 $nullsafety
 "
@@ -510,11 +509,10 @@ fi
 
 if [[ -n "$reformatted" ]]; then
   advisories+="
-Advisory — a formatter rewrote these files after your edit (ruff, prettier, dart format or
-eslint --fix). Their contents no longer match what you wrote, so an Edit whose
-old_string predates this will fail. Re-read the file before your next edit,
-check the diff before you describe it, and say so if the reformatting is larger
-than your own change.
+Advisory — a formatter (ruff, prettier, dart format or eslint --fix) rewrote
+these files after your edit, so an Edit whose old_string predates the rewrite
+fails. Re-read the file before your next edit, read the diff before you
+describe it, and say so if the reformatting outweighs your own change.
 $reformatted
 "
 fi

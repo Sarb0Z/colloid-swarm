@@ -35,7 +35,7 @@ ask_failure() {
   local decision="ask"
   if ! grep -Eq '"permission_mode": *"(default|acceptEdits|plan)"' <<<"$payload"; then
     decision="deny"
-    reason="$reason This session's permission mode does not show approval prompts, so the call is denied; the user runs it themselves or switches the mode to default and answers the prompt."
+    reason="$reason This session's permission mode shows no approval prompt, so the call is denied; the user runs it themselves, or switches to default mode and answers the prompt."
   fi
   echo "guard-publish: $diagnostic" >&2
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s AGENTS.md §External actions: outward mutations need in-session user approval."}}\n' "$decision" "$reason"
