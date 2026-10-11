@@ -6,28 +6,25 @@ description: Coordinates durable, bounded parallel implementation and review lan
 # Workloop
 
 Use it for long-running work with two or more independent implementation
-lanes, parallel reviewer feedback, or a handoff that must survive compaction; do
-not use it for a small, one-shot edit. Every lane costs a worktree, an install,
-and a share of one integration run, and a one-shot edit never repays that
-ceremony.
+lanes, parallel reviewer feedback, or a handoff that must survive compaction, never
+for a small, one-shot edit.
 
 The controller is a portable coordination surface, not an agent launcher. The
 lead dispatches the generated briefs through the current host and delivers any
 `attention` output to the named cell. The controller records only workflow state
 and references to canonical review artifacts: findings remain in hostile-review
 reports, unresolved work in `breadcrumbs.md`, accepted tradeoffs in
-`debt-log.md`. A finding copied into the state file would be a second copy, and
-the first amendment to the report would make the two disagree.
+`debt-log.md`.
 
-`--supervised` is an explicit opt-in for peer coordination. It is not a hook and
-leaves the ordinary workflow unchanged. A host with direct agent messaging or
+`--supervised` opts explicitly into peer coordination; it is no hook and leaves
+the ordinary workflow unchanged. A host with direct agent messaging or
 resumable agents delivers the same messages and restart requests natively;
 elsewhere the cells poll the durable inbox at each handoff.
 
 ## Start a run
 
-Create one run with a testable objective, the test command that proves the
-composed result, and a base revision, which `init` pins to a commit. Add a lane
+Create one run with a testable objective, the test command proving the composed
+result, and a base revision, which `init` pins to a commit. Add a lane
 per writer: `add-lane` creates the worktree on branch `<run>/<lane>` when the
 path does not exist, installs its dependencies from the lockfiles, and records
 the lockfile hash. A writing lane owns exclusive paths.
@@ -58,11 +55,11 @@ unattended with no hook in front of it. Give it no cleaning or resetting step:
 it before merging, and such a step is exactly what the floor refuses.
 
 Use `brief` as the bounded dispatch prompt. The cell claims the lane, works only in
-its worktree and declared paths, commits on the lane branch, and submits
-observed test evidence. `claim` refuses a lane whose lockfiles changed since it
+its worktree and declared paths, commits on the lane branch, and submits observed
+test evidence. `claim` refuses a lane whose lockfiles changed since it
 was provisioned, or whose install failed, until `provision <run> <lane>`
 succeeds; a test failure naming a missing module, binary, or runtime version is
-that case, not a code defect, and no edit to source can cure it. `submit` refuses uncommitted work, because review
+that case, not a code defect. `submit` refuses uncommitted work, because review
 and integration read the branch. Review can begin from the brief in parallel,
 but final acceptance comes only once the submitted diff and its canonical
 review report are available.
@@ -98,9 +95,7 @@ containers behind. The controller answers with ownership, leases, and progress:
   lane reads as slow.
 - **Narrow acceptance.** A lane runs only the narrowest acceptance for its slice,
   never the end-to-end or browser suite; `integrate` runs `--verify` once over
-  the merged tree. Three lanes each driving the full browser suite contend for
-  the one machine's browsers, and each proves a tree that will never ship.
-  Every merge queue works this way.
+  the merged tree. Every merge queue works this way.
 
 ## Feedback and recovery
 
@@ -114,16 +109,15 @@ and records the cell's acknowledgement before the correction cycle.
 .agents/workloop.py ack slice-3b persistence --agent persistence-worker
 ```
 
-`release-stale` makes an interrupted claim resumable; it erases neither evidence
-nor a pending attention item.
+`release-stale` makes an interrupted claim resumable, erasing neither evidence nor
+a pending attention item.
 
 ## Peer messages and supervision
 
-In a supervised run, a reviewer or peer sends a compact, referenced message
-straight to the recipient lane. A message that requires acknowledgement blocks
+In a supervised run, a reviewer or peer sends a compact, referenced message to
+the recipient lane. A message that requires acknowledgement blocks
 that lane's next submission, QA, and completion until the recipient's current
-claimant acknowledges it, and the sender cannot acknowledge its own message: a
-finding filed and cleared by the same hand reaches nobody.
+claimant acknowledges it, and the sender cannot acknowledge its own message.
 
 ```sh
 .agents/workloop.py send slice-3b --from-lane parser --to-lane persistence \
@@ -157,9 +151,8 @@ completion until the claimant answers it.
 
 ## Integrate and tear down
 
-Each lane verified its own slice in its own worktree; nothing has yet verified
-the composition, and a lane that passed alone has proven only that it passes
-alone. Once every lane is reviewed, `integrate` resets an integration
+Each lane verified its own slice in its own worktree; nothing has verified the
+composition. Once every lane is reviewed, `integrate` resets an integration
 worktree to the base on branch `<run>/integration`, merges the lane branches in
 dependency order, provisions, and runs the `--verify` command once. A conflict
 aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
@@ -192,6 +185,5 @@ gate: it fails when any lane is unresolved, lacks evidence, or has
 unacknowledged attention, when the run lacks QA evidence, or when a multi-lane
 run lacks a current passing integration.
 
-The default ceiling is eight lanes. More lanes require `--allow-more` when the
-next lane is added, so the lead accepts the added coordination cost
-deliberately.
+The default ceiling is eight lanes; each further lane requires `--allow-more`
+when added, so the lead accepts the coordination cost deliberately.
