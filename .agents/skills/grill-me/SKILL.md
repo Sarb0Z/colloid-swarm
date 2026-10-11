@@ -5,9 +5,9 @@ description: Runs the grilling interview and the domain-modeling discipline toge
 
 # Grill me
 
-Two skills run as one session, the interview supplying the pressure and the model recording what survives it:
+Run two skills as one session, the interview supplying the pressure and the domain model recording what survives it:
 
 1. Read `.agents/skills/grilling/SKILL.md` and `.agents/skills/domain-modeling/SKILL.md` in full before the first question.
 2. Interview by `grilling`'s rounds: each round takes the whole frontier of the design tree, through the host's question tool, and every question carries a recommended answer.
 3. Between rounds, apply `domain-modeling`: challenge every term the answers introduce, test it against an edge-case scenario, and write the settled term to `GLOSSARY.md` and any settled decision to `.agents/decisions.md` the moment it crystallises, not at the end.
-4. The session ends when the frontier is empty. Report the decisions recorded, the glossary terms added or changed, and the branches the operator deferred.
+4. End when the frontier is empty. Report the decisions recorded, the glossary terms added or changed, and the branches the operator deferred.

@@ -13,16 +13,16 @@ cell** for anything load-bearing; either way the claim ends tied to a URL.
 No hook can force the search: a claim from memory makes no tool call, so
 nothing intercepts it. The scaffold makes searching cheap and disciplined and
 leaves an evidence trail, and the `research-prime` hook flags a user's question
-that reads as research; the decision to search remains the agent's, and a fact
-it did not verify it does not state.
+that reads as research; the decision to search remains the agent's. Never state
+as fact what was not verified.
 
 ## Inline, or delegate
 
-**Inline fast-path.** One `WebSearch`, the top primary source read with
-`WebFetch`, the URL cited, no cell. When `WebFetch` returns navigation, a cookie
+**Inline fast-path.** Run one `WebSearch`, read the top primary source with
+`WebFetch`, and cite the URL, with no cell. When `WebFetch` returns navigation, a cookie
 wall, or boilerplate in place of the text, re-read the same URL with
 `research-mcp`'s `fetch_readable`, which also reads the PDFs `WebFetch` cannot.
-The fast path is for a single, well-known, low-stakes fact:
+Use the fast path for a single, well-known, low-stakes fact:
 - "What's the current Node LTS?" · "Does `Array.prototype.at` exist in Node 18?"
 - "What's the latest stable Postgres major?"
 
@@ -87,27 +87,27 @@ playwright for hard pages), cross-checks load-bearing claims, and returns
 `CLAIMS / SOURCES / GAPS` — what it found, not what it wishes it had found.
 <!-- colloid-only -->
 
-On Kimi the genome stamp is prepended here too — `[genome stamp] +
+On Kimi, prepend the genome stamp here too — `[genome stamp] +
 [.agents/personas/researcher.md] + [your research question]`. Claude and Codex
 inject it automatically.
 <!-- /colloid-only -->
 
 ## Carry the sources through
 
-The researcher's `SOURCES` become the answer's sources, under three rules:
-- Every external fact the answer repeats traces to a URL the researcher returned
-  or one fetched inline. A fact tied to no source is not stated as fact: it is
-  downgraded ("likely, but unverified") or dropped.
-- An answer resting on external facts closes with a **Sources** list of the URLs
-  it used — `WebSearch`'s own contract asks for this, and it is honoured.
-- **A GAP is relayed as a conclusion, never a hedge.** *"research found no
+The researcher's `SOURCES` become the answer's sources. When writing the answer:
+- Every external fact the answer repeats must trace to a URL the researcher
+  returned, or to one fetched inline. A fact that ties to no source is not
+  stated as fact: downgrade it ("likely, but unverified") or drop it.
+- End an answer that rests on external facts with a **Sources** list of the URLs
+  it used; `WebSearch`'s own contract asks for this, so honour it.
+- **Relay a GAP as a conclusion, never a hedge.** *"research found no
   authoritative source for Z; best available is W, low confidence"* is a
   finding. *"I'm unable to verify Z without more info"* reads as a stalled
   investigation and trips the session's investigate-then-act guard. The
-  researcher hands gaps back already in conclusion shape; they keep that shape,
-  clear of the guard's trip-wires: *"unable to determine"*, *"cannot
-  determine whether"*, *"without more context"*, *"you'll need to check"*. The
-  answer states what the search found, not what it could not do.
+  researcher hands gaps back already in conclusion shape; keep them that way,
+  and route around the guard's trip-wires: *"unable to determine"*, *"cannot
+  determine whether"*, *"without more context"*, *"you'll need to check"*. State
+  what the search found, not what could not be done.
 
 ## The evidence trail
 
@@ -124,7 +124,7 @@ transient and gitignored, and deleting it costs nothing.
 The ledger records that a lookup happened. It carries no findings and is not
 committed, so nothing later reads it for answers.
 
-**A delegated cell's return is filed.** Delegation is itself the test that the
+**File what a delegated cell returned.** Delegation is itself the test that the
 question was substantial — the line drawn at the top of this skill — and the
 answer is a dated observation of something outside the repository. Write it to
 `.agents/knowledge/research/` and add its index line; the entry contract is in
