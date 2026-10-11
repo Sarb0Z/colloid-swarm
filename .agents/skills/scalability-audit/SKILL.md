@@ -5,18 +5,16 @@ description: Find where a growing system breaks before it breaks. Nine failure l
 
 # Scalability audit
 
-Predict where a growing system breaks, then find the breaks you have not hit
-yet.
+Predict where a growing system breaks, then find the breaks it has not hit yet.
 
 The laws in §2 explain failures a system has already had; the audit in §1 finds
-the ones it has not. The audit does not require knowing the failure in advance,
-which is the whole point of running it: a scale failure is invisible on the day
-the code is written, because the code is correct for the N in front of it.
+the ones it has not, without foreknowledge of the failure — the whole point of
+running it.
 
 These laws come from mining 28 sessions and 181 findings in one production
 system into 10 recurring failure classes, each re-verified against live code.
-The laws generalise. The evidence does not travel, so this skill reproduces no
-other system's numbers — gather this one's as you go.
+The laws generalise; the evidence does not travel, so this skill reproduces no
+other system's numbers — gather your own as you go.
 
 ## When to use this
 
@@ -32,23 +30,17 @@ the same diff — the review covers a change, this covers a system.
 
 ## §1 The audit
 
-A fixed procedure over the whole system. Work through every step. Each one
-produces an artefact, and a step with nothing to show was not run — however
-confident the auditor felt walking past it.
+A fixed procedure over the whole system. Work through every step; each produces
+an artefact, and a step with nothing to show was not run.
 
 1. **Inventory every N.** List every quantity that grows: entities, rows,
    users, jobs, files. Record today's value and where it is measured.
 2. **Build the 10x table.** For each operation, one row: N, cost per item,
-   frequency, product today, product at 10x. Sort by the 10x column. Cost and
-   cadence are both chosen by intuition; the product is the number nobody
-   computed.
+   frequency, product today, product at 10x. Sort by the 10x column.
 3. **Date every constant.** Every threshold, cap, window, batch size, cadence,
-   timeout. Record the value, when it was chosen, and what N was then. Each is a
-   fossil of the snapshot it was calibrated against.
+   timeout. Record the value, when it was chosen, and what N was then.
 4. **Reservoir census.** Every store, with source, drain, and implied steady
-   state. Flag missing drains and missing sources separately: the first grows
-   until a physical limit stops it, the second empties while the system reports
-   success.
+   state. Flag missing drains and missing sources separately.
 5. **Simultaneous-hold census.** Trace one request end to end and list every
    finite resource it holds at the same time: pools, slots, locks,
    reservations, sockets, and any external ceiling it waits on while those
@@ -67,10 +59,9 @@ confident the auditor felt walking past it.
 
 ### Turning findings into tripwires
 
-A finding you cannot detect again is a finding you will re-earn. For each one,
-add the cheapest detector that would have caught it: an assertion, a counter, a
-query in a dashboard, a scheduled check. Prefer a tripwire that fails toward
-alerting; one that fails quiet is Law 8 installed on purpose.
+A finding you cannot detect again is a finding you will re-earn. For each, add
+the cheapest detector that would have caught it — an assertion, a counter, a
+dashboard query, a scheduled check — and prefer one that fails toward alerting.
 
 ## Output
 
@@ -79,8 +70,8 @@ interesting they are. For each: the law it violates, the location, the
 arithmetic or census entry that proves it, the distance to the wall, and the
 cheapest tripwire that would catch it again.
 
-State which audit steps you ran and which you could not. A sweep that silently
-skipped steps reads as coverage it does not have, and the next reader trusts it.
+State which audit steps you ran and which you could not: a sweep that silently
+skipped steps reads as coverage it does not have.
 
 ## §2 The nine laws
 
@@ -103,13 +94,10 @@ Full mechanism and evidence for each: `references/laws.md`.
 ### Three-outcome checks
 
 Wrap an unreliable external signal so the verdict and the failure are separate
-fields. A boolean holds two outcomes, and the third — the check did not
-complete — collapses into the falsy one, which is almost always the reassuring
-one.
+fields.
 
 - The helper that queries the source must not swallow everything. Catch only
-  the exceptions that mean a genuine negative; let the rest propagate. A bare
-  `except Exception: return False` is the signature of the defect.
+  the exceptions that mean a genuine negative; let the rest propagate.
 - The public function one layer up owns the catch-all, and it puts the failure
   in a field the caller reads independently of the verdict. Never overload the
   verdict field.
@@ -122,11 +110,9 @@ one.
 ### Failure visibility
 
 - A background job must re-raise after logging, so the framework's own failure
-  tracking and any paging path fire. Logging alone is not enough: a failure
-  logged but not raised is indistinguishable from success.
+  tracking and any paging path fire; logging alone is not enough.
 - A loop over many items isolates a per-item exception into its own counted
-  bucket. Never drop it, and never fold it into a legitimate skip — one bad item
-  must not destroy the batch, and it must not vanish either.
+  bucket; never drop it or fold it into a legitimate skip.
 - A systemic fault — a broken session, a dead connection — still aborts loudly
   rather than being swallowed once per item.
 - A handler that enqueues downstream work and acknowledges success must not
@@ -134,23 +120,20 @@ one.
 
 Per-item isolation is safe only when the loop body holds no external
 reservation partway through, such as a budget hold or an in-flight lock.
-Catching broadly across a reservation without a matching release is a silent
-leak, not a fix: the loop survives, and every caught failure strands one more
-held reservation.
+A broad catch across a reservation without a matching release is a silent leak,
+not a fix.
 
 ### Blast-radius caps
 
 Cap the fraction of entities one run may mutate. Require a second,
-independently sourced signal before a destructive action — the defining
-incident is a shared signal failing, every entity evaluating to bad, and the
-loop faithfully applying the destructive action to all of them. Prefer a cap
-that refuses and pages over one that truncates silently.
+independently sourced signal before a destructive action. Prefer a cap that
+refuses and pages over one that truncates silently.
 
 ### Reservoirs
 
 Give every source a drain and every drain a source. Retention needs an owner
-and a schedule. A depleting reservoir needs an alarm on its level, not on its
-consumption, because consumption looks healthy all the way to empty.
+and a schedule. A depleting reservoir needs an alarm on its level, not its
+consumption.
 
 ### Occupancy
 
