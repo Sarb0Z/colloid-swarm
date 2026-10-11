@@ -168,6 +168,90 @@ rc "$nopaths" && fail 'a pack with no paths: globs must stop the run'
   || fail 'a missing paths: must be refused, not reported as a stale pack'
 ok 'a pack without paths: globs is refused'
 
+# --- detect-deps: a dependency alone keeps a pack ----------------------------
+# MongoDB, an ORM or a client SDK leaves no signature file, so a pack can also
+# be kept by a name in a tracked manifest. Each fixture holds only that
+# manifest plus the one pack under test, so the verdict is about the manifest.
+dbpack() {
+  local dir="$scratch/$1"; shift
+  rm -rf "$dir"; mkdir -p "$dir/.agents/rules"
+  cp "$repo/.agents/check-stack-packs.py" "$dir/.agents/"
+  printf '{}' > "$dir/.agents/config.json.example"
+  { printf -- '---\npaths:\n  - %s\n' "'**/migrations/**'"
+    printf "detect:\n  - '**/migrations/**'\ndetect-deps:\n"
+    printf "  - '%s'\n" pypi:motor pypi:sqlalchemy npm:@prisma/client gem:pg pypi:django
+    printf -- '---\nfixture\n'
+  } > "$dir/.agents/rules/stack-database.md"
+  local entry
+  for entry in "$@"; do
+    mkdir -p "$dir/$(dirname "${entry%%=*}")"
+    printf '%b' "${entry#*=}" > "$dir/${entry%%=*}"
+  done
+  git -C "$dir" init -q --template=
+  git -C "$dir" add -A
+  printf '%s' "$dir"
+}
+kept()  { [[ "$(run "$1" || true)" != *"stack-database.md"* ]]; }
+
+d="$(dbpack npm-dep 'web/package.json={"dependencies":{"@prisma/client":"^6.0.0"}}\n')"
+kept "$d" || fail 'a dependency in package.json must keep the pack'
+d="$(dbpack npm-peer 'package.json={"peerDependencies":{"@prisma/client":"*"}}\n')"
+kept "$d" || fail 'a peerDependencies entry must keep the pack'
+d="$(dbpack none 'package.json={"dependencies":{"react":"19"}}\n')"
+kept "$d" && fail 'a manifest naming no marker must leave the pack stale'
+report="$(run "$d" || true)"
+[[ "$report" == *"detect-deps:"*"npm:@prisma/client"* ]] \
+  || fail 'the stale report must name the dependency markers'
+ok 'package.json dependencies keep a pack, and their absence flags it'
+
+d="$(dbpack ecosystem 'package.json={"dependencies":{"motor":"1.0.0"}}\n')"
+kept "$d" && fail 'npm motor must not satisfy pypi:motor'
+d="$(dbpack ecosystem-py 'requirements.txt=motor==3.6.0\n')"
+kept "$d" || fail 'pypi motor must satisfy pypi:motor'
+d="$(dbpack ecosystem-gem 'Gemfile=gem "motor"\n')"
+kept "$d" && fail 'a gem motor must not satisfy pypi:motor'
+ok 'a dependency name is scoped to its ecosystem'
+
+d="$(dbpack pep503 'requirements-dev.txt=# tools\n-r base.txt\nSQLAlchemy[asyncio]>=2.0 ; python_version > "3.9"\n')"
+kept "$d" || fail 'SQLAlchemy with extras and a marker must match sqlalchemy'
+d="$(dbpack pep621 'pyproject.toml=[project]\nname = "x"\ndependencies = ["Django>=5.0"]\n')"
+kept "$d" || fail 'a PEP 621 dependency must keep the pack'
+d="$(dbpack pep621-extra 'pyproject.toml=[project]\nname = "x"\n[project.optional-dependencies]\ndb = ["SQL_Alchemy==2"]\n')"
+kept "$d" && fail 'SQL_Alchemy is a different project from sqlalchemy'
+d="$(dbpack dep-group 'pyproject.toml=[dependency-groups]\ndev = ["sqlalchemy>=2", {include-group = "lint"}]\n')"
+kept "$d" || fail 'a [dependency-groups] entry must keep the pack'
+d="$(dbpack poetry-group 'pyproject.toml=[tool.poetry.group.db.dependencies]\nSQLAlchemy = "^2.0"\n')"
+kept "$d" || fail 'a Poetry group dependency must keep the pack'
+d="$(dbpack poetry 'pyproject.toml=[tool.poetry.dependencies]\npython = "^3.12"\nrequests = "*"\n')"
+kept "$d" && fail 'a Poetry table naming no marker must leave the pack stale'
+d="$(dbpack gemfile 'Gemfile=source "https://rubygems.org"\ngem "pg", "~> 1.5"\n')"
+kept "$d" || fail 'a Gemfile gem must keep the pack'
+ok 'Python names fold per PEP 503, and pyproject, Poetry, groups and Gemfile are read'
+
+d="$(dbpack vendored '.agents/mcp-servers/x/package.json={"dependencies":{"@prisma/client":"6"}}\n')"
+kept "$d" && fail 'a manifest under .agents/ must select no stack'
+d="$(dbpack file-glob 'db/migrations/001.sql=select 1\n')"
+kept "$d" || fail 'a detect: glob must still keep the pack with no manifest'
+ok 'manifests under .agents/ are ignored, and detect: still works alone'
+
+d="$(dbpack badjson 'package.json={not json')"
+rc "$d" && fail 'an unreadable manifest must stop the run'
+[[ "$(run "$d" || true)" == *"not valid JSON"* ]] || fail 'an unreadable manifest must be named'
+ok 'a malformed manifest fails loudly'
+
+d="$(dbpack nodetect-deps 'package.json={"dependencies":{"@prisma/client":"6"}}\n')"
+python3 - "$d/.agents/rules/stack-database.md" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+open(path, "w", encoding="utf-8").write(re.sub(r"detect:\n(  - .*\n)+", "", text, count=1))
+PY
+git -C "$d" add -A
+rc "$d" && fail 'detect-deps: alone must not replace detect:'
+[[ "$(run "$d" || true)" == *"declares no marker globs"* ]] \
+  || fail 'a pack with only detect-deps: must be refused'
+ok 'detect: stays required beside detect-deps:'
+
 # --- Every shipped pack declares both keys ----------------------------------
 for pack in "$repo/.agents/rules/"stack-*.md; do
   grep -q '^detect:' "$pack" || fail "$(basename "$pack") declares no detect:"
