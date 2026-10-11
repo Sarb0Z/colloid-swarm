@@ -94,6 +94,20 @@ ASK = [
     ("Bash", {"command": "npx -w apps/web vercel deploy --prod"}),
     ("Bash", {"command": "bunx vercel@latest --prod"}),
     ("Bash", {"command": "pnpm dlx vercel@39 --prod"}),
+    ("Bash", {"command": "pnpm vercel deploy --prod"}),
+    ("Bash", {"command": "pnpm exec vercel deploy --prod"}),
+    ("Bash", {"command": "pnpm --filter web exec vercel deploy --prod"}),
+    ("Bash", {"command": "pnpm -F web wrangler deploy"}),
+    ("Bash", {"command": "yarn wrangler deploy"}),
+    ("Bash", {"command": "yarn --cwd apps/web vercel --prod"}),
+    ("Bash", {"command": "yarn workspace web exec netlify deploy"}),
+    ("Bash", {"command": "npm exec -- wrangler deploy"}),
+    ("Bash", {"command": "bundle exec git push"}),
+    ("Bash", {"command": "poetry run git push"}),
+    ("Bash", {"command": "dotenv -e .env.production -- vercel deploy --prod"}),
+    ("Bash", {"command": "git \\\n push origin main"}),
+    ("Bash", {"command": "bun vercel deploy --prod"}),
+    ("Bash", {"command": "eval 'git push origin main'"}),
     ("PowerShell", {"command": "git push origin main"}),
     ("Monitor", {"command": "while true; do git push; sleep 60; done"}),
     ("Artifact", {"file_path": "/tmp/report.html", "favicon": "x"}),
@@ -150,6 +164,13 @@ PASS = [
     ("Bash", {"command": "command -v vercel"}),
     ("Bash", {"command": "npx wrangler@3 dev"}),
     ("Bash", {"command": "npx vercel@latest ls"}),
+    ("Bash", {"command": "pnpm --filter web build"}),
+    ("Bash", {"command": "yarn workspace web vercel ls"}),
+    ("Bash", {"command": "pnpm exec wrangler dev"}),
+    ("Bash", {"command": "python3 -m pytest tests"}),
+    ("Bash", {"command": "bun run build"}),
+    ("Bash", {"command": "bun install"}),
+    ("Bash", {"command": "eval 'git status'"}),
     ("Bash", {"command": "gh workflow list"}),
     ("Artifact", {"action": "list"}),
     ("Artifact", {"url": "https://claude.ai/x", "action": "comments"}),
@@ -942,6 +963,357 @@ for vendor, verbs in guard.DEPLOY_VERBS.items():
               any(command == prefix or command.startswith(prefix + " ")
                   for prefix in prefixes),
               "the guard gates this but settings.json has no ask rule for it")
+
+# A migration-applying command asks when the database it reaches is hosted and
+# stays quiet when it is local. Each case builds a repository on disk and runs
+# the entry point from it, with every database-looking variable removed from
+# the environment so this machine's shell cannot decide a case.
+target_spec = importlib.util.spec_from_file_location(
+    "database_target", here / "hooks" / "lib" / "database-target.py")
+database = importlib.util.module_from_spec(target_spec)
+target_spec.loader.exec_module(database)
+check("every migration tool name opens the guard's gate",
+      database.NAMES == guard.DATABASE_NAMES,
+      f"only in database-target: {database.NAMES - guard.DATABASE_NAMES}; "
+      f"only in guard-publish: {guard.DATABASE_NAMES - database.NAMES}")
+
+DB_ENV = {key: value for key, value in os.environ.items()
+          if not database.database_variable(key) and key not in ("RAILS_ENV", "ALEMBIC_CONFIG")}
+SECRET = "s3cretpw"
+HOSTED = f"postgresql://app:{SECRET}@db.prod.example.com:5432/app"
+LOCAL = f"postgresql://app:{SECRET}@localhost:5432/app"
+PRISMA = 'datasource db {\n  provider = "postgresql"\n  url = env("DATABASE_URL")\n}\n'
+
+
+def database_repo(files):
+    """A temporary repository holding `files` ({relative path: text})."""
+    tmp = tempfile.TemporaryDirectory()
+    for name, text in files.items():
+        path = pathlib.Path(tmp.name) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return tmp
+
+
+def database_call(repo, command, cwd=None, extra=None):
+    """(decision or None, reason) from the entry point run for `repo`."""
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command},
+                          "permission_mode": "default", "cwd": cwd or repo})
+    result = subprocess.run([sys.executable, str(policy), repo], input=payload, capture_output=True,
+                            text=True, env={**DB_ENV, **(extra or {})})
+    out = json.loads(result.stdout or "{}").get("hookSpecificOutput", {})
+    return out.get("permissionDecision"), out.get("permissionDecisionReason", "") + result.stderr
+
+
+def expect(name, files, command, asks, cwd=None, extra=None, mentions=None):
+    with database_repo(files) as repo:
+        decision, reason = database_call(repo, command, cwd and os.path.join(repo, cwd), extra)
+    ok = (decision == "ask") if asks else (decision is None)
+    ok = ok and SECRET not in reason and (mentions is None or mentions in reason)
+    check(f"{'asks' if asks else 'quiet'}: {name}: {command}", ok, reason or "silence")
+
+
+# Every tool, against a hosted and a loopback DATABASE_URL in `.env`.
+TOOLS = [
+    "prisma migrate deploy", "prisma migrate reset --force", "prisma db push",
+    "prisma db execute --file seed.sql", "prisma db seed", "prisma migrate dev",
+    "prisma migrate dev --name init", "prisma migrate resolve --applied 20240101_init",
+    "alembic upgrade head", "alembic downgrade -1", "alembic stamp head",
+    "rails db:migrate", "bin/rails db:rollback", "rake db:schema:load", "rails db:seed",
+    "rails db:drop", "rails db:reset", "rails db:setup", "rails db:create db:migrate",
+    "rails db:create", "rails db:fixtures:load", "rails db:migrate:primary",
+    "rails db:schema:load:animals", "rake db:migrate:redo", "rails db:rollback:primary",
+    "typeorm migration:run -d src/data-source.ts", "typeorm-ts-node-commonjs migration:revert -d ds.ts",
+    "typeorm-ts-node-esm migration:run -d ds.ts",
+    "drizzle-kit push", "drizzle-kit migrate", "drizzle-kit push:pg", "drizzle-kit migrate:mysql",
+    "knex migrate:latest", "knex migrate:rollback", "knex migrate:up", "knex migrate:down",
+    "knex seed:run",
+    "sequelize db:migrate", "sequelize db:migrate:undo", "sequelize-cli db:migrate:undo:all",
+    "python manage.py migrate", "./manage.py migrate", "django-admin migrate",
+    "flask db upgrade", "flask db downgrade", "flask db stamp head",
+    "python manage.py flush --no-input", "python manage.py loaddata fixtures.json",
+    "django-admin flush",
+]
+for command in TOOLS:
+    files = {"prisma/schema.prisma": PRISMA}
+    expect("hosted .env", {**files, ".env": f"DATABASE_URL={HOSTED}\n"}, command, True,
+           mentions="db.prod.example.com")
+    expect("loopback .env", {**files, ".env": f"DATABASE_URL={LOCAL}\n"}, command, False)
+
+# Verbs that only generate files or read state never reach a database worth an
+# ask, so they stay quiet without resolving anything.
+for command in ("prisma generate", "prisma migrate status", "prisma validate",
+                "alembic revision -m upgrade", "alembic history", "alembic current",
+                "rails db:migrate:status", "rails db:migrate:status:primary", "rails db:version",
+                "rails db:schema:dump", "rails generate migration AddX", "knex migrate:make x",
+                "knex seed:make users", "python manage.py dumpdata",
+                "drizzle-kit generate", "sequelize migration:generate --name x",
+                "python manage.py makemigrations", "flask db migrate",
+                "prisma migrate deploy --help", "rails routes"):
+    expect("local-only verb", {".env": f"DATABASE_URL={HOSTED}\n"}, command, False)
+
+# Each wrapper spelling reaches the tool underneath it.
+WRAPPED = ["bundle exec rails db:migrate", "bundle exec rake db:migrate", "npx prisma migrate deploy",
+           "npx prisma@6 migrate deploy", "pnpm prisma migrate deploy", "pnpm exec prisma migrate deploy",
+           "npm exec -- prisma migrate deploy", "yarn prisma migrate deploy", "pnpm dlx prisma db push",
+           "bunx prisma migrate deploy", "poetry run alembic upgrade head",
+           "pipenv run alembic upgrade head", "python -m alembic upgrade head",
+           "python3 -m alembic upgrade head", "python3 -m flask db upgrade", "python -m django migrate",
+           "uv run python manage.py migrate", "dotenv -- prisma migrate deploy",
+           "cd . && npx prisma migrate deploy", "pnpm --filter api exec prisma migrate deploy",
+           "pnpm -F api prisma migrate deploy", "yarn --cwd . prisma migrate deploy",
+           "yarn workspace api prisma migrate deploy", "yarn workspace api exec prisma migrate deploy",
+           "bun run prisma migrate deploy", "bun prisma migrate deploy", "bun x prisma migrate deploy",
+           "npm x prisma migrate deploy", "node node_modules/.bin/prisma migrate deploy",
+           "node node_modules/prisma/build/index.js migrate deploy",
+           "eval 'npx prisma migrate deploy'", "npx prisma \\\nmigrate deploy",
+           "npx prisma \\\n  migrate \\\n  deploy"]
+for command in WRAPPED:
+    files = {"prisma/schema.prisma": PRISMA}
+    expect("wrapped, hosted .env", {**files, ".env": f"DATABASE_URL={HOSTED}\n"}, command, True)
+    expect("wrapped, loopback .env", {**files, ".env": f"DATABASE_URL={LOCAL}\n"}, command, False)
+
+# A wrapper or runner that names an env file: the named file decides, ahead of
+# the tool's own `.env`.
+NAMED = ["npx dotenv -e .env.production -- prisma migrate deploy",
+         "pnpm dotenv-cli -e .env.production -- prisma migrate deploy",
+         "dotenv -f .env.production,.env prisma migrate deploy",
+         "dotenv -c production -- prisma migrate deploy",
+         "dotenv -f .env.production run prisma migrate deploy",
+         "dotenv --file .env.production run --override prisma migrate deploy",
+         "bun --env-file=.env.production prisma migrate deploy",
+         "bun --env-file .env.production run prisma migrate deploy",
+         "node --env-file=.env.production node_modules/prisma/build/index.js migrate deploy",
+         "node --env-file .env.production ./node_modules/.bin/prisma migrate deploy"]
+for command in NAMED:
+    expect("the named env file is hosted", {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n",
+                                            ".env.production": f"DATABASE_URL={HOSTED}\n"}, command, True,
+           mentions=".env.production")
+    expect("the named env file is loopback", {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={HOSTED}\n",
+                                              ".env.production": f"DATABASE_URL={LOCAL}\n"}, command, False)
+
+# dotenv -e names a file the tool then reads first; Prisma's own `.env` does
+# not override what is already set.
+DOTENV = "dotenv -e .env.production -- prisma migrate deploy"
+expect("the dotenv -e file is hosted", {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n",
+                                        ".env.production": f"DATABASE_URL={HOSTED}\n"}, DOTENV, True)
+expect("the dotenv -e file is loopback", {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={HOSTED}\n",
+                                          ".env.production": f"DATABASE_URL={LOCAL}\n"}, DOTENV, False)
+expect("dotenv -v sets the variable", {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n"},
+       f"dotenv -v DATABASE_URL={HOSTED} -- prisma migrate deploy", True)
+
+# Alembic's env.py is code, so both the literal URL in alembic.ini and
+# DATABASE_URL count, and every one must be local.
+expect("alembic.ini hosted beside a loopback .env",
+       {"alembic.ini": f"[alembic]\nscript_location = migrations\nsqlalchemy.url = {HOSTED}\n",
+        ".env": f"DATABASE_URL={LOCAL}\n"}, "alembic upgrade head", True, mentions="alembic.ini")
+expect("alembic.ini loopback beside a hosted .env",
+       {"alembic.ini": f"[alembic]\nsqlalchemy.url = {LOCAL}\n", ".env": f"DATABASE_URL={HOSTED}\n"},
+       "alembic upgrade head", True)
+expect("alembic's template URL is a placeholder on localhost",
+       {"alembic.ini": "[alembic]\nsqlalchemy.url = driver://user:pass@localhost/dbname\n",
+        ".env": f"DATABASE_URL={LOCAL}\n"}, "alembic upgrade head", False)
+expect("an interpolated alembic.ini URL is not read as literal",
+       {"alembic.ini": "[alembic]\nsqlalchemy.url = %(DB_URL)s\n", ".env": f"DATABASE_URL={LOCAL}\n"},
+       "alembic upgrade head", False)
+expect("alembic -c names the config file",
+       {"deploy.ini": f"[alembic]\nsqlalchemy.url = {HOSTED}\n", ".env": f"DATABASE_URL={LOCAL}\n"},
+       "alembic -c deploy.ini upgrade head", True)
+
+# Prisma reads the variables its schema names, for url and directUrl alike.
+CUSTOM = ('datasource db {\n  provider = "postgresql"\n  url = env("POSTGRES_PRISMA_URL")\n'
+          '  directUrl = env("POSTGRES_URL_NON_POOLING")\n}\n')
+expect("the schema's env() names a hosted variable",
+       {"prisma/schema.prisma": CUSTOM, ".env": f"DATABASE_URL={LOCAL}\nPOSTGRES_PRISMA_URL={HOSTED}\n"},
+       "npx prisma migrate deploy", True, mentions="POSTGRES_PRISMA_URL")
+expect("the schema's env() names a loopback variable",
+       {"prisma/schema.prisma": CUSTOM, ".env": f"DATABASE_URL={HOSTED}\nPOSTGRES_PRISMA_URL={LOCAL}\n"},
+       "npx prisma migrate deploy", False)
+expect("a hosted directUrl beside a loopback url",
+       {"prisma/schema.prisma": CUSTOM,
+        ".env": f"POSTGRES_PRISMA_URL={LOCAL}\nPOSTGRES_URL_NON_POOLING={HOSTED}\n"},
+       "npx prisma migrate deploy", True, mentions="POSTGRES_URL_NON_POOLING")
+expect("package.json's prisma.schema locates the schema",
+       {"package.json": json.dumps({"prisma": {"schema": "db/main.prisma"}}), "db/main.prisma": CUSTOM,
+        ".env": f"DATABASE_URL={LOCAL}\nPOSTGRES_PRISMA_URL={HOSTED}\n"},
+       "npx prisma migrate deploy", True)
+expect("--schema locates the schema",
+       {"db/main.prisma": CUSTOM, ".env": f"DATABASE_URL={LOCAL}\nPOSTGRES_PRISMA_URL={HOSTED}\n"},
+       "npx prisma migrate deploy --schema db/main.prisma", True)
+expect("Prisma does not load .env.local",
+       {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={HOSTED}\n",
+        ".env.local": f"DATABASE_URL={LOCAL}\n"}, "npx prisma migrate deploy", True)
+expect("a literal datasource url is read",
+       {"prisma/schema.prisma": PRISMA.replace('env("DATABASE_URL")', f'"{HOSTED}"')},
+       "npx prisma migrate deploy", True, mentions="schema.prisma")
+expect("the command's directory decides which .env is nearest",
+       {"api/prisma/schema.prisma": PRISMA, "api/.env": f"DATABASE_URL={HOSTED}\n",
+        ".env": f"DATABASE_URL={LOCAL}\n"}, "cd api && npx prisma migrate deploy", True)
+expect("the session's directory decides which .env is nearest",
+       {"api/prisma/schema.prisma": PRISMA, "api/.env": f"DATABASE_URL={LOCAL}\n",
+        ".env": f"DATABASE_URL={HOSTED}\n"}, "npx prisma migrate deploy", False, cwd="api")
+
+# The command's own assignment beats the environment, which beats the file.
+expect("an inline loopback assignment beats a hosted file",
+       {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={HOSTED}\n"},
+       f"DATABASE_URL={LOCAL} npx prisma migrate deploy", False)
+expect("an inline hosted assignment beats a loopback file",
+       {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n"},
+       f"DATABASE_URL={HOSTED} npx prisma migrate deploy", True, mentions="on the command line")
+expect("env NAME=value is an inline assignment",
+       {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={HOSTED}\n"},
+       f"env DATABASE_URL={LOCAL} npx prisma migrate deploy", False)
+expect("the process environment beats the file",
+       {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n"},
+       "npx prisma migrate deploy", True, extra={"DATABASE_URL": HOSTED}, mentions="environment")
+expect("rake reads NAME=value operands as variables",
+       {".env": f"DATABASE_URL={HOSTED}\n"}, f"rake db:migrate DATABASE_URL={LOCAL}", False)
+expect("RAILS_ENV selects dotenv-rails' environment file",
+       {".env": f"DATABASE_URL={LOCAL}\n", ".env.production": f"DATABASE_URL={HOSTED}\n"},
+       "RAILS_ENV=production bin/rails db:migrate", True, mentions=".env.production")
+expect("knex --connection names the database outright",
+       {".env": f"DATABASE_URL={HOSTED}\n"}, f"knex migrate:latest --connection {LOCAL}", False)
+expect("prisma db execute --url names the database outright",
+       {".env": f"DATABASE_URL={LOCAL}\n"}, f"prisma db execute --url={HOSTED} --file a.sql", True)
+
+# An earlier segment that changes a database variable cannot be followed.
+for command in (f"export DATABASE_URL={LOCAL}; npx prisma migrate deploy",
+                f"export DATABASE_URL={LOCAL} && npx prisma migrate deploy",
+                f"DATABASE_URL={LOCAL}; npx prisma migrate deploy",
+                "unset DATABASE_URL && npx prisma migrate deploy",
+                "export $(cat .env.production | xargs) && npx prisma migrate deploy",
+                "set -a; . ./.env.production; set +a; npx prisma migrate deploy",
+                "source .env.production && alembic upgrade head",
+                'source "$HOME/prod.env" && alembic upgrade head',
+                'eval "$(cat .env.production)" && npx prisma migrate deploy',
+                "eval `cat .env.production` && npx prisma migrate deploy",
+                "env $(cat .env.production | xargs) npx prisma migrate deploy",
+                "DATABASE_URL=$(cat prod-url) npx prisma migrate deploy"):
+    expect("an earlier segment touches the target",
+           {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n",
+            ".env.production": f"DATABASE_URL={HOSTED}\n"}, command, True)
+expect("sourcing a file that sets no database variable",
+       {".venv/bin/activate": 'VIRTUAL_ENV="/x"\nexport PATH="$VIRTUAL_ENV/bin:$PATH"\n',
+        ".env": f"DATABASE_URL={LOCAL}\n"}, "source .venv/bin/activate && alembic upgrade head", False)
+expect("an export of an unrelated variable",
+       {".env": f"DATABASE_URL={LOCAL}\n"}, "export NODE_ENV=production && npx prisma db push", False)
+
+# Hosts: every host of a multi-host URI is judged; sockets and files are local.
+for url, asks in ((f"mongodb://app:{SECRET}@localhost:27017,127.0.0.1:27018/db?replicaSet=rs0", False),
+                  (f"mongodb://app:{SECRET}@localhost:27017,db2.example.com:27017/db", True),
+                  (f"mongodb+srv://app:{SECRET}@cluster0.abcde.mongodb.net/db", True),
+                  ("postgresql:///app", False),
+                  ("postgresql:///app?host=/var/run/postgresql", False),
+                  ("postgresql:///app?host=db.example.com", True),
+                  (f"postgresql:///app?host=app:{SECRET}", True),
+                  (f"postgres://app:{SECRET}@[::1]:5432/app", False),
+                  (f"postgres://app:{SECRET}@127.0.0.2:5432/app", False),
+                  (f"postgres://app:{SECRET}@%2Fvar%2Frun%2Fpostgresql/app", False),
+                  ("file:./dev.db", False), ("sqlite:///app.db", False),
+                  (f"mysql://app:{SECRET}@10.0.0.5:3306/app", True)):
+    expect(f"DATABASE_URL={url.replace(SECRET, '***')}", {".env": f"DATABASE_URL={url}\n"},
+           "knex migrate:latest", asks)
+expect("a bare IPv6 loopback PGHOST locates a socket-form URL",
+       {".env": "DATABASE_URL=postgresql:///app\nPGHOST=::1\n"}, "knex migrate:latest", False)
+expect("PGHOST locates a keyword DSN without a host",
+       {".env": "DATABASE_URL='dbname=app user=app'\nPGHOST=db.example.com\n"}, "knex migrate:latest", True,
+       mentions="db.example.com")
+expect("a keyword DSN without a host or PGHOST is the local socket",
+       {".env": "DATABASE_URL='dbname=app user=app'\n"}, "knex migrate:latest", False)
+expect("PGHOST locates a socket-form URL",
+       {".env": "DATABASE_URL=postgresql:///app\nPGHOST=db.example.com\n"}, "knex migrate:latest", True)
+expect("a variable reference is expanded",
+       {".env": f"DB_PRIMARY={LOCAL}\nDATABASE_URL=${{DB_PRIMARY}}\n"}, "knex migrate:latest", False)
+expect("a docker-compose service name is not provably local",
+       {".env": f"DATABASE_URL=postgres://app:{SECRET}@db:5432/app\n"}, "knex migrate:latest", True,
+       mentions="docker-compose")
+for url in ("not a url", f"postgres://app:{SECRET}@host:notaport/app", "${UNSET_DATABASE_URL}",
+            f"postgres://app:{SECRET}/with/slash@db.example.com/app"):
+    expect("an unparseable URL", {".env": f"DATABASE_URL={url}\n"}, "knex migrate:latest", True,
+           mentions="does not parse")
+for command, asks in ((f"mongosh mongodb://app:{SECRET}@localhost:27017/db", False),
+                      (f"mongosh 'mongodb://app:{SECRET}@localhost,db2.example.com/db'", True),
+                      (f"mongo mongodb+srv://app:{SECRET}@cluster0.abcde.mongodb.net/db", True),
+                      ("mongosh --host rs0/localhost:27017,[::1]:27018", False),
+                      ("mongosh --host db.example.com", True), ("mongosh", False),
+                      ("mongosh --eval 'db.stats()'", False),
+                      ("mongosh db.example.com/app", True), ("mongosh db.example.com:27017", True),
+                      ("mongosh 10.0.0.5/app", True), ("mongosh localhost:27017/app", False),
+                      ("mongosh localhost:27017", False), ("mongosh app", False),
+                      ("mongosh seed.js", False), ("mongosh localhost/app seed.js", False),
+                      (f"mongorestore --uri mongodb+srv://app:{SECRET}@cluster0.abcde.mongodb.net/db", True),
+                      (f"mongorestore --uri=mongodb://app:{SECRET}@localhost/db dump/", False),
+                      ("mongoimport --host db.example.com -c users --file users.json", True),
+                      (f"mongorestore mongodb://app:{SECRET}@db.example.com/db", True),
+                      ("mongorestore dump/", False), ("mongorestore -h localhost:27017 dump/", False)):
+    expect("mongo shell", {}, command, asks)
+
+# No URL anywhere the tool reads: the repository root's env files and the
+# environment decide (operator's ruling, 2026-10-11).
+expect("no database variable anywhere", {"prisma/schema.prisma": PRISMA}, "npx prisma migrate deploy", True,
+       mentions="no database URL")
+expect("only loopback database variables", {"prisma/schema.prisma": PRISMA,
+                                            ".env.local": f"DATABASE_URL={LOCAL}\n"},
+       "npx prisma migrate deploy", False)
+expect("one hosted database variable among loopback ones",
+       {"prisma/schema.prisma": PRISMA, ".env.local": f"DATABASE_URL={LOCAL}\n",
+        ".env.staging": f"SUPABASE_DB_URL={HOSTED}\n"}, "npx prisma migrate deploy", True,
+       mentions="SUPABASE_DB_URL")
+expect("example and template env files are not read",
+       {"prisma/schema.prisma": PRISMA, ".env.local": f"DATABASE_URL={LOCAL}\n",
+        ".env.example": f"DATABASE_URL={HOSTED}\n", ".env.production.template": f"DB_URL={HOSTED}\n"},
+       "npx prisma migrate deploy", False)
+expect("a loopback database variable in the environment",
+       {"prisma/schema.prisma": PRISMA}, "npx prisma migrate deploy", False,
+       extra={"PGHOST": "localhost"})
+expect("a hosted database variable in the environment",
+       {"prisma/schema.prisma": PRISMA, ".env.local": f"DATABASE_URL={LOCAL}\n"},
+       "npx prisma migrate deploy", True, extra={"MONGO_URI": f"mongodb+srv://u:{SECRET}@c.example.net/x"})
+
+# A platform or secrets runner supplies the environment, so a migration under
+# it reaches the hosted database whatever this checkout's files say.
+LOOPBACK = {"prisma/schema.prisma": PRISMA, ".env": f"DATABASE_URL={LOCAL}\n"}
+for command, runner in (("heroku run rails db:migrate", "heroku run"),
+                        ("heroku run -a myapp python manage.py migrate", "heroku run"),
+                        ("railway run npx prisma migrate deploy", "railway run"),
+                        ('fly ssh console -C "bin/rails db:migrate"', "fly ssh"),
+                        ("flyctl ssh console --command 'npx prisma migrate deploy'", "flyctl ssh"),
+                        ("kubectl exec deploy/api -- npx prisma migrate deploy", "kubectl exec"),
+                        ("kubectl exec -it api-0 -c app -- bundle exec rake db:migrate", "kubectl exec"),
+                        ("doppler run -- npx prisma migrate deploy", "doppler run"),
+                        ("doppler run -p api -c prd pnpm prisma db push", "doppler run"),
+                        ("infisical run --env=prod -- alembic upgrade head", "infisical run"),
+                        ("op run --env-file=.env.tpl -- npx prisma migrate deploy", "op run"),
+                        ("aws-vault exec prod -- knex migrate:latest", "aws-vault exec")):
+    expect("a platform runner supplies the database", LOOPBACK, command, True, mentions=runner)
+for command in ("heroku run bash", "railway run npm start", "doppler run -- npx prisma generate",
+                "kubectl exec api-0 -- ls", 'fly ssh console -C "ls /app"', "op run -- npm test"):
+    expect("a platform runner running no migration", LOOPBACK, command, False)
+
+# A `cd` the guard cannot follow leaves it not knowing which env files load.
+for command in ("cd $APP_DIR && npx prisma migrate deploy", "cd - && npx prisma migrate deploy",
+                "cd && npx prisma migrate deploy", "popd && npx prisma migrate deploy",
+                "pushd `git rev-parse --show-toplevel` && npx prisma migrate deploy"):
+    expect("an unresolvable cd", LOOPBACK, command, True, mentions="cannot follow")
+
+# Nothing is read for a command that runs elsewhere: from outside the
+# repository, or on a remote host over ssh.
+with database_repo({".env": f"DATABASE_URL={LOCAL}\n"}) as repo, \
+        database_repo({".env": f"DATABASE_URL={LOCAL}\n"}) as outside:
+    decision, reason = database_call(repo, "knex migrate:latest", outside)
+    check("asks from outside the repository, reading none of its files",
+          decision == "ask" and "no database URL" in reason, reason or "silence")
+    decision, reason = database_call(repo, "ssh prod 'cd /srv/app && npx prisma migrate deploy'")
+    check("asks for a migration run over ssh", decision == "ask", reason or "silence")
+    decision, reason = database_call(repo, f"ssh prod 'DATABASE_URL={LOCAL} knex migrate:latest'")
+    check("over ssh even a loopback assignment is the far machine's database, and asks",
+          decision == "ask" and "prod" in reason and SECRET not in reason, reason or "silence")
+    decision, reason = database_call(repo, "ssh -p 2222 deploy@db1 mongosh")
+    check("a mongo shell over ssh asks, naming the host",
+          decision == "ask" and "deploy@db1" in reason, reason or "silence")
+    decision, reason = database_call(repo, "dotenv -e .env -- knex migrate:latest", outside)
+    check("a dotenv -e file outside the repository is not read, and asks",
+          decision == "ask" and "inside the repository" in reason, reason or "silence")
 
 print()
 print("ALL PASS" if fails == 0 else f"{fails} FAILURE(S)")

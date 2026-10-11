@@ -26,9 +26,10 @@ user never saw is not approved. The publish-approval mod adds a third way: an
 approval in its dialog, which reaches the user in every mode, leaves a token
 that turns this guard's ask or deny into allow for that one call.
 
-Scope: Bash publish/push/deploy commands, and every Artifact action that
-reaches claude.ai — publishing a page, adding or deleting one of its files, and
-posting or resolving a comment thread.
+Scope: Bash publish/push/deploy commands; migration, seed and schema-push
+commands whose database is hosted (database-target.py resolves the target);
+and every Artifact action that reaches claude.ai — publishing a page, adding or
+deleting one of its files, and posting or resolving a comment thread.
 Other outward channels (remote MCP writes, cross-session messages)
 keep their own native prompts. The threat model is an honest mistake by the
 model — a harness bias toward publishing — not an adversary with a shell.
@@ -111,6 +112,52 @@ ARTIFACT_REASONS = {
 }
 RUNNERS = {"npx", "pnpx", "bunx"}
 RUNNER_CALL_FLAGS = {"-c", "--call"}      # npx -c "<shell>" runs its value
+# `pnpm <word>` and `yarn <word>` run a package binary when the word is not one
+# of the manager's own commands (a script of that name runs first, and is
+# judged separately through package.json). From `pnpm --help` (10) and
+# `yarn --help` (4, plus classic's commands).
+PNPM_COMMANDS = {"add", "i", "install", "it", "install-test", "up", "update", "upgrade", "remove",
+                 "rm", "un", "uninstall", "link", "ln", "unlink", "import", "rebuild", "rb",
+                 "prune", "fetch", "patch", "patch-commit", "patch-remove", "audit", "list", "ls",
+                 "ll", "la", "outdated", "why", "licenses", "run", "run-script", "exec", "test",
+                 "t", "tst", "start", "stop", "restart", "create", "dlx", "init", "publish",
+                 "pack", "deploy", "store", "env", "setup", "config", "c", "get", "set", "root",
+                 "bin", "server", "recursive", "multi", "m", "help", "cat-file", "cat-index",
+                 "find-hash", "doctor", "self-update", "approve-builds", "ignored-builds", "sbom",
+                 "version", "login", "logout", "whoami", "dedupe", "docs", "home", "owner",
+                 "search", "view", "info", "show", "unpublish", "dist-tag", "ping", "cache"}
+YARN_COMMANDS = {"add", "bin", "cache", "config", "constraints", "dedupe", "dlx", "exec",
+                 "explain", "info", "init", "install", "link", "node", "npm", "pack", "patch",
+                 "patch-commit", "plugin", "rebuild", "remove", "run", "search", "set", "stage",
+                 "unlink", "unplug", "up", "upgrade", "upgrade-interactive", "version", "why",
+                 "workspace", "workspaces", "publish", "login", "logout", "test", "start",
+                 "global", "list", "outdated", "audit", "autoclean", "check", "create",
+                 "generate-lock-entry", "import", "licenses", "owner", "policies", "tag",
+                 "team", "help", "sdks", "unpublish"}
+# Options the managers read before their command, with a separate value:
+# `pnpm --filter api exec ...`, `yarn --cwd api ...`.
+MANAGER_VALUED = {"pnpm": {"--filter", "-F", "--filter-prod", "-C", "--dir", "--workspace-dir",
+                           "--reporter", "--loglevel", "--test-pattern",
+                           "--changed-files-ignore-pattern"},
+                  "yarn": {"--cwd"},
+                  "bun": {"--cwd", "-r", "--preload", "-c", "--config", "--env-file",
+                          "--tsconfig-override", "--main-fields", "--conditions"}}
+# `bun <word>` runs a binary or file when the word is not one of bun's own
+# commands (`bun --help`, 1.2).
+BUN_COMMANDS = {"run", "test", "x", "repl", "exec", "install", "i", "add", "a", "remove", "rm",
+                "update", "outdated", "link", "unlink", "publish", "patch", "patch-commit", "pm",
+                "info", "init", "create", "c", "upgrade", "build", "audit", "why", "help",
+                "completions", "discord", "feedback", "unpublish"}
+MANAGER_COMMANDS = {"pnpm": PNPM_COMMANDS, "yarn": YARN_COMMANDS, "bun": BUN_COMMANDS}
+# Commands that name the binary to run as their next word.
+MANAGER_RUNS = {"pnpm": {"dlx", "exec"}, "yarn": {"dlx", "exec"}, "bun": {"x", "run"}}
+# Node options that take a separate value; `--env-file` also names a file the
+# process loads, which the database rule reads.
+NODE_VALUED = {"-r", "--require", "--import", "--env-file", "--env-file-if-exists", "--loader",
+               "--experimental-loader", "-C", "--conditions", "--input-type", "--title"}
+ENV_FILE_FLAGS = {"--env-file", "--env-file-if-exists"}
+# Interpreters whose `-m <module>` runs a tool by its module name.
+MODULE_RUNNERS = re.compile(r"python(?:3(?:\.\d+)?)?")
 # Names a command must mention before the shell parser is worth loading.
 # gcloud ends a group path of any depth with its verb (`gcloud services
 # api-keys delete`), and firebase namespaces verbs with colons
@@ -170,8 +217,16 @@ AWS_READS = {"scan", "query", "wait", "tail", "help"}
 # login token.
 AWS_QUIET = {("logs", "start-query"), ("logs", "stop-query"), ("logs", "start-live-tail"),
              ("eks", "update-kubeconfig"), ("sso", "login"), ("codeartifact", "login")}
+# Tools that apply migrations, seeds or schema pushes. Their verbs and the
+# database each reaches are database-target.py's; the names live here because
+# the gate below must not load that module for every command. A test holds the
+# two lists equal.
+DATABASE_NAMES = {"prisma", "alembic", "rails", "rake", "typeorm", "typeorm-ts-node-commonjs",
+                  "typeorm-ts-node-esm", "drizzle-kit", "knex", "sequelize", "sequelize-cli",
+                  "manage.py", "django-admin", "django", "flask", "mongosh", "mongo",
+                  "mongorestore", "mongoimport"}
 GATED_NAMES = ({"git", "gh", "docker", "gcloud", "aws"} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
-               | set(REMOTE_FLAG_VERBS) | RUNNERS)
+               | set(REMOTE_FLAG_VERBS) | RUNNERS | DATABASE_NAMES)
 # Vercel global options that take a value, and ones that only read.
 VERCEL_VALUE_FLAGS = {"--cwd", "-Q", "--global-config", "-A", "--local-config",
                       "-S", "--scope", "-t", "--token"}
@@ -248,14 +303,61 @@ def gcloud_reason(rest):
 
 
 def runner_width(words, shell):
-    """How many words name a package runner at the start: `npx` is one,
-    `pnpm dlx`, `yarn dlx` and `bun x` are two, anything else none."""
+    """How many words name a package runner at the start: `npx` is one;
+    `npm exec`, `bun x` and `python -m` are two; `pnpm` and `yarn` count their
+    own options too, then `dlx`, `exec` or a binary that is not one of their
+    commands (`pnpm --filter api exec`, `yarn workspace api prisma`); anything
+    else none."""
     name = shell.base(words[0]) if words else ""
+    following = words[1] if len(words) > 1 else ""
     if name in RUNNERS:
         return 1
-    if (name in ("pnpm", "yarn") and words[1:2] == ["dlx"]) or (name == "bun" and words[1:2] == ["x"]):
+    if (name == "npm" and following in ("exec", "x")) or (MODULE_RUNNERS.fullmatch(name) and following == "-m"):
         return 2
-    return 0
+    if name not in MANAGER_COMMANDS:
+        return 0
+    index = 1
+    while index < len(words) and words[index].startswith("-"):
+        index += 2 if words[index] in MANAGER_VALUED[name] else 1
+    # `yarn workspace <name> <command>` runs the command in that workspace.
+    if name == "yarn" and words[index:index + 1] == ["workspace"] and index + 2 < len(words):
+        index += 2
+    command = words[index] if index < len(words) else ""
+    if command in MANAGER_RUNS[name]:
+        return index + 1
+    return index if command and command not in MANAGER_COMMANDS[name] else 0
+
+
+def env_files(words, stripped):
+    """Record each `--env-file` a runner or node is given, as a file the
+    command loads."""
+    for index, word in enumerate(words):
+        flag, _, value = word.partition("=")
+        if flag in ENV_FILE_FLAGS:
+            value = value or (words[index + 1] if index + 1 < len(words) else "")
+            if value:
+                stripped.append(("env-file", [value]))
+
+
+def node_tool(words, shell, stripped):
+    """`node [options] node_modules/.bin/<tool> ...` runs that tool, and so does
+    Prisma's own entry point; the words as the tool's, else None."""
+    if not words or shell.base(words[0]) != "node":
+        return None
+    index = 1
+    while index < len(words) and words[index].startswith("-"):
+        index += 2 if words[index] in NODE_VALUED else 1
+    if index >= len(words):
+        return None
+    path = words[index]
+    if "/.bin/" in path:
+        tool = os.path.basename(path)
+    elif path.endswith("prisma/build/index.js"):
+        tool = "prisma"
+    else:
+        return None
+    env_files(words[1:index], stripped)
+    return [tool] + words[index + 1:]
 
 
 def unversioned(spec):
@@ -294,28 +396,107 @@ def aws_reason(rest):
     return f"aws {service} {operation} mutates the hosted account."
 
 
-def rule_bash(command, shell):
-    words = shell.lead(command.words)
-    while words and words[0] in shell.CONTROL_KEYWORDS:
-        words = shell.lead(words[1:])
-    # `npx <tool> ...` runs the tool; drop the runner and its own options so
-    # the tool's rule sees the tool's arguments untouched. `npx -c "<shell>"`
-    # runs its value as a command, so that string is judged on its own.
-    while runner_width(words, shell):
-        words = words[runner_width(words, shell):]
-        while words and words[0].startswith("-"):
-            if words[0] in RUNNER_CALL_FLAGS:
-                for inner in shell.normalize(words[1] if len(words) > 1 else ""):
-                    reason = rule_bash(inner, shell)
-                    if reason:
-                        return reason
-                words = words[2:]
-            else:
-                words = words[2:] if words[0] in shell.RUNNER_VALUED else words[1:]
-        words = [unversioned(words[0])] + words[1:] if words else words
-    if not words:
-        return None
+# Runners that start a command inside a hosting platform's environment, or
+# with secrets a manager injects: its database is the platform's, whatever
+# this checkout's env files say. `fly ssh console` takes its command as the
+# value of `-C`; the others take it as their trailing words.
+PLATFORM_RUNNERS = {"heroku": "run", "railway": "run", "doppler": "run", "infisical": "run",
+                    "op": "run", "aws-vault": "exec", "kubectl": "exec", "fly": "ssh", "flyctl": "ssh"}
+PLATFORM_KEYS = {(name, (verb,)) for name, verb in PLATFORM_RUNNERS.items()}
+
+
+def platform_reason(name, rest, shell, place):
+    """The ask for a migration a platform runner starts, or None when what it
+    runs is not one. The runner's own options are not modelled: every suffix
+    of its words is tried as the command, and only a migration verb counts."""
+    label = f"{name} {rest[0]}"
+    if name in ("fly", "flyctl"):
+        bodies = [value for value in (positional_value(rest, ("-C", "--command")),) if value]
+        commands = [command.words for body in bodies for command in shell.normalize(body)]
+        label += " console -C"
+    else:
+        after = rest[1:]
+        commands = [after[after.index("--") + 1:]] if "--" in after else \
+            [after[index:] for index in range(len(after))]
+    target = None
+    for words in commands:
+        stripped = []
+        inner, _ = unwrap(words, shell, stripped, place)
+        if not inner:
+            continue
+        target = target or database_target()
+        reason = target.verdict(shell.base(inner[0]), inner[1:], stripped, [], "", "", "",
+                                shell.base, platform=label)
+        if reason:
+            return reason
+    return None
+
+
+def positional_value(words, flags):
+    """The value of the first of `flags`, given apart or after `=`."""
+    for index, word in enumerate(words):
+        if word in flags and index + 1 < len(words):
+            return words[index + 1]
+        flag, _, value = word.partition("=")
+        if flag in flags and value:
+            return value
+    return None
+
+
+def unwrap(words, shell, stripped, place):
+    """(the words of the tool that runs, a reason) past every wrapper and
+    runner, recording the stripped prefix in `stripped`.
+
+    `npx <tool> ...` runs the tool; drop the runner and its own options so the
+    tool's rule sees the tool's arguments untouched, then any wrapper the
+    runner itself runs (`npx dotenv -e f -- prisma`). `npx -c "<shell>"` runs
+    its value as a command, so that string is judged on its own."""
+    words = shell.lead(words, stripped)
+    while True:
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:], stripped)
+        width = runner_width(words, shell)
+        if width:
+            env_files(words[1:width], stripped)
+            words = words[width:]
+            while words and words[0].startswith("-"):
+                if words[0] in RUNNER_CALL_FLAGS:
+                    for inner in shell.normalize(words[1] if len(words) > 1 else ""):
+                        reason = rule_bash(inner, shell, place)
+                        if reason:
+                            return [], reason
+                    words = words[2:]
+                else:
+                    env_files(words[:2], stripped)
+                    words = words[2:] if words[0] in shell.RUNNER_VALUED else words[1:]
+            words = [unversioned(words[0])] + words[1:] if words else words
+            words = shell.lead(words, stripped)
+            continue
+        tool = node_tool(words, shell, stripped)
+        if tool:
+            words = shell.lead(tool, stripped)
+            continue
+        return words, None
+
+
+def rule_bash(command, shell, place=None):
+    """The reason to ask for one command. `place` locates it for the rules
+    that read files: {"here", "repo", "remote", "earlier"}, where `earlier`
+    holds the word lists of the command line's segments before this one."""
+    place = place or {"here": "", "repo": "", "remote": "", "earlier": [], "lost": False}
+    stripped = []
+    words, reason = unwrap(command.words, shell, stripped, place)
+    if reason or not words:
+        return reason
     name, rest = shell.base(words[0]), words[1:]
+    # `eval '<literal>'` runs its literal as a command line; an eval of a
+    # computed string is the database rule's concern for what follows it.
+    if name == "eval" and rest and not any("$" in word or "`" in word for word in rest):
+        for inner in shell.normalize(" ".join(rest)):
+            reason = rule_bash(inner, shell, place)
+            if reason:
+                return reason
+        return None
 
     if name == "git":
         # git accepts global options (-C, -c, --git-dir) before the verb;
@@ -360,6 +541,15 @@ def rule_bash(command, shell):
             return f"firebase {positional[0]} writes to the hosted project."
     if name == "supabase" and (reason := supabase_storage_reason(rest)):
         return reason
+    if name in DATABASE_NAMES or (name.startswith("python") and rest[:1]
+                                  and shell.base(rest[0]) == "manage.py"):
+        reason = database_target().verdict(name, rest, stripped, place["earlier"], place["here"],
+                                           place["repo"], place["remote"], shell.base,
+                                           lost=place.get("lost", False))
+        if reason:
+            return reason
+    if (name, tuple(rest[:1])) in PLATFORM_KEYS and (reason := platform_reason(name, rest, shell, place)):
+        return reason
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
         positional = positionals(rest, VALUE_FLAGS.get(name, ()))
@@ -374,10 +564,11 @@ def rule_bash(command, shell):
     return None
 
 
-def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
+def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None, repo=""):
     """The reason to ask, or None. `outward` is the repository's script list;
     `rehearsals` names the entries whose --dry-run really rehearses; `cwd` is
-    the directory the command starts in, when the host names it."""
+    the directory the command starts in, when the host names it; `repo` the
+    repository root, outside which no env file is read."""
     if tool_name in ("Bash", "PowerShell", "Monitor"):
         text = tool_input.get("command")
         if not isinstance(text, str) or not text.strip():
@@ -387,7 +578,7 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
         gated = GATED_NAMES | {os.path.basename(entry) for entry in outward}
         if gated.isdisjoint(re.findall(r"[A-Za-z0-9_.-]+", text)):
             return None
-        return judge(text, outward, load_shell_parser(), rehearsals, cwd or "")
+        return judge(text, outward, load_shell_parser(), rehearsals, cwd or "", repo=repo or "")
     if tool_name == "Artifact":
         action = tool_input.get("action")
         if action in ARTIFACT_READ_ACTIONS:
@@ -403,26 +594,37 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None):
     return None
 
 
-def judge(text, outward, shell, rehearsals, here, depth=0, remote=False):
+def judge(text, outward, shell, rehearsals, here, depth=0, remote=False, repo="", earlier=()):
     """The reason to ask for a command line run from directory `here` (empty
     when unknown), following its `cd`s, the package.json scripts it runs, and
     the command it runs over ssh. `remote` marks a line the far host runs,
-    whose package.json scripts are that host's and unreadable from here."""
+    whose package.json scripts and env files are that host's and unreadable
+    from here. `earlier` carries the segments that ran before this line, as a
+    package.json script inherits what its caller exported."""
+    earlier, lost = list(earlier), False
     for command in shell.normalize(text):
-        reason = rule_bash(command, shell)
+        place = {"here": here, "repo": repo, "remote": remote, "earlier": earlier, "lost": lost}
+        reason = rule_bash(command, shell, place)
         if reason:
             return reason
         words = shell.lead(command.words)
         if not remote and os.path.isabs(here) and depth < 3:
-            reason = rule_script(words, outward, shell, rehearsals, here, depth)
+            reason = rule_script(words, outward, shell, rehearsals, here, depth, repo, earlier)
             if reason:
                 return reason
+        earlier.append(command.words)
         far = shell.ssh_remote(command.words)
         if far and depth < 2:
             # The far host's working directory is its own; nothing here locates it.
-            reason = judge(far, outward, shell, rehearsals, "", depth + 1, remote=True)
-        elif words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1]:
+            host = shell.ssh_target(command.words) or "the remote host"
+            reason = judge(far, outward, shell, rehearsals, "", depth + 1, remote=host, repo=repo)
+        elif words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1] \
+                and "`" not in words[1] and words[1] != "-":
             here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
+        elif words[:1] in (["cd"], ["pushd"], ["popd"]):
+            # `cd $DIR`, `cd -`, a bare `cd` and `popd` go where the guard
+            # cannot follow, so no env file it would read there is known.
+            lost = True
         elif outward:
             reason = rule_outward(words, outward, shell, rehearsals, here)
         if reason:
@@ -472,7 +674,7 @@ def package_scripts(here):
         directory = parent
 
 
-def rule_script(words, outward, shell, rehearsals, here, depth):
+def rule_script(words, outward, shell, rehearsals, here, depth, repo="", earlier=()):
     """Judge the command a package.json script runs, with the arguments typed
     after its name appended as the manager appends them, and its pre- and
     post- hooks. Whether a manager runs those depends on its version and
@@ -490,7 +692,7 @@ def rule_script(words, outward, shell, rehearsals, here, depth):
         if not isinstance(body, str):
             continue
         line = body + "".join(" " + shlex.quote(arg) for arg in args) if script == name else body
-        reason = judge(line, outward, shell, rehearsals, root, depth + 1)
+        reason = judge(line, outward, shell, rehearsals, root, depth + 1, repo=repo, earlier=earlier)
         if reason:
             return f"The package.json script {script} runs `{body}`: {reason}"
     return None
@@ -794,6 +996,14 @@ def refuse(reason):
     }}))
 
 
+def database_target():
+    """database-target.py, loaded only for a command naming a migration tool."""
+    spec = importlib.util.spec_from_file_location("database_target", os.path.join(HERE, "database-target.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def hosted_script(tool_name, tool_input, project, cwd, repo, rehearsals=()):
     """hosted-scripts.py's verdict for a shell command, or None. A committed
     script rehearses on the same terms as a listed one: declared in
@@ -849,7 +1059,7 @@ def main():
             refuse(hosted[1])
             return 0
         start = cwd if isinstance(cwd, str) and cwd else project if isinstance(project, str) and project else repo
-        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals, start)
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals, start, repo)
         broken = unparsed(repo)
         command = tool_input.get("command")
         if broken and tool_name in ("Bash", "PowerShell", "Monitor") and isinstance(command, str):
