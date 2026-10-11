@@ -18,21 +18,21 @@ description: >
 
 # Mobile responsive web
 
-Design constraint-aware components: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column.
+Design every component for the slot it lands in: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column.
 
 ## Principles
 
-These are binding; detail and examples are in [references/modern-css.md](./references/modern-css.md).
+These bind without exception; [references/modern-css.md](./references/modern-css.md) carries the detail and examples.
 
-1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` on top; `max-width` queries are banned.
+1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` over them; `max-width` queries are banned.
 2. **`svh` for heroes, `dvh` for bottom-anchored elements.** Never `100vh` or `min-h-screen`, which overflow behind the iOS address bar.
 3. **Fluid typography through `clamp()`,** not breakpoint ladders. Pair it with `break-words`; never `text-balance` on long headings.
-4. **Container queries for reusable components.** When a card lives in more than one slot, switch from media queries to container queries.
-5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2 sets 24 px as the floor; this project holds 48 px as the standard.
+4. **Container queries for reusable components.** When a card lives in several slots, query its container, not the viewport.
+5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2's floor is 24 px; this project's standard is 48 px.
 6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)` or Tailwind `hover:*`, and never hide critical information behind hover.
-7. **Safe-area insets on notched devices.** `viewport-fit=cover` with `env(safe-area-inset-*)` for fixed bars and full-bleed content.
+7. **Safe-area insets on notched devices.** Pair `viewport-fit=cover` with `env(safe-area-inset-*)` on fixed bars and full-bleed content.
 8. **No input `font-size < 16px`.** iOS Safari zooms on focus below 16 px.
-9. **CWV is a design constraint.** LCP, INP, and CLS are evaluated on the mobile crawl; they are not a post-launch audit.
+9. **CWV is a design constraint, not a post-launch audit.** LCP, INP, and CLS are scored on the mobile crawl.
 
 ## Core workflow
 
@@ -50,7 +50,7 @@ const viewports = [
 ]
 ```
 
-Take full-page, hero, and scrolled-section screenshots, and record every text overflow, truncation, cramped spacing, collapsed image, overlapping element, lazy section that never loads, and jank as the address bar shows and hides.
+Screenshot the full page, the hero, and a scrolled section, and list every text overflow, truncation, cramped spacing, collapsed image, overlap, lazy section that never loads, and jank as the address bar shows and hides.
 
 ### 2. Fix the hero and above-the-fold first
 
@@ -80,7 +80,7 @@ Re-screenshot, then run the mandatory scenarios in [references/viewport-testing.
 
 ### Container
 
-The `Container` component wraps with `mx-auto px-4` only and does **not** constrain inner content width; pair it with `max-w-5xl`, `max-w-2xl`, or another width class.
+The `Container` component only adds `mx-auto px-4`; it does **not** cap inner width, so pair it with `max-w-5xl`, `max-w-2xl`, or another width class.
 
 ### Spacing scale
 
@@ -93,7 +93,7 @@ Padding is progressive, never a single-step value:
 <h2      className='mb-3 sm:mb-4 md:mb-6'>   {/* headings */}
 ```
 
-Use `gap-*` on containers, not margins on children.
+Space with `gap-*` on containers, not margins on children.
 
 ### Typography
 
@@ -133,7 +133,7 @@ Use `gap-*` on containers, not margins on children.
 <FormLabel className='hidden md:block'>Destination</FormLabel>
 ```
 
-`text-base` (16 px) on mobile input prevents iOS focus-zoom.
+`text-base` (16 px) on a mobile input stops iOS zooming on focus.
 
 ### Safe-area insets
 
@@ -189,7 +189,7 @@ z-10    — Card overlays, gradients
 
 ### A mobile fix must never break desktop, nor a desktop fix mobile
 
-When fixing a mobile-specific defect, always verify the same interaction still works on desktop. Common breakages:
+After fixing a mobile-specific defect, always verify the same interaction on desktop. Common breakages:
 
 | Mobile bug | Naive fix | Desktop breakage |
 |-----------|-----------|------------------|
@@ -198,7 +198,7 @@ When fixing a mobile-specific defect, always verify the same interaction still w
 | Touch targets too small | Increase padding globally | Desktop layout shifts, forms look bloated |
 | Sidebar → drawer on mobile | Move filters into sheet, delete sidebar code | Desktop loses sidebar entirely |
 
-**Rule:** after any interaction fix, test the *exact same user flow* on both viewports. This codebase fixed the dropdown auto-reopen by blocking *only* the `useEffect` auto-open path (which fires when GraphQL results return) and leaving `onFocus`, manual user intent, untouched; a ref named `suppressAutoOpenRef` makes that explicit and does not suppress a manual reopen.
+**Rule:** after any interaction fix, test the *exact same user flow* on both viewports. This codebase cured the dropdown auto-reopen by blocking *only* the `useEffect` auto-open path, which fires when GraphQL results return, and leaving `onFocus` (manual intent) untouched; the ref name `suppressAutoOpenRef` states that intent and does not suppress a manual reopen.
 
 Worked case studies for this trap class — Card `overflow-hidden` clipping, sidebar → bottom sheet, stacked duplicate content, button-group wrap — live in [references/anti-patterns.md](./references/anti-patterns.md) under "Cross-viewport trap case studies".
 
