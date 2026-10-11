@@ -3,7 +3,8 @@
 # agent's tool calls, not by transcript lines, which also carry titles, mode
 # changes and attachments; both transcript schemas it reads are covered.
 # Attribution: with edit-record.sh's per-session record, each wrap measures its
-# own session's edits and commits in a tree several sessions share.
+# own session's edits and commits in a tree several sessions share. The work
+# log's advisory line rides inside a wrap that fires.
 set -euo pipefail
 # A caller such as `git rebase -x` exports these; the git calls below must
 # reach only their own temporary repositories.
@@ -114,6 +115,7 @@ fixture() {  # <name> -> path of a fresh repository carrying the policies
   cp "$repo/.agents/hooks/policy/session-wrap.sh" "$repo/.agents/hooks/policy/edit-record.sh" \
      "$repo/.agents/hooks/policy/session-start.sh" "$dir/.agents/hooks/policy/"
   cp "$repo"/.agents/hooks/lib/*.py "$repo"/.agents/hooks/lib/*.sh "$dir/.agents/hooks/lib/"
+  cp "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
   cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
@@ -360,5 +362,30 @@ start "$cycle" alpha startup
 [[ ! -e "$record" && ! -e "${record/edits/commits}" && ! -e "${record/edits/head}-orphan" ]] \
   || fail "a fresh start kept the previous record"
 ok "startup clears the record; resume and compact keep it"
+
+# ───────────────────────────── work log ─────────────────────────────
+log_on="$(fixture worklog-on ',"worklog":{"enabled":true,"dir":""}')"
+start "$log_on" alpha
+commit "$log_on" alpha a.txt
+out="$(wrap "$log_on" alpha)"
+day="$(cd "$log_on" && pwd -P)/.agents/worklog/$(date +%Y-%m-%d).md"
+[[ "$out" == *"Work log: $day is older than this session's last commit"* ]] \
+  || fail "a commit after the day's log did not raise the work-log line: $out"
+mkdir -p "$log_on/.agents/worklog"
+touch "$day"
+sleep 1
+commit "$log_on" alpha b.txt
+touch "$day"
+out="$(wrap "$log_on" alpha)"
+[[ "$out" == *"Committed and unwrapped"* && "$out" != *"Work log:"* ]] \
+  || fail "a current day's log still raised the work-log line: $out"
+ok "the work-log line appears inside a wrap when the day's file predates the last commit"
+
+log_off="$(fixture worklog-off)"
+start "$log_off" alpha
+commit "$log_off" alpha a.txt
+out="$(wrap "$log_off" alpha)"
+[[ "$out" == *"Committed and unwrapped"* && "$out" != *"Work log"* ]] || fail "the work log is off and still spoke: $out"
+ok "the work log is silent when off"
 
 printf '\nall session-wrap tests passed\n'

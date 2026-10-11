@@ -54,6 +54,9 @@ __pycache__/
 # Local, per-repo tuned config — copy from config.json.example and tune
 .agents/config.json
 
+# The agent's daily work log when hooks.worklog keeps it in the tree.
+.agents/worklog/
+
 # Playwright MCP session output — page snapshots and console logs written
 # per browser run.
 /.playwright-mcp/

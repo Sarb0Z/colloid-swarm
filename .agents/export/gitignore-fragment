@@ -5,6 +5,7 @@
 /.kimi-code/mcp.json
 /.codex/config.toml
 .agents/config.json
+.agents/worklog/
 .agents/.playwright-reader.json
 .agents/.browser/
 .agents/.sources-ledger

@@ -600,6 +600,23 @@ EOF
   fi
 fi
 
+# The work log (hooks.worklog), when on: one line inside a wrap that already
+# fires, never a block of its own, when today's file predates this session's
+# newest recorded commit. session-start.sh owns the folder rules.
+if [[ -n "$sections" && -n "$own_commits" ]]; then
+  newest="$(tail -n 1 "$own_commits" 2>/dev/null || true)"
+  committed_at="$(git log -1 --format=%ct "$newest" 2>/dev/null || true)"
+  if [[ "$committed_at" =~ ^[0-9]+$ ]]; then
+    worklog="$(bash "$repo/.agents/hooks/policy/session-start.sh" --worklog || true)"
+    day_file="$(printf '%s\n' "$worklog" | sed -n '2p')"
+    if [[ "$(printf '%s\n' "$worklog" | sed -n '1p')" == "ok" ]] \
+       && ! python3 -c 'import os, sys; sys.exit(0 if os.path.getmtime(sys.argv[1]) >= int(sys.argv[2]) else 1)' \
+            "$day_file" "$committed_at" 2>/dev/null; then
+      add "Work log: $day_file is older than this session's last commit; add its outcome entry (.agents/playbooks/worklog.md)."
+    fi
+  fi
+fi
+
 if ! record_state "$next_fired" "$next_investigated" "$next_implemented"; then
   sections=""
 fi

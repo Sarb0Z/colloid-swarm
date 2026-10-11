@@ -25,16 +25,116 @@
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
 #     marker is consumed (deleted) here; source=compact is the trigger, not
 #     the marker's existence.
+#   - The work log (hooks.worklog, off by default): the procedure in
+#     .agents/playbooks/worklog.md and today's file, or why the configured
+#     folder was refused.
+#
+# `session-start.sh --worklog` prints the work-log resolution alone (see
+# resolve_worklog) for session-wrap.sh, so the folder rules live in one place.
 
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 lib="$repo/.agents/hooks/lib"
+
+# The work log, read from the untracked config.json alone: the folder is one
+# operator's machine, and a tracked policy.json naming a path outside the
+# repository would point every clone at a folder its operator never chose.
+# Prints three lines: off | ok | refused; then today's file or the refusal
+# reason; then the folder an operator must grant, empty when it is in the tree.
+# Off reads no path outside the tree. The folder is never created.
+resolve_worklog() {
+  python3 - "$repo" "$lib" <<'PY'
+import os
+import subprocess
+import sys
+import time
+
+repo, lib = sys.argv[1], sys.argv[2]
+sys.path.insert(0, lib)
+import config
+
+settings = config._read_json(os.path.join(repo, ".agents", "config.json"))
+
+
+def emit(status, detail="", grant=""):
+    print(status)
+    print(detail)
+    print(grant)
+    sys.exit(0)
+
+
+if not config.read(settings, "hooks.worklog.enabled", False):
+    emit("off")
+day = time.strftime("%Y-%m-%d") + ".md"
+root = os.path.realpath(repo)
+raw = config.read(settings, "hooks.worklog.dir", "")
+if raw is None:
+    raw = ""
+if not isinstance(raw, str):
+    emit("refused", "hooks.worklog.dir must be a folder path as a string.")
+raw = raw.strip()
+if not raw:
+    emit("ok", os.path.join(root, ".agents", "worklog", day))
+
+target = os.path.realpath(os.path.join(root, os.path.expanduser(raw)))
+hidden = [part for part in target.split(os.sep) if part.startswith(".")]
+if hidden:
+    emit("refused", f"{target} lies in a hidden folder ({hidden[0]}); hidden folders hold tool and account state.")
+parent = os.path.dirname(root)
+if not os.path.exists(target):
+    emit("refused", f"{target} does not exist. Create it yourself; the hook never creates it.")
+if not os.path.isdir(target):
+    emit("refused", f"{target} is not a folder.")
+if target == root or target.startswith(root + os.sep):
+    emit("refused", f"{target} is this repository or inside it. Leave hooks.worklog.dir empty "
+                    "to keep the log in .agents/worklog/, which Git ignores.")
+if target == parent:
+    emit("refused", f"{target} is the folder that holds this repository. Use a subfolder of it, "
+                    f"such as {os.path.join(parent, 'worklog')}.")
+if not target.startswith(parent + os.sep):
+    emit("refused", f"{target} is outside {parent}, the folder that holds this repository.")
+if os.path.exists(os.path.join(target, ".git")):
+    emit("refused", f"{target} is a Git repository.")
+# A bounded walk: a repository up to four levels down is refused; deeper ones
+# are not looked for, so a large folder costs at most four levels of listing.
+level = [target]
+for depth in range(1, 5):
+    below = []
+    for folder in level:
+        try:
+            entries = sorted(os.scandir(folder), key=lambda entry: entry.name)
+        except OSError as error:
+            emit("refused", f"{folder} cannot be listed ({error.strerror}).")
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                if os.path.exists(os.path.join(entry.path, ".git")):
+                    emit("refused", f"{target} holds a Git repository ({os.path.relpath(entry.path, target)}).")
+                below.append(entry.path)
+    level = below
+env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+inside = subprocess.run(["git", "-C", target, "rev-parse", "--is-inside-work-tree"],
+                        capture_output=True, text=True, env=env)
+if inside.returncode == 0:
+    emit("refused", f"{target} is inside a Git work tree.")
+emit("ok", os.path.join(target, day), target)
+PY
+}
+
+if [[ "${1:-}" == "--worklog" ]]; then
+  resolve_worklog
+  exit 0
+fi
+
 switches="$(python3 "$lib/config.py" "$repo/.agents/config.json" \
   hooks.session_start.enabled=true hooks.learning_output_style.enabled=true)"
 session_start_enabled="$(printf '%s\n' "$switches" | sed -n '1p')"
 learning_enabled="$(printf '%s\n' "$switches" | sed -n '2p')"
-[[ "$session_start_enabled" == "no" && "$learning_enabled" == "no" ]] && exit 0
+worklog="$(resolve_worklog)" || { echo "session-start: the work-log folder could not be resolved; no work-log context this session" >&2; worklog="off"; }
+worklog_status="$(printf '%s\n' "$worklog" | sed -n '1p')"
+worklog_detail="$(printf '%s\n' "$worklog" | sed -n '2p')"
+worklog_grant="$(printf '%s\n' "$worklog" | sed -n '3p')"
+[[ "$session_start_enabled" == "no" && "$learning_enabled" == "no" && "$worklog_status" == "off" ]] && exit 0
 
 parsed="$(python3 "$lib/payload.py" project_dir source session_id transcript_path)"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
@@ -144,8 +244,14 @@ if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]];
   workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" 2>/dev/null || true)"
 fi
 
+worklog_body=""
+worklog_playbook="$repo/.agents/playbooks/worklog.md"
+if [[ "$worklog_status" == "ok" && -f "$worklog_playbook" ]]; then
+  worklog_body="$(cat "$worklog_playbook")"
+fi
+
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" && "$worklog_status" == "off" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -192,6 +298,21 @@ cell so it runs in an isolated context.
 Trivial exception — a fix of a few lines in a file A already touches may be
 done inline. Everything else goes through this gate.
 EOF
+  fi
+
+  if [[ "$worklog_status" == "ok" ]]; then
+    section
+    printf '%s\n\n' "$worklog_body"
+    echo "Today's work log: $worklog_detail"
+    if [[ -n "$worklog_grant" ]]; then
+      echo "Writing there needs write access to $worklog_grant alone. Ask the operator to add it; never edit these settings yourself:"
+      echo "  - Claude Code: \"permissions\": {\"additionalDirectories\": [\"$worklog_grant\"]} in .claude/settings.local.json"
+      echo "  - Codex: sandbox_workspace_write.writable_roots = [\"$worklog_grant\"] in ~/.codex/config.toml (.agents/mcp.py regenerates the project's .codex/config.toml)"
+    fi
+  elif [[ "$worklog_status" == "refused" ]]; then
+    section
+    echo "Work log refused: $worklog_detail"
+    echo "Tell the operator the log is off until hooks.worklog.dir in .agents/config.json names an existing folder beside this repository — inside the folder that holds it, not in a Git repository, not hidden — or is left empty to keep the log in .agents/worklog/."
   fi
 
   if [[ -n "$workloop_digest" ]]; then
