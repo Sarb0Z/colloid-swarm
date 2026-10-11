@@ -265,6 +265,21 @@ person's session store outside the repository, it is opt-in: the toggle is
 registration is in `.agents/claude/README.md`. See decision
 `worktree-sessions-opt-in`.
 
+`edit-record.sh` lets the session wrap measure only its own session: it
+appends each path an editor tool writes to `.wrap-edits-<session>` and each
+commit the session makes or integrates to `.wrap-commits-<session>`, both
+gitignored and reaped after seven days. A changed file no session claims counts
+for the session that stops, so an unrecorded change fails toward review. The
+remaining gaps are debt `colloid-wrap-concurrent-attribution`.
+
+The work log is opt-in per operator: `hooks.worklog.enabled` in the untracked
+`config.json`, default off. Enabled, `session-start.sh` injects
+`playbooks/worklog.md` and the day's path, `.agents/worklog/YYYY-MM-DD.md`
+unless `hooks.worklog.dir` names an existing folder outside the tree that sits
+under the repository's parent, in no repository, with no hidden segment. For
+such a folder it prints the one access setting the operator adds; the agent
+grants itself nothing. See decision `worklog-toggled-in-tree-by-default`.
+
 `workloop-inbox.sh` turns the controller's durable inbox into push: at
 subagent start a cell hears its host agent id and claims its lane with it;
 between tool calls it hears each unread message for that lane once; at every
