@@ -78,6 +78,10 @@ def is_ancestor(repo: Path | str, ancestor: str, descendant: str) -> bool:
     ).returncode == 0
 
 
+def merge_base(repo: Path | str, left: str, right: str) -> str | None:
+    return git(repo, "merge-base", left, right, check=False) or None
+
+
 def head_of(path: Path | str) -> str:
     return git(path, "rev-parse", "HEAD")
 
@@ -98,6 +102,10 @@ def dirty_paths(workspace: Path | str) -> list[str]:
     # output must not be stripped before the slice.
     lines = git(workspace, "status", "--porcelain", "--untracked-files=all", strip=False).splitlines()
     return sorted(line[3:] for line in lines if len(line) > 3)
+
+
+def committed_files(repo: Path | str, since: str, until: str) -> list[str]:
+    return sorted(line for line in git(repo, "diff", "--name-only", f"{since}..{until}").splitlines() if line)
 
 
 def changed_files(workspace: Path, base: str) -> list[str]:
