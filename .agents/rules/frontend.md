@@ -13,7 +13,7 @@ paths:
 # Frontend and Browser Rules
 
 ## Business Invariants
-- Design to Steve Jobs's standard: scannable at a glance, visually harmonious, frictionless. Typography, spacing, hierarchy, and micro-interactions are load-bearing, not decorative.
+- Design like Steve Jobs: scannable, visually harmonious, frictionless. Typography, spacing, hierarchy, and micro-interactions are load-bearing, not decorative.
 - Render and inspect the output itself before presenting it, and fix collisions, clipping, and readability first.
 - When the user supplies a reference, match its quality before showing yours.
 - Playwright MCP is the only browser surface. Route every browser task through it — a local dev server, a static file, or a public page — along with layout inspection, screenshots, responsive checks, interaction tests, and any page `WebFetch` cannot parse.
