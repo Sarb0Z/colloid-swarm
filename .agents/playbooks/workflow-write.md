@@ -10,7 +10,7 @@ settled before the prose.
 | Gather the facts from observed state; every count from a command | Yes | Yes | Yes |
 | Leave the user's voice to the user: placeholders for copy that speaks for them, listed in one question | Yes | Yes | Yes |
 | Draft | Yes | Yes | Yes |
-| Check every claim against its source, and every link and path by opening it | — | Yes | Yes |
+| Verify every claim against its source, and every link and path by opening it | — | Yes | Yes |
 | Independent read by a reviewer cell, one axis: does the text say what the evidence supports | — | — | Yes |
 
 Product documentation (`README.md`, `docs/`) follows `.agents/rules/documentation.md`.
