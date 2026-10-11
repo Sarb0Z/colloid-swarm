@@ -65,6 +65,14 @@ if [[ "$session_start_enabled" == "yes" && -n "$ident" ]] && git -C "$proj" rev-
     mkdir -p "$proj/.agents" 2>/dev/null || true
     { printf 'none\n\n%s\n%s\n\n' "$commits" "$head_sha" > "$seed"; } 2>/dev/null || true
   fi
+  # edit-record.sh's attribution record. A fresh start owns nothing yet; a
+  # resume or a compaction continues the session, whose edits and commits are
+  # still its own work.
+  if [[ "$start_source" == "startup" ]]; then
+    key="${seed##*/.wrap-state-}"
+    rm -f "$proj/.agents/.wrap-edits-$key" "$proj/.agents/.wrap-commits-$key" \
+          "$proj/.agents/.wrap-head-$key"-* 2>/dev/null || true
+  fi
 fi
 
 # The parallel-writers gate tracks live writer cells per session. No cell

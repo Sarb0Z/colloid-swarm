@@ -48,6 +48,20 @@
 #   trivial_files (2), trivial_lines (30)   -> the trivial floor
 #   review_files (5),  review_lines (150)   -> the `large` threshold
 #   heavy_tool_calls (60)                   -> no-diff session worth reporting
+#
+# ATTRIBUTION. Several sessions can share one working tree, and each wrap must
+# measure its own work. edit-record.sh records, per session, the paths its
+# editor tools wrote (.agents/.wrap-edits-<key>) and the commits it made
+# (.agents/.wrap-commits-<key>), keyed like the state file below.
+#   - Uncommitted: a changed file counts when this session's edits file names
+#     it, or when no other session's edits file does, or when that claim is
+#     older than the path's last commit. The unclaimed rule keeps what a shell
+#     command wrote; a session with no edits file measures every file no other
+#     session claims.
+#   - Committed: a commit counts when this session recorded it, or when no
+#     session did and it is not on a remote-tracking branch. With no record
+#     anywhere (a host without the recorder) the whole range counts, as it
+#     always did: a safety wrap fails toward review.
 
 set -euo pipefail
 
@@ -100,15 +114,162 @@ ledgers='sources-ledger|compaction-pending'
 # colloid-only
 ledgers="genome-ledger|mutagen-ledger|$ledgers"
 # /colloid-only
-markers='(\.agents/\.('"$ledgers"')$|\.agents/\.wrap-state-|^docs/learning/)'
+markers='(\.agents/\.('"$ledgers"')$|\.agents/\.wrap-(state|edits|commits|head)-|^docs/learning/)'
 
+# Session identity: session_id, falling back to the transcript path (the state
+# file's comment below says why an absent identity writes nothing).
+ident="${session_id:-$transcript}"
+key=""
+[[ -n "$ident" ]] && key="$(printf '%s' "$ident" | cksum | tr -d ' ')"
+others_edits=()
+others_commits=()
+own_edits=""
+own_commits=""
+for f in "$proj"/.agents/.wrap-edits-* "$proj"/.agents/.wrap-commits-*; do
+  [[ -f "$f" ]] || continue
+  case "${f##*/}" in
+    ".wrap-edits-$key") own_edits="$f" ;;
+    ".wrap-commits-$key") own_commits="$f" ;;
+    .wrap-edits-*) others_edits+=("$f") ;;
+    *) others_commits+=("$f") ;;
+  esac
+done
+# The committed ladder narrows to attributed commits once any session keeps a
+# record; with none anywhere (a host without the recorder) it measures the
+# whole range as it always did.
+recorded="no"
+[[ -n "$own_edits" || -n "$own_commits" || ${#others_commits[@]} -gt 0 ]] && recorded="yes"
+
+# What no session claims is attributed to whoever stops: a shell command's
+# write reaches no recorder, and neither does a commit made where no recorder
+# ran — debt: colloid-wrap-concurrent-attribution
+#
+# The measures, in one interpreter. `uncommitted` prints the file count, the
+# changed lines (empty when there is no commit to diff against), "1" when a
+# binary changed, then the attributed files. `commits <base>` prints the
+# commits in <base>..HEAD this session is answerable for.
+measure="$(cat <<'PY'
+import os
+import re
+import subprocess
+import sys
+
+mode, markers, own_edits, own_commits = sys.argv[1:5]
+rest = sys.argv[5:]
+
+
+def git(*args):
+    result = subprocess.run(["git", "--literal-pathspecs", *args], capture_output=True)
+    return result.stdout.decode("utf-8", "surrogateescape") if result.returncode == 0 else ""
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as source:
+            return source.read().splitlines()
+    except (FileNotFoundError, IsADirectoryError):
+        return []
+
+
+if mode == "commits":
+    base, others = rest[0], rest[1:]
+    mine = set(read(own_commits)) if own_commits else set()
+    claimed = {line for path in others for line in read(path)}
+    in_range = git("rev-list", "--reverse", "--no-merges", f"{base}..HEAD").split()
+    # Unclaimed commits count for whoever stops, except what a pull brought in.
+    local = set(git("rev-list", "--no-merges", f"{base}..HEAD", "--not", "--remotes").split())
+    for commit in in_range:
+        if commit in mine or (commit not in claimed and commit in local):
+            print(commit)
+    sys.exit(0)
+
+# uncommitted
+pattern = re.compile(markers)
+tokens = git("status", "--porcelain=v1", "-z", "--untracked-files=all").split("\0")
+changed, untracked, old_names = [], set(), {}
+index = 0
+while index < len(tokens):
+    entry = tokens[index]
+    index += 1
+    if len(entry) < 4:
+        continue
+    code, path = entry[:2], entry[3:]
+    if "R" in code or "C" in code:          # `-z` gives the destination, then the source
+        old_names[path] = tokens[index]
+        index += 1
+    if pattern.search(path):
+        continue
+    changed.append(path)
+    if code == "??":
+        untracked.add(path)
+
+own = {line.partition("\t")[2] for line in read(own_edits)} if own_edits else set()
+claims = {}
+for path in rest:
+    for line in read(path):
+        stamp, _, name = line.partition("\t")
+        if stamp.isdigit():
+            claims[name] = max(claims.get(name, 0), int(stamp))
+counted = []
+for path in changed:
+    if path in own or path not in claims:
+        counted.append(path)
+        continue
+    # A peer's claim stands until the path's next commit; an edit after that
+    # commit is new work no recorder saw.
+    last = git("log", "-1", "--format=%ct", "--", path).strip()
+    if last.isdigit() and claims[path] <= int(last):
+        counted.append(path)
+
+lines, binary = "", ""
+if counted and git("rev-parse", "-q", "--verify", "HEAD"):
+    total = 0
+    tracked = [p for p in counted if p not in untracked]
+    if tracked:
+        spec = tracked + [old_names[p] for p in tracked if p in old_names]
+        fields = git("diff", "HEAD", "-M", "--numstat", "-z", "--", *spec).split("\0")
+        position = 0
+        while position < len(fields):
+            head = fields[position]
+            position += 1
+            parts = head.split("\t")
+            if len(parts) != 3:
+                continue
+            added, deleted, name = parts
+            if not name:                     # a rename: source, then destination
+                name = fields[position + 1] if position + 1 < len(fields) else ""
+                position += 2
+            if name not in counted:
+                continue
+            if added == "-" and deleted == "-":
+                binary = "1"
+            elif added.isdigit() and deleted.isdigit():
+                total += int(added) + int(deleted)
+    for path in counted:
+        if path in untracked and os.path.isfile(path):
+            with open(path, "rb") as source:
+                total += source.read().count(b"\n")
+    lines = str(total)
+print(len(counted))
+print(lines)
+print(binary)
+for path in counted:
+    print(path)
+PY
+)"
+
+count=0
+lines=""
+binary=""
 changed=""
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  changed="$(git status --porcelain=v1 --untracked-files=all 2>/dev/null \
-    | awk 'NF { sub(/^.. /, ""); print }' \
-    | sed 's/^"//; s/"$//' \
-    | grep -v '^$' \
-    | grep -Ev "$markers" || true)"
+  measured="$(python3 -c "$measure" uncommitted "$markers" "$own_edits" "$own_commits" \
+    ${others_edits[@]+"${others_edits[@]}"})" || measured=""
+  count="$(printf '%s\n' "$measured" | sed -n '1p')"
+  [[ "$count" =~ ^[0-9]+$ ]] || count=0
+  lines="$(printf '%s\n' "$measured" | sed -n '2p')"
+  binary="$(printf '%s\n' "$measured" | sed -n '3p')"
+  changed="$(printf '%s\n' "$measured" | sed -n '4,$p')"
 fi
 
 # ───────────────────────────── classify the tier ─────────────────────────────
@@ -126,23 +287,6 @@ classify() {                       # files, lines ("" = unmeasurable), binary fl
   echo "$tier"
 }
 
-count=0
-lines=""
-binary=""
-if [[ -n "$changed" ]]; then
-  count="$(printf '%s\n' "$changed" | wc -l | tr -d ' ')"
-  if git rev-parse --verify -q HEAD >/dev/null 2>&1; then
-    binary="$(git diff HEAD --numstat 2>/dev/null \
-      | awk '$1 == "-" && $2 == "-" { b = 1 } END { if (b) print 1 }' || true)"
-    tracked="$(git diff HEAD --numstat 2>/dev/null \
-      | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { s += $1 + $2 } END { print s + 0 }' || true)"
-    untracked="$(git ls-files --others --exclude-standard 2>/dev/null \
-      | grep -Ev "$markers" \
-      | while IFS= read -r f; do [[ -f "$f" ]] && wc -l <"$f" 2>/dev/null || true; done \
-      | awk '{ s += $1 } END { print s + 0 }' || true)"
-    lines=$(( ${tracked:-0} + ${untracked:-0} ))
-  fi
-fi
 
 tier="$(classify "$count" "$lines" "$binary")"
 
@@ -181,10 +325,9 @@ rank() { case "$1" in none) echo 0;; trivial) echo 1;; diff) echo 2;; large) ech
 # repo-wide ladder that every future session inherits, silently suppressing wraps
 # forever. A safety wrap fails toward review. The other two branches need a
 # remembered baseline to mean anything, so they are silent without identity.
-ident="${session_id:-$transcript}"
 state=""
-if [[ -n "$ident" ]]; then
-  state="$proj/.agents/.wrap-state-$(printf '%s' "$ident" | cksum | tr -d ' ')"
+if [[ -n "$key" ]]; then
+  state="$proj/.agents/.wrap-state-$key"
 fi
 
 # Empty in a repo with no commits — which correctly makes the count signal inert
@@ -255,15 +398,49 @@ escalated="no"
 #     other side wrote.
 # Both re-base the range on HEAD and stay silent for the turn.
 #
+# Once any session keeps a record, the range narrows to the commits this
+# session recorded plus those no session recorded (except what is already on a
+# remote-tracking branch): a peer's commit is not its work, a workloop wave it
+# integrated is, and a commit nobody saw fails toward review. Merges are not
+# measured and the merge refusal above does not apply; each counted commit is
+# measured against its parent, so a file two commits touch is counted once and
+# its lines twice.
+#
 # What it cannot see: a repository with no commits when the session began (the
 # dirty-tree branch already covers everything up to the first commit, and this
-# branch starts measuring from it), and which session authored a commit when two
-# share one working tree — debt: colloid-wrap-concurrent-attribution
+# branch starts measuring from it).
 landed_count=0
 landed_lines=""
 landed_binary=""
 landed_changed=""
-if [[ -n "$unreported" && -n "$head_sha" && "$unreported" != "$head_sha" ]]; then
+landed_commits=""
+if [[ -n "$unreported" && -n "$head_sha" && "$unreported" != "$head_sha" && "$recorded" == "yes" ]]; then
+  if git merge-base --is-ancestor "$unreported" HEAD 2>/dev/null; then
+    own_range="$(python3 -c "$measure" commits "$markers" "" "$own_commits" "$unreported" \
+      ${others_commits[@]+"${others_commits[@]}"} || true)"
+    if [[ -n "$own_range" ]]; then
+      landed_commits="$(printf '%s\n' "$own_range" | wc -l | tr -d ' ')"
+      numstat="$(printf '%s\n' "$own_range" \
+        | git diff-tree --stdin --no-commit-id --root -r --numstat 2>/dev/null || true)"
+      landed_changed="$(printf '%s\n' "$own_range" \
+        | git diff-tree --stdin --no-commit-id --root -r --name-only 2>/dev/null \
+        | sort -u | grep -v '^$' | grep -Ev "$markers" || true)"
+      if [[ -n "$landed_changed" ]]; then
+        landed_count="$(printf '%s\n' "$landed_changed" | wc -l | tr -d ' ')"
+        landed_binary="$(printf '%s\n' "$numstat" \
+          | MARKERS="$markers" awk 'BEGIN { m = ENVIRON["MARKERS"] }
+              $3 !~ m && $NF !~ m && $1 == "-" && $2 == "-" { b = 1 }
+              END { if (b) print 1 }' || true)"
+        landed_lines="$(printf '%s\n' "$numstat" \
+          | MARKERS="$markers" awk 'BEGIN { m = ENVIRON["MARKERS"] }
+              $3 !~ m && $NF !~ m && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { s += $1 + $2 }
+              END { print s + 0 }' || true)"
+      fi
+    fi
+  else
+    unreported="$head_sha"
+  fi
+elif [[ -n "$unreported" && -n "$head_sha" && "$unreported" != "$head_sha" ]]; then
   if git merge-base --is-ancestor "$unreported" HEAD 2>/dev/null \
      && [[ -z "$(git rev-list --merges --max-count=1 "$unreported..HEAD" 2>/dev/null)" ]]; then
     landed_changed="$(git diff --name-only "$unreported" HEAD 2>/dev/null \
@@ -306,7 +483,8 @@ record_state() {                   # fired, investigated, implemented
       "$1" "$2" "$commits" "$unreported" "$3" > "$state"; } 2>/dev/null || return 1
   # Reap state from long-dead sessions; today's file was just written, so a
   # week-old mtime can only mean an abandoned session.
-  find "$proj/.agents" -maxdepth 1 -name '.wrap-state-*' -mtime +7 -delete 2>/dev/null || true
+  find "$proj/.agents" -maxdepth 1 \( -name '.wrap-state-*' -o -name '.wrap-edits-*' -o -name '.wrap-commits-*' -o -name '.wrap-head-*' \) \
+    -mtime +7 -delete 2>/dev/null || true
 }
 
 # ───────────────────────────── build the sections ─────────────────────────────
@@ -324,7 +502,7 @@ next_implemented="$implemented"
 # tier at `diff` for the whole session — the commit-count re-arm re-fires the same
 # stale wall every commit turn, and the units that actually landed are never named.
 if [[ "$landed_tier" == "diff" || "$landed_tier" == "large" ]]; then
-  landed_commits="$(git rev-list --count "$unreported..HEAD" 2>/dev/null || true)"
+  [[ -n "$landed_commits" ]] || landed_commits="$(git rev-list --count "$unreported..HEAD" 2>/dev/null || true)"
   size="${landed_commits:-?} commit(s), $landed_count file(s)"
   [[ -n "$landed_lines" ]] && size="$size, ~$landed_lines changed lines"
   [[ -n "$landed_binary" ]] && size="$size, binary"
