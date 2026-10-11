@@ -30,7 +30,8 @@ make_fixture() {
   cp "$repo/.agents/hooks/lib/config.py" \
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
-     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
+     "$repo/.agents/hooks/lib/worklog.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"

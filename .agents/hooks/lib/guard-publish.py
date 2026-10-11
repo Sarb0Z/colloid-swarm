@@ -757,7 +757,7 @@ def outward_commands(repo):
         return []
     listed = []
     for name in ("policy.json", "config.json"):
-        document = module._read_json(os.path.join(agents, name))
+        document = module.read_json(os.path.join(agents, name))
         entries = module.read(document, "hooks.guard_publish.outward_commands", [])
         if isinstance(entries, list):
             listed.extend(entries)
@@ -776,7 +776,7 @@ def dry_run_commands(repo):
     module = config_module()
     if module is None:
         return []
-    document = module._read_json(os.path.join(repo, ".agents", "policy.json"))
+    document = module.read_json(os.path.join(repo, ".agents", "policy.json"))
     entries = module.read(document, "hooks.guard_publish.dry_run_commands", [])
     return cleaned_entries(entries if isinstance(entries, list) else [])
 
