@@ -717,10 +717,10 @@ PROMPTING_MODES = {"default", "acceptEdits", "plan"}
 APPROVAL = (" AGENTS.md §External actions: outward mutations need in-session "
             "user approval.")
 UNPROMPTED = (
-    " This session's permission mode is {mode}, where the approval prompt does "
-    "not reach the user, so the call is denied instead of asked. Do not retry "
+    " This session's permission mode ({mode}) shows the user no approval "
+    "prompt, so the call is denied instead of asked. Do not retry "
     "or work around it. Report what you want to run and why, then stop: the "
-    "user approves by switching the permission mode to default (Shift+Tab) and "
+    "user approves either by switching to default mode (Shift+Tab) and "
     "answering the prompt when you rerun the command, or by running it "
     "themselves with the ! prefix.")
 
