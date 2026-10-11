@@ -5,11 +5,15 @@
 /.kimi-code/mcp.json
 /.codex/config.toml
 .agents/config.json
+.agents/worklog/
 .agents/.playwright-reader.json
 .agents/.browser/
 .agents/.sources-ledger
 .agents/.compaction-pending
 .agents/.wrap-state-*
+.agents/.wrap-edits-*
+.agents/.wrap-commits-*
+.agents/.wrap-head-*
 .agents/.provenance-*
 .agents/.ui-pending-*
 .agents/.teardown-pending-*

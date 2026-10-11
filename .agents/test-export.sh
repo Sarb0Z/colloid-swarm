@@ -86,14 +86,15 @@ done < <(grep -oE '\.agents/[A-Za-z0-9_./-]+\.(sh|py)' "$kit/.agents/AGENTS.md" 
 python3 - "$work/source/.gitignore" "$kit/export/gitignore-fragment" <<'PY'
 import sys
 
-COLLOID_ONLY = {".agents/.genome-ledger", ".agents/.mutagen-ledger"}
+# Paths the export drops along with the state they leave behind.
+COLLOID_ONLY = {".agents/.genome-ledger", ".agents/.mutagen-ledger", ".agents/eval/*/runs.tsv"}
 
 
 def transient(path):
     return {
         line.strip()
         for line in open(path, encoding="utf-8")
-        if line.strip().startswith(".agents/.")
+        if line.strip().startswith(".agents/")
     }
 
 

@@ -36,6 +36,25 @@ def normalize(payload, policy, repo):
             if isinstance(value, str):
                 files.append(value)
         out["files"] = files
+    elif policy == "edit-record.sh":
+        out["event"] = payload.get("hook_event_name", "")
+        # The reference names no call id; without one, a session's concurrent
+        # shell calls share one HEAD snapshot.
+        call = payload.get("tool_use_id", payload.get("tool_call_id"))
+        out["tool_use_id"] = call if isinstance(call, str) else ""
+        out["session_id"] = payload.get("session_id", "")
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["files"] = [tool_input[key] for key in ("file_path", "path")
+                        if isinstance(tool_input.get(key), str)]
+        command = tool_input.get("command")
+        out["command"] = command if isinstance(command, str) else ""
+        # Kimi's hook reference does not name the output field; without one,
+        # workloop integrate's PASS line is unreadable here.
+        response = payload.get("tool_response", payload.get("tool_output"))
+        if isinstance(response, dict):
+            response = "\n".join(str(response[key]) for key in ("stdout", "stderr", "output")
+                                  if isinstance(response.get(key), str))
+        out["tool_response"] = response if isinstance(response, str) else ""
     elif policy == "session-wrap.sh":
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
         out["session_id"] = payload.get("session_id", "")
