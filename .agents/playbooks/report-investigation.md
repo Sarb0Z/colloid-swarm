@@ -12,7 +12,7 @@ Lead with the frame that fits:
 - **Debugging** — lead with the root cause: proximate and underlying.
 - **Research** — lead with the question and the answer.
 
-Then, either way:
+Both frames continue in this order:
 
 1. **The question** — what was being investigated, and why.
 2. **Findings** — the answer, root cause, or conclusion, each tied to the
