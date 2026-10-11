@@ -327,9 +327,13 @@ def rule_bash(command, shell):
                 return None
             return "git push publishes commits to the remote."
     if name == "gh":
-        if len(rest) >= 2 and rest[0] in GH_MUTATING_AREAS and rest[1] in GH_MUTATING_VERBS:
-            return f"gh {rest[0]} {rest[1]} mutates GitHub state."
-        if rest and rest[0] == "api":
+        # `-R/--repo <owner/repo>` may come before the area: `gh -R o/r pr merge 1`.
+        area = rest
+        while area and area[0].startswith(("-R", "--repo")):
+            area = area[1:] if area[0] not in ("-R", "--repo") else area[2:]
+        if len(area) >= 2 and area[0] in GH_MUTATING_AREAS and area[1] in GH_MUTATING_VERBS:
+            return f"gh {area[0]} {area[1]} mutates GitHub state."
+        if area and area[0] == "api":
             method = None
             for index, word in enumerate(rest):
                 if word in ("-X", "--method") and index + 1 < len(rest):

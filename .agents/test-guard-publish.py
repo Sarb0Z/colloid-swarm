@@ -77,6 +77,14 @@ ASK = [
     ("Bash", {"command": "gh release upload v1 dist.tgz"}),
     # A wrapper that runs the rest of the line does not hide the publish.
     ("Bash", {"command": "timeout 600 git push"}),
+    ("Bash", {"command": "setsid git push origin staging"}),
+    ("Bash", {"command": "sudo --user u git push origin main"}),
+    # `-R/--repo` may come before the area.
+    ("Bash", {"command": "gh -R o/r pr merge 1"}),
+    ("Bash", {"command": "gh --repo o/r pr create --title x"}),
+    ("Bash", {"command": "gh -Ro/r pr close 2"}),
+    ("Bash", {"command": "gh --repo=o/r release create v1"}),
+    ("Bash", {"command": "gh -R o/r api -X POST repos/o/r/issues"}),
     ("Bash", {"command": "bash -lc 'git push origin main'"}),
     ("Bash", {"command": "/usr/bin/env npm publish"}),
     ("Bash", {"command": "nice -n 5 vercel --prod"}),
