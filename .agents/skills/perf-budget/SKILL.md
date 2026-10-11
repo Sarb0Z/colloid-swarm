@@ -12,9 +12,9 @@ description: >
 
 # Perf budget
 
-Prevent the silent slow death: without a budget a bundle grows 4 KB a week for a year and
-no one notices. This skill turns "how big is the bundle, how slow is p95?" into a gate
-that blocks when a metric regresses past its agreed tolerance.
+Unbudgeted, a bundle grows 4 KB a week for a year and no one notices. This skill turns
+"how big is the bundle, how slow is p95?" into a gate that blocks a metric regressing
+past its agreed tolerance.
 
 ## Hard rules
 
@@ -23,17 +23,16 @@ that blocks when a metric regresses past its agreed tolerance.
   taken in instalments; the user must acknowledge each.
 - **Verdict `broken` blocks the merge** — hard-cap violations only. Verdict `regressed`
   warns; the lead decides.
-- **Prefer local reproduction over remote metrics.** This is a merge gate, not
-  observability; point the user at the project's APM (Grafana / DataDog / …) for
-  production trends.
+- **Prefer local reproduction over remote metrics:** this is a merge gate, not
+  observability. Production trends belong to the project's APM (Grafana / DataDog / …);
+  point the user there.
 - **Do not assume a package manager or directory layout.** Read commands and lanes from
   `.agents/perf-budgets.json`; infer and persist the config only when it is absent.
 
 ## Configuration — per repo, not hardcoded
 
-Lanes, the commands that measure them, and their budgets live in a repo-local config so
-the skill fits any layout instead of assuming a fixed `apps/*` tree. Look for, in
-order:
+Lanes, their measuring commands, and their budgets live in a repo-local config, so the
+skill fits any layout rather than a fixed `apps/*` tree. Look for, in order:
 
 1. `.agents/perf-budgets.json` — lane definitions + budgets (preferred)
 2. `docs/perf/baseline.json` — the measured baseline values
@@ -53,16 +52,15 @@ order:
 }
 ```
 
-If the config is missing, infer lanes from the repo shape (a web build target → `web-bundle`;
-a mobile app → `mobile-start`; an HTTP service → `backend-p95` + body cap; a queue/worker or
-model service → `worker-start` + `worker-p95`), run, then **write the inferred config** so the
-next run is deterministic. Do not hardcode a package manager or a directory name — read the
-`measure` command from the config, or pick the project's native build/test runner from its
-manifest.
+If the config is missing, infer lanes from the repository's shape (a web build target →
+`web-bundle`; a mobile app → `mobile-start`; an HTTP service → `backend-p95` + body cap; a
+queue worker or model service → `worker-start` + `worker-p95`), run them, then **write the
+inferred config** so the next run is deterministic. Take each `measure` command from the
+config, or the project's native build or test runner from its manifest.
 
 ## Budgets (defaults)
 
-Tolerances the config seeds with unless overridden:
+The tolerances the config seeds, unless overridden:
 
 | Lane kind    | Metric                                            | Tolerance |
 |--------------|---------------------------------------------------|-----------|
@@ -77,24 +75,25 @@ Tolerances the config seeds with unless overridden:
 
 ### 1. Select lanes
 
-Run **only** the lanes whose source the diff touches. A CSS-only change does not need the
-backend load test. When unsure, run all configured lanes.
+Run **only** the lanes whose source the diff touches — a CSS-only change spares the
+backend load test — and all configured lanes when unsure.
 
 ### 2. Read baseline
 
-Load `docs/perf/baseline.json`. **If missing → `establish-baseline` mode:** measure every
-selected lane, write the file, exit `0` with a note that this run set the baseline and gated
-nothing.
+Load `docs/perf/baseline.json`. **If it is missing, run in `establish-baseline` mode:**
+measure every selected lane, write the file, and exit `0`, noting that this run set the
+baseline and gated nothing.
 
 ### 3. Measure current (lanes in parallel)
 
-- **bundle-size** — run the lane's `measure` build command, then read the **gzipped** size of
-  the main bundle from the build's stats output (or gzip the emitted artifact and measure).
-- **api-p95** — start the service (background), fire a short load test at each configured route,
-  capture p95. Use whatever load tool the config names (`autocannon`, `k6`, `hey`, `wrk`, …).
-- **body-cap** — a **spec check, not a runtime measurement**: read the router / body-parser
-  config and confirm each route's declared body limit is ≤ the hard cap.
-- **cold-start** — run the warmup probe, time first render / first response.
+- **bundle-size** — run the lane's `measure` build command, then read the main bundle's
+  **gzipped** size from the build's stats output (or gzip the emitted artifact and measure).
+- **api-p95** — start the service in the background, fire a short load test at each
+  configured route, and capture p95 with the load tool the config names (`autocannon`, `k6`,
+  `hey`, `wrk`, …).
+- **body-cap** — a **spec check, not a runtime measurement**: read the router or body-parser
+  config and verify each route's declared body limit is ≤ the hard cap.
+- **cold-start** — run the warmup probe and time the first render or first response.
 
 ### 4. Diff vs baseline
 
@@ -135,6 +134,6 @@ Save to `docs/perf/report-<YYYY-MM-DD>.md`.
 
 ### 6. Update baseline (opt-in)
 
-Baseline updates are **explicit, never automatic**. If the user approves a regression as
-expected (a new feature), update `docs/perf/baseline.json` with the new value and note why.
-Otherwise keep the old baseline so subsequent runs still gate against it.
+Update the baseline only when the user approves a regression as expected (a new feature):
+write the new value to `docs/perf/baseline.json` with the reason. Otherwise keep the old
+baseline, so later runs still gate against it.
