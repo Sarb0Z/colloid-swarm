@@ -16,7 +16,7 @@ the pack is present when a tracked manifest outside `.agents/` names one. A
 name may carry an ecosystem prefix (`npm:`, `pypi:`, `gem:`); an unprefixed
 name matches in any ecosystem, and a prefixed one only in its own, so npm's
 `motor` does not stand for the Python driver. `detect:` stays required:
-`detect-deps:` is an extra signal and never the only one. Manifests read:
+`detect-deps:` is never the only key declared. Manifests read:
 `package.json` (dependencies, devDependencies, peerDependencies,
 optionalDependencies), `pyproject.toml` (PEP 621 dependencies and
 optional-dependencies, `[dependency-groups]`, Poetry dependency and group
