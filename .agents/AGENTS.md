@@ -28,7 +28,7 @@ paths:
 - A hook policy ships with a direct firing test. Prefer testing observable behavior over mutation machinery that tests the test harness.
 - Hook payloads travel on stdin. Keep adapters thin and shared behavior in `hooks/policy/` or `hooks/lib/`.
 - Commit repository-owned MCP bundles under `mcp-servers/*/dist/`, which clients launch before any install or build, and run each server's bundle check after source changes.
-- A stack pack declares both `paths:` and `detect:`. This repository carries every pack; an export drops `stack_packs.carrier`, and each target deletes packs its codebase does not use.
+- A stack pack declares `paths:` and `detect:`, and `detect-deps:` when its stack can show only as a dependency. This repository carries every pack; an export drops `stack_packs.carrier`, and each target deletes packs its codebase does not use.
 
 ## Hierarchical instructions
 

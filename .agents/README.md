@@ -323,8 +323,9 @@ here to run wide.
 ## Skills, rules, and stack packs
 
 A skill's `SKILL.md` governs use; its `AGENTS.md` governs edits. Path rules live
-in `rules/`. `stack-*.md` files additionally declare `detect:` markers so a
-target cannot silently keep guidance for a framework it does not run.
+in `rules/`. `stack-*.md` files additionally declare `detect:` markers, and `detect-deps:`
+dependency names where a stack has no marker file, so a target cannot silently
+keep guidance for a framework it does not run.
 
 ```sh
 .agents/lint-skills.sh
