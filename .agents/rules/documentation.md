@@ -13,12 +13,12 @@ paths:
 This rule governs product documentation: the README and the files under `docs/`.
 
 ## Business Invariants
-- Write all documentation in ASD-STE100 Simplified Technical English. The standard carries short sentences, active voice, and the imperative mood.
-- Use approved vocabulary. One term per concept, no synonym drift. Introduce a project-specific name once, then reuse it verbatim.
-- Use explicit modals. "Must" states a requirement, "should" states a recommendation, "may" states a permission. Never blend them.
+- Write all documentation in ASD-STE100 Simplified Technical English. The standard carries short sentences, active voice, and the imperative mood, and it was built for the reader product documentation meets: one following a procedure, often in a second language, with no one to ask.
+- Use approved vocabulary. One term per concept, no synonym drift: a reader who meets two words assumes two things. Introduce a project-specific name once, then reuse it verbatim.
+- Use explicit modals. "Must" states a requirement, "should" states a recommendation, "may" states a permission. Never blend them; a reader who cannot tell an order from advice treats both as advice.
 
 ## Abnormal Cases and Rationale
-- Naming the standard carries most of its rules on its own; approved vocabulary and explicit modals do not survive that abbreviation, because they are what drifts.
+- Naming the standard carries most of its rules on its own; approved vocabulary and explicit modals do not survive that abbreviation, because they are what drifts, one plausible synonym at a time.
 
 ## Out of Scope
 - The scaffold and harness are not documentation. This rule does not govern `AGENTS.md` or `CLAUDE.md` contracts at any depth, `.agents/**`, `.claude/**`, `.codex/**`, `.kimi/**`, `.github/instructions/**`, `docs/handoff/**`, or `docs/reviews/**`. The globs above cannot exclude them, because path matching has no negation here, so this line carries the exclusion.
