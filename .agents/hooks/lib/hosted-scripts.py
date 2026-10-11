@@ -178,10 +178,10 @@ def read(path):
         return ""
 
 
-REMEDY = (" AGENTS.md §Changes live in the repository: production state is applied by "
-          "committed code. Put this in the repository as a plan/apply tool — a plan "
-          "command that reports drift and changes nothing, an apply command that is safe "
-          "to rerun, secret values read from a gitignored env file — commit it, and run it "
+REMEDY = (" AGENTS.md §Changes live in the repository: committed code applies "
+          "production state. Put this in the repository as a plan/apply tool — a plan "
+          "command that reports drift and changes nothing, an idempotent apply command, "
+          "secret values read from a gitignored env file — commit it, and run it "
           "from there. Do not retry it from outside the repository or inline.")
 
 
