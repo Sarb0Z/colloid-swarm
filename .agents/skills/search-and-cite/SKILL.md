@@ -42,14 +42,14 @@ search context out of yours.
 
 ## Delegating a researcher
 
-Dispatch it with the question. `.agents/personas/researcher.md` is the
-engine-neutral contract: the escalation ladder, the corroboration rules, and the
+Dispatch it with the question; `.agents/personas/researcher.md` is its
+engine-neutral contract — escalation ladder, corroboration rules, and
 `CLAIMS / SOURCES / GAPS` return shape.
 <!-- colloid-only -->
 
-It is a cell like any other. The **Mycelium** is its natural genome (trace every
-source, three hops out, impossible to surprise). Generate it explicitly only
-on a host without context-injecting `SubagentStart`:
+A cell like any other, it takes the **Mycelium** as its natural genome (trace
+every source, three hops out, impossible to surprise). Generate the stamp only
+on a host whose `SubagentStart` injects no context:
 
 ```sh
 .agents/genome.sh mycelium --register none   # Kimi: prepend to the dispatch prompt
@@ -68,11 +68,9 @@ Task(
 )
 ```
 
-`.claude/agents/researcher.md` links directly to
-`.agents/personas/researcher.md`; its frontmatter pins `sonnet`. The agent loads
-the researcher contract as its system prompt, and your prompt carries the
-question. `sources-capture` logs
-its web calls.
+`.claude/agents/researcher.md` links to `.agents/personas/researcher.md` and pins
+`sonnet` in its frontmatter; the contract becomes the agent's system prompt,
+your prompt carries the question, and `sources-capture` logs its web calls.
 <!-- colloid-only -->
 
 Claude Code and Codex stamp the cell on `SubagentStart`; a second stamp gives it
@@ -82,16 +80,16 @@ two personalities. Kimi's event is observation-only, so prepend one there:
 
 ### Other engines — generic dispatch
 
-Dispatch `[.agents/personas/researcher.md] + [your research question]`.
-It climbs the escalation ladder (WebSearch → WebFetch primary sources →
+Dispatch `[.agents/personas/researcher.md] + [your research question]`. The cell
+climbs the escalation ladder (WebSearch → WebFetch primary sources →
 context7 for libs → research-mcp for articles, PDFs and open-access copies →
 playwright for hard pages), cross-checks load-bearing claims, and returns
 `CLAIMS / SOURCES / GAPS` — what it found, not what it wishes it found.
 <!-- colloid-only -->
 
 On Kimi, prepend the genome stamp here too — `[genome stamp] +
-[.agents/personas/researcher.md] + [your research question]`. Claude and Codex
-inject it automatically.
+[.agents/personas/researcher.md] + [your research question]`; Claude and Codex
+inject it.
 <!-- /colloid-only -->
 
 ## Carry the sources through
@@ -123,27 +121,26 @@ hold the query, not the result link). Transient and gitignored; safe to delete.
 
 ## File what a cell found
 
-The ledger records that a lookup happened. It carries no findings and is not
-committed, so nothing later reads it for answers.
+The ledger records that a lookup happened, not what it found, and is never
+committed; nothing later reads it for answers.
 
-**File what a delegated cell returned.** Delegation is the test that the
-question was substantial — the line drawn at the top of this skill — and the
-answer is a dated observation of something outside the
-repository. Write it to `.agents/knowledge/research/` and add its index line.
-The entry contract is in `.agents/knowledge/README.md`.
+**File what a delegated cell returned.** Delegation is the test, drawn at the
+top of this skill, that the question was substantial, and the answer is a dated
+observation of something outside the repository. Write it to
+`.agents/knowledge/research/` with its index line, per the entry contract in
+`.agents/knowledge/README.md`.
 
 **An inline lookup files nothing.** One fact earns no entry, and a store
 padded with one-line entries is a store nobody opens.
 
-You file, never the cell. The cell answers one angle and hands it back; you hold
-the question it was cut from, so only you can write an entry that reads as an
-answer rather than a fragment.
+You file, never the cell: it answers one angle, and only you hold the question
+that angle was cut from, so only you can write an entry that reads as an answer
+rather than a fragment.
 
 ## On other engines
 
-`researcher.md` and this skill are engine-neutral: the researcher cell and the
-inline-or-delegate discipline work wherever the engine has web tools. The hook
-adapters map each host's observable tool names into one shared source trail and
-wire the prompt-submit reminder. Hosted calls outside a host's hook path remain
+`researcher.md` and this skill are engine-neutral, working wherever the engine
+has web tools. The hook adapters map each host's observable tool names into one
+shared source trail and wire the prompt-submit reminder. Hosted calls outside a host's hook path remain
 an explicit coverage gap; the rule against stating the unverified does not
 depend on the ledger.
