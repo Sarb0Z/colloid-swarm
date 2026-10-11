@@ -51,7 +51,7 @@ def _version(path):
     return path, status.st_mtime_ns, status.st_size
 
 
-def _read_json(path):
+def read_json(path):
     return _entry(path)[0]
 
 
@@ -99,7 +99,7 @@ def _paths(config_path):
 def load(config_path):
     """The layered settings: policy.json under config.json, both optional."""
     policy_path, config_path = _paths(config_path)
-    return _overlay(_read_json(policy_path), _read_json(config_path))
+    return _overlay(read_json(policy_path), read_json(config_path))
 
 
 def unparsed(config_path):

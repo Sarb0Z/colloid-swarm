@@ -607,7 +607,7 @@ if [[ -n "$sections" && -n "$own_commits" ]]; then
   newest="$(tail -n 1 "$own_commits" 2>/dev/null || true)"
   committed_at="$(git log -1 --format=%ct "$newest" 2>/dev/null || true)"
   if [[ "$committed_at" =~ ^[0-9]+$ ]]; then
-    worklog="$(bash "$repo/.agents/hooks/policy/session-start.sh" --worklog || true)"
+    worklog="$(python3 "$repo/.agents/hooks/lib/worklog.py" "$repo" || true)"
     day_file="$(printf '%s\n' "$worklog" | sed -n '2p')"
     if [[ "$(printf '%s\n' "$worklog" | sed -n '1p')" == "ok" ]] \
        && ! python3 -c 'import os, sys; sys.exit(0 if os.path.getmtime(sys.argv[1]) >= int(sys.argv[2]) else 1)' \
