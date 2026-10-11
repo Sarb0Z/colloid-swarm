@@ -137,6 +137,75 @@ They are held here, not adopted:
 - Run the full suite on every change. This conflicts with the decision
   `verification-placement`: narrow checks per change, the composed suite once.
 
+## Practice found in claims-app
+
+These were mined on 2026-10-11 from `claims-org/claims-app` (branch `mvp/roadmap`):
+its contract, rule files, decisions and commits. claims-app developed them
+without the write-up. They are held here, not adopted. claims-app also has the
+highest test churn in the table above, so these are mechanisms to evaluate, not
+a model of a healthy suite.
+
+- **Mocks are never the only evidence.** A feature is ready for owner review
+  only when the owner can run its complete workflow through the browser, the
+  API, the database and each worker or real integration. Mocks, intercepted
+  responses and direct-router tests may add to that path; they must never be
+  all of it (`AGENTS.md:85-96`). This agrees with the claudestd rule on real
+  dependencies above.
+- **Seed data uses the real path.** A review closure in seed data names a real
+  actor and goes through the real endpoint. The seed never writes a fabricated
+  result directly. The harness that drives it uses one idempotency key per
+  closure and stops instead of retrying (`decisions.md:535-540`). This is the
+  data-side form of "a verifier changes nothing to pass".
+- **A check never repairs itself.** The staging deploy compares the seeded data
+  fingerprint after migrations and before the build. On a mismatch it stops
+  with an error that names the two fixes. It never re-pins the fingerprint or
+  resets the database itself (`decisions.md:572-576`). The owner chose a loud
+  stop over an automatic repair. This is the gate-side form of the same rule.
+- **Tests that pin something expensive to lose.** Each of these fails only when
+  something real breaks:
+  - A checked-in manifest freezes every migration revision except the newest,
+    and a test fails when one changes. A database that already applied a
+    revision then never misses an edit to it (`54357ebd`).
+  - A test fails while the generated `openapi.json` or the web types generated
+    from it are stale. Nobody edits a generated file by hand
+    (`rules/claims-app.md:29`). Here the generated types define the behavior
+    and the test only checks that they are current.
+  - A static test checks that every migration `CREATE ROLE` tolerates an
+    existing role (`51984a6d`).
+- **Evidence manifests.** A manifest pins the sources that QA binds to. A run
+  fails closed when a source drifts, and the manifest is regenerated only when
+  a source changed on purpose (`tools/qa/AGENTS.md:22-25`). This is one answer
+  to "what artifact holds expected behavior, and how does a change to it reach
+  the tests".
+- **A test harness owns what it starts.** A launcher records the processes,
+  ports and containers it starts and removes them on every exit path, failure
+  included. A run that leaves a process behind is a failed run
+  (`tools/qa/AGENTS.md:15-18`). Harness scripts find the repository root from
+  their own location and commit no absolute paths.
+- **Test isolation.** CI shards keep each test file whole, and shared database
+  role state is checked after each module (`51984a6d`).
+- **UI checks that measure.** Where a UI has no seam for a unit test, the
+  verifier does more than a manual smoke test. It runs a `browser_evaluate`
+  audit over every element, counts computed defects (text under 12 px,
+  unintended monospace, horizontal overflow) and reports the count before and
+  after the change. For print it creates the real PDF and reads it back: three
+  defects showed only in the PDF, one of them a wrong headline amount (memory
+  `verify-ui-with-playwright`).
+- **Where QA gates.** QA and hostile review gate the integration, activation
+  and completion claim of the unit that they cover. They do not block
+  implementation of an independent unit (`AGENTS.md:64-73`). One hostile
+  review covers a wave of parallel lanes over the merged diff, and QA still
+  reproduces every high-stakes claim (`decisions.md:467-471`).
+
+How these bear on the questions below:
+
+| Question | claims-app's answer |
+|---|---|
+| Important behavior versus implementation detail | The frozen-revision, stale-generated-file and role tests: each pins a cost, not a code shape. |
+| Types instead of tests | Generated API types define the contract; the test checks only that they are current. |
+| Where expected behavior lives | Evidence manifests that fail closed on drift. |
+| What a verifier may change | Nothing that makes a check pass: seed data goes through the real path, and a failed gate stops instead of repairing itself. |
+
 ## Rules in the repository that already touch testing
 
 - Root `AGENTS.md`, Workflow step 4: "Tie every fix to observed evidence";
