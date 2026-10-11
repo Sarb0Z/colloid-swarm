@@ -26,6 +26,19 @@ if grep -rq 'DIRTY_EXPORT_CANARY' "$kit"; then
   fail "export mixed live debt text into the committed snapshot"
 fi
 
+# A seeded entry that cites another entry by id carries that entry too, or the
+# target's debt log holds a dangling reference.
+python3 - "$work/source/.agents/debt-log.md" "$kit/export/debt-log-entry.md" <<'PY' || fail "seeded debt entries cite an entry the export omits"
+import re, sys
+from pathlib import Path
+heading = re.compile(r"^### (\S+)", re.M)
+known = set(heading.findall(Path(sys.argv[1]).read_text()))
+seeded = Path(sys.argv[2]).read_text()
+missing = {i for i in re.findall(r"`([a-z0-9][a-z0-9-]*)`", seeded) if i in known} - set(heading.findall(seeded))
+if missing:
+    raise SystemExit(f"test-export: cited but not seeded: {sorted(missing)}")
+PY
+
 leaked="$(grep -rniE 'genome|mutagen|panspermia|\bswarm\b' "$kit" \
   --exclude-dir=mcp-servers --exclude-dir=node_modules --exclude-dir=export \
   2>/dev/null | grep -v '^Binary' || true)"
