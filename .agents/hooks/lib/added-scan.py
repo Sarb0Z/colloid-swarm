@@ -54,11 +54,11 @@ SKIP_PATHS = re.compile(r'(^|/)\.agents/knowledge/')
 # silences strictNullChecks, and parsed JSON is typed `any`.
 NULLSAFETY_PATTERNS = [
     (re.compile(r'\bas\s+(any|unknown)\b'),
-     "cast to any/unknown launders the type — tsc can't see past it"),
+     "a cast to any or unknown launders the type past tsc"),
     (re.compile(r'[\w\)\]]\!(?=[.\[(])'),
-     "non-null `!` assertion proves nothing at runtime — guard instead"),
+     "a non-null `!` assertion proves nothing at runtime; guard instead"),
     (re.compile(r'\b(JSON\.parse|await\s+[\w.]+\.json)\s*\('),
-     "parsed data is `any` — validate its shape before use"),
+     "parsed data is `any`; validate its shape before use"),
 ]
 
 # A banned phrase inside double quotes or backticks is a citation, not narration,
