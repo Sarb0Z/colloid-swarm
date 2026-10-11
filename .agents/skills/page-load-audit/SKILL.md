@@ -35,14 +35,14 @@ Use it when the site is down, blank, or slow for some users and not others; when
 | Content, eventually | Slow: bytes, round trips, or origin distance | §3, §4, §5 |
 | **White page, padlock in the address bar, no error** | **HTML arrived and the app never started** | §2, then §4 |
 
-The padlock is the tell. TLS completed and a document was served, so the network path works; something after the HTML gates the app: a render-blocking resource that never settles, or a script that never finishes downloading.
+The padlock is the tell: TLS completed and a document arrived, so the network path works, and something after the HTML gates the app — a render-blocking resource that never settles, or a script that never finishes downloading.
 
 **Prove what is alive** with read-only probes before forming a hypothesis:
 
 - The root document: status, `cache-control`, the CDN cache header.
 - One hashed asset the document references: status, cache headers, ETag.
-- One authenticated API route: a `401` proves the backend and its auth middleware are both running, and a `404` on GET from a POST-only route is proof of life too.
-- The health route: inspect whether it returns the app's HTML. A single-page app served with a catch-all (`try_files … /index.html`) answers `200` for a dead backend, and an uptime monitor pointed there measures the web server, not the API.
+- One authenticated API route: a `401` proves the backend and its auth middleware both run; a `404` on GET from a POST-only route is proof of life too.
+- The health route: inspect whether it returns the app's HTML. A single-page app behind a catch-all (`try_files … /index.html`) answers `200` for a dead backend, so an uptime monitor pointed there measures the web server, not the API.
 
 **Prove the deployed build is the current one.** Grep the live bundle for a string the newest commit introduced. Staleness is a cheaper explanation than a defect, so eliminate it first.
 
@@ -62,21 +62,21 @@ Two things alone gate first paint and the deferred module script: parser-inserte
 | Host **hangs** | intercept and never resolve | **Page never renders; root stays empty** |
 | Host answers late | delay by N seconds, then continue | Blank for N seconds, then renders |
 
-A network that filters silently drops packets, and that is a hang, not a refusal. Run the experiment in the engine of the reported browser; sample the DOM on a timer — root child count, visible text length, stylesheet count, computed body background — rather than waiting on load events that never fire; and screenshot with a short timeout, because `screenshot()` itself waits on the still-loading page. The script is in [`references/probes.md`](references/probes.md).
+A network that filters drops packets silently: a hang, not a refusal. Run the experiment in the engine of the reported browser; sample the DOM on a timer — root child count, visible text length, stylesheet count, computed body background — rather than waiting on load events that never fire; and screenshot with a short timeout, because `screenshot()` itself waits on the still-loading page. The script is in [`references/probes.md`](references/probes.md).
 
 **Find the cache that hides it.** Read `cache-control` on the third-party resource. A short private lifetime makes every browser re-fetch on a schedule, so the fault looks intermittent and per-user, and "clear your cache" guarantees the failing request; say so before that advice goes out.
 
-**Remedy: self-host.** Serve fonts through a package that bundles the files and emits `@font-face` with `unicode-range`, so a visitor downloads only the subsets their text needs. Then prove the swap invisible: measure the bounding boxes of the same text nodes on production and on the new build, and the widths must match to the pixel. Leave a comment on the import saying why no `@import` may point outside the origin, because the next person will not run the experiment.
+**Remedy: self-host.** Serve fonts through a package that bundles the files and emits `@font-face` with `unicode-range`, so a visitor downloads only the subsets their text needs. Then prove the swap invisible: measure the bounding boxes of the same text nodes on production and on the new build; their widths must match to the pixel. Leave a comment on the import saying why no `@import` may point outside the origin, because the next person will not run the experiment.
 
 ## §3 The CDN that caches nothing
 
 When every asset's cache header reads `BYPASS` or `MISS` (`cf-cache-status`, `x-cache`, or the provider's equivalent), eliminate causes in this order, cheapest first. Each step is a question with a verifiable answer.
 
-1. **Development or bypass mode on?** A dashboard toggle that auto-expires on some providers, so read its state, not the memory of it.
+1. **Development or bypass mode on?** A dashboard toggle that auto-expires on some providers: read its state, not the memory of it.
 2. **Cache level or a cache rule set to bypass?** Zero rules is an answer too: it moves the cause to the response itself.
 3. **`Set-Cookie` on the response?** Most CDNs will not store one.
 4. **`Vary` on anything but `Accept-Encoding`?** Most CDNs will not store one. `Vary: Origin` is the signature of CORS middleware, which means a process with middleware answered a request for a static file.
-5. **Browser cache TTL override?** An origin that sends `immutable` for a year while the browser sees four hours means the CDN is rewriting it. Fixing the origin changes nothing a browser sees until that override is set to respect origin headers, so sequence the fix accordingly.
+5. **Browser cache TTL override?** An origin sending `immutable` for a year while the browser sees four hours means the CDN rewrites it, and fixing the origin changes nothing a browser sees until that override respects origin headers; sequence the fix accordingly.
 
 **Which process answered?** The ETag says. A strong hex ETag (`"68c0f2ad-3aa1b2"`) is a web server serving from disk; a weak decimal one (`W/"3841394-1788963021492"`) is a runtime static handler. When the repository's web-server config says "serve from disk" and the live ETag says "runtime", the live config is not the repository's file. Prove the drift with headers, then make applying the config a script rather than a runbook paragraph:
 
@@ -93,19 +93,19 @@ Purge the CDN once after the origin headers change, so entries stored with the o
 
 Apply the levers in this order, and measure after each; skipping the measurement turns a lever into a guess.
 
-**Lever 1 — heavy leaf libraries on demand.** Spreadsheet, PDF, and chart libraries are usually a quarter of the chunk and reach a fraction of visitors. Move the import inside the handler that needs it, and mind the trap: **a single static import anywhere defeats every dynamic import of the same package.** One memoised loader per library, with every call site going through it.
+**Lever 1 — heavy leaf libraries on demand.** Spreadsheet, PDF, and chart libraries are usually a quarter of the chunk and reach a fraction of visitors. Move the import inside the handler that needs it, and mind the trap: **a single static import anywhere defeats every dynamic import of the same package.** One memoised loader per library, every call site routed through it.
 
 **Lever 2 — routes on demand.** Lazy-load pages, keeping eager only the routes a visitor reaches before logging in: a lazy route costs a second round trip, and that waterfall lands on the cold first visit. Those pages are small. Put one suspense boundary around the router, with a named-export unwrap helper if the pages export names. Forecast with care: lazy-loading a page evicts a component only when nothing eager imports it, so the shared-components figure is an upper bound, not a prediction. Heavy libraries reached only by lazy pages leave on their own. In-app navigation shows no fallback when the router runs navigation in a transition; verify on a throttled link, do not assume.
 
 **Lever 3 — vendor chunks.** Split framework packages so that a returning visitor re-downloads app code alone after a deploy. Match named leaf packages, never "everything in node_modules": a broad rule splits an import cycle across chunks and fixes an evaluation order the app then violates at runtime. This lever trades first-load bytes for repeat-visit bytes; report both. Prove the claim by changing a rendered string, rebuilding, and observing that the entry hash moved and the vendor hashes did not. A trailing comment does not survive minification and proves nothing.
 
-**Leave the cycle-breakers alone.** A module imported both statically and dynamically, because the dynamic import breaks a circular dependency, is not a size defect; the bundler is only noting that the dynamic import cannot split it.
+**Leave the cycle-breakers alone.** A module imported both statically and dynamically because the dynamic import breaks a circular dependency is not a size defect; the bundler is only noting that the dynamic import cannot split it.
 
 Re-run the full route sweep after Lever 3, the one lever that fails at runtime.
 
 ## §5 Images
 
-Size each raster to roughly twice its largest CSS display box, not to the source, and read every call site: the same file may render at 130 px in one place and 400 px in another. Store photographs in a lossy format; a photograph saved as PNG is pure waste. Delete the files nothing references, grepping the source for each name. A file that doubles as tab icon and placeholder avatar keeps its name, extension, and box and is palette-quantised instead of resized; flat artwork with a few dozen colours loses nothing. Inspect the two heaviest compressions by eye — fine UI text in a screenshot is the worst case.
+Size each raster to roughly twice its largest CSS display box, not to the source, and read every call site: the same file may render at 130 px in one place and 400 px in another. Store photographs lossy; a photograph saved as PNG is pure waste. Delete the files nothing references, grepping the source for each name. A file that doubles as tab icon and placeholder avatar keeps its name, extension, and box and is palette-quantised instead of resized; flat artwork with a few dozen colours loses nothing. Inspect the two heaviest compressions by eye — fine UI text in a screenshot is the worst case.
 
 ## §6 Monitoring that announces its absence
 
