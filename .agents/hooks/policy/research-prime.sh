@@ -32,11 +32,11 @@ signals='(\blatest\b|\bnewest\b|\bcurrent(ly)? (version|release|stable|state|sta
 printf '%s' "$prompt" | grep -Eqi "$signals" || exit 0
 
 read -r -d '' body <<'EOF' || true
-This question looks like it turns on a current or external fact. Don't answer
-from memory — search and cite: a quick WebSearch + WebFetch of the primary
-source for a single known fact, or delegate a researcher cell (the
+This question looks like it turns on a current or external fact. Do not
+answer from memory; search and cite: one WebSearch and a WebFetch of the
+primary source for a single known fact, or a researcher cell (the
 `search-and-cite` skill) for anything load-bearing. End with a Sources list of
-the URLs you actually used.
+the URLs you used.
 EOF
 
 printf '%s' "$body" | python3 "$lib/emit-context.py" UserPromptSubmit

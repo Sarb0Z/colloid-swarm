@@ -334,22 +334,19 @@ if [[ "$landed_tier" == "diff" || "$landed_tier" == "large" ]]; then
   add "Committed and unwrapped ($size):"
   add "$shown"
   add ""
-  add "This crossed the '$landed_tier' threshold. Ask the user — full session wrap,"
-  add "or skip? Use a question tool where the host has one, otherwise ask in the"
-  add "reply. Honor the answer; if"
-  add "they skip, stop here. If they want it, read the file for each section below"
-  add "and work it against the files listed above — do not sweep files you did not"
-  add "edit."
-  add "Anything it turns up lands as a follow-up commit."
+  add "This crossed the '$landed_tier' threshold. Ask the user: full session wrap, or skip? Use a question tool where the host has one, otherwise ask in the reply."
+  add "Honor the answer; if they skip, stop here."
+  add "If they want it, read the file for each section below and work it against the files listed above; do not sweep files you did not edit."
+  add "Its findings land as a follow-up commit."
   [[ -n "$changed" ]] && \
-  add "$count more file(s) are still uncommitted and are NOT in that list."
+  add "$count more file(s) are still uncommitted and are not in that list."
   add ""
   add "  - Clean-up + behavior impact  -> $wrap_dir/diff-wrap.md"
   [[ "$landed_tier" == "large" ]] && \
-  add "  - Hostile review (subagent)   -> $wrap_dir/hostile-review.md"
+  add "  - Hostile review (cell)       -> $wrap_dir/hostile-review.md"
   add "  - Session report              -> $wrap_dir/report-implementation.md"
   [[ "$learning_enabled" == "yes" ]] && \
-  add "  - Pairing: learning report    -> $wrap_dir/learning-report.md  (NOT governed by the skip)"
+  add "  - Pairing: learning report    -> $wrap_dir/learning-report.md  (not governed by the skip)"
   unreported="$head_sha"          # consumed: the next unit measures from here
   next_implemented="1"
 elif [[ "$tier" == "diff" || "$tier" == "large" ]]; then
@@ -363,19 +360,16 @@ elif [[ "$tier" == "diff" || "$tier" == "large" ]]; then
     add "Uncommitted changes this session ($size):"
     add "$shown"
     add ""
-    add "This crossed the '$tier' threshold. Ask the user — full session wrap, or skip?"
-    add "Use a question tool where the host has one, otherwise ask in the reply."
-    add "Honor the answer; if they skip,"
-    add "stop here."
-    add "If they want it, read the file for each section below and work it against"
-    add "the files this session touched — do not sweep files you did not edit."
+    add "This crossed the '$tier' threshold. Ask the user: full session wrap, or skip? Use a question tool where the host has one, otherwise ask in the reply."
+    add "Honor the answer; if they skip, stop here."
+    add "If they want it, read the file for each section below and work it against the files this session touched; do not sweep files you did not edit."
     add ""
     add "  - Clean-up + behavior impact  -> $wrap_dir/diff-wrap.md"
     [[ "$tier" == "large" ]] && \
-    add "  - Hostile review (subagent)   -> $wrap_dir/hostile-review.md"
+    add "  - Hostile review (cell)       -> $wrap_dir/hostile-review.md"
     add "  - Session report + commit msg -> $wrap_dir/report-implementation.md"
     [[ "$learning_enabled" == "yes" ]] && \
-    add "  - Pairing: learning report    -> $wrap_dir/learning-report.md  (NOT governed by the skip)"
+    add "  - Pairing: learning report    -> $wrap_dir/learning-report.md  (not governed by the skip)"
   fi
   next_fired="$tier"
   # Work of this size, committed or not, means the session BUILT something. Without
@@ -420,11 +414,9 @@ EOF
   if [[ -n "$events" ]] && (( events >= HEAVY )) \
      && [[ -z "$implemented" && "$baseline_known" == "yes" ]] \
      && { [[ -z "$investigated" ]] || [[ "$report_every_turn" == "yes" ]]; }; then
-    add "A long session ($events tool calls) with no substantial diff — a debugging"
-    add "or research session whose findings die with the context window."
+    add "A long session ($events tool calls) with no substantial diff — a debugging or research session whose findings die with the context window."
     add ""
-    add "Ask the user whether they want a session report, with a question tool where"
-    add "the host has one and in the reply otherwise."
+    add "Ask the user whether they want a session report, with a question tool where the host has one and in the reply otherwise."
     add "If they want it: $wrap_dir/report-investigation.md"
     next_investigated="1"
   fi
