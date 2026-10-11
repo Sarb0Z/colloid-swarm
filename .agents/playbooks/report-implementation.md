@@ -10,8 +10,8 @@ behavior the reader can observe, then the code that produces it.
 - **What was done and why** — the decision, and the alternative you rejected.
 - **What changed or was verified** — name the evidence: the command you ran, the
   test that passed, the flow you drove. "Should work" is not verification.
-  A curl probe, a spot check, or a local run is partial evidence and is
-  reported as partial; only the real user path, exercised end to end, raises
+  A curl probe, a spot check, or a local run is partial evidence: report it
+  as partial. Only the real user path, exercised end to end, raises
   a claim to verified.
 - **Remaining blockers, risks, or next steps**, if any.
 - **Review findings declined or filed**, each with its reason.

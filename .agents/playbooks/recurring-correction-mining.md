@@ -59,7 +59,7 @@ the rate on the corpus and record it beside the mining.
 ## One class, one change
 
 Every adopted class ships as its own change with a firing test or, for a
-contract edit, the one sentence; unrelated classes never share a change.
+contract edit, the one sentence. Do not batch unrelated classes.
 Interventions that conflict across classes (over-asking against publishing
 without permission) are resolved in one change that states the boundary, with
 the operator's own words as the source.
