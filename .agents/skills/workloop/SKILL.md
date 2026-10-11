@@ -128,6 +128,18 @@ and records the cell's acknowledgement before the correction cycle.
 .agents/workloop.py ack slice-3b persistence --agent persistence-worker
 ```
 
+**One review round per wave.** A multi-lane wave gets one review round that
+reads every lane's diff; `brief --role reviewer` prints each lane's start point
+and the `git diff <start>..<lane-branch>` command. Each lane's `review` cites
+its section of the one report. A P2 finding is filed, never reopened:
+`review --result reopen` takes `--severity P0` or `P1` explicitly, and a P2
+there, or an `attention --severity P2` on a lane in review, is refused, so
+accept the lane and file it. Submissions are counted, so an attention,
+acknowledgement, and resubmit counts too. A review of a fourth submission is
+refused unless
+`review --ruling "<operator's words>"` is given, and the ruling is stored in the
+review ref; this is deliberately stricter than the playbook's same-shape rule.
+
 `release-stale` makes an interrupted claim resumable, erasing neither evidence nor
 a pending attention item.
 
