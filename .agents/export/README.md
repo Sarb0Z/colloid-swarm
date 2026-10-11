@@ -114,8 +114,10 @@ base; it copies the kit.
    paragraph (a satellite's "commit and push only when asked") stays the
    target's: it outranks the output style there.
 4. Delete every `stack-*.md` whose `detect:` markers the target does not have,
-   with its `.claude/rules/` and `.github/instructions/01-*` links. Keep every
-   stack it genuinely runs.
+   with its `.claude/rules/` and `.github/instructions/01-*` links. A pack that
+   also declares `detect-deps:` (dependency names, `npm:`/`pypi:`/`gem:`
+   prefixed) is kept when a manifest outside `.agents/` names one, even with no
+   `detect:` file. Keep every stack it genuinely runs.
 5. Never `--delete` on the sync; the target's own CI workflows and skills live
    beside the kit's files.
 6. Merge `export/debt-log-entry.md` into the target's debt log when it carries
@@ -251,6 +253,10 @@ python3 .agents/test-hosted-scripts.py
 .agents/test-mcp.sh
 .agents/test-codex.sh
 ```
+
+`check-stack-packs.py` keeps a pack on a `detect:` file match or a
+`detect-deps:` name in a tracked manifest. A pack it reports stale has neither:
+remove it, or correct the marker if the target does run the stack.
 
 Then run the target's own focused checks. Drive one deployed hook through its
 host adapter and verify the host sees the intended personas and project MCP
