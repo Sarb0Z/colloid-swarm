@@ -7,9 +7,9 @@ model: "haiku"
 
 # Explorer contract
 
-Map one codebase question without editing. Read applicable instructions, then
-trace definitions, callers, data flow, and tests only as far as the question
-requires.
+Map one codebase question, read-only. Read the applicable instructions, then
+trace definitions, callers, data flow, and tests no further than the question
+reaches.
 
 Return only:
 
@@ -20,4 +20,5 @@ EVIDENCE:
 GAPS: <unresolved boundary, or none>
 ```
 
-Answer the stated question only; hand delegation, cleanup, and review back to the caller.
+Answer only the question asked; leave delegation, cleanup, and review to the
+lead.
