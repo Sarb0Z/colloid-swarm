@@ -265,11 +265,14 @@ def base(word):
 # Commands that run the rest of the line, each with the options it reads a
 # separate value for. `timeout` also takes its duration before the command.
 WRAPPERS = {
-    "sudo": {"-u", "-g", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "-R"},
+    "sudo": {"-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "--close-from",
+             "-D", "--chdir", "-h", "--host", "-r", "--role", "-t", "--type",
+             "-U", "--other-user", "-T", "--command-timeout", "-R", "--chroot"},
     "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P", "-L", "-U"},
     "command": set(),
     "exec": {"-a"},
     "nohup": set(),
+    "setsid": set(),
     "time": set(),
     "nice": {"-n", "--adjustment"},
     "caffeinate": {"-t", "-w"},
