@@ -18,21 +18,21 @@ description: >
 
 # Mobile responsive web
 
-Design each component for the constraints of wherever it lands: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column.
+Design each component for the constraints of wherever it lands: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column. A layout tuned on a desktop monitor fails on the phone in ways a resized window never shows: the hero under the address bar, the input that zooms.
 
 ## Principles
 
 Each principle is binding; full detail and examples are in [references/modern-css.md](./references/modern-css.md).
 
-1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` on top; `max-width` queries are banned.
-2. **`svh` for heroes, `dvh` for bottom-anchored elements.** Never `100vh` or `min-h-screen`: either overflows behind the iOS address bar.
-3. **Fluid typography through `clamp()`,** not breakpoint ladders. Pair it with `break-words`, and never put `text-balance` on a long heading.
-4. **Container queries for reusable components.** When a card lives in more than one slot, switch from media queries to container queries.
+1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` on top; `max-width` queries are banned, because they produce heavier CSS and regress whenever a new small device appears.
+2. **`svh` for heroes, `dvh` for bottom-anchored elements.** Never `100vh` or `min-h-screen`: either overflows behind the iOS address bar, so the first paint tucks the bottom of the hero behind browser chrome.
+3. **Fluid typography through `clamp()`,** not breakpoint ladders. Pair it with `break-words`, and never put `text-balance` on a long heading, which it breaks mid-syllable at narrow widths.
+4. **Container queries for reusable components.** When a card lives in more than one slot, switch from media queries to container queries: a media query answers how wide the screen is, when the card needs to know how wide its parent is. Writing `md:` rules for a component that could land in a narrow slot is the tell.
 5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2 sets 24 px as the floor; this project holds 48 px as the standard.
-6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)` or Tailwind `hover:*`, and never hide critical information behind hover.
-7. **Safe-area insets on notched devices.** `viewport-fit=cover` with `env(safe-area-inset-*)` for fixed bars and full-bleed content.
+6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)` or Tailwind `hover:*`, and never hide critical information behind hover; on touch, a hover-only control is not degraded but absent.
+7. **Safe-area insets on notched devices.** `viewport-fit=cover` with `env(safe-area-inset-*)` for fixed bars and full-bleed content; without them a fixed CTA sits under the home indicator, clipped on every notched phone.
 8. **No input `font-size < 16px`.** iOS Safari zooms on focus below 16 px.
-9. **Core Web Vitals are a design constraint, not a post-launch audit.** LCP, INP, and CLS are evaluated on the mobile crawl.
+9. **Core Web Vitals are a design constraint, not a post-launch audit.** LCP, INP, and CLS are evaluated on the mobile crawl, so a page that scores well only on desktop is measured as the page it is on a phone.
 
 ## Core workflow
 
@@ -40,7 +40,7 @@ Follow these five steps for every responsive fix.
 
 ### 1. Audit — screenshot the current state
 
-Capture the page at mobile viewport **before any code changes**.
+Capture the page at mobile viewport **before any code changes**; without the before, the after proves nothing, and a regression the fix introduced cannot be told from one it found.
 
 ```typescript
 const viewports = [
@@ -54,7 +54,7 @@ Take full-page, hero, and scrolled-section screenshots, and record every text ov
 
 ### 2. Fix the hero and above-the-fold first
 
-The highest-impact area, and the LCP element. Hero patterns are in [references/component-patterns.md](./references/component-patterns.md); LCP rules in [references/performance-cwv.md](./references/performance-cwv.md).
+The highest-impact area, and almost always the LCP element, the first paint every visitor waits for. Hero patterns are in [references/component-patterns.md](./references/component-patterns.md); LCP rules in [references/performance-cwv.md](./references/performance-cwv.md).
 
 ### 3. Fix content sections top to bottom
 
@@ -189,7 +189,7 @@ z-10    — Card overlays, gradients
 
 ### A mobile fix must never break desktop, nor a desktop fix mobile
 
-When fixing a mobile-specific defect, always verify that the same interaction still works on desktop. The common breakages:
+When fixing a mobile-specific defect, always verify that the same interaction still works on desktop. The temptation is to stop at the viewport where the defect was reported — the fix is visibly right there, and the breakage it caused lives on a screen nobody has open. The common breakages:
 
 | Mobile bug | Naive fix | Desktop breakage |
 |-----------|-----------|------------------|
@@ -198,7 +198,7 @@ When fixing a mobile-specific defect, always verify that the same interaction st
 | Touch targets too small | Increase padding globally | Desktop layout shifts, forms look bloated |
 | Sidebar → drawer on mobile | Move filters into sheet, delete sidebar code | Desktop loses sidebar entirely |
 
-**Rule:** after any interaction fix, test the *exact same user flow* on both viewports. In this codebase the dropdown auto-reopen was fixed by blocking *only* the `useEffect` auto-open path, which fires when GraphQL results return, and leaving `onFocus` — manual user intent — untouched. A ref named `suppressAutoOpenRef` makes that intent explicit: it does not suppress a manual reopen.
+**Rule:** after any interaction fix, test the *exact same user flow* on both viewports; a fix verified on one is a fix verified on half the product. In this codebase the dropdown auto-reopen was fixed by blocking *only* the `useEffect` auto-open path, which fires when GraphQL results return, and leaving `onFocus` — manual user intent — untouched. A ref named `suppressAutoOpenRef` makes that intent explicit: it does not suppress a manual reopen.
 
 Worked case studies for this trap class — Card `overflow-hidden` clipping, sidebar → bottom sheet, stacked duplicate content, button-group wrap — live in [references/anti-patterns.md](./references/anti-patterns.md) under "Cross-viewport trap case studies".
 
