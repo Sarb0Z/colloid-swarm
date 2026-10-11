@@ -20,7 +20,7 @@ Run a full audit-and-improve loop on the discoverability of the deployed site th
 
 ## Audit workflow
 
-Copy this checklist and track progress against it:
+Copy this checklist and tick it off as you go:
 
 ```
 Audit progress:
@@ -55,7 +55,7 @@ bash scripts/quick-audit.sh --no-repo <base-url>   # live site only, no reposito
 
 Capture the output: its `[FAIL]` and `[WARN]` lines with check IDs are the first evidence, and SUMMARY maps failed IDs to the reference file to load. The script degrades gracefully: without a BASE_URL or network it runs static checks only, and findings never affect its exit code.
 
-**Steps 2-7 — Layer passes.** Work the layers in order; each builds on the one before. Load one reference file at a time, run its checks against repository and live site, and record each finding with evidence and a P0-P3 tier.
+**Steps 2-7 — Layer passes.** Work the layers in order, each building on the last. Load one reference file at a time, run its checks against repository and live site, and record each finding with evidence and a P0-P3 tier.
 
 | Pass | Layer | Key question | Load | Skip when |
 |------|-------|--------------|------|-----------|
