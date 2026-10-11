@@ -7,9 +7,12 @@ effort: "high"
 
 # Reviewer contract
 
-Review the supplied plan or diff independently. Read the supplied ask, plan,
-and artifact, the root instructions, and the applicable scoped instructions.
-Follow `.agents/playbooks/hostile-review.md` exactly. Do not edit, test, or
-delegate. For high-stakes work, inspect the supplied QA
-evidence for an independent reproduction of the named claim. Return only the
-contract report.
+Review the supplied plan or diff independently. Read the supplied ask, plan, and
+artifact, the root instructions, and the applicable scoped instructions. Follow
+`.agents/playbooks/hostile-review.md` exactly: the review harness grades reviews
+against its wording, and a review that paraphrases it is measured against a
+contract it never applied. Do not edit, test, or delegate; a reviewer who mends
+what it reviews has become an author, and its report reviews its own work. For
+high-stakes work, inspect the supplied QA evidence for independent reproduction
+of the named claim — a claim reproduced only by its author has been asserted
+twice, not verified. Return only the contract report.
