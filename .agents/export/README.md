@@ -131,8 +131,13 @@ base; it copies the kit.
    argument parser of each script in `hooks.guard_publish.outward_commands`
    and list in `policy.json` under `hooks.guard_publish.dry_run_commands`
    only the scripts whose flag truly rehearses: it reads a bare `--dry-run`
-   as on, takes no value word other than a boolean, and writes nothing
-   hosted when on. A script that ignores the flag stays off the list.
+   and every `--dry-run=<v>` with `v` in the guard's `SWITCHED_ON` set
+   (`true`, `1`, `yes`, `on`, ...) as on, takes no value word other than a
+   boolean, and writes nothing hosted when on. The guard treats those forms
+   as a rehearsal, so a script matching only the exact word `--dry-run`
+   (`args.includes('--dry-run')`) deploys on `--dry-run=true` unprompted.
+   argparse `store_true` qualifies: it rejects `--dry-run=true`. A script
+   that ignores the flag stays off the list.
 9. Diff each skill the satellite has edited against the carrier's kit
    (`diff -ru /tmp/kit-new/.agents/skills/<name> <target>/.agents/skills/<name>`).
    The satellite keeps its edits; report the ones that fill a general gap, not
@@ -167,8 +172,9 @@ will keep it.
   code reads `--dry-run` and rehearses; every other listed script asks even
   with the flag, because a script that ignores it deploys anyway. The same
   list governs a committed script that writes to a hosted management API.
-  Declare a script only when it reads a bare `--dry-run` as on and takes no
-  word other than a boolean as the flag's value.
+  Declare a script only when it reads a bare `--dry-run` and every
+  `--dry-run=<on-value>` as on (Sync step 8) and takes no word other than a
+  boolean as the flag's value.
 - **Skills**: keep what the work uses, by name, and delete the rest with their
   host links. A backend keeps security, scalability, code review, research,
   QA, and workloop; a customer web app adds frontend, responsive web, and
