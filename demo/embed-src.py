@@ -39,6 +39,7 @@ MANIFEST = {
     "done-prime":        ".agents/hooks/policy/done-prime.sh",
     "guard-publish":     ".agents/hooks/policy/guard-publish.sh",
     "denied-tool":       ".agents/hooks/policy/denied-tool.sh",
+    "edit-record":       ".agents/hooks/policy/edit-record.sh",
     "ui-gate":           ".agents/hooks/policy/ui-gate.sh",
     "genome-inject":     ".agents/hooks/policy/genome-inject.sh",
     "provenance-gate":   ".agents/hooks/policy/provenance-gate.sh",
