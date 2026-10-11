@@ -8,15 +8,15 @@ context: fork
 
 # SEO, GEO, analytics and organic growth audit
 
-Run a full audit-and-improve loop on the discoverability of the deployed site this codebase drives, on any web stack. The skill earns its place when a codebase is being onboarded and its SEO and growth posture mapped; before a marketing site, landing page, or content platform launches; when organic traffic is flat or conversions underperform; when analytics attribution is set up from scratch; and when the site is being prepared for AI-search visibility (ChatGPT, Perplexity, Gemini). Code snippets are labeled adaptable patterns, Next.js App Router in flavor and to be translated for other frameworks. Every concrete value here — timeouts, chunk sizes, thresholds — is a validated example from a production system, not a requirement: adapt it to the target.
+Run a full audit-and-improve loop on the discoverability of the deployed site this codebase drives, on any web stack — when a codebase is onboarded and its SEO and growth posture mapped, before a marketing site, landing page, or content platform launches, when organic traffic is flat or conversions underperform, when analytics attribution is set up from scratch, or when the site is prepared for AI-search visibility (ChatGPT, Perplexity, Gemini). The audit's characteristic failure is a report scored from the repository alone: it grades the site its authors meant to ship, not the one a crawler fetches. Code snippets are labeled adaptable patterns, Next.js App Router in flavor and to be translated for other frameworks. Every concrete value here — timeouts, chunk sizes, thresholds — is a validated example from a production system, not a requirement: adapt it to the target.
 
 ## Operating principles
 
-1. **Audit the live site, not only the repository.** Redirects, bot rules, and caching often live at the CDN, invisible in code, and sitemap wiring often breaks only in production.
-2. **Distinguish built from live.** Shipped code may be disabled by a kill-switch, commented out, or unmounted. Dormant instrumentation and dead database models count as absent.
-3. **Every finding carries evidence:** a `file:line` reference, or a URL with the observed value. Without evidence there is no finding.
-4. **Never fabricate signals.** No invented ratings, authors, review counts, or freshness stamps: a fix must use real data or omit the markup.
-5. **Defer to existing docs.** In step 0, inventory the SEO checklists and docs already in the target repository; a page-type-specific one overrides this skill's generic checks for the pages it covers.
+1. **Audit the live site, not only the repository.** Redirects, bot rules, and caching often live at the CDN, invisible in code, and sitemap wiring often breaks only in production. A single-page app's catch-all answers every path `200` with its index page, so a repository that holds a sitemap and a live site that serves none read the same from the code.
+2. **Distinguish built from live.** Shipped code may be disabled by a kill-switch, commented out, or unmounted. Dormant instrumentation and dead database models count as absent: the code reads as a capability the site does not have.
+3. **Every finding carries evidence:** a `file:line` reference, or a URL with the observed value. Without evidence there is no finding, only an opinion the next reader cannot re-test.
+4. **Never fabricate signals.** No invented ratings, authors, review counts, or freshness stamps: a fix must use real data or omit the markup. Misleading structured data risks a Google manual action and feeds false facts to AI answers, so markup that lies costs more than markup that is missing.
+5. **Defer to existing docs.** In step 0, inventory the SEO checklists and docs already in the target repository; a page-type-specific one overrides this skill's generic checks for the pages it covers. The team's checklist knows its pages; this skill knows pages in general.
 
 ## Audit workflow
 
@@ -53,7 +53,7 @@ bash scripts/quick-audit.sh --no-repo <base-url>   # live site only, no reposito
 
 `--sample N` fetches up to N sitemap pages — 3 per URL family before any family gets a fourth, without following redirects — and checks each one's status, indexability, metadata, JSON-LD, inline scripts, and head resources (default 40; `0` turns it off). `--max-links N` probes that many of their internal links (default 60). Measured runs made 9 requests (a single-page app with no sitemap), 29 (a site whose homepage is the whole sample), and 57 (`--sample 20 --max-links 30`). With the defaults the sample adds at most 171 requests (10 index children, 39 pages, 2 per probed link when HEAD is refused, 2 app-association files) to the live checks' at most 217 (2 per sitemap-index child, capped by `--max-children`), plus the redirect hops the live checks follow. At most 4 requests run at once, each bounded by `--timeout`.
 
-Capture the output. Its `[FAIL]` and `[WARN]` lines, each with a check ID, are the first evidence, and SUMMARY maps each failed ID to the reference file to load. The script degrades gracefully: without a BASE_URL or a network it runs the static checks alone, and findings never touch its exit code.
+Capture the output. Its `[FAIL]` and `[WARN]` lines, each with a check ID, are the first evidence, and SUMMARY maps each failed ID to the reference file to load. The script is an evidence baseline, not a gate: without a BASE_URL or a network it degrades to the static checks alone, and findings never touch its exit code. A check prints PASS only when it verified something, so a blocked or failed fetch never reads as green.
 
 **Steps 2-7 — Layer passes.** Work the layers in order; each builds on the one before. Load one reference file at a time, run its checks against the repository and the live site, and record each finding with its evidence and a P0-P3 tier.
 
@@ -70,7 +70,7 @@ Capture the output. Its `[FAIL]` and `[WARN]` lines, each with a check ID, are t
 
 **Step 8 — Report.** Fill the template below; every finding cites a check ID and its evidence.
 
-**Step 9 — Approval.** Present the prioritized fix plan, and change no code before the user approves its scope.
+**Step 9 — Approval.** Present the prioritized fix plan, and change no code before the user approves its scope: a robots rule or a canonical changes what every crawler sees on its next visit, across the whole site.
 
 **Step 10 — Implement and verify.** Fix in priority order. Close a finding only as "Verify fixes" prescribes.
 
@@ -133,7 +133,7 @@ Motion: <M-id per template, e.g. M3 location pages + M5 checkout> | Revenue spli
 
 ## Verify fixes
 
-A finding closes only when live behavior changes:
+A finding closes only when live behavior changes. A merged fix that a CDN rule, a kill-switch, or a stale deploy keeps from the crawler has changed nothing the crawler sees:
 
 1. Re-run the quick-audit section that raised it, or its specific `curl`, and observe the check flip.
 2. Validate a structured-data fix on the rendered page: in Google's Rich Results Test for the types Google supports, and in validator.schema.org for the rest.
