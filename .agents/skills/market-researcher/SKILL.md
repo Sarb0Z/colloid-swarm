@@ -5,7 +5,7 @@ description: Market and competitor research whose output someone will build on �
 
 # Market researcher
 
-Research whose output someone will build on. Its characteristic failure is not an empty result but a fluent, complete-looking report whose numbers came from one content farm quoting another.
+Research whose output someone will build on. It fails not by finding nothing but by producing a fluent, complete-looking report whose numbers came from one content farm quoting another.
 
 **Provenance is part of the claim.** An ungraded number is not a weaker finding but a different kind of object, and the report must name which kind it holds.
 
@@ -34,7 +34,7 @@ Research progress:
 - [ ] 11. File the report in `.agents/knowledge/research/`
 ```
 
-**Read `.agents/knowledge/index.md` first.** Earlier sweeps are filed there, one dated line each. Open every entry whose subject overlaps this brief: it supplies a starting target list and the gaps the last pass could not close, and it spares the sweep the full price of rediscovering what the store already holds.
+**Read `.agents/knowledge/index.md` first.** Earlier sweeps are filed there, one dated line each. Open every entry whose subject overlaps this brief: it supplies a starting target list and the gaps the last pass could not close, and spares the sweep the full price of rediscovering what the store already holds.
 
 Treat a filed entry as evidence with an expiry, never as a settled fact. Prices, tiers, and thresholds move, so re-verify anything load-bearing that is more than a few months old, and file the new reading rather than editing the old one. An entry the market has moved past is itself a finding: name the drift in the write-up.
 
@@ -54,13 +54,13 @@ Then classify each, because most stated constraints are not the binding kind:
 | **Self-imposed** | A choice the project made and could unmake | Revisitable — but price the reversal |
 | **Capacity** | The team does not know how, or has no time | A scope or learning question, not an architecture one |
 
-Research is what settles each one's kind. A constraint that survives a deliberate search for counterexamples is real; one that dissolves on contact was quietly costing the project options. Search for both: someone shipping this under the project's constraint, and someone for whom the constraint has already expired.
+Research settles each one's kind. A constraint that survives a deliberate search for counterexamples is real; one that dissolves on contact was quietly costing the project options. Search for both: someone shipping this under the project's constraint, and someone for whom the constraint has already expired.
 
 **The symmetry that matters:** a constraint that binds the project and not a competitor explains why the competitor's solution will not transfer; a constraint that binds the competitor and not the project is an opening (see [finding-gaps.md](finding-gaps.md)). Most of the strategy lives in that difference, so state both sides explicitly, not the project's alone.
 
 ### 2. List targets
 
-Two axes, answering different questions; working only one of them is the commonest way this research goes wrong.
+Two axes answer different questions; working only one is the commonest way this research goes wrong.
 
 **In-segment competitors** — what the market expects, pricing, table stakes, and where the gaps are. For *facts about the category*, one verified datapoint from a product in the exact category outweighs a pile of material from a household name in a different one. Include the **indirect** competitors: the spreadsheet, the agency, and the adjacent tool people use instead never appear on a comparison page, yet they hold the honest answer to "what do they do today". Record each target's position — leader, challenger, or niche — because position changes how its choices read: a leader's pricing defends a base; a challenger's buys share.
 
@@ -77,7 +77,7 @@ A search confined to the segment produces a product that matches its competitors
 | 3. What the literature says | Peer-reviewed work on the underlying mechanism | Failure modes nobody in the space advertises |
 | 4. What users say | Store reviews, Reddit, support forums, changelogs | Unfilled gaps and the constraints behind them; why users stay, and why they switch |
 
-Budget for tiers 3 and 4. Tier 3 holds the finding that contradicts what every competitor page implies. Tier 4 holds the openings, and there a recurring complaint that survives for years reveals an architectural boundary the competitor cannot move.
+Budget for tiers 3 and 4. Tier 3 holds the finding that contradicts what every competitor page implies. Tier 4 holds the openings: there, a recurring complaint that survives for years reveals an architectural boundary the competitor cannot move.
 
 **Tier 4 has its own method: see [finding-gaps.md](finding-gaps.md).** Recurring complaint, then why it is unfixed, then whether the project can fill it. The middle step is the one that pays; skipping it turns a moat into a roadmap.
 
@@ -94,7 +94,7 @@ These turn "competitors all have X" into a decision about whether the project sh
 
 #### Why they stay, and why they leave
 
-The other half of tier 4. Complaints say what is broken, not what is load-bearing; both halves come from the same corpus, and most sweeps collect only the negative one.
+The other half of tier 4. Complaints say what is broken, not what is load-bearing; both halves come from one corpus, yet most sweeps collect only the negative.
 
 - **Satisfaction drivers** — what users praise unprompted, and what they say they would not give up. This is the category's real table stakes, rarely the same list as its marketed features, and everything on it the project must match or consciously decide to lose.
 - **Switching triggers** — what made someone move, in their own words. The strongest signal in competitive research, because it is revealed preference rather than a stated wish. Search for migration posts, "moved from X to Y", and the comparison threads users write for each other.
@@ -146,7 +146,7 @@ Report an opportunity as who they are, what they do today instead, what they alr
 
 ### 8. Chase secondary claims
 
-Grade every claim inline. The habit forces a provenance check per claim instead of blending everything into prose of equal authority.
+Grade every claim inline: the habit forces a provenance check per claim instead of blending everything into prose of uniform authority.
 
 | Mark | Means |
 |---|---|
@@ -208,7 +208,7 @@ One line per source on what it covers.
 
 > **This section is thin.** No verified data on the three smaller entrants.
 
-Under a heading with nothing beneath it, the pull is toward plausible prose. A visible gap is cheap; a papered-over gap costs whatever is built on it.
+Under an empty heading, the pull is toward plausible prose. A visible gap is cheap; a papered-over gap costs whatever is built on it.
 
 ### 10. Close with transfer analysis
 
@@ -224,7 +224,7 @@ Opinionated, and concrete about the structural differences between the source's 
 
 Write the report to `.agents/knowledge/research/YYYY-MM-DD-<subject>.md`, then add its line to `.agents/knowledge/index.md`. The entry contract — frontmatter fields, the shape of the index line, and why an entry is never revised in place — is in `.agents/knowledge/README.md`. Read it once; do not restate it here.
 
-File the report whole, as written. The grades, the thin-section warnings, and the "Could not verify" list are what keep it re-readable months later; a version trimmed to conclusions is a set of unsourced assertions, the very object this skill exists not to produce.
+File the report whole, as written: its grades, thin-section warnings, and "Could not verify" list keep it re-readable months later, and a version trimmed to conclusions is a set of unsourced assertions — the object this skill exists not to produce.
 
 Answer the lead in the same turn. The file is the record, not the reply.
 
@@ -249,7 +249,7 @@ For Kimi, generate the required stamp before dispatch:
 `--register none` is load-bearing on both lines. `--register` defaults to `panspermia`, which tells a cell to *"dream weirder"* and to prefer wild conjecture over a safe answer — the exact opposite of a contract whose first rule is never to assert what it did not read in a source this run.
 <!-- /colloid-only -->
 
-**Delegation is an accelerant, not a dependency.** Where the engine exposes a mechanism for dispatching cells, use it; where it does not, work the targets in sequence in this session against the same contract. The method is unchanged; only whether the sweeps run concurrently in isolated context differs.
+**Delegation is an accelerant, not a dependency.** Where the engine exposes a mechanism for dispatching cells, use it; where it does not, work the targets in sequence in this session against the same contract. The method holds; only whether the sweeps run concurrently in isolated context changes.
 
 <!-- colloid-only -->
 | Engine | Dispatch |
