@@ -442,6 +442,10 @@ def cmd_submit(args: argparse.Namespace) -> None:
     print(f"lane {args.lane!r} is ready for final review")
 
 
+MAX_REVIEW_ROUNDS = 4
+P2_REFUSAL = "a P2 is filed, not reopened: accept the lane and file the finding"
+
+
 def cmd_review(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
@@ -449,6 +453,16 @@ def cmd_review(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] != "review":
             fail(f"lane is {lane['state']}, not awaiting final review")
+        if args.result == "reopen":
+            if not args.severity:
+                fail("--result reopen needs --severity P0 or P1")
+            if args.severity == "P2":
+                fail(P2_REFUSAL)
+        # A reopen that is resubmitted, or an attention that is acknowledged and
+        # resubmitted, each add a submission, so the count covers both paths.
+        rounds = len(lane["evidence"])
+        if rounds >= MAX_REVIEW_ROUNDS and not args.ruling:
+            fail(f"lane has been submitted {rounds} times; review round {rounds} needs the operator's ruling: pass --ruling \"<operator's words>\"")
         reference = canonical_reference(args.reference, reference_roots(run, lane))
         if args.result == "accept":
             lane["state"] = "reviewed"
@@ -456,7 +470,10 @@ def cmd_review(args: argparse.Namespace) -> None:
         else:
             lane["state"] = "reopened"
             lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
-        lane["review_refs"].append({"at": now(), "reference": reference, "result": args.result})
+        entry = {"at": now(), "reference": reference, "result": args.result}
+        if args.ruling:
+            entry["ruling"] = args.ruling
+        lane["review_refs"].append(entry)
         record(args.run, run, "review-" + args.result, args.lane, reference, args.event_id)
     print(f"recorded {args.result} review for lane {args.lane!r}")
 
@@ -468,6 +485,8 @@ def cmd_attention(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] not in {"active", "review", "reopened"}:
             fail(f"lane is {lane['state']}; attention applies only to live work")
+        if args.severity == "P2" and lane["state"] == "review":
+            fail(P2_REFUSAL)
         reference = canonical_reference(args.reference, reference_roots(run, lane)) if args.reference else ""
         lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
         record(args.run, run, "attention", args.lane, args.severity + ": " + args.message, args.event_id)
@@ -919,8 +938,8 @@ def parser() -> argparse.ArgumentParser:
     add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="check out only the owned directories (and --also ones)"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.set_defaults(func=cmd_add_lane)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
-    review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", default="P1"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
-    attention = sub.add_parser("attention"); attention.add_argument("run"); attention.add_argument("lane"); attention.add_argument("--severity", required=True); attention.add_argument("--message", required=True); attention.add_argument("--reference", default=""); attention.set_defaults(func=cmd_attention)
+    review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", choices=("P0", "P1", "P2"), help="required with --result reopen"); review.add_argument("--ruling", help="the operator's words authorising a review round past the third submission"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
+    attention = sub.add_parser("attention"); attention.add_argument("run"); attention.add_argument("lane"); attention.add_argument("--severity", choices=("P0", "P1", "P2"), required=True); attention.add_argument("--message", required=True); attention.add_argument("--reference", default=""); attention.set_defaults(func=cmd_attention)
     ack = sub.add_parser("ack"); ack.add_argument("run"); ack.add_argument("lane"); ack.add_argument("--agent", required=True); ack.set_defaults(func=cmd_ack)
     stale = sub.add_parser("release-stale"); stale.add_argument("run"); stale.add_argument("lane"); stale.add_argument("--reason", required=True); stale.set_defaults(func=cmd_release_stale)
     qa = sub.add_parser("qa"); qa.add_argument("run"); qa.add_argument("--evidence", required=True); qa.set_defaults(func=cmd_qa)

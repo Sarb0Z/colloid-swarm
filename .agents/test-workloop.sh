@@ -86,7 +86,7 @@ commit "$lane" change
 mkdir -p "$lane/docs/reviews"
 printf 'review evidence\n' > "$lane/docs/reviews/demo.md"
 commit "$lane" review
-if "${tool[@]}" review demo implementation --reference docs/reviews/missing.md#pass --result reopen 2>/dev/null; then fail 'missing review reference was accepted'; fi
+if "${tool[@]}" review demo implementation --reference docs/reviews/missing.md#pass --result reopen --severity P1 2>/dev/null; then fail 'missing review reference was accepted'; fi
 "${tool[@]}" review demo implementation --reference docs/reviews/demo.md#pass --result reopen --severity P1 --message 'add coverage'
 if "${tool[@]}" qa demo --evidence nope 2>/dev/null; then fail 'QA passed a reopened lane'; fi
 "${tool[@]}" ack demo implementation --agent worker-1
@@ -217,7 +217,7 @@ for l in x y; do
   commit "$d" "$l"
   "${tool[@]}" submit clash "$l" --evidence draft
   mkdir -p "$d/docs"; printf 'review by %s\n' "$l" > "$d/docs/review.md"; commit "$d" "review $l"
-  "${tool[@]}" review clash "$l" --reference docs/review.md#p1 --result reopen --message 'tighten'
+  "${tool[@]}" review clash "$l" --reference docs/review.md#p1 --result reopen --severity P1 --message 'tighten'
   "${tool[@]}" ack clash "$l" --agent "$l"
   "${tool[@]}" submit clash "$l" --evidence ok
   "${tool[@]}" review clash "$l" --reference docs/review.md#ok --result accept
@@ -335,7 +335,7 @@ expect 'Sparse cone: docs, src' "${tool[@]}" brief sparse s
 printf 'sparse\n' >> "$sp/src/app.txt"; commit "$sp" sparse
 "${tool[@]}" submit sparse s --evidence ok
 mkdir -p "$sp/docs"; printf 'r\n' > "$sp/docs/r.md"; commit "$sp" review
-"${tool[@]}" review sparse s --reference docs/r.md#ok --result reopen --message m; "${tool[@]}" ack sparse s --agent sp1
+"${tool[@]}" review sparse s --reference docs/r.md#ok --result reopen --severity P1 --message m; "${tool[@]}" ack sparse s --agent sp1
 "${tool[@]}" submit sparse s --evidence ok; "${tool[@]}" review sparse s --reference docs/r.md#ok --result accept
 "${tool[@]}" add-lane sparse t --worker implementer --workspace "$scratch/lane-sparse-t" --path tests --also src --sparse >/dev/null 2>&1
 [[ -f "$scratch/lane-sparse-t/src/app.txt" ]] || fail "--also directory absent from the cone"
@@ -506,7 +506,7 @@ mkdir -p "$aa/docs/a"; printf 'a\n' >> "$aa/src/app.txt"; printf 'r\n' > "$aa/do
 git -C "$ab" rebase -q am/a
 mkdir -p "$ab/tests" "$ab/docs/b"; printf 'b\n' > "$ab/tests/b.txt"; printf 'r\n' > "$ab/docs/b/r.md"; commit "$ab" b1
 "${tool[@]}" submit am b --evidence rebased
-"${tool[@]}" review am a --reference docs/a/r.md#p1 --result reopen --message m
+"${tool[@]}" review am a --reference docs/a/r.md#p1 --result reopen --severity P1 --message m
 "${tool[@]}" ack am a --agent a
 git -C "$aa" reset -q --hard HEAD~1; mkdir -p "$aa/docs/a"; printf 'r\n' > "$aa/docs/a/r.md"; commit "$aa" a2
 "${tool[@]}" submit am a --evidence amended
@@ -516,6 +516,33 @@ expect "rebase it onto the sibling's current branch" "${tool[@]}" integrate am -
 printf 'x\n' > "$aa/docs/a/x.md"; commit "$aa" a3
 expect "lane 'a' moved after its accepted review" "${tool[@]}" integrate am --workspace "$scratch/integration-am"
 ok "integrate refuses a lane built on a superseded sibling commit and one whose tip moved after accept"
+
+# ── review gate: a P2 is filed, and the fourth round needs a ruling ──────────
+"${tool[@]}" init gate --objective x --acceptance y --repo "$work"
+gd="$scratch/lane-gate"; "${tool[@]}" add-lane gate g --worker implementer --workspace "$gd" --path src --path docs/g
+"${tool[@]}" claim gate g --agent g
+mkdir -p "$gd/docs/g"; printf 'g\n' >> "$gd/src/app.txt"; printf 'r\n' > "$gd/docs/g/r.md"; commit "$gd" g
+"${tool[@]}" submit gate g --evidence one
+expect 'a P2 is filed, not reopened' "${tool[@]}" review gate g --reference docs/g/r.md#p2 --result reopen --severity P2
+expect 'needs --severity' "${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen
+expect 'a P2 is filed, not reopened' "${tool[@]}" attention gate g --severity P2 --message m
+if "${tool[@]}" review gate g --reference docs/g/r.md#p3 --result reopen --severity P3 2>/dev/null; then fail 'an unknown severity was accepted'; fi
+"${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen --severity P1 --message m
+"${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence two
+"${tool[@]}" attention gate g --severity P1 --message 'look again'
+"${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence three
+"${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen --severity P1 --message m
+"${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence four
+expect 'needs the operator' "${tool[@]}" review gate g --reference docs/g/r.md#ok --result accept
+"${tool[@]}" review gate g --reference docs/g/r.md#ok --result accept --ruling 'one more round, go ahead'
+python3 - "$state" <<'EOF2'
+import json, sys
+lane = json.load(open(sys.argv[1]))["runs"]["gate"]["lanes"]["g"]
+assert lane["state"] == "reviewed", lane["state"]
+assert lane["review_refs"][-1]["ruling"] == "one more round, go ahead", lane["review_refs"][-1]
+assert "ruling" not in lane["review_refs"][0], lane["review_refs"][0]
+EOF2
+ok "a P2 reopen is refused; an attention cycle counts as a round; the fourth round needs a recorded ruling"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
