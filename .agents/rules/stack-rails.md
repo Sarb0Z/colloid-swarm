@@ -23,7 +23,7 @@ detect:
 - A schema change ships as a migration. Never edit `db/schema.rb` by hand; it is generated output.
 
 ## Abnormal Cases and Rationale
-- Strong parameters filter mass assignment, not authorization. A permitted attribute is still an attribute the caller chose — check who may set it.
+- Strong parameters filter mass assignment, not authorization. A permitted attribute is still an attribute the caller chose — verify who may set it.
 - A single-table-inheritance table whose subtype-specific columns pass a fifth of the total holds two tables. Split it.
 - A concern past thirty lines is a module with no owner. Name the responsibility and give it a class.
 

@@ -11,7 +11,7 @@ detect:
 # Flutter Rules
 
 ## Business Invariants
-- Lints come from `analysis_options.yaml`, which includes `package:flutter_lints/flutter.yaml`. Fix a finding in the code. Do not add `// ignore:` comments and do not turn a rule off for a file you edit.
+- Lints come from `analysis_options.yaml`, which includes `package:flutter_lints/flutter.yaml`. Fix a finding in the code; never add an `// ignore:` comment or turn a rule off for a file you edit.
 - State uses the `provider` package: a `ChangeNotifier` calls `notifyListeners()` after each change a widget reads. `build` reads state with `context.watch` or `Consumer`. A callback such as `onPressed` reads it with `context.read`. A `watch` in a callback does not rebuild and the analyzer does not report it.
 - Do not use `BuildContext` after an `await` until `if (!mounted) return;` (or `context.mounted`) has passed. The widget can leave the tree while the call runs, and the stale context throws.
 - A `State` releases every `TextEditingController`, `AnimationController`, `FocusNode`, `ScrollController`, and stream subscription it creates in `dispose()`. A `ChangeNotifier` does the same for its own subscriptions.

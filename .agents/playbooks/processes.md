@@ -11,7 +11,7 @@ idempotent where practical, contains partial failure, never consumes its own
 output, and exposes phase, progress, errors, and recovery state.
 
 Wait in a way that ends when the work does. Where the host reports completion
-(a background shell, a subagent), end the turn and report when it re-invokes
+(a background shell, a cell), end the turn and report when it re-invokes
 you; a sleep, a status poll, or an idle command buys nothing. Where it does
 not, block on a condition with a cap
 (`timeout 120 sh -c 'until <check>; do sleep 2; done'`), never a fixed sleep.

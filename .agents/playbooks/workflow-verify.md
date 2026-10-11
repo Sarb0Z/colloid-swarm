@@ -1,7 +1,7 @@
 # Workflow: Verify
 
-QA of something deployed or built. It runs against the environment the user
-reaches, not a local stand-in, and changes nothing there.
+QA of a deployed or built artifact against the environment the user reaches,
+not a local stand-in; it changes nothing there.
 
 | Step | Standard | Critical |
 |---|---|---|

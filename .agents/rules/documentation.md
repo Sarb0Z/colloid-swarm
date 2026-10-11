@@ -18,7 +18,7 @@ This rule governs product documentation: the README and the files under `docs/`.
 - Use explicit modals. "Must" states a requirement, "should" states a recommendation, "may" states a permission. Never blend them.
 
 ## Abnormal Cases and Rationale
-- Naming the standard carries most of its rules on its own. Approved vocabulary and explicit modals do not survive that abbreviation, because they are what drifts.
+- Naming the standard carries most of its rules on its own; approved vocabulary and explicit modals do not survive that abbreviation, because they are what drifts.
 
 ## Out of Scope
 - The scaffold and harness are not documentation. This rule does not govern `AGENTS.md` or `CLAUDE.md` contracts at any depth, `.agents/**`, `.claude/**`, `.codex/**`, `.kimi/**`, `.github/instructions/**`, `docs/handoff/**`, or `docs/reviews/**`. The globs above cannot exclude them, because path matching has no negation here, so this line carries the exclusion.
