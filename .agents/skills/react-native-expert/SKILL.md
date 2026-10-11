@@ -5,13 +5,13 @@ description: "React Native and Expo engineering patterns: modular-monolith archi
 
 # React Native expert
 
-Expert-level React Native patterns, mobile-specific optimizations, navigation, and platform handling.
+Expert React Native and Expo patterns: mobile performance, navigation, and platform divergence.
 
 ## Rendering safety
 
 ### Render text only inside `<Text>`
 
-Every string and text node must be a descendant of `<Text>`. React Native does not permit bare text inside `<View>`, `<Pressable>`, or any other non-text component; see the [React Native Text documentation](https://reactnative.dev/docs/text).
+Every string and text node must descend from `<Text>`: React Native permits no bare text inside `<View>`, `<Pressable>`, or any other non-text component (see the [React Native Text documentation](https://reactnative.dev/docs/text)).
 
 ```tsx
 // ❌ BAD - a text node is a direct child of View
@@ -65,11 +65,11 @@ function Profile({ name, count }: { name: string; count: number }) {
 }
 ```
 
-**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react` to catch this automatically.
+**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react`, which catches it mechanically.
 
 ## Project structure
 
-Organize by **feature module**, not by technical layer. A tree of `components/`, `screens/`, and `services/` couples every feature to every other and leaves none of them deletable.
+Organize by **feature module**, not technical layer: a `components/`, `screens/`, `services/` tree couples every feature to every other and makes none deletable.
 
 ```
 src/
@@ -80,9 +80,9 @@ src/
 └── shared/               # Primitives used by 2+ modules
 ```
 
-A module must be deletable without breaking unrelated features, and must not import from another module: promote the shared code to `src/shared/` on its second consumer. Module boundaries, the promotion rule, and the dependency direction are in [architecture.md](architecture.md).
+A module must be deletable without breaking unrelated features and must not import from another module; promote shared code to `src/shared/` at its second consumer. [architecture.md](architecture.md) holds the boundaries, the promotion rule, and the dependency direction.
 
-Below a handful of screens a flat layer tree is not yet wrong; the module split is what carries an app past that point, so start there rather than migrating later.
+Below a handful of screens a flat layer tree is not yet wrong; the module split carries an app past that point, so start there rather than migrate later.
 
 ## Reference
 
