@@ -230,6 +230,14 @@ unknown `=` value makes the run live. Detection is textual — a management host
 write signal in the file the command runs — so SDK clients and CLIs spawned
 from a script are not seen. See decision `hosted-writes-need-committed-code`.
 
+It also asks before a migration, seed, or schema push (Prisma, Alembic, Rails,
+TypeORM, drizzle-kit, knex, sequelize, Django, Flask-Migrate, mongosh) whose
+target database is hosted, and stays quiet when every source the tool reads —
+inline assignment, flags, the environment, Prisma's `env()` names,
+`alembic.ini`, the env files — is local (`hooks/lib/database-target.py`). Over
+`ssh` or under a platform runner such as `heroku run` it always asks. Its
+reason names the host, never the URL. See decision `hosted-migration-target`.
+
 `worktree-provision.sh` runs at subagent start under Claude only: a cell that
 starts inside a linked worktree gets that worktree's dependencies installed by
 `.agents/provision.sh` before its first turn, and a failed install blocks the
