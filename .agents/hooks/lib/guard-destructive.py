@@ -169,6 +169,12 @@ def separate_redirects(segment):
     out, quote, start, index = [], None, 0, 0
     while index < len(segment):
         char = segment[index]
+        # A backslash-newline outside single quotes is a line continuation: the
+        # shell deletes both characters, so `npx prisma \⏎ migrate` is one word
+        # list and `git \⏎ push` is not a `\n` word between git and push.
+        if char == "\\" and segment[index + 1:index + 2] == "\n" and quote != "'":
+            index += 2
+            continue
         if quote:
             out.append(char)
             if char == "\\" and quote == '"' and index + 1 < len(segment):
@@ -277,34 +283,67 @@ WRAPPERS = {
     "nice": {"-n", "--adjustment"},
     "caffeinate": {"-t", "-w"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    # dotenv-cli: `-e <file>` loads a file and `-v NAME=value` sets a variable,
+    # each repeatable; `-c [env]` cascades; `-p NAME` prints and runs nothing.
+    # The Ruby gem's `-f a,b` names files; python-dotenv's `-f/--file`,
+    # `-q/--quote` and `-e/--export` take a value and its command follows `run`.
+    "dotenv": {"-e", "-v", "-c", "-f", "--file", "-q", "--quote", "--export"},
 }
+WRAPPERS["dotenv-cli"] = WRAPPERS["dotenv"]
+# Two-word wrappers: a tool's own "run the rest in my environment" verb, with
+# the options it reads a separate value for after that verb.
+SUBCOMMAND_WRAPPERS = {
+    ("uv", "run"): RUNNER_VALUED,
+    ("bundle", "exec"): {"--gemfile"},
+    ("poetry", "run"): {"-C", "--directory", "-P", "--project"},
+    ("pipenv", "run"): set(),
+}
+# Options that make a wrapper look something up and run nothing.
+RUNS_NOTHING = {("command", "-v"), ("command", "-V"), ("dotenv", "-p"), ("dotenv-cli", "-p")}
 
 
-def lead(words):
-    """The command words, past any environment prefix or wrapper."""
+def lead(words, stripped=None):
+    """The command words, past any environment prefix or wrapper.
+
+    `stripped`, when a list, receives what was removed, in order: `("=", word)`
+    for an environment assignment and `(wrapper, options)` for each wrapper, so
+    a caller can still read the variables and env files the prefix supplies.
+    """
     index = 0
     while index < len(words):
         name = base(words[index])
         if ASSIGNMENT.match(words[index]):
+            if stripped is not None:
+                stripped.append(("=", words[index]))
             index += 1
             continue
-        if name == "uv" and words[index + 1:index + 2] == ["run"]:
-            valued, index = RUNNER_VALUED, index + 2
+        pair = (name, words[index + 1]) if index + 1 < len(words) else None
+        if pair in SUBCOMMAND_WRAPPERS:
+            valued, index, name = SUBCOMMAND_WRAPPERS[pair], index + 2, " ".join(pair)
         elif name in WRAPPERS:
             valued, index = WRAPPERS[name], index + 1
         else:
             break
+        start = index
         while index < len(words) and words[index].startswith("-") and words[index] != "-":
             # `env -S '<words>'` splits its value into the command it runs.
             split = env_split(words, index) if name == "env" else None
             if split is not None:
-                return lead(split)
-            # `command -v` looks a name up and runs nothing.
-            if name == "command" and words[index] in ("-v", "-V"):
+                if stripped is not None:
+                    stripped.append((name, words[start:index]))
+                return lead(split, stripped)
+            if (name, words[index]) in RUNS_NOTHING:
                 return []
             index += 2 if words[index] in valued else 1
         if name == "timeout":
             index += 1
+        # python-dotenv runs its command after `run [--override|--no-override]`.
+        if name == "dotenv" and words[index:index + 1] == ["run"]:
+            index += 1
+            while index < len(words) and words[index] in ("--override", "--no-override"):
+                index += 1
+        if stripped is not None:
+            stripped.append((name, words[start:index]))
     return words[index:]
 
 
@@ -817,10 +856,9 @@ def pm2_reads(args, depth):
     return verbs[:1] in (["logs"], ["list"], ["ls"])
 
 
-def ssh_parse(words):
-    """(option letters, option values, remote command) of an `ssh` invocation,
-    or None when the words are not one. ssh joins its remote words with spaces,
-    and so does this."""
+def ssh_options(words):
+    """(option letters, option values, index of the host, words) of an `ssh`
+    invocation past its wrappers, or None when the words are not one."""
     words = lead(words)
     if not words or base(words[0]) != "ssh":
         return None
@@ -839,7 +877,26 @@ def ssh_parse(words):
                     index += 1
                 values.append((letter, value))
                 break
+    return letters, values, index, words
+
+
+def ssh_parse(words):
+    """(option letters, option values, remote command) of an `ssh` invocation,
+    or None when the words are not one. ssh joins its remote words with spaces,
+    and so does this."""
+    parsed = ssh_options(words)
+    if parsed is None:
+        return None
+    letters, values, index, words = parsed
     return letters, values, " ".join(words[index + 1:])
+
+
+def ssh_target(words):
+    """The host an `ssh` invocation connects to, or None."""
+    parsed = ssh_options(words)
+    if parsed is None or parsed[2] >= len(parsed[3]):
+        return None
+    return parsed[3][parsed[2]]
 
 
 def ssh_remote(words):
