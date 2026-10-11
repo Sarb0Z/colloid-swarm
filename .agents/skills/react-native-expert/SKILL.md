@@ -5,7 +5,7 @@ description: "React Native and Expo engineering patterns: modular-monolith archi
 
 # React Native expert
 
-React Native and Expo patterns at expert depth: rendering safety, the feature-module layout, mobile-specific performance, navigation, and the places where iOS and Android diverge. The two rendering-safety rules lead because their omission crashes production; the remaining topics live in reference files, each read on demand.
+React Native and Expo patterns: rendering safety, module layout, performance, navigation, and platform divergence. The two rendering-safety rules lead, and stay in this file, because their omission crashes production and a reference file is read only when the agent judges it relevant — the very judgement that fails on a line that looks harmless.
 
 ## Rendering safety
 
@@ -23,7 +23,7 @@ Every string and text node must be a descendant of `<Text>`. React Native does n
 
 ### Never `&&` with a potentially falsy value
 
-Never write `{value && <Component />}` when `value` could be `0` or an empty string. Both are falsy yet **JSX-renderable**: React Native tries to render the bare `0` or `""` outside a `<Text>`, and the result is a **hard crash in production** — one of the commonest React Native production crashes.
+Never write `{value && <Component />}` when `value` could be `0` or an empty string. Both are falsy yet **JSX-renderable**: React Native tries to render the bare `0` or `""` outside a `<Text>`, and the result is a **hard crash in production** — one of the commonest React Native production crashes. The pattern reads as idiomatic React, and on the web a stray `0` is only a visible glitch; on a device it passes every render with a non-zero count and waits for the first empty list.
 
 ```tsx
 // ❌ BAD - `count && ...` renders a bare `0` when count is 0 → hard crash.
@@ -65,11 +65,11 @@ function Profile({ name, count }: { name: string; count: number }) {
 }
 ```
 
-**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react`, which catches this automatically.
+**Lint rule:** enable `react/jsx-no-leaked-render` from `eslint-plugin-react`, which catches this automatically. A reviewer has to remember the rule on every diff; the lint error does not forget.
 
 ## Project structure
 
-Organize by **feature module**, not by technical layer. A tree of `components/`, `screens/`, and `services/` couples every feature to every other and leaves none of them deletable.
+Organize by **feature module**, not by technical layer. A tree of `components/`, `screens/`, and `services/` couples every feature to every other and leaves none of them deletable. A feature that cannot be deleted is one every other feature has quietly come to depend on.
 
 ```
 src/
@@ -80,13 +80,13 @@ src/
 └── shared/               # Primitives used by 2+ modules
 ```
 
-A module must be deletable without breaking unrelated features, and must not import from another module: promote the shared code to `src/shared/` on its second consumer. Module boundaries, the promotion rule, and the dependency direction are in [architecture.md](architecture.md).
+A module must be deletable without breaking unrelated features, and must not import from another module: promote the shared code to `src/shared/` on its second consumer, not its first, since a promotion made for one caller guesses at a reuse that may never arrive. Module boundaries, the promotion rule, and the dependency direction are in [architecture.md](architecture.md).
 
 Below a handful of screens a flat layer tree is not yet wrong; the module split is what carries an app past that point, so start there rather than migrating later.
 
 ## Reference
 
-Read the file for the area in hand; each stands alone.
+Read the file for the area in hand. Each holds one topic and stands alone, so reaching one never costs loading another.
 
 | Area | File |
 |---|---|
