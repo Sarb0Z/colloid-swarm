@@ -86,7 +86,7 @@ commit "$lane" change
 mkdir -p "$lane/docs/reviews"
 printf 'review evidence\n' > "$lane/docs/reviews/demo.md"
 commit "$lane" review
-if "${tool[@]}" review demo implementation --reference docs/reviews/missing.md#pass --result reopen 2>/dev/null; then fail 'missing review reference was accepted'; fi
+if "${tool[@]}" review demo implementation --reference docs/reviews/missing.md#pass --result reopen --severity P1 2>/dev/null; then fail 'missing review reference was accepted'; fi
 "${tool[@]}" review demo implementation --reference docs/reviews/demo.md#pass --result reopen --severity P1 --message 'add coverage'
 if "${tool[@]}" qa demo --evidence nope 2>/dev/null; then fail 'QA passed a reopened lane'; fi
 "${tool[@]}" ack demo implementation --agent worker-1
@@ -183,6 +183,8 @@ ok "integrate merges reviewed lanes in dependency order and check passes; a shar
 # a lane that moves after integration makes the run stale; re-integrate clears it
 printf 'more\n' >> "$la/src/app.txt"; commit "$la" more
 expect 'integration:stale:alpha' "${tool[@]}" check multi
+expect 'moved after its accepted review' "${tool[@]}" integrate multi --workspace "$integ"
+"${tool[@]}" submit multi alpha --evidence 'more'; "${tool[@]}" review multi alpha --reference docs/alpha/review.md#ok2 --result accept
 expect PASS "${tool[@]}" integrate multi --workspace "$integ"
 expect PASS "${tool[@]}" check multi
 ok "a lane commit after integration is stale until integrate reruns"
@@ -215,7 +217,7 @@ for l in x y; do
   commit "$d" "$l"
   "${tool[@]}" submit clash "$l" --evidence draft
   mkdir -p "$d/docs"; printf 'review by %s\n' "$l" > "$d/docs/review.md"; commit "$d" "review $l"
-  "${tool[@]}" review clash "$l" --reference docs/review.md#p1 --result reopen --message 'tighten'
+  "${tool[@]}" review clash "$l" --reference docs/review.md#p1 --result reopen --severity P1 --message 'tighten'
   "${tool[@]}" ack clash "$l" --agent "$l"
   "${tool[@]}" submit clash "$l" --evidence ok
   "${tool[@]}" review clash "$l" --reference docs/review.md#ok --result accept
@@ -333,7 +335,7 @@ expect 'Sparse cone: docs, src' "${tool[@]}" brief sparse s
 printf 'sparse\n' >> "$sp/src/app.txt"; commit "$sp" sparse
 "${tool[@]}" submit sparse s --evidence ok
 mkdir -p "$sp/docs"; printf 'r\n' > "$sp/docs/r.md"; commit "$sp" review
-"${tool[@]}" review sparse s --reference docs/r.md#ok --result reopen --message m; "${tool[@]}" ack sparse s --agent sp1
+"${tool[@]}" review sparse s --reference docs/r.md#ok --result reopen --severity P1 --message m; "${tool[@]}" ack sparse s --agent sp1
 "${tool[@]}" submit sparse s --evidence ok; "${tool[@]}" review sparse s --reference docs/r.md#ok --result accept
 "${tool[@]}" add-lane sparse t --worker implementer --workspace "$scratch/lane-sparse-t" --path tests --also src --sparse >/dev/null 2>&1
 [[ -f "$scratch/lane-sparse-t/src/app.txt" ]] || fail "--also directory absent from the cone"
@@ -412,6 +414,135 @@ if "${tool[@]}" add-lane pnpmws w --worker implementer --workspace "$scratch/lan
 expect 'does not exist at the base; created empty' "${tool[@]}" add-lane sparse n --worker implementer --workspace "$scratch/lane-newdir" --path brand-new --sparse
 ok "a pnpm workspace refuses --sparse; a cone directory absent at the base is named"
 ok "supervised messaging holds"
+
+# ── shared paths: any lane edits them; a rebased lane is measured from its own start
+"${tool[@]}" init shr --objective x --acceptance y --repo "$work" --shared docs/index.md --shared gen
+if "${tool[@]}" init shrdup --objective x --acceptance y --repo "$work" --shared gen --shared gen/ 2>/dev/null; then fail 'a duplicate shared path was accepted'; fi
+sa="$scratch/lane-sa"; sb="$scratch/lane-sb"; sc="$scratch/lane-sc"
+expect 'lanes edit shared paths without owning them' "${tool[@]}" add-lane shr bad --worker implementer --workspace "$scratch/lane-sbad" --path docs/index.md
+expect 'lanes edit shared paths without owning them' "${tool[@]}" add-lane shr bad --worker implementer --workspace "$scratch/lane-sbad" --path gen/api.json
+expect 'lanes edit shared paths without owning them' "${tool[@]}" add-lane shr bad --worker implementer --workspace "$scratch/lane-sbad" --path docs
+"${tool[@]}" add-lane shr a --worker implementer --workspace "$sa" --path src
+"${tool[@]}" add-lane shr b --worker implementer --workspace "$sb" --path tests
+"${tool[@]}" add-lane shr c --worker implementer --workspace "$sc" --path docs/c
+expect $'shared\tdocs/index.md, gen' "${tool[@]}" status shr
+expect 'Shared paths: docs/index.md, gen' "${tool[@]}" brief shr a
+expect 'Append only; never restructure or reorder existing lines' "${tool[@]}" brief shr a
+expect 'owned or shared paths' "${tool[@]}" brief shr a
+ok "init stores shared paths; add-lane refuses a path overlapping one; brief and status show them"
+"${tool[@]}" claim shr a --agent sa; "${tool[@]}" claim shr b --agent sb; "${tool[@]}" claim shr c --agent sc
+mkdir -p "$sa/gen" "$sa/docs"; printf 'a\n' >> "$sa/src/app.txt"; printf 'a\n' >> "$sa/docs/index.md"; printf 'a\n' > "$sa/gen/api.json"
+expect 'uncommitted changes; commit them on the lane branch first: docs/index.md' "${tool[@]}" submit shr a --evidence dirty
+commit "$sa" a
+"${tool[@]}" submit shr a --evidence 'shared edit'
+python3 - "$state" <<'EOF2'
+import json, sys
+r = json.load(open(sys.argv[1]))["runs"]["shr"]["lanes"]["a"]["evidence"][-1]["paths"]
+assert sorted(r) == ["docs/index.md", "gen/api.json", "src/app.txt"], r
+EOF2
+ok "a lane that edits shared paths submits, and dirty shared work blocks submit"
+# lane b builds on lane a's branch, then adds its own file and a shared edit
+git -C "$sb" rebase -q shr/a
+mkdir -p "$sb/tests"; printf 'b\n' > "$sb/tests/b.txt"; printf 'b\n' >> "$sb/docs/index.md"
+commit "$sb" b
+"${tool[@]}" submit shr b --evidence 'rebased onto a'
+python3 - "$state" <<'EOF2'
+import json, sys
+r = json.load(open(sys.argv[1]))["runs"]["shr"]["lanes"]["b"]["evidence"][-1]["paths"]
+assert sorted(r) == ["docs/index.md", "tests/b.txt"], r
+EOF2
+ok "a lane rebased onto a sibling submits and records only its own paths"
+start_b="$(git -C "$sb" rev-parse shr/a)"
+expect "git diff $start_b\.\.shr/b" "${tool[@]}" brief shr b --role reviewer
+expect "start point $start_b" "${tool[@]}" brief shr b --role reviewer
+ok "a reviewer brief names the lane's start point and its diff command"
+mkdir -p "$sc/docs/c" "$sc/tests"; printf 'c\n' > "$sc/docs/c/ok.txt"; commit "$sc" c
+python3 - "$state" <<'EOF2'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["noshared"] = json.loads(json.dumps(s["runs"]["shr"])); del s["runs"]["noshared"]["shared"]; json.dump(s, open(p, "w"))
+EOF2
+expect 'workloop noshared' "${tool[@]}" status noshared
+if "${tool[@]}" status noshared | grep -q '^shared'; then fail 'a run without shared printed a shared line'; fi
+"${tool[@]}" submit noshared c --evidence 'no shared key'
+expect 'paths overlap lane' "${tool[@]}" add-lane noshared d --worker implementer --workspace "$scratch/lane-nd" --path src
+ok "a run state without shared keeps working"
+printf 'c\n' > "$sc/tests/c.txt"; commit "$sc" c-bad
+expect 'lane changed undeclared paths: tests/c.txt' "${tool[@]}" submit shr c --evidence wrong
+ok "a path that is neither owned nor shared is still refused"
+
+# ── integrate refuses a reviewed lane with uncommitted shared work ───────────
+"${tool[@]}" init shint --objective x --acceptance y --repo "$work" --verify 'true' --shared docs/shared
+"${tool[@]}" add-lane shint a --worker implementer --workspace "$scratch/lane-shi" --path src --path docs/a
+"${tool[@]}" claim shint a --agent a
+mkdir -p "$scratch/lane-shi/docs/a" "$scratch/lane-shi/docs/shared"; printf 'a\n' >> "$scratch/lane-shi/src/app.txt"; printf 'r\n' > "$scratch/lane-shi/docs/a/r.md"
+printf 'one\n' > "$scratch/lane-shi/docs/shared/log.md"; commit "$scratch/lane-shi" a
+"${tool[@]}" submit shint a --evidence ok; "${tool[@]}" review shint a --reference docs/a/r.md#ok --result accept
+printf 'late\n' >> "$scratch/lane-shi/docs/shared/log.md"
+expect "lane 'a' has uncommitted work" "${tool[@]}" integrate shint --workspace "$scratch/integration-shi"
+ok "integrate refuses uncommitted shared work"
+
+# ── a rebase launders nothing: only a sibling in review, inside its paths, sets a start point
+"${tool[@]}" init lk --objective x --acceptance y --repo "$work"
+lb="$scratch/lane-lkb"; lc="$scratch/lane-lkc"
+"${tool[@]}" add-lane lk b --worker implementer --workspace "$lb" --path tests
+"${tool[@]}" add-lane lk c --worker implementer --workspace "$lc" --path docs/c
+"${tool[@]}" claim lk b --agent b; "${tool[@]}" claim lk c --agent c
+mkdir -p "$lb/tests" "$lb/secret"; printf 'b\n' > "$lb/tests/b.txt"; printf 'k\n' > "$lb/secret/keys.txt"; commit "$lb" b1
+git -C "$lc" rebase -q lk/b
+mkdir -p "$lc/docs/c"; printf 'c\n' > "$lc/docs/c/c.txt"; commit "$lc" c1
+printf 'b2\n' >> "$lb/tests/b.txt"; commit "$lb" b2
+expect 'lane changed undeclared paths: secret/keys.txt' "${tool[@]}" submit lk b --evidence x
+expect 'lane changed undeclared paths' "${tool[@]}" submit lk c --evidence x
+ok "a change to an unowned path is not laundered by a sibling that rebases onto it"
+
+# ── integrate re-measures each lane and refuses a tip that moved after accept ─
+"${tool[@]}" init am --objective x --acceptance y --repo "$work" --verify 'true'
+aa="$scratch/lane-ama"; ab="$scratch/lane-amb"
+"${tool[@]}" add-lane am a --worker implementer --workspace "$aa" --path src --path docs/a
+"${tool[@]}" add-lane am b --worker implementer --workspace "$ab" --path tests --path docs/b
+"${tool[@]}" claim am a --agent a; "${tool[@]}" claim am b --agent b
+mkdir -p "$aa/docs/a"; printf 'a\n' >> "$aa/src/app.txt"; printf 'r\n' > "$aa/docs/a/r.md"; commit "$aa" a1
+"${tool[@]}" submit am a --evidence one
+git -C "$ab" rebase -q am/a
+mkdir -p "$ab/tests" "$ab/docs/b"; printf 'b\n' > "$ab/tests/b.txt"; printf 'r\n' > "$ab/docs/b/r.md"; commit "$ab" b1
+"${tool[@]}" submit am b --evidence rebased
+"${tool[@]}" review am a --reference docs/a/r.md#p1 --result reopen --severity P1 --message m
+"${tool[@]}" ack am a --agent a
+git -C "$aa" reset -q --hard HEAD~1; mkdir -p "$aa/docs/a"; printf 'r\n' > "$aa/docs/a/r.md"; commit "$aa" a2
+"${tool[@]}" submit am a --evidence amended
+"${tool[@]}" review am a --reference docs/a/r.md#ok --result accept
+"${tool[@]}" review am b --reference docs/b/r.md#ok --result accept
+expect "rebase it onto the sibling's current branch" "${tool[@]}" integrate am --workspace "$scratch/integration-am"
+printf 'x\n' > "$aa/docs/a/x.md"; commit "$aa" a3
+expect "lane 'a' moved after its accepted review" "${tool[@]}" integrate am --workspace "$scratch/integration-am"
+ok "integrate refuses a lane built on a superseded sibling commit and one whose tip moved after accept"
+
+# ── review gate: a P2 is filed, and the fourth round needs a ruling ──────────
+"${tool[@]}" init gate --objective x --acceptance y --repo "$work"
+gd="$scratch/lane-gate"; "${tool[@]}" add-lane gate g --worker implementer --workspace "$gd" --path src --path docs/g
+"${tool[@]}" claim gate g --agent g
+mkdir -p "$gd/docs/g"; printf 'g\n' >> "$gd/src/app.txt"; printf 'r\n' > "$gd/docs/g/r.md"; commit "$gd" g
+"${tool[@]}" submit gate g --evidence one
+expect 'a P2 is filed, not reopened' "${tool[@]}" review gate g --reference docs/g/r.md#p2 --result reopen --severity P2
+expect 'needs --severity' "${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen
+expect 'a P2 is filed, not reopened' "${tool[@]}" attention gate g --severity P2 --message m
+if "${tool[@]}" review gate g --reference docs/g/r.md#p3 --result reopen --severity P3 2>/dev/null; then fail 'an unknown severity was accepted'; fi
+"${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen --severity P1 --message m
+"${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence two
+"${tool[@]}" attention gate g --severity P1 --message 'look again'
+"${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence three
+"${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen --severity P1 --message m
+"${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence four
+expect 'needs the operator' "${tool[@]}" review gate g --reference docs/g/r.md#ok --result accept
+"${tool[@]}" review gate g --reference docs/g/r.md#ok --result accept --ruling 'one more round, go ahead'
+python3 - "$state" <<'EOF2'
+import json, sys
+lane = json.load(open(sys.argv[1]))["runs"]["gate"]["lanes"]["g"]
+assert lane["state"] == "reviewed", lane["state"]
+assert lane["review_refs"][-1]["ruling"] == "one more round, go ahead", lane["review_refs"][-1]
+assert "ruling" not in lane["review_refs"][0], lane["review_refs"][0]
+EOF2
+ok "a P2 reopen is refused; an attention cycle counts as a round; the fourth round needs a recorded ruling"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'

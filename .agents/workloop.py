@@ -169,18 +169,65 @@ def require_workspace(lane: dict) -> Path:
     return wg.worktree_root(Path(lane["workspace"]))
 
 
-def changed_paths(lane: dict, base: str) -> list[str]:
-    return [normalize_path(path) for path in wg.changed_files(require_workspace(lane), base)]
+def shared_of(run: dict) -> list[str]:
+    return run.get("shared", [])
 
 
-def uncommitted_owned(lane: dict, workspace: Path) -> list[str]:
-    """Dirty paths the lane owns or has a review reference for.
+def lane_allows(run: dict, lane: dict, path: str) -> bool:
+    review_paths = {item["reference"].partition("#")[0] for item in lane["review_refs"]}
+    return owned(path, lane["paths"]) or owned(path, shared_of(run)) or path in review_paths
+
+
+def start_point(run: dict, lane_name: str, head: str) -> str:
+    """The commit this lane's own work starts from.
+
+    A lane rebased onto a sibling's branch carries the sibling's files; they
+    are the sibling's work, not this lane's. A sibling branch that shares
+    history with `head` beyond the run base marks such a rebase, and the newest
+    of those merge-bases is where this lane's own commits begin. A merge-base
+    counts only when the sibling is in review or reviewed and everything it
+    adds past the base lies inside its own paths: otherwise the rebase would
+    launder a change the sibling was never allowed to make.
+    """
+    repo, base = Path(run["repo"]), run["base"]
+    candidates: set[str] = set()
+    for name, other in run["lanes"].items():
+        tip = wg.branch_tip(repo, other["branch"]) if name != lane_name and other.get("branch") else None
+        point = wg.merge_base(repo, head, tip) if tip else None
+        # A sibling built on top of this lane merges at this lane's head; that
+        # says nothing about where this lane's own work began.
+        if (
+            point and point not in (base, head) and wg.is_ancestor(repo, base, point)
+            and other["state"] in ("review", "reviewed")
+            and all(lane_allows(run, other, path) for path in map(normalize_path, wg.committed_files(repo, base, point)))
+        ):
+            candidates.add(point)
+    newest = [point for point in candidates if all(wg.is_ancestor(repo, other, point) for other in candidates)]
+    return newest[0] if newest else base
+
+
+def undeclared_paths(run: dict, lane: dict, actual: list[str]) -> list[str]:
+    return [path for path in actual if not lane_allows(run, lane, path)]
+
+
+def review_start(run: dict, lane_name: str, lane: dict) -> str | None:
+    repo = Path(run["repo"])
+    tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
+    return start_point(run, lane_name, tip) if tip else None
+
+
+def changed_paths(lane: dict, since: str) -> list[str]:
+    return [normalize_path(path) for path in wg.changed_files(require_workspace(lane), since)]
+
+
+def uncommitted_owned(run: dict, lane: dict, workspace: Path) -> list[str]:
+    """Dirty paths the lane owns, shares, or has a review reference for.
 
     An unignored install directory or a scratch file elsewhere in the
     worktree is not the lane's work and must not block its handoff.
     """
     review_paths = {item["reference"].partition("#")[0] for item in lane["review_refs"]}
-    return [path for path in wg.dirty_paths(workspace) if owned(path, lane["paths"]) or path in review_paths]
+    return [path for path in wg.dirty_paths(workspace) if owned(path, lane["paths"]) or owned(path, shared_of(run)) or path in review_paths]
 
 
 def pending_messages(run: dict, lane: str) -> list[dict]:
@@ -210,6 +257,9 @@ def cmd_init(args: argparse.Namespace) -> None:
     base = wg.resolve_commit(repo, args.base)
     if args.verify:
         wg.guard_command(args.verify, repo)
+    shared = [normalize_path(path) for path in args.shared or []]
+    if len(set(shared)) != len(shared):
+        fail("a run cannot declare the same shared path twice")
     with Store(state_path(args.state)) as data:
         if args.run in data["runs"]:
             if replayed(data["runs"][args.run], args.event_id):
@@ -222,6 +272,7 @@ def cmd_init(args: argparse.Namespace) -> None:
             "verify": args.verify,
             "repo": str(repo),
             "base": base,
+            "shared": shared,
             "max_lanes": args.max_lanes,
             "supervised": args.supervised,
             "message_limit": args.message_limit,
@@ -262,6 +313,8 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
             unknown = sorted(set(dependencies) - set(run["lanes"]))
             if unknown:
                 fail(f"unknown dependency lanes: {', '.join(unknown)}")
+            if overlaps(paths, shared_of(run)):
+                fail("paths overlap a shared path; lanes edit shared paths without owning them")
             for name, other in run["lanes"].items():
                 if overlaps(paths, other["paths"]):
                     fail(f"paths overlap lane {name!r}; writing lanes need exclusive ownership")
@@ -366,27 +419,31 @@ def cmd_submit(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
         lane = lane_of(run, args.lane)
-        if lane["state"] != "active":
+        # A reviewed lane whose branch moved is re-submitted for a fresh review.
+        if lane["state"] not in ("active", "reviewed"):
             fail(f"lane is {lane['state']}, not active")
         if pending_messages(run, args.lane):
             fail("lane has acknowledgement-required peer messages; read inbox and acknowledge them first")
         # Review and integration read the lane branch, so the work has to be
         # on it: an uncommitted tree would merge as nothing and pass.
         workspace = require_workspace(lane)
-        dirty = uncommitted_owned(lane, workspace)
+        dirty = uncommitted_owned(run, lane, workspace)
         if dirty:
             fail("lane has uncommitted changes; commit them on the lane branch first: " + ", ".join(dirty))
         if wg.head_of(workspace) == run["base"]:
             fail(f"lane branch {lane.get('branch')} has no commits beyond the base; nothing to review")
-        actual = changed_paths(lane, run["base"])
-        review_paths = {item["reference"].partition("#")[0] for item in lane["review_refs"]}
-        undeclared = [path for path in actual if not owned(path, lane["paths"]) and path not in review_paths]
+        actual = changed_paths(lane, start_point(run, args.lane, wg.head_of(workspace)))
+        undeclared = undeclared_paths(run, lane, actual)
         if undeclared:
             fail("lane changed undeclared paths: " + ", ".join(undeclared))
         lane["evidence"].append({"at": now(), "text": args.evidence, "paths": actual})
         lane["state"] = "review"
         record(args.run, run, "submit", args.lane, args.evidence, args.event_id)
     print(f"lane {args.lane!r} is ready for final review")
+
+
+MAX_REVIEW_ROUNDS = 4
+P2_REFUSAL = "a P2 is filed, not reopened: accept the lane and file the finding"
 
 
 def cmd_review(args: argparse.Namespace) -> None:
@@ -396,13 +453,27 @@ def cmd_review(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] != "review":
             fail(f"lane is {lane['state']}, not awaiting final review")
+        if args.result == "reopen":
+            if not args.severity:
+                fail("--result reopen needs --severity P0 or P1")
+            if args.severity == "P2":
+                fail(P2_REFUSAL)
+        # A reopen that is resubmitted, or an attention that is acknowledged and
+        # resubmitted, each add a submission, so the count covers both paths.
+        rounds = len(lane["evidence"])
+        if rounds >= MAX_REVIEW_ROUNDS and not args.ruling:
+            fail(f"lane has been submitted {rounds} times; review round {rounds} needs the operator's ruling: pass --ruling \"<operator's words>\"")
         reference = canonical_reference(args.reference, reference_roots(run, lane))
         if args.result == "accept":
             lane["state"] = "reviewed"
+            lane["accepted_tip"] = wg.branch_tip(Path(run["repo"]), lane["branch"])
         else:
             lane["state"] = "reopened"
             lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
-        lane["review_refs"].append({"at": now(), "reference": reference, "result": args.result})
+        entry = {"at": now(), "reference": reference, "result": args.result}
+        if args.ruling:
+            entry["ruling"] = args.ruling
+        lane["review_refs"].append(entry)
         record(args.run, run, "review-" + args.result, args.lane, reference, args.event_id)
     print(f"recorded {args.result} review for lane {args.lane!r}")
 
@@ -414,6 +485,8 @@ def cmd_attention(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] not in {"active", "review", "reopened"}:
             fail(f"lane is {lane['state']}; attention applies only to live work")
+        if args.severity == "P2" and lane["state"] == "review":
+            fail(P2_REFUSAL)
         reference = canonical_reference(args.reference, reference_roots(run, lane)) if args.reference else ""
         lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
         record(args.run, run, "attention", args.lane, args.severity + ": " + args.message, args.event_id)
@@ -530,7 +603,9 @@ def cmd_brief(args: argparse.Namespace) -> None:
         f"Objective: {run['objective']}",
         f"Acceptance: {run['acceptance']}",
         f"Owned paths: {', '.join(lane['paths'])}",
+        *([f"Shared paths: {', '.join(shared_of(run))}\nShared paths: any lane may edit them. Append only; never restructure or reorder existing lines. Regenerate generated files (for example the API contract and its web types) instead of merging them by hand. When a lane you build on is reviewed, rebase onto its branch and resolve shared-path conflicts in your worktree."] if shared_of(run) else []),
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
+        *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('branch')}"] if args.role == "reviewer" and (start := review_start(run, args.lane, lane)) else []),
         *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; widen with: git sparse-checkout add <dir>"] if lane.get("sparse") else []),
         *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
@@ -539,7 +614,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
         "Run only the narrowest acceptance for your slice. Do not run the end-to-end or browser suite here: integrate runs --verify once over the merged tree.",
         f"Progress: {command} heartbeat {args.run} {args.lane} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
-        "Do not edit outside owned paths. Preserve unrelated work. Record executable evidence before handoff.",
+        "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
         "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",
         supervised,
         f"State: {command} status {args.run}",
@@ -554,6 +629,8 @@ def cmd_status(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
         print(f"workloop {args.run}: {run['objective']}")
+        if shared_of(run):
+            print(f"shared\t{', '.join(shared_of(run))}")
         for name, lane in sorted(run["lanes"].items()):
             attention = " attention" if lane["attention"] else ""
             pending = len(pending_messages(run, name))
@@ -724,9 +801,16 @@ def cmd_integrate(args: argparse.Namespace) -> None:
             # lane's worktree would be verified by nobody.
             lane_workspace = Path(lane["workspace"])
             if lane_workspace.is_dir():
-                dirty = uncommitted_owned(lane, lane_workspace)
+                dirty = uncommitted_owned(run, lane, lane_workspace)
                 if dirty:
                     fail(f"lane {name!r} has uncommitted work in its worktree; commit or discard it first: " + ", ".join(dirty))
+            if lane.get("accepted_tip") != tip:
+                fail(f"lane {name!r} moved after its accepted review; re-submit it for review")
+            # Sibling branches may have been amended since this lane was
+            # submitted, so its own work is measured again against them.
+            stray = undeclared_paths(run, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
+            if stray:
+                fail(f"lane {name!r} changed undeclared paths: " + ", ".join(stray) + "; rebase it onto the sibling's current branch")
             branches[name] = (branch, tip)
     workspace = Path(args.workspace).resolve()
     taken = {Path(lane["workspace"]).resolve(): name for name, lane in run["lanes"].items()}
@@ -850,12 +934,12 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--state", help="state file (default: .agents/.workloop-state.json)")
     root.add_argument("--event-id", help="idempotency key for a mutating command")
     sub = root.add_subparsers(required=True)
-    init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="test command run once over the composed tree by integrate"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.set_defaults(func=cmd_init)
+    init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="test command run once over the composed tree by integrate"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--shared", action="append", help="repository path every lane may edit without owning it (repeatable)"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.set_defaults(func=cmd_init)
     add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="check out only the owned directories (and --also ones)"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.set_defaults(func=cmd_add_lane)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
-    review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", default="P1"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
-    attention = sub.add_parser("attention"); attention.add_argument("run"); attention.add_argument("lane"); attention.add_argument("--severity", required=True); attention.add_argument("--message", required=True); attention.add_argument("--reference", default=""); attention.set_defaults(func=cmd_attention)
+    review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", choices=("P0", "P1", "P2"), help="required with --result reopen"); review.add_argument("--ruling", help="the operator's words authorising a review round past the third submission"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
+    attention = sub.add_parser("attention"); attention.add_argument("run"); attention.add_argument("lane"); attention.add_argument("--severity", choices=("P0", "P1", "P2"), required=True); attention.add_argument("--message", required=True); attention.add_argument("--reference", default=""); attention.set_defaults(func=cmd_attention)
     ack = sub.add_parser("ack"); ack.add_argument("run"); ack.add_argument("lane"); ack.add_argument("--agent", required=True); ack.set_defaults(func=cmd_ack)
     stale = sub.add_parser("release-stale"); stale.add_argument("run"); stale.add_argument("lane"); stale.add_argument("--reason", required=True); stale.set_defaults(func=cmd_release_stale)
     qa = sub.add_parser("qa"); qa.add_argument("run"); qa.add_argument("--evidence", required=True); qa.set_defaults(func=cmd_qa)
