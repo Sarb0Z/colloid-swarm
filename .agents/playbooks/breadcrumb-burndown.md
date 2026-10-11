@@ -4,8 +4,8 @@
 SessionStart hook shows ten of it. This playbook drains the queue.
 
 Run it when the operator asks, or when the count has grown for several sessions
-with nothing coming out. It is its own unit of work with its own budget, never
-folded into the change that happened to add the last line.
+with nothing coming out. It is its own unit of work with its own budget; never
+fold it into the change that happened to add the last line.
 
 ## Open with the count
 
@@ -13,8 +13,8 @@ folded into the change that happened to add the last line.
 grep -c '^- ' .agents/breadcrumbs.md
 ```
 
-That number is the receipt, taken before and after and reported both times. A
-burndown that cannot state what it removed did not happen.
+That number is the receipt, before and after; report both. A burndown that
+cannot state what it removed did not happen.
 
 ## Classify every line
 

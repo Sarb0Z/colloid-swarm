@@ -29,7 +29,7 @@ restart cost:
 | A dev server or other backgrounded shell | At the end of the turn that needed it |
 | A container, compose stack, or booted emulator | Once the work is done |
 
-One stays up longer only when the user asked or the next step needs it, and the
-report names which. `teardown-gate.sh` enforces the floor: a browser, device session, dev
+Keep one longer only when the user asked or the next step needs it, and say
+which. `teardown-gate.sh` enforces the floor: a browser, device session, dev
 server, or watcher still running blocks the end of the turn once, and a
 container, build watcher, or emulator falls due after the next `git push`.

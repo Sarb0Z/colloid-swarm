@@ -27,4 +27,4 @@ detect:
 - A component that reads `Dimensions` once holds a stale size after rotation or a foldable unfolds. Read the value through a hook that subscribes.
 
 ## Out of Scope
-- Visual design rules are not restated here: `.agents/rules/frontend.md` owns them.
+- Do not restate visual design rules here. `.agents/rules/frontend.md` owns those.

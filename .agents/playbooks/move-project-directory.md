@@ -5,8 +5,8 @@ the new path. Claude Code, Codex, and Kimi all key session history by absolute
 path, so a bare `mv` leaves `--resume` and history search unreachable from both
 the old and the new location, and nothing reports it until someone looks.
 
-The rewrite touches path-valued metadata only. Conversation text that mentions
-the old path is history and stays as written, and so do unrelated projects'
+Rewrite path-valued metadata only. Leave conversation text that mentions the
+old path alone, since it is history, and never touch unrelated projects'
 transcripts, which routinely mention the moved path. Back up each store before
 the rewrite.
 
@@ -23,5 +23,5 @@ table header fails immediately.
 A uv virtual environment in the moved tree is a separate casualty: its
 console-script shebangs carry the absolute prefix. Delete `.venv` and re-run
 `uv sync`. `bin/python` is an absolute symlink to the uv-managed interpreter
-outside the project, so the interpreter still launches, and its launching is no
+outside the project, so the interpreter still launches; do not read that as
 proof the environment survived.

@@ -19,7 +19,7 @@ detect:
 - Props that cross the boundary must serialize. Pass a promise into a Client Component and resolve it with `use()` inside a `<Suspense>` boundary rather than awaiting it in the parent and blocking the render.
 - `fetch` does not cache by default. State the intent on every call: `cache: 'force-cache'` to reuse across requests, `next: { revalidate: <seconds> }` for a time bound, and nothing for a per-request read.
 - A Server Action mutates on the server and is reachable by any caller who can reach the route. Authorize inside the action itself. The component that renders the form is not the authorization boundary.
-- `middleware.ts` runs on every matched request. It holds routing and header work only; a database call there pays its cost on every navigation.
+- `middleware.ts` runs on every matched request. Keep it to routing and header work; a database call there pays its cost on every navigation.
 - Where the backend publishes an OpenAPI or Swagger document, generate the client from it — types, hooks, and validation schemas together — and regenerate on every backend change. `orval` covers this shape: it emits TypeScript models, React Query hooks, Zod schemas, and MSW mocks from one spec. A hand-written client holds a second copy of the contract, and the copies diverge at runtime rather than at build.
 
 ## Abnormal Cases and Rationale
@@ -28,4 +28,4 @@ detect:
 - Turborepo's local cache is keyed by task hash and shared across every worktree of a repository, so a hit from another lane is correct only when `turbo.json` declares every input and environment variable the task reads. An undeclared one serves stale output; run with `--force` to rebuild.
 
 ## Out of Scope
-- Visual design rules are not restated here: `.agents/rules/frontend.md` owns them.
+- Do not restate visual design rules here. `.agents/rules/frontend.md` owns those.
