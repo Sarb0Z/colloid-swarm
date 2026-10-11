@@ -74,7 +74,7 @@ PostToolUse)
   mkdir -p "$proj/.agents"
   printf '%s\n' "$hits" >> "$pending"
   [[ "$first" == "no" ]] && exit 0
-  printf '%s' "UI changed: $(printf '%s' "$hits" | head -n1). Before you report it done, render the route and take a screenshot (a browser_take_screenshot call clears this gate); fix what you see." \
+  printf '%s' "UI changed: $(printf '%s' "$hits" | head -n1). Render the route and screenshot it before reporting it done; fix what renders wrong. A browser_take_screenshot call clears this gate." \
     | python3 "$lib/emit-context.py" PostToolUse
   exit 0
   ;;
@@ -91,9 +91,9 @@ Stop)
   count="$(printf '%s\n' "$paths" | grep -c . || true)"
   printf '#blocked\n' >> "$pending"
   {
-    printf 'You changed %s UI file(s) this session and never looked at the rendered result:\n' "$count"
+    printf 'You changed %s UI file(s) this session without once viewing the render:\n' "$count"
     printf '%s\n' "$paths" | sed 's/^/  - /'
-    printf 'Render the route you changed and take a screenshot (browser_take_screenshot) before reporting it done; fix what you see. This gate blocks once per session, until a screenshot clears it.\n'
+    printf 'Render the changed route and screenshot it (browser_take_screenshot) before reporting it done; fix what renders wrong. This gate blocks once per session, until a screenshot clears it.\n'
   } >&2
   exit 2
   ;;

@@ -33,10 +33,10 @@ SCALE = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 WRAPPERS = {"timeout", "gtimeout", "nice", "stdbuf"}
 PREFIXES = {"then", "else", "elif", "{", "}", "!", "time", "nohup", "command", "builtin", "exec"}
 
-WAIT = """Pick the wait that ends when the thing happens:
-- A background shell or subagent you started: end your turn. The harness re-invokes you when it finishes; report then.
+WAIT = """Pick the wait that ends with the event:
+- A background shell or cell you started: end your turn. The harness re-invokes you when it finishes; report then.
 - A process you are about to start (tests, a build, a server): run it as its own Bash call with run_in_background: true. You are notified when it exits, and TaskStop stops it.
-- A condition (a port answers, a file appears): poll briefly under a cap, e.g. timeout 120 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'.
+- A condition (a port answers, a file appears): poll briefly under a cap, such as timeout 120 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'.
 - CI or a deploy: gh run watch <id> --exit-status with run_in_background: true.
 Sleeps of 5 s or less pass."""
 
@@ -154,9 +154,9 @@ def verdict(command):
         return f"Blocked: sleeping {length:g} s holds the session and learns nothing. {WAIT}"
     if background and not waits:
         shown = background[0] if len(background[0]) <= 80 else background[0][:77] + "..."
-        return ("Blocked: `" + shown + " &` starts a process the harness cannot see, so nothing "
-                "reports when it ends and the teardown check cannot stop it. Run it as its own Bash "
-                "call with run_in_background: true. To run commands in parallel inside one call, end "
+        return ("Blocked: `" + shown + " &` starts a process the harness cannot see: nothing "
+                "reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash "
+                "call with run_in_background: true; to run commands in parallel inside one call, end "
                 "the command with `wait`.")
     return None
 
