@@ -10,7 +10,7 @@ description: >
 
 # Dynamic security scan
 
-Use this skill only for a dynamic scan; use `security-audit` or `pentesting` for source-only work.
+Use this skill only for a dynamic scan; use `security-audit` or `pentesting` for source-only work. This one sends real requests to a running system, and every rule below exists because a request, once sent, cannot be taken back.
 
 ## Authorization gate
 
@@ -21,17 +21,17 @@ Before any MCP call, state the authorized scope in the conversation:
 - The non-destructive test limit and the approved scan depth.
 - Whether the operator supplied credentials. Do not repeat the tokens, cookies, or headers.
 
-Ask for the missing authorization; do not infer it from repository access, a hostname, or a user role.
+Ask for the missing authorization; do not infer it from repository access, a hostname, or a user role. Each of those feels like permission and is only proximity: the repository says what the code is, not who consented to having its deployment probed.
 
 ## The scan
 
 1. Call `validate_target` with the exact target URL.
-2. On `allowed: false`, stop. Report only the validation reason and the missing authorization or configuration the operator must supply. Do not call `security_scan`, follow redirects, or make another request to that target.
+2. On `allowed: false`, stop. Report only the validation reason and the missing authorization or configuration the operator must supply. Do not call `security_scan`, follow redirects, or make another request to that target. The rejection is terminal: the server refuses production-like hostnames and any staging host the operator has not allowlisted, and a rewritten URL that slips past it is the very request the allowlist exists to stop.
 3. On `allowed: true`, retain the returned normalized URL and classification, and call `security_scan` once with that normalized URL, an approved `quick`, `standard`, or `deep` scan type, and only operator-supplied credentials. Never enable a server-side prompt loop.
 4. Call `list_security_prompts` and select the prompts that match the returned attack surface and scan scope.
-5. Reason over the returned evidence yourself. A finding must cite evidence from the scan result, identify the endpoint or surface, set severity and confidence, describe impact, and give a remediation. Do not infer a vulnerability from an untested route. Mark an uncertain observation as low confidence. Do not call a class clean unless the scan evidence covers it.
+5. Reason over the returned evidence yourself; the scanner calls no model, and the judgement is the calling agent's alone. A finding must cite evidence from the scan result, identify the endpoint or surface, set severity and confidence, describe impact, and give a remediation. Do not infer a vulnerability from an untested route. Mark an uncertain observation as low confidence. Do not call a class clean unless the scan evidence covers it — the scanner accepts at most one credential set and so marks IDOR, BOLA, BFLA, privilege escalation, and tenant isolation untested on every run, and silence about them is not their absence.
 
-Do not use `run_prompt_loop` or `generate_report`. Keep raw scan results in the conversation context only, and write no report, progress file, or credential to disk.
+Do not use `run_prompt_loop` or `generate_report`. Keep raw scan results in the conversation context only, and write no report, progress file, or credential to disk: a file outlives the session that redacted it.
 
 ## Report
 
@@ -55,4 +55,4 @@ The scan is complete only when every condition holds:
 - Every published finding carries evidence and confidence.
 - The report states coverage, gaps, and whether credentials were supplied, without disclosing them.
 
-A scan proves nothing about whether the target is secure — only the coverage the tools returned and the evidence reviewed in this run.
+The scan does not prove that the target is secure. It proves only the returned tool coverage and the evidence reviewed in this run — at most `SECURITY_MCP_MAX_REQUESTS` requests, twenty-five by default: a sample, never a census.
