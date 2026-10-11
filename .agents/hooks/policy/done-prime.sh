@@ -29,11 +29,11 @@ verb_object='\b(add|create|build|make|fix|finish|complete)\b.{0,40}\b(page|scree
 printf '%s' "$prompt" | grep -Eqi "$verbs|$verb_object" || exit 0
 
 read -r -d '' body <<'EOF_BODY' || true
-This prompt asks for a change. Done means: the user-facing surface completes
-the job — a backend path the product cannot reach is not done; you ran it and
-saw the result rather than inferring it; every item in the request, not the
-first; the fix lives in the repository, not in a hand-changed system; and
-before you call a UI done, render it and look.
+This prompt asks for a change. Done means the user-facing surface completes
+the job: a backend path the product cannot reach is not done. Run it and see
+the result; do not infer it. Finish every item in the request, not the first.
+Put the fix in the repository, not in a hand-changed system. Before you call a
+UI done, render it and look.
 EOF_BODY
 
 printf '%s' "$body" | python3 "$lib/emit-context.py" UserPromptSubmit
