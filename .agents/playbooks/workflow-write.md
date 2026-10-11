@@ -13,6 +13,11 @@ settled before the prose.
 | Verify every claim against its source, and every link and path by opening it | — | Yes | Yes |
 | Independent read by a reviewer cell, one axis: does the text say what the evidence supports | — | — | Yes |
 
+A deliverable that leaves the repository stands alone: no repository paths,
+code tags, process vocabulary, or history, and no preamble about its own
+purpose. Its shape follows the reader's genre. The work log
+(`playbooks/worklog.md`) is an operator-facing record and exempt.
+
 Product documentation (`README.md`, `docs/`) follows `.agents/rules/documentation.md`.
 The scaffold and its contracts are not documentation.
 
