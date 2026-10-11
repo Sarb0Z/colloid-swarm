@@ -13,11 +13,11 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
 | frontier | `fable` |
 
 - A generic cell is `general-purpose` with an explicit model. A named persona
-  fixes model and effort in its frontmatter, and is the choice wherever effort
-  must be fixed. The `reviewer` persona pins no model: the lead chooses one at
+  fixes model and effort in its frontmatter; use one when effort must be
+  fixed. The `reviewer` persona pins no model: the lead chooses one at
   dispatch, for the artifact at hand.
-- A generic cell keeps every tool, so its handoff constrains it and the sandbox
-  boundary holds. A generic cell that only reads says so by opening its prompt
+- A generic cell keeps every tool, so constrain its handoff and keep the
+  sandbox boundary. A generic cell that only reads says so by opening its prompt
   with `READ-ONLY`.
 - Two or more concurrent writers go through a `workloop` run;
   `parallel-writers-gate.sh` enforces it, and its denial names the commands.

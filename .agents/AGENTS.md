@@ -8,26 +8,26 @@ paths:
 
 ## Ownership
 
-- `.agents/` is canonical. Every host path is a static adapter or a symlink, and nothing is edited through a symlink.
+- `.agents/` is canonical. Every host path is a static adapter or a symlink; never edit through a symlink.
 - Runtime ledgers (`.sources-ledger`, `.wrap-state-*`, `.compaction-pending`, `.workloop-state.json`) are state, and gitignored.
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
 - `config.json.example` defines the hook defaults. `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` the ignored per-operator override layered over it; the two share one shape, and `hooks/lib/config.py` reads both. While either fails to parse, the publish guard asks on every command that could run a listed script. It reads `hooks.guard_publish.dry_run_commands` from `policy.json` alone: an exemption from an ask is a repository decision, which `config.json` cannot declare.
-- `mcp.json` is the MCP registry and holds its project state. A server is toggled through `python3 .agents/mcp.py enable|disable <name>`; the file is edited by hand only for what that command cannot express, and every intentional state change is committed.
+- `mcp.json` is the MCP registry and holds its project state. Toggle a server through `python3 .agents/mcp.py enable|disable <name>` and edit the file by hand only for what that command cannot express; commit intentional state changes.
 - `personas/*.md` are the Claude-native definitions, linked from `.claude/agents/*.md`; `.codex/agents/*.toml` are the static Codex definitions. Each states its model and effort outright; no tier registry generates them.
 - `check-layout.py` verifies the links the scaffold owns; it never creates, rewrites, or prunes an operator's files.
 
 ## Editing contracts
 
-- The scaffold stays small. A generator earns its place only when a real artifact can be neither represented directly nor linked.
-- A persona is a cached hot path, not the only legal cell, and carries only the tools, skills, MCP servers, hooks, and memory its role repeatedly needs.
-- A Claude persona's configuration lives in its YAML frontmatter. Codex keeps model and effort as invocation-time controls, so its TOML description states the exact dispatch.
+- Keep the scaffold small. Add a generator only when a real artifact can be neither represented directly nor linked.
+- A persona is a cached hot path, not the only legal cell. Give it only the tools, skills, MCP servers, hooks, and memory its role repeatedly needs.
+- A Claude persona's configuration belongs in its YAML frontmatter. Codex model and effort remain invocation-time controls; its TOML description states the exact dispatch.
 - Every skill follows the Agent Skills format; `lint-skills.sh` is the authority on its enforceable limits.
-- A skill's load-bearing instructions come first: compaction can retain only the beginning of a long skill.
-- A hook policy ships with a direct firing test. Prefer a test of observable behavior to mutation machinery, which tests only the test harness.
-- Hook payloads travel on stdin. Adapters stay thin; shared behavior lives in `hooks/policy/` or `hooks/lib/`.
-- Repository-owned MCP bundles under `mcp-servers/*/dist/` are committed, because clients launch them before any install or build; a change to a server's source is followed by that server's bundle check.
+- Put a skill's load-bearing instructions first: compaction may retain only the beginning of a long skill.
+- A hook policy ships with a direct firing test. Prefer a test of observable behavior to mutation machinery that tests the test harness.
+- Hook payloads travel on stdin. Keep adapters thin and shared behavior in `hooks/policy/` or `hooks/lib/`.
+- Repository-owned MCP bundles under `mcp-servers/*/dist/` are committed, because clients launch them before any install or build. Run each server's bundle check after a change to its source.
 - A stack pack declares both `paths:` and `detect:`. This repository carries every pack; an export drops `stack_packs.carrier`, and each target deletes the packs its codebase does not use.
 
 ## Hierarchical instructions
@@ -102,5 +102,5 @@ python3 .agents/lint-contract.py
 ```
 
 <!-- colloid-only -->
-`export-scaffold.py` runs only from a reviewed commit: it reads Git, not the working tree.
+Use `export-scaffold.py` only from a reviewed commit: it reads Git, not the working tree.
 <!-- /colloid-only -->
