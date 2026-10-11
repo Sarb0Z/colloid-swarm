@@ -8,31 +8,31 @@ paths:
 
 ## Ownership
 
-- `.agents/` is canonical. Host paths are static adapters or symlinks; never edit through a symlink.
+- `.agents/` is canonical; host paths are static adapters or symlinks. Never edit through a symlink.
 - Runtime ledgers (`.sources-ledger`, `.wrap-state-*`, `.compaction-pending`, `.workloop-state.json`) are gitignored state.
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
-- `config.json.example` defines hook defaults. `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` is the ignored per-operator override layered on top. While either file fails to parse, the publish guard asks on every command that could run a listed script. Same shape; `hooks/lib/config.py` reads both. The publish guard reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: an exemption from an ask is a repository decision, so `config.json` cannot declare one.
-- `mcp.json` is the MCP registry and its project state. Change it through `python3 .agents/mcp.py enable|disable <name>` when possible; commit intentional state changes.
-- `personas/*.md` are Claude-native definitions and `.claude/agents/*.md` links to them. `.codex/agents/*.toml` are static Codex definitions. Model/effort is explicit in those files, not generated from a tier registry.
-- `check-layout.py` verifies scaffold-owned links. It never creates, rewrites, or prunes operator files.
+- `config.json.example` defines hook defaults; `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` the ignored per-operator override layered on top, read alike by `hooks/lib/config.py`. While either fails to parse, the publish guard asks on every command that could run a listed script. It reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: exempting a script from an ask is a repository decision, beyond `config.json`'s reach.
+- `mcp.json` is the MCP registry and its project state. Toggle a server only through `python3 .agents/mcp.py enable|disable <name>`, which also rewrites every host's MCP configuration; commit intentional state changes.
+- `personas/*.md`, linked from `.claude/agents/*.md`, are Claude-native definitions and `.codex/agents/*.toml` static Codex ones; model and effort are explicit in each, not generated from a tier registry.
+- `check-layout.py` verifies scaffold-owned links and never creates, rewrites, or prunes operator files.
 
 ## Editing contracts
 
-- Keep the scaffold small. Add a generator only when a real artifact cannot be represented directly or linked.
-- A persona is a cached hot path, not the only legal subagent. Give it only the tools, skills, MCP servers, hooks, and memory its role repeatedly needs.
-- Claude persona configuration belongs in YAML frontmatter. Codex model and effort remain invocation-time controls; its TOML description states the exact dispatch.
-- Every skill follows Agent Skills format; `lint-skills.sh` is the authority for its enforceable limits.
-- Put load-bearing skill instructions first: compaction may retain only the beginning of long skills.
+- Keep the scaffold small: add a generator only when a real artifact can be neither represented directly nor linked.
+- A persona is a cached hot path, not the only legal cell; grant it only the tools, skills, MCP servers, hooks, and memory its role recurrently needs.
+- Claude persona configuration belongs in YAML frontmatter; Codex leaves model and effort to invocation time, so its TOML description states the exact dispatch.
+- Every skill follows Agent Skills format, with `lint-skills.sh` the authority on its enforceable limits.
+- Put load-bearing skill instructions first: compaction may retain only a long skill's opening.
 - A hook policy ships with a direct firing test. Prefer testing observable behavior over mutation machinery that tests the test harness.
 - Hook payloads travel on stdin. Keep adapters thin and shared behavior in `hooks/policy/` or `hooks/lib/`.
-- Repository-owned MCP bundles under `mcp-servers/*/dist/` are committed because clients launch them before any install or build. Run each server's bundle check after source changes.
-- A stack pack declares both `paths:` and `detect:`. This repository carries all packs; an export drops `stack_packs.carrier`, and each target deletes packs its codebase does not use.
+- Commit repository-owned MCP bundles under `mcp-servers/*/dist/`, which clients launch before any install or build, and run each server's bundle check after source changes.
+- A stack pack declares both `paths:` and `detect:`. This repository carries every pack; an export drops `stack_packs.carrier`, and each target deletes packs its codebase does not use.
 
 ## Hierarchical instructions
 
-Read the nearest `AGENTS.md` before editing a subtree. Canonical scoped files use both `applyTo:` and `paths:` frontmatter: Copilot and Claude consume those keys, while Codex and Kimi read the file as ordinary instructions.
+Read the nearest `AGENTS.md` before editing a subtree. Canonical scoped files carry both `applyTo:` and `paths:` frontmatter, the keys Copilot and Claude consume; Codex and Kimi read the file as plain instructions.
 
 | Scope | Canonical |
 | --- | --- |
@@ -52,9 +52,9 @@ Fan-out is by symlink:
 
 - Copilot: `.github/instructions/*.instructions.md` to canonical files.
 - Claude: layer `CLAUDE.md` to sibling `AGENTS.md`; `.claude/skills/*`, `.claude/agents/*`, and `.claude/rules/*` to `.agents/`.
-- Codex: `.codex/hooks.json` and hook adapter links; persona TOMLs stay host-native because Codex does not consume Claude frontmatter.
+- Codex: `.codex/hooks.json` and hook adapter links; persona TOMLs stay host-native because Codex does not read Claude frontmatter.
 
-A skill `AGENTS.md` governs editing the skill; `SKILL.md` governs using it. A file under `rules/` governs product code matching its globs.
+A skill's `AGENTS.md` governs editing it and its `SKILL.md` using it; a file under `rules/` governs product code its globs match.
 
 ## Verification
 
@@ -102,5 +102,5 @@ python3 .agents/lint-contract.py
 ```
 
 <!-- colloid-only -->
-Use `export-scaffold.py` only from a reviewed commit. It reads Git, not the working tree.
+Run `export-scaffold.py` only from a reviewed commit: it reads Git, not the working tree.
 <!-- /colloid-only -->

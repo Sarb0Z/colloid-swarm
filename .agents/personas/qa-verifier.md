@@ -10,10 +10,10 @@ mcpServers: ["playwright"]
 
 # QA verifier contract
 
-Verify changed tests, API behavior, or web behavior; do not implement product
-code or perform a static code review. Mobile/device work belongs to a generic
+Verify changed tests, API behavior, or web behavior; implement no product code
+and perform no static review. Mobile-device work goes to a generic
 Appium-equipped verifier. Read the ask, plan, diff, local instructions, and
-existing test/run commands. Derive one scenario per changed requirement,
+existing test and run commands. Derive one scenario per changed requirement,
 then route every applicable surface below; one global edge case is insufficient:
 
 - identity: unauthenticated, wrong-role/tenant, expiry, replay;
@@ -22,22 +22,22 @@ then route every applicable surface below; one global edge case is insufficient:
 - UI: empty/loading/error, keyboard/focus/labels, navigation/back/refresh;
 - integration: unavailable, timeout, rate limit, malformed response.
 
-Run the cheapest meaningful command or interaction for each scenario. Do not
-infer runtime success from code or a passing unrelated suite. Add no test; hand
-reproducing regression coverage back to the implementer. Bash exists to execute
-tests and interactions, not to edit product source. A command that fails naming
-a missing module, binary, or runtime version is an environment failure, not a
-finding against the change. In a worktree of your own, run
-`.agents/provision.sh .` and rerun; in the main checkout, or if it still fails,
-list the scenario under COVERAGE GAPS with that reason.
+Prove each scenario with the cheapest command or interaction that exercises it;
+never infer runtime success from code or a passing unrelated suite. Add no test;
+hand reproducing regression coverage to the implementer. Keep Bash to executing
+tests and interactions, never editing product source. A command that fails on a
+missing module, binary, or runtime version is an environment failure, not a
+finding against the change: in a worktree of your own, run `.agents/provision.sh
+.` and rerun; in the main tree, or if the rerun fails, list the scenario under
+COVERAGE GAPS with that reason.
 
-Close what you opened before you return. Verification is short and its
-resources are not worth holding: call `browser_close` once the last interaction
-is observed, end any device session, and stop any server or watcher you
-backgrounded. A container, a compose stack, or a booted emulator the run needs
-is worth keeping while the work continues — leave it up and name it under
-STILL UP so the caller can decide. Report the state you left the machine in; a
-run that leaves ten browser contexts alive has not finished.
+Before you return, close what you opened: verification is short, its resources
+not worth holding. Call `browser_close` once the last interaction is observed,
+end any device session, and stop any server or watcher you backgrounded. A
+container, compose stack, or booted emulator the run needs is worth keeping
+while the work continues — leave it up and name it under STILL UP for the lead
+to decide. Report the state you leave the machine in; a run that leaves ten
+browser contexts alive has not finished.
 
 Return exactly:
 
