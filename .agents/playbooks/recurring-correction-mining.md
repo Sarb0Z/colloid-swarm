@@ -18,10 +18,11 @@ prompted it. Track record: 2026-07, 10 corrections mined, 5 adopted; 2026-08-21,
 
 - **Corpus.** Human-authored turns only, from `~/.claude/projects/*/*.jsonl`
   and, for sessions before 2026-09-01, `~/.codex/sessions/**/*.jsonl`. Drop
-  subagent threads and hook or system injections; some still leak, so
-  discard them by hand. Codex re-indexed Claude history on 2026-08-03, so
-  de-duplicate on text before counting, and treat any host split across that
-  date as unreliable.
+  subagent threads and hook or system injections — the harness talking to
+  itself, which counted as corrections invents complaints nobody made; some
+  still leak, so discard them by hand. Codex re-indexed Claude history on
+  2026-08-03, so de-duplicate on text before counting, and treat any host
+  split across that date as unreliable.
 - **Filter.** A keyword pass is a candidate generator, not a classifier.
   Expect precision near 30%; verify each candidate against the turn before
   it, which must show the agent behavior being corrected. Cap per-turn text
@@ -31,7 +32,8 @@ prompted it. Track record: 2026-07, 10 corrections mined, 5 adopted; 2026-08-21,
   evidence against the rule.
 
 Reconstruct from the transcript's own user messages, never from a summary of
-them. Quote verbatim, with project and date.
+them: a summary keeps what the summarizer understood, and the correction lives
+in the words it smoothed. Quote verbatim, with project and date.
 
 ## Classify every correction
 
@@ -48,9 +50,10 @@ needs at least two corrections in separate sessions.
 
 Order of preference is gate, then contract edit. A class with a rule that
 corrections outlived is a **gate**, not a stronger sentence: rewriting the
-prose a second time is the failure this playbook exists to stop. A class whose
-rule exists and whose corrections all predate it is **already covered**, however
-loud the quotes.
+prose a second time is the failure this playbook exists to stop, and it is the
+tempting one, because a sentence costs a minute and a gate costs a test. A
+class whose rule exists and whose corrections all predate it is **already
+covered**, however loud the quotes.
 
 Weigh each proposed gate against the harness before building it: a regex that
 fires on 19% of prompts is noise, one that fires on 7% is a reminder. Measure
@@ -59,7 +62,8 @@ the rate on the corpus and record it beside the mining.
 ## One class, one change
 
 Every adopted class ships as its own change with a firing test or, for a
-contract edit, the one sentence. Do not batch unrelated classes.
+contract edit, the one sentence. Do not batch unrelated classes: a batch whose
+gate misfires goes back out whole, taking the classes that worked with it.
 Interventions that conflict across classes (over-asking against publishing
 without permission) are resolved in one change that states the boundary, with
 the operator's own words as the source.
@@ -69,7 +73,8 @@ the operator's own words as the source.
 Write one `knowledge/research/` entry: method, corpus size, the class table
 with counts, the rule or gate each class got, and every rejected class with
 its reason. Counts come from a command, graded as the entry's own measurement.
-Never revise an earlier mining; a later run is a new entry that cites it.
+Never revise an earlier mining; a later run is a new entry that cites it, so
+the record keeps which rules the corrections outlived.
 
 ## Stop
 

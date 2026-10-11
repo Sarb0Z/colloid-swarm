@@ -17,5 +17,6 @@ Both frames continue in this order:
 1. **The question** — what was being investigated, and why.
 2. **Findings** — the answer, root cause, or conclusion, each tied to the
    evidence that establishes it (the files, commands, or sources).
-3. **Ruled out** — dead ends and why, so the next investigator skips them.
+3. **Ruled out** — dead ends and why, so the next investigator skips them; an
+   unrecorded dead end is walked again, at full price.
 4. **Open questions, risks, and the recommended next step.**

@@ -21,4 +21,4 @@ The scaffold and its contracts are not documentation.
 A handoff, when the user requests one, is one self-contained repository-local
 document under `docs/handoff/`: objective, current state, evidence, decisions,
 limitations, remaining gates, and the exact next action with any authorization
-it needs.
+it needs, so its reader can act without the session that wrote it.

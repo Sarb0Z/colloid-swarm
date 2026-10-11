@@ -1,7 +1,8 @@
 # Workflow: Verify
 
 QA of a deployed or built artifact. It runs against the environment the user
-reaches, not a local stand-in, and changes nothing there.
+reaches, not a local stand-in, and changes nothing there: a stand-in verifies
+the stand-in, and a verifier that writes has become one more change to verify.
 
 | Step | Standard | Critical |
 |---|---|---|
