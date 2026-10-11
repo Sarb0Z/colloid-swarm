@@ -1,7 +1,9 @@
 # Static review axes
 
-Hostile review inspects source and intent. QA executes scenarios. Skip an axis
-that the artifact cannot exhibit; name every group you worked.
+Hostile review inspects source and intent; QA executes scenarios, and neither
+stands in for the other. Skip an axis that the artifact cannot exhibit; name
+every group you worked, so a review that found nothing can be told from one
+that looked at nothing.
 
 ## 1. Contract and exposure
 
@@ -17,8 +19,9 @@ that the artifact cannot exhibit; name every group you worked.
 
 - **Data integrity** — races, check-then-act, non-atomic updates, ordering
   assumptions, and duplicate processing cannot corrupt or lose state.
-- **Failure semantics** — an unavailable check is distinct from a negative;
-  errors reach an owner and batch-item failures are counted rather than hidden.
+- **Failure semantics** — an unavailable check is distinct from a negative (a
+  timeout is neither a grant nor a denial); errors reach an owner and
+  batch-item failures are counted rather than hidden.
 - **Boundary ownership** — validation, normalization, and business rules live
   at the boundary that can enforce them; no client-only or type-only invariant.
 

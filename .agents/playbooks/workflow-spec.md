@@ -1,7 +1,8 @@
 # Workflow: Spec
 
 Specifications, plans, research, and meeting intake. The deliverable may be the
-spec itself; Spec ends there unless the operator asks for the build.
+spec itself; Spec ends there unless the operator asks for the build. A spec that
+slides into code has skipped the review it was written to receive.
 
 | Step | Disposable | Standard | Critical |
 |---|---|---|---|
