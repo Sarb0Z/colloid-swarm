@@ -18,21 +18,21 @@ description: >
 
 # Mobile responsive web
 
-Design each component for the constraints of wherever it lands: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column. A layout tuned on a desktop monitor fails on the phone in ways a resized window never shows: the hero under the address bar, the input that zooms.
+Design constraint-aware components: a card, form, or hero must render correctly in a sidebar, a modal, a full-bleed section, or the main column.
 
 ## Principles
 
-Each principle is binding; full detail and examples are in [references/modern-css.md](./references/modern-css.md).
+These are binding; detail and examples are in [references/modern-css.md](./references/modern-css.md).
 
-1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` on top; `max-width` queries are banned, because they produce heavier CSS and regress whenever a new small device appears.
-2. **`svh` for heroes, `dvh` for bottom-anchored elements.** Never `100vh` or `min-h-screen`: either overflows behind the iOS address bar, so the first paint tucks the bottom of the hero behind browser chrome.
-3. **Fluid typography through `clamp()`,** not breakpoint ladders. Pair it with `break-words`, and never put `text-balance` on a long heading, which it breaks mid-syllable at narrow widths.
-4. **Container queries for reusable components.** When a card lives in more than one slot, switch from media queries to container queries: a media query answers how wide the screen is, when the card needs to know how wide its parent is. Writing `md:` rules for a component that could land in a narrow slot is the tell.
+1. **Mobile-first CSS.** Author base styles for the smallest viewport and layer `sm:`, `md:`, and `lg:` on top; `max-width` queries are banned.
+2. **`svh` for heroes, `dvh` for bottom-anchored elements.** Never `100vh` or `min-h-screen`, which overflow behind the iOS address bar.
+3. **Fluid typography through `clamp()`,** not breakpoint ladders. Pair it with `break-words`; never `text-balance` on long headings.
+4. **Container queries for reusable components.** When a card lives in more than one slot, switch from media queries to container queries.
 5. **48 × 48 px touch targets, 8 px spacing.** WCAG 2.2 sets 24 px as the floor; this project holds 48 px as the standard.
-6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)` or Tailwind `hover:*`, and never hide critical information behind hover; on touch, a hover-only control is not degraded but absent.
-7. **Safe-area insets on notched devices.** `viewport-fit=cover` with `env(safe-area-inset-*)` for fixed bars and full-bleed content; without them a fixed CTA sits under the home indicator, clipped on every notched phone.
+6. **Hover is not universal.** Gate hover effects with `@media (hover: hover)` or Tailwind `hover:*`, and never hide critical information behind hover.
+7. **Safe-area insets on notched devices.** `viewport-fit=cover` with `env(safe-area-inset-*)` for fixed bars and full-bleed content.
 8. **No input `font-size < 16px`.** iOS Safari zooms on focus below 16 px.
-9. **Core Web Vitals are a design constraint, not a post-launch audit.** LCP, INP, and CLS are evaluated on the mobile crawl, so a page that scores well only on desktop is measured as the page it is on a phone.
+9. **CWV is a design constraint.** LCP, INP, and CLS are evaluated on the mobile crawl; they are not a post-launch audit.
 
 ## Core workflow
 
@@ -40,7 +40,7 @@ Follow these five steps for every responsive fix.
 
 ### 1. Audit — screenshot the current state
 
-Capture the page at mobile viewport **before any code changes**; without the before, the after proves nothing, and a regression the fix introduced cannot be told from one it found.
+Capture the page at mobile viewport **before any code changes**.
 
 ```typescript
 const viewports = [
@@ -54,7 +54,7 @@ Take full-page, hero, and scrolled-section screenshots, and record every text ov
 
 ### 2. Fix the hero and above-the-fold first
 
-The highest-impact area, and almost always the LCP element, the first paint every visitor waits for. Hero patterns are in [references/component-patterns.md](./references/component-patterns.md); LCP rules in [references/performance-cwv.md](./references/performance-cwv.md).
+The highest-impact area, and the LCP element. Hero patterns are in [references/component-patterns.md](./references/component-patterns.md); LCP rules in [references/performance-cwv.md](./references/performance-cwv.md).
 
 ### 3. Fix content sections top to bottom
 
@@ -66,7 +66,7 @@ Bottom bars, scroll indicators, and sticky CTAs must clear the home indicator th
 
 ### 5. Verify — screenshots and the mandatory scenarios
 
-Re-screenshot, then run the mandatory test scenarios in [references/viewport-testing.md](./references/viewport-testing.md): portrait, landscape, landscape with keyboard, 200% font scale, notched device, and Slow 4G Lighthouse. Run `bun run typecheck` and `bun run lint`.
+Re-screenshot, then run the mandatory scenarios in [references/viewport-testing.md](./references/viewport-testing.md): portrait, landscape, landscape with keyboard, 200% font scale, notched device, and Slow 4G Lighthouse. Run `bun run typecheck` and `bun run lint`.
 
 ## Codebase conventions
 
@@ -80,7 +80,7 @@ Re-screenshot, then run the mandatory test scenarios in [references/viewport-tes
 
 ### Container
 
-The `Container` component wraps with `mx-auto px-4` and nothing more; it does **not** constrain inner content width, so pair it with an explicit `max-w-5xl`, `max-w-2xl`, or another width class.
+The `Container` component wraps with `mx-auto px-4` only and does **not** constrain inner content width; pair it with `max-w-5xl`, `max-w-2xl`, or another width class.
 
 ### Spacing scale
 
@@ -93,7 +93,7 @@ Padding is progressive, never a single-step value:
 <h2      className='mb-3 sm:mb-4 md:mb-6'>   {/* headings */}
 ```
 
-Space children with `gap-*` on the container, not with margins on the children.
+Use `gap-*` on containers, not margins on children.
 
 ### Typography
 
@@ -133,7 +133,7 @@ Space children with `gap-*` on the container, not with margins on the children.
 <FormLabel className='hidden md:block'>Destination</FormLabel>
 ```
 
-`text-base` (16 px) on a mobile input prevents the iOS focus-zoom.
+`text-base` (16 px) on mobile input prevents iOS focus-zoom.
 
 ### Safe-area insets
 
@@ -189,7 +189,7 @@ z-10    — Card overlays, gradients
 
 ### A mobile fix must never break desktop, nor a desktop fix mobile
 
-When fixing a mobile-specific defect, always verify that the same interaction still works on desktop. The temptation is to stop at the viewport where the defect was reported — the fix is visibly right there, and the breakage it caused lives on a screen nobody has open. The common breakages:
+When fixing a mobile-specific defect, always verify the same interaction still works on desktop. Common breakages:
 
 | Mobile bug | Naive fix | Desktop breakage |
 |-----------|-----------|------------------|
@@ -198,7 +198,7 @@ When fixing a mobile-specific defect, always verify that the same interaction st
 | Touch targets too small | Increase padding globally | Desktop layout shifts, forms look bloated |
 | Sidebar → drawer on mobile | Move filters into sheet, delete sidebar code | Desktop loses sidebar entirely |
 
-**Rule:** after any interaction fix, test the *exact same user flow* on both viewports; a fix verified on one is a fix verified on half the product. In this codebase the dropdown auto-reopen was fixed by blocking *only* the `useEffect` auto-open path, which fires when GraphQL results return, and leaving `onFocus` — manual user intent — untouched. A ref named `suppressAutoOpenRef` makes that intent explicit: it does not suppress a manual reopen.
+**Rule:** after any interaction fix, test the *exact same user flow* on both viewports. This codebase fixed the dropdown auto-reopen by blocking *only* the `useEffect` auto-open path (which fires when GraphQL results return) and leaving `onFocus`, manual user intent, untouched; a ref named `suppressAutoOpenRef` makes that explicit and does not suppress a manual reopen.
 
 Worked case studies for this trap class — Card `overflow-hidden` clipping, sidebar → bottom sheet, stacked duplicate content, button-group wrap — live in [references/anti-patterns.md](./references/anti-patterns.md) under "Cross-viewport trap case studies".
 
@@ -206,8 +206,8 @@ Worked case studies for this trap class — Card `overflow-hidden` clipping, sid
 
 - **[references/modern-css.md](./references/modern-css.md)** — mobile-first architecture, `svh`/`dvh`/`lvh`, container queries, fluid `clamp()`, hover and pointer queries, safe-area insets.
 - **[references/responsive-images.md](./references/responsive-images.md)** — Next.js `<Image>`, `<picture>` art direction, srcset and sizes, AVIF/WebP, DPR cap, CLS prevention.
-- **[references/performance-cwv.md](./references/performance-cwv.md)** — LCP, INP, and CLS optimisation, focused on mobile and on this project's stack.
+- **[references/performance-cwv.md](./references/performance-cwv.md)** — LCP/INP/CLS optimisation focused on mobile and on this project's stack.
 - **[references/component-patterns.md](./references/component-patterns.md)** — codebase-specific component shapes: hero, search form, card grids, mobile menu, scroll indicator.
-- **[references/audit-checklist.md](./references/audit-checklist.md)** — the full pre-ship checklist, grouped by concern.
-- **[references/viewport-testing.md](./references/viewport-testing.md)** — Playwright flows and the mandatory test scenarios: orientation, 200% font, safe area, Lighthouse.
-- **[references/anti-patterns.md](./references/anti-patterns.md)** — a fast lookup table of what review flags.
+- **[references/audit-checklist.md](./references/audit-checklist.md)** — full pre-ship checklist, grouped by concern.
+- **[references/viewport-testing.md](./references/viewport-testing.md)** — Playwright flows and mandatory test scenarios: orientation, 200% font, safe area, Lighthouse.
+- **[references/anti-patterns.md](./references/anti-patterns.md)** — fast lookup table of what review flags.
