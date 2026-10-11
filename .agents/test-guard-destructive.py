@@ -85,6 +85,22 @@ BLOCK = [
     "setsid rm -rf /",
     "setsid -f git push --force origin main",
     "uv run --with x rm -rf /",
+    "bundle exec rm -rf /",
+    "bundle exec --gemfile Gemfile.ci git push --force origin main",
+    "poetry run rm -rf /",
+    "poetry run -C api rm -rf /",
+    "pipenv run git reset --hard HEAD~3",
+    "dotenv rm -rf /",
+    "dotenv -e .env.production -- rm -rf /",
+    "dotenv -e .env -e .env.local -v X=1 -- git push --force",
+    "dotenv-cli -e .env -- rm -rf /",
+    "dotenv -f .env.local,.env rm -rf /",
+    "dotenv run rm -rf /",
+    "dotenv -f .env run --override rm -rf /",
+    # A line continuation is deleted by the shell, so it hides nothing.
+    "git \\\n push --force origin main",
+    "rm \\\n-rf /",
+    "rm -rf \\\n /",
     "bash -lc 'rm -rf ~/x'",
     "bash -ec 'rm -rf /'",
     "bash -o pipefail -c 'rm -rf /'",
@@ -517,6 +533,22 @@ check("a descriptor duplication stays one redirect",
       [c.words for c in guard.normalize("make 2>&1")] == [["make"]])
 check("env -S runs its value as the command",
       guard.lead(["env", "-S", "rm -rf /tmp/x", "y"]) == ["rm", "-rf", "/tmp/x", "y"])
+stripped = []
+check("lead reports the prefix it strips, wrapper by wrapper",
+      guard.lead(["A=1", "dotenv", "-e", ".env.prod", "--", "bundle", "exec", "rake", "db:migrate"],
+                 stripped) == ["rake", "db:migrate"]
+      and stripped == [("=", "A=1"), ("dotenv", ["-e", ".env.prod", "--"]), ("bundle exec", [])],
+      str(stripped))
+check("ssh_target names the host past ssh's options",
+      guard.ssh_target(["ssh", "-p", "22", "-i", "key", "deploy@prod", "ls"]) == "deploy@prod"
+      and guard.ssh_target(["ls"]) is None)
+check("a backslash-newline inside single quotes is data",
+      [c.words for c in guard.normalize("echo 'a\\\nb'")] == [["echo", "a\\\nb"]])
+check("dotenv -p prints a variable and runs nothing",
+      guard.lead(["dotenv", "-p", "rm", "-rf", "/"]) == [])
+check("a bare bundle or poetry word is not a wrapper",
+      guard.lead(["bundle", "install"]) == ["bundle", "install"]
+      and guard.lead(["poetry", "lock"]) == ["poetry", "lock"])
 check("an input redirect is not a target",
       [command.targets for command in guard.normalize("wc -l < /etc/passwd")] == [[]])
 
