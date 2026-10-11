@@ -3,19 +3,18 @@ name: scalability-audit
 description: Find where a growing system breaks before it breaks. Nine failure laws with detection questions, a nine-step audit across the whole system, and the remedy shapes that hold. Use for a scalability audit, scale review, capacity review, blast-radius review, reservoir or retention review, pool saturation or concurrency review, or when asking what breaks next as N grows.
 ---
 
-# Scalability Audit
+# Scalability audit
 
-Predict where a growing system breaks, then find the breaks you have not hit
-yet.
+Predict where a growing system breaks, then find the breaks it has not hit yet.
 
-The laws in §2 explain failures a system has already had. The audit in §1 finds
-the ones it has not. The audit does not require knowing the failure in advance,
-which is the whole point of running it.
+The laws in §2 explain failures a system has already had; the audit in §1 finds
+the ones it has not, without foreknowledge of the failure — the whole point of
+running it.
 
 These laws come from mining 28 sessions and 181 findings in one production
 system into 10 recurring failure classes, each re-verified against live code.
-The laws generalise. The evidence does not travel, so this skill does not
-reproduce another system's numbers — gather your own as you go.
+The laws generalise; the evidence does not travel, so this skill reproduces no
+other system's numbers — gather your own as you go.
 
 ## When to use this
 
@@ -26,13 +25,13 @@ reproduce another system's numbers — gather your own as you go.
 | Explaining why something broke | §2 |
 | Fixing one you found | §3 |
 
-A hostile review flags the axis. This skill runs the sweep. Do not run both on
+A hostile review flags the axis; this skill runs the sweep. Do not run both on
 the same diff — the review covers a change, this covers a system.
 
 ## §1 The audit
 
-A fixed procedure over the whole system. Work through every step. Each one
-produces an artefact; a step with nothing to show means it was not run.
+A fixed procedure over the whole system. Work through every step; each produces
+an artefact, and a step with nothing to show was not run.
 
 1. **Inventory every N.** List every quantity that grows: entities, rows,
    users, jobs, files. Record today's value and where it is measured.
@@ -48,7 +47,7 @@ produces an artefact; a step with nothing to show means it was not run.
    holds are open. Record the smallest link — that one, not the sum, is the
    path's real concurrency limit. Run it on the most expensive path as well as
    the common one.
-6. **Blast-radius census.** Every automated mutation, with the maximum
+6. **Blast-radius census.** Every automated mutation of state, with the maximum
    entities one run can change, and whether a cap and a corroborating signal
    exist.
 7. **Correlation map.** Every resource shared across N, with the count of
@@ -60,10 +59,9 @@ produces an artefact; a step with nothing to show means it was not run.
 
 ### Turning findings into tripwires
 
-A finding you cannot detect again is a finding you will re-earn. For each one,
-add the cheapest thing that would have caught it: an assertion, a counter, a
-query in a dashboard, a scheduled check. Prefer a tripwire that fails toward
-alerting.
+A finding you cannot detect again is a finding you will re-earn. For each, add
+the cheapest detector that would have caught it — an assertion, a counter, a
+dashboard query, a scheduled check — and prefer one that fails toward alerting.
 
 ## Output
 
@@ -72,7 +70,7 @@ interesting they are. For each: the law it violates, the location, the
 arithmetic or census entry that proves it, the distance to the wall, and the
 cheapest tripwire that would catch it again.
 
-State which audit steps you ran and which you could not. A sweep that silently
+State which audit steps you ran and which you could not: a sweep that silently
 skipped steps reads as coverage it does not have.
 
 ## §2 The nine laws
@@ -112,18 +110,18 @@ fields.
 ### Failure visibility
 
 - A background job must re-raise after logging, so the framework's own failure
-  tracking and any paging path actually fire. Logging alone is not enough.
+  tracking and any paging path fire; logging alone is not enough.
 - A loop over many items isolates a per-item exception into its own counted
-  bucket. Never drop it, and never fold it into a legitimate skip.
+  bucket; never drop it or fold it into a legitimate skip.
 - A systemic fault — a broken session, a dead connection — still aborts loudly
   rather than being swallowed once per item.
 - A handler that enqueues downstream work and acknowledges success must not
   treat "enqueued" and "processed" as the same fact.
 
-WARNING: Per-item isolation is only safe when the loop body holds no external
+Per-item isolation is safe only when the loop body holds no external
 reservation partway through, such as a budget hold or an in-flight lock.
-Catching broadly across a reservation without a matching release is a silent
-leak, not a fix.
+A broad catch across a reservation without a matching release is a silent leak,
+not a fix.
 
 ### Blast-radius caps
 
@@ -134,7 +132,7 @@ refuses and pages over one that truncates silently.
 ### Reservoirs
 
 Give every source a drain and every drain a source. Retention needs an owner
-and a schedule. A depleting reservoir needs an alarm on its level, not on its
+and a schedule. A depleting reservoir needs an alarm on its level, not its
 consumption.
 
 ### Occupancy

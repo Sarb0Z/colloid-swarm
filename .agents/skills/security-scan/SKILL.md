@@ -2,34 +2,30 @@
 name: security-scan
 description: >
   Commit-time secret-and-dependency gate. Scans the staged diff for hardcoded
-  secrets, credentials, API keys, and known-vulnerable dependencies, then HARD-BLOCKS
+  secrets, credentials, API keys, and known-vulnerable dependencies, then hard-blocks
   the commit when a secret is present and warns on vulnerable deps. Use when the user
   types "security-scan", "/security-scan", "secret check", "scan for secrets", "did I
   stage a key", or as a pre-commit / pre-push gate before code leaves the machine.
 ---
 
-# Security Scan Skill
+# Security scan
 
-A high-precision, commit-time gate. Stop secret leaks before they reach `git push`.
-Once a secret hits the remote it is compromised even if reverted — so this is a
-**hard gate**, never a suggestion.
+A high-precision, commit-time gate that stops a secret short of `git push`. A
+secret on the remote is compromised even if reverted, so this is a **hard
+gate**, never a suggestion.
 
----
+## Hard rules
 
-## Hard Rules
+- **Block on any high-confidence secret match**, without exception; a "looks like
+  a test value" override needs the user's explicit approval in the chat.
+- **Scan staged content only** — `git diff --cached`, never the working tree —
+  and never re-flag a secret the user already cleared.
+- **Report the line and a masked preview**, enough to identify the leak without
+  re-exposing it in the chat.
+- **Keep the dependency check advisory:** warn on known vulnerabilities, never
+  block; CI and dedicated dependency tooling own that gate.
 
-- **Block on any high-confidence secret match.** No exceptions. No "looks like a test
-  value" override without an explicit, in-chat user confirmation.
-- **Scan staged content only** — `git diff --cached`, never the working tree. Don't
-  re-flag secrets the developer already cleared.
-- **Surface line + masked preview.** Show enough to identify the leak without
-  re-exposing it in chat.
-- **Dependency check is advisory.** Flag known vulns; warn, don't block. CI and
-  dedicated dep tooling own that gate.
-
----
-
-## Secret Corpus
+## Secret corpus
 
 ### High-confidence — HARD BLOCK (exit 2)
 
@@ -50,19 +46,18 @@ Once a secret hits the remote it is compromised even if reverted — so this is 
 | `.env` file staged | any staged path matching `**/.env`, `**/.env.*` — except `.env.example`, `.env.template`, `.env.sample` |
 | Generic high-entropy | a string ≥ 32 chars matching `[A-Za-z0-9+/=_-]+` assigned to a var named `*secret*`, `*token*`, `*key*`, `*password*`, `*passwd*`, `*api_key*`, `*apikey*`, `*auth*` |
 
-For high-entropy: prefer a real entropy check (Shannon ≥ ~4.0 bits/char) over raw
-length so long-but-structured values (UUIDs, base64 test fixtures) don't false-fire.
+Judge high-entropy values by a real entropy measure (Shannon ≥ ~4.0 bits/char)
+rather than raw length, so long but structured values (UUIDs, base64 test
+fixtures) do not false-fire.
 
 ### Medium-confidence — WARN (exit 1)
 
-- Hardcoded URLs to localhost / internal IPs in non-test code (leaks infra topology)
-- Email + password pairs in source
+- Hardcoded URLs to localhost or internal IPs in non-test code (they leak infrastructure topology)
+- Email and password pairs in source
 - Private-range IPv4 (`192.168.*`, `10.*`, `172.16–31.*`) outside test code
 - Comments like `// TODO remove before commit`, `// real key:`, `# hardcoded creds`
 
----
-
-## Execution Steps
+## Execution
 
 ### 1. Pull the staged diff
 
@@ -73,34 +68,34 @@ git diff --cached --name-only --diff-filter=ACMR
 
 ### 2. Match added lines only
 
-Scan lines beginning with `+` in the diff body — **not** `+++` file headers, and never
+Scan only diff-body lines beginning with `+` — **not** `+++` file headers, never
 removed (`-`) lines. For each hit capture:
-- File + line number
-- Class name (e.g. "Stripe live key")
+- File and line number
+- Class name (such as "Stripe live key")
 - Masked preview: first 4 chars + `***` + last 4 chars
 
 ### 3. False-positive allowlist
 
-A match is downgraded to INFO (reported, not blocked) when any of these hold:
+Downgrade a match to INFO (reported, not blocked) when any of these holds:
 
 - File path contains `test`, `spec`, `fixture`, `mock`, `example`, `sample`, `__snapshots__`
 - Value is an obvious placeholder: `xxxxxxxxxxxx`, `your-key-here`, `changeme`,
   `<API_KEY>`, `${ENV_VAR}`, `process.env.X`, `os.environ[...]`, `import.meta.env.X`
 - The value is an env-var reference, not a literal (`${...}`, `$VAR`, template interpolation)
-- The line is inside a comment explicitly marked `// example:` / `# example:`
+- The line sits inside a comment explicitly marked `// example:` or `# example:`
 
-Still surface these as INFO so the developer can sanity-check — a real key pasted into
-a `test` file is still a real key.
+Report these as INFO all the same: a real key pasted into a `test` file is still
+a real key.
 
 ### 4. Dependency check (advisory)
 
-If a manifest is staged (`package.json`, `requirements.txt`, `pyproject.toml`, `go.mod`,
-`Gemfile`, `Cargo.toml`, `pom.xml`, …), run the project's native audit command — pick it
-from the manifest, don't hardcode a package manager. Examples the agent chooses among:
+When a manifest is staged (`package.json`, `requirements.txt`, `pyproject.toml`, `go.mod`,
+`Gemfile`, `Cargo.toml`, `pom.xml`, …), run the project's native audit command, chosen
+from the manifest, never a hardcoded package manager. Candidates:
 `npm audit --audit-level=high`, `pnpm audit`, `yarn npm audit`, `bun audit`, `pip-audit`,
 `osv-scanner`, `govulncheck`, `bundler-audit`, `cargo audit`.
 
-Report high/critical findings only. Never block on a dep vuln.
+Report only high and critical findings, and never block on one.
 
 ### 5. Output format
 
@@ -132,12 +127,10 @@ remove the secret, and move it to an env var or secrets manager.
 | `1` | only WARN / INFO findings |
 | `2` | HARD BLOCK — secrets present, refuse the commit |
 
-The exit code is the contract a pre-commit hook keys on. `2` must stop the commit;
-`1` is informational and lets it through.
+The exit code is the contract a pre-commit hook keys on: `2` must stop the commit;
+`1` informs and lets it through.
 
----
+## Output style
 
-## Output Style
-
-Scan output stays plain prose. A leaked secret is a factual finding — report it
-precisely, mask it, and give the one concrete remediation step. No drama, no essay.
+Scan output stays plain prose. Report a leaked secret as the fact it is —
+precisely, masked, with the one concrete remediation step. No drama, no essay.
