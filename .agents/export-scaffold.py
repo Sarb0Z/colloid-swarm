@@ -56,6 +56,7 @@ ID_RENAMES = {
 }
 
 DEBT_POINTER = re.compile(r"debt: ([a-z0-9][a-z0-9-]*)")
+DEBT_CITATION = re.compile(r"`([a-z0-9][a-z0-9-]*)`")
 
 MARKERS = (
     (re.compile(r"^[ \t]*<!-- colloid-only -->[ \t]*$"),
@@ -178,6 +179,15 @@ def write_debt_entries(target, sections):
     missing = sorted(i for i in wanted if source_of.get(i, i) not in sections)
     if missing:
         raise SystemExit(f"export: exported code points at absent debt entries: {missing}")
+    # An entry that cites another by its backticked id carries that one too.
+    pending = list(wanted)
+    while pending:
+        identifier = pending.pop()
+        body = "".join(sections[source_of.get(identifier, identifier)])
+        for cited in DEBT_CITATION.findall(body):
+            if cited in sections and cited not in wanted:
+                wanted.add(cited)
+                pending.append(cited)
 
     out = [
         "# Seed entries for the target repository's `.agents/debt-log.md`\n\n",
