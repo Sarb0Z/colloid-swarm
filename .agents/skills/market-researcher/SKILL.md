@@ -5,9 +5,9 @@ description: Market and competitor research whose output someone will build on �
 
 # Market researcher
 
-Research whose output someone will build on. Its characteristic failure is not an empty result but a fluent, complete-looking report whose numbers came from one content farm quoting another.
+Research whose output someone will build on. Its characteristic failure is not an empty result but a fluent, complete-looking report whose numbers came from one content farm quoting another. The fluency is the danger: a figure repeated often enough sounds sourced, and a report assembled from such figures looks finished long before it is.
 
-**Provenance is part of the claim.** An ungraded number is not a weaker finding but a different kind of object, and the report must name which kind it holds.
+**Provenance is part of the claim.** An ungraded number is not a weaker finding but a different kind of object, and the report must name which kind it holds. A reader handed both in one voice builds on the folklore with the confidence the primary earned.
 
 This is the long-form sweep. A single external fact in the middle of an ordinary turn belongs to `search-and-cite`, which draws the line between a quick inline lookup and a delegated cell; this skill begins on the far side of that line. Throughout, "the project" is the team commissioning the research, whose constraints and options the sweep serves.
 
@@ -36,11 +36,11 @@ Research progress:
 
 **Read `.agents/knowledge/index.md` first.** Earlier sweeps are filed there, one dated line each. Open every entry whose subject overlaps this brief: it supplies a starting target list and the gaps the last pass could not close, and it spares the sweep the full price of rediscovering what the store already holds.
 
-Treat a filed entry as evidence with an expiry, never as a settled fact. Prices, tiers, and thresholds move, so re-verify anything load-bearing that is more than a few months old, and file the new reading rather than editing the old one. An entry the market has moved past is itself a finding: name the drift in the write-up.
+Treat a filed entry as evidence with an expiry, never as a settled fact. Prices, tiers, and thresholds move, so re-verify anything load-bearing that is more than a few months old, and file the new reading rather than editing the old one, so the dated reading it replaces stays on record as evidence of the drift. An entry the market has moved past is itself a finding: name the drift in the write-up.
 
 ### 1. State the project's constraints
 
-Before looking at anything, write down what binds the project: team size, the infrastructure it has and lacks, what the data model already commits to, what is gated or paid, its policy positions, and what it has deliberately chosen not to build.
+Before looking at anything, write down what binds the project — a constraint written after the sources are read bends quietly to fit them: team size, the infrastructure it has and lacks, what the data model already commits to, what is gated or paid, its policy positions, and what it has deliberately chosen not to build.
 
 **Constraints are a research input, not a filter applied to the results.** They change the question — *"how does this mechanic work"* and *"how does this mechanic work without push notifications"* return different sources, and only the second is usable. They change what "best" means too: the best implementation for a team with a data science function is not the best one for this project. Ask who solved the problem **under constraints like the project's**; the scrappier answer usually fits better than the market leader's.
 
@@ -264,7 +264,7 @@ Kimi receives `prompt='[stamp] + [brief]'`. Kimi CLI also exposes `AgentSwarm`, 
 
 `.agents/personas/researcher.md` is the engine-neutral contract and already carries the escalation ladder, the corroboration rules, and the `CLAIMS / SOURCES / GAPS` return shape, so the brief does not restate them. The brief carries the market-research-specific part: see [brief-template.md](brief-template.md), and [finding-gaps.md](finding-gaps.md) when the target includes a gap sweep.
 
-**Synthesis never delegates.** Researchers return graded findings; the lead writes the transfer analysis.
+**Synthesis never delegates.** Researchers return graded findings; the lead writes the transfer analysis, because only the lead holds the project's constraints from step 1 against which every finding transfers or does not.
 
 ## Failure modes
 
@@ -272,7 +272,7 @@ Kimi receives `prompt='[stamp] + [brief]'`. Kimi CLI also exposes `AgentSwarm`, 
 
 **Laundering secondary into primary.** A blog citing "their data" is `[S]`. It becomes `[P]` on opening their post and seeing the number there.
 
-**Equal weight to unequal sources.** Rendering a meta-analysis and a listicle in the same voice is the most damaging act a report commits.
+**Equal weight to unequal sources.** Rendering a meta-analysis and a listicle in the same voice is the most damaging act a report commits: the prose has already flattened what the reader would need to regrade.
 
 **Answering the brief's framing instead of the question.** If the brief assumes a daily mechanic and the evidence says weekly, lead with that.
 
