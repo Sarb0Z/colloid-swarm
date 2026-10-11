@@ -47,6 +47,25 @@ root pnpm workspace whose packages fall outside the cone installs partially and
 reports success, so give such a lane the whole workspace. The integration
 worktree is always full.
 
+Some files every lane appends to: service wiring, a generated API contract,
+a seed entry point, a doc index. Declare them with `init --shared <path>`
+(repeatable). A lane cannot own a shared path (`add-lane` refuses any path that
+overlaps one), and any lane may edit one: `submit` accepts changes to shared
+paths, and dirty shared work blocks `submit` and `integrate` like owned work.
+Lanes append to shared files and regenerate generated ones. A sparse lane
+receives a shared directory only through `--also`. A lane may rebase onto a
+sibling in `review` or `reviewed`; `submit` measures its changes from where
+its own commits begin, so the sibling's files do not count against it, but
+only while the sibling's work stays inside its own paths. `integrate` measures
+each lane again against the siblings' current branches, and refuses one whose
+branch moved after its accepted review: `submit` it again. It
+merges in dependency order and still stops on a conflict.
+
+```sh
+.agents/workloop.py init slice-3b --objective '...' --acceptance '...' \
+  --shared docs/index.md --shared apps/web/src/api/schema.ts
+```
+
 `--verify` must be a test command. `init` refuses one the destructive or publish
 rules would refuse — a floor, not a review — and the floor holds even where
 `config.json` switches those hooks off, because `integrate` runs the command
