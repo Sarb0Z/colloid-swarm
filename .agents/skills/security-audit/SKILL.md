@@ -12,7 +12,7 @@ context: fork
 
 # Security audit
 
-A systematic, adversarial, full-stack security audit covering every layer, from Phase 1 through Phase 10. It reads source and never touches a running system, so every finding stands on a `file:line` an engineer can open — and every gap it cannot see from the source, it says.
+A systematic, adversarial, full-stack security audit covering every layer, from Phase 1 through Phase 10.
 
 ## Phase 0 — Orient before you act
 
@@ -23,17 +23,13 @@ Before writing any audit output:
 4. Note `.env.example` / config files — never print secrets, just flag patterns
 5. Build a **feature map**: list every route, controller, model, and role you can find before auditing
 
-The feature map comes first because an audit can only clear what it has listed; a route nobody enumerated is a route nobody checked, and it will not appear in the report as a gap — it will not appear at all.
-
-Document your findings in `security-audit-report.md` from the very first step and **keep updating it continuously** throughout the audit. Never batch findings at the end. The audit runs in a forked context that can be compacted or cut short; a finding held in memory until the last step dies with it, and a finding on disk does not.
+Open `security-audit-report.md` at the first step and **update it continuously** throughout the audit; never batch findings at the end.
 
 ## Execution contract
 
 Read this before starting Phase 1: it defines how findings get recorded, not just what to look for.
 
 ### Work feature by feature, not file by file
-
-The defects worth finding live between layers: a page that hides the admin button, an endpoint that never asks who is calling, a query that scopes to nothing. Read file by file and each layer looks correct alone; trace the feature and the missing check is the gap in the chain.
 
 For each feature:
 1. Identify the frontend components / pages
@@ -45,7 +41,7 @@ For each feature:
 
 ### Finding severity levels
 
-Use these consistently in the report, so a reader can sort by them:
+Use these consistently in the report:
 
 | Level | Meaning |
 |-------|---------|
@@ -92,9 +88,7 @@ Keep `security-audit-report.md` updated continuously, in this structure:
 
 Every security-relevant decision — role, auth state, ownership, input validity — must be
 enforced server-side. A client-side equivalent (hidden button, disabled field, browser
-validation, a role read from `localStorage`) is a UX convenience, not a control: the
-attacker does not use the product's client, and a `curl` against the endpoint never sees the
-button the UI hid. The checklists below apply this per phase; where a phase names a
+validation, a role read from `localStorage`) is a UX convenience, not a control. The checklists below apply this per phase; where a phase names a
 specific vector (role in a request payload, token storage, unvalidated input), that is
 the concrete check — this invariant is why it matters.
 
@@ -114,7 +108,7 @@ the concrete check — this invariant is why it matters.
 - [ ] Logged-in users auto-redirected away from `/login`, `/register`?
 
 ### How to verify
-Search for session creation and destruction code, and trace what happens when `is_active=false` or its equivalent is set. Grep for logout handlers and confirm they call `session.destroy()` / `invalidateToken()` / equivalent. A logout that only clears the cookie on the client leaves the session valid on the server, and a stolen copy of it keeps working.
+Search for session creation and destruction code, and trace what happens when `is_active=false` or its equivalent is set. Grep for logout handlers and confirm they call `session.destroy()` / `invalidateToken()` / equivalent.
 
 ## Phase 2 — Authorization & Role-Based Access Control (RBAC)
 
@@ -130,7 +124,7 @@ Search for session creation and destruction code, and trace what happens when `i
 - [ ] Role hierarchy enforced: can a manager grant permissions above their own level?
 
 ### How to verify
-Pick 3–5 CRUD endpoints. For each: find the route handler, confirm the auth middleware is applied, confirm the ownership or role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user or org. Router-level middleware proves the caller is logged in, not that the record is theirs; that distance is the whole of IDOR.
+Pick 3–5 CRUD endpoints. For each: find the route handler, confirm the auth middleware is applied, confirm the ownership or role check is present inside the handler (not just at the router level), and confirm the DB query scopes to the current user or org.
 
 ## Phase 3 — Password Reset & Account Recovery
 
@@ -232,7 +226,7 @@ Pick 3–5 CRUD endpoints. For each: find the route handler, confirm the auth mi
 
 ## Phase 10 — Business Logic & User Flows
 
-This is where real-world defects hide that automated scanners miss: a scanner knows the shape of an injection, not that "cancelled" must never become "active" again.
+Real-world defects that automated scanners miss hide here.
 
 ### Questions per feature
 - Can a user take an action they shouldn't at this point in the workflow?
@@ -267,4 +261,4 @@ For deep dives on specific vulnerability classes, read:
 - `references/api-checklist.md` — API-specific security checklist
 - `references/grep-patterns.md` — starting grep commands for dependency, secret, and route discovery
 
-Load these only when needed: each one read in full costs context the audit itself needs.
+Load these only when needed, to keep context lean.
