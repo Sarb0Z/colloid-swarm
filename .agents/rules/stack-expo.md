@@ -15,15 +15,15 @@ detect:
 # Expo and React Native Rules
 
 ## Business Invariants
-- Only `EXPO_PUBLIC_`-prefixed variables reach the client bundle, and everything that reaches it is readable by any user of the build. Never give that prefix to a credential. Hold a secret with `eas env:set --visibility secret` and read it on a server the app calls.
-- A route is a file under `app/`. `+not-found.tsx`, `+html.tsx`, and `+native-intent.tsx` are Expo Router's reserved names — a screen must not take a `+` prefix.
+- Only `EXPO_PUBLIC_`-prefixed variables reach the client bundle, and everything that reaches it is readable by any user of the build. Never give that prefix to a credential: the prefix is a publication, not a scope. Hold a secret with `eas env:set --visibility secret` and read it on a server the app calls.
+- A route is a file under `app/`, so a file name is a URL. `+not-found.tsx`, `+html.tsx`, and `+native-intent.tsx` are Expo Router's reserved names — a screen must not take a `+` prefix.
 - A long list uses `FlashList`, never `ScrollView` with a `map`. A `ScrollView` mounts every row at once and the cost is linear in the data.
 - Every list row carries a stable `keyExtractor` and a memoized `renderItem`. An inline arrow rebuilds the row on each parent render and defeats the virtualization.
 - Animation runs on the UI thread through Reanimated worklets. An animation driven from React state re-renders per frame on the JS thread and drops frames under load.
-- A native dependency changes the build, not the bundle. Adding one requires a new development build; it cannot arrive over an update channel.
+- A native dependency changes the build, not the bundle. Adding one requires a new development build; it cannot arrive over an update channel, and the JavaScript that calls it, which can, crashes on every build that lacks it.
 
 ## Abnormal Cases and Rationale
-- The two platforms diverge in ways the type system does not carry: safe-area insets, keyboard avoidance, back-gesture handling, and shadow rendering. Test a screen on both before you call it done.
+- The two platforms diverge in ways the type system does not carry: safe-area insets, keyboard avoidance, back-gesture handling, and shadow rendering. Test a screen on both before you call it done; the platform you did not open is where it breaks.
 - A component that reads `Dimensions` once holds a stale size after rotation or a foldable unfolds. Read the value through a hook that subscribes.
 
 ## Out of Scope

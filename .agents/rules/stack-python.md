@@ -13,10 +13,10 @@ detect:
 
 ## Business Invariants
 - These rules govern code that you write or change. Do not migrate untouched code or change project configuration unless the task asks for it.
-- A new parameter that the function needs is mandatory: add it without a default, and update the call sites. A default is for a parameter that is optional by nature, such as an optional callback (`on_done=None`) or a natural identity like `steepness=1.0`. A new tuning constant that suits most callers must be a named constant or a mandatory argument.
-- A boolean flag may default to `False` only when it adjusts a side aspect of the same operation. When the flag changes what the function means, write a second function with its own name.
+- A new parameter that the function needs is mandatory: add it without a default, and update the call sites. A default lets every call site that should have changed keep running unchanged, and wrong. A default is for a parameter that is optional by nature, such as an optional callback (`on_done=None`) or a natural identity like `steepness=1.0`. A new tuning constant that suits most callers must be a named constant or a mandatory argument.
+- A boolean flag may default to `False` only when it adjusts a side aspect of the same operation. When the flag changes what the function means, write a second function with its own name; `process(items, True)` tells its reader nothing, and the name would have.
 - Never use a mutable default (`def f(items=[])`). Default to `None` and create the value inside the function.
-- A bare `except:` and `except Exception: pass` are defects. Report the failure through the project's logger, or raise it.
+- A bare `except:` and `except Exception: pass` are defects: the bare form catches `KeyboardInterrupt` and `SystemExit` too, and both forms turn a failure into a wrong answer with no traceback. Report the failure through the project's logger, or raise it.
 - Pass external effects (subprocess runners, HTTP clients, the clock, filesystem-heavy helpers) as parameters at module and stage boundaries. The entry point wires the real implementations, and tests pass fakes. Logic code does not import `subprocess` or similar.
 
 ## Abnormal Cases and Rationale
