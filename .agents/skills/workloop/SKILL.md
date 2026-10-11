@@ -47,6 +47,25 @@ root pnpm workspace whose packages fall outside the cone installs partially and
 reports success, so give such a lane the whole workspace. The integration
 worktree is always full.
 
+Some files every lane appends to: service wiring, a generated API contract,
+a seed entry point, a doc index. Declare them with `init --shared <path>`
+(repeatable). A lane cannot own a shared path (`add-lane` refuses any path that
+overlaps one), and any lane may edit one: `submit` accepts changes to shared
+paths, and dirty shared work blocks `submit` and `integrate` like owned work.
+Lanes append to shared files and regenerate generated ones. A sparse lane
+receives a shared directory only through `--also`. A lane may rebase onto a
+sibling in `review` or `reviewed`; `submit` measures its changes from where
+its own commits begin, so the sibling's files do not count against it, but
+only while the sibling's work stays inside its own paths. `integrate` measures
+each lane again against the siblings' current branches, and refuses one whose
+branch moved after its accepted review: `submit` it again. It
+merges in dependency order and still stops on a conflict.
+
+```sh
+.agents/workloop.py init slice-3b --objective '...' --acceptance '...' \
+  --shared docs/index.md --shared apps/web/src/api/schema.ts
+```
+
 `--verify` must be a test command. `init` refuses one the destructive or publish
 rules would refuse — a floor, not a review — and the floor holds even where
 `config.json` switches those hooks off, because `integrate` runs the command
@@ -108,6 +127,18 @@ and records the cell's acknowledgement before the correction cycle.
   --message 'Path ownership conflicts with ingest lane.' --reference '<existing-review-report>#p0'
 .agents/workloop.py ack slice-3b persistence --agent persistence-worker
 ```
+
+**One review round per wave.** A multi-lane wave gets one review round that
+reads every lane's diff; `brief --role reviewer` prints each lane's start point
+and the `git diff <start>..<lane-branch>` command. Each lane's `review` cites
+its section of the one report. A P2 finding is filed, never reopened:
+`review --result reopen` takes `--severity P0` or `P1` explicitly, and a P2
+there, or an `attention --severity P2` on a lane in review, is refused, so
+accept the lane and file it. Submissions are counted, so an attention,
+acknowledgement, and resubmit counts too. A review of a fourth submission is
+refused unless
+`review --ruling "<operator's words>"` is given, and the ruling is stored in the
+review ref; this is deliberately stricter than the playbook's same-shape rule.
 
 `release-stale` makes an interrupted claim resumable, erasing neither evidence nor
 a pending attention item.
