@@ -10,21 +10,27 @@ description: >
 
 # Security scan
 
-A high-precision, commit-time gate that stops a secret before it reaches
-`git push`. A secret that reaches the remote is compromised even if reverted,
-which is why this is a **hard gate** and never a suggestion.
+A high-precision, commit-time gate that stops a secret leak before it reaches
+`git push`. A secret that reaches the remote is compromised even if reverted:
+the revert removes it from the tip, not from the history every clone and fork
+already holds, and the only remedy left is to rotate the key. That asymmetry —
+a block costs a minute, a leak costs a rotation — is why this is a **hard
+gate**, never a suggestion.
 
-## Rules
+## Hard rules
 
-- **Any high-confidence secret match blocks.** A "looks like a test value"
-  override needs the user's explicit approval in the chat; nothing else lifts
-  the block.
-- **Only staged content is scanned** — `git diff --cached`, never the working
-  tree — so a secret the user already cleared is not raised again.
-- **Each hit reports its line and a masked preview**: enough to locate the leak
-  without exposing it again in the chat.
-- **The dependency check is advisory.** It reports known vulnerabilities and
-  warns, never blocks; CI and dedicated dependency tooling own that gate.
+- **Block on any high-confidence secret match.** No exceptions, and no "looks
+  like a test value" override without the user's explicit approval in the chat.
+  Looking like a test value is a property of the string, not of where it came
+  from, and a live key can have it.
+- **Scan staged content only** — `git diff --cached`, never the working tree.
+  The working tree holds what the user has not chosen to commit; do not re-flag
+  secrets the user already cleared.
+- **Report the line and a masked preview**: enough to identify the leak without
+  exposing it again in the chat, which is itself a log.
+- **Treat the dependency check as advisory.** Report known vulnerabilities and
+  warn; do not block. CI and dedicated dependency tooling own that gate, and a
+  vulnerable transitive dependency is not a line the user can unstage.
 
 ## Secret corpus
 
@@ -49,7 +55,8 @@ which is why this is a **hard gate** and never a suggestion.
 
 For high-entropy values, prefer a real entropy measure (Shannon ≥ ~4.0
 bits/char) to raw length, so long but structured values (UUIDs, base64 test
-fixtures) do not false-fire.
+fixtures) do not false-fire. A gate that cries wolf on every UUID teaches its
+user the override, and the override is how the real key gets through.
 
 ### Medium-confidence — WARN (exit 1)
 
@@ -69,15 +76,16 @@ git diff --cached --name-only --diff-filter=ACMR
 
 ### 2. Match added lines only
 
-Scan the diff-body lines that begin with `+` — not the `+++` file headers, and
-never the removed (`-`) lines. Each hit captures:
+Scan the diff-body lines that begin with `+` — **not** the `+++` file headers,
+and never the removed (`-`) lines: a commit that deletes a secret is the remedy,
+not the leak. For each hit capture:
 - file and line number;
 - class name (such as "Stripe live key");
 - masked preview: first 4 chars + `***` + last 4 chars.
 
 ### 3. False-positive allowlist
 
-A match is downgraded to INFO — reported, not blocked — when any of these holds:
+Downgrade a match to INFO — reported, not blocked — when any of these holds:
 
 - The file path contains `test`, `spec`, `fixture`, `mock`, `example`, `sample`, `__snapshots__`.
 - The value is an obvious placeholder: `xxxxxxxxxxxx`, `your-key-here`, `changeme`,
@@ -85,20 +93,21 @@ A match is downgraded to INFO — reported, not blocked — when any of these ho
 - The value is an env-var reference, not a literal (`${...}`, `$VAR`, template interpolation).
 - The line sits inside a comment explicitly marked `// example:` or `# example:`.
 
-These still appear as INFO so the user can verify them: a real key pasted into a
-`test` file is still a real key.
+Still report these as INFO so the user can verify them: the allowlist judges
+the path and the shape, never the value, and a real key pasted into a `test`
+file is still a real key.
 
 ### 4. Dependency check (advisory)
 
 When a manifest is staged (`package.json`, `requirements.txt`, `pyproject.toml`,
 `go.mod`, `Gemfile`, `Cargo.toml`, `pom.xml`, …), run the project's native audit
-command, chosen from the manifest rather than a hardcoded package manager. The
+command — pick it from the manifest; do not hardcode a package manager. The
 agent chooses among such commands as `npm audit --audit-level=high`,
 `pnpm audit`, `yarn npm audit`, `bun audit`, `pip-audit`, `osv-scanner`,
 `govulncheck`, `bundler-audit`, `cargo audit`.
 
-Only high and critical findings are reported, and a dependency vulnerability
-never blocks.
+Report high and critical findings only. Never block on a dependency
+vulnerability.
 
 ### 5. Output format
 
@@ -130,11 +139,13 @@ remove the secret, and move it to an env var or secrets manager.
 | `1` | only WARN / INFO findings |
 | `2` | HARD BLOCK — secrets present, refuse the commit |
 
-A pre-commit hook keys on the exit code, which makes it the contract: `2` stops
-the commit; `1` is informational and lets it through.
+The exit code is the contract a pre-commit hook keys on, and the hook reads
+nothing else: `2` must stop the commit; `1` is informational and lets it
+through. A scan that prints HARD BLOCK and exits `1` has blocked nothing.
 
 ## Output style
 
-Scan output is plain prose. A leaked secret is a factual finding, reported
-precisely, masked, and paired with the one concrete remediation step — no drama,
-no essay.
+Scan output stays plain prose. A leaked secret is a factual finding: report it
+precisely, mask it, and give the one concrete remediation step. No drama, no
+essay — the user who has just staged a key needs the line number, not the
+lecture.
