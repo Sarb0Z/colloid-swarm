@@ -10,6 +10,9 @@
 .agents/.sources-ledger
 .agents/.compaction-pending
 .agents/.wrap-state-*
+.agents/.wrap-edits-*
+.agents/.wrap-commits-*
+.agents/.wrap-head-*
 .agents/.provenance-*
 .agents/.ui-pending-*
 .agents/.teardown-pending-*

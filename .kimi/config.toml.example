@@ -24,7 +24,7 @@
 # inside session-wrap also stays Claude-only (needs a transcript to size
 # the session). Both of the wrap's magnitude measures — uncommitted tree and
 # committed work — are git-only, and session_id keys the state they need,
-# so both work under Kimi.
+# so both work under Kimi; edit-record.sh attributes them to the session.
 #
 # PreCompact/PostCompact payload shapes are unverified (compaction can't be
 # forced in a short probe); both hooks fail open and the marker protocol
@@ -79,6 +79,27 @@ event = "PostToolUse"
 matcher = "Write|Edit"
 command = ".kimi/hooks/adapter.sh post-edit-check.sh"
 timeout = 30
+
+# The wrap's attribution record, which emits nothing. PostToolUse on Write and
+# Edit records the edited path. On Bash, PreToolUse snapshots HEAD and
+# PostToolUse records the commits HEAD gained during the call, so commits need
+# no output field. Kimi's reference names neither an output field nor a call
+# id, so workloop integrate's PASS line goes unread (the wave is recorded when
+# a later shell call lands it on this branch) and concurrent shell calls share
+# one snapshot. Kimi fires PostToolUse only on success: a call that commits and
+# then fails leaves its commits unrecorded, and the wrap counts them for
+# whichever session stops.
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = ".kimi/hooks/adapter.sh edit-record.sh"
+timeout = 10
+
+[[hooks]]
+event = "PostToolUse"
+matcher = "Write|Edit|Bash"
+command = ".kimi/hooks/adapter.sh edit-record.sh"
+timeout = 10
 
 [[hooks]]
 event = "PostToolUse"

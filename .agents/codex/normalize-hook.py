@@ -44,6 +44,16 @@ def text(source: dict, key: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def response_text(response: object) -> str:
+    """Codex sends a local tool's model-facing output, a string or an object."""
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        parts = [response.get(key) for key in ("stdout", "stderr", "output")]
+        return "\n".join(part for part in parts if isinstance(part, str))
+    return ""
+
+
 def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
     source = src if isinstance(src, dict) else {}
     tool_input = source.get("tool_input")
@@ -64,6 +74,19 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         files, warnings = patch_paths(tool_input.get("command"))
         out["files"] = files
         out["warnings"] = warnings
+    elif policy == "edit-record.sh":
+        tool = text(source, "tool_name")
+        command = tool_input.get("command")
+        out["event"] = text(source, "hook_event_name")
+        out["tool_use_id"] = text(source, "tool_use_id")
+        out["session_id"] = text(source, "session_id")
+        out["transcript_path"] = text(source, "transcript_path")
+        out["tool_name"] = tool
+        # apply_patch and Bash both carry tool_input.command: a patch for one,
+        # a shell command for the other.
+        out["files"] = patch_paths(command)[0] if tool == "apply_patch" else []
+        out["command"] = command if tool != "apply_patch" and isinstance(command, str) else ""
+        out["tool_response"] = response_text(source.get("tool_response"))
     elif policy in {"session-wrap.sh", "stop-investigate.sh"}:
         out["stop_hook_active"] = bool(source.get("stop_hook_active", False))
         out["transcript_path"] = text(source, "transcript_path")
