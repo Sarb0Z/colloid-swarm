@@ -76,16 +76,15 @@ fi
 if printf '%s' "$last_msg" | grep -Eqi "$gives_up" \
    || { [[ "$escalated" == "no" ]] && printf '%s' "$last_msg" | grep -Eqi "$asks"; }; then
   cat >&2 <<'EOF'
-Your last message hedged, asked the user to do investigation, or declared
-the task out of scope. Re-read the principles: investigate, then act.
-Read the referenced files, trace the code path, run the read-only
-commands you have access to, and reach a defensible conclusion. Escalate
-to the user only when a decision genuinely requires information or
-authority they alone hold. Continue the work now.
+Your last message hedged, handed investigation to the user, or declared the
+task out of scope. Re-read the principles: investigate, then act. Read the
+referenced files, trace the code path, run the read-only commands within
+reach, and reach a defensible conclusion. Escalate to the user only a decision
+that needs information or authority they alone hold. Continue the work now.
 
-If this IS that escalation, it is missing what makes it one. Carry what you
-found, the options, and your recommendation with its trade-offs, so the user
-can decide in one reply rather than asking you what you would do.
+If this is that escalation, it lacks what makes it one: carry what you found,
+the options, and your recommendation with its trade-offs, so the user can
+decide in one reply instead of asking what you would do.
 EOF
   exit 2
 fi
