@@ -148,7 +148,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh guard-destructive.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" guard-destructive.sh"
           }
         ]
       },
@@ -157,7 +157,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main wait-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main wait-gate.sh"
           }
         ]
       },
@@ -166,7 +166,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh guard-publish.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" guard-publish.sh"
           }
         ]
       },
@@ -175,7 +175,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh edit-record.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" edit-record.sh"
           }
         ]
       },
@@ -184,7 +184,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh denied-tool.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" denied-tool.sh"
           }
         ]
       },
@@ -192,7 +192,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main provenance-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main provenance-gate.sh"
           }
         ]
       },
@@ -201,7 +201,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh parallel-writers-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" parallel-writers-gate.sh"
           }
         ]
       },
@@ -210,7 +210,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main parallel-writers-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main parallel-writers-gate.sh"
           }
         ]
       },
@@ -219,7 +219,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-sessions.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 2;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" worktree-sessions.sh"
           }
         ]
       }
@@ -229,20 +229,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh genome-inject.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" genome-inject.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-provision.sh",
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" worktree-provision.sh",
             "timeout": 600
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh parallel-writers-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" parallel-writers-gate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh workloop-inbox.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" workloop-inbox.sh"
           }
         ]
       }
@@ -253,20 +253,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "POST_EDIT_MODE=write $CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh post-edit-check.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export POST_EDIT_MODE=write CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" post-edit-check.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh post-edit-check.sh",
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" post-edit-check.sh",
             "asyncRewake": true
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh ui-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" ui-gate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh edit-record.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" edit-record.sh"
           }
         ]
       },
@@ -275,7 +275,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh edit-record.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" edit-record.sh"
           }
         ]
       },
@@ -284,7 +284,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh sources-capture.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" sources-capture.sh"
           }
         ]
       },
@@ -293,7 +293,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh ui-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" ui-gate.sh"
           }
         ]
       },
@@ -302,7 +302,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh teardown-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" teardown-gate.sh"
           }
         ]
       },
@@ -311,7 +311,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-sessions.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" worktree-sessions.sh"
           }
         ]
       }
@@ -321,19 +321,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main stop-investigate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main stop-investigate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main ui-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main ui-gate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main teardown-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main teardown-gate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main session-wrap.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main session-wrap.sh"
           }
         ]
       }
@@ -343,15 +343,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh teardown-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" teardown-gate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh parallel-writers-gate.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" parallel-writers-gate.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh workloop-inbox.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" workloop-inbox.sh"
           }
         ]
       }
@@ -361,11 +361,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main session-start.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main session-start.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh worktree-sessions.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" worktree-sessions.sh"
           }
         ]
       }
@@ -375,15 +375,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main research-prime.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main research-prime.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main done-prime.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main done-prime.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main workloop-inbox.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main workloop-inbox.sh"
           }
         ]
       }
@@ -393,7 +393,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent main pre-compact.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main pre-compact.sh"
           }
         ]
       }
@@ -403,7 +403,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adapter.sh --agent subagent workloop-inbox.sh"
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent subagent workloop-inbox.sh"
           }
         ]
       }
@@ -411,6 +411,6 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash \"$CLAUDE_PROJECT_DIR/.agents/claude/statusline.sh\""
+    "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.agents/claude/statusline.sh\" ]||{ d=$PWD;until [ -f \"$d/.agents/claude/statusline.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: relaunch Claude Code from inside the repository\";exit 0;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.agents/claude/statusline.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};exec bash \"$d/.agents/claude/statusline.sh\""
   }
 }

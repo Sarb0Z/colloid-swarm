@@ -130,7 +130,7 @@ for spec in 'PreToolUse EnterWorktree' 'PostToolUse EnterWorktree' 'SessionStart
 import json, sys
 groups = json.load(open(sys.argv[1]))["hooks"].get(sys.argv[2], [])
 want = None if sys.argv[3] == "-" else sys.argv[3]
-sys.exit(not any(g.get("matcher") == want and any(h["command"].endswith("adapter.sh worktree-sessions.sh") for h in g["hooks"]) for g in groups))
+sys.exit(not any(g.get("matcher") == want and any(h["command"].endswith("adapter.sh\" worktree-sessions.sh") for h in g["hooks"]) for g in groups))
 EOF
 done
 

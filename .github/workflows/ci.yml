@@ -43,6 +43,9 @@ jobs:
       - name: Status strip
         run: .agents/test-statusline.sh
 
+      - name: Hook script lookup
+        run: .agents/test-hook-lookup.sh
+
       - name: SEO quick-audit file checks
         run: .agents/skills/seo-geo-growth-audit/scripts/test-quick-audit.sh
 

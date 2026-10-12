@@ -119,6 +119,10 @@ for path in sys.argv[1:]:
                 raise SystemExit(f"export left {path} event {event} a matcher group with no commands: {group}")
 PY
 
+# The kit's own hook-lookup test passes against the kit's own settings.
+HOOK_LOOKUP_SETTINGS="$kit/.claude/settings.json" "$kit/.agents/test-hook-lookup.sh" >/dev/null \
+  || fail "the kit's test-hook-lookup.sh fails against the kit's settings"
+
 [[ -L "$kit/CLAUDE.md" ]] || fail "exported CLAUDE.md is not a link"
 [[ "$(readlink "$kit/CLAUDE.md")" == "AGENTS.md" ]] \
   || fail "exported CLAUDE.md does not target AGENTS.md"
