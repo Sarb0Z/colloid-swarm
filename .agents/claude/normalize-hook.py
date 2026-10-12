@@ -21,6 +21,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "hooks", "lib"))
+import write_targets  # noqa: E402
+
 SKIP = 3
 
 
@@ -33,19 +36,6 @@ def gate(payload, selector):
     if selector == "subagent":
         return spawned
     return spawned and kind in selector.split("|")
-
-
-def written_paths(tool_input):
-    """Every path a write-shaped tool input names, in the order it names them."""
-    files = []
-    for key in ("file_path", "path", "notebook_path"):
-        value = tool_input.get(key)
-        if isinstance(value, str):
-            files.append(value)
-    for edit in tool_input.get("edits") or []:
-        if isinstance(edit, dict) and isinstance(edit.get("file_path"), str):
-            files.append(edit["file_path"])
-    return files
 
 
 def response_text(response):
@@ -98,6 +88,16 @@ def normalize(payload, policy, repo):
         out["tool_input"] = tool_input
         out["agent_id"] = payload.get("agent_id", "")
         out["agent_type"] = payload.get("agent_type", "")
+        # A dispatch's id and the main transcript's path link a started cell
+        # to the marker its prompt carried; cwd resolves a relative target.
+        out["tool_use_id"] = payload.get("tool_use_id") or ""
+        out["transcript_path"] = payload.get("transcript_path") or ""
+        out["cwd"] = payload.get("cwd") or ""
+    elif policy == "product-folder.sh":
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
+        out["permission_mode"] = payload.get("permission_mode") or ""
+        out["cwd"] = payload.get("cwd") or ""
     elif policy == "worktree-provision.sh":
         # SubagentStart's cwd is the spawned cell's working directory — the
         # worktree root for an isolated cell, the checkout otherwise.
@@ -116,7 +116,7 @@ def normalize(payload, policy, repo):
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input
     elif policy == "post-edit-check.sh":
-        out["files"] = written_paths(tool_input)
+        out["files"] = write_targets.named(tool_input)
     elif policy == "edit-record.sh":
         # Identity keys the record session-wrap.sh reads. The event and call id
         # pair a shell call's HEAD snapshot with its result; the tool output
@@ -126,7 +126,7 @@ def normalize(payload, policy, repo):
         out["session_id"] = payload.get("session_id", "")
         out["transcript_path"] = payload.get("transcript_path", "")
         out["tool_name"] = payload.get("tool_name") or ""
-        out["files"] = written_paths(tool_input)
+        out["files"] = write_targets.named(tool_input)
         out["command"] = tool_input.get("command", "") if isinstance(tool_input.get("command"), str) else ""
         out["tool_response"] = response_text(payload.get("tool_response"))
     elif policy == "session-wrap.sh":
@@ -152,7 +152,7 @@ def normalize(payload, policy, repo):
         out["event"] = payload.get("hook_event_name", "")
         out["session_id"] = payload.get("session_id", "")
         out["tool_name"] = payload.get("tool_name") or ""
-        out["files"] = written_paths(tool_input)
+        out["files"] = write_targets.named(tool_input)
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
     elif policy == "teardown-gate.sh":
         # SubagentStop is a Stop for this policy: a cell that opened a browser

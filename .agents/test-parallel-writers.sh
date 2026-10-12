@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Firing tests for the parallel-writers gate: a second writer dispatched while
 # another is live is denied unless it carries a workloop brief; readers and
-# sequential writers pass.
+# sequential writers pass. A cell dispatched READ-ONLY or NOTES-ONLY is held to
+# its marker when it writes.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,13 +14,13 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/parallel-writers-gate.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{config,product_folder,cell_markers,write_targets,writers-payload}.py "$dir/.agents/hooks/lib/"
 printf '{"hooks":{"parallel_writers":{"enabled":true}}}\n' > "$dir/.agents/config.json"
 gate="$dir/.agents/hooks/policy/parallel-writers-gate.sh"
 
 dispatch() {  # <prompt_id> <subagent_type> [prompt] -> stdout
-  printf '{"project_dir":"%s","event":"PreToolUse","session_id":"s1","prompt_id":"%s","tool_name":"Agent","tool_input":{"subagent_type":"%s","prompt":%s}}' \
-    "$dir" "$1" "$2" "$(printf '%s' "${3:-do the thing}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" | bash "$gate"
+  printf '{"project_dir":"%s","event":"PreToolUse","session_id":"s1","prompt_id":"%s","tool_name":"Agent","tool_use_id":"tu-%s","tool_input":{"subagent_type":"%s","prompt":%s}}' \
+    "$dir" "$1" "$RANDOM$RANDOM" "$2" "$(printf '%s' "${3:-do the thing}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" | bash "$gate"
 }
 edit() {  # <prompt_id> -> stdout (the lead editing the main tree)
   printf '{"project_dir":"%s","event":"PreToolUse","session_id":"s1","prompt_id":"%s","tool_name":"Edit","tool_input":{"file_path":"src/x.py"}}' "$dir" "$1" | bash "$gate"
@@ -173,6 +174,209 @@ ok "a broken toggle keeps the gate on and a malformed payload is ignored"
 # a reader stop never edits the live file; a stop for an unknown id is harmless
 stop zzz implementer; stop zzz explorer
 ok "stray stops are ignored"
+
+# --- READ-ONLY and NOTES-ONLY cells ------------------------------------------
+# A checkout inside a product folder under a scratch HOME, with the switch on.
+home="$(cd "$scratch" && pwd -P)/home"
+pf="$home/product"
+nf="$pf/repo"
+mkdir -p "$nf/.git" "$nf/.agents/hooks/policy" "$nf/.agents/hooks/lib" "$nf/src" "$pf/notes" "$pf/.vercel" "$pf/sibling/.git" "$pf/sibling/src"
+cp "$repo/.agents/hooks/policy/parallel-writers-gate.sh" "$nf/.agents/hooks/policy/"
+cp "$repo"/.agents/hooks/lib/{config,product_folder,cell_markers,write_targets,writers-payload}.py "$nf/.agents/hooks/lib/"
+printf '{"hooks":{"product_folder":{"enabled":true}}}\n' > "$nf/.agents/config.json"
+ngate="$nf/.agents/hooks/policy/parallel-writers-gate.sh"
+transcripts="$scratch/transcripts"
+subagents="$transcripts/s2/subagents"
+nlive="$nf/.agents/.writers-live-s2"
+
+# nfire key=value ... -> stdout; stderr lands in $scratch/gerr
+nfire() {
+  local args=(--arg project_dir "$nf" --arg session_id s2 --arg transcript_path "$transcripts/main.jsonl") pair
+  for pair in "$@"; do args+=(--arg "${pair%%=*}" "${pair#*=}"); done
+  jq -nc "${args[@]}" '$ARGS.named
+    | .tool_input = ({subagent_type, prompt, file_path} | with_entries(select(.value != null)))
+    | del(.subagent_type, .prompt, .file_path)' | env HOME="$home" bash "$ngate" 2>"$scratch/gerr"
+}
+ndispatch() { nfire event=PreToolUse tool_name=Agent prompt_id="$1" subagent_type="$2" prompt="$3" tool_use_id="$4"; }
+nstart() { nfire event=SubagentStart prompt_id="$3" agent_id="$1" agent_type="$2" >/dev/null; }
+nstop() { nfire event=SubagentStop agent_id="$1" agent_type="$2" >/dev/null; }
+nwrite() { nfire event=PreToolUse tool_name=Write agent_id="$1" agent_type="$2" file_path="$3"; }
+nlead() { nfire event=PreToolUse tool_name=Edit prompt_id="$1" file_path="$2"; }
+meta() {  # <agent_id> <tool_use_id>: Claude Code's record of a running cell
+  mkdir -p "$subagents"
+  printf '{"agentType":"general-purpose","description":"d","toolUseId":"%s","spawnDepth":1}\n' "$2" > "$subagents/agent-$1.meta.json"
+}
+reset() { rm -rf "$nf/.agents/".writers-* "$nf/.agents/".cell-markers-* "$transcripts"; }
+live_lines() { if [[ -f "$nlive" ]]; then grep -c . "$nlive" || true; else echo 0; fi; }
+
+# dispatch: the marker passes beside a live writer, and a second plain writer is refused
+reset
+[[ -z "$(ndispatch p1 general-purpose 'change the module' tu1)" ]] || fail "the first writer was refused"
+nstart w1 general-purpose p1
+[[ -z "$(ndispatch p2 general-purpose 'NOTES-ONLY: inventory the vendors' tu2)" ]] || fail "a NOTES-ONLY dispatch was refused beside a live writer"
+[[ -z "$(ndispatch p2 general-purpose 'READ-ONLY: read the logs' tu3)" ]] || fail "a READ-ONLY dispatch was refused beside a live writer"
+out="$(ndispatch p2 general-purpose 'change another module' tu4)"
+denied "$out" || fail "a plain writer passed beside a live writer and two marked cells"
+[[ "$out" == *NOTES-ONLY* && "$out" == *READ-ONLY* ]] || fail "the second-writer denial does not name both markers"
+grep -q $'^tu2\tNOTES-ONLY$' "$nf/.agents/.cell-markers-s2" && grep -q $'^tu3\tREAD-ONLY$' "$nf/.agents/.cell-markers-s2" \
+  || fail "the markers were not recorded: $(cat "$nf/.agents/.cell-markers-s2")"
+! grep -q tu4 "$nf/.agents/.cell-markers-s2" || fail "a plain writer's dispatch was recorded as marked"
+ok "NOTES-ONLY and READ-ONLY dispatches pass beside a live writer and are recorded; the denial names both"
+
+# where the repository has no product folder, NOTES-ONLY is refused, even with nothing live
+rm -f "$dir/.agents/.writers-"*
+out="$(dispatch p20 general-purpose 'NOTES-ONLY: inventory the vendors')"
+denied "$out" && [[ "$out" == *"no product folder"* ]] || fail "a NOTES-ONLY dispatch passed where the switch is off"
+denied "$(dispatch p20 reviewer 'NOTES-ONLY: inventory the vendors')" || fail "a reader persona's NOTES-ONLY dispatch passed where the switch is off"
+ok "a NOTES-ONLY dispatch is refused where the switch is off"
+
+# a marked cell's own writes, against the checkout, the product folder, a sibling repository and /tmp
+for marker in READ-ONLY NOTES-ONLY; do
+  reset
+  [[ -z "$(ndispatch p3 general-purpose "$marker: do the thing" tu-$marker)" ]] || fail "$marker dispatch refused"
+  meta c3 "tu-$marker"; nstart c3 general-purpose p3
+  for target in "$nf/src/x.md" "$pf/sibling/src/x.md" "/tmp/gate-test-x.md" "$pf/.vercel/x" "$pf/notes/.env" "$pf/notes/AGENTS.md" \
+                "$pf/tools/x.md" "$pf/notes/run.sh" "$pf/notes/x.md"; do
+    out="$(nwrite c3 general-purpose "$target")"
+    if [[ "$marker" == NOTES-ONLY && "$target" == "$pf/notes/x.md" ]]; then
+      [[ -z "$out" ]] || fail "NOTES-ONLY: a write in the product folder was refused ($out)"
+    else
+      denied "$out" || fail "$marker: a write to $target passed"
+    fi
+  done
+done
+ok "READ-ONLY writes nowhere; NOTES-ONLY writes only in the product folder, not in a checkout, hidden folder, instruction file or risky part"
+
+# a marked cell registered as a live writer (same turn, same type) leaves the live set at its first write
+for marker in READ-ONLY NOTES-ONLY; do
+  reset
+  [[ -z "$(ndispatch p4 general-purpose 'change the module' tuw)" ]] || fail "writer refused"
+  [[ -z "$(ndispatch p4 general-purpose "$marker: write up" tum)" ]] || fail "$marker dispatch refused"
+  meta w4 tuw; meta m4 tum
+  nstart w4 general-purpose p4; nstart m4 general-purpose p4
+  [[ "$(live_lines)" -eq 2 ]] || fail "$marker: expected both cells registered at start, got $(live_lines)"
+  nwrite m4 general-purpose "$pf/notes/x.md" >/dev/null
+  [[ "$(live_lines)" -eq 1 ]] && grep -q '^w4	' "$nlive" || fail "$marker: the marked cell stayed a live writer after its first write"
+  denied "$(nlead p4 "$nf/src/x.py")" || fail "$marker: the lead edited beside the live writer"
+  nstop w4 general-purpose
+  [[ -z "$(nlead p4 "$nf/src/x.py")" ]] || fail "$marker: the demoted cell still blocked the lead"
+done
+ok "a marked cell registered at start is removed from the live writers at its first write"
+
+# unknown metadata: a registered writer is left alone, any other cell is refused
+reset
+[[ -z "$(ndispatch p5 general-purpose 'change the module' tuw5)" ]] || fail "writer refused"
+[[ -z "$(ndispatch p5 general-purpose 'READ-ONLY: look' tur5)" ]] || fail "READ-ONLY dispatch refused"
+nstart w5 general-purpose p5
+[[ -z "$(nwrite w5 general-purpose "$nf/src/x.py")" ]] || fail "a registered writer with unreadable metadata was refused"
+[[ -s "$scratch/gerr" ]] || fail "a registered writer with unreadable metadata passed silently"
+nstop w5 general-purpose
+reset
+[[ -z "$(ndispatch p6 general-purpose 'READ-ONLY: look' tu6)" ]] || fail "READ-ONLY dispatch refused"
+nstart u6 general-purpose p6
+[[ "$(live_lines)" -eq 0 ]] || fail "a marked cell registered although its type was never counted"
+out="$(nwrite u6 general-purpose "$pf/notes/x.md")"
+denied "$out" && [[ "$out" == *"agent-u6.meta.json"* ]] || fail "an unregistered cell with no metadata was not refused with the metadata path ($out)"
+mkdir -p "$subagents"; printf 'not json' > "$subagents/agent-u6.meta.json"
+denied "$(nwrite u6 general-purpose "$pf/notes/x.md")" || fail "an unregistered cell with unparseable metadata was not refused"
+printf '{"agentType":"x"}' > "$subagents/agent-u6.meta.json"
+denied "$(nwrite u6 general-purpose "$pf/notes/x.md")" || fail "an unregistered cell whose metadata lacks toolUseId was not refused"
+ok "unreadable metadata: a registered writer passes with a notice; any other cell is denied naming the metadata path"
+
+# an unmarked writer is untouched; so is a reader persona, whatever the record says
+reset
+[[ -z "$(ndispatch p7 general-purpose 'change the module' tuw7)" ]] || fail "writer refused"
+meta w7 tuw7; nstart w7 general-purpose p7
+[[ -z "$(nwrite w7 general-purpose "$nf/src/x.py")" ]] || fail "an unmarked writer was refused (no ledger yet)"
+[[ -z "$(ndispatch p7b general-purpose 'READ-ONLY: look' tu7)" ]] || fail "READ-ONLY dispatch refused"
+[[ -z "$(nwrite w7 general-purpose "$nf/src/x.py")" ]] || fail "an unmarked writer was refused beside a marked cell's record"
+[[ "$(live_lines)" -eq 1 ]] || fail "an unmarked writer left the live writers"
+meta e7 tu7; nstart e7 explorer p7b
+[[ -z "$(nwrite e7 explorer "$nf/src/x.py")" ]] || fail "a reader persona was decided by a marker"
+ok "an unmarked writer and a reader persona keep today's behavior"
+
+# a dispatch whose marker cannot be recorded is refused, not run as a writer
+reset
+mkdir -p "$nf/.agents/.cell-markers-s2"
+out="$(ndispatch p8 general-purpose 'READ-ONLY: look' tu8)"
+denied "$out" && [[ "$out" == *"could not record"* ]] || fail "an unrecordable marker did not refuse the dispatch ($out)"
+rm -rf "$nf/.agents/.cell-markers-s2"
+ok "a marker that cannot be recorded refuses the dispatch"
+
+# a marked dispatch with no id to record it under is refused, as is one whose
+# .agents cannot be written; either way the gate answers with an envelope
+reset
+for id in "" '!!' ; do
+  out="$(ndispatch p9 general-purpose 'READ-ONLY: look' "$id")"
+  denied "$out" && [[ "$out" == *"could not record"* ]] || fail "a READ-ONLY dispatch with the id '$id' was not refused ($out)"
+done
+[[ ! -s "$nf/.agents/.cell-markers-s2" ]] || fail "an empty id was recorded: $(cat "$nf/.agents/.cell-markers-s2")"
+chmod a-w "$nf/.agents"
+out="$(ndispatch p9 general-purpose 'NOTES-ONLY: inventory' tu9)" || { chmod u+w "$nf/.agents"; fail "the gate exited non-zero on an unwritable .agents"; }
+chmod u+w "$nf/.agents"
+denied "$out" && [[ "$out" == *"could not record"* ]] || fail "a NOTES-ONLY dispatch passed with .agents unwritable ($out)"
+ok "a marked dispatch with an empty id, or an unwritable .agents, is refused with an envelope"
+
+# with no marked dispatch recorded this session, a cell's write is a writer's and reads nothing
+reset
+[[ -z "$(nwrite u10 general-purpose "$nf/src/x.md")" ]] || fail "a cell with no metadata was refused although no marked dispatch was recorded"
+ok "no marker record: a cell's write passes before any metadata read"
+
+# a NOTES-ONLY dispatch where the switch is on but the folder is refused quotes why
+wt="$pf/repo-wt"
+mkdir -p "$wt/.agents/hooks/policy" "$wt/.agents/hooks/lib"
+printf 'gitdir: %s/.git/worktrees/wt\n' "$nf" > "$wt/.git"
+cp "$ngate" "$wt/.agents/hooks/policy/"; cp "$nf/.agents/hooks/lib/"*.py "$wt/.agents/hooks/lib/"; cp "$nf/.agents/config.json" "$wt/.agents/"
+out="$(jq -nc --arg d "$wt" '{project_dir:$d,event:"PreToolUse",session_id:"s3",prompt_id:"p1",tool_name:"Agent",tool_use_id:"tu1",tool_input:{subagent_type:"general-purpose",prompt:"NOTES-ONLY: inventory"}}' |
+  env HOME="$home" bash "$wt/.agents/hooks/policy/parallel-writers-gate.sh")"
+denied "$out" && [[ "$out" == *"enables the product folder, but the folder is refused"* && "$out" == *"linked worktree"* ]] \
+  || fail "a refused product folder was not quoted in the NOTES-ONLY denial ($out)"
+printf 'not json' > "$wt/.agents/config.json"
+out="$(jq -nc --arg d "$wt" '{project_dir:$d,event:"PreToolUse",session_id:"s3",prompt_id:"p2",tool_name:"Agent",tool_use_id:"tu2",tool_input:{subagent_type:"general-purpose",prompt:"NOTES-ONLY: inventory"}}' |
+  env HOME="$home" bash "$wt/.agents/hooks/policy/parallel-writers-gate.sh" 2>/dev/null)"
+denied "$out" && [[ "$out" == *"no product folder enabled"* && "$out" == *"unreadable"* ]] || fail "a malformed config.json was not reported as the switch off ($out)"
+ok "a NOTES-ONLY denial says whether the switch is off or the folder is refused, and why"
+
+# demotion gives back exactly the pending slot the marked cell's start consumed
+reset
+[[ -z "$(ndispatch p13 general-purpose 'change the module' tuw13)" ]] || fail "writer refused"
+[[ -z "$(ndispatch p13 general-purpose 'READ-ONLY: look' tum13)" ]] || fail "READ-ONLY dispatch refused"
+meta m13 tum13; nstart m13 general-purpose p13
+denied "$(nwrite m13 general-purpose "$pf/notes/x.md")" || fail "a READ-ONLY write passed"
+[[ "$(live_lines)" -eq 0 ]] || fail "the marked cell was not demoted"
+denied "$(ndispatch p13 general-purpose 'change another module' tuw13b)" || fail "the marked cell's demotion lost the dispatched writer's pending slot"
+nstart w13 general-purpose p13
+denied "$(nlead p13 "$nf/src/x.md")" || fail "the writer that started after the demotion did not register"
+reset
+[[ -z "$(ndispatch p14 general-purpose 'change the module' tuw14)" ]] || fail "writer refused"
+[[ -z "$(ndispatch p14 general-purpose 'READ-ONLY: look' tum14)" ]] || fail "READ-ONLY dispatch refused"
+meta m14 tum14; nstart w14 general-purpose p14; nstart m14 general-purpose p14
+denied "$(nwrite m14 general-purpose "$pf/notes/x.md")" || fail "a READ-ONLY write passed"
+nstop w14 general-purpose
+[[ -z "$(ndispatch p14 general-purpose 'change another module' tuw14b)" ]] || fail "a demotion gave back a slot its start never consumed"
+ok "a demoted cell gives back the pending slot its start consumed, and none when it consumed none"
+
+# demotion happens only under the lock: with the lock busy the write is still denied and the cell stays live
+reset
+[[ -z "$(ndispatch p15 general-purpose 'READ-ONLY: look' tum15)" ]] || fail "READ-ONLY dispatch refused"
+meta m15 tum15; nstart m15 general-purpose p-unrecorded
+mkdir "$nf/.agents/.writers-lock-s2"
+out="$(nwrite m15 general-purpose "$pf/notes/x.md")"
+rmdir "$nf/.agents/.writers-lock-s2"
+denied "$out" || fail "a READ-ONLY write passed while the lock was busy"
+grep -q '^m15	' "$nlive" && grep -q 'lock is busy' "$scratch/gerr" || fail "a demotion ran without the lock, or skipped it silently"
+ok "with the lock busy a marked cell's write is denied and its demotion is skipped aloud"
+
+# many concurrent marked writes beside live writers: every one denied, the writers kept
+reset
+nstart w16a implementer p-a; nstart w16b mechanic p-b
+[[ -z "$(ndispatch p16 general-purpose 'READ-ONLY: look' tum16)" ]] || fail "READ-ONLY dispatch refused"
+meta m16 tum16; nstart m16 general-purpose p-c
+for i in $(seq 1 24); do (nwrite m16 general-purpose "$pf/notes/x.md" > "$scratch/c16-$i" 2>/dev/null) & done; wait
+for i in $(seq 1 24); do denied "$(<"$scratch/c16-$i")" || fail "concurrent READ-ONLY write $i was not denied ('$(<"$scratch/c16-$i")')"; done
+grep -q '^w16a	' "$nlive" && grep -q '^w16b	' "$nlive" || fail "concurrent demotions lost a live writer: '$(cat "$nlive")'"
+! grep -q '^m16	' "$nlive" || fail "the marked cell stayed live after 24 writes"
+ok "24 concurrent READ-ONLY writes are all denied and both live writers stay registered"
 
 # disabled
 printf '{"hooks":{"parallel_writers":{"enabled":false}}}\n' > "$dir/.agents/config.json"

@@ -103,6 +103,9 @@
       "enabled": false,
       "dir": ""
     },
+    "product_folder": {
+      "enabled": false
+    },
     "learning_output_style": {
       "enabled": true
     },

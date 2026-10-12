@@ -12,6 +12,9 @@ The setting is read from the untracked config.json only: the folder is one
 operator's machine, and a tracked policy.json naming a path outside the
 repository would point every clone at a folder its operator never chose. Off
 reads no path outside the tree. The folder is never created.
+
+`product_folder.py` keeps a second, looser folder rule on purpose: it grants
+the whole parent folder, while this vets the one folder the log names.
 """
 
 import os

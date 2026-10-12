@@ -46,6 +46,9 @@ jobs:
       - name: Hook script lookup
         run: .agents/test-hook-lookup.sh
 
+      - name: Product-folder grant
+        run: .agents/test-product-folder.sh
+
       - name: SEO quick-audit file checks
         run: .agents/skills/seo-geo-growth-audit/scripts/test-quick-audit.sh
 

@@ -47,6 +47,7 @@ MANIFEST = {
     "worktree-provision": ".agents/hooks/policy/worktree-provision.sh",
     "worktree-sessions": ".agents/hooks/policy/worktree-sessions.sh",
     "parallel-writers-gate": ".agents/hooks/policy/parallel-writers-gate.sh",
+    "product-folder":    ".agents/hooks/lib/product_folder.py",
     "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
     # skills (SKILL.md only)
     "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",

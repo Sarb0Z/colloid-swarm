@@ -23,6 +23,7 @@
 .agents/.writers-lock-*
 .agents/.inbox-seen-*
 .agents/.cells-*
+.agents/.cell-markers-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
 .agents/.publish-approved-*

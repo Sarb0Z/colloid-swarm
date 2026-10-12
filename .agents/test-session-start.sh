@@ -31,7 +31,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
-     "$repo/.agents/hooks/lib/worklog.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -315,10 +315,11 @@ write_config "$writers" true false
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 printf 'p\t1' > "$writers/.agents/.writers-turn-fixture-session"
 printf 'p\t implementer' > "$writers/.agents/.writers-kinds-fixture-session"
+printf 'toolu_1\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-fixture-session"
 run_policy "$writers" compact >/dev/null
-[[ -f "$writers/.agents/.writers-live-fixture-session" ]] || fail "compact cleared the live-writers record"
+[[ -f "$writers/.agents/.writers-live-fixture-session" && -f "$writers/.agents/.cell-markers-fixture-session" ]] || fail "compact cleared the live-writers record"
 run_policy "$writers" startup >/dev/null
-[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" && ! -e "$writers/.agents/.writers-kinds-fixture-session" ]] || fail "startup left a stale live-writers record"
+[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" && ! -e "$writers/.agents/.writers-kinds-fixture-session" && ! -e "$writers/.agents/.cell-markers-fixture-session" ]] || fail "startup left a stale live-writers record"
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 run_policy "$writers" resume >/dev/null
 [[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"

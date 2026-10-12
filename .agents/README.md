@@ -280,6 +280,34 @@ under the repository's parent, in no repository, with no hidden segment. For
 such a folder it prints the one access setting the operator adds; the agent
 grants itself nothing. See decision `worklog-toggled-in-tree-by-default`.
 
+The product folder is the repository's parent directory minus every git
+checkout inside it. `hooks.product_folder.enabled` in the untracked
+`config.json`, default off, lets every agent edit it without a permission
+prompt (`product-folder.sh`, built on `hooks/lib/product_folder.py`). The
+switch is read from `config.json` alone, never `policy.json`: a tracked switch
+would travel to clones whose parent folder can be anything. The grant is the
+whole folder minus its risky parts. It never reaches a checkout, a hidden
+folder or file below the product folder (tool and account state), or
+`AGENTS.md`, `CLAUDE.md` and `CLAUDE.local.md`, which sessions in the sibling
+repositories load. It also never reaches a folder named `tools`, `backups`,
+`node_modules` or `__pycache__` at any depth, or a `.py`, `.sh`, `.js` or
+`.mjs` file, names and extensions compared case-folded. These risky parts are
+a deny-list: a new risky folder name is open until `product_folder.py` adds
+it. The grant opens nothing when the repository has no `.git` directory or is
+a linked worktree, or when the parent folder is outside `$HOME` or inside a
+checkout; `product_folder.py` then prints one stderr line saying why. A cell
+whose prompt opens with `NOTES-ONLY` passes the parallel-writers gate and may
+write in the product folder only; one that opens with `READ-ONLY` writes
+nothing. See decision `product-folder-notes`.
+
+The grant's "allow" does not override a deny or ask rule, but Claude Code
+consults file rules only in the `Edit(path)` and `Read(path)` forms. To keep a
+path in the product folder behind a refusal, write `Edit(<path>)`: a
+`Write(<path>)` rule is accepted and never consulted
+([permissions](https://code.claude.com/docs/en/permissions)). With the grant
+on, an `Edit(…/worklog/denied/**)` deny rule refused a write in live QA; the
+same rule written as `Write(…)` did not.
+
 `workloop-inbox.sh` turns the controller's durable inbox into push: at
 subagent start a cell hears its host agent id and claims its lane with it;
 between tool calls it hears each unread message for that lane once; at every
@@ -296,12 +324,17 @@ brief. The denial names the three commands that turn the dispatch into a lane.
 It also denies the lead's own `Edit` or `Write` while an uncoordinated writer
 is live and no workloop run is active. Read-only personas never count; a
 generic cell declares itself read-only by starting its prompt with
-`READ-ONLY`; an unknown persona counts as a writer. An edit whose every target
-lies outside the checkout passes. State lives in
-`.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>` and
+`READ-ONLY`; an unknown persona counts as a writer. The gate also holds a
+marked cell to its marker when it writes: a `READ-ONLY` cell writes nothing,
+and a `NOTES-ONLY` cell writes only where the product-folder grant holds the
+target. The markers bind the file tools only: a marked cell can still write
+through its shell (`colloid-shell-writes-skip-post-edit`) or through a cell it
+dispatches. An edit whose every target lies outside the checkout passes. State
+lives in `.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>`,
 `.agents/.writers-kinds-<session>` (the writer types each turn dispatched,
-which decides whether a started cell registers); `session-start.sh` clears
-them at startup and resume, and deleting the live
+which decides whether a started cell registers) and
+`.agents/.cell-markers-<session>` (each marked dispatch's id and marker);
+`session-start.sh` clears them at startup and resume, and deleting the live
 file is the manual reset for a cell known to have died. The toggle is
 `hooks.parallel_writers.enabled`.
 
@@ -381,6 +414,7 @@ python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-statusline.sh
 .agents/test-hook-lookup.sh
+.agents/test-product-folder.sh
 .agents/test-mods.sh
 .agents/test-codex.sh
 .agents/test-export.sh
