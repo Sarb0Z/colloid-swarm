@@ -10,7 +10,7 @@ the reason in the commit that raises it.
 from pathlib import Path
 import sys
 
-LIMIT = 18_800  # measured 17,056 bytes on 2026-10-05, plus 10% headroom
+LIMIT = 19_000  # measured 18,948 bytes on 2026-10-12, with the ruling walk in Verify with user
 ROOT = Path(__file__).resolve().parent.parent / "AGENTS.md"
 
 
