@@ -119,7 +119,10 @@ fixture() {  # <name> -> path of a fresh repository carrying the policies
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
   cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
-  cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$dir/.kimi/hooks/"
+  # A repository that dropped Kimi has no Kimi adapter to copy or drive.
+  if [[ -d "$repo/.kimi" ]]; then
+    cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$dir/.kimi/hooks/"
+  fi
   # trivial_files=0: one changed file already crosses into `diff`, so each
   # scenario can stay at one or two files.
   printf '{"hooks":{"session_wrap":{"enabled":true,"trivial_files":0}%s}}\n' "${2:-}" > "$dir/.agents/config.json"
@@ -339,10 +342,12 @@ host_commit() {  # <file> <adapter command> <session> <extra payload fields>
   commits_of "$hosts" "$3" | grep -qx "$(git -C "$hosts" rev-parse HEAD)"
 }
 host_commit k.txt .codex/hooks/adapter.sh codex-s ',"tool_use_id":"call_1"' || fail "the Codex adapter did not record the shell commit"
-printf '{"hook_event_name":"PostToolUse","cwd":"%s","session_id":"kimi-s","tool_name":"Write","tool_input":{"file_path":"%s/claude.txt"}}' "$hosts" "$hosts" \
-  | bash "$hosts/.kimi/hooks/adapter.sh" edit-record.sh
-claims "$hosts" kimi-s | grep -qx claude.txt || fail "the Kimi adapter did not record the Write"
-host_commit m.txt .kimi/hooks/adapter.sh kimi-s '' || fail "the Kimi adapter did not record the shell commit"
+if [[ -d "$repo/.kimi" ]]; then
+  printf '{"hook_event_name":"PostToolUse","cwd":"%s","session_id":"kimi-s","tool_name":"Write","tool_input":{"file_path":"%s/claude.txt"}}' "$hosts" "$hosts" \
+    | bash "$hosts/.kimi/hooks/adapter.sh" edit-record.sh
+  claims "$hosts" kimi-s | grep -qx claude.txt || fail "the Kimi adapter did not record the Write"
+  host_commit m.txt .kimi/hooks/adapter.sh kimi-s '' || fail "the Kimi adapter did not record the shell commit"
+fi
 host_commit n.txt .agents/claude/adapter.sh claude-s ',"tool_use_id":"toolu_1"' || fail "the Claude adapter did not record the shell commit"
 ok "the Claude, Codex and Kimi adapters feed the same record"
 
