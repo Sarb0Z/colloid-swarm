@@ -380,6 +380,7 @@ python3 .agents/test-hosted-scripts.py
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-statusline.sh
+.agents/test-hook-lookup.sh
 .agents/test-mods.sh
 .agents/test-codex.sh
 .agents/test-export.sh

@@ -95,7 +95,7 @@ ok "switched off with a malformed user settings.json, the strip says so"
 rm "$fixture/.agents/policy.json"
 
 # The committed wiring, not just the script: the command string from settings.json
-# resolves the script through CLAUDE_PROJECT_DIR.
+# resolves the script through the launch folder (CLAUDE_PROJECT_DIR) first.
 wired="$(jq -r '.statusLine.command' "$repo/.agents/claude/settings.json")"
 out="$(payload "$home/.claude/projects/s.jsonl" "$plain" \
   | env -u CLAUDE_PROFILE HOME="$home" CLAUDE_PROJECT_DIR="$fixture" bash -c "$wired" | sed -E $'s/\x1b\\[[0-9;]*m//g')"

@@ -163,6 +163,34 @@ kit and `install-device-policy.sh` installs it.
 The adapter fails closed on an unknown or non-executable policy. Policies own
 their behavior and exit contract; do not duplicate that logic here.
 
+Every hook command and the `statusLine` command in `settings.json` finds its
+script the same way. It looks in the launch folder first (`CLAUDE_PROJECT_DIR`),
+then in the working folder and each folder above it, and it exports the folder
+it found as `CLAUDE_PROJECT_DIR` so the policies read the right project. A
+working folder under `<checkout>/.claude/worktrees/<lane>` maps back to the
+checkout when the checkout holds the adapter, so an isolated cell shares the
+checkout's parallel-writers ledgers. When nothing is found, a `PreToolUse` hook
+prints the relaunch line and exits 2, which blocks every tool call, reads
+included. Every other event prints the same line and exits 1, a visible notice
+that blocks nothing, because exit 2 on a prompt, stop or compaction event would
+erase the prompt, loop the agent or stop the compaction. The status line prints
+`guards unavailable: relaunch Claude Code from inside the repository` and exits
+0. Known residue: a session that moved from one scaffolded repository into
+another runs the first repository's adapter and `policy.json` against the
+second's hook list; per-session state (wrap, UI, teardown and writer ledgers)
+follows the working folder, so it splits across repositories when the session
+moves; after a `cd` out of every repository, every later tool call is blocked,
+the `cd` back included, and only a relaunch recovers; a workloop lane
+provisioned outside its checkout, such as in a product folder, resolves to its
+own adapter; and a satellite whose `.claude/hooks/adapter.sh` link is dangling
+moves, at its next sync, from silent exit-127 failures to every tool call
+blocked; switching a session to a branch or commit that predates the scaffold
+(no `.claude/hooks/adapter.sh`) blocks every later tool call, the switch back
+included, until relaunch; and with nothing found, the walk tests every ancestor
+up to `/`, so an `adapter.sh` under an ancestor's `.claude/hooks/`, including
+Claude Code's own `~/.claude/hooks/`, would run as the repository's adapter
+(`colloid-hook-lookup-walk-unbounded`).
+
 `sources-capture.sh` deliberately receives the raw tool name and input. The
 shared `sources-ledger.py` classifies native search/fetch, Context7, readable
 fetch, open-access resolution, and browser navigation calls, so each host does
