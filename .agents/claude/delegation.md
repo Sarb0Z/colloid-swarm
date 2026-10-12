@@ -18,7 +18,15 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   to suit the artifact.
 - A generic cell keeps every tool, so constrain its handoff and hold the
   sandbox boundary; one that only reads declares it by opening its prompt with
-  `READ-ONLY`.
+  `READ-ONLY`, and the gate then refuses every Edit, Write, MultiEdit and
+  NotebookEdit it attempts. One that reads and writes notes opens with
+  `NOTES-ONLY` and may write in the product folder only, minus its risky parts
+  (`.py`, `.sh`, `.js` and `.mjs` files; `tools`, `backups`,
+  `node_modules` and `__pycache__` folders), where the repository's
+  `config.json` sets `hooks.product_folder.enabled`; elsewhere the dispatch is
+  refused. A cell never writes a `REPORT`, `SUMMARY`, `FINDINGS` or `ANALYSIS`
+  `.md` file, which Claude Code refuses: it returns that content as its reply,
+  and the product's own conventions name every other note file.
 - Two or more concurrent writers go through a `workloop` run;
   `parallel-writers-gate.sh` enforces it, and its denial names the commands.
 - Plan mode blocks edits until the operator approves the plan, but only an

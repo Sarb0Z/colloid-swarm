@@ -10,9 +10,16 @@
 # An `isolation: worktree` flag alone is not accepted here; it isolates the
 # edits but nothing verifies their composition or tears the worktrees down.
 #
-# Four events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt whose
-#                  first line is READ-ONLY passes. Otherwise the first writer
+# Five events share one policy because they share one state file:
+#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
+#                  opens with READ-ONLY passes, as does one that opens with
+#                  NOTES-ONLY where the repository has a product folder
+#                  (hooks.product_folder.enabled; denied where it has none,
+#                  quoting why when the folder is refused). Either marker is
+#                  recorded against the dispatch's tool_use_id
+#                  (hooks/lib/cell_markers.py); a marked dispatch that cannot
+#                  be recorded, an empty id included, is denied, since it
+#                  would otherwise run as a writer. Otherwise the first writer
 #                  of a turn passes and is counted; a writer dispatched while
 #                  any other writer is counted or live is denied, with the
 #                  three commands that make it a lane. A prompt whose brief
@@ -24,6 +31,21 @@
 #                  the other side, and is denied unless a workloop run is
 #                  active, in which case the live writers are lanes in their
 #                  own worktrees and the main tree is the lead's.
+#   PreToolUse Edit/Write, a cell's own — a cell carries the marker its prompt
+#                  opened with, found through Claude Code's metadata for the
+#                  cell (hooks/lib/cell_markers.py decides). READ-ONLY may
+#                  write nothing; NOTES-ONLY only where the product folder
+#                  holds the target (hooks/lib/product_folder.py). Either is
+#                  taken off the live writers at its first write, and gives
+#                  back the turn's pending slot its start consumed: a marked
+#                  cell dispatched beside a writer of its own type registers
+#                  at start, since SubagentStart carries no dispatch id, and
+#                  until then blocks more and never allows more. A cell with
+#                  no marker is a writer. A cell whose metadata cannot be read
+#                  is denied unless it is a registered writer, so the gate
+#                  fails closed exactly where a marked cell can hide. With no
+#                  marked dispatch recorded this session, every cell is a
+#                  writer and nothing is read.
 #   SubagentStart — a writer that has started moves from "dispatched this
 #                  turn" to "live", so a writer dispatched after the previous
 #                  one finished, in the same turn, is sequential and passes.
@@ -34,8 +56,9 @@
 # deny the next session. Within one session, .agents/.writers-live-<session>
 # is the file to delete if a cell is known dead.
 #
-# Input (stdin JSON): {"project_dir", "event", "session_id", "prompt_id",
-#   "tool_name", "tool_input": {...}, "agent_id", "agent_type"}
+# Input (stdin JSON): {"project_dir", "cwd", "event", "session_id", "prompt_id",
+#   "tool_name", "tool_input": {...}, "tool_use_id", "transcript_path",
+#   "agent_id", "agent_type"}
 # Output: PreToolUse — a deny envelope on stdout when the rule fires, silence
 #   otherwise. The other events emit nothing.
 #
@@ -45,6 +68,12 @@
 # by name, not by its tool list: reviewer and qa-verifier carry Bash and
 # could write, but their contracts forbid it, and denying two QA cells at
 # once would cost more than the contention it prevents.
+#
+# Limits: the marker link reads Claude Code's cell metadata
+# (debt: gate-reads-cell-metadata). READ-ONLY and NOTES-ONLY bind the file
+# tools only: a marked cell can still write through its shell
+# (colloid-shell-writes-skip-post-edit) or through a cell it dispatches. Codex
+# and Kimi do not run this gate.
 #
 # The decision is deny, not ask. guard-publish asks because only the user can
 # approve an outward mutation; here the remedy is the agent's own — make the
@@ -65,58 +94,15 @@ payload="$(cat)"
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.parallel_writers.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; } < <(
-  printf '%s' "$payload" | python3 -c '
-import json, os, re, sys
-try:
-    p = json.load(sys.stdin)
-except ValueError:
-    p = {}
-if not isinstance(p, dict):
-    p = {}
-ti = p.get("tool_input") or {}
-if not isinstance(ti, dict):
-    ti = {}
-def line(v): print(re.sub(r"[\r\n]", " ", str(v or "")))
-def ident(v): print(re.sub(r"[^A-Za-z0-9_-]", "", str(v or "")))
-line(p.get("project_dir")); line(p.get("event")); ident(p.get("session_id")); ident(p.get("prompt_id"))
-ident(p.get("agent_id")); line(p.get("agent_type")); line(p.get("tool_name"))
-line(ti.get("subagent_type") or "general-purpose")
-prompt = str(ti.get("prompt") or "")
-root = os.path.realpath(str(p.get("project_dir") or "."))
-# A header is only text anyone can type; it exempts the dispatch when the
-# controller really holds that lane with a worktree outside this checkout.
-def real_lane(prompt):
-    header = re.search(r"WORKLOOP (?:WORKER|REVIEWER|QA) BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)", prompt)
-    if not header:
-        return False
-    try:
-        with open(os.path.join(root, ".agents", ".workloop-state.json")) as f:
-            lane = json.load(f)["runs"][header.group(1)]["lanes"][header.group(2)]
-        workspace = os.path.realpath(lane["workspace"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
-    return workspace != root and not workspace.startswith(root + os.sep)
-if real_lane(prompt):
-    print("brief")
-elif re.match(r"\s*READ-ONLY\b", prompt):
-    print("read-only")
-else:
-    print("plain")
-# An edit whose every target lies outside the checkout cannot collide with a
-# cell working in it. A relative path is the checkout'"'"'s.
-paths = [v for v in (ti.get("file_path"), ti.get("notebook_path")) if isinstance(v, str) and v]
-paths += [e["file_path"] for e in ti.get("edits") or [] if isinstance(e, dict) and isinstance(e.get("file_path"), str)]
-def inside(path):
-    full = os.path.realpath(os.path.join(root, os.path.expanduser(path)))
-    return full == root or full.startswith(root + os.sep)
-print("yes" if paths and not any(inside(x) for x in paths) else "no")')
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; } < <(
+  printf '%s' "$payload" | python3 "$lib/writers-payload.py")
 
 [[ -n "$session" && -n "$proj" ]] || exit 0
 live="$proj/.agents/.writers-live-$session"
 turn="$proj/.agents/.writers-turn-$session"
 lock="$proj/.agents/.writers-lock-$session"
 kinds="$proj/.agents/.writers-kinds-$session"
+markers="$proj/.agents/.cell-markers-$session"
 workloop_state="$proj/.agents/.workloop-state.json"
 
 is_reader() {
@@ -170,6 +156,29 @@ registers() {  # <prompt_id> <agent_type> -> 0 when the started cell is a writer
   [[ " ${recorded#*	} " == *" $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]') "* ]]
 }
 
+# Takes a cell off the live writers, only while this hook holds the lock, via
+# a temporary file beside the live file so a reader sees one whole file.
+# Prints the turn whose pending slot the cell's start consumed (column 3).
+# A failure is reported and never fails the hook: a cell left live only
+# blocks more.
+unregister() {  # <agent_id>
+  local entry tmp=""
+  entry="$(grep "^$1	" "$live" 2>/dev/null)" || return 0
+  [[ -n "$held" ]] || { echo "parallel-writers-gate: the lock is busy, so $1 stays a live writer." >&2; return 0; }
+  if tmp="$(mktemp "$live.XXXXXX")" && { grep -v "^$1	" "$live" >"$tmp"; (( $? <= 1 )); } && mv "$tmp" "$live"; then
+    printf '%s\n' "$entry" | head -n1 | cut -f3
+  else
+    [[ -z "$tmp" ]] || rm -f "$tmp"
+    echo "parallel-writers-gate: could not take $1 off $live; it stays a live writer." >&2
+  fi
+}
+
+restore_slot() {  # <prompt_id>: give back the pending slot a demoted cell's start consumed
+  local recorded
+  [[ -n "$1" ]] && recorded="$(cat "$turn" 2>/dev/null)" && [[ "${recorded%%	*}" == "$1" ]] || return 0
+  printf '%s\t%s' "$1" "$(( $(turn_count "$1") + 1 ))" >"$turn" || echo "parallel-writers-gate: could not give back a pending slot in $turn." >&2
+}
+
 live_count() {
   # grep -c prints 0 and exits 1 on an empty file, so it cannot sit in a || chain.
   if [[ -f "$live" ]]; then grep -c . "$live" || true; else echo 0; fi
@@ -200,20 +209,45 @@ deny() {
 case "$event" in
   PreToolUse)
     if [[ "$tool_name" == "Agent" || "$tool_name" == "Task" ]]; then
+      if [[ "$kind" == "notes-only" ]] && ! why="$(python3 "$lib/product_folder.py" root "$repo" 2>&1 >/dev/null)"; then
+        if [[ "$why" == *"product_folder.py: "* ]]; then
+          deny "This repository enables the product folder, but the folder is refused: ${why##*product_folder.py: } Dispatch it READ-ONLY and write the notes yourself, or make it a writer."
+        else
+          deny "This repository has no product folder enabled (hooks.product_folder.enabled in .agents/config.json${why:+; $why}). Dispatch it READ-ONLY and write the notes yourself, or make it a writer."
+        fi
+        exit 0
+      fi
       is_reader "$tool_type" && exit 0
       take_lock
-      if [[ "$kind" == "read-only" ]]; then
-        note_turn "$prompt_id"
+      if [[ "$kind" == "read-only" || "$kind" == "notes-only" ]]; then
+        if ! note_turn "$prompt_id" || ! python3 "$lib/cell_markers.py" record "$proj" "$session" "$tool_use_id" "$kind"; then
+          deny "The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold."
+        fi
         exit 0
       fi
       pending="$(turn_count "$prompt_id")"
       running="$(live_count)"
       if [[ "$kind" != "brief" ]] && (( pending + running >= 1 )); then
-        deny "A second writer (${tool_type}) is being dispatched while another writer is live. Concurrent writers go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --workspace <new path> --path <owned path>; then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that only reads may say so: start its prompt with READ-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. If a counted writer is known dead, delete ${live}."
+        deny "A second writer (${tool_type}) is being dispatched while another writer is live. Concurrent writers go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --workspace <new path> --path <owned path>; then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. If a counted writer is known dead, delete ${live}."
         exit 0
       fi
       if ! printf '%s\t%s' "$prompt_id" "$((pending + 1))" >"$turn" || ! note_turn "$prompt_id" "$tool_type"; then
         deny "The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory's permissions and retry."
+      fi
+    elif [[ -n "$agent_id" ]]; then
+      # A cell's own write: its dispatch marker decides, before any bookkeeping.
+      is_reader "$agent_type" && exit 0
+      [[ -f "$markers" ]] || exit 0
+      status=0
+      reason="$(printf '%s' "$payload" | python3 "$lib/cell_markers.py" decide "$repo" "$proj" "$session" "$transcript" "$agent_id")" || status=$?
+      if (( status != 0 && status != 3 )); then
+        reason="The parallel-writers gate could not read this cell's dispatch marker (cell_markers.py exited ${status}), so it cannot tell whether the cell may write. Retry, or dispatch it as a writer."
+      fi
+      [[ -z "$reason" ]] || deny "$reason"
+      # A marked cell is no writer, whether or not it registered at start.
+      if (( status == 3 )) && [[ -f "$live" ]] && grep -q "^$agent_id	" "$live"; then
+        take_lock
+        restore_slot "$(unregister "$agent_id")"
       fi
     else
       # The lead's own edit while an uncoordinated writer is live.
@@ -228,15 +262,15 @@ case "$event" in
     [[ -n "$agent_id" ]] || exit 0
     take_lock
     registers "$prompt_id" "$agent_type" || exit 0
-    printf '%s\t%s\n' "$agent_id" "$agent_type" >>"$live"
-    pending="$(turn_count "$prompt_id")"
-    (( pending > 0 )) && printf '%s\t%s' "$prompt_id" "$((pending - 1))" >"$turn" || true
+    # Column 3 names the turn whose pending slot this start consumed.
+    slot=""; pending="$(turn_count "$prompt_id")"
+    if (( pending > 0 )) && printf '%s\t%s' "$prompt_id" "$((pending - 1))" >"$turn"; then slot="$prompt_id"; fi
+    printf '%s\t%s\t%s\n' "$agent_id" "$agent_type" "$slot" >>"$live" || echo "parallel-writers-gate: could not register writer $agent_id in $live." >&2
     ;;
   SubagentStop)
-    [[ -n "$agent_id" && -f "$live" ]] || exit 0
+    [[ -n "$agent_id" && -f "$live" ]] && grep -q "^$agent_id	" "$live" || exit 0
     take_lock
-    grep -v "^$agent_id	" "$live" >"$live.new" 2>/dev/null || true
-    mv "$live.new" "$live"
+    unregister "$agent_id" >/dev/null
     ;;
 esac
 exit 0

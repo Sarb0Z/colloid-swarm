@@ -12,7 +12,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib" "$dir/.agents/claude" "$dir/.agents/codex" "$dir/.codex/hooks"
 cp "$repo/.agents/hooks/policy/done-prime.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/payload.py" "$repo/.agents/hooks/lib/emit-context.py" "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{config,payload,emit-context,write_targets}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
 cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
 cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
