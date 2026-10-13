@@ -349,7 +349,11 @@ if [[ -d "$repo/.kimi" ]]; then
   host_commit m.txt .kimi/hooks/adapter.sh kimi-s '' || fail "the Kimi adapter did not record the shell commit"
 fi
 host_commit n.txt .agents/claude/adapter.sh claude-s ',"tool_use_id":"toolu_1"' || fail "the Claude adapter did not record the shell commit"
-ok "the Claude, Codex and Kimi adapters feed the same record"
+if [[ -d "$repo/.kimi" ]]; then
+  ok "the Claude, Codex and Kimi adapters feed the same record"
+else
+  ok "the Claude and Codex adapters feed the same record (no Kimi here)"
+fi
 
 # The record belongs to one sitting: a fresh start clears it, a resume or a
 # compaction continues it.
