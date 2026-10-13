@@ -4,6 +4,7 @@ and what that marker lets the cell write.
 
 Usage: cell_markers.py record <project> <session> <tool_use_id> <marker>
        cell_markers.py decide <repo> <project> <session> <transcript_path> <agent_id>
+       cell_markers.py marked <project> <session> <transcript_path> <agent_id>
 
 The parallel-writers gate sees a marker once, at dispatch (PreToolUse on the
 Agent tool, which carries the prompt and a `tool_use_id`), but must enforce it
@@ -27,6 +28,10 @@ takes it off the live writers, and 0 otherwise:
   READ-ONLY  denied, wherever the target is.
   NOTES-ONLY denied unless the product folder holds every target
              (product_folder.py).
+
+`marked` exits 3 when the cell carries a marker and 0 otherwise, unreadable
+metadata included; the gate asks it when a registered cell stops before its
+first write.
 """
 
 import json
@@ -142,8 +147,11 @@ def main(argv):
         reason, marked = decide(*argv[2:], payload if isinstance(payload, dict) else {})
         print(reason, end="")
         return MARKED if marked else 0
+    if command == "marked" and len(argv) == 6:
+        return MARKED if marker_of(*argv[2:]) in MARKERS else 0
     raise SystemExit("cell_markers.py: usage: cell_markers.py record <project> <session> <tool_use_id> <marker> | "
-                     "decide <repo> <project> <session> <transcript_path> <agent_id>")
+                     "decide <repo> <project> <session> <transcript_path> <agent_id> | "
+                     "marked <project> <session> <transcript_path> <agent_id>")
 
 
 if __name__ == "__main__":
