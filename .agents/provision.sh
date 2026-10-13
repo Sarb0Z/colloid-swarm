@@ -154,10 +154,13 @@ python_for() {  # <dir> -> interpreter path on stdout, or exit 1 with a reason o
   command -v python3
 }
 
+# Dependency and VCS folders are pruned, not filtered afterwards: descending
+# into a populated node_modules costs seconds on every lane, and this runs
+# again after each install to hash the lockfiles. A find error (an unreadable
+# folder) reaches stderr rather than hiding a lockfile.
 nested() {
-  find "$dir" -name "$1" -type f \
-    -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' \
-    -not -path '*/.venv/*' -not -path '*/target/*' 2>/dev/null | LC_ALL=C sort
+  find "$dir" -mindepth 1 -type d \( -name node_modules -o -name .git -o -name vendor -o -name .venv -o -name target \) -prune \
+    -o -type f -name "$1" -print | LC_ALL=C sort
 }
 
 lockfiles=""

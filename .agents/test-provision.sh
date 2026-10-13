@@ -416,4 +416,18 @@ out="$("$prov" "$part")" || fail "rerun failed: $out"
 [[ -f "$(gitdir "$part")/colloid-provisioned" ]] || fail "aggregate memo missing after the rerun succeeded"
 ok "a rerun skips the lockfile that installed and runs only the one that failed"
 
+# 17. the lockfile walk prunes dependency and VCS folders: a lockfile inside
+# one is ignored, a sibling beside it is still found
+pr="$scratch/prune"; mkdir -p "$pr/keep"; git init -q "$pr"; git -C "$pr" config user.email t@t; git -C "$pr" config user.name t
+printf '{"name":"keep","lockfileVersion":3}\n' > "$pr/keep/package-lock.json"
+for pruned in node_modules .git vendor .venv target; do
+  mkdir -p "$pr/keep/$pruned/inner"
+  printf '{"name":"%s","lockfileVersion":3}\n' "$pruned" > "$pr/keep/$pruned/inner/package-lock.json"
+done
+: > "$scratch/npm.pwd.log"
+"$prov" "$pr" >/dev/null || fail "prune fixture failed to provision"
+[[ "$(wc -l < "$scratch/npm.pwd.log" | tr -d ' ')" == 1 && "$(cat "$scratch/npm.pwd.log")" == "$pr/keep" ]] \
+  || fail "only keep/ may install; a pruned folder's lockfile was walked: $(cat "$scratch/npm.pwd.log")"
+ok "a lockfile inside node_modules, .git, vendor, .venv or target is ignored and the one beside them installs"
+
 printf '\nall provision tests passed\n'
