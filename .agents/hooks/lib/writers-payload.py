@@ -45,7 +45,7 @@ def real_lane(root, prompt):
         workspace = os.path.realpath(lane["workspace"])
     except (OSError, ValueError, KeyError, TypeError):
         return False
-    return workspace != root and not workspace.startswith(root + os.sep)
+    return not write_targets.under(workspace, root)
 
 
 def kind(root, prompt):
@@ -61,11 +61,8 @@ def kind(root, prompt):
 def outside(root, tool_input):
     """An edit whose every target lies outside the checkout cannot collide with
     a cell working in it. A relative path is the checkout's."""
-    def inside(path):
-        full = os.path.realpath(os.path.join(root, os.path.expanduser(path)))
-        return full == root or full.startswith(root + os.sep)
-    paths = write_targets.named(tool_input)
-    return "yes" if paths and not any(inside(path) for path in paths) else "no"
+    paths = write_targets.resolved(root, tool_input)
+    return "yes" if paths and not any(write_targets.under(path, root) for path in paths) else "no"
 
 
 def fields(payload):
