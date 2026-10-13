@@ -108,6 +108,7 @@ alone cannot.
 | 17 | The root light touch | The drafted sentence, approved as contract text | this spec |
 | 18 | Tier follows difficulty, not stakes | Left as it is: the root's tier sentence and `hostile-review.md` unchanged | `cell-tier-wording-unchanged` |
 | 19 | Worktrees left behind | None outlasts the session that made it: the teardown gate records it, the session end removes it, unsaved work is committed to a saved branch first | `worktrees-end-with-their-session` |
+| 20 | Worktrees already left behind | Healed by the scaffold once transplanted: unrecorded, unlocked and idle 24 hours, they are saved and removed | `worktrees-end-with-their-session` |
 
 ## Design
 
@@ -318,7 +319,6 @@ it as one more resource class.
   session's resource when an agent tool call makes one: `git worktree add` in
   Bash, Claude Code's `EnterWorktree`, an `Agent` cell with
   `isolation: "worktree"` that Claude Code kept, and `workloop.py add-lane`.
-  A worktree the operator makes by hand is never recorded and never touched.
 - **Due at completion.** Like a container, a worktree is due once a
   `git push` runs after it was made, and before that is listed as "remove
   before the session ends". The block names `git worktree remove <path>` or
@@ -333,6 +333,15 @@ it as one more resource class.
   with no session-end event leaves its record behind. The session-start hook
   sweeps the records of sessions no longer running and treats them the same
   way, so Codex and Kimi lanes are covered too.
+- **Healing what predates the scaffold.** The operator expects a transplant
+  to clear the worktrees older sessions left (ruling 20), so the session-start
+  sweep also takes each worktree of the repository that no record names, is
+  not locked, and has been idle 24 hours (no commit, checkout or file change):
+  saved and removed like any other. Idle time, not a running process, decides,
+  because Claude Code resets a shell's folder to the checkout and a session
+  working in a sibling worktree by absolute paths shows no process there.
+  `git worktree lock <path>` is how anyone keeps one, such as
+  `writing-app-export`; the sweep never touches a locked worktree.
 - **Workloop runs.** A run's lanes belong to the lead session that added them,
   so a run does not outlive its lead either: the session end saves and removes
   its worktrees and closes the run. A run whose worktrees are already gone,
@@ -385,7 +394,8 @@ operations before adding commands to it.
 - Worktrees: a test per case — made by `git worktree add`, `EnterWorktree`
   and `add-lane` and recorded; a clean one removed at session end; a dirty one
   saved to its branch, then removed; a dead session's swept at the next start;
-  one the operator made untouched.
+  an unrecorded one idle 24 hours saved and
+  removed; a locked one and one active today untouched.
 - Unverified by design: a cell dying from a usage limit cannot be caused on
   demand; the report names it.
 
