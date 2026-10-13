@@ -557,6 +557,39 @@ with tempfile.TemporaryDirectory() as tmp:
         check(f"asks on a listed file name after a cd it cannot follow: {command}", reason is not None, "quiet")
     reason = guard.verdict("Bash", {"command": "cd $D && ./other.sh"}, nested, cwd="/srv/app")
     check("quiet on an unlisted file name after a cd it cannot follow", reason is None, reason or "")
+    # After a lost cd, a typed path still rules out a listed one it does not
+    # end, and an absolute path needs no folder.
+    for command in ('cd "$(git rev-parse --show-toplevel)" && bash .agents/provision.sh /tmp/wt',
+                    'cd "$(mktemp -d)" && bash /srv/app/.agents/provision.sh',
+                    "cd $D && ./judge/other.ts"):
+        reason = guard.verdict("Bash", {"command": command}, nested, cwd="/srv/app")
+        check(f"quiet on a path a listed one does not end, after a lost cd: {command}", reason is None, reason or "")
+    reason = guard.verdict("Bash", {"command": "cd $D && npx tsx judge/cli.ts"}, nested, cwd="/srv/app")
+    check("asks on a listed path's tail after a lost cd", reason is not None, "quiet")
+    # Two listed scripts share a file name and only one rehearses: after a
+    # lost cd either could run, so --dry-run asks whatever the list order.
+    for listed in (["deploy/provision.sh", "infra/provision.sh"], ["infra/provision.sh", "deploy/provision.sh"]):
+        reason = guard.verdict("Bash", {"command": "cd $D && ./provision.sh --dry-run"}, listed,
+                               rehearsals=("deploy/provision.sh",), cwd="/srv/app")
+        check(f"asks on --dry-run when an unexempt listed script shares the name: {listed}",
+              reason is not None and "infra/provision.sh" in (reason or ""), reason or "quiet")
+    reason = guard.verdict("Bash", {"command": "cd $D && ./provision.sh --dry-run"}, ["deploy/provision.sh"],
+                           rehearsals=("deploy/provision.sh",), cwd="/srv/app")
+    check("quiet on --dry-run of a declared script after a lost cd", reason is None, reason or "")
+    # A script after a control keyword, and a cd scoped to a subshell, a
+    # nested shell, an option or a glob.
+    deploy = ["cad-data/vercel-api/deploy.sh"]
+    for command, cwd in (("{ cd cad-data/vercel-api && ./deploy.sh; } 2>&1 | tail -50", "/srv/app"),
+                         ("if [ -f .env ]; then ./cad-data/vercel-api/deploy.sh; fi", "/srv/app"),
+                         ("for e in preview prod; do ./cad-data/vercel-api/deploy.sh $e; done", "/srv/app"),
+                         ("! ./cad-data/vercel-api/deploy.sh", "/srv/app"),
+                         ("(cd ../.. && npm run build) && ./deploy.sh", "/srv/app/cad-data/vercel-api"),
+                         ("cd cad-data/vercel-api && (cd .. && ls) && ./deploy.sh", "/srv/app"),
+                         ("bash -c 'cd frontend && make'; ./deploy.sh", "/srv/app/cad-data/vercel-api"),
+                         ("cd -P cad-data && cd vercel-api && ./deploy.sh", "/srv/app"),
+                         ("cd cad-data/vercel-ap? && ./deploy.sh", "/srv/app")):
+        reason = guard.verdict("Bash", {"command": command}, deploy, cwd=cwd)
+        check(f"asks on a listed script the guard cannot place: {command} (cwd {cwd})", reason is not None, "quiet")
     # TypeScript runners name the script they run like any interpreter.
     for command in ("tsx scripts/seed-prod.ts", "npx tsx scripts/seed-prod.ts --env prod",
                     "ts-node scripts/seed-prod.ts", "ts-node-transpile-only scripts/seed-prod.ts"):

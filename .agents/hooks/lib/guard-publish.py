@@ -481,8 +481,9 @@ def unwrap(words, shell, stripped, place):
 
 def rule_bash(command, shell, place=None):
     """The reason to ask for one command. `place` locates it for the rules
-    that read files: {"here", "repo", "remote", "earlier"}, where `earlier`
-    holds the word lists of the command line's segments before this one."""
+    that read files: {"here", "repo", "remote", "earlier", "lost"}, where
+    `earlier` holds the word lists of the command line's segments before this
+    one and `lost` marks a `cd` the guard could not follow."""
     place = place or {"here": "", "repo": "", "remote": "", "earlier": [], "lost": False}
     stripped = []
     words, reason = unwrap(command.words, shell, stripped, place)
@@ -594,6 +595,9 @@ def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None, repo="")
     return None
 
 
+SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
+
+
 def judge(text, outward, shell, rehearsals, here, depth=0, remote=False, repo="", earlier=()):
     """The reason to ask for a command line run from directory `here` (empty
     when unknown), following its `cd`s, the package.json scripts it runs, and
@@ -602,12 +606,19 @@ def judge(text, outward, shell, rehearsals, here, depth=0, remote=False, repo=""
     from here. `earlier` carries the segments that ran before this line, as a
     package.json script inherits what its caller exported."""
     earlier, lost = list(earlier), False
-    for command in shell.normalize(text):
+    commands = shell.normalize(text)
+    # A `cd` inside `( … )` or a nested `sh -c` body ends with it, but the
+    # segments arrive flat, so on such a line no `cd` can be followed.
+    scoped = "(" in text or any(len(c.words) > 1 and os.path.basename(c.words[0]) in SHELLS
+                                and c.words[1].startswith("-") and "c" in c.words[1] for c in commands)
+    for command in commands:
         place = {"here": here, "repo": repo, "remote": remote, "earlier": earlier, "lost": lost}
         reason = rule_bash(command, shell, place)
         if reason:
             return reason
         words = shell.lead(command.words)
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:])
         if not remote and os.path.isabs(here) and depth < 3:
             reason = rule_script(words, outward, shell, rehearsals, here, depth, repo, earlier)
             if reason:
@@ -618,15 +629,16 @@ def judge(text, outward, shell, rehearsals, here, depth=0, remote=False, repo=""
             # The far host's working directory is its own; nothing here locates it.
             host = shell.ssh_target(command.words) or "the remote host"
             reason = judge(far, outward, shell, rehearsals, "", depth + 1, remote=host, repo=repo)
-        elif words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and "$" not in words[1] \
-                and "`" not in words[1] and words[1] != "-":
+        elif words[:1] in (["cd"], ["pushd"]) and len(words) > 1 and not scoped \
+                and not words[1].startswith("-") and not any(c in words[1] for c in "$`*?["):
             here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
         elif words[:1] in (["cd"], ["pushd"], ["popd"]):
-            # `cd $DIR`, `cd -`, a bare `cd` and `popd` go where the guard
-            # cannot follow, so no env file it would read there is known.
+            # `cd $DIR`, `cd -`, `cd -P x`, a glob, a bare `cd`, `popd` and a
+            # `cd` in a subshell go where the guard cannot follow, so no env
+            # file it would read there is known.
             lost = True
         elif outward:
-            reason = rule_outward(words, outward, shell, rehearsals, here, lost)
+            reason = rule_outward(words, outward, shell, rehearsals, place)
         if reason:
             return reason
     return None
@@ -890,28 +902,37 @@ def rehearsal(args):
     return bool(values) and all(values)
 
 
-def rule_outward(words, outward, shell, rehearsals=(), here="", lost=False):
-    """`here` is the directory the command runs in, as far as the command's
-    own `cd`s and the session's working directory say; empty when unknown.
-    `lost` marks a `cd` the guard could not follow, after which `here` is stale."""
+def rule_outward(words, outward, shell, rehearsals, place):
+    """`place["here"]` is the directory the command runs in, as far as the
+    command's own `cd`s and the session's working directory say; empty when
+    unknown. `place["lost"]` marks a `cd` the guard could not follow, after
+    which `here` is stale."""
+    here, lost = place["here"], place["lost"]
     for target in outward_targets(words, shell):
         normalized = target.lstrip("./")
         located = os.path.normpath(os.path.join(here, target)) if here else ""
-        for entry in outward:
-            # The listed path, or any path ending in it, as typed or as located
-            # from `here`: a script that writes to production is worth an ask
-            # under whatever path it was reached by. A bare file name alone
-            # proves nothing — `.agents/provision.sh` is not `deploy/provision.sh`.
-            # Reads never get here — the command word is `cat` or `grep`.
-            # After a `cd` the guard could not follow, the folder is unknown,
-            # so the bare file name is all that is left and it asks.
-            if any(path == entry or path.endswith("/" + entry) for path in (normalized, located)) \
-                    or (lost and os.path.basename(normalized) == os.path.basename(entry)):
-                # Only --dry-run on a script declared to honour it rehearses.
-                # `-n` is git's convention, not these scripts'.
-                if entry in rehearsals and rehearsal(words[1:]):
-                    return None
-                return f"{entry} is listed by this repository as writing to a hosted system."
+        # A relative path typed after a lost `cd` may sit under any folder, so
+        # it matches a listed path ending in it; leading `.` and `..` parts say
+        # nothing about which. An absolute path needs no folder.
+        tail = "" if not lost or os.path.isabs(target) else \
+            "/".join(part for part in target.split("/") if part not in (".", ".."))
+        # The listed path, or any path ending in it, as typed or as located
+        # from `here`: a script that writes to production is worth an ask
+        # under whatever path it was reached by. A bare file name alone
+        # proves nothing — `.agents/provision.sh` is not `deploy/provision.sh`.
+        # Reads never get here — the command word is `cat` or `grep`.
+        matched = [entry for entry in outward
+                   if any(path == entry or path.endswith("/" + entry) for path in (normalized, located))
+                   or (tail and (entry == tail or entry.endswith("/" + tail)))]
+        if not matched:
+            continue
+        # Only --dry-run on a script declared to honour it rehearses, and only
+        # when every listed script the target could be is declared.
+        # `-n` is git's convention, not these scripts'.
+        live = [entry for entry in matched if entry not in rehearsals]
+        if not live and rehearsal(words[1:]):
+            continue
+        return f"{(live or matched)[0]} is listed by this repository as writing to a hosted system."
     return None
 
 
