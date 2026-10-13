@@ -95,9 +95,17 @@ git commit -m 'feat(contracts): claim summary shape for the API and the web app'
 ```
 
 `init` pins the base after the contract commit, so both lanes start with it
-and build at once. Each brief's objective names the contract's paths, and the
-consumer tests against the fixture. Neither lane edits the contract; a change
-to it stops both lanes and comes back to the lead.
+and build at once. Below each printed brief, append the lane's part:
+
+```text
+Contract: packages/contracts/claim-summary.ts and fixtures/claim-summary.json,
+committed at the run's base. Build against it; never edit it.
+Returns: RESULT / ACCEPTANCE / BOUNDARY.
+Stop and report if: the contract cannot carry what this lane needs.
+```
+
+The consumer tests against the fixture. A change to the contract stops both
+lanes and comes back to the lead.
 
 ## Bake-off
 
@@ -106,9 +114,10 @@ worth paying for twice (5), so ask for designs, not builds:
 
 ```text
 READ-ONLY. Design request-level caching for GET /search in services/api:
-keys, invalidation on write, memory bound. Return the design, its failure
-modes, and the files it would touch. Selection: lowest p95 on the hot query
-set in docs/perf/search.md with no stale read after a write.
+keys, invalidation on write, memory bound. Return the design, every path by
+which a read can be stale after a write, its memory bound at 1M documents,
+and the files it would touch. Selection: no stale read after a write, then
+the smaller memory bound, then fewer files touched.
 ```
 
 ```text
@@ -117,6 +126,8 @@ READ-ONLY. Design result caching for GET /search in the database layer
 selection rule.
 ```
 
-The lead applies the selection rule, then dispatches one writer for the
-winner. Two writers building both designs would cost two full builds and two
-reviews; do that only when the designs cannot be judged without running them.
+The selection rule judges what a design states, so the lead can apply it
+before anything is built, then dispatch one writer for the winner. A rule
+that needs a measurement, such as p95 latency, needs builds: two writers
+building both designs cost two full builds and two reviews, so do that only
+when the designs cannot be judged without running them.

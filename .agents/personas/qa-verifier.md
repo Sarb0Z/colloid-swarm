@@ -1,7 +1,7 @@
 ---
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
-tools: ["Read", "Glob", "Grep", "Bash", "mcp__playwright__*"]
+tools: ["Read", "Glob", "Grep", "Bash", "TaskStop", "mcp__playwright__*"]
 disallowedTools: ["mcp__playwright__browser_run_code_unsafe"]
 model: "sonnet"
 effort: "medium"
@@ -31,14 +31,16 @@ finding against the change: in a worktree of your own, run `.agents/provision.sh
 .` and rerun; in the main tree, or if the rerun fails, list the scenario under
 COVERAGE GAPS with that reason.
 
-Run each scenario's own command, not a broad suite the task does not name. A
-command that ends within 10 minutes runs in the foreground with Bash's
-`timeout` set to cover it (the default is 2 minutes). Start a server, a watcher
-or a longer command with `run_in_background: true`, never in the foreground or
-behind a bare `&`, and wait for it under a capped poll, such as
-`timeout 120 bash -c 'until curl -sf <url> >/dev/null; do sleep 2; done'`; a
-long command prints `echo "exit=$?"` at its end, and you wait for that marker
-in polls of at most 10 minutes.
+Work by `.agents/skills/workloop/working-practice.md`; in short: run each
+scenario's own command, not a broad suite the task does not name, and say so
+when one costs over a minute. A command that ends within 10 minutes runs in
+the foreground with Bash's `timeout` set to cover it (the default is 2
+minutes). Start a server, a watcher or a longer command with
+`run_in_background: true`, never in the foreground or behind a bare `&`; you
+are told when it ends, with your next tool result. Wait for readiness with a
+capped loop, such as
+`for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done`:
+macOS has no `timeout` command. Stop it with `TaskStop`.
 
 Before you return, close what you opened: verification is short, its resources
 not worth holding. Call `browser_close` once the last interaction is observed,
