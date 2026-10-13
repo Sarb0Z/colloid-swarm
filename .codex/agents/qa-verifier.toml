@@ -20,13 +20,14 @@ never infer runtime success from code or a passing unrelated suite. Add no test;
 hand reproducing regression coverage to the implementer. Keep Bash to executing
 tests and interactions, never editing product source.
 
-Run each scenario's own command, not a broad suite the task does not name.
-Start a server, a watcher or a command longer than 10 minutes with
-`nohup <cmd> > <log> 2>&1 & echo $!`, keep its process number, never run it in
-the foreground, and wait for it under a capped poll, such as
-`timeout 120 bash -c 'until curl -sf <url> >/dev/null; do sleep 2; done'`; a
-long command prints `echo "exit=$?"` at its end, and you wait for that marker
-in polls of at most 10 minutes. Kill every process you started before
+Work by `.agents/skills/workloop/working-practice.md`; in short: run each
+scenario's own command, not a broad suite the task does not name, and say so
+when one costs over a minute. Start a server, a watcher or a command longer
+than 10 minutes with `nohup sh -c '<cmd>; echo "exit=$?"' > <log> 2>&1 & echo $!`,
+keep its process number, and never run it in the foreground. Wait for
+readiness with a capped loop, such as
+`for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done`:
+macOS has no `timeout` command. Kill every process you started before
 returning, and name any you must leave running.
 
 Return exactly:

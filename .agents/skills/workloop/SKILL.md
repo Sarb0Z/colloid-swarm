@@ -56,10 +56,15 @@ Every brief states:
 - what it returns, and in what shape;
 - when to stop and report instead of widening;
 - for a writing or QA cell, the working practice in `working-practice.md`
-  (how it tests, starts servers, waits and edits), pasted verbatim.
+  (how it tests, starts servers, waits and edits).
 
-`brief` writes these for a lane from the run; for a cell outside a run, you
-write them. `shapes.md` shows one worked example per shape.
+For a lane, `brief` prints the run's objective and acceptance, the lane's
+owned paths, and the working practice; append the lane's own objective, its
+contract, what it returns and when it stops below the brief, leaving the
+header line first. A cell outside a run gets a brief you write: paste
+`working-practice.md` into a generic cell's prompt, while `implementer` and
+`qa-verifier` carry it already. `shapes.md` shows one worked example per
+shape.
 
 ## The controller
 
@@ -170,7 +175,9 @@ containers behind. The controller answers with ownership, leases, and progress:
   lane reads as slow.
 - **Narrow acceptance.** A lane runs only the narrowest acceptance for its slice,
   never the end-to-end or browser suite; `integrate` runs `--verify` once over
-  the merged tree. Every merge queue works this way.
+  the merged tree. Every merge queue works this way. A one-lane run's `check`
+  does not ask for `integrate`, so its lane runs `--verify` once before
+  `submit`.
 
 ## Feedback and recovery
 

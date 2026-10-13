@@ -23,10 +23,10 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   **bake-off** pays every attempt in full, so two or three, preferring
   competing designs from read-only cells, with the selection rule set first.
   Each extra writer costs a worktree, an install, a review and a merge.
-- A writing or QA cell's prompt carries
-  `.agents/skills/workloop/working-practice.md` verbatim, how it tests, starts
-  servers, waits and edits; `brief` adds it for a lane, and the lead pastes it
-  into a generic cell's prompt.
+- A writing or QA cell works by `.agents/skills/workloop/working-practice.md`:
+  how it tests, starts servers, waits and edits. `brief` prints it for a lane,
+  `implementer` and `qa-verifier` carry it, and the lead pastes it into a
+  generic cell's prompt.
 - A generic cell is `general-purpose` with an explicit model; a named persona
   fixes model and effort in its frontmatter, so use one when effort must be
   fixed. The `reviewer` persona pins no model: the lead picks one at dispatch
