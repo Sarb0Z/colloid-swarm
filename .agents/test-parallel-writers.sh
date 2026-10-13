@@ -407,6 +407,16 @@ grep -q '^w16a	' "$nlive" && grep -q '^w16b	' "$nlive" || fail "concurrent demot
 ! grep -q '^m16	' "$nlive" || fail "the marked cell stayed live after 24 writes"
 ok "24 concurrent READ-ONLY writes are all denied and both live writers stay registered"
 
+# an explicit READ-ONLY outranks a lane brief: the cell writes nothing, not even in the lane's worktree
+reset
+printf '{"runs":{"run":{"lanes":{"ui":{"workspace":"%s"}}}}}' "$scratch/lane-ui" > "$nf/.agents/.workloop-state.json"
+[[ -z "$(ndispatch p22 general-purpose 'READ-ONLY: review the lane
+WORKLOOP REVIEWER BRIEF — run/ui' tur22)" ]] || fail "a READ-ONLY lane review was refused"
+meta r22 tur22; nstart r22 general-purpose p22
+denied "$(nwrite r22 general-purpose "$scratch/lane-ui/x.py")" || fail "a READ-ONLY prompt carrying a lane brief wrote in the lane's worktree"
+rm -f "$nf/.agents/.workloop-state.json"
+ok "a READ-ONLY prompt carrying a lane brief writes nothing"
+
 # disabled
 printf '{"hooks":{"parallel_writers":{"enabled":false}}}\n' > "$dir/.agents/config.json"
 [[ -z "$(dispatch p4 implementer)" && -z "$(dispatch p4 mechanic)" ]] || fail "the toggle did not disable the gate"
