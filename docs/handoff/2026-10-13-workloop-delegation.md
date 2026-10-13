@@ -107,6 +107,7 @@ alone cannot.
 | 16 | The root contract's size | No hard limit: `lint-contract.py` warns above 24,000 bytes | `contract-size-warns-not-fails` |
 | 17 | The root light touch | The drafted sentence, approved as contract text | this spec |
 | 18 | Tier follows difficulty, not stakes | Left as it is: the root's tier sentence and `hostile-review.md` unchanged | `cell-tier-wording-unchanged` |
+| 19 | Stale lane worktrees | Removed automatically; unsaved work in an abandoned lane is committed to a saved branch first | `stale-lane-worktrees-saved-then-removed` |
 
 ## Design
 
@@ -303,6 +304,32 @@ stays in the lead's checkout, where the gate and the digest read it.
   patch folders and every workspace member to the cone, and refuses when the
   cone drops a lockfile.
 
+### 8. Stale worktrees
+
+Lanes inside the checkout are not cleared by the system the way `/private/tmp`
+was, so the controller removes its own stale worktrees (ruling 19).
+
+- **Finished lanes.** A lane worktree whose lane is reviewed, integrated or
+  torn down, or whose run or lane no longer exists in the run state, is
+  removed when nothing in it is unsaved: no uncommitted or untracked files, and
+  its tip reachable from a branch. Its branch is deleted once merged and kept
+  otherwise; its labelled containers go by the existing ownership rule.
+- **Abandoned lanes.** A run with no lane activity for 7 days is abandoned.
+  Each of its worktrees that holds unsaved work is first committed, untracked
+  files included and ignored files not, to `workloop/<run>/<lane>-saved`; then
+  the worktree is removed and the lead's digest names the saved branch until
+  someone deletes it. A run held for the operator's hand merge, such as
+  `lq-ui`, loses only its folder after 7 idle days: its branch stays.
+- **Runs with nothing left.** A run whose worktrees are all gone and whose
+  lanes are all finished or saved is closed. Today that closes `fold` and
+  `register-rewrite`, whose worktrees were removed by hand.
+- **When.** `workloop.py prune [--dry-run]` does all of it and runs
+  `git worktree prune` for entries whose folders vanished; the lead's
+  session-start digest runs it, which costs one state read and one
+  `git status` per recorded worktree. It touches only worktrees the run state
+  records or that lie under `.agents/worktrees/`, never Claude Code's own
+  `.claude/worktrees/`.
+
 ## Units and order
 
 Gall's law: each unit works end to end before the next starts, and each lands
@@ -318,7 +345,7 @@ controller honours.
 2. Provisioning: the pruned lockfile walk, and `--sparse` that provisions what
    the install needs or refuses.
 3. Lane worktrees inside the checkout, the gate's nearest-working-tree rule,
-   the hook lookup, `widen`.
+   the hook lookup, `widen`, and stale-worktree cleanup (`prune`).
 4. Frictions in the gate: dead cells, marker at first tool call, long turns.
 5. The main-tree lane and the one-command one-writer run, every run's composed
    test, the brief as a dispatch line, review references, the digest.
@@ -343,6 +370,9 @@ operations before adding commands to it.
   no hand edit of run or gate state.
 - Per unit: its tests fail against the code before it and pass after; the gate
   units add a live check in a Claude session with real cells.
+- Cleanup: a test per case — a finished clean lane removed, an abandoned
+  dirty lane saved to its branch then removed, a run with nothing left closed,
+  a busy lane and `.claude/worktrees/` untouched.
 - Unverified by design: a cell dying from a usage limit cannot be caused on
   demand; the report names it.
 
