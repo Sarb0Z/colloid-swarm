@@ -422,11 +422,13 @@ one gate, because it exists and only its scope is wrong.
     says so, and the lead weighs that against its next dispatch.
   - Start a server, a watcher, or anything else that does not exit, where the
     host can see and stop it. Claude Code: `run_in_background: true`. Codex,
-    which has no background flag: `nohup <cmd> > <log> 2>&1 & echo $!`,
-    keeping the process number. Wait for it to be ready under a capped poll
-    (`timeout 120 bash -c 'until curl -sf <url> >/dev/null; do sleep 2; done'`),
-    and stop it before returning: `TaskStop` where the cell has it, otherwise
-    `kill` on its process number. Never in the foreground.
+    which has no background flag:
+    `nohup sh -c '<cmd>; echo "exit=$?"' > <log> 2>&1 & echo $!`, keeping the
+    process number. Wait for it with a capped loop
+    (`for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done`;
+    macOS has no `timeout` command), and stop it before returning: `TaskStop`
+    in Claude Code, `kill` on its process number in Codex. Never in the
+    foreground.
   - A writing cell edits a file with its host's edit tool: Read, then Edit
     or Write in Claude Code; `apply_patch` in Codex. A shell script writes
     only the output a command generates; a source file written from the shell
@@ -441,24 +443,31 @@ one gate, because it exists and only its scope is wrong.
     `timeout` set to cover it (the default is 2 minutes; the ceiling is
     600000 ms).
   - A longer command starts with `run_in_background: true` and writes its own
-    end marker (`<cmd>; echo "exit=$?"`). The cell waits in calls of at most
-    10 minutes, each a capped poll on that marker
-    (`timeout 590 bash -c 'until grep -q "^exit=" <output>; do sleep 5; done'`),
-    repeated until it shows. For a cell, the gate lets such a poll pass, also
-    on a task's output file, when `timeout` caps it at 600 s or less and no
-    sleep is longer than 5 s; every other refusal stands.
-  - Unit 2 first probes three things: whether a cell that starts a background
-    Bash call learns that it ended without ending its turn, and whether the
-    task survives the cell's return; and whether a cell can call `TaskStop`.
-    If a cell is notified, the remedy names that first and keeps the capped
-    poll as the fallback. If it can call `TaskStop`, both personas gain it.
-  - `.agents/README.md`'s description of the gate changes to match.
-- **Results recorded hours after the call.** Unit 2 first classifies the two
-  records (10.4 h and 6 h): a permission prompt waiting on the operator, an
-  interrupted turn resumed later, or a command that really ran past the
-  ceiling. Each class it finds gets a fix and an acceptance before the unit
-  ends; `cell-time.py` then measures a command's execution time without the
-  classes that are not execution.
+    end marker (`<cmd>; echo "exit=$?"`). The cell keeps working: probed
+    2026-10-14, a cell is told a background call ended with its next tool
+    result, without ending its turn. With nothing left to do, it waits in
+    calls of at most 10 minutes, each a capped loop on that marker
+    (`for i in $(seq 110); do grep -q '^exit=' <output> && break; sleep 5; done`
+    with Bash's `timeout` at 600000), repeated until it shows. Bash's own
+    timeout caps every call at 10 minutes, so for a cell the gate lets a poll
+    on a task's output file pass when no sleep in it is longer than 5 s;
+    every other refusal stands.
+  - The lead's remedy loses `timeout 120 bash -c …` for the same capped loop:
+    macOS has no `timeout` command (found 2026-10-14).
+  - `TaskStop` works in a cell (probed): `implementer` and `qa-verifier` carry
+    it. A background call outlives the cell that started it (probed), so
+    stopping what it started is the cell's job.
+  - `.agents/README.md`'s description of the gate changes to match, and
+    `cell-time.py` replays a cell's commands under the cell's rules.
+- **Results recorded hours after the call** (classified 2026-10-14). Neither
+  ran past the ceiling. The 10.4-hour one waited on the `browser_close` call
+  issued with it, most likely a permission prompt while the operator was away
+  (by elimination: transcripts do not log prompts). The 6-hour one was the Mac
+  asleep: every session in the store fell silent in the same second and woke
+  together, and the call's 600 s timer fired at wake. `cell-time.py`
+  therefore subtracts windows in which the whole store is silent from every
+  delay, and counts the rest as execution only when no other call of the same
+  assistant message was still pending.
 - **No gate on shell file writes yet.** A gate cannot tell a script that
   edits a source file from one that generates output by reading the command
   alone, so the language goes first and QA measures it. A rate still above
@@ -495,9 +504,9 @@ controller honours.
    failing (D2). The working-practice block in the brief and in both hosts'
    `implementer` and `qa-verifier`, its line in `delegation.md`, and
    `cell-time.py` with the baseline rerun from it (§9).
-2. Cells' waits (§9): the probes first (a cell's background calls, `TaskStop`,
-   the two late results), then the wait gate for cells with its remedy, and
-   a fix per class the probe finds.
+2. Cells' waits (§9; probes done 2026-10-14): the wait gate for cells with
+   its remedy, the lead's remedy without `timeout`, and `cell-time.py`'s
+   cell rules and silent-store windows.
 3. Provisioning: the pruned lockfile walk, and `--sparse` that provisions what
    the install needs or refuses.
 4. Lane worktrees inside the checkout, the gate's nearest-working-tree rule,
@@ -506,7 +515,8 @@ controller honours.
    worktrees in the teardown gate, removed at the session's end (§8).
 6. The main-tree lane and the one-command one-writer run, every run's composed
    test, the brief as a dispatch line, review references, the digest.
-7. Read-only cells in runs (`add-cell`, `returned`, `check`).
+7. Read-only cells in runs (`add-cell`, `returned`, `check`), and D3's
+   second sentence in the root.
 8. Shared files (`share`, `--rebuild`).
 9. Contracts (`--contract`, `ack-contract`, `built_on`, `--provisional`).
 10. Outside projects (the baseline refusal).
@@ -552,10 +562,10 @@ operations before adding commands to it.
     shell-write gate (§9). This part reports when the period ends and holds
     none of the other claims.
 - Wait gate: a test per case — a cell's long sleep and bare `&` refused with
-  the cell's remedy, the lead's with today's; a cell's capped poll on an end
-  marker passing, also on a task's output file; the same poll uncapped, or
-  sleeping over 5 s, refused; a lead's capped poll on a task's output
-  refused as today.
+  the cell's remedy, the lead's with today's; a cell's capped loop on an end
+  marker passing, also on a task's output file; the same loop sleeping over
+  5 s refused; a lead's poll on a task's output refused as today; no remedy
+  text names `timeout`.
 - Unverified by design: a cell dying from a usage limit cannot be caused on
   demand; the report names it.
 
@@ -579,7 +589,11 @@ operations before adding commands to it.
   first, by the workloop skill's guide: one writer by default, read-only cells
   around it. A multi-cell delegation is one `workloop` run: writers working at
   once get a worktree each, and the merged result is verified once." It lands
-  with unit 1.
+  with unit 1. **Re-ruled 2026-10-14:** its second sentence lands with unit 7,
+  once the controller records read-only cells and runs a lone writer in the
+  main tree. Until then the root says what today's controller honours:
+  "Writers working at once go through one `workloop` run: a worktree each, and
+  the merged result is verified once."
 - **D4. Tier follows difficulty, not stakes.** The root sends "complex or
   critical work" to frontier, and this spec's review went to fable while the
   gate's reviews at the same stakes went to opus. **Ruled:** left as it is; the
