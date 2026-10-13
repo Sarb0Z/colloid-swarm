@@ -21,6 +21,14 @@ import workloop_git as wg
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_STATE = ROOT / ".agents/.workloop-state.json"
+WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-practice.md"
+# The delegation shapes, one line each; the workloop skill holds the full guide.
+SHAPES = """Delegation shapes (the workloop skill's guide; choose one before dispatching):
+  one writer            the default: one cell edits the main tree, read-only cells around it; no run needed
+  read-only fan-out     research, review or QA cells returning text; three by default, about ten for broad research
+  parallel slices       one lane per writer on disjoint files that merge in any order; about three writers at most
+  contract-first split  commit the interface first, then producer and consumer lanes build against it at once
+  bake-off              several attempts at one task, one kept; each is paid in full, so two or three, selection rule first"""
 
 
 def fail(message: str) -> None:
@@ -284,6 +292,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         }
         record(args.run, data["runs"][args.run], "init", detail=args.objective, supplied=args.event_id)
     print(f"created workloop {args.run!r} at {base[:12]} in {repo}")
+    print(SHAPES)
 
 
 def cmd_add_lane(args: argparse.Namespace) -> None:
@@ -612,7 +621,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
         f"Environment: export COLLOID_RUN={args.run} COLLOID_LANE={args.lane} COMPOSE_PROJECT_NAME={wd.project_name(args.run, args.lane)}. Label what only this lane uses with --label colloid.run={args.run} --label colloid.lane={args.lane} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={args.run} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
-        "Run only the narrowest acceptance for your slice. Do not run the end-to-end or browser suite here: integrate runs --verify once over the merged tree.",
+        *([WORKING_PRACTICE.read_text().strip()] if args.role in {"worker", "qa"} else []),
         f"Progress: {command} heartbeat {args.run} {args.lane} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
         "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
         "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",
@@ -930,7 +939,7 @@ def cmd_abandon(args: argparse.Namespace) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser()
+    root = argparse.ArgumentParser(epilog=SHAPES, formatter_class=argparse.RawDescriptionHelpFormatter)
     root.add_argument("--state", help="state file (default: .agents/.workloop-state.json)")
     root.add_argument("--event-id", help="idempotency key for a mutating command")
     sub = root.add_subparsers(required=True)

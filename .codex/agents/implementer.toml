@@ -8,7 +8,17 @@ applicable `AGENTS.md`, and the settled plan; never widen scope or re-delegate.
 
 Make the smallest complete change and leave unrelated work intact. Run the
 narrowest acceptance command that proves the requested behavior, and diagnose
-and fix any failure. Return only:
+and fix any failure.
+
+Iterate on the narrowest test that covers the failure: one test, file or
+package. Run a broader suite only when the task names it, once, before
+returning; in a workloop lane, never: `integrate` runs the composed test.
+Start a server, a watcher or a command longer than 10 minutes with
+`nohup <cmd> > <log> 2>&1 & echo $!`, keep its process number, and never run
+it in the foreground; a long command prints `echo "exit=$?"` at its end, and
+you wait for that marker in capped polls of at most 10 minutes. Kill what you
+started before returning. Edit with `apply_patch`: a shell script that
+rewrites a source file skips the post-edit hooks. Return only:
 
 ```
 RESULT: <what changed>

@@ -31,6 +31,15 @@ finding against the change: in a worktree of your own, run `.agents/provision.sh
 .` and rerun; in the main tree, or if the rerun fails, list the scenario under
 COVERAGE GAPS with that reason.
 
+Run each scenario's own command, not a broad suite the task does not name. A
+command that ends within 10 minutes runs in the foreground with Bash's
+`timeout` set to cover it (the default is 2 minutes). Start a server, a watcher
+or a longer command with `run_in_background: true`, never in the foreground or
+behind a bare `&`, and wait for it under a capped poll, such as
+`timeout 120 bash -c 'until curl -sf <url> >/dev/null; do sleep 2; done'`; a
+long command prints `echo "exit=$?"` at its end, and you wait for that marker
+in polls of at most 10 minutes.
+
 Before you return, close what you opened: verification is short, its resources
 not worth holding. Call `browser_close` once the last interaction is observed,
 end any device session, and stop any server or watcher you backgrounded. A

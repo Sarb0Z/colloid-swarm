@@ -1,13 +1,67 @@
 ---
 name: workloop
-description: Coordinates durable, bounded parallel implementation and review lanes through a portable evidence-backed controller.
+description: Designs each delegation before dispatch, choosing among one writer, a read-only fan-out, parallel slices, a contract-first split and a bake-off, and coordinates writing lanes through a portable, evidence-backed controller.
 ---
 
 # Workloop
 
-Use it for long-running work with two or more independent implementation
-lanes, parallel reviewer feedback, or a handoff that must survive compaction, never
-for a small, one-shot edit.
+Read this before dispatching more than one cell toward one objective. The
+guide below picks the delegation's shape; the controller then coordinates the
+writing lanes the shape needs.
+
+## Choose the shape
+
+Answer six questions about the work. The answers pick a shape; shapes combine,
+and you may depart from them by stating why.
+
+1. **Does it change files?** No: a **read-only fan-out** — research, review or
+   QA cells that return text. Three cells by default, up to about ten for broad
+   research, each with one distinct question. Each prompt opens `READ-ONLY`.
+2. **Can one writer do it in reasonable time?** Yes: **one writer**, with
+   read-only cells around it. This is the default; most delegations are this.
+   The writer edits the main tree; no run is needed.
+3. **Do the parts touch disjoint files and merge in any order?** Yes:
+   **parallel slices**, one lane each. At most about three writers on one
+   codebase unless you state why more pay off; the controller's ceiling of
+   eight is the backstop.
+4. **Does one part consume an interface another produces?** Yes: a
+   **contract-first split**. Commit the contract (types, a schema, sample data)
+   before `init`, so the run's base holds it; the producer and consumer lanes
+   then build against it at once. A lane added with `--depends-on` cannot
+   claim until that lane is reviewed, so use it only where the consumer needs
+   the producer's code, not just its contract.
+5. **Is the choice between approaches worth paying for several times?** Only
+   then a **bake-off**: every attempt costs its full tokens and time. Prefer
+   read-only cells that return competing designs to writers that each build
+   one, keep it to two or three, and decide the selection rule before
+   dispatch.
+6. **Which tier does each cell need?** The tier follows how hard the cell's own
+   task is, by the root contract's tiers, not the stakes of the whole job.
+
+Weigh each shape's cost:
+
+- A read-only cell costs its tokens only.
+- The lone writer adds nothing to the checkout.
+- Each extra writer adds a worktree, an install, a review and a merge:
+  measured 2026-10-13 on real disk, about 6 s and 0.26 GB per lane on the
+  scaffold, 7 s and 0.24 GB on `food-app-app`, 12 s and 0.9 GB on `claims-app`.
+- A bake-off pays every attempt in full.
+
+Every brief states:
+
+- the objective and why it matters;
+- what the cell owns, and what it must not touch;
+- the contract it builds against, if any;
+- the narrowest acceptance it runs;
+- what it returns, and in what shape;
+- when to stop and report instead of widening;
+- for a writing or QA cell, the working practice in `working-practice.md`
+  (how it tests, starts servers, waits and edits), pasted verbatim.
+
+`brief` writes these for a lane from the run; for a cell outside a run, you
+write them. `shapes.md` shows one worked example per shape.
+
+## The controller
 
 The controller is a portable coordination surface, not an agent launcher. The
 lead dispatches the generated briefs through the current host and delivers any
