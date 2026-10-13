@@ -27,8 +27,11 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   refused. A cell never writes a `REPORT`, `SUMMARY`, `FINDINGS` or `ANALYSIS`
   `.md` file, which Claude Code refuses: it returns that content as its reply,
   and the product's own conventions name every other note file.
-- Two or more concurrent writers go through a `workloop` run;
-  `parallel-writers-gate.sh` enforces it, and its denial names the commands.
+- Two or more concurrent writers in one checkout go through a `workloop` run;
+  `parallel-writers-gate.sh` enforces it, and its denial names the commands. A
+  writer that works in a separate directory, no copy of this repository, says
+  so with one prompt line `WORKSPACE: <absolute path>` and may then write
+  anywhere but this checkout.
 - Plan mode blocks edits until the operator approves the plan, but only an
   attended terminal session offers that approval: unattended runs (`claude -p`,
   background cells) expose no plan-approval tool, and auto mode has none
