@@ -92,14 +92,16 @@ the lockfile hash. A writing lane owns exclusive paths.
 .agents/workloop.py brief slice-3b persistence --role worker
 ```
 
-On a large or vendored repository add `--sparse`, and the lane's worktree then
-holds only its owned directories, the root files, and any `--also <dir>`. Name
-the review directory there, because git refuses to stage a file outside the
-cone, and any directory the tests import from. A directory absent at the base is
-created empty in the cone. Lockfiles outside the cone are not installed, and a
-root pnpm workspace whose packages fall outside the cone installs partially and
-reports success, so give such a lane the whole workspace. The integration
-worktree is always full.
+Lanes are full checkouts. Add `--sparse` only on a very large monorepo: the
+worktree then holds the owned directories, the root files, any `--also <dir>`,
+and what the install needs, read from the base commit: the folders holding
+`patchedDependencies` patches and every workspace member (`workspaces`,
+`pnpm-workspace.yaml`), which `add-lane` prints as `cone + <dir> (<why>)`. It
+refuses, naming each file and the `--also <dir>` that fixes it, when the cone
+would drop any other lockfile, and when `pnpm-workspace.yaml` has a `packages:`
+shape it cannot read. Name the review directory in the cone, because git refuses
+to stage a file outside it, and any directory the tests import from. A directory
+absent at the base is created empty. The integration worktree is always full.
 
 Some files every lane appends to: service wiring, a generated API contract,
 a seed entry point, a doc index. Declare them with `init --shared <path>`

@@ -412,12 +412,51 @@ EOF
 expect 'archived 1 messages' "${tool[@]}" archive supervised
 expect 'late finding' "${tool[@]}" inbox supervised writer
 ok "archive drops an acknowledged finding to a reviewed lane and keeps one awaiting acknowledgement"
-git -C "$work" checkout -q -b pnpmws; printf 'packages:\n  - apps/*\n' > "$work/pnpm-workspace.yaml"; git -C "$work" add -A; git -C "$work" commit -qm ws; git -C "$work" checkout -q -
-"${tool[@]}" init pnpmws --objective x --acceptance y --repo "$work" --base pnpmws
-if "${tool[@]}" add-lane pnpmws w --worker implementer --workspace "$scratch/lane-pnpm" --path src --sparse 2>/dev/null; then fail 'a sparse lane was allowed on a pnpm workspace'; fi
 expect 'does not exist at the base; created empty' "${tool[@]}" add-lane sparse n --worker implementer --workspace "$scratch/lane-newdir" --path brand-new --sparse
-ok "a pnpm workspace refuses --sparse; a cone directory absent at the base is named"
+ok "a cone directory absent at the base is named"
 ok "supervised messaging holds"
+
+# ── a sparse cone gains what the install needs, or the lane is refused ──────
+mono="$scratch/mono"
+mkdir -p "$mono/src" "$mono/patches" "$mono/vendored-patches" "$mono/apps/web" "$mono/apps/api" "$mono/apps/skip" "$mono/tools/js"
+git init -q "$mono"; git -C "$mono" config user.email test@example.com; git -C "$mono" config user.name test
+printf 'a\n' > "$mono/src/a.txt"; printf 'p\n' > "$mono/patches/x.patch"; printf 'p\n' > "$mono/vendored-patches/y.patch"
+for m in web api skip; do printf '{"name":"%s"}\n' "$m" > "$mono/apps/$m/package.json"; done
+printf '{"name":"root","workspaces":{"packages":["apps/*","!apps/skip"]},"pnpm":{"patchedDependencies":{"x@1":"patches/x.patch"}},"patchedDependencies":{"y@1":"./vendored-patches/y.patch"}}\n' > "$mono/package.json"
+printf '{"name":"root","lockfileVersion":3}\n' > "$mono/package-lock.json"
+git -C "$mono" add -A; git -C "$mono" commit -qm mono
+monotool=("${tool[@]}"); mono_init() { "${monotool[@]}" init "$1" --objective x --acceptance y --repo "$mono" --base "${2:-HEAD}" >/dev/null; }
+mono_init gain
+out="$("${tool[@]}" add-lane gain g --worker implementer --workspace "$scratch/lane-gain" --path src --sparse 2>&1)"
+for want in 'cone + patches, vendored-patches (patchedDependencies)' 'cone + apps/api, apps/web (workspaces)'; do
+  [[ "$out" == *"$want"* ]] || fail "add-lane did not report '$want': $out"
+done
+for d in patches vendored-patches apps/web apps/api src; do [[ -d "$scratch/lane-gain/$d" ]] || fail "$d missing from the sparse cone"; done
+[[ ! -e "$scratch/lane-gain/apps/skip" ]] || fail "a negated workspace glob joined the cone"
+ok "a sparse lane gets patch folders and workspace members, minus negated globs, and says why"
+
+git -C "$mono" checkout -q -b pnbranch
+printf 'packages:\n  - "libs/*"\n  - "!libs/old"\n' > "$mono/pnpm-workspace.yaml"
+printf '{"name":"root"}\n' > "$mono/package.json"; git -C "$mono" rm -rq --cached package-lock.json
+mkdir -p "$mono/libs/one" "$mono/libs/old"; printf '{}\n' > "$mono/libs/one/package.json"; printf '{}\n' > "$mono/libs/old/package.json"
+git -C "$mono" add -A; git -C "$mono" commit -qm pnpm
+mono_init pn pnbranch
+"${tool[@]}" add-lane pn p --worker implementer --workspace "$scratch/lane-pn" --path src --sparse >/dev/null || fail "a pnpm workspace sparse lane was refused"
+[[ -f "$scratch/lane-pn/libs/one/package.json" && ! -e "$scratch/lane-pn/libs/old" ]] || fail "pnpm-workspace.yaml members wrong in the cone: $(ls "$scratch/lane-pn/libs")"
+printf 'packages: [libs/*]\n' > "$mono/pnpm-workspace.yaml"; git -C "$mono" commit -qam flow
+mono_init pnflow
+git -C "$mono" checkout -q -
+expect 'only a block list' "${tool[@]}" add-lane pnflow f --worker implementer --workspace "$scratch/lane-flow" --path src --sparse
+ok "a pnpm workspace may be sparse; a packages: shape that cannot be read is refused"
+
+printf '{"name":"js","lockfileVersion":3}\n' > "$mono/tools/js/package-lock.json"; git -C "$mono" add -A; git -C "$mono" commit -qm nested-lock
+mono_init lock2
+if "${tool[@]}" add-lane lock2 l --worker implementer --workspace "$scratch/lane-lock" --path src --sparse 2>/dev/null; then fail "a cone that drops tools/js/package-lock.json was accepted"; fi
+expect 'tools/js/package-lock.json (add --also tools/js)' "${tool[@]}" add-lane lock2 l --worker implementer --workspace "$scratch/lane-lock" --path src --sparse
+: > "$NPM_LOG"
+"${tool[@]}" add-lane lock2 l --worker implementer --workspace "$scratch/lane-lock" --path src --also tools/js --sparse >/dev/null 2>&1 || fail "--also tools/js did not clear the refusal"
+[[ -f "$scratch/lane-lock/tools/js/package-lock.json" ]] || fail "--also folder missing from the cone"
+ok "a cone that drops a nested lockfile is refused by name; --also for its folder passes"
 
 # ── shared paths: any lane edits them; a rebased lane is measured from its own start
 "${tool[@]}" init shr --objective x --acceptance y --repo "$work" --shared docs/index.md --shared gen
