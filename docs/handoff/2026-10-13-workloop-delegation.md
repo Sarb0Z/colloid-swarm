@@ -1,9 +1,9 @@
 # Workloop: the lead designs the delegation
 
-Spec, critical stakes (it changes the parallel-writers gate, the workloop
-controller, and contract text). Rulings came from five rounds with the
-operator on 2026-10-13; none is open. No build starts before the operator's
-OK on this spec.
+Spec, critical stakes (it changes the parallel-writers, teardown and wait
+gates, the workloop controller, the personas, and contract text). Rulings came
+from the operator on 2026-10-13; none is open. No build starts before the
+operator's OK on this spec.
 
 ## The ask
 
@@ -20,9 +20,18 @@ The operator, after the `lq-ui` run did not fit workloop:
 >
 > keep in mind bake-offs can get quite expensive
 
+Later the same day:
+
+> I've noticed subagents take years running stupid commands, tests, builds and
+> who knows what. Any idea what's up with that
+
+and, on the findings below, "fold this in" and "add this to the test write up
+as well".
+
 So the language the lead reads (the shape guide, the briefs, the refusals) is
 the main deliverable; controller changes serve it, and hold only what language
-alone cannot.
+alone cannot. The same holds for what a cell reads: its persona and its brief
+decide how it spends its time.
 
 ## Evidence
 
@@ -64,6 +73,49 @@ alone cannot.
   (5 loads, 24 reads of its file).
 - The operator asked for parallelism or delegation in 42 prompts, 15 of them
   naming a model tier.
+
+### Where cells' time goes (the 14 days to 2026-10-13)
+
+A scratch scan of the Claude Code session store (both accounts share it):
+890 cells whose transcript changed in the window, so a cell that began before
+it counts whole. The figures are pattern matches, close enough to rank the
+causes; unit 1's `cell-time.py` recomputes them with the definitions in §9,
+and the QA compares against that rerun, not these numbers.
+
+- 404 hours from each cell's first record to its last. 207 of them are gaps
+  over 30 minutes: 131 hours parked until the lead messaged the cell again,
+  and 48 hours before a model response, cause not established. The rest
+  splits about 128 hours model and 99 hours tools; records are not in time
+  order, so the parts overlap and sum past the span.
+- 61 hours in shell commands. Commands matching a test pattern took 16.2
+  hours (5,136 calls; the pattern also catches reading a test file). Commands
+  matching a build, install or Docker pattern took 12.7 hours (878 calls, 52 s
+  each on average). No cell ran a byte-identical test command four times, but
+  reruns vary their arguments: one `claims-app` cell ran pytest 52 times. A
+  run of one to three tests took 9–16 s, mostly the fixed start of a Postgres
+  container; six runs took the broad suite (1,484 to 6,376 tests, 29–382 s
+  each) while the cell was still fixing.
+- Two Bash calls had their result recorded hours after the call: a QA cell's
+  dev-server start 10.4 hours, an implementer's `bun run verify` 6 hours.
+  Bash's ceiling is 10 minutes. Whether these ran that long, waited on a
+  permission prompt, or sat in an interrupted turn is not established.
+- Blind waits: replayed through `wait-gate.py`, 558 cell commands would have
+  been refused, 15.9 hours of their time: long sleeps, 67 sleeps polling a
+  background task's output file, and bare `&` backgrounds, most of them
+  servers. The gate never saw them: it is registered `--agent main`, so it
+  runs for the lead only (since it landed, 2026-09-27, with no recorded
+  reason). Its remedy, "end your turn and you are notified", does not fit a
+  cell, whose ended turn returns it to the lead.
+- Shell commands matching a file-write pattern (`python3 - <<EOF`, `sed -i`,
+  `cat >`): 5,384, against 2,408 Edit and Write calls. The pattern also
+  catches read-only Python heredocs and scratch files, so it overstates source
+  edits by an unknown share. A source file written from the shell costs a
+  model turn writing a script, and the post-edit hooks never see it. 152 Edit
+  or Write calls failed with "File has not been read yet".
+- Today's guidance: the workloop brief says "run only the narrowest acceptance
+  for your slice"; `implementer` says the same; `qa-verifier` says to stop what
+  it backgrounded. None says how to iterate on a failing test, how to start a
+  server, how a cell waits, or how to edit a file.
 
 ### What other harnesses do
 
@@ -109,6 +161,7 @@ alone cannot.
 | 18 | Tier follows difficulty, not stakes | Left as it is: the root's tier sentence and `hostile-review.md` unchanged | `cell-tier-wording-unchanged` |
 | 19 | Worktrees left behind | None outlasts the session that made it: the teardown gate records it, the session end removes it, unsaved work is committed to a saved branch first | `worktrees-end-with-their-session` |
 | 20 | Worktrees already left behind | Healed by the scaffold once transplanted: unrecorded, unlocked and idle 24 hours, they are saved and removed | `worktrees-end-with-their-session` |
+| 21 | Where cells' time goes | Addressed in this redesign and measured in its QA; a gate on shell file writes waits on that measure | this spec |
 
 ## Design
 
@@ -346,9 +399,87 @@ it as one more resource class.
   so a run does not outlive its lead either: the session end saves and removes
   its worktrees and closes the run. A run whose worktrees are already gone,
   as `fold` and `register-rewrite` are today, is closed by the same sweep.
-- **Unit 4 probes first** that Claude Code's `SessionEnd` hook fires on
+- **Unit 5 probes first** that Claude Code's `SessionEnd` hook fires on
   `/exit`, a closed terminal and a resumed session, and how long it may run:
   removing a lane with `node_modules` took 4–5 s in the benchmark.
+
+### 9. Cells spend their time on the work
+
+Ruling 21. Language carries most of it, as for the lead; the wait gate is the
+one gate, because it exists and only its scope is wrong.
+
+- **How a cell works.** The brief the controller writes gains a
+  working-practice block; `implementer` and `qa-verifier` say the same in both
+  hosts' persona files (`.agents/personas/*.md` for Claude Code,
+  `.codex/agents/*.toml` for Codex); `delegation.md` tells the lead to put the
+  block in a generic cell's prompt, which reads no rule file of its own. Each
+  host's text uses that host's tools:
+  - Run the brief's acceptance, iterating on the narrowest test that covers
+    the failure: one test, file or package. In a run, nothing broader: the
+    composed test runs once over the merged tree, at `integrate` or `check`
+    (§2). Outside a run, a full suite runs only when the brief names it, once,
+    before returning. When one acceptance run costs over a minute, the result
+    says so, and the lead weighs that against its next dispatch.
+  - Start a server, a watcher, or anything else that does not exit, where the
+    host can see and stop it. Claude Code: `run_in_background: true`. Codex,
+    which has no background flag: `nohup <cmd> > <log> 2>&1 & echo $!`,
+    keeping the process number. Wait for it to be ready under a capped poll
+    (`timeout 120 bash -c 'until curl -sf <url> >/dev/null; do sleep 2; done'`),
+    and stop it before returning: `TaskStop` where the cell has it, otherwise
+    `kill` on its process number. Never in the foreground.
+  - A writing cell edits a file with its host's edit tool: Read, then Edit
+    or Write in Claude Code; `apply_patch` in Codex. A shell script writes
+    only the output a command generates; a source file written from the shell
+    skips the post-edit hooks. `qa-verifier` writes no file and keeps its
+    tools.
+- **The wait gate covers cells, in Claude Code** (Codex has no background
+  flag, and the gate stays unwired there, as `.agents/README.md` says).
+  `normalize-hook.py` passes the payload's `agent_id` to `wait-gate.sh`, which
+  loses `--agent main` and picks its remedy by it: the lead keeps today's
+  text. A cell is told:
+  - A command that ends within 10 minutes runs in the foreground, with Bash's
+    `timeout` set to cover it (the default is 2 minutes; the ceiling is
+    600000 ms).
+  - A longer command starts with `run_in_background: true` and writes its own
+    end marker (`<cmd>; echo "exit=$?"`). The cell waits in calls of at most
+    10 minutes, each a capped poll on that marker
+    (`timeout 590 bash -c 'until grep -q "^exit=" <output>; do sleep 5; done'`),
+    repeated until it shows. For a cell, the gate lets such a poll pass, also
+    on a task's output file, when `timeout` caps it at 600 s or less and no
+    sleep is longer than 5 s; every other refusal stands.
+  - Unit 2 first probes three things: whether a cell that starts a background
+    Bash call learns that it ended without ending its turn, and whether the
+    task survives the cell's return; and whether a cell can call `TaskStop`.
+    If a cell is notified, the remedy names that first and keeps the capped
+    poll as the fallback. If it can call `TaskStop`, both personas gain it.
+  - `.agents/README.md`'s description of the gate changes to match.
+- **Results recorded hours after the call.** Unit 2 first classifies the two
+  records (10.4 h and 6 h): a permission prompt waiting on the operator, an
+  interrupted turn resumed later, or a command that really ran past the
+  ceiling. Each class it finds gets a fix and an acceptance before the unit
+  ends; `cell-time.py` then measures a command's execution time without the
+  classes that are not execution.
+- **No gate on shell file writes yet.** A gate cannot tell a script that
+  edits a source file from one that generates output by reading the command
+  alone, so the language goes first and QA measures it. A rate still above
+  one shell source write per Edit or Write call is filed as the next unit.
+- **The measure is committed.** `.agents/eval/cell-time.py` reads Claude
+  Code's session store, selecting records by their own timestamps within a
+  period and cells by their working folder's repository, and prints per cell
+  and in total:
+  - active and idle time;
+  - shell time by kind;
+  - execution time of the longest commands;
+  - blind waits that ran, replayed through `wait-gate.py`, beside the gate's
+    refusals;
+  - shell source writes (a write pattern naming a tracked file of the
+    working folder's repository) against Edit and Write calls;
+  - runs of the brief's composed test (the run's `--verify` string) inside
+    lanes.
+
+  It writes nothing and reads each transcript once; the scratch scan took
+  about two minutes over the 890 cells above. Codex cells are outside it,
+  and the report says so. The baseline and the QA run the same code.
 
 ## Units and order
 
@@ -361,21 +492,26 @@ controller honours.
 1. The shape guide: the six questions, the shapes with their costs and
    defaults, the brief fields, in the skill, `delegation.md` and the root
    light touch (D3); `lint-contract.py` warns above 24,000 bytes instead of
-   failing (D2).
-2. Provisioning: the pruned lockfile walk, and `--sparse` that provisions what
+   failing (D2). The working-practice block in the brief and in both hosts'
+   `implementer` and `qa-verifier`, its line in `delegation.md`, and
+   `cell-time.py` with the baseline rerun from it (§9).
+2. Cells' waits (§9): the probes first (a cell's background calls, `TaskStop`,
+   the two late results), then the wait gate for cells with its remedy, and
+   a fix per class the probe finds.
+3. Provisioning: the pruned lockfile walk, and `--sparse` that provisions what
    the install needs or refuses.
-3. Lane worktrees inside the checkout, the gate's nearest-working-tree rule,
+4. Lane worktrees inside the checkout, the gate's nearest-working-tree rule,
    the hook lookup, `widen`.
-4. Frictions in the gate: dead cells, marker at first tool call, long turns;
+5. Frictions in the gate: dead cells, marker at first tool call, long turns;
    worktrees in the teardown gate, removed at the session's end (§8).
-5. The main-tree lane and the one-command one-writer run, every run's composed
+6. The main-tree lane and the one-command one-writer run, every run's composed
    test, the brief as a dispatch line, review references, the digest.
-6. Read-only cells in runs (`add-cell`, `returned`, `check`).
-7. Shared files (`share`, `--rebuild`).
-8. Contracts (`--contract`, `ack-contract`, `built_on`, `--provisional`).
-9. Outside projects (the baseline refusal).
+7. Read-only cells in runs (`add-cell`, `returned`, `check`).
+8. Shared files (`share`, `--rebuild`).
+9. Contracts (`--contract`, `ack-contract`, `built_on`, `--provisional`).
+10. Outside projects (the baseline refusal).
 
-`workloop.py` is 965 lines; unit 5 splits run bookkeeping from Git
+`workloop.py` is 965 lines; unit 6 splits run bookkeeping from Git
 operations before adding commands to it.
 
 ## QA claims
@@ -395,6 +531,31 @@ operations before adding commands to it.
   and `add-lane` and recorded; a clean one removed at session end; a dirty one
   saved to its branch, then removed; a dead session's swept at the next start;
   an unrecorded one idle 24 hours saved and removed; a locked one and one active today untouched.
+- Cells' time (§9), in two parts:
+  - In the three Claude headline sessions, every cell, by `cell-time.py`: no
+    blind wait runs; no command's execution time passes its Bash timeout; no
+    lane runs the composed test (the run's `--verify` string), which runs once
+    per `integrate`. Servers by process state: the QA lists the listening
+    ports and the processes under the session before each cell's dispatch and
+    after its return, and nothing new survives the return unless the cell
+    names it under STILL UP. The Codex session is checked by hand against
+    the same claims, and the report says so.
+  - Over the 14 days after units 1 and 2 land, `cell-time.py` compares Claude
+    cells in the repositories carrying them with the same repositories over
+    the 14 days before, as rates per cell: blind waits that ran and the
+    gate's refusals, Bash calls over 10 minutes of execution, and shell source
+    writes per Edit or Write call. Blind waits that ran must fall to none,
+    since the gate now refuses them; the other figures are reported beside
+    their baseline, with test and build hours per cell, and no target,
+    because their counts are small and the mix of work moves them. A rate of
+    shell source writes still above one per Edit or Write call files the
+    shell-write gate (§9). This part reports when the period ends and holds
+    none of the other claims.
+- Wait gate: a test per case — a cell's long sleep and bare `&` refused with
+  the cell's remedy, the lead's with today's; a cell's capped poll on an end
+  marker passing, also on a task's output file; the same poll uncapped, or
+  sleeping over 5 s, refused; a lead's capped poll on a task's output
+  refused as today.
 - Unverified by design: a cell dying from a usage limit cannot be caused on
   demand; the report names it.
 
@@ -405,7 +566,7 @@ operations before adding commands to it.
   `food-app-core`: sparse saved 0.07–0.85 s and 100–215 MB per lane, left the
   install unchanged or got it wrong, and tests needed one to four folders
   added by hand. **Ruled:** sparse for very large monorepos only; lanes are
-  full checkouts by default, and unit 2's provisioning fixes stand.
+  full checkouts by default, and unit 3's provisioning fixes stand.
 - **D2. The root contract's size.** No published figure for where Opus 5.5 or
   Fable 5.1 stop following an instruction file; Codex silently stops reading
   AGENTS.md text at 32 KiB, counted from the root down to its working folder.
@@ -446,6 +607,22 @@ superseded by a ruling.
 | 12 | P2: the skill would pass 500 lines; the brief had two owners | Adopted: examples in reference files; the controller owns the brief (§1) |
 | 13 | P2: a one-run QA claim, Codex uncovered | Adopted: three Claude sessions plus one Codex (QA) |
 | 14 | P2: only bake-offs were priced; no tier question | Adopted: a cost line per shape and a sixth question (§1) |
+
+## Review dispositions (round 2, 2026-10-13)
+
+Eight findings against the cells'-time amendment (ruling 21, §9); all adopted,
+one in part.
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | P1: "run the composed test before returning" contradicted "verified once" | Adopted: lanes run the brief's acceptance; the composed test stays with `integrate` and `check` (§9, QA) |
+| 2 | P1: Claude-only tool names in text Codex cells read; `qa-verifier` told to edit | Adopted: each host's text uses its tools; Codex persona files named; Codex checked by hand (§9, QA) |
+| 3 | P1: "ran 10.4 hours" was a recorded gap, which permission waits also make | Adopted: evidence restated; unit 2 classifies first; execution time measured without non-execution classes (§9, QA) |
+| 4 | P1: no permitted wait for a cell's command over 10 minutes; `agent_id` not passed | Adopted: an end marker and a capped poll; normalizer and README listed; tests per case (§9, QA) |
+| 5 | P1: QA claims unmeasurable or measured on a shrinking population | Adopted: composed test by its `--verify` string, servers by process state, rates per cell over the same repositories, rerun baseline (QA) |
+| 6 | P2: the shell-write count includes read-only heredocs | Adopted: relabelled; `cell-time.py` counts writes naming a tracked file (Evidence, §9) |
+| 7 | P2: figures mislabelled; overlapping time parts; "breadth, not repetition" | Adopted in part: relabelled as pattern matches and the line dropped. The 152 are confirmed: the scan grouped failures by message, and all 152 read "File has not been read yet" |
+| 8 | P2: unit 4 carried three pieces of work | Adopted: the waits are unit 2; ruling 21 reworded (Units) |
 
 ## Out of scope
 
