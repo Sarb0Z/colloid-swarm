@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Firing tests for the parallel-writers gate: a second writer dispatched while
-# another is live is denied unless it carries a workloop brief; readers and
-# sequential writers pass. A cell dispatched READ-ONLY or NOTES-ONLY is held to
-# its marker when it writes.
+# Firing tests for the parallel-writers gate: a second writer dispatched to the
+# checkout while another works in it is denied; a cell placed outside it (a
+# workloop lane, a WORKSPACE line) passes uncounted; readers and sequential
+# writers pass. A cell dispatched READ-ONLY, NOTES-ONLY or outside is held to
+# that when it writes.
 set -euo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
@@ -62,14 +64,15 @@ denied "$(dispatch p0 mechanic 'WORKLOOP WORKER BRIEF — run/ghost')" || fail "
 [[ -z "$(dispatch p0 mechanic "$forged")" ]] || fail "a real lane outside the checkout was refused"
 ok "a brief header exempts a dispatch only for a lane the controller holds outside the checkout"
 
-# a workloop brief passes regardless, and is counted
+# a workloop brief passes regardless, and is not counted: the lane works outside the checkout
 [[ -z "$(dispatch p1 implementer 'WORKLOOP WORKER BRIEF — run/lane
 Objective: x')" ]] || fail "a briefed writer was refused"
 ok "a writer carrying a workloop brief passes"
 : > "$dir/.agents/.writers-turn-s1"
 [[ -z "$(dispatch p9 implementer 'WORKLOOP WORKER BRIEF — run/a')" && -z "$(dispatch p9 mechanic 'WORKLOOP WORKER BRIEF — run/b')" ]] || fail "briefed lanes were refused"
-denied "$(dispatch p9 implementer)" || fail "an unbriefed writer passed beside briefed lanes in one message"
-ok "briefed lanes are counted, so a plain writer beside them is denied"
+[[ -z "$(dispatch p9 implementer)" ]] || fail "a plain writer was refused beside lanes in their own worktrees"
+denied "$(dispatch p9 mechanic)" || fail "a second plain writer passed beside the first"
+ok "lanes work outside the checkout, so one plain writer beside them passes and a second is denied"
 
 # a prompt that declares itself read-only passes
 : > "$dir/.agents/.writers-turn-s1"
@@ -106,19 +109,39 @@ for i in 1 2 3 4; do (dispatch p3 implementer >> "$scratch/race") & done; wait
 [[ "$(grep -c deny "$scratch/race")" -eq 3 ]] || fail "racing dispatches: expected 3 denials, got $(grep -c deny "$scratch/race")"
 ok "of four racing writer dispatches exactly one passes"
 
-# the lead's own edit while an uncoordinated writer is live is denied; with a
-# workloop run active the live writers are lanes and the main tree is free
+# the lead's own edit while a writer is live in the checkout is denied, whatever
+# workloop run is active: a lane works elsewhere and is never a live writer here
 : > "$dir/.agents/.writers-turn-s1"
 [[ -z "$(edit p5)" ]] || fail "an edit with nothing live was refused"
 start a5 implementer p5
-denied "$(edit p5)" || fail "the lead edited beside a live uncoordinated writer"
+denied "$(edit p5)" || fail "the lead edited beside a live writer"
 printf '{"version":1,"runs":{"r":{"lanes":{"l":{"state":"active"}}}}}' > "$dir/.agents/.workloop-state.json"
-[[ -z "$(edit p5)" ]] || fail "the lead was refused while a workloop run was active"
-printf '{"version":1,"runs":{"r":{"torn_down":{"at":"x"},"lanes":{"l":{"state":"active"}}}}}' > "$dir/.agents/.workloop-state.json"
-denied "$(edit p5)" || fail "a torn-down run still freed the main tree"
+denied "$(edit p5)" || fail "an active workloop run freed the lead beside a plain writer"
 rm "$dir/.agents/.workloop-state.json"; stop a5 implementer
 [[ -z "$(edit p5)" ]] || fail "an edit after the writer stopped was refused"
-ok "the lead's edit is denied beside a live writer unless a workloop run is active"
+ok "the lead's edit is denied beside a live writer, whatever workloop run is active"
+
+# a WORKSPACE line that is not plainly elsewhere is refused, and the denial says why
+rm -f "$dir/.agents/.writers-"* "$dir/.agents/.cell-markers-"*
+git init -q "$dir"; git -C "$dir" -c user.name=t -c user.email=t@t commit -q --allow-empty -m root
+git clone -q "$dir" "$scratch/clone"
+git -C "$dir" worktree add -q "$scratch/wt-own" 2>/dev/null
+mkdir -p "$dir/sub" "$scratch/copy-a" "$scratch/copy-b"
+for ws in "$dir/sub" "$scratch" "/" "$scratch/missing" "relative/path" "~" "$scratch/clone" "$scratch/wt-own"; do
+  : > "$dir/.agents/.writers-turn-s1"
+  [[ -z "$(dispatch p12 implementer)" ]] || fail "first writer refused"
+  out="$(dispatch p12 mechanic "WORKSPACE: $ws")"
+  denied "$out" && [[ "$out" == *"WORKSPACE line was not accepted"* ]] || fail "WORKSPACE $ws was accepted ($out)"
+done
+: > "$dir/.agents/.writers-turn-s1"
+[[ -z "$(dispatch p12 implementer)" ]] || fail "first writer refused"
+denied "$(dispatch p12 mechanic "WORKSPACE: $scratch/copy-a
+WORKSPACE: $scratch/copy-b")" || fail "two WORKSPACE lines were accepted"
+[[ -z "$(dispatch p12 mechanic "build it
+WORKSPACE: $scratch/copy-a")" ]] || fail "a WORKSPACE in an unrelated directory was refused beside a writer"
+[[ -z "$(GIT_DIR="$dir/.git" dispatch p12 mechanic "WORKSPACE: $scratch/copy-b")" ]] || fail "an inherited GIT_DIR made an unrelated WORKSPACE read as this repository"
+git -C "$dir" worktree remove --force "$scratch/wt-own"; rm -rf "$dir/.git" "$dir/sub" "$dir/.agents/.writers-"* "$dir/.agents/.cell-markers-"*
+ok "a WORKSPACE inside, above, missing, relative, unexpanded, doubled, or a clone or worktree of this repository is refused; an unrelated one passes, whatever GIT_DIR the session inherited"
 
 # a READ-ONLY generic cell that starts never registers, so the lead edits beside it
 rm -f "$dir/.agents/.writers-"*
@@ -406,6 +429,40 @@ for i in $(seq 1 24); do denied "$(<"$scratch/c16-$i")" || fail "concurrent READ
 grep -q '^w16a	' "$nlive" && grep -q '^w16b	' "$nlive" || fail "concurrent demotions lost a live writer: '$(cat "$nlive")'"
 ! grep -q '^m16	' "$nlive" || fail "the marked cell stayed live after 24 writes"
 ok "24 concurrent READ-ONLY writes are all denied and both live writers stay registered"
+
+# OUTSIDE cells: two in one message pass beside a writer, write their own
+# directories, are denied the checkout, and never hold the lead
+reset
+mkdir -p "$scratch/copy-a" "$scratch/copy-b"
+[[ -z "$(ndispatch p20 general-purpose 'change the module' tuw20)" ]] || fail "the writer was refused"
+[[ -z "$(ndispatch p20 general-purpose "WORKSPACE: $scratch/copy-a" tuo20a)" ]] || fail "the first outside cell was refused"
+[[ -z "$(ndispatch p20 implementer "build the model
+WORKSPACE: $scratch/copy-b" tuo20b)" ]] || fail "the second outside cell was refused"
+grep -q $'^tuo20a\tOUTSIDE$' "$nf/.agents/.cell-markers-s2" && grep -q $'^tuo20b\tOUTSIDE$' "$nf/.agents/.cell-markers-s2" \
+  || fail "the outside dispatches were not recorded: $(cat "$nf/.agents/.cell-markers-s2")"
+meta w20 tuw20; meta o20a tuo20a; meta o20b tuo20b
+nstart w20 general-purpose p20; nstart o20a general-purpose p20; nstart o20b implementer p20
+! grep -q '^o20b	' "$nlive" || fail "an outside cell of a type no writer shares registered as a writer"
+[[ -z "$(nwrite o20a general-purpose "$scratch/copy-a/finance.py")" ]] || fail "an outside cell was refused its own directory"
+! grep -q '^o20a	' "$nlive" || fail "an outside cell that shared a writer's type stayed live after its first write"
+out="$(nwrite o20b implementer "$nf/src/x.py")"
+denied "$out" && [[ "$out" == *"dispatched to work outside this checkout"* ]] || fail "an outside cell wrote in the checkout ($out)"
+denied "$(nwrite o20a general-purpose "src/y.py")" || fail "an outside cell wrote in the checkout through a relative path"
+[[ -z "$(nwrite w20 general-purpose "$nf/src/x.py")" ]] || fail "the one writer was refused the checkout"
+denied "$(ndispatch p20 mechanic 'change another module' tuw20b)" || fail "a second writer passed beside the first"
+nstop w20 general-purpose
+[[ -z "$(nlead p20 "$nf/src/x.py")" ]] || fail "outside cells held the lead's edit"
+ok "outside cells pass beside a writer, keep to their directories, and leave the main tree to the lead"
+
+# a lane cell is held to its worktree the same way
+reset
+printf '{"runs":{"run":{"lanes":{"ui":{"workspace":"%s"}}}}}' "$scratch/copy-a" > "$nf/.agents/.workloop-state.json"
+[[ -z "$(ndispatch p21 general-purpose 'WORKLOOP WORKER BRIEF — run/ui' tul21)" ]] || fail "the lane was refused"
+meta l21 tul21; nstart l21 general-purpose p21
+denied "$(nwrite l21 general-purpose "$nf/src/x.py")" || fail "a lane cell wrote in the checkout"
+[[ -z "$(nwrite l21 general-purpose "$scratch/copy-a/x.py")" ]] || fail "a lane cell was refused its worktree"
+rm -f "$nf/.agents/.workloop-state.json"
+ok "a lane cell writes its worktree and is denied the checkout"
 
 # an explicit READ-ONLY outranks a lane brief: the cell writes nothing, not even in the lane's worktree
 reset

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Which marker a dispatched cell's prompt opened with, READ-ONLY or NOTES-ONLY,
-and what that marker lets the cell write.
+"""Which marker a dispatched cell carries — READ-ONLY or NOTES-ONLY from its
+prompt's opening, or OUTSIDE when its prompt placed it outside the checkout (a
+workloop lane, a WORKSPACE line) — and what that marker lets the cell write.
 
 Usage: cell_markers.py record <project> <session> <tool_use_id> <marker>
        cell_markers.py decide <repo> <project> <session> <transcript_path> <agent_id>
@@ -28,6 +29,7 @@ takes it off the live writers, and 0 otherwise:
   READ-ONLY  denied, wherever the target is.
   NOTES-ONLY denied unless the product folder holds every target
              (product_folder.py).
+  OUTSIDE    denied when any target lies inside the checkout.
 
 `marked` exits 3 when the cell carries a marker and 0 otherwise, unreadable
 metadata included; the gate asks it when a registered cell stops before its
@@ -41,8 +43,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import product_folder  # noqa: E402
+import write_targets  # noqa: E402
 
-MARKERS = ("READ-ONLY", "NOTES-ONLY")
+MARKERS = ("READ-ONLY", "NOTES-ONLY", "OUTSIDE")
 MARKED = 3
 
 READ_ONLY_DENIAL = (
@@ -52,6 +55,10 @@ NOTES_ONLY_DENIAL = (
     "This cell was dispatched NOTES-ONLY, so it writes only in the product folder (hooks.product_folder.enabled), "
     "never in a checkout, a hidden folder, an instruction file, a tools, backups, node_modules or __pycache__ "
     "folder, or a .py, .sh, .js or .mjs file. Return the content as the reply, or have the lead dispatch a writer.")
+OUTSIDE_DENIAL = (
+    "This cell was dispatched to work outside this checkout (a workloop lane or a WORKSPACE line), so it may not "
+    "write in it. Make the change in the directory you were given; if the task needs this checkout, stop and report "
+    "that to your lead.")
 
 
 def clean(tool_use_id):
@@ -82,8 +89,8 @@ def record(project, session, tool_use_id, marker):
 
 
 def marker_of(project, session, transcript_path, agent_id):
-    """READ-ONLY, NOTES-ONLY, `unmarked` (metadata read, no record) or `unknown`
-    (metadata missing or unreadable, with the reason on stderr)."""
+    """READ-ONLY, NOTES-ONLY, OUTSIDE, `unmarked` (metadata read, no record) or
+    `unknown` (metadata missing or unreadable, with the reason on stderr)."""
     path = meta_path(transcript_path, session, agent_id)
     try:
         with open(path, encoding="utf-8") as source:
@@ -114,6 +121,12 @@ def registered(project, session, agent_id):
         return False
 
 
+def touches_checkout(project, payload):
+    """True when any target the write names lies in the checkout; a relative path is the checkout's."""
+    root = os.path.realpath(project)
+    return any(write_targets.under(path, root) for path in write_targets.resolved(root, payload.get("tool_input")))
+
+
 def decide(repo, project, session, transcript_path, agent_id, payload):
     """(the reason to deny the cell's write or "", whether the cell is marked)."""
     marker = marker_of(project, session, transcript_path, agent_id)
@@ -129,6 +142,8 @@ def decide(repo, project, session, transcript_path, agent_id, payload):
                 "it may write. Dispatch it as a writer, READ-ONLY, or NOTES-ONLY and retry.", False)
     if marker == "READ-ONLY":
         return READ_ONLY_DENIAL, True
+    if marker == "OUTSIDE":
+        return (OUTSIDE_DENIAL if touches_checkout(project, payload) else ""), True
     return ("" if product_folder.payload_holds(repo, payload) else NOTES_ONLY_DENIAL), True
 
 

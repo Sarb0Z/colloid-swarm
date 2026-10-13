@@ -317,25 +317,30 @@ Delivery is remembered in `.agents/.inbox-seen-<session>-<agent>`; the toggle
 is `hooks.workloop_inbox.enabled`.
 
 `parallel-writers-gate.sh` is the rail that makes that the default rather than
-a choice: on Claude it watches every `Agent` dispatch, lets the first writer of
-a turn through, and denies a second writer while another is live — in the same
-message or still running in the background — unless its prompt is a workloop
-brief. The denial names the three commands that turn the dispatch into a lane.
-It also denies the lead's own `Edit` or `Write` while an uncoordinated writer
-is live and no workloop run is active. Read-only personas never count; a
+a choice, and it guards this checkout, not the session. On Claude it watches
+every `Agent` dispatch, lets the first writer of a turn through, and denies a
+second writer while another is live — in the same message or still running in
+the background. The denial names the three commands that turn the dispatch
+into a lane. A cell placed outside the checkout passes without counting: a
+workloop brief for a lane in a worktree outside it, or one prompt line
+`WORKSPACE: <absolute path>` naming an existing directory that neither contains
+nor lies in the checkout and is no worktree or clone of this repository (a copy
+made without Git cannot be told from an unrelated directory). Such a cell may
+write anywhere but the checkout. The gate also denies the lead's own `Edit` or
+`Write` while a writer is live. Read-only personas never count; a
 generic cell declares itself read-only by starting its prompt with
 `READ-ONLY`; an unknown persona counts as a writer. The gate also holds a
 marked cell to its marker when it writes: a `READ-ONLY` cell writes nothing,
 and a `NOTES-ONLY` cell writes only where the product-folder grant holds the
-target. The markers bind the file tools only: a marked cell can still write
+target. Every marker binds the file tools only: a marked cell can still write
 through its shell (`colloid-shell-writes-skip-post-edit`) or through a cell it
 dispatches. An edit whose every target lies outside the checkout passes. State
 lives in `.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>`,
 `.agents/.writers-kinds-<session>` (the writer types each turn dispatched,
 which decides whether a started cell registers) and
-`.agents/.cell-markers-<session>` (each marked dispatch's id and marker);
-`session-start.sh` clears them at startup and resume, and deleting the live
-file is the manual reset for a cell known to have died. The toggle is
+`.agents/.cell-markers-<session>` (each marked or outside dispatch's id and
+marker); `session-start.sh` clears them at startup and resume, and deleting the
+live file is the manual reset for a cell known to have died. The toggle is
 `hooks.parallel_writers.enabled`.
 
 `claude/statusline.sh` is the status strip, wired as Claude's project

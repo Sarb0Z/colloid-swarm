@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Engine-agnostic policy: two writers never edit one checkout at once outside
-# a workloop run.
+# Engine-agnostic policy: two writers never edit one checkout at once.
 #
 # A single writer edits the main tree — that is the linear case and needs no
-# ceremony. The moment a second writer is dispatched while another is live,
-# the work is a parallel workflow whether or not anyone called it one, and
-# the scaffold's answer is a workloop run: each lane in its own provisioned
-# worktree, the composed result verified once, the worktrees removed after.
-# An `isolation: worktree` flag alone is not accepted here; it isolates the
-# edits but nothing verifies their composition or tears the worktrees down.
+# ceremony. The moment a second writer is dispatched to the checkout while
+# another works there, the work is a parallel workflow whether or not anyone
+# called it one, and the scaffold's answer is a workloop run: each lane in its
+# own provisioned worktree, the composed result verified once, the worktrees
+# removed after. An `isolation: worktree` flag alone is not accepted here; it
+# isolates the edits but nothing verifies their composition or tears the
+# worktrees down.
+#
+# The rule guards this checkout, not the session. A writer whose prompt places
+# it elsewhere — a workloop brief for a lane the controller holds in a
+# worktree outside the checkout, or one `WORKSPACE: <absolute path>` line
+# naming a directory that neither contains nor lies in the checkout and is no
+# worktree or clone of this repository (hooks/lib/writers-payload.py decides)
+# — is recorded OUTSIDE and never counts as one of its writers.
 #
 # Five events share one policy because they share one state file:
 #   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
@@ -19,34 +26,34 @@
 #                  recorded against the dispatch's tool_use_id
 #                  (hooks/lib/cell_markers.py); a marked dispatch that cannot
 #                  be recorded, an empty id included, is denied, since it
-#                  would otherwise run as a writer. Otherwise the first writer
-#                  of a turn passes and is counted; a writer dispatched while
-#                  any other writer is counted or live is denied, with the
-#                  three commands that make it a lane. A prompt whose brief
-#                  header names a lane the controller holds, in a worktree
-#                  outside this checkout, is counted but never denied: it is a
-#                  lane. A header alone is only text and gets no exemption.
-#   PreToolUse Edit/Write, main agent — the lead's own edit while an
-#                  uncoordinated writer is live is the same collision from
-#                  the other side, and is denied unless a workloop run is
-#                  active, in which case the live writers are lanes in their
-#                  own worktrees and the main tree is the lead's.
+#                  would otherwise run as a writer. An OUTSIDE dispatch passes
+#                  and is recorded the same way. Otherwise the first writer of
+#                  a turn passes and is counted; a writer dispatched while any
+#                  other writer is counted or live is denied, with the three
+#                  commands that make it a lane and why a WORKSPACE line, if
+#                  any, was refused. A header or a WORKSPACE line is only text:
+#                  the cell is held to it when it writes.
+#   PreToolUse Edit/Write, main agent — the lead's own edit inside the
+#                  checkout while a writer is live there is the same collision
+#                  from the other side, and is denied. OUTSIDE cells are not
+#                  live writers, so lanes and WORKSPACE cells leave the main
+#                  tree to the lead.
 #   PreToolUse Edit/Write, a cell's own — a cell carries the marker its prompt
 #                  opened with, found through Claude Code's metadata for the
 #                  cell (hooks/lib/cell_markers.py decides). READ-ONLY may
 #                  write nothing; NOTES-ONLY only where the product folder
-#                  holds the target (hooks/lib/product_folder.py).
-#                  SubagentStart carries no dispatch id, so a marked cell
-#                  dispatched beside a writer of its own type registers at
-#                  start as that writer would, and until its first write it
-#                  blocks more and never allows more. At that write it leaves
-#                  the live writers and is counted marked, so a writer of its
-#                  turn that has not started is pending again. A cell with no
-#                  marker is a writer. A cell whose metadata cannot be read is
-#                  denied unless it is a registered writer, so the gate fails
-#                  closed exactly where a marked cell can hide. With no marked
-#                  dispatch recorded this session, every cell is a writer and
-#                  nothing is read.
+#                  holds the target (hooks/lib/product_folder.py); OUTSIDE
+#                  anywhere but inside the checkout. SubagentStart carries no
+#                  dispatch id, so a marked cell dispatched beside a writer of
+#                  its own type registers at start as that writer would, and
+#                  until its first write it blocks more and never allows more.
+#                  At that write it leaves the live writers and is counted
+#                  marked, so a writer of its turn that has not started is
+#                  pending again. A cell with no marker is a writer. A cell
+#                  whose metadata cannot be read is denied unless it is a
+#                  registered writer, so the gate fails closed exactly where a
+#                  marked cell can hide. With no marked dispatch recorded this
+#                  session, every cell is a writer and nothing is read.
 #   SubagentStart — a cell that registers moves its turn's writers from
 #                  "dispatched" to "started", so a writer dispatched after the
 #                  previous one finished, in the same turn, is sequential and
@@ -73,8 +80,8 @@
 # once would cost more than the contention it prevents.
 #
 # Limits: the marker link reads Claude Code's cell metadata
-# (debt: gate-reads-cell-metadata). READ-ONLY and NOTES-ONLY bind the file
-# tools only: a marked cell can still write through its shell
+# (debt: gate-reads-cell-metadata). Every marker binds the file tools only: a
+# marked cell can still write through its shell
 # (colloid-shell-writes-skip-post-edit) or through a cell it dispatches. Codex
 # and Kimi do not run this gate.
 #
@@ -97,7 +104,7 @@ payload="$(cat)"
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.parallel_writers.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; } < <(
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; } < <(
   printf '%s' "$payload" | python3 "$lib/writers-payload.py")
 
 [[ -n "$session" && -n "$proj" ]] || exit 0
@@ -106,7 +113,6 @@ turn="$proj/.agents/.writers-turn-$session"
 lock="$proj/.agents/.writers-lock-$session"
 kinds="$proj/.agents/.writers-kinds-$session"
 markers="$proj/.agents/.cell-markers-$session"
-workloop_state="$proj/.agents/.workloop-state.json"
 
 is_reader() {
   local t; t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -206,23 +212,6 @@ live_count() {
   if [[ -f "$live" ]]; then grep -c . "$live" || true; else echo 0; fi
 }
 
-workloop_active() {
-  [[ -f "$workloop_state" ]] || return 1
-  python3 - "$workloop_state" <<'EOF'
-import json, sys
-try:
-    runs = json.load(open(sys.argv[1])).get("runs", {})
-except (OSError, ValueError):
-    sys.exit(1)
-for run in runs.values():
-    if run.get("torn_down"):
-        continue
-    if any(lane.get("state") in ("active", "review", "reopened") for lane in run.get("lanes", {}).values()):
-        sys.exit(0)
-sys.exit(1)
-EOF
-}
-
 deny() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' \
     "$(printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
@@ -241,16 +230,17 @@ case "$event" in
       fi
       is_reader "$tool_type" && exit 0
       take_lock
-      if [[ "$kind" == "read-only" || "$kind" == "notes-only" ]]; then
-        if ! note_turn "$prompt_id" || ! python3 "$lib/cell_markers.py" record "$proj" "$session" "$tool_use_id" "$kind"; then
+      if [[ "$kind" != "plain" ]]; then
+        marker="$kind"; [[ "$kind" == "brief" || "$kind" == "workspace" ]] && marker=outside
+        if ! note_turn "$prompt_id" || ! python3 "$lib/cell_markers.py" record "$proj" "$session" "$tool_use_id" "$marker"; then
           deny "The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold."
         fi
         exit 0
       fi
       pending="$(turn_count "$prompt_id")"
       running="$(live_count)"
-      if [[ "$kind" != "brief" ]] && (( pending + running >= 1 )); then
-        deny "A second writer (${tool_type}) is being dispatched while another writer is live. Concurrent writers go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --workspace <new path> --path <owned path>; then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. If a counted writer is known dead, delete ${live}."
+      if (( pending + running >= 1 )); then
+        deny "A second writer (${tool_type}) is being dispatched to this checkout while another writer works in it.${refusal:+ Its WORKSPACE line was not accepted: ${refusal}.} Concurrent writers in one repository go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --workspace <new path> --path <owned path>; then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that works in a separate directory, no copy of this repository, says so with one prompt line, WORKSPACE: <absolute path>, and may then write anywhere but this checkout. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. If a counted writer is known dead, delete ${live}."
         exit 0
       fi
       if ! count_turn "$prompt_id" dispatched || ! note_turn "$prompt_id" "$tool_type"; then
@@ -273,11 +263,10 @@ case "$event" in
         [[ -z "$began" ]] || count_turn "$began" marked || echo "parallel-writers-gate: could not count $agent_id as marked in $turn." >&2
       fi
     else
-      # The lead's own edit while an uncoordinated writer is live.
+      # The lead's own edit while a writer works in the checkout.
       [[ "$outside" == "yes" ]] && exit 0
       (( $(live_count) >= 1 )) || exit 0
-      workloop_active && exit 0
-      deny "A writer cell is live in this checkout and no workloop run is active, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief) and edit the main tree freely. If the cell is known dead, delete ${live}."
+      deny "A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. If the cell is known dead, delete ${live}."
     fi
     ;;
   SubagentStart)
