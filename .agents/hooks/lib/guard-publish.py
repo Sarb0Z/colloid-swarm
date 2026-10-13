@@ -626,7 +626,7 @@ def judge(text, outward, shell, rehearsals, here, depth=0, remote=False, repo=""
             # cannot follow, so no env file it would read there is known.
             lost = True
         elif outward:
-            reason = rule_outward(words, outward, shell, rehearsals, here)
+            reason = rule_outward(words, outward, shell, rehearsals, here, lost)
         if reason:
             return reason
     return None
@@ -890,9 +890,10 @@ def rehearsal(args):
     return bool(values) and all(values)
 
 
-def rule_outward(words, outward, shell, rehearsals=(), here=""):
+def rule_outward(words, outward, shell, rehearsals=(), here="", lost=False):
     """`here` is the directory the command runs in, as far as the command's
-    own `cd`s and the session's working directory say; empty when unknown."""
+    own `cd`s and the session's working directory say; empty when unknown.
+    `lost` marks a `cd` the guard could not follow, after which `here` is stale."""
     for target in outward_targets(words, shell):
         normalized = target.lstrip("./")
         located = os.path.normpath(os.path.join(here, target)) if here else ""
@@ -902,7 +903,10 @@ def rule_outward(words, outward, shell, rehearsals=(), here=""):
             # under whatever path it was reached by. A bare file name alone
             # proves nothing — `.agents/provision.sh` is not `deploy/provision.sh`.
             # Reads never get here — the command word is `cat` or `grep`.
-            if any(path == entry or path.endswith("/" + entry) for path in (normalized, located)):
+            # After a `cd` the guard could not follow, the folder is unknown,
+            # so the bare file name is all that is left and it asks.
+            if any(path == entry or path.endswith("/" + entry) for path in (normalized, located)) \
+                    or (lost and os.path.basename(normalized) == os.path.basename(entry)):
                 # Only --dry-run on a script declared to honour it rehearses.
                 # `-n` is git's convention, not these scripts'.
                 if entry in rehearsals and rehearsal(words[1:]):

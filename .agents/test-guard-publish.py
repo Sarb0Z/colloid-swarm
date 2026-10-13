@@ -549,6 +549,14 @@ with tempfile.TemporaryDirectory() as tmp:
                          ("./provision.sh", "/srv/app/.agents"), ("cd deploy && ./other.sh && ../provision.sh", None)):
         reason = guard.verdict("Bash", {"command": command}, nested, cwd=cwd)
         check(f"quiet on a file sharing only a listed name: {command} (cwd {cwd})", reason is None, reason or "")
+    # A `cd` the guard cannot follow leaves the folder unknown, so the bare
+    # listed file name asks rather than being located against a stale folder.
+    for command in ('cd "$(git rev-parse --show-toplevel)/deploy" && ./provision.sh',
+                    "D=deploy; cd $D && ./provision.sh", "cd - && bash provision.sh"):
+        reason = guard.verdict("Bash", {"command": command}, nested, cwd="/srv/app")
+        check(f"asks on a listed file name after a cd it cannot follow: {command}", reason is not None, "quiet")
+    reason = guard.verdict("Bash", {"command": "cd $D && ./other.sh"}, nested, cwd="/srv/app")
+    check("quiet on an unlisted file name after a cd it cannot follow", reason is None, reason or "")
     # TypeScript runners name the script they run like any interpreter.
     for command in ("tsx scripts/seed-prod.ts", "npx tsx scripts/seed-prod.ts --env prod",
                     "ts-node scripts/seed-prod.ts", "ts-node-transpile-only scripts/seed-prod.ts"):
