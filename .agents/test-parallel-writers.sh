@@ -28,8 +28,8 @@ edit() {  # <prompt_id> -> stdout (the lead editing the main tree)
 start() {  # <agent_id> <agent_type> <prompt_id>
   printf '{"project_dir":"%s","event":"SubagentStart","session_id":"s1","prompt_id":"%s","agent_id":"%s","agent_type":"%s"}' "$dir" "$3" "$1" "$2" | bash "$gate"
 }
-stop() {  # <agent_id> <agent_type>
-  printf '{"project_dir":"%s","event":"SubagentStop","session_id":"s1","agent_id":"%s","agent_type":"%s"}' "$dir" "$1" "$2" | bash "$gate"
+stop() {  # <agent_id> <agent_type>; these cells carry no metadata, which the stop reports on stderr
+  printf '{"project_dir":"%s","event":"SubagentStop","session_id":"s1","agent_id":"%s","agent_type":"%s"}' "$dir" "$1" "$2" | bash "$gate" 2>"$scratch/derr"
 }
 denied() { [[ "$1" == *'"permissionDecision":"deny"'* ]]; }
 
@@ -337,14 +337,14 @@ out="$(jq -nc --arg d "$wt" '{project_dir:$d,event:"PreToolUse",session_id:"s3",
 denied "$out" && [[ "$out" == *"no product folder enabled"* && "$out" == *"unreadable"* ]] || fail "a malformed config.json was not reported as the switch off ($out)"
 ok "a NOTES-ONLY denial says whether the switch is off or the folder is refused, and why"
 
-# demotion gives back exactly the pending slot the marked cell's start consumed
+# a demotion makes the turn's writer pending again only while that writer has not started
 reset
 [[ -z "$(ndispatch p13 general-purpose 'change the module' tuw13)" ]] || fail "writer refused"
 [[ -z "$(ndispatch p13 general-purpose 'READ-ONLY: look' tum13)" ]] || fail "READ-ONLY dispatch refused"
 meta m13 tum13; nstart m13 general-purpose p13
 denied "$(nwrite m13 general-purpose "$pf/notes/x.md")" || fail "a READ-ONLY write passed"
 [[ "$(live_lines)" -eq 0 ]] || fail "the marked cell was not demoted"
-denied "$(ndispatch p13 general-purpose 'change another module' tuw13b)" || fail "the marked cell's demotion lost the dispatched writer's pending slot"
+denied "$(ndispatch p13 general-purpose 'change another module' tuw13b)" || fail "the marked cell's demotion lost the dispatched writer that had not started"
 nstart w13 general-purpose p13
 denied "$(nlead p13 "$nf/src/x.md")" || fail "the writer that started after the demotion did not register"
 reset
@@ -353,8 +353,37 @@ reset
 meta m14 tum14; nstart w14 general-purpose p14; nstart m14 general-purpose p14
 denied "$(nwrite m14 general-purpose "$pf/notes/x.md")" || fail "a READ-ONLY write passed"
 nstop w14 general-purpose
-[[ -z "$(ndispatch p14 general-purpose 'change another module' tuw14b)" ]] || fail "a demotion gave back a slot its start never consumed"
-ok "a demoted cell gives back the pending slot its start consumed, and none when it consumed none"
+[[ -z "$(ndispatch p14 general-purpose 'change another module' tuw14b)" ]] || fail "a demotion counted a writer pending after it had started and stopped"
+ok "a demoted cell leaves its turn's writer pending until it starts, and never after"
+
+# a marked cell that starts first beside its turn's writer: whether the writer
+# is live at the marked cell's first write, has already stopped, or the marked
+# cell stops without writing, the writer is pending exactly until it starts and
+# the turn is clear once both stopped
+for order in writer-live writer-stopped never-writes; do
+  reset
+  [[ -z "$(ndispatch p17 general-purpose 'change the module' tuw17)" ]] || fail "$order: writer refused"
+  [[ -z "$(ndispatch p17 general-purpose 'READ-ONLY: look' tum17)" ]] || fail "$order: READ-ONLY dispatch refused"
+  meta m17 tum17; meta w17 tuw17
+  nstart m17 general-purpose p17
+  case "$order" in
+    writer-live)
+      nstart w17 general-purpose p17
+      denied "$(nwrite m17 general-purpose "$pf/notes/x.md")" || fail "$order: a READ-ONLY write passed"
+      denied "$(ndispatch p17 general-purpose 'change another module' tuw17b)" || fail "$order: a second writer passed beside the live writer"
+      nstop m17 general-purpose; nstop w17 general-purpose ;;
+    writer-stopped)
+      nstart w17 general-purpose p17; nstop w17 general-purpose
+      denied "$(nwrite m17 general-purpose "$pf/notes/x.md")" || fail "$order: a READ-ONLY write passed"
+      nstop m17 general-purpose ;;
+    never-writes)
+      nstop m17 general-purpose
+      denied "$(ndispatch p17 general-purpose 'change another module' tuw17b)" || fail "$order: a writer passed while its turn's first writer had not started"
+      nstart w17 general-purpose p17; nstop w17 general-purpose ;;
+  esac
+  [[ -z "$(ndispatch p17 general-purpose 'change another module' tuw17c)" ]] || fail "$order: a writer was refused after every cell of its turn stopped"
+done
+ok "a marked cell that starts before its turn's writer leaves the writer pending exactly until it starts, in every order"
 
 # demotion happens only under the lock: with the lock busy the write is still denied and the cell stays live
 reset
