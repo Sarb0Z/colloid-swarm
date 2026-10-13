@@ -354,8 +354,12 @@ expect 'exclusive resource in use: browser-a holds playwright' "${tool[@]}" clai
 ok "a second lane cannot claim a held exclusive resource; an unrelated lane can"
 expect 'COLLOID_RUN=res COLLOID_LANE=browser-a COMPOSE_PROJECT_NAME=res-browser-a' "${tool[@]}" brief res browser-a
 expect 'Exclusive: playwright' "${tool[@]}" brief res browser-a
-expect 'Do not run the end-to-end or browser suite here' "${tool[@]}" brief res plain
-ok "the brief exports the lane's environment, its lease, and the narrow-acceptance rule"
+expect 'integrate runs the composed test once over the merged tree' "${tool[@]}" brief res plain
+expect 'Working practice:' "${tool[@]}" brief res plain --role qa
+"${tool[@]}" brief res plain --role reviewer | grep -q 'Working practice:' && fail "a reviewer brief carries the working practice"
+ok "the brief exports the lane's environment, its lease, and the working practice for workers and QA only"
+expect 'contract-first split' "${tool[@]}" --help
+ok "--help names the delegation shapes"
 "${tool[@]}" heartbeat res plain --agent rp --progress 'migrations 3/9'
 expect $'plain\tactive\tpending=0\timplementer\tdocs\tmigrations 3/9' "${tool[@]}" status res
 ok "an ordinary lane's heartbeat carries progress and status shows it"

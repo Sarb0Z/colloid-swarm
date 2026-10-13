@@ -12,6 +12,21 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
 | heavy | `opus` |
 | frontier | `fable` |
 
+- Choose the delegation's shape before dispatching, by the workloop skill's six
+  questions: does it change files; can one writer do it; are the parts
+  disjoint; does one consume another's interface; is a choice worth paying for
+  several times; which tier each cell needs. **One writer** is the default,
+  editing the main tree with read-only cells around it. A **read-only
+  fan-out** is three cells by default, about ten for broad research.
+  **Parallel slices** take about three writers at most, one lane each. A
+  **contract-first split** commits the interface before the lanes start. A
+  **bake-off** pays every attempt in full, so two or three, preferring
+  competing designs from read-only cells, with the selection rule set first.
+  Each extra writer costs a worktree, an install, a review and a merge.
+- A writing or QA cell's prompt carries
+  `.agents/skills/workloop/working-practice.md` verbatim, how it tests, starts
+  servers, waits and edits; `brief` adds it for a lane, and the lead pastes it
+  into a generic cell's prompt.
 - A generic cell is `general-purpose` with an explicit model; a named persona
   fixes model and effort in its frontmatter, so use one when effort must be
   fixed. The `reviewer` persona pins no model: the lead picks one at dispatch
