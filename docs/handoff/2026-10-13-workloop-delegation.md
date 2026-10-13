@@ -114,7 +114,7 @@ alone cannot.
 
 ### 1. The shape guide (the language)
 
-The lead designs each delegation before dispatching it, by answering five
+The lead designs each delegation before dispatching it, by answering six
 questions about the work. The answers pick a shape; shapes combine, and the
 lead may depart from them by stating why.
 
@@ -156,8 +156,8 @@ Where it lives (ruling 11):
 
 - `.agents/claude/delegation.md`: the six questions, the shapes and the
   numbers, as the delegation bullet the lead reads every session.
-- Root `AGENTS.md`, Delegation paragraph, a light touch (ruling 17): two sentences naming the guide and the default shape, for
-  every host.
+- Root `AGENTS.md`, Delegation paragraph, a light touch (ruling 17): two
+  sentences naming the guide and the default shape, for every host.
 - The workloop skill: the full guide, the brief fields with one example per
   shape, and the controller procedure under each shape that needs one.
 - `workloop.py --help` and `init` print the shapes in one line each;
@@ -215,9 +215,9 @@ stays in the lead's checkout, where the gate and the digest read it.
   worktrees and test with that. `integrate` merges every lane with each rebuild
   path resolved to the base's copy, so two lanes' lockfiles never conflict;
   then it runs the rebuild commands, commits their result, provisions from the
-  rebuilt lockfile, and runs the composed test. `uv lock` from the base's lockfile keeps the base's
-  versions; `npm install --package-lock-only`, `pnpm install` and
-  `bun install` re-lock likewise.
+  rebuilt lockfile, and runs the composed test. `uv lock` from the base's
+  lockfile keeps the base's versions; `npm install --package-lock-only`,
+  `pnpm install` and `bun install` re-lock likewise.
 - The brief names each shared file with its rule.
 
 ### 5. Contracts between lanes
@@ -236,8 +236,8 @@ stays in the lead's checkout, where the gate and the digest read it.
   lead's per-prompt digest compares `built_on` with the producer's tip and,
   when the producer moved or its review reopened, sends the consumer an
   acknowledgement-required message; messages the controller originates skip
-  `send`'s `--supervised` requirement. The controller refuses the consumer's `submit`, an accepting
-  `review`, and `integrate` until the producer is `reviewed` and `built_on`
+  `send`'s `--supervised` requirement. The controller refuses the consumer's
+  `submit`, an accepting `review`, and `integrate` until the producer is `reviewed` and `built_on`
   equals its accepted commit.
 - A consumer that needs a stand-in before the producer's code exists declares
   it: `add-lane --provisional <path>`. `integrate` refuses while a provisional
@@ -394,8 +394,7 @@ operations before adding commands to it.
 - Worktrees: a test per case — made by `git worktree add`, `EnterWorktree`
   and `add-lane` and recorded; a clean one removed at session end; a dirty one
   saved to its branch, then removed; a dead session's swept at the next start;
-  an unrecorded one idle 24 hours saved and
-  removed; a locked one and one active today untouched.
+  an unrecorded one idle 24 hours saved and removed; a locked one and one active today untouched.
 - Unverified by design: a cell dying from a usage limit cannot be caused on
   demand; the report names it.
 
@@ -428,7 +427,8 @@ operations before adding commands to it.
 
 ## Review dispositions (round 1, 2026-10-13)
 
-Fourteen findings against r1; thirteen adopted into this text, one superseded by a ruling.
+Fourteen findings against r1; thirteen adopted into this text, one
+superseded by a ruling.
 
 | # | Finding | Disposition |
 |---|---|---|
