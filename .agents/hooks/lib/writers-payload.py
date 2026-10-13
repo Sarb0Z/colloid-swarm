@@ -10,9 +10,9 @@ tool_use_id and transcript_path. Ids that name state files keep only
 [A-Za-z0-9_-]; every other field is flattened to one line. A payload that is
 not a JSON object reads as empty, which the gate ignores.
 
-The kind is `brief` for a workloop brief naming a lane the controller holds,
-`read-only` or `notes-only` for a prompt that opens with that marker, and
-`plain` otherwise.
+The kind is, tested in this order, `read-only` or `notes-only` for a prompt
+that opens with that marker, `brief` for a workloop brief naming a lane the
+controller holds, and `plain` otherwise.
 """
 
 import json
@@ -49,12 +49,14 @@ def real_lane(root, prompt):
 
 
 def kind(root, prompt):
-    if real_lane(root, prompt):
-        return "brief"
+    # An explicit marker outranks a brief: a lane's reviewer opened READ-ONLY
+    # writes nothing.
     if re.match(r"\s*READ-ONLY\b", prompt):
         return "read-only"
     if re.match(r"\s*NOTES-ONLY\b", prompt):
         return "notes-only"
+    if real_lane(root, prompt):
+        return "brief"
     return "plain"
 
 
