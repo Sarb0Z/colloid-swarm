@@ -8,6 +8,7 @@ this file sees every command the controller can run.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -127,14 +128,112 @@ def changed_files(workspace: Path, base: str) -> list[str]:
     return sorted(seen)
 
 
-def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> list[str]:
-    """Directories a sparse lane needs on disk: each owned path's directory, plus extras.
+# Folders provisioning never enters; a lockfile or manifest inside one belongs
+# to a dependency, not to the project (kept in step with provision.sh nested()).
+PRUNED_FOLDERS = frozenset({"node_modules", ".git", "vendor", ".venv", "target"})
+LOCKFILES = ("pnpm-lock.yaml", "bun.lock", "bun.lockb", "yarn.lock", "package-lock.json",
+             "uv.lock", "poetry.lock", "Cargo.lock", "go.sum", "requirements*.txt")
 
-    Cone mode takes directories only, so an owned file contributes its
-    parent. A path absent at the base is a directory the lane will create —
-    a new module, or the review directory — and belongs in the cone too, or
-    git refuses to stage what lands there. Root-level files are always
-    present in a cone.
+
+def base_tree(repo: Path, base: str) -> list[str]:
+    """Every tracked path at the base outside the pruned folders."""
+    out = git(repo, "ls-tree", "-r", "-z", "--name-only", base, strip=False)
+    return [p for p in out.split("\0") if p and not PRUNED_FOLDERS.intersection(p.split("/"))]
+
+
+def _patch_folders(manifest: dict) -> list[str]:
+    """Folders holding a patch file named by patchedDependencies (the pnpm and the bun key)."""
+    pnpm = manifest.get("pnpm")
+    patched: dict = {}
+    for source in (pnpm.get("patchedDependencies") if isinstance(pnpm, dict) else None, manifest.get("patchedDependencies")):
+        if isinstance(source, dict):
+            patched.update(source)
+    folders = set()
+    for patch in patched.values():
+        if not isinstance(patch, str):
+            fail(f"package.json patchedDependencies holds {patch!r}, which is not a patch file path")
+        parent = os.path.normpath(patch).rpartition("/")[0]
+        if parent:
+            folders.add(parent)
+    return sorted(folders)
+
+
+def _pnpm_packages(text: str) -> list[str]:
+    """The block list under `packages:` in pnpm-workspace.yaml; any other shape is refused."""
+    patterns: list[str] | None = None
+    for raw in text.splitlines():
+        line = raw.split(" #")[0].rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if patterns is None:
+            if re.fullmatch(r"packages\s*:", line):
+                patterns = []
+            elif re.match(r"packages\s*:", line):
+                fail(f"pnpm-workspace.yaml has `{line}`; only a block list under `packages:` is readable here, so give the lane the whole tree (drop --sparse)")
+            continue
+        if not (line[0].isspace() or line.startswith("-")):
+            break
+        item = re.fullmatch(r"\s*-\s+(['\"]?)(.+?)\1", line)
+        if not item:
+            fail(f"pnpm-workspace.yaml has `{line.strip()}` under packages:; only plain list items are readable here, so give the lane the whole tree (drop --sparse)")
+        patterns.append(item.group(2))
+    if not patterns:
+        fail("pnpm-workspace.yaml has no readable `packages:` list; give the lane the whole tree (drop --sparse)")
+    return patterns
+
+
+def _glob_regex(pattern: str) -> re.Pattern[str]:
+    out, i = "", 0
+    pattern = pattern.removeprefix("./").rstrip("/")
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:.*/)?"
+            i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"
+            i += 1
+        else:
+            out += re.escape(pattern[i])
+            i += 1
+    return re.compile(out)
+
+
+def _members(patterns: list[str], tree: list[str]) -> list[str]:
+    """Folders holding a package.json that a positive glob matches and no negated one does."""
+    folders = {str(Path(p).parent) for p in tree if Path(p).name == "package.json"} - {"."}
+    chosen: set[str] = set()
+    for pattern in patterns:
+        if not pattern.startswith("!"):
+            rx = _glob_regex(pattern)
+            chosen |= {f for f in folders if rx.fullmatch(f)}
+    for pattern in patterns:
+        if pattern.startswith("!"):
+            rx = _glob_regex(pattern[1:])
+            chosen -= {f for f in chosen if rx.fullmatch(f)}
+    return sorted(chosen)
+
+
+def _on_disk(folder: str, cone: list[str]) -> bool:
+    """A cone checks out its folders, everything under them, and the files directly in their ancestors."""
+    return folder == "." or any(
+        folder == c or folder.startswith(c + "/") or c.startswith(folder + "/") for c in cone
+    )
+
+
+def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> tuple[list[str], list[str]]:
+    """Directories a sparse lane needs on disk, and one note per group the install pulled in.
+
+    The cone is each owned path's directory, the extras, and what the base
+    commit's install needs: the folders holding patchedDependencies patches
+    and every workspace member. Cone mode takes directories only, so an owned
+    file contributes its parent. A path absent at the base is a directory the
+    lane will create — a new module, or the review directory — and belongs in
+    the cone too, or git refuses to stage what lands there. Root-level files
+    are always present in a cone. A lockfile the cone would still drop is
+    refused, because the install for its folder would silently not run.
     """
     dirs: set[str] = set()
     for path in list(paths) + list(extra):
@@ -145,7 +244,37 @@ def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> list[
                 dirs.add(parent)
         else:
             dirs.add(path)
-    return sorted(dirs)
+    tree = base_tree(repo, base)
+    gained: list[tuple[str, list[str]]] = []
+    if "package.json" in tree:
+        try:
+            manifest = json.loads(git(repo, "show", f"{base}:package.json", strip=False))
+        except json.JSONDecodeError as exc:
+            fail(f"package.json at the base is not valid JSON ({exc}); give the lane the whole tree (drop --sparse)")
+        if isinstance(manifest, dict):
+            gained.append(("patchedDependencies", _patch_folders(manifest)))
+            workspaces = manifest.get("workspaces")
+            if isinstance(workspaces, dict):
+                workspaces = workspaces.get("packages")
+            if isinstance(workspaces, list):
+                gained.append(("workspaces", _members([w for w in workspaces if isinstance(w, str)], tree)))
+    if "pnpm-workspace.yaml" in tree:
+        gained.append(("pnpm-workspace.yaml", _members(_pnpm_packages(git(repo, "show", f"{base}:pnpm-workspace.yaml", strip=False)), tree)))
+    notes: list[str] = []
+    for reason, folders in gained:
+        added = sorted(set(folders) - dirs)
+        if added:
+            notes.append(f"cone + {', '.join(added)} ({reason})")
+            dirs.update(added)
+    cone = sorted(dirs)
+    dropped = sorted(
+        p for p in tree
+        if any(fnmatch.fnmatchcase(Path(p).name, pattern) for pattern in LOCKFILES) and not _on_disk(str(Path(p).parent), cone)
+    )
+    if dropped:
+        lines = "\n".join(f"  {p} (add --also {Path(p).parent})" for p in dropped)
+        fail(f"the sparse cone drops {len(dropped)} lockfile(s) whose install would silently not run:\n{lines}\nname them with --also, or give the lane the whole tree (drop --sparse)")
+    return cone, notes
 
 
 def worktree_add(repo: Path, workspace: Path, branch: str, base: str, cone: list[str] | None = None) -> None:
