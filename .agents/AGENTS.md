@@ -98,6 +98,7 @@ python3 .agents/test-browser-sync.py
 .agents/test-codex.sh
 # colloid-only
 python3 .agents/lint-contract.py
+python3 .agents/eval/test-cell-time.py
 .agents/test-export.sh
 .agents/test-stack-packs.sh
 # /colloid-only
