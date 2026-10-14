@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib" "$dir/.agents/claude" "$dir/.agents/codex" "$dir/.codex/hooks"
 cp "$repo/.agents/hooks/policy/teardown-gate.sh" "$dir/.agents/hooks/policy/"
-cp "$repo"/.agents/hooks/lib/{config,emit-context,write_targets}.py "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{config,emit-context,write_targets,worktree_records,guard-destructive}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
 cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
 cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
@@ -356,7 +356,7 @@ gitdir="$scratch/repo"
 mkdir -p "$gitdir/.agents/hooks/policy" "$gitdir/.agents/hooks/lib"
 cp "$gate" "$gitdir/.agents/hooks/policy/"
 cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" \
-  "$repo/.agents/hooks/lib/guard-destructive.py" "$gitdir/.agents/hooks/lib/"
+  "$repo/.agents/hooks/lib/guard-destructive.py" "$repo/.agents/hooks/lib/worktree_records.py" "$gitdir/.agents/hooks/lib/"
 git -C "$gitdir" init -q
 git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
 gate="$gitdir/.agents/hooks/policy/teardown-gate.sh"
@@ -411,6 +411,51 @@ for command in 'git -C /srv/app push origin main' 'timeout 60 git push' 'env GIT
 done
 rm -f "$pending"
 ok "every push spelling the shell parser reads counts"
+
+# ── a worktree: on completion, cleared by its path ──────────────────────────
+real="$(cd "$scratch" && pwd -P)"
+made() {  # <tool_use_id> <command>: the PreToolUse snapshot, the command, PostToolUse
+  local input; input="$(printf '%s' "$2" | python3 -c 'import json,sys; print(json.dumps({"command": sys.stdin.read()}))')"
+  for event in PreToolUse PostToolUse; do
+    [[ "$event" == PostToolUse ]] && (cd "$gitdir" && eval "$2")
+    printf '{"project_dir":"%s","cwd":"%s","event":"%s","session_id":"s1","tool_name":"Bash","tool_use_id":"%s","tool_input":%s}' \
+      "$gitdir" "$gitdir" "$event" "$1" "$input" | bash "$gate"
+  done
+}
+reminder="$(made u1 "git worktree add -q $scratch/wt-a -b wt-a")"
+made u2 "git worktree add -q ../wt-b -b wt-b" >/dev/null
+[[ "$(grep -c '^worktree	waiting	' "$pending")" == 2 ]] || fail "both worktrees must be recorded as waiting: $(cat "$pending")"
+[[ "$reminder" == *"Made a worktree: $real/wt-a"* && "$reminder" == *"git worktree remove $real/wt-a"* ]] \
+  || fail "the reminder must name the worktree and its removal: $reminder"
+grep -q "\"path\": \"$real/wt-a\"" "$gitdir/.agents/worktrees/.records/s1.jsonl" || fail "the session's record file must name the worktree"
+stop; [[ $rc -eq 0 ]] || fail "a worktree before a push must not block alone: $err"
+sh 'git push origin HEAD' >/dev/null
+git -C "$gitdir" worktree remove "$scratch/wt-a"
+stop; [[ $rc -eq 2 && "$err" == *"git worktree remove $real/wt-b"* ]] || fail "a push must make the worktree due (rc=$rc): $err"
+[[ "$err" != *"wt-a"* ]] || fail "a removed worktree must clear by its path: $err"
+git -C "$gitdir" worktree remove "$scratch/wt-b"
+stop; [[ $rc -eq 0 && ! -e "$pending" ]] || fail "removing the last worktree must clear the record: $(cat "$pending" 2>/dev/null)"
+ok "a worktree waits for a push, then blocks once, and clears when its path is gone"
+
+# ── each stop judges only what its own agent started ────────────────────────
+rm -f "$pending"
+sh 'npm run dev' true >/dev/null
+cell_call() {  # <agent_id> <event> [command]
+  set +e
+  err="$(printf '{"project_dir":"%s","event":"%s","session_id":"s1","agent_id":"%s","tool_name":"Bash","tool_input":{"command":"%s","run_in_background":true},"stop_hook_active":false}' \
+    "$dir" "$2" "$1" "${3:-}" | bash "$gate" 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+}
+cell_call cell-x Stop
+[[ $rc -eq 0 ]] || fail "the lead's dev server must not block a cell's stop (rc=$rc): $err"
+cell_call cell-x PostToolUse 'npm run dev'
+cell_call cell-x Stop
+[[ $rc -eq 2 && "$err" == *"[server]"* ]] || fail "a cell's own server must block its stop (rc=$rc): $err"
+grep -qx '#blocked' "$pending" && fail "a cell's stop must not spend the lead's block"
+stop; [[ $rc -eq 2 && "$err" == *"[server]"* ]] || fail "the lead's own server must still block the lead's stop (rc=$rc): $err"
+rm -f "$pending"
+ok "a cell's stop judges only its own entries; the lead's stop still blocks on the lead's"
 
 # ── identity and the config toggle ───────────────────────────────────────────
 [[ -z "$(printf '{"project_dir":"%s","event":"PostToolUse","session_id":"","tool_name":"mcp__playwright__browser_navigate","tool_input":{"url":"http://x"}}' "$dir" | bash "$gate")" ]] \

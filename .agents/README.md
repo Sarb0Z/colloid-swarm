@@ -272,6 +272,49 @@ person's session store outside the repository, it is opt-in: the toggle is
 registration is in `.agents/claude/README.md`. See decision
 `worktree-sessions-opt-in`.
 
+No worktree an agent makes outlives the session that made it (decision
+`worktrees-end-with-their-session`). `teardown-gate.sh` records each one a
+tool call creates — `git worktree add`, `EnterWorktree`, an isolated cell's
+worktree at its `SubagentStart`, `workloop.py add-lane` — and each run
+`workloop.py init` creates, in `.agents/worktrees/.records/<session>.jsonl`.
+A `PreToolUse` snapshot under the call's id (Claude Code and Codex; Kimi,
+which sends no id, keys it by session and command) makes it record only what
+that call created, so a failed add or init adopts nothing. After a `git push`
+it lists a worktree as due with `git worktree remove` or `workloop.py
+teardown`. Each pending entry carries the agent that started it, and a stop
+judges only its own agent's: a cell's stop never answers for the lead's
+servers or worktrees. `session-end.sh` (Claude's `SessionEnd`, 60 s budget)
+removes what the session recorded, in this repository or another: a clean
+worktree at once, a dirty one after committing its tracked changes and
+unignored files to `saved/<name>`, a run's lanes the same way before
+`workloop.py abandon` closes it. A branch goes only when the main checkout's
+HEAD contains it. `/clear` and `/resume` end the old conversation's worktrees
+and runs as an exit does, with one carve-out: a run with a lane not yet
+submitted or reviewed stays while the session's process lives, since its cell
+may still be working, and the first sweep after that process exits takes it.
+A worktree stays and is named when it is locked (Claude Code's own `claude
+session|agent` lock counts only while its session runs; the last worktree the
+session entered, if the operator kept it at Claude Code's exit prompt,
+stays), a running process works in it or lsof cannot tell, it holds a nested
+repository outside rebuildable folders, it holds what a save cannot carry
+(skip-worktree or assume-unchanged files, a bisect, rebase, merge or
+cherry-pick in progress), or its unsaved work cannot be committed.
+`session-start.sh` sweeps the records of sessions whose process is gone. It
+removes no worktree that no record names: it names each idle one (24 hours)
+outside `.agents/worktrees/` with its branch, last commit, commits not in the
+default branch and uncommitted files, and a verdict — "could go: merged into
+main" (or squash-merged, or every commit on its remote) or "stays: <why>".
+Removing those is unit 5b's. It names each lane folder under
+`.agents/worktrees/` that belongs to no run, closes a run no session leads
+only when it has lanes, its repository exists and git lists none of its
+worktrees (dropping the entry, with no prune), names the rest, and names each
+`saved/` branch. `git worktree lock` keeps any worktree. Ignored folders are moved into the git directory and deleted in the
+background, behind a manifest the sweep uses to move them back after a kill:
+removing a lane with 45,000 files takes 2.8 s in place and 11 ms this way.
+`hooks.teardown_gate.enabled` switches all of it off;
+`hooks/lib/worktree_records.py`, `worktree_removal.py` and `worktree_sweep.py`
+hold the rules.
+
 `edit-record.sh` lets the session wrap measure only its own session: it
 appends each path an editor tool writes to `.wrap-edits-<session>` and each
 commit the session makes or integrates to `.wrap-commits-<session>`, both
@@ -341,14 +384,24 @@ marked cell to its marker when it writes: a `READ-ONLY` cell writes nothing,
 and a `NOTES-ONLY` cell writes only where the product-folder grant holds the
 target. Every marker binds the file tools only: a marked cell can still write
 through its shell (`colloid-shell-writes-skip-post-edit`) or through a cell it
-dispatches. An edit whose every target lies outside the checkout passes. State
-lives in `.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>`,
-`.agents/.writers-kinds-<session>` (the writer types each turn dispatched,
-which decides whether a started cell registers) and
+dispatches. An edit whose every target lies outside the checkout passes. A
+cell stops counting when it finishes (`SubagentStop`), dies of an API error or
+usage limit (`StopFailure`), or is stopped by `TaskStop`; before it denies
+anything, the gate also drops a live writer whose own transcript ends in an
+interruption, which is all the user's Esc leaves behind for a foreground cell,
+and one whose metadata now names a marker, so a marked cell that never writes
+blocks nothing. A writer that left after `StopFailure` or an interruption
+counts again once its transcript shows new work, since a cell can recover
+from an API error, and a resumed writer registers again on its new start. The
+denial lists the writers that still count. State lives in `.agents/.writers-live-<session>`,
+`.agents/.writers-turn-<session>`, `.agents/.writers-kinds-<session>` (the
+writer types each turn dispatched and those of its writers that finished,
+which decides whether a started cell registers: a long turn's finished writers
+grant nothing to a later marked cell of their type) and
 `.agents/.cell-markers-<session>` (each marked or outside dispatch's id and
 marker); `session-start.sh` clears them at startup and resume, and deleting the
-live file is the manual reset for a cell known to have died. The toggle is
-`hooks.parallel_writers.enabled`.
+live file is the manual reset for a cell known to have died that the gate
+still lists. The toggle is `hooks.parallel_writers.enabled`.
 
 `claude/statusline.sh` is the status strip, wired as Claude's project
 `statusLine`, so it replaces each person's own status line in every scaffold
