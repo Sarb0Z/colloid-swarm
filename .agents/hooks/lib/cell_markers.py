@@ -6,6 +6,7 @@ workloop lane, a WORKSPACE line) — and what that marker lets the cell write.
 Usage: cell_markers.py record <project> <session> <tool_use_id> <marker>
        cell_markers.py decide <repo> <project> <session> <transcript_path> <agent_id>
        cell_markers.py marked <project> <session> <transcript_path> <agent_id>
+       cell_markers.py sweep <project> <session> <transcript_path> <agent_id>...
 
 The parallel-writers gate sees a marker once, at dispatch (PreToolUse on the
 Agent tool, which carries the prompt and a `tool_use_id`), but must enforce it
@@ -33,9 +34,24 @@ takes it off the live writers, and 0 otherwise:
              (write_targets.in_checkout: a nested lane worktree does not).
 
 `marked` exits 3 when the cell carries a marker, 0 when it carries none and 4
-when its metadata cannot be read; the gate asks it when a registered cell stops.
-With no marked dispatch recorded this session every cell is unmarked
+when its metadata cannot be read; the gate asks it when a registered cell stops
+or dies. With no marked dispatch recorded this session every cell is unmarked
 and no metadata is read.
+
+`sweep` names, of the live writers given, each that no longer counts, one
+`<agent_id> <reason>` line apiece, and says nothing of the rest:
+  marked            alive, and its metadata now links it to a marker. The
+                    metadata does not exist yet at SubagentStart (2.1.299), so a
+                    marked cell sharing a writer's type registers there.
+  ended-<status>    its own transcript, `agent-<agent_id>.jsonl` beside the
+                    metadata, shows it ended without a SubagentStop: the last
+                    user or assistant record is `[Request interrupted by user…`
+                    (a TaskStop, or the user's Esc while it ran in the
+                    foreground, which fires no hook at all) or an assistant
+                    record flagged `isApiErrorMessage` (an API error or usage
+                    limit). <status> is what `marked` would report.
+A missing transcript is not an ending; an unreadable one is reported on stderr
+and the cell stays live.
 """
 
 import json
@@ -50,6 +66,8 @@ import write_targets  # noqa: E402
 MARKERS = ("READ-ONLY", "NOTES-ONLY", "OUTSIDE")
 MARKED = 3
 UNKNOWN = 4
+INTERRUPTED = "[Request interrupted by user"
+TAIL_BLOCK = 65536
 
 READ_ONLY_DENIAL = (
     "This cell was dispatched READ-ONLY, so it writes nothing, wherever the target is. Return the content as "
@@ -119,6 +137,70 @@ def marker_of(project, session, transcript_path, agent_id):
     return "unmarked"
 
 
+def last_turn(path):
+    """The cell transcript's last user or assistant record, read backwards from
+    the end; None when there is none. Attachment and system records carry no
+    progress, so they are skipped."""
+    with open(path, "rb") as source:
+        source.seek(0, os.SEEK_END)
+        position = source.tell()
+        tail = b""
+        while position > 0:
+            step = min(TAIL_BLOCK, position)
+            position -= step
+            source.seek(position)
+            tail = source.read(step) + tail
+            lines = tail.split(b"\n")
+            # The first piece may be a partial line unless the file's start was read.
+            complete = lines if position == 0 else lines[1:]
+            for raw in reversed(complete):
+                if not raw.strip():
+                    continue
+                try:
+                    record = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(record, dict) and record.get("type") in ("user", "assistant"):
+                    return record
+            tail = lines[0] if position else b""
+    return None
+
+
+def has_ended(record):
+    if record is None:
+        return False
+    if record.get("type") == "assistant":
+        return record.get("isApiErrorMessage") is True
+    content = (record.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content.startswith(INTERRUPTED)
+    return isinstance(content, list) and any(
+        isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").startswith(INTERRUPTED)
+        for part in content)
+
+
+def sweep(project, session, transcript_path, agent_ids):
+    """(agent_id, reason) for each live writer that no longer counts."""
+    found = []
+    for agent_id in agent_ids:
+        state = status(project, session, transcript_path, agent_id)
+        path = cell_file(transcript_path, session, agent_id, ".jsonl")
+        try:
+            record = last_turn(path)
+        except FileNotFoundError:
+            # Claude Code writes the transcript asynchronously, so a cell that
+            # has just started may have none yet.
+            record = None
+        except OSError as error:
+            print(f"cell_markers.py: {path} cannot be read ({error.strerror}); {agent_id} stays live.", file=sys.stderr)
+            record = None
+        if has_ended(record):
+            found.append((agent_id, f"ended-{state}"))
+        elif state == "marked":
+            found.append((agent_id, "marked"))
+    return found
+
+
 def status(project, session, transcript_path, agent_id):
     """marked, unmarked or unknown. With no marked dispatch recorded this
     session every cell is unmarked, and no metadata is read."""
@@ -181,9 +263,14 @@ def main(argv):
         return MARKED if marked else 0
     if command == "marked" and len(argv) == 6:
         return {"marked": MARKED, "unmarked": 0, "unknown": UNKNOWN}[status(*argv[2:])]
+    if command == "sweep" and len(argv) >= 6:
+        for agent_id, reason in sweep(argv[2], argv[3], argv[4], argv[5:]):
+            print(f"{agent_id}\t{reason}")
+        return 0
     raise SystemExit("cell_markers.py: usage: cell_markers.py record <project> <session> <tool_use_id> <marker> | "
                      "decide <repo> <project> <session> <transcript_path> <agent_id> | "
-                     "marked <project> <session> <transcript_path> <agent_id>")
+                     "marked <project> <session> <transcript_path> <agent_id> | "
+                     "sweep <project> <session> <transcript_path> <agent_id>...")
 
 
 if __name__ == "__main__":

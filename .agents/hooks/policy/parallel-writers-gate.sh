@@ -23,7 +23,7 @@
 # lead's edits there, an OUTSIDE cell's writes there and a brief for such a
 # lane all count as outside; a submodule stays the checkout's.
 #
-# Five events share one policy because they share one state file:
+# Seven events share one policy because they share one state file:
 #   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
 #                  opens with READ-ONLY passes, as does one that opens with
 #                  NOTES-ONLY where the repository has a product folder
@@ -36,14 +36,22 @@
 #                  and is recorded the same way. Otherwise the first writer of
 #                  a turn passes and is counted; a writer dispatched while any
 #                  other writer is counted or live is denied, with the three
-#                  commands that make it a lane and why a WORKSPACE line, if
-#                  any, was refused. A header or a WORKSPACE line is only text:
-#                  the cell is held to it when it writes.
+#                  commands that make it a lane, why a WORKSPACE line, if
+#                  any, was refused, and each live writer that still counts.
+#                  A header or a WORKSPACE line is only text: the cell is held
+#                  to it when it writes.
 #   PreToolUse Edit/Write, main agent — the lead's own edit inside the
 #                  checkout while a writer is live there is the same collision
 #                  from the other side, and is denied. OUTSIDE cells are not
 #                  live writers, so lanes and WORKSPACE cells leave the main
 #                  tree to the lead.
+#                  Before either denial the gate sweeps the live writers
+#                  (cell_markers.py sweep): one whose metadata now names a
+#                  marker leaves them, as at its first write, and so does one
+#                  whose own transcript ends in an interruption or an API
+#                  error. The interruption is the only trace a foreground
+#                  cell stopped by the user's Esc leaves: no hook fires for it
+#                  (probed on 2.1.299).
 #   PreToolUse Edit/Write, a cell's own — a cell carries the marker its prompt
 #                  opened with, found through Claude Code's metadata for the
 #                  cell (hooks/lib/cell_markers.py decides). READ-ONLY may
@@ -52,8 +60,8 @@
 #                  anywhere but inside the checkout. SubagentStart carries no
 #                  dispatch id, so a marked cell dispatched beside a writer of
 #                  its own type registers at start as that writer would, and
-#                  until its first write it blocks more and never allows more.
-#                  At that write it leaves the live writers and is counted
+#                  until its first write, or a sweep, it blocks more and never
+#                  allows more. Then it leaves the live writers and is counted
 #                  marked, so a writer of its turn that has not started is
 #                  pending again. A cell with no marker is a writer. A cell
 #                  whose metadata cannot be read is denied unless it is a
@@ -67,13 +75,18 @@
 #                  of its type that has not finished: in a long turn, a marked
 #                  cell dispatched after that turn's writers of its type have
 #                  stopped never registers.
-#   SubagentStop  — the cell leaves the live writers. One that never wrote is
-#                  counted marked here if its metadata names a marker.
+#   SubagentStop, StopFailure (a cell's: it carries agent_id), PostToolUse
+#                  TaskStop (tool_input.task_id names a background cell) — the
+#                  cell has finished, died of an API error or usage limit, or
+#                  been stopped, and leaves the live writers. Only a normal
+#                  finish fires SubagentStop (probed on 2.1.299). One that
+#                  never wrote is counted marked here if its metadata names a
+#                  marker.
 #
 # session-start.sh clears the state at startup and resume: no subagent
 # survives the process, so a cell that died without a SubagentStop cannot
 # deny the next session. Within one session, .agents/.writers-live-<session>
-# is the file to delete if a cell is known dead.
+# is the file to delete if a cell is known dead and the sweep kept it.
 #
 # Input (stdin JSON): {"project_dir", "cwd", "event", "session_id", "prompt_id",
 #   "tool_name", "tool_input": {...}, "tool_use_id", "transcript_path",
@@ -88,8 +101,8 @@
 # could write, but their contracts forbid it, and denying two QA cells at
 # once would cost more than the contention it prevents.
 #
-# Limits: the marker link reads Claude Code's cell metadata
-# (debt: gate-reads-cell-metadata). Every marker binds the file tools only: a
+# Limits: the marker link and the sweep read Claude Code's cell metadata and
+# transcript (debt: gate-reads-cell-metadata). Every marker binds the file tools only: a
 # marked cell can still write through its shell
 # (colloid-shell-writes-skip-post-edit) or through a cell it dispatches. Codex
 # and Kimi do not run this gate.
@@ -113,7 +126,7 @@ payload="$(cat)"
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.parallel_writers.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; } < <(
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; read -r task_id; } < <(
   printf '%s' "$payload" | python3 "$lib/writers-payload.py")
 
 [[ -n "$session" && -n "$proj" ]] || exit 0
@@ -268,7 +281,7 @@ settle() {  # <agent_id> <"type<TAB>turn" from unregister> <marked|unmarked|unkn
   esac
 }
 
-# A registered cell has finished. Takes the lock.
+# A registered cell has finished, died or been stopped. Takes the lock.
 finish() {  # <agent_id>
   local entry state=unmarked status=0
   [[ -n "$1" && -f "$live" ]] && grep -q "^$1	" "$live" || return 0
@@ -285,6 +298,33 @@ finish() {  # <agent_id>
   fi
   settle "$1" "$entry" "$state"
 }
+
+# Before a denial: drops each live writer that is marked or whose transcript
+# shows it ended (cell_markers.py sweep). Needs the lock held.
+sweep() {
+  local ids=() id reason entry
+  [[ -f "$live" ]] || return 0
+  while IFS=$'\t' read -r id _; do [[ -n "$id" ]] && ids+=("$id"); done <"$live"
+  (( ${#ids[@]} )) && [[ -n "$transcript" ]] || return 0
+  while IFS=$'\t' read -r id reason; do
+    entry="$(unregister "$id")"
+    case "$reason" in
+      marked|ended-marked) settle "$id" "$entry" marked ;;
+      ended-unmarked) settle "$id" "$entry" unmarked ;;
+      *) settle "$id" "$entry" unknown ;;
+    esac
+  done < <(python3 "$lib/cell_markers.py" sweep "$proj" "$session" "$transcript" "${ids[@]}")
+}
+
+# The live writers that still count, for a denial: "a1 (implementer), ...".
+live_names() {
+  local id type out=""
+  [[ -f "$live" ]] || return 0
+  while IFS=$'\t' read -r id type _; do [[ -n "$id" ]] && out="${out:+$out, }$id ($type)"; done <"$live"
+  printf '%s' "$out"
+}
+
+SWEPT="The gate dropped every live writer that finished (SubagentStop), died of an API error or usage limit (StopFailure, or an API error closing its transcript), was stopped (TaskStop, or an interruption closing its transcript), or whose metadata names a READ-ONLY, NOTES-ONLY or OUTSIDE dispatch"
 
 case "$event" in
   PreToolUse)
@@ -306,10 +346,16 @@ case "$event" in
         fi
         exit 0
       fi
+      (( $(live_count) == 0 )) || sweep
       pending="$(turn_count "$prompt_id")"
       running="$(live_count)"
       if (( pending + running >= 1 )); then
-        deny "A second writer (${tool_type}) is being dispatched to this checkout while another writer works in it.${refusal:+ Its WORKSPACE line was not accepted: ${refusal}.} Check the shape first (the workloop skill's guide): one writer with read-only cells around it is the default; parallel slices suit disjoint files, about three writers at most. Concurrent writers in one repository go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --path <owned path> (the worktree goes to .agents/worktrees/<run>/<lane>); then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that works in a separate directory, no copy of this repository, says so with one prompt line, WORKSPACE: <absolute path>, and may then write anywhere but this checkout. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. If a counted writer is known dead, delete ${live}."
+        if (( running )); then
+          still="${SWEPT}; still live: $(live_names). If one of these is known dead, delete ${live}."
+        else
+          still="The other writer was dispatched earlier in this turn and has not started yet."
+        fi
+        deny "A second writer (${tool_type}) is being dispatched to this checkout while another writer works in it.${refusal:+ Its WORKSPACE line was not accepted: ${refusal}.} Check the shape first (the workloop skill's guide): one writer with read-only cells around it is the default; parallel slices suit disjoint files, about three writers at most. Concurrent writers in one repository go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --path <owned path> (the worktree goes to .agents/worktrees/<run>/<lane>); then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that works in a separate directory, no copy of this repository, says so with one prompt line, WORKSPACE: <absolute path>, and may then write anywhere but this checkout. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. ${still}"
         exit 0
       fi
       if ! count_turn "$prompt_id" dispatched || ! note_turn "$prompt_id" "$tool_type"; then
@@ -334,8 +380,18 @@ case "$event" in
       # The lead's own edit while a writer works in the checkout.
       [[ "$outside" == "yes" ]] && exit 0
       (( $(live_count) >= 1 )) || exit 0
-      deny "A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. If the cell is known dead, delete ${live}."
+      take_lock
+      sweep
+      (( $(live_count) >= 1 )) || exit 0
+      deny "A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. ${SWEPT}; still live: $(live_names). If one of these is known dead, delete ${live}."
     fi
+    ;;
+  PostToolUse)
+    [[ "$tool_name" == "TaskStop" ]] && finish "$task_id"
+    ;;
+  StopFailure)
+    # A cell's API error ends the cell; the lead's own ends only its turn.
+    finish "$agent_id"
     ;;
   SubagentStart)
     is_reader "$agent_type" && exit 0

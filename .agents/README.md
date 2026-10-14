@@ -341,16 +341,22 @@ marked cell to its marker when it writes: a `READ-ONLY` cell writes nothing,
 and a `NOTES-ONLY` cell writes only where the product-folder grant holds the
 target. Every marker binds the file tools only: a marked cell can still write
 through its shell (`colloid-shell-writes-skip-post-edit`) or through a cell it
-dispatches. An edit whose every target lies outside the checkout passes. State
-lives in `.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>`,
-`.agents/.writers-kinds-<session>` (the writer types each turn dispatched and
-those of its writers that finished, which decides whether a started cell
-registers: a long turn's finished writers grant nothing to a later marked cell
-of their type) and
+dispatches. An edit whose every target lies outside the checkout passes. A
+cell stops counting when it finishes (`SubagentStop`), dies of an API error or
+usage limit (`StopFailure`), or is stopped by `TaskStop`; before it denies
+anything, the gate also drops a live writer whose own transcript ends in an
+interruption or an API error, which is all the user's Esc leaves behind for a
+foreground cell, and one whose metadata now names a marker, so a marked cell
+that never writes blocks nothing. The denial lists the writers that still
+count. State lives in `.agents/.writers-live-<session>`,
+`.agents/.writers-turn-<session>`, `.agents/.writers-kinds-<session>` (the
+writer types each turn dispatched and those of its writers that finished,
+which decides whether a started cell registers: a long turn's finished writers
+grant nothing to a later marked cell of their type) and
 `.agents/.cell-markers-<session>` (each marked or outside dispatch's id and
 marker); `session-start.sh` clears them at startup and resume, and deleting the
-live file is the manual reset for a cell known to have died. The toggle is
-`hooks.parallel_writers.enabled`.
+live file is the manual reset for a cell known to have died that the gate
+still lists. The toggle is `hooks.parallel_writers.enabled`.
 
 `claude/statusline.sh` is the status strip, wired as Claude's project
 `statusLine`, so it replaces each person's own status line in every scaffold
