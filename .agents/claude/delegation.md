@@ -24,8 +24,9 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   competing designs from read-only cells, with the selection rule set first.
   Each extra writer costs a worktree, an install, a review and a merge.
 - A writing or QA cell works by `.agents/skills/workloop/working-practice.md`:
-  how it tests, starts servers, waits and edits. `brief` prints it for a lane,
-  `implementer` and `qa-verifier` carry it, and the lead pastes it into a
+  how it tests, starts servers, waits and edits. `brief` writes it into a
+  lane's `.workloop/BRIEF.md` and prints a dispatch prompt (the header line and
+  the path to read) to paste unchanged, `implementer` and `qa-verifier` carry it, and the lead pastes it into a
   generic cell's prompt.
 - A generic cell is `general-purpose` with an explicit model; a named persona
   fixes model and effort in its frontmatter, so use one when effort must be

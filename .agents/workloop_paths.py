@@ -35,9 +35,15 @@ def canonical_reference(value: str, roots: list[Path]) -> str:
     """Validate a review reference as a file in the first of `roots` that has it.
 
     A report kept in the main checkout is reachable from every lane; one the
-    lane committed in its own worktree resolves there.
+    lane committed in its own worktree resolves there. An absolute path names
+    any existing file, such as a report written in another project.
     """
     file_name, separator, anchor = value.partition("#")
+    if PurePosixPath(file_name).is_absolute():
+        target = Path(file_name).resolve()
+        if not target.is_file():
+            fail(f"review reference must name an existing file: {value!r}")
+        return str(target) + ("#" + anchor if separator else "")
     normalized = normalize_path(file_name)
     for root in roots:
         candidate = (root / normalized).resolve()

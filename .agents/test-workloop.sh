@@ -54,6 +54,9 @@ printf 'node_modules/\n' > "$work/.gitignore"
 git -C "$work" add . && git -C "$work" commit -qm base
 base="$(git -C "$work" rev-parse HEAD)"
 tool=(python3 "$repo/.agents/workloop.py" --state "$state")
+# `brief` prints a short dispatch prompt and writes the full brief to a file
+# in the lane's worktree; this prints that file.
+full_brief() { local out file; out="$("${tool[@]}" brief "$@")"; file="$(sed -n '2s/^Read the full brief at \(.*\) before anything else.*$/\1/p' <<<"$out")"; [[ -f "$file" ]] || fail "brief wrote no file: $out"; cat "$file"; }
 commit() { git -C "$1" add -A && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
 
 # ── base is pinned, verify is guarded ────────────────────────────────────────
@@ -114,7 +117,7 @@ n1="$real_work/.agents/worktrees/nest/one"; n2="$real_work/.agents/worktrees/nes
 [[ -f "$n1/src/app.txt" && "$(git -C "$n1" rev-parse --show-toplevel)" == "$n1" ]] || fail "the default lane is not a worktree at $n1"
 [[ "$(git -C "$n1" symbolic-ref --short HEAD)" == "nest/one" ]] || fail "the default lane is not on nest/one"
 [[ -z "$(git -C "$work" status --porcelain --untracked-files=all)" ]] || fail "nested lanes dirty the checkout: $(git -C "$work" status --porcelain)"
-expect "Workspace: $n1 " "${tool[@]}" brief nest one
+expect "Workspace: $n1 " full_brief nest one
 ok "add-lane without --workspace places the lane at .agents/worktrees/<run>/<lane>, and git status stays clean"
 
 # a workspace under /tmp is refused, naming the default; unless the checkout itself lies there
@@ -159,7 +162,7 @@ nsp="$real_work/.agents/worktrees/nestsp/sp"
 [[ -f "$nsp/package-lock.json" && ! -e "$nsp/src" ]] || fail "the sparse lane is wrong before widen: $(ls "$nsp")"
 expect 'widened lane .sp.: owned + gen; cone + gen, src' "${tool[@]}" widen nestsp sp --path gen --also src
 [[ -f "$nsp/src/app.txt" ]] || fail "widen --also did not check src out in the sparse lane"
-expect 'Sparse cone: brand-new, gen, src' "${tool[@]}" brief nestsp sp
+expect 'Sparse cone: brand-new, gen, src' full_brief nestsp sp
 mkdir -p "$nsp/gen"; printf 'g\n' > "$nsp/gen/g.txt"; git -C "$nsp" add gen/g.txt || fail "a widened cone directory could not be staged"
 expect 'already covers src/deep' "${tool[@]}" widen nestsp sp --also src/deep
 "${tool[@]}" abandon nestsp --discard-branches >/dev/null
@@ -415,7 +418,7 @@ sp="$scratch/lane-sparse"
 expect 'sparse to docs, src' "${tool[@]}" add-lane sparse s --worker implementer --workspace "$sp" --path src --sparse --also docs
 [[ -f "$sp/src/app.txt" && ! -e "$sp/tests" && -f "$sp/package-lock.json" ]] || fail "sparse cone wrong: $(ls "$sp")"
 [[ "$(git -C "$sp" config core.sparseCheckoutCone)" == "true" ]] || fail "cone mode not set per worktree"
-expect 'Sparse cone: docs, src' "${tool[@]}" brief sparse s
+expect 'Sparse cone: docs, src' full_brief sparse s
 "${tool[@]}" claim sparse s --agent sp1
 printf 'sparse\n' >> "$sp/src/app.txt"; commit "$sp" sparse
 "${tool[@]}" submit sparse s --evidence ok
@@ -437,12 +440,48 @@ ok "a sparse lane holds its owned and --also directories plus root files, and st
 expect 'exclusive resource in use: browser-a holds playwright' "${tool[@]}" claim res browser-b --agent rb
 "${tool[@]}" claim res plain --agent rp
 ok "a second lane cannot claim a held exclusive resource; an unrelated lane can"
-expect 'COLLOID_RUN=res COLLOID_LANE=browser-a COMPOSE_PROJECT_NAME=res-browser-a' "${tool[@]}" brief res browser-a
-expect 'Exclusive: playwright' "${tool[@]}" brief res browser-a
-expect 'integrate runs the composed test once over the merged tree' "${tool[@]}" brief res plain
-expect 'Working practice:' "${tool[@]}" brief res plain --role qa
-"${tool[@]}" brief res plain --role reviewer | grep -q 'Working practice:' && fail "a reviewer brief carries the working practice"
+expect 'COLLOID_RUN=res COLLOID_LANE=browser-a COMPOSE_PROJECT_NAME=res-browser-a' full_brief res browser-a
+expect 'Exclusive: playwright' full_brief res browser-a
+expect 'integrate runs the composed test once over the merged tree' full_brief res plain
+expect 'Working practice:' full_brief res plain --role qa
+full_brief res plain --role reviewer | grep -q 'Working practice:' && fail "a reviewer brief carries the working practice"
 ok "the brief exports the lane's environment, its lease, and the working practice for workers and QA only"
+
+# ── the brief is a dispatch line over a file in the lane's worktree ──────────
+"${tool[@]}" init brf --objective 'brief file' --acceptance 'file holds the brief' --repo "$work" --verify 'true'
+bw="$scratch/lane-brf"
+"${tool[@]}" add-lane brf one --worker implementer --workspace "$bw" --path src --sparse >/dev/null 2>&1
+prompt="$("${tool[@]}" brief brf one)"
+[[ "$(head -n1 <<<"$prompt")" == "WORKLOOP WORKER BRIEF — brf/one" ]] || fail "the dispatch prompt does not open with the header: $prompt"
+[[ "$(wc -l <<<"$prompt")" -le 3 && "${#prompt}" -lt 400 ]] || fail "the dispatch prompt is not short: $prompt"
+grep -qF "Read the full brief at $(cd "$bw" && pwd -P)/.workloop/BRIEF.md before anything else" <<<"$prompt" || fail "the prompt omits the brief's absolute path: $prompt"
+ok "brief prints a short prompt: the header line, then the absolute path of the brief to read"
+file_text="$(cat "$bw/.workloop/BRIEF.md")"
+for want in 'WORKLOOP WORKER BRIEF — brf/one' 'Objective: brief file' 'Acceptance: file holds the brief' 'Owned paths: src' 'Working practice:' 'Claim: ' 'Worker handoff: '; do
+  grep -qF -- "$want" <<<"$file_text" || fail "BRIEF.md lacks '$want'"
+done
+"${tool[@]}" brief brf one --role reviewer >/dev/null; "${tool[@]}" brief brf one --role qa >/dev/null
+grep -q 'WORKLOOP REVIEWER BRIEF' "$bw/.workloop/BRIEF-reviewer.md" && grep -q 'WORKLOOP QA BRIEF' "$bw/.workloop/BRIEF-qa.md" && grep -q 'WORKLOOP WORKER BRIEF' "$bw/.workloop/BRIEF.md" || fail "the roles do not keep one file each"
+ok "brief writes the full brief to .workloop/BRIEF.md, one file per role"
+# The parallel-writers gate's matcher recognises the dispatch prompt as a lane cell.
+mkdir -p "$scratch/gateroot/.agents"; cp "$state" "$scratch/gateroot/.agents/.workloop-state.json"
+gate_kind="$(python3 -c 'import json,sys; print(json.dumps({"project_dir": sys.argv[1], "event": "PreToolUse", "tool_name": "Agent", "tool_input": {"prompt": sys.argv[2]}}))' "$scratch/gateroot" "$prompt" | python3 "$repo/.agents/hooks/lib/writers-payload.py" | sed -n 9p)"
+[[ "$gate_kind" == "brief" ]] || fail "the gate's matcher read the dispatch prompt as '$gate_kind', not a lane brief"
+ok "the parallel-writers gate recognises the dispatch prompt as a lane cell"
+git -C "$bw" check-ignore -q .workloop/BRIEF.md || fail ".workloop/ is not ignored in the lane"
+[[ -z "$(git -C "$bw" status --porcelain --untracked-files=all)" ]] || fail "the brief dirties the lane: $(git -C "$bw" status --porcelain)"
+grep -qx '\.workloop/' "$repo/.gitignore" && grep -qx '\.workloop/' "$repo/.agents/export/gitignore-fragment" || fail ".workloop/ is missing from .gitignore or the export fragment"
+ok ".workloop/ is ignored in the lane and listed in .gitignore and the export fragment"
+"${tool[@]}" widen brf one --path gen --also tests >/dev/null
+full_brief brf one | grep -q 'Sparse cone: .*tests' || fail "a rerun after widen did not refresh the brief"
+ok "a rerun after widen rewrites the brief file"
+"${tool[@]}" claim brf one --agent brf1
+printf 'b\n' >> "$bw/src/app.txt"; commit "$bw" brf
+"${tool[@]}" submit brf one --evidence ok
+mkdir -p "$scratch/elsewhere"; printf 'report\n' > "$scratch/elsewhere/review.md"
+expect 'existing file' "${tool[@]}" review brf one --reference "$scratch/elsewhere/absent.md#ok" --result accept
+expect 'recorded accept review' "${tool[@]}" review brf one --reference "$scratch/elsewhere/review.md#ok" --result accept
+ok "a review may cite an existing file outside the repository by absolute path; a missing one is refused"
 expect 'contract-first split' "${tool[@]}" --help
 ok "--help names the delegation shapes"
 "${tool[@]}" heartbeat res plain --agent rp --progress 'migrations 3/9'
@@ -656,9 +695,9 @@ expect 'lanes edit shared paths without owning them' "${tool[@]}" add-lane shr b
 "${tool[@]}" add-lane shr b --worker implementer --workspace "$sb" --path tests
 "${tool[@]}" add-lane shr c --worker implementer --workspace "$sc" --path docs/c
 expect $'shared\tdocs/index.md, gen' "${tool[@]}" status shr
-expect 'Shared paths: docs/index.md, gen' "${tool[@]}" brief shr a
-expect 'Append only; never restructure or reorder existing lines' "${tool[@]}" brief shr a
-expect 'owned or shared paths' "${tool[@]}" brief shr a
+expect 'Shared paths: docs/index.md, gen' full_brief shr a
+expect 'Append only; never restructure or reorder existing lines' full_brief shr a
+expect 'owned or shared paths' full_brief shr a
 ok "init stores shared paths; add-lane refuses a path overlapping one; brief and status show them"
 "${tool[@]}" claim shr a --agent sa; "${tool[@]}" claim shr b --agent sb; "${tool[@]}" claim shr c --agent sc
 mkdir -p "$sa/gen" "$sa/docs"; printf 'a\n' >> "$sa/src/app.txt"; printf 'a\n' >> "$sa/docs/index.md"; printf 'a\n' > "$sa/gen/api.json"
@@ -683,8 +722,8 @@ assert sorted(r) == ["docs/index.md", "tests/b.txt"], r
 EOF2
 ok "a lane rebased onto a sibling submits and records only its own paths"
 start_b="$(git -C "$sb" rev-parse shr/a)"
-expect "git diff $start_b\.\.shr/b" "${tool[@]}" brief shr b --role reviewer
-expect "start point $start_b" "${tool[@]}" brief shr b --role reviewer
+expect "git diff $start_b\.\.shr/b" full_brief shr b --role reviewer
+expect "start point $start_b" full_brief shr b --role reviewer
 ok "a reviewer brief names the lane's start point and its diff command"
 mkdir -p "$sc/docs/c" "$sc/tests"; printf 'c\n' > "$sc/docs/c/ok.txt"; commit "$sc" c
 python3 - "$state" <<'EOF2'
