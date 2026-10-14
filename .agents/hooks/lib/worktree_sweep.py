@@ -127,7 +127,7 @@ def workspaces(run: dict) -> list[str]:
 
 
 def drop_run(state: Path, name: str) -> None:
-    """Delete one run from the state file under workloop.py's own lock, as its Store writes it."""
+    """Delete one run from the state file under the controller's own lock, as `workloop_state.Store` writes it."""
     with open(f"{state}.lock", "a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         data = json.loads(state.read_text())
