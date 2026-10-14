@@ -29,7 +29,8 @@ takes it off the live writers, and 0 otherwise:
   READ-ONLY  denied, wherever the target is.
   NOTES-ONLY denied unless the product folder holds every target
              (product_folder.py).
-  OUTSIDE    denied when any target lies inside the checkout.
+  OUTSIDE    denied when any target belongs to the checkout
+             (write_targets.in_checkout: a nested lane worktree does not).
 
 `marked` exits 3 when the cell carries a marker and 0 otherwise, unreadable
 metadata included; the gate asks it when a registered cell stops before its
@@ -122,9 +123,10 @@ def registered(project, session, agent_id):
 
 
 def touches_checkout(project, payload):
-    """True when any target the write names lies in the checkout; a relative path is the checkout's."""
+    """True when any target the write names belongs to the checkout; a relative path is the checkout's.
+    A target in a worktree nested in the checkout, a workloop lane's, is not."""
     root = os.path.realpath(project)
-    return any(write_targets.under(path, root) for path in write_targets.resolved(root, payload.get("tool_input")))
+    return any(write_targets.in_checkout(path, root) for path in write_targets.resolved(root, payload.get("tool_input")))
 
 
 def decide(repo, project, session, transcript_path, agent_id, payload):

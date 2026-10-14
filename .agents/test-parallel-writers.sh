@@ -474,6 +474,72 @@ denied "$(nwrite r22 general-purpose "$scratch/lane-ui/x.py")" || fail "a READ-O
 rm -f "$nf/.agents/.workloop-state.json"
 ok "a READ-ONLY prompt carrying a lane brief writes nothing"
 
+# --- lane worktrees nested in the checkout -------------------------------------
+# A real repository with a workloop lane at .agents/worktrees/r/l and a real
+# submodule at src/vendor: the nearest Git working tree decides what is the
+# checkout's, and a submodule stays the checkout's.
+gr="$(cd "$scratch" && pwd -P)/nested"
+glane="$gr/.agents/worktrees/r/l"
+gtx="$scratch/transcripts4"
+mkdir -p "$gr/.agents" "$gr/src"
+git init -q "$gr"; printf '.agents/worktrees/\n' > "$gr/.gitignore"
+git -C "$gr" add .gitignore; git -C "$gr" -c user.name=t -c user.email=t@t commit -qm root
+git -C "$gr" worktree add -q -b r/l "$glane"
+git init -q "$scratch/subsrc"; git -C "$scratch/subsrc" -c user.name=t -c user.email=t@t commit -q --allow-empty -m sub
+git -C "$gr" -c protocol.file.allow=always submodule add -q "$scratch/subsrc" src/vendor 2>/dev/null
+[[ "$(git -C "$gr/src/vendor" rev-parse --show-superproject-working-tree)" == "$gr" ]] || fail "the submodule fixture is not a submodule of $gr"
+mkdir -p "$gr/src/fake"; printf 'gitdir: %s/missing\n' "$scratch" > "$gr/src/fake/.git"
+git init -q "$gr/.agents/worktrees/foreign"
+gfire() {  # key=value ... -> stdout
+  local args=(--arg project_dir "$gr" --arg session_id s4 --arg transcript_path "$gtx/main.jsonl") pair
+  for pair in "$@"; do args+=(--arg "${pair%%=*}" "${pair#*=}"); done
+  jq -nc "${args[@]}" '$ARGS.named
+    | .tool_input = ({subagent_type, prompt, file_path} | with_entries(select(.value != null)))
+    | del(.subagent_type, .prompt, .file_path)' | bash "$gate" 2>"$scratch/gerr"
+}
+gdispatch() { gfire event=PreToolUse tool_name=Agent prompt_id="$1" subagent_type="$2" prompt="$3" tool_use_id="$4"; }
+gstart() { gfire event=SubagentStart prompt_id="$3" agent_id="$1" agent_type="$2" >/dev/null; }
+gwrite() { gfire event=PreToolUse tool_name=Write agent_id="$1" agent_type="$2" file_path="$3"; }
+glead() { gfire event=PreToolUse tool_name=Edit prompt_id="$1" file_path="$2"; }
+gmeta() { mkdir -p "$gtx/s4/subagents"; printf '{"toolUseId":"%s"}\n' "$2" > "$gtx/s4/subagents/agent-$1.meta.json"; }
+
+[[ -z "$(gdispatch p30 general-purpose 'change the module' tuw30)" ]] || fail "the writer was refused"
+gstart w30 general-purpose p30
+for target in "$glane/src/x.py" "$glane/new/deep/x.py" "$glane" "$gr/.agents/worktrees/foreign/x.py"; do
+  [[ -z "$(glead p30 "$target")" ]] || fail "the lead was refused $target, in a nested lane worktree, beside a writer in the checkout"
+done
+for target in "$gr/src/x.py" "$gr/.agents/worktrees/r/x.py" "$gr/.agents/worktrees/r/l2/x.py" "$gr/src/vendor/x.py" "$gr/src/fake/x.py" "src/vendor/x.py"; do
+  denied "$(glead p30 "$target")" || fail "the lead edited $target beside a writer in the checkout"
+done
+ok "the lead edits a nested lane or nested foreign repository freely beside a writer; the checkout, its run folder, a submodule and an unreadable .git stay the checkout's"
+
+[[ -z "$(gdispatch p30 general-purpose "WORKSPACE: $scratch/copy-a" tuo30)" ]] || fail "the outside cell was refused"
+gmeta o30 tuo30; gstart o30 general-purpose p30
+[[ -z "$(gwrite o30 general-purpose "$glane/src/x.py")" ]] || fail "an outside cell was refused a nested lane worktree"
+for target in "$gr/src/x.py" "$gr/src/vendor/x.py" "$gr/.agents/worktrees/r/x.py"; do
+  denied "$(gwrite o30 general-purpose "$target")" || fail "an outside cell wrote $target, in the checkout"
+done
+ok "an OUTSIDE cell writes into a nested lane worktree and is denied the checkout proper and its submodule"
+
+printf '{"runs":{"r":{"lanes":{"l":{"workspace":"%s"},"gone":{"workspace":"%s/.agents/worktrees/r/gone"}}}}}' "$glane" "$gr" > "$gr/.agents/.workloop-state.json"
+[[ -z "$(gdispatch p30 implementer 'WORKLOOP WORKER BRIEF — r/l' tul30)" ]] || fail "a brief for a nested lane was refused beside a writer"
+grep -q $'^tul30\tOUTSIDE$' "$gr/.agents/.cell-markers-s4" || fail "the nested lane's dispatch was not recorded OUTSIDE"
+gmeta l30 tul30; gstart l30 implementer p30
+[[ -z "$(gwrite l30 implementer "$glane/src/x.py")" ]] || fail "a nested lane cell was refused its worktree"
+denied "$(gwrite l30 implementer "$gr/src/x.py")" || fail "a nested lane cell wrote in the checkout"
+denied "$(gdispatch p30 mechanic 'WORKLOOP WORKER BRIEF — r/gone' tug30)" || fail "a brief for a lane whose worktree is missing under the checkout exempted a writer"
+rm -f "$gr/.agents/.workloop-state.json"
+ok "a brief for a lane nested in the checkout passes as OUTSIDE; the cell writes its worktree and is denied the checkout"
+
+for ws in "$glane" "$glane/src" "$gr/src/vendor"; do
+  mkdir -p "$ws"
+  out="$(gdispatch p30 mechanic "WORKSPACE: $ws" tuws30)"
+  denied "$out" && [[ "$out" == *"WORKSPACE line was not accepted"* ]] || fail "WORKSPACE $ws was accepted ($out)"
+done
+[[ "$(gdispatch p30 mechanic "WORKSPACE: $glane" tuws30b)" == *"worktree or clone of this repository"* ]] || fail "a nested worktree WORKSPACE was not refused as this repository's worktree"
+[[ "$(gdispatch p30 mechanic "WORKSPACE: $gr/src/vendor" tuws30c)" == *"lies inside this checkout"* ]] || fail "a submodule WORKSPACE was not refused as inside the checkout"
+ok "a WORKSPACE naming a nested worktree of this repository, or a submodule, is refused"
+
 # disabled
 printf '{"hooks":{"parallel_writers":{"enabled":false}}}\n' > "$dir/.agents/config.json"
 [[ -z "$(dispatch p4 implementer)" && -z "$(dispatch p4 mechanic)" ]] || fail "the toggle did not disable the gate"
