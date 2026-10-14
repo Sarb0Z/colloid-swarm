@@ -93,9 +93,23 @@ the lockfile hash. A writing lane owns exclusive paths.
   --acceptance 'database, parser, and browser scenarios pass' \
   --verify 'pnpm test --filter api' --base HEAD --supervised
 .agents/workloop.py add-lane slice-3b persistence --worker implementer \
-  --workspace ../claims-app-persistence --path apps/api --path tests/api
+  --path apps/api --path tests/api
 .agents/workloop.py brief slice-3b persistence --role worker
 ```
+
+A lane's worktree lives at `.agents/worktrees/<run>/<lane>` inside the
+checkout; `--workspace <path>` places it elsewhere, but never under `/tmp`,
+which the system clears. `.gitignore` hides `.agents/worktrees/` from
+`git status` and `rg`, and `add-lane` warns where it does not. A test runner
+that walks the tree without honouring `.gitignore`, such as an unanchored
+vitest or jest glob, finds every lane's copy of the tests: when a repository's
+first run starts, check the runner's discovery roots. Lane hooks run the main
+checkout's guards and read the run state there.
+
+`widen <run> <lane> --path <p>` gives a running lane another owned path, and
+`--also <dir>` adds a directory to a sparse lane's cone and checks it out. It
+refuses only a path another lane owns or one that overlaps a shared path, and
+prints what changed.
 
 Lanes are full checkouts. Add `--sparse` only on a very large monorepo: the
 worktree then holds the owned directories, the root files, any `--also <dir>`,
@@ -253,7 +267,8 @@ completion until the claimant answers it.
 
 Each lane verified its own slice in its own worktree; nothing has verified the
 composition. Once every lane is reviewed, `integrate` resets an integration
-worktree to the base on branch `<run>/integration`, merges the lane branches in
+worktree (`.agents/worktrees/<run>/integration` unless `--workspace` names
+one) to the base on branch `<run>/integration`, merges the lane branches in
 dependency order, provisions, and runs the `--verify` command once. A conflict
 aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
 On a run with more than one lane, `check` requires a passing integration whose
@@ -261,7 +276,7 @@ recorded lane tips still match; a lane commit after integration reports
 `integration:stale` until `integrate` reruns.
 
 ```sh
-.agents/workloop.py integrate slice-3b --workspace ../claims-app-integration
+.agents/workloop.py integrate slice-3b
 .agents/workloop.py qa slice-3b --evidence 'Playwright and service tests passed'
 .agents/workloop.py check slice-3b
 .agents/workloop.py teardown slice-3b

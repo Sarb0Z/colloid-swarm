@@ -99,6 +99,89 @@ expect PASS "${tool[@]}" check demo
 expect $'implementation\treviewed' "${tool[@]}" status demo
 ok "a single-lane run completes without an integration step"
 
+# ── lanes default to .agents/worktrees inside the checkout ───────────────────
+real_work="$(cd "$work" && pwd -P)"
+"${tool[@]}" init unignored --objective x --acceptance y --repo "$work"
+expect "does not ignore .agents/worktrees/" "${tool[@]}" add-lane unignored one --worker implementer --path src
+"${tool[@]}" abandon unignored --discard-branches >/dev/null
+ok "a checkout that does not ignore .agents/worktrees/ is warned at add-lane"
+printf '.agents/worktrees/\n' >> "$work/.gitignore"; commit "$work" 'ignore nested worktrees'
+"${tool[@]}" init nest --objective x --acceptance y --repo "$work" --verify 'test -f src/app.txt && test -f tests/t.txt' --shared docs/shared
+out="$("${tool[@]}" add-lane nest one --worker implementer --path src --path docs/one 2>&1)" || fail "default add-lane failed: $out"
+[[ "$out" != *WARNING* ]] || fail "an ignored worktree folder was warned about: $out"
+"${tool[@]}" add-lane nest two --worker implementer --path tests --path docs/two >/dev/null 2>&1
+n1="$real_work/.agents/worktrees/nest/one"; n2="$real_work/.agents/worktrees/nest/two"
+[[ -f "$n1/src/app.txt" && "$(git -C "$n1" rev-parse --show-toplevel)" == "$n1" ]] || fail "the default lane is not a worktree at $n1"
+[[ "$(git -C "$n1" symbolic-ref --short HEAD)" == "nest/one" ]] || fail "the default lane is not on nest/one"
+[[ -z "$(git -C "$work" status --porcelain --untracked-files=all)" ]] || fail "nested lanes dirty the checkout: $(git -C "$work" status --porcelain)"
+expect "Workspace: $n1 " "${tool[@]}" brief nest one
+ok "add-lane without --workspace places the lane at .agents/worktrees/<run>/<lane>, and git status stays clean"
+
+# a workspace under /tmp is refused, naming the default; unless the checkout itself lies there
+python3 - "$repo/.agents" <<'PY' || fail "the /tmp rule is wrong"
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import workloop
+assert workloop.temporary(Path("/tmp/x")) and workloop.temporary(Path("/private/tmp/a/b")), "a /tmp path is not temporary"
+assert not workloop.temporary(Path("/tmpfoo/x")) and not workloop.temporary(Path("/home/u/repo")), "a non-/tmp path is temporary"
+for value in ("/tmp/lane", "/private/tmp/lane"):
+    try:
+        workloop.workspace_for(value, Path("/home/u/repo"), "r", "l", "lane")
+        raise AssertionError(f"{value} was accepted beside a checkout outside /tmp")
+    except SystemExit as exc:
+        assert "/home/u/repo/.agents/worktrees/r/l" in str(exc), exc
+assert workloop.workspace_for("/private/tmp/lane", Path("/private/tmp/repo"), "r", "l", "lane") == Path("/private/tmp/lane").resolve()
+PY
+if [[ "$real_work" != /tmp/* && "$real_work" != /private/tmp/* ]]; then
+  expect "lies under /tmp, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/three" \
+    "${tool[@]}" add-lane nest three --worker implementer --workspace "/tmp/colloid-lane-$$" --path lib
+  [[ ! -e "/tmp/colloid-lane-$$" ]] || fail "a refused /tmp workspace was created"
+fi
+ok "a lane workspace under /tmp is refused, naming the default"
+
+# widen grows owned paths and refuses another lane's or a shared path
+expect 'widened lane .one.: owned + lib' "${tool[@]}" widen nest one --path ./lib/
+expect $'one\tready\tpending=0\timplementer\tsrc, docs/one, lib' "${tool[@]}" status nest
+expect "paths overlap lane 'two'" "${tool[@]}" widen nest one --path tests/extra.txt
+expect 'overlap a shared path' "${tool[@]}" widen nest one --path docs/shared/a.md
+expect 'overlap a shared path' "${tool[@]}" widen nest one --path docs
+expect 'already covers src/deep' "${tool[@]}" widen nest one --path src/deep
+expect 'is a full checkout; --also widens a sparse' "${tool[@]}" widen nest one --also tests
+expect 'widen needs --path or --also' "${tool[@]}" widen nest one
+expect $'one\tready\tpending=0\timplementer\tsrc, docs/one, lib' "${tool[@]}" status nest
+ok "widen adds an owned path, refuses another lane's or a shared path, and reports what it changed"
+"${tool[@]}" init nestsp --objective x --acceptance y --repo "$work"
+"${tool[@]}" add-lane nestsp sp --worker implementer --path brand-new --sparse >/dev/null 2>&1
+nsp="$real_work/.agents/worktrees/nestsp/sp"
+[[ -f "$nsp/package-lock.json" && ! -e "$nsp/src" ]] || fail "the sparse lane is wrong before widen: $(ls "$nsp")"
+expect 'widened lane .sp.: owned + gen; cone + gen, src' "${tool[@]}" widen nestsp sp --path gen --also src
+[[ -f "$nsp/src/app.txt" ]] || fail "widen --also did not check src out in the sparse lane"
+expect 'Sparse cone: brand-new, gen, src' "${tool[@]}" brief nestsp sp
+mkdir -p "$nsp/gen"; printf 'g\n' > "$nsp/gen/g.txt"; git -C "$nsp" add gen/g.txt || fail "a widened cone directory could not be staged"
+expect 'already covers src/deep' "${tool[@]}" widen nestsp sp --also src/deep
+"${tool[@]}" abandon nestsp --discard-branches >/dev/null
+ok "widen of a sparse lane adds the directories to its cone and checks them out"
+
+# integrate defaults to .agents/worktrees/<run>/integration
+for l in one two; do
+  d="$real_work/.agents/worktrees/nest/$l"; "${tool[@]}" claim nest "$l" --agent "$l"
+  mkdir -p "$d/tests" "$d/docs/$l"; [[ $l == one ]] && printf 'n\n' >> "$d/src/app.txt" || printf 't\n' > "$d/tests/t.txt"
+  printf 'r\n' > "$d/docs/$l/r.md"; commit "$d" "$l"
+  "${tool[@]}" submit nest "$l" --evidence ok; "${tool[@]}" review nest "$l" --reference "docs/$l/r.md#ok" --result accept
+done
+if [[ "$real_work" != /tmp/* && "$real_work" != /private/tmp/* ]]; then
+  expect "integration workspace /tmp/colloid-int-$$ lies under /tmp, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/integration" \
+    "${tool[@]}" integrate nest --workspace "/tmp/colloid-int-$$"
+fi
+expect "PASS: integrated one, two in $real_work/.agents/worktrees/nest/integration" "${tool[@]}" integrate nest
+[[ -z "$(git -C "$work" status --porcelain --untracked-files=all)" ]] || fail "the nested integration dirties the checkout: $(git -C "$work" status --porcelain)"
+"${tool[@]}" qa nest --evidence ok
+expect 'removed 3 worktree(s)' "${tool[@]}" teardown nest
+[[ ! -e "$real_work/.agents/worktrees/nest" ]] || fail "teardown left a nested worktree or the run's folder: $(ls -R "$real_work/.agents/worktrees/nest")"
+[[ ! -e "$real_work/.agents/worktrees/nestsp" && ! -e "$real_work/.agents/worktrees/unignored" ]] || fail "abandon left a run's folder"
+ok "integrate without --workspace composes at .agents/worktrees/<run>/integration and refuses /tmp; teardown removes the nested worktrees"
+
 # ── a lockfile change after provisioning refuses the claim ───────────────────
 "${tool[@]}" init stale --objective x --acceptance y --repo "$work"
 stale_lane="$scratch/lane-stale"

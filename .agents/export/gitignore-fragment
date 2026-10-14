@@ -27,6 +27,7 @@
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
 .agents/.publish-approved-*
+.agents/worktrees/
 .agents/claude/mods/*/.claude-plugin/types/
 .agents/.kimi-pending-findings-*
 .agents/browser-extensions/

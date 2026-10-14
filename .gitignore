@@ -21,6 +21,8 @@
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
 .agents/.publish-approved-*
+# Workloop lane and integration worktrees, nested in the checkout.
+.agents/worktrees/
 # Type declarations Claude Code writes beside a mod each time it loads one.
 .agents/claude/mods/*/.claude-plugin/types/
 
