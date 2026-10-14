@@ -8,9 +8,9 @@ this file sees every command the controller can run.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
+import posixpath
 import re
 import signal
 import subprocess
@@ -128,58 +128,136 @@ def changed_files(workspace: Path, base: str) -> list[str]:
     return sorted(seen)
 
 
-# Folders provisioning never enters; a lockfile or manifest inside one belongs
-# to a dependency, not to the project (kept in step with provision.sh nested()).
+# Folders provisioning never enters; a lockfile inside one belongs to a
+# dependency, not to the project (kept in step with provision.sh nested()).
 PRUNED_FOLDERS = frozenset({"node_modules", ".git", "vendor", ".venv", "target"})
-LOCKFILES = ("pnpm-lock.yaml", "bun.lock", "bun.lockb", "yarn.lock", "package-lock.json",
-             "uv.lock", "poetry.lock", "Cargo.lock", "go.sum", "requirements*.txt")
+# A workspace member may sit under any other folder, vendor and target included.
+NO_MEMBER_FOLDERS = frozenset({"node_modules", ".git"})
+# The lockfile names provision.sh installs from; test-workloop.sh fails when
+# these and provision.sh's own lists diverge.
+JS_LOCKFILES = ("pnpm-lock.yaml", "bun.lock", "bun.lockb", "yarn.lock", "package-lock.json")
+OTHER_LOCKFILES = ("uv.lock", "poetry.lock", "Gemfile.lock", "Cargo.lock", "go.sum")
+REQUIREMENTS = "requirements.txt"
+LOCKFILE_NAMES = frozenset(JS_LOCKFILES + OTHER_LOCKFILES + (REQUIREMENTS,))
+# Workspace globs a sparse cone can expand: `*`, `**`, a leading `!`, a leading `./`.
+UNSUPPORTED_GLOB = re.compile(r"[{}\[\]?()\\!]")
 
 
 def base_tree(repo: Path, base: str) -> list[str]:
-    """Every tracked path at the base outside the pruned folders."""
+    """Every tracked path at the base outside node_modules and .git."""
     out = git(repo, "ls-tree", "-r", "-z", "--name-only", base, strip=False)
-    return [p for p in out.split("\0") if p and not PRUNED_FOLDERS.intersection(p.split("/"))]
+    return [p for p in out.split("\0") if p and not NO_MEMBER_FOLDERS.intersection(p.split("/"))]
 
 
-def _patch_folders(manifest: dict) -> list[str]:
-    """Folders holding a patch file named by patchedDependencies (the pnpm and the bun key)."""
-    pnpm = manifest.get("pnpm")
-    patched: dict = {}
-    for source in (pnpm.get("patchedDependencies") if isinstance(pnpm, dict) else None, manifest.get("patchedDependencies")):
-        if isinstance(source, dict):
-            patched.update(source)
+def _pinned(path: str, files: set[str], read, seen: tuple[str, ...] = ()) -> bool:
+    """provision.sh pinned_requirements: every requirement `==`-pinned, includes followed."""
+    if path not in files or path in seen:
+        return False
+    for raw in read(path).splitlines():
+        line = raw.split("#")[0].strip()
+        include = re.match(r"(?:-r|-c|--requirement|--constraint)\s+(\S.*)$", line)
+        if include:
+            target = include.group(1).strip()
+            if not target.startswith("/"):
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+            if not _pinned(target, files, read, seen + (path,)):
+                return False
+        elif line and not line.startswith("-") and "==" not in line:
+            return False
+    return True
+
+
+def installed_lockfiles(tree: list[str], read) -> list[str]:
+    """The lockfiles provision.sh installs in a full checkout of `tree`.
+
+    Per ecosystem a root lockfile wins and nested ones are not installed; with
+    none at the root every nested one is. A requirements.txt counts only when
+    pinned (its dev sibling too) and no uv.lock or poetry.lock owns its folder.
+    """
+    files = {p for p in tree if not PRUNED_FOLDERS.intersection(p.split("/"))}
+    found: dict[str, list[str]] = {}
+    for path in sorted(files):
+        name = path.rpartition("/")[2]
+        if name in LOCKFILE_NAMES:
+            found.setdefault(name, []).append(path)
+
+    def per_name(name: str) -> list[str]:
+        return [name] if name in files else found.get(name, [])
+
+    root_js = next((name for name in JS_LOCKFILES if name in files), None)
+    chosen = [root_js] if root_js else [p for name in JS_LOCKFILES for p in found.get(name, [])]
+    for name in OTHER_LOCKFILES:
+        chosen += per_name(name)
+    for path in per_name(REQUIREMENTS):
+        here = posixpath.dirname(path)
+        if posixpath.join(here, "uv.lock") in files or posixpath.join(here, "poetry.lock") in files:
+            continue
+        dev = posixpath.join(here, "requirements-dev.txt")
+        if _pinned(path, files, read) and (dev not in files or _pinned(dev, files, read)):
+            chosen.append(path)
+    return chosen
+
+
+def _patch_folders(sources: list) -> list[str]:
+    """Folders holding a patch file named by a patchedDependencies mapping."""
     folders = set()
-    for patch in patched.values():
-        if not isinstance(patch, str):
-            fail(f"package.json patchedDependencies holds {patch!r}, which is not a patch file path")
-        parent = os.path.normpath(patch).rpartition("/")[0]
-        if parent:
-            folders.add(parent)
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for patch in source.values():
+            if not isinstance(patch, str):
+                fail(f"patchedDependencies holds {patch!r}, which is not a patch file path")
+            parent = os.path.normpath(patch).rpartition("/")[0]
+            if parent:
+                folders.add(parent)
     return sorted(folders)
 
 
-def _pnpm_packages(text: str) -> list[str]:
-    """The block list under `packages:` in pnpm-workspace.yaml; any other shape is refused."""
-    patterns: list[str] | None = None
+def _pnpm_yaml(text: str) -> dict[str, tuple[str, list[str]]]:
+    """Top-level keys of pnpm-workspace.yaml: each one's inline value and its block lines."""
+    keys: dict[str, tuple[str, list[str]]] = {}
+    block: list[str] | None = None
     for raw in text.splitlines():
         line = raw.split(" #")[0].rstrip()
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        if patterns is None:
-            if re.fullmatch(r"packages\s*:", line):
-                patterns = []
-            elif re.match(r"packages\s*:", line):
-                fail(f"pnpm-workspace.yaml has `{line}`; only a block list under `packages:` is readable here, so give the lane the whole tree (drop --sparse)")
+        if line[0].isspace() or line.startswith("-"):
+            if block is not None:
+                block.append(line.strip())
             continue
-        if not (line[0].isspace() or line.startswith("-")):
-            break
-        item = re.fullmatch(r"\s*-\s+(['\"]?)(.+?)\1", line)
+        top = re.fullmatch(r"([\w-]+)\s*:\s*(.*)", line)
+        block = [] if top else None
+        if top:
+            keys[top.group(1)] = (top.group(2), block)
+    return keys
+
+
+def _pnpm_workspace(text: str) -> tuple[list[str], dict[str, str]]:
+    """The package globs and the patchedDependencies mapping; any other shape is refused.
+
+    pnpm 10 reads patchedDependencies from this file. Without a `packages:` key
+    the workspace has no members.
+    """
+    keys = _pnpm_yaml(text)
+    patterns: list[str] = []
+    inline, lines = keys.get("packages", ("", []))
+    if inline:
+        fail(f"pnpm-workspace.yaml has `packages: {inline}`; only a block list under `packages:` is readable here, so give the lane the whole tree (drop --sparse)")
+    for line in lines:
+        item = re.fullmatch(r"-\s+(['\"]?)(.+?)\1", line)
         if not item:
-            fail(f"pnpm-workspace.yaml has `{line.strip()}` under packages:; only plain list items are readable here, so give the lane the whole tree (drop --sparse)")
+            fail(f"pnpm-workspace.yaml has `{line}` under packages:; only plain list items are readable here, so give the lane the whole tree (drop --sparse)")
         patterns.append(item.group(2))
-    if not patterns:
-        fail("pnpm-workspace.yaml has no readable `packages:` list; give the lane the whole tree (drop --sparse)")
-    return patterns
+    patches: dict[str, str] = {}
+    inline, lines = keys.get("patchedDependencies", ("", []))
+    if inline:
+        fail(f"pnpm-workspace.yaml has `patchedDependencies: {inline}`; only a block mapping is readable here, so give the lane the whole tree (drop --sparse)")
+    for line in lines:
+        entry = re.fullmatch(r"([^:]+?)\s*:\s*(['\"]?)(.+?)\2", line)
+        if not entry:
+            fail(f"pnpm-workspace.yaml has `{line}` under patchedDependencies:; only `name: path` entries are readable here, so give the lane the whole tree (drop --sparse)")
+        patches[entry.group(1)] = entry.group(3)
+    return patterns, patches
 
 
 def _glob_regex(pattern: str) -> re.Pattern[str]:
@@ -202,13 +280,24 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
 
 
 def _members(patterns: list[str], tree: list[str]) -> list[str]:
-    """Folders holding a package.json that a positive glob matches and no negated one does."""
-    folders = {str(Path(p).parent) for p in tree if Path(p).name == "package.json"} - {"."}
+    """Folders holding a package.json that a positive glob matches and no negated one does.
+
+    A pattern this cannot expand exactly, or a positive one matching no such
+    folder, is refused: the cone would silently omit members.
+    """
+    for pattern in patterns:
+        body = pattern.removeprefix("!").removeprefix("./")
+        if UNSUPPORTED_GLOB.search(body) or any("**" in part and part != "**" for part in body.split("/")):
+            fail(f"workspace pattern {pattern!r} uses glob syntax beyond `*`, `**`, a leading `!` and a leading `./`, which a sparse cone cannot expand; give the lane the whole tree (drop --sparse)")
+    folders = {p.rpartition("/")[0] for p in tree if p.rpartition("/")[2] == "package.json"} - {""}
     chosen: set[str] = set()
     for pattern in patterns:
         if not pattern.startswith("!"):
             rx = _glob_regex(pattern)
-            chosen |= {f for f in folders if rx.fullmatch(f)}
+            matched = {f for f in folders if rx.fullmatch(f)}
+            if not matched:
+                fail(f"workspace pattern {pattern!r} matches no folder holding a package.json at the base; give the lane the whole tree (drop --sparse)")
+            chosen |= matched
     for pattern in patterns:
         if pattern.startswith("!"):
             rx = _glob_regex(pattern[1:])
@@ -245,36 +334,47 @@ def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> tuple
         else:
             dirs.add(path)
     tree = base_tree(repo, base)
-    gained: list[tuple[str, list[str]]] = []
-    if "package.json" in tree:
-        try:
-            manifest = json.loads(git(repo, "show", f"{base}:package.json", strip=False))
-        except json.JSONDecodeError as exc:
-            fail(f"package.json at the base is not valid JSON ({exc}); give the lane the whole tree (drop --sparse)")
-        if isinstance(manifest, dict):
-            gained.append(("patchedDependencies", _patch_folders(manifest)))
-            workspaces = manifest.get("workspaces")
-            if isinstance(workspaces, dict):
-                workspaces = workspaces.get("packages")
-            if isinstance(workspaces, list):
-                gained.append(("workspaces", _members([w for w in workspaces if isinstance(w, str)], tree)))
-    if "pnpm-workspace.yaml" in tree:
-        gained.append(("pnpm-workspace.yaml", _members(_pnpm_packages(git(repo, "show", f"{base}:pnpm-workspace.yaml", strip=False)), tree)))
     notes: list[str] = []
-    for reason, folders in gained:
+    for reason, folders in _install_folders(repo, base, tree):
         added = sorted(set(folders) - dirs)
         if added:
             notes.append(f"cone + {', '.join(added)} ({reason})")
             dirs.update(added)
     cone = sorted(dirs)
-    dropped = sorted(
-        p for p in tree
-        if any(fnmatch.fnmatchcase(Path(p).name, pattern) for pattern in LOCKFILES) and not _on_disk(str(Path(p).parent), cone)
-    )
+
+    def read(path: str) -> str:
+        return git(repo, "show", f"{base}:{path}", check=False, strip=False)
+
+    dropped = [p for p in installed_lockfiles(tree, read) if not _on_disk(posixpath.dirname(p) or ".", cone)]
     if dropped:
-        lines = "\n".join(f"  {p} (add --also {Path(p).parent})" for p in dropped)
+        lines = "\n".join(f"  {p} (add --also {posixpath.dirname(p) or '.'})" for p in sorted(dropped))
         fail(f"the sparse cone drops {len(dropped)} lockfile(s) whose install would silently not run:\n{lines}\nname them with --also, or give the lane the whole tree (drop --sparse)")
     return cone, notes
+
+
+def _install_folders(repo: Path, base: str, tree: list[str]) -> list[tuple[str, list[str]]]:
+    """(reason, folders) the base commit's install reads beyond the owned paths."""
+    present = set(tree)
+    patch_sources: list = []
+    gained: list[tuple[str, list[str]]] = []
+    if "package.json" in present:
+        try:
+            manifest = json.loads(git(repo, "show", f"{base}:package.json", strip=False))
+        except json.JSONDecodeError as exc:
+            fail(f"package.json at the base is not valid JSON ({exc}); give the lane the whole tree (drop --sparse)")
+        if isinstance(manifest, dict):
+            pnpm = manifest.get("pnpm")
+            patch_sources += [pnpm.get("patchedDependencies") if isinstance(pnpm, dict) else None, manifest.get("patchedDependencies")]
+            workspaces = manifest.get("workspaces")
+            if isinstance(workspaces, dict):
+                workspaces = workspaces.get("packages")
+            if isinstance(workspaces, list):
+                gained.append(("workspaces", _members([w for w in workspaces if isinstance(w, str)], tree)))
+    if "pnpm-workspace.yaml" in present:
+        patterns, patches = _pnpm_workspace(git(repo, "show", f"{base}:pnpm-workspace.yaml", strip=False))
+        patch_sources.append(patches)
+        gained.append(("pnpm-workspace.yaml", _members(patterns, tree)))
+    return [("patchedDependencies", _patch_folders(patch_sources))] + gained
 
 
 def worktree_add(repo: Path, workspace: Path, branch: str, base: str, cone: list[str] | None = None) -> None:

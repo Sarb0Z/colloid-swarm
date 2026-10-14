@@ -449,14 +449,116 @@ git -C "$mono" checkout -q -
 expect 'only a block list' "${tool[@]}" add-lane pnflow f --worker implementer --workspace "$scratch/lane-flow" --path src --sparse
 ok "a pnpm workspace may be sparse; a packages: shape that cannot be read is refused"
 
+# With a root lockfile the nested one is not installed, so none is left at the root here.
+git -C "$mono" rm -q -f package-lock.json
 printf '{"name":"js","lockfileVersion":3}\n' > "$mono/tools/js/package-lock.json"; git -C "$mono" add -A; git -C "$mono" commit -qm nested-lock
 mono_init lock2
 if "${tool[@]}" add-lane lock2 l --worker implementer --workspace "$scratch/lane-lock" --path src --sparse 2>/dev/null; then fail "a cone that drops tools/js/package-lock.json was accepted"; fi
 expect 'tools/js/package-lock.json (add --also tools/js)' "${tool[@]}" add-lane lock2 l --worker implementer --workspace "$scratch/lane-lock" --path src --sparse
-: > "$NPM_LOG"
 "${tool[@]}" add-lane lock2 l --worker implementer --workspace "$scratch/lane-lock" --path src --also tools/js --sparse >/dev/null 2>&1 || fail "--also tools/js did not clear the refusal"
 [[ -f "$scratch/lane-lock/tools/js/package-lock.json" ]] || fail "--also folder missing from the cone"
 ok "a cone that drops a nested lockfile is refused by name; --also for its folder passes"
+mono_init lock3
+"${tool[@]}" add-lane lock3 l --worker implementer --workspace "$scratch/lane-lock3" --path ./src/ --also ./tools/js/ --sparse >/dev/null 2>&1 || fail "--also ./tools/js/ was not normalized like --path"
+[[ -f "$scratch/lane-lock3/tools/js/package-lock.json" ]] || fail "--also ./tools/js/ missing from the cone"
+ok "--also values are normalized like --path values"
+
+# cone_of drives cone_for directly on a throwaway repository and prints the
+# cone and notes, or the refusal message.
+cone_of() {  # <repo> [extra dir]...
+  local r="$1"; shift
+  python3 -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import workloop_git as wg
+try:
+    cone, notes = wg.cone_for(Path(sys.argv[2]), "HEAD", ["src"], sys.argv[3:])
+    print("CONE " + " ".join(cone))
+    print("\n".join(notes))
+except SystemExit as exc:
+    print(exc)
+' "$repo/.agents" "$r" "$@" 2>&1
+}
+fx() {  # <name> -> a repository with src/a.txt, path on stdout
+  local d="$scratch/fx-$1"; mkdir -p "$d/src"; git init -q "$d"
+  git -C "$d" config user.email test@example.com; git -C "$d" config user.name test
+  printf 'a\n' > "$d/src/a.txt"; printf '%s' "$d"
+}
+fxc() { git -C "$1" add -A; git -C "$1" commit -qm fx; }
+cone_has() {  # <output> <fragment> <why>
+  [[ "$1" == *"$2"* ]] || fail "$3: wanted '$2' in: $1"
+}
+
+for glob in 'apps/{a,b}' 'apps/?' 'apps/[ab]' 'apps/@(a|b)'; do
+  d="$(fx glob)"; mkdir -p "$d/apps/a"; printf '{}\n' > "$d/apps/a/package.json"
+  printf '{"workspaces":["%s"]}\n' "$glob" > "$d/package.json"; fxc "$d"
+  cone_has "$(cone_of "$d")" 'glob syntax beyond' "workspace glob $glob was not refused"
+  rm -rf "$d"
+done
+d="$(fx none)"; printf '{"workspaces":["apps/*"]}\n' > "$d/package.json"; fxc "$d"
+cone_has "$(cone_of "$d")" "matches no folder holding a package.json" "a workspace pattern with no member was not refused"
+ok "a workspace glob beyond * and ** is refused, and so is a positive pattern that matches nothing"
+
+d="$(fx vendor)"; mkdir -p "$d/vendor/pkg"; printf '{}\n' > "$d/vendor/pkg/package.json"
+printf '{"workspaces":["vendor/*"]}\n' > "$d/package.json"; fxc "$d"
+cone_has "$(cone_of "$d")" 'CONE src vendor/pkg' "a member under vendor/ did not join the cone"
+ok "a workspace member under vendor/ joins the cone"
+
+d="$(fx yamlpatch)"; mkdir -p "$d/libs/one" "$d/yaml-patches" "$d/other-patches"
+printf '{}\n' > "$d/libs/one/package.json"; printf 'p\n' > "$d/yaml-patches/l.patch"; printf 'p\n' > "$d/other-patches/q.patch"
+printf 'onlyBuiltDependencies:\n  - esbuild\npackages:\n  - libs/*\npatchedDependencies:\n  left-pad@1.0.0: yaml-patches/l.patch\n  "@scope/q@2": "./other-patches/q.patch"\n' > "$d/pnpm-workspace.yaml"; fxc "$d"
+out="$(cone_of "$d")"
+cone_has "$out" 'cone + other-patches, yaml-patches (patchedDependencies)' "pnpm-workspace.yaml patches did not join the cone"
+cone_has "$out" 'cone + libs/one (pnpm-workspace.yaml)' "pnpm-workspace.yaml members did not join the cone"
+printf '{"pnpm":{"patchedDependencies":{"x@1":"pkg-patches/x.patch"}}}\n' > "$d/package.json"; mkdir -p "$d/pkg-patches"; printf 'p\n' > "$d/pkg-patches/x.patch"; fxc "$d"
+cone_has "$(cone_of "$d")" 'other-patches, pkg-patches, yaml-patches' "package.json patches stopped joining beside the yaml ones"
+ok "patchedDependencies is read from pnpm-workspace.yaml and from package.json"
+
+d="$(fx nopackages)"; mkdir -p "$d/ppp"; printf 'p\n' > "$d/ppp/x.patch"
+printf 'patchedDependencies:\n  x@1: ppp/x.patch\n' > "$d/pnpm-workspace.yaml"; fxc "$d"
+out="$(cone_of "$d")"
+cone_has "$out" 'CONE ppp src' "a pnpm-workspace.yaml without packages: was refused or lost its patches"
+ok "a pnpm-workspace.yaml without packages: has no members and is not refused"
+
+# Lockfiles: only those provision.sh installs in a full checkout can be dropped.
+d="$(fx locks)"; mkdir -p "$d/tools/js" "$d/tools/py" "$d/tools/pinned" "$d/tools/gem" "$d/tools/devonly" "$d/vendor/gems" "$d/tools/owned"
+printf '{}\n' > "$d/package-lock.json"; printf '{}\n' > "$d/tools/js/package-lock.json"
+printf 'flask>=1\n' > "$d/tools/py/requirements.txt"
+printf 'x==1\n' > "$d/tools/devonly/requirements-dev.txt"
+printf 'x==1\n' > "$d/vendor/gems/Gemfile.lock"
+printf 'x==1\n' > "$d/tools/owned/requirements.txt"; printf 'x\n' > "$d/tools/owned/uv.lock"
+fxc "$d"
+out="$(cone_of "$d" tools/owned)"
+[[ "$out" == "CONE src tools/owned"* ]] || fail "a nested lockfile under a root one, an unpinned or dev-only requirements file, or a vendor/ Gemfile.lock was refused: $out"
+printf 'flask==1.0\n' > "$d/tools/pinned/requirements.txt"; printf 'x\n' > "$d/tools/gem/Gemfile.lock"; fxc "$d"
+out="$(cone_of "$d" tools/owned)"
+cone_has "$out" 'tools/pinned/requirements.txt (add --also tools/pinned)' "a pinned requirements.txt was not refused"
+cone_has "$out" 'tools/gem/Gemfile.lock (add --also tools/gem)' "a Gemfile.lock was not refused"
+[[ "$out" != *tools/js* && "$out" != *tools/py/* ]] || fail "refused a lockfile provision.sh would not install: $out"
+ok "the dropped-lockfile refusal follows provision.sh: root lockfile wins, pinned requirements.txt only, Gemfile.lock counts, vendor/ is skipped"
+
+python3 - "$repo" <<'PY' || fail "workloop_git.py and provision.sh name different lockfiles"
+import re
+import sys
+sys.path.insert(0, sys.argv[1] + "/.agents")
+import workloop_git as wg
+text = open(sys.argv[1] + "/.agents/provision.sh").read()
+body = text.split("manager_for() {", 1)[1].split("\n}", 1)[0]
+named = {n for label in re.findall(r"^\s+([\w.|-]+)\)", body, re.M) for n in label.split("|")}
+loops = [tuple(line.split()) for line in re.findall(r"^\s*for name in ([^;]+); do", text, re.M)]
+loops = [loop for loop in loops if set(loop) <= named]
+problems = []
+if named != wg.LOCKFILE_NAMES:
+    problems.append(f"manager_for names {sorted(named)}, workloop_git.LOCKFILE_NAMES is {sorted(wg.LOCKFILE_NAMES)}")
+for loop in loops:
+    if loop not in (wg.JS_LOCKFILES, wg.OTHER_LOCKFILES):
+        problems.append(f"provision.sh searches {loop}, matching neither JS_LOCKFILES nor OTHER_LOCKFILES")
+if wg.JS_LOCKFILES not in loops or wg.OTHER_LOCKFILES not in loops:
+    problems.append("provision.sh no longer loops over one of the two lockfile lists")
+sys.exit("\n".join(problems) or 0)
+PY
+ok "workloop_git.py and provision.sh name the same lockfiles"
 
 # ── shared paths: any lane edits them; a rebased lane is measured from its own start
 "${tool[@]}" init shr --objective x --acceptance y --repo "$work" --shared docs/index.md --shared gen
