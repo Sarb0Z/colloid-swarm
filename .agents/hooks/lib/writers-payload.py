@@ -13,11 +13,16 @@ not a JSON object reads as empty, which the gate ignores.
 
 The kind is, tested in this order, `read-only` or `notes-only` for a prompt
 that opens with that marker, `brief` for a workloop brief naming a lane the
-controller holds, `workspace` for a prompt with one `WORKSPACE: <absolute path>`
-line naming an existing directory that neither contains nor lies in the
-checkout and is no worktree or clone of this repository, and `plain`
-otherwise. A copy made without Git (`cp -R`, an archive) cannot be told from an
-unrelated directory.
+controller holds outside the checkout, `workspace` for a prompt with one
+`WORKSPACE: <absolute path>` line naming an existing directory that neither
+contains nor lies in the checkout and is no worktree or clone of this
+repository, and `plain` otherwise. A copy made without Git (`cp -R`, an
+archive) cannot be told from an unrelated directory.
+
+"In the checkout" is write_targets.in_checkout: the nearest Git working tree
+decides, so a lane worktree nested at `.agents/worktrees/<run>/<lane>` lies
+outside it, and is still refused as a WORKSPACE, being a worktree of this
+repository.
 """
 
 import json
@@ -52,7 +57,7 @@ def real_lane(root, prompt):
         workspace = os.path.realpath(lane["workspace"])
     except (OSError, ValueError, KeyError, TypeError):
         return False
-    return not write_targets.under(workspace, root)
+    return not write_targets.in_checkout(workspace, root)
 
 
 def git_words(directory, *args):
@@ -91,7 +96,7 @@ def workspace_refusal(root, prompt):
     if not os.path.isdir(raw):
         return f"WORKSPACE {raw} is not an existing directory"
     workspace = os.path.realpath(raw)
-    if write_targets.under(workspace, root):
+    if write_targets.in_checkout(workspace, root):
         return f"WORKSPACE {raw} lies inside this checkout"
     if write_targets.under(root, workspace):
         return f"WORKSPACE {raw} contains this checkout"
@@ -115,10 +120,11 @@ def kind(root, prompt, refusal):
 
 
 def outside(root, tool_input):
-    """An edit whose every target lies outside the checkout cannot collide with
-    a cell working in it. A relative path is the checkout's."""
+    """An edit whose every target lies outside the checkout, a nested lane
+    worktree included, cannot collide with a cell working in it. A relative
+    path is the checkout's."""
     paths = write_targets.resolved(root, tool_input)
-    return "yes" if paths and not any(write_targets.under(path, root) for path in paths) else "no"
+    return "yes" if paths and not any(write_targets.in_checkout(path, root) for path in paths) else "no"
 
 
 def fields(payload):
