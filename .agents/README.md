@@ -345,10 +345,12 @@ dispatches. An edit whose every target lies outside the checkout passes. A
 cell stops counting when it finishes (`SubagentStop`), dies of an API error or
 usage limit (`StopFailure`), or is stopped by `TaskStop`; before it denies
 anything, the gate also drops a live writer whose own transcript ends in an
-interruption or an API error, which is all the user's Esc leaves behind for a
-foreground cell, and one whose metadata now names a marker, so a marked cell
-that never writes blocks nothing. The denial lists the writers that still
-count. State lives in `.agents/.writers-live-<session>`,
+interruption, which is all the user's Esc leaves behind for a foreground cell,
+and one whose metadata now names a marker, so a marked cell that never writes
+blocks nothing. A writer that left after `StopFailure` or an interruption
+counts again once its transcript shows new work, since a cell can recover
+from an API error, and a resumed writer registers again on its new start. The
+denial lists the writers that still count. State lives in `.agents/.writers-live-<session>`,
 `.agents/.writers-turn-<session>`, `.agents/.writers-kinds-<session>` (the
 writer types each turn dispatched and those of its writers that finished,
 which decides whether a started cell registers: a long turn's finished writers
