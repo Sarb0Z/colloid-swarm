@@ -343,8 +343,10 @@ target. Every marker binds the file tools only: a marked cell can still write
 through its shell (`colloid-shell-writes-skip-post-edit`) or through a cell it
 dispatches. An edit whose every target lies outside the checkout passes. State
 lives in `.agents/.writers-live-<session>`, `.agents/.writers-turn-<session>`,
-`.agents/.writers-kinds-<session>` (the writer types each turn dispatched,
-which decides whether a started cell registers) and
+`.agents/.writers-kinds-<session>` (the writer types each turn dispatched and
+those of its writers that finished, which decides whether a started cell
+registers: a long turn's finished writers grant nothing to a later marked cell
+of their type) and
 `.agents/.cell-markers-<session>` (each marked or outside dispatch's id and
 marker); `session-start.sh` clears them at startup and resume, and deleting the
 live file is the manual reset for a cell known to have died. The toggle is

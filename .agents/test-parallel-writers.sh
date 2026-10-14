@@ -408,6 +408,25 @@ for order in writer-live writer-stopped never-writes; do
 done
 ok "a marked cell that starts before its turn's writer leaves the writer pending exactly until it starts, in every order"
 
+# --- long turns ---------------------------------------------------------------
+# One turn runs two writers of a type one after the other; a WORKSPACE cell of
+# that type dispatched after both stopped never registers, while a third writer
+# of the type still does.
+reset
+mkdir -p "$scratch/copy-a"
+for n in 1 2; do
+  [[ -z "$(ndispatch p46 general-purpose 'change the module' "tuw46-$n")" ]] || fail "sequential writer $n was refused"
+  meta "w46-$n" "tuw46-$n"; nstart "w46-$n" general-purpose p46; nstop "w46-$n" general-purpose
+done
+[[ -z "$(ndispatch p46 general-purpose "benchmark it
+WORKSPACE: $scratch/copy-a" tuo46)" ]] || fail "the WORKSPACE cell was refused"
+nstart o46 general-purpose p46
+[[ "$(live_lines)" -eq 0 ]] || fail "a WORKSPACE cell registered as a writer because earlier writers of its type ran in its turn"
+[[ -z "$(ndispatch p46 general-purpose 'change a third module' tuw46-3)" ]] || fail "the third sequential writer was refused"
+nstart w46-3 general-purpose p46
+grep -q '^w46-3	' "$nlive" || fail "the third writer of the turn did not register"
+ok "a long turn's finished writers grant no registration to a later marked cell of their type; a later writer still registers"
+
 # demotion happens only under the lock: with the lock busy the write is still denied and the cell stays live
 reset
 [[ -z "$(ndispatch p15 general-purpose 'READ-ONLY: look' tum15)" ]] || fail "READ-ONLY dispatch refused"

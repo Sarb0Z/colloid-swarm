@@ -63,7 +63,10 @@
 #   SubagentStart — a cell that registers moves its turn's writers from
 #                  "dispatched" to "started", so a writer dispatched after the
 #                  previous one finished, in the same turn, is sequential and
-#                  passes.
+#                  passes. A start registers only while its turn has a writer
+#                  of its type that has not finished: in a long turn, a marked
+#                  cell dispatched after that turn's writers of its type have
+#                  stopped never registers.
 #   SubagentStop  — the cell leaves the live writers. One that never wrote is
 #                  counted marked here if its metadata names a marker.
 #
@@ -174,31 +177,58 @@ count_turn() {  # <prompt_id> <dispatched|started|marked>: add one to that count
 }
 
 # SubagentStart carries the prompt id but not the dispatch prompt, so it cannot
-# see a READ-ONLY marker. Every dispatch of a turn therefore records the turn,
-# and each counted writer adds its type to a set that nothing consumes. A
-# started cell registers when its type is in the set for its turn, or when its
-# turn was never recorded: an unknown start is a writer. Consuming the set
-# instead would let a reader that starts first take a writer's place and leave
-# the writer unregistered.
+# see a READ-ONLY marker. Every dispatch of a turn therefore records the turn in
+# .writers-kinds-<session>: "<prompt_id> <dispatched> <finished>", tab-separated,
+# each a space-separated list of writer types, one entry per writer counted at
+# dispatch and per registered writer of the turn that finished unmarked. A
+# started cell registers while its type has more dispatched writers than
+# finished ones in its turn, or when its turn was never recorded: an unknown
+# start is a writer. Consuming a type at start instead would let a marked cell
+# that starts first take a writer's place and leave the writer unregistered;
+# counting only finishes still lets a long turn's later marked cell pass once
+# the writers of its type are done.
+kinds_field() {  # <recorded line> <1|2> -> that list
+  local id dispatched finished
+  IFS=$'\t' read -r id dispatched finished <<<"$1"
+  if [[ "$2" == 1 ]]; then printf '%s' "$dispatched"; else printf '%s' "$finished"; fi
+}
+
 note_turn() {  # <prompt_id> [writer type]
-  local recorded="" types=""
+  local recorded="" dispatched="" finished=""
   [[ -f "$kinds" ]] && recorded="$(cat "$kinds")"
-  [[ "${recorded%%	*}" == "$1" ]] && types="${recorded#*	}"
-  [[ -n "${2:-}" ]] && types="$types $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
-  printf '%s\t%s' "$1" "$types" >"$kinds"
+  if [[ "${recorded%%	*}" == "$1" ]]; then
+    dispatched="$(kinds_field "$recorded" 1)"; finished="$(kinds_field "$recorded" 2)"
+  fi
+  [[ -n "${2:-}" ]] && dispatched="$dispatched $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  printf '%s\t%s\t%s' "$1" "$dispatched" "$finished" >"$kinds"
+}
+
+note_finished() {  # <prompt_id> <type>: a registered writer of that turn finished
+  local recorded=""
+  [[ -f "$kinds" ]] && recorded="$(cat "$kinds")"
+  [[ "${recorded%%	*}" == "$1" ]] || return 0  # an earlier turn's record is gone
+  printf '%s\t%s\t%s' "$1" "$(kinds_field "$recorded" 1)" \
+    "$(kinds_field "$recorded" 2) $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')" >"$kinds"
+}
+
+occurrences() {  # <word> <list> -> how many times the word appears in the list
+  local n=0 w
+  for w in $2; do [[ "$w" == "$1" ]] && n=$((n + 1)); done
+  echo "$n"
 }
 
 registers() {  # <prompt_id> <agent_type> -> 0 when the started cell is a writer
-  local recorded
+  local recorded type
   [[ -f "$kinds" ]] || return 0
   recorded="$(cat "$kinds")"
   [[ "${recorded%%	*}" == "$1" ]] || return 0
-  [[ " ${recorded#*	} " == *" $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]') "* ]]
+  type="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  (( $(occurrences "$type" "$(kinds_field "$recorded" 1)") > $(occurrences "$type" "$(kinds_field "$recorded" 2)") ))
 }
 
 # Takes a cell off the live writers, only while this hook holds the lock, via
 # a temporary file beside the live file so a reader sees one whole file.
-# Prints the turn the cell started in (column 3).
+# Prints the cell's type and the turn it started in (columns 2 and 3).
 # A failure is reported and never fails the hook: a cell left live only
 # blocks more.
 unregister() {  # <agent_id>
@@ -206,7 +236,7 @@ unregister() {  # <agent_id>
   entry="$(grep "^$1	" "$live" 2>/dev/null)" || return 0
   [[ -n "$held" ]] || { echo "parallel-writers-gate: the lock is busy, so $1 stays a live writer." >&2; return 0; }
   if tmp="$(mktemp "$live.XXXXXX")" && { grep -v "^$1	" "$live" >"$tmp"; (( $? <= 1 )); } && mv "$tmp" "$live"; then
-    printf '%s\n' "$entry" | head -n1 | cut -f3
+    printf '%s\n' "$entry" | head -n1 | cut -f2,3
   else
     [[ -z "$tmp" ]] || rm -f "$tmp"
     echo "parallel-writers-gate: could not take $1 off $live; it stays a live writer." >&2
@@ -221,6 +251,39 @@ live_count() {
 deny() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' \
     "$(printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+}
+
+# Books a cell already taken off the live writers by what it turned out to be:
+# a marked cell makes its turn's unstarted writer pending again; an unmarked
+# one frees its type in its turn; one whose metadata cannot be read changes
+# neither count, so later starts of its type keep registering.
+settle() {  # <agent_id> <"type<TAB>turn" from unregister> <marked|unmarked|unknown>
+  local type began
+  [[ -n "$2" ]] || return 0
+  IFS=$'\t' read -r type began <<<"$2"
+  case "$3" in
+    marked) count_turn "$began" marked || echo "parallel-writers-gate: could not count $1 as marked in $turn." >&2 ;;
+    unmarked) note_finished "$began" "$type" || echo "parallel-writers-gate: could not count $1 as finished in $kinds." >&2 ;;
+    *) echo "parallel-writers-gate: no dispatch marker could be read for $1, which left the live writers; its turn's counts are unchanged." >&2 ;;
+  esac
+}
+
+# A registered cell has finished. Takes the lock.
+finish() {  # <agent_id>
+  local entry state=unmarked status=0
+  [[ -n "$1" && -f "$live" ]] && grep -q "^$1	" "$live" || return 0
+  take_lock
+  entry="$(unregister "$1")"
+  [[ -n "$entry" ]] || return 0
+  if [[ -f "$markers" ]]; then
+    python3 "$lib/cell_markers.py" marked "$proj" "$session" "$transcript" "$1" || status=$?
+    case "$status" in
+      3) state=marked ;;
+      0) state=unmarked ;;
+      *) state=unknown ;;
+    esac
+  fi
+  settle "$1" "$entry" "$state"
 }
 
 case "$event" in
@@ -265,8 +328,7 @@ case "$event" in
       # A marked cell is no writer, whether or not it registered at start.
       if (( status == 3 )) && [[ -f "$live" ]] && grep -q "^$agent_id	" "$live"; then
         take_lock
-        began="$(unregister "$agent_id")"
-        [[ -z "$began" ]] || count_turn "$began" marked || echo "parallel-writers-gate: could not count $agent_id as marked in $turn." >&2
+        settle "$agent_id" "$(unregister "$agent_id")" marked
       fi
     else
       # The lead's own edit while a writer works in the checkout.
@@ -285,20 +347,9 @@ case "$event" in
     printf '%s\t%s\t%s\n' "$agent_id" "$agent_type" "$prompt_id" >>"$live" || echo "parallel-writers-gate: could not register writer $agent_id in $live." >&2
     ;;
   SubagentStop)
-    [[ -n "$agent_id" && -f "$live" ]] && grep -q "^$agent_id	" "$live" || exit 0
-    take_lock
-    began="$(unregister "$agent_id")"
     # A marked cell that stops before its first write is counted as that write
-    # would count it; one whose metadata cannot be read stays a writer.
-    if [[ -n "$began" && -f "$markers" ]]; then
-      status=0
-      python3 "$lib/cell_markers.py" marked "$proj" "$session" "$transcript" "$agent_id" || status=$?
-      if (( status == 3 )); then
-        count_turn "$began" marked || echo "parallel-writers-gate: could not count $agent_id as marked in $turn." >&2
-      elif (( status != 0 )); then
-        echo "parallel-writers-gate: cell_markers.py exited ${status} reading $agent_id's marker at its stop; it counts as a writer." >&2
-      fi
-    fi
+    # would count it.
+    finish "$agent_id"
     ;;
 esac
 exit 0
