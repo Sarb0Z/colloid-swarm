@@ -477,7 +477,7 @@ assert_contains "$(context_of "$(run_policy "$wl")")" "Today's work log:"
 # in them would be lost, and every other one is named with its work.
 sw="$(make_fixture sweep)"
 sw="$(cd "$sw" && pwd -P)"
-cp "$repo/.agents/workloop.py" "$repo/.agents/workloop_git.py" "$repo/.agents/provision.sh" "$sw/.agents/"
+cp "$repo"/.agents/workloop*.py "$repo/.agents/provision.sh" "$sw/.agents/"
 git -C "$sw" config user.name fixture
 git -C "$sw" config user.email fixture@example.invalid
 printf '.agents/\nnode_modules/\n.env\n' > "$sw/.gitignore"
