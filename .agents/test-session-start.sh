@@ -31,7 +31,9 @@ make_fixture() {
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
-     "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
+     "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
+     "$repo/.agents/hooks/lib/worktree_sweep.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -468,5 +470,169 @@ printf 'ok: an empty folder setting keeps the log in .agents/worklog/\n'
 printf '{"hooks":{"session_start":{"enabled":false},"learning_output_style":{"enabled":false},"worklog":{"enabled":true,"dir":""}}}\n' \
   > "$wl/.agents/config.json"
 assert_contains "$(context_of "$(run_policy "$wl")")" "Today's work log:"
+
+# ── the worktree sweep ───────────────────────────────────────────────────────
+# Sessions that ended without session-end.sh are swept as their end would
+# have; worktrees no record names that sat idle 24 hours go only when nothing
+# in them would be lost, and every other one is named with its work.
+sw="$(make_fixture sweep)"
+sw="$(cd "$sw" && pwd -P)"
+cp "$repo/.agents/workloop.py" "$repo/.agents/workloop_git.py" "$repo/.agents/provision.sh" "$sw/.agents/"
+git -C "$sw" config user.name fixture
+git -C "$sw" config user.email fixture@example.invalid
+printf '.agents/\nnode_modules/\n.env\n' > "$sw/.gitignore"
+mkdir -p "$sw/src" && printf 'one\n' > "$sw/src/app.txt"
+export GIT_COMMITTER_DATE=2026-01-01T00:00:00 GIT_AUTHOR_DATE=2026-01-01T00:00:00
+git -C "$sw" add .gitignore src
+git -C "$sw" commit -qm init
+git -C "$sw" branch -M main
+remote="$scratch/sweep-remote.git"
+git init -q --bare "$remote"
+git -C "$sw" remote add origin "$remote"
+git -C "$sw" push -q origin HEAD:refs/heads/main 2>/dev/null
+git -C "$sw" fetch -q origin && git -C "$sw" remote set-head origin main >/dev/null
+wt() { git -C "$sw" worktree add -q "$scratch/sweep-$1" -b "$1"; }
+age() {  # <worktree name>: no commit, checkout or file change for 24 hours
+  find "$scratch/sweep-$1" "$sw/.git/worktrees/sweep-$1" -exec touch -h -t 202601010000 {} +
+}
+commit_in() {  # <worktree name> <file> <text>
+  printf '%s\n' "$3" > "$scratch/sweep-$1/$2"
+  git -C "$scratch/sweep-$1" add "$2" && git -C "$scratch/sweep-$1" commit -qm "$1: add $2"
+}
+wt merged; age merged
+wt squash; commit_in squash squashed.txt same
+printf 'same\n' > "$sw/squashed.txt" && git -C "$sw" add squashed.txt && git -C "$sw" commit -qm "squash of squash"
+age squash
+wt stable; commit_in stable stable.txt pushed
+git -C "$scratch/sweep-stable" push -q -u origin stable 2>/dev/null; age stable
+wt deps; mkdir -p "$scratch/sweep-deps/node_modules/pkg" && printf 'x\n' > "$scratch/sweep-deps/node_modules/pkg/i.js"; age deps
+wt envfile; printf 'SECRET=1\n' > "$scratch/sweep-envfile/.env"; age envfile
+wt dirty; printf 'draft\n' > "$scratch/sweep-dirty/src/draft.txt"; age dirty
+wt unmerged; commit_in unmerged local.txt mine; age unmerged
+wt nested; git init -q "$scratch/sweep-nested/node_modules/vendored"; age nested
+wt skipflag; git -C "$scratch/sweep-skipflag" update-index --skip-worktree src/app.txt
+printf 'hidden\n' > "$scratch/sweep-skipflag/src/app.txt"; age skipflag
+wt bisecting; git -C "$scratch/sweep-bisecting" bisect start >/dev/null 2>&1; age bisecting
+find "$sw/.git/worktrees/sweep-bisecting" -exec touch -h -t 202601010000 {} +
+git -C "$sw" worktree add -q "$sw/.agents/worktrees/old-run/lane" -b old-lane
+find "$sw/.agents/worktrees/old-run/lane" "$sw/.git/worktrees/lane" -exec touch -h -t 202601010000 {} +
+unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
+sleepers=()
+trap 'for pid in "${sleepers[@]+"${sleepers[@]}"}"; do kill "$pid" 2>/dev/null || true; done; rm -rf "$scratch"' EXIT
+host_of() { printf '[%s, "%s"]' "$1" "$(ps -o lstart= -p "$1" | awk '{$1=$1};1')"; }
+# Backgrounded with their output closed, so no command substitution waits on them.
+sleep 300 >/dev/null 2>&1 & sleepers+=($!)
+live="$(host_of "${sleepers[0]}")"
+sleep 300 >/dev/null 2>&1 & gone=$!
+dead="$(host_of "$gone")"
+kill "$gone"; wait "$gone" 2>/dev/null || true
+records="$sw/.agents/worktrees/.records"
+mkdir -p "$records"
+note() { printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": %s}\n' "$scratch/sweep-$1" "$2"; }
+
+real="$(cd "$scratch" && pwd -P)"
+wt claude-stale; age claude-stale
+git -C "$sw" worktree lock "$scratch/sweep-claude-stale" --reason "claude session claude-stale (pid $gone start $(date -u '+%a %b %d %H:%M:%S %Y'))"
+wt dead; printf 'unsaved\n' > "$scratch/sweep-dead/src/new.txt"
+note dead "$dead" > "$records/ended-session.jsonl"
+wt live; note live "$live" > "$records/running-session.jsonl"
+wt mine; note mine "$dead" > "$records/fixture-session.jsonl"
+# A claim a killed end left, and folders a killed removal parked.
+wt ghost
+printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": %s}\n' "$real/sweep-ghost" "$dead" \
+  > "$records/.ghost.jsonl.ending-$gone"
+wt parked; mkdir -p "$sw/.git/colloid-trash/1-1/0" && printf 'dep\n' > "$sw/.git/colloid-trash/1-1/0/i.js"
+printf '{"worktree": "%s", "moves": [["%s", "%s"]]}' "$real/sweep-parked" "$real/sweep-parked/node_modules" \
+  "$sw/.git/colloid-trash/1-1/0" > "$sw/.git/colloid-trash/1-1/manifest.json"
+touch -t 202601010000 "$sw/.git/colloid-trash/1-1"
+wt today
+wt locked; age locked; git -C "$sw" worktree lock "$scratch/sweep-locked"
+wt busy; age busy
+(cd "$scratch/sweep-busy" && exec sleep 120) >/dev/null 2>&1 & sleepers+=($!)
+wt lane; age lane
+wt away; mv "$scratch/sweep-away" "$scratch/moved-away"
+python3 - "$sw" "$scratch" <<'PY' > "$sw/.agents/.workloop-state.json"
+import json, sys
+sw, scratch = sys.argv[1], sys.argv[2]
+def run(repo, lanes):
+    return {"repo": repo, "base": "0" * 40, "lanes": {f"l{i}": {"workspace": w} for i, w in enumerate(lanes)},
+            "messages": [], "events": [], "integration": None}
+print(json.dumps({"version": 1, "runs": {
+    "lq-ui": run(sw, [f"{scratch}/sweep-lane"]),                  # workspace listed: named
+    "fold": run(sw, [f"{scratch}/sweep-gone-lane"]),              # git lists none: closed
+    "empty": run(sw, []),                                         # no lanes: named
+    "unmounted": run(sw, [f"{scratch}/sweep-away"]),              # listed, not on disk: named
+    "moved-repo": run(f"{scratch}/no-such-checkout", [f"{scratch}/x"]),  # no repository: named
+}}, indent=2, sort_keys=True))
+PY
+other="$scratch/sweep-other-repo"
+git init -q "$other" && git -C "$other" -c user.name=f -c user.email=f@x commit -q --allow-empty -m init
+git -C "$other" worktree add -q "$scratch/sweep-foreign" -b foreign
+find "$scratch/sweep-foreign" "$other/.git/worktrees" -exec touch -h -t 202601010000 {} +
+for _ in $(seq 50); do lsof -a -p "${sleepers[1]}" -d cwd >/dev/null 2>&1 && break; sleep 0.1; done
+
+sweep_context="$(context_of "$(run_policy "$sw" resume)")"
+[[ -n "${SWEEP_TEST_VERBOSE:-}" ]] && printf '%s\n' "$sweep_context"
+[[ ! -e "$scratch/sweep-dead" && "$(git -C "$sw" show saved/sweep-dead:src/new.txt)" == unsaved ]] || fail "an ended session's worktree must be saved and swept"
+[[ ! -e "$records/ended-session.jsonl" ]] || fail "a swept session's records must go"
+printf 'ok: a session that ended without its hook is swept at the next start, unsaved work saved\n'
+[[ -d "$scratch/sweep-live" && -f "$records/running-session.jsonl" && -d "$scratch/sweep-mine" ]] || fail "running and resumed sessions keep their worktrees"
+grep -q '"type": "host"' "$records/fixture-session.jsonl" || fail "a resumed session must record its new process"
+printf 'ok: a running session and the resumed session keep their worktrees\n'
+[[ ! -e "$scratch/sweep-ghost" && -z "$(ls -A "$records" | grep '^\.ghost')" ]] || fail "a killed end's claim must be reclaimed and swept"
+[[ -f "$scratch/sweep-parked/node_modules/i.js" && ! -e "$sw/.git/colloid-trash/1-1" ]] || fail "folders a killed removal parked must go back"
+printf 'ok: a killed end'"'"'s claim is reclaimed, and folders a killed removal parked go back\n'
+for name in merged squash stable deps claude-stale envfile dirty unmerged nested skipflag bisecting; do
+  [[ -d "$scratch/sweep-$name" ]] || fail "the start sweep must remove no unrecorded worktree, yet $name is gone: $sweep_context"
+done
+assert_not_contains "$sweep_context" "removed idle"
+printf 'ok: the start sweep removes no unrecorded worktree\n'
+assert_contains "$sweep_context" "idle $real/sweep-merged [merged] last commit 2026-01-01"
+assert_contains "$sweep_context" "0 commit(s) not in the default branch, 0 uncommitted file(s): could go: merged into main"
+assert_contains "$sweep_context" "idle $real/sweep-squash [squash] last commit 2026-01-01 squash: add squashed.txt; 1 commit(s) not in the default branch, 0 uncommitted file(s): could go: its changes are already in main"
+assert_contains "$sweep_context" ": could go: every commit is on origin/stable"
+assert_contains "$sweep_context" "idle $real/sweep-envfile [envfile] last commit"
+assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: .env"
+assert_contains "$sweep_context" "idle $real/sweep-dirty [dirty]"
+assert_contains "$sweep_context" "1 uncommitted file(s): stays: it holds uncommitted work"
+assert_contains "$sweep_context" "idle $real/sweep-unmerged [unmerged] last commit 2026-01-01 unmerged: add local.txt; 1 commit(s) not in the default branch, 0 uncommitted file(s): stays: its commits are neither merged into the default branch nor on a remote"
+assert_contains "$sweep_context" "idle $real/sweep-skipflag [skipflag]"
+assert_contains "$sweep_context" "stays: it holds skip-worktree or assume-unchanged files git status does not show: src/app.txt"
+assert_contains "$sweep_context" "stays: a BISECT_LOG operation is in progress"
+assert_not_contains "$sweep_context" "nested repository"
+git -C "$sw" rev-parse -q --verify refs/heads/saved/sweep-dirty >/dev/null && fail "naming must save nothing"
+printf 'ok: each idle unrecorded worktree is named with its work and a could-go or stays verdict, with no nested-repository walk\n'
+[[ -d "$sw/.agents/worktrees/old-run/lane" ]] || fail "a lane folder must never be removed by the sweep"
+assert_contains "$sweep_context" "lane folder $sw/.agents/worktrees/old-run/lane [old-lane]"
+assert_contains "$sweep_context" ": belongs to no workloop run"
+printf 'ok: a lane folder under .agents/worktrees/ that belongs to no run is named\n'
+[[ -d "$scratch/sweep-today" && -d "$scratch/sweep-locked" && -d "$scratch/sweep-busy" && -d "$scratch/sweep-foreign" ]] \
+  || fail "active, locked, occupied and foreign worktrees must stay"
+assert_contains "$sweep_context" "idle $real/sweep-busy [busy]"
+assert_contains "$sweep_context" "stays: process ${sleepers[1]} is working in it"
+assert_not_contains "$sweep_context" "sweep-today"
+assert_not_contains "$sweep_context" "sweep-foreign"
+printf 'ok: active, locked, occupied and foreign worktrees stay\n'
+[[ -d "$scratch/sweep-lane" ]] || fail "a run with no recorded lead must keep its worktrees"
+assert_contains "$sweep_context" "closed workloop run fold: git lists none of its worktrees"
+assert_contains "$sweep_context" "Workloop runs no session recorded as their lead, left alone with their worktrees: empty, lq-ui, moved-repo, unmounted"
+python3 - "$sw/.agents/.workloop-state.json" <<'PY' || fail "only fold may be closed, by dropping its entry"
+import json, sys
+runs = json.load(open(sys.argv[1]))["runs"]
+sys.exit(sorted(runs) != ["empty", "lq-ui", "moved-repo", "unmounted"])
+PY
+[[ -n "$(git -C "$sw" worktree list --porcelain | grep "$real/sweep-away")" ]] || fail "closing a run must not prune another lane's worktree entry"
+printf 'ok: an unowned run closes only when it has lanes, its repository exists and git lists none of its worktrees; no prune\n'
+assert_contains "$sweep_context" "removed $real/sweep-dead; its unsaved work is on branch saved/sweep-dead"
+again="$(context_of "$(run_policy "$sw")")"
+assert_contains "$again" "  saved/sweep-dead "
+assert_not_contains "$again" "removed $real/sweep-dead"
+printf 'ok: the digest names each saved branch until it is deleted\n'
+
+python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"w"); fcntl.flock(f,fcntl.LOCK_EX); print("held",flush=True); time.sleep(60)' \
+  "$sw/.git/colloid-sweep.lock" > "$scratch/held" 2>&1 & sleepers+=($!)
+for _ in $(seq 50); do grep -q held "$scratch/held" && break; sleep 0.1; done
+assert_contains "$(context_of "$(run_policy "$sw")")" "Another session start is sweeping this repository's worktrees; this one skipped it."
+printf 'ok: one sweep per repository at a time\n'
 
 printf 'PASS: session-start policy\n'

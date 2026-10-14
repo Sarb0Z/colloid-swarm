@@ -137,6 +137,15 @@ matcher = "Bash|mcp__[A-Za-z0-9_-]+__(browser_(navigate|tabs|close)|appium_sessi
 command = ".kimi/hooks/adapter.sh teardown-gate.sh"
 timeout = 10
 
+# The worktree snapshot: PostToolUse records only a worktree or workloop run
+# this call created. Kimi names no call id, so the snapshot is keyed by
+# session and command.
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = ".kimi/hooks/adapter.sh teardown-gate.sh"
+timeout = 10
+
 [[hooks]]
 event = "PreCompact"
 command = ".kimi/hooks/adapter.sh pre-compact.sh"
