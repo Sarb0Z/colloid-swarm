@@ -414,10 +414,16 @@ ok "every push spelling the shell parser reads counts"
 
 # ── a worktree: on completion, cleared by its path ──────────────────────────
 real="$(cd "$scratch" && pwd -P)"
-git -C "$gitdir" worktree add -q "$scratch/wt-a" -b wt-a
-git -C "$gitdir" worktree add -q "$scratch/wt-b" -b wt-b
-reminder="$(cd "$gitdir" && sh "git worktree add -q $scratch/wt-a -b wt-a")"
-(cd "$gitdir" && sh "git worktree add -q ../wt-b -b wt-b") >/dev/null
+made() {  # <tool_use_id> <command>: the PreToolUse snapshot, the command, PostToolUse
+  local input; input="$(printf '%s' "$2" | python3 -c 'import json,sys; print(json.dumps({"command": sys.stdin.read()}))')"
+  for event in PreToolUse PostToolUse; do
+    [[ "$event" == PostToolUse ]] && (cd "$gitdir" && eval "$2")
+    printf '{"project_dir":"%s","cwd":"%s","event":"%s","session_id":"s1","tool_name":"Bash","tool_use_id":"%s","tool_input":%s}' \
+      "$gitdir" "$gitdir" "$event" "$1" "$input" | bash "$gate"
+  done
+}
+reminder="$(made u1 "git worktree add -q $scratch/wt-a -b wt-a")"
+made u2 "git worktree add -q ../wt-b -b wt-b" >/dev/null
 [[ "$(grep -c '^worktree	waiting	' "$pending")" == 2 ]] || fail "both worktrees must be recorded as waiting: $(cat "$pending")"
 [[ "$reminder" == *"Made a worktree: $real/wt-a"* && "$reminder" == *"git worktree remove $real/wt-a"* ]] \
   || fail "the reminder must name the worktree and its removal: $reminder"

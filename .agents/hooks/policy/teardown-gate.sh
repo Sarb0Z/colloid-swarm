@@ -2,7 +2,13 @@
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
-# Two events share one policy because they share one state file:
+# Four events share one policy because they share one state file:
+#   PreToolUse   — for worktrees only: a call that may create a worktree or a
+#                  workloop run snapshots what exists, under its tool_use_id
+#                  (worktree_records.py), so PostToolUse records only what the
+#                  call itself created. Never blocks.
+#   SubagentStart — for worktrees only: an isolated cell's `agent-<id>`
+#                  worktree, which the Agent call's own PostToolUse cannot name.
 #   PostToolUse  — a tool call that starts a long-lived resource records it in
 #                  .agents/.teardown-pending-<session>; the first such call in a
 #                  batch also injects a reminder. A tool call that stops that
@@ -12,8 +18,9 @@
 #                  stops pass until a teardown clears the file or a new resource
 #                  re-arms it. Under Claude, SubagentStop maps here too, so a QA
 #                  cell must close its browser before it can hand results back;
-#                  Codex and Kimi expose no subagent-stop event, so there a
-#                  cell's browser is caught by the parent's Stop instead.
+#                  a cell's stop skips the lead's worktree entries and writes
+#                  no marker. Codex and Kimi expose no subagent-stop event, so
+#                  there a cell's browser is caught by the parent's Stop.
 #
 # The Claude PostToolUse matcher holds characters outside letters and `|`, so
 # the host reads it as an unanchored regex rather than a tool-name list, and
@@ -47,10 +54,10 @@
 #                            that never reached that hook left. One clears when
 #                            its path is gone from disk.
 #
-# The adapter passes no cwd, and none is needed: Claude Code runs a hook in
-# the session's directory after the call — inside the new worktree after
-# EnterWorktree, and the cell's worktree at an isolated cell's SubagentStart —
-# and a relative `git worktree add` path resolves from there.
+# The payload's cwd is the session's directory after the call — inside the
+# new worktree after EnterWorktree, the cell's worktree at an isolated cell's
+# SubagentStart — and a relative `git worktree add` path resolves from there.
+# A host that sends no cwd runs the hook in that same directory.
 #
 # COMPLETION IS A PUSH. A commit is not: work lands in per-chunk commits
 # mid-unit, and a container torn down at each would be rebuilt for the next.
@@ -78,13 +85,12 @@
 # The user's own long-running process is not this gate's business. It only ever
 # records what an agent tool call started inside the session.
 #
-# SubagentStart is the third event, for worktrees only: it records an isolated
-# cell's worktree, which the Agent call's own PostToolUse cannot name.
-#
-# Input (stdin JSON): {"project_dir", "event": "PostToolUse"|"SubagentStart"|"Stop",
-#   "session_id", "tool_name", "tool_input": {...}, "stop_hook_active": bool}
+# Input (stdin JSON): {"project_dir", "event": "PreToolUse"|"PostToolUse"|
+#   "SubagentStart"|"Stop", "session_id", "tool_name", "tool_input": {...},
+#   "stop_hook_active": bool, "cwd", "tool_use_id", "agent_id"}
 # Output: PostToolUse — an additionalContext object on the first record, exit 0.
-#   Stop — exit 2 + stderr reason on a block, exit 0 otherwise.
+#   Stop — exit 2 + stderr reason on a block, exit 0 otherwise. PreToolUse and
+#   SubagentStart — nothing, exit 0.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -427,18 +433,25 @@ if raw_command and re.search(r"\bpush\b", raw_command) and pushes(raw_command):
 # call that could make one pays for the import.
 event = s("event")
 session_id = s("session_id")
+# The payload's cwd first; a host that sends none runs the hook in the
+# session's directory after the call, which is the same place.
+where = s("cwd") or os.getcwd()
+maker = tool == "EnterWorktree" or re.search(r"\bworktree\b[^|;&\n]*\badd\b|workloop\.py", raw_command)
 if session_id and (
-    (event == "SubagentStart" and "/.claude/worktrees/agent-" in os.getcwd())
-    or (event == "PostToolUse" and (
-        tool == "EnterWorktree" or re.search(r"\bworktree\b[^|;&\n]*\badd\b|workloop\.py", raw_command)))
+    (event == "SubagentStart" and "/.claude/worktrees/agent-" in where)
+    or (event in ("PreToolUse", "PostToolUse") and maker)
 ):
     spec = importlib.util.spec_from_file_location("worktree_records", os.path.join(sys.argv[1], "worktree_records.py"))
     records = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(records)
     from pathlib import Path
-    found = records.made(event, tool, ti, raw_command, Path(os.getcwd()), Path(sys.argv[1]))
+    project = s("project_dir") or os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[1])))
+    if event == "PreToolUse":
+        records.snapshot(project, tool, raw_command, Path(where), s("tool_use_id"), Path(sys.argv[1]))
+        found = []
+    else:
+        found = records.made(project, event, tool, Path(where), s("tool_use_id"))
     if found:
-        project = s("project_dir") or os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[1])))
         records.record(project, session_id, found)
     for entry in found:
         if entry["type"] == "worktree":
@@ -449,6 +462,7 @@ print(s("project_dir"))
 print(event)
 print(re.sub(r"[^A-Za-z0-9_-]", "", s("session_id")))
 print("yes" if p.get("stop_hook_active") else "no")
+print("cell" if s("agent_id") else "lead")
 print("\n".join(verdicts))
 PY
 parsed="$(python3 -c "$parse" "$lib")"
@@ -456,7 +470,8 @@ proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 event="$(printf '%s\n' "$parsed" | sed -n '2p')"
 session="$(printf '%s\n' "$parsed" | sed -n '3p')"
 stop_active="$(printf '%s\n' "$parsed" | sed -n '4p')"
-verdicts="$(printf '%s\n' "$parsed" | tail -n +5 | grep . || true)"
+stopper="$(printf '%s\n' "$parsed" | sed -n '5p')"
+verdicts="$(printf '%s\n' "$parsed" | tail -n +6 | grep . || true)"
 [[ -z "$proj" ]] && proj="$repo"
 
 # No session identity means no state to key on; do nothing rather than share one
@@ -600,6 +615,10 @@ Stop)
   fi
 
   entries="$(grep -v '^#' "$pending" | awk '!seen[$0]++')"
+  # A cell's stop (SubagentStop, carrying its agent_id) answers for what a
+  # cell holds, never for the lead's worktrees and runs, and leaves the
+  # one-shot marker alone so the lead's own notice still comes.
+  [[ "$stopper" == "cell" ]] && entries="$(printf '%s\n' "$entries" | grep -v '^worktree	' || true)"
   [[ -n "$entries" ]] || exit 0
 
   # Split by tier. An on-completion entry is due only once a push ran after it
@@ -626,7 +645,7 @@ Stop)
   done <<< "$entries"
 
   [[ -n "$due" ]] || exit 0
-  printf '#blocked\n' >> "$pending"
+  [[ "$stopper" == "cell" ]] || printf '#blocked\n' >> "$pending"
   {
     printf 'Resources you started this session are still running:\n'
     printf '%s' "$due"

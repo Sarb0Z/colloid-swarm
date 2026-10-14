@@ -273,24 +273,42 @@ registration is in `.agents/claude/README.md`. See decision
 `worktree-sessions-opt-in`.
 
 No worktree an agent makes outlives the session that made it (decision
-`worktrees-end-with-their-session`). `teardown-gate.sh` records each one —
-`git worktree add`, `EnterWorktree`, an isolated cell's worktree at its
-`SubagentStart`, `workloop.py add-lane` — and each run `workloop.py init`
-creates, in `.agents/worktrees/.records/<session>.jsonl` with the session's
-process; after a `git push` it lists one as due with `git worktree remove` or
-`workloop.py teardown`. `session-end.sh` (Claude's `SessionEnd`, 60 s budget)
-removes what the session recorded: a clean worktree at once, a dirty one after
-committing its tracked changes and unignored files to `saved/<name>`, a run's
-lanes the same way before `workloop.py abandon` closes it. A branch goes only
-when the main checkout's HEAD contains it. `session-start.sh` sweeps the
-records of sessions whose process is gone, saves and removes any unrecorded
-worktree of the repository idle 24 hours, and names each `saved/` branch and
-each run no session leads. A locked worktree, one a running process works in,
-and another repository's are never touched; `git worktree lock` keeps one.
-Ignored folders such as `node_modules` are moved into the git directory and
-deleted in the background: removing a lane with 45,000 files takes 2.8 s in
-place and 11 ms this way. `hooks.teardown_gate.enabled` switches all of it
-off. `hooks/lib/worktree_records.py` holds the rules.
+`worktrees-end-with-their-session`). `teardown-gate.sh` records each one a
+tool call creates — `git worktree add`, `EnterWorktree`, an isolated cell's
+worktree at its `SubagentStart`, `workloop.py add-lane` — and each run
+`workloop.py init` creates, in `.agents/worktrees/.records/<session>.jsonl`.
+A `PreToolUse` snapshot under the call's id makes it record only what that
+call created, so a failed add or init adopts nothing. After a `git push` it
+lists a worktree as due with `git worktree remove` or `workloop.py teardown`;
+a cell's stop leaves the lead's worktrees alone. `session-end.sh` (Claude's
+`SessionEnd`, 60 s budget) removes what the session recorded, in this
+repository or another: a clean worktree at once, a dirty one after committing
+its tracked changes and unignored files to `saved/<name>`, a run's lanes the
+same way before `workloop.py abandon` closes it. A branch goes only when the
+main checkout's HEAD contains it. `/clear` and `/resume` end the old
+conversation's worktrees and runs as an exit does, with one carve-out: a lane
+whose writer cell is still live in the parallel-writers list keeps its run
+until the cell ends, and the next sweep then takes it. A worktree stays and is
+named when it is locked (Claude Code's own `EnterWorktree` lock counts only
+while its session runs; one the operator kept at Claude Code's exit prompt
+stays), a running process works in it or lsof cannot tell, it holds a nested
+repository, or its unsaved work cannot be committed. `session-start.sh`
+sweeps the records of sessions whose process is gone and heals what older
+sessions left: a worktree no record or run names, outside
+`.agents/worktrees/`, idle 24 hours, goes only when nothing would be lost —
+nothing uncommitted, no nested repository, no ignored file beyond rebuildable
+folders such as `node_modules` (a `.env` or a local database keeps it), and
+its branch merged into the default branch, squash merges included, or every
+commit on its remote. It saves nothing for these and names every other idle
+worktree with its branch, last commit, unmerged commits and uncommitted files.
+It also closes a run no session leads once all its workspaces are gone, names
+the rest, and names each `saved/` branch. `git worktree lock` keeps any
+worktree. Ignored folders are moved into the git directory and deleted in the
+background, behind a manifest the sweep uses to move them back after a kill:
+removing a lane with 45,000 files takes 2.8 s in place and 11 ms this way.
+`hooks.teardown_gate.enabled` switches all of it off;
+`hooks/lib/worktree_records.py`, `worktree_removal.py` and `worktree_sweep.py`
+hold the rules.
 
 `edit-record.sh` lets the session wrap measure only its own session: it
 appends each path an editor tool writes to `.wrap-edits-<session>` and each

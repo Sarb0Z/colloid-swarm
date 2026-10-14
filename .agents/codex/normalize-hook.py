@@ -123,6 +123,13 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         out["tool_name"] = text(source, "tool_name")
         out["tool_input"] = tool_input
         out["stop_hook_active"] = bool(source.get("stop_hook_active", False))
+        out["cwd"] = text(source, "cwd")
+        out["tool_use_id"] = text(source, "tool_use_id")
+        out["agent_id"] = text(source, "agent_id")
+    elif policy == "session-end.sh":
+        out["session_id"] = text(source, "session_id")
+        out["reason"] = text(source, "reason")
+        out["cwd"] = text(source, "cwd")
     elif policy == "pre-compact.sh":
         out["trigger"] = text(source, "trigger")
     return out
