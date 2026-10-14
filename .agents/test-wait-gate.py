@@ -10,6 +10,7 @@ code are covered too.
 import importlib.util
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -79,18 +80,54 @@ ALLOW = [
     "",
 ]
 
-for command in BLOCK:
-    check(f"refuses {command!r}", gate.verdict(command) is not None)
-for command in ALLOW:
-    reason = gate.verdict(command)
-    check(f"passes {command!r}", reason is None, reason or "")
+# Lead refusals that a cell's call, capped by Bash's own timeout, may run:
+# a sleep of 5 s or less in a command reading a task's output file.
+SHORT_POLLS = {BLOCK[15], BLOCK[16]}
+CELL_ALLOW = [
+    "for i in $(seq 110); do grep -q '^exit=' /tmp/out.log && break; sleep 5; done",
+    "for i in $(seq 110); do grep -q '^exit=' /private/tmp/claude-501/p/s/tasks/b72i5hegt.output && break; sleep 5; done",
+    "until [ -s /private/tmp/claude-501/p/s/tasks/b72i5hegt.output ]; do sleep 1; done",
+]
+CELL_BLOCK = [
+    "for i in $(seq 110); do grep -q '^exit=' /private/tmp/claude-501/p/s/tasks/b72i5hegt.output && break; sleep 30; done",
+    "sleep 90; tail -4 /private/tmp/claude-501/p/s/tasks/b72i5hegt.output",
+    "for i in $(seq 110); do grep -q '^exit=' /tmp/out.log && break; sleep 30; done",
+    "sleep 4; sleep 4; tail /private/tmp/claude-501/p/s/tasks/b72i5hegt.output",
+]
 
-reason = gate.verdict("sleep 90; echo waited") or ""
-check("the sleep remedy names each way to wait",
-      all(part in reason for part in ("end your turn", "run_in_background: true", "until curl", "gh run watch")))
-reason = gate.verdict("npm run dev &") or ""
-check("the background remedy names run_in_background and wait",
-      "run_in_background: true" in reason and "`wait`" in reason)
+for command in BLOCK:
+    check(f"refuses {command!r}", gate.verdict(command, "lead") is not None)
+    check(f"a cell {'passes' if command in SHORT_POLLS else 'is refused'} {command!r}",
+          (gate.verdict(command, "cell") is None) == (command in SHORT_POLLS))
+for command in ALLOW:
+    for agent in ("lead", "cell"):
+        reason = gate.verdict(command, agent)
+        check(f"passes {command!r} for the {agent}", reason is None, reason or "")
+for command in CELL_ALLOW:
+    reason = gate.verdict(command, "cell")
+    check(f"a cell's capped poll passes {command!r}", reason is None, reason or "")
+for command in CELL_BLOCK:
+    check(f"a cell's long sleep refused {command!r}", gate.verdict(command, "cell") is not None)
+check("a lead's capped poll on a task's output is refused as before",
+      "output file" in (gate.verdict(CELL_ALLOW[1], "lead") or ""))
+
+lead_sleep = gate.verdict("sleep 90; echo waited", "lead") or ""
+cell_sleep = gate.verdict("sleep 90; echo waited", "cell") or ""
+lead_amp = gate.verdict("npm run dev &", "lead") or ""
+cell_amp = gate.verdict("npm run dev &", "cell") or ""
+check("the lead's sleep remedy names each way to wait",
+      all(part in lead_sleep for part in ("end your turn", "run_in_background: true", "for i in $(seq 60)", "gh run watch")))
+check("the cell's sleep remedy is the cell's",
+      all(part in cell_sleep for part in ("run_in_background: true", 'echo "exit=$?"', "seq 110", "TaskStop", "600000"))
+      and "end your turn" not in cell_sleep)
+check("the cell's bare & refusal carries the cell's remedy",
+      "`wait`" in cell_amp and "run_in_background: true" in cell_amp and "seq 110" in cell_amp)
+check("the lead's bare & refusal carries the lead's text",
+      "`wait`" in lead_amp and "run_in_background: true" in lead_amp and "seq 110" not in lead_amp)
+check("the lead's remedy no longer names timeout", "timeout" not in lead_sleep and "bash -c" not in lead_sleep)
+for name, text in (("lead sleep", lead_sleep), ("cell sleep", cell_sleep), ("lead &", lead_amp), ("cell &", cell_amp),
+                   ("lead task poll", gate.verdict(CELL_ALLOW[1], "lead") or "")):
+    check(f"no {name} remedy names timeout followed by a number", not re.search(r"timeout\W+\d", text), text)
 
 policy = here / "hooks" / "policy" / "wait-gate.sh"
 
@@ -108,6 +145,29 @@ background = run(here.parent, {"command": "sleep 300", "run_in_background": True
 check("a command the host runs in the background passes", background.returncode == 0)
 garbage = subprocess.run(["bash", str(policy)], input="not json", capture_output=True, text=True)
 check("an unreadable payload passes", garbage.returncode == 0)
+
+cell_blocked = run(here.parent, {"command": "sleep 300", "agent_id": "a1"})
+check("the policy gives a payload with an agent_id the cell's remedy",
+      cell_blocked.returncode == 2 and "seq 110" in cell_blocked.stderr, cell_blocked.stderr)
+check("the policy gives a payload without one the lead's remedy",
+      blocked.returncode == 2 and "seq 110" not in blocked.stderr and "end your turn" in blocked.stderr)
+
+
+def normalized(payload):
+    out = subprocess.run([sys.executable, str(here / "claude" / "normalize-hook.py"), "wait-gate.sh", str(here.parent)],
+                         input=json.dumps(payload), capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
+
+
+tool = {"command": "sleep 20", "run_in_background": False}
+check("the normalizer passes a cell's agent_id to the gate",
+      normalized({"tool_input": tool, "agent_id": "a1b2", "agent_type": "implementer"})["agent_id"] == "a1b2")
+check("the normalizer passes an empty agent_id for the lead", normalized({"tool_input": tool})["agent_id"] == "")
+registered = json.loads((here / "claude" / "settings.json").read_text())
+wait_commands = [hook["command"] for group in registered["hooks"]["PreToolUse"] for hook in group["hooks"]
+                 if "wait-gate.sh" in hook["command"]]
+check("wait-gate is registered once, for every agent",
+      len(wait_commands) == 1 and "--agent" not in wait_commands[0], str(wait_commands))
 
 with tempfile.TemporaryDirectory() as scratch:
     root = pathlib.Path(scratch)

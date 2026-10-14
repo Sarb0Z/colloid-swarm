@@ -441,7 +441,7 @@ def analyze(records, header, verify_for, tools):
                 cmd = inp["command"]
                 composed += bool(verify) and verify in cmd
                 fig["writes"]["shell_source_writes"] += is_source_write(cmd, rec["cwd"], git, parser)
-                if not inp.get("run_in_background") and gate.verdict(cmd):
+                if not inp.get("run_in_background") and gate.verdict(cmd, "cell"):
                     blind.add(use_id)
         for use_id, is_error, text in rec["results"]:
             started = pending.pop(use_id, None)
