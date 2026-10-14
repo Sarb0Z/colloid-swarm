@@ -247,6 +247,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" style-inject.sh"
+          },
+          {
+            "type": "command",
             "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" genome-inject.sh"
           },
           {

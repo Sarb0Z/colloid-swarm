@@ -20,6 +20,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | `teardown-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `tool_input`, `stop_hook_active` |
 | `pre-compact.sh` | `project_dir`, `trigger` |
 | `worktree-sessions.sh` | `project_dir`, `event`, `tool_name`, `tool_input`, `cwd` |
+| `style-inject.sh` | `project_dir` |
 <!-- colloid-only -->
 | `genome-inject.sh` | `project_dir`, `subagent_type` |
 <!-- /colloid-only -->
@@ -32,7 +33,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 
 The guard keeps a moved or older checkout from reaching the adapter's missing-policy answer, which asks or denies on PreToolUse. A repository that says `false` in `policy.json` or `config.json` still wins, so a `config.json` copied whole from `config.json.example` turns the operator's registration off in that repository; delete the key there to inherit it. `python3 .agents/hooks/lib/worktree-sessions.py sweep --dry-run` lists folders that predate the hook. Never run `claude purge` on a worktree's folder: it follows the symlink to the root's history.
 
-`.claude/output-styles/colloid.md` links to `output-style.md`, and `settings.json` selects it with `outputStyle`. With `keep-coding-instructions: true` it appends to the system prompt of the main conversation without replacing the host's coding instructions; subagents do not receive it. `.agents/codex/config.toml` mirrors the same text as `developer_instructions`, and `test-codex.sh` fails when the two drift. An operator who wants another style sets `outputStyle` in `.claude/settings.local.json`.
+`.claude/output-styles/colloid.md` links to `output-style.md`, and `settings.json` selects it with `outputStyle`. With `keep-coding-instructions: true` it reaches the main conversation without replacing the host's coding instructions. The host sends neither the style nor the device policy's appended prompt to a subagent, so `style-inject.sh` hands each one the style's body as SubagentStart context (`hooks.style_inject`). In the carrier, `session-start.sh` reports an installed copy — the device policy or the account's `output-styles/colloid.md` — that differs from this file. `.agents/codex/config.toml` mirrors the same text as `developer_instructions`, and `test-codex.sh` fails when the two drift. An operator who wants another style sets `outputStyle` in `.claude/settings.local.json`.
 
 ## Keeping edits on the Edit tool
 
