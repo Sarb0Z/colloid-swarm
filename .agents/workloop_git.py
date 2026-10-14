@@ -53,6 +53,11 @@ def same_repository(path: Path | str, repo: Path | str) -> bool:
     return bool(mine) and Path(mine).resolve() == Path(theirs).resolve()
 
 
+def ignored(repo: Path | str, path: Path) -> bool:
+    """True when `repo`'s ignore rules cover `path`, a path inside it."""
+    return subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", str(path)], capture_output=True).returncode == 0
+
+
 def resolve_commit(repo: Path | str, rev: str) -> str:
     sha = git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False)
     if not SHA.fullmatch(sha):
@@ -324,15 +329,7 @@ def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> tuple
     are always present in a cone. A lockfile the cone would still drop is
     refused, because the install for its folder would silently not run.
     """
-    dirs: set[str] = set()
-    for path in list(paths) + list(extra):
-        kind = git(repo, "cat-file", "-t", f"{base}:{path}", check=False)
-        if kind == "blob":
-            parent = str(Path(path).parent)
-            if parent != ".":
-                dirs.add(parent)
-        else:
-            dirs.add(path)
+    dirs = set(cone_dirs(repo, base, list(paths) + list(extra)))
     tree = base_tree(repo, base)
     notes: list[str] = []
     for reason, folders in _install_folders(repo, base, tree):
@@ -350,6 +347,27 @@ def cone_for(repo: Path, base: str, paths: list[str], extra: list[str]) -> tuple
         lines = "\n".join(f"  {p} (add --also {posixpath.dirname(p) or '.'})" for p in sorted(dropped))
         fail(f"the sparse cone drops {len(dropped)} lockfile(s) whose install would silently not run:\n{lines}\nname them with --also, or give the lane the whole tree (drop --sparse)")
     return cone, notes
+
+
+def cone_dirs(repo: Path, rev: str, paths: list[str]) -> list[str]:
+    """The cone directory each path needs at `rev`: a file's parent, anything else itself.
+
+    A root-level file needs none, since a cone always holds the root's files.
+    """
+    dirs: list[str] = []
+    for path in paths:
+        if git(repo, "cat-file", "-t", f"{rev}:{path}", check=False) == "blob":
+            parent = str(Path(path).parent)
+            if parent != ".":
+                dirs.append(parent)
+        else:
+            dirs.append(path)
+    return dirs
+
+
+def sparse_add(workspace: Path, dirs: list[str]) -> None:
+    """Check out more directories in a cone-mode sparse worktree."""
+    git(workspace, "sparse-checkout", "add", *dirs)
 
 
 def _install_folders(repo: Path, base: str, tree: list[str]) -> list[tuple[str, list[str]]]:

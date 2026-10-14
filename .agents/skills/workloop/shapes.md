@@ -66,10 +66,8 @@ in any order (3), two writers:
 .agents/workloop.py init audit --objective 'Billing and accounts write audit rows' \
   --acceptance 'each service test asserts its audit row' \
   --verify 'pnpm test --filter services'
-.agents/workloop.py add-lane audit billing --worker implementer \
-  --workspace ../repo-audit-billing --path services/billing
-.agents/workloop.py add-lane audit accounts --worker implementer \
-  --workspace ../repo-audit-accounts --path services/accounts
+.agents/workloop.py add-lane audit billing --worker implementer --path services/billing
+.agents/workloop.py add-lane audit accounts --worker implementer --path services/accounts
 .agents/workloop.py brief audit billing --role worker
 .agents/workloop.py brief audit accounts --role worker
 ```
@@ -88,10 +86,8 @@ git commit -m 'feat(contracts): claim summary shape for the API and the web app'
 .agents/workloop.py init summaries --objective 'Claim summaries from API to screen' \
   --acceptance 'API test returns the fixture shape; web test renders the fixture' \
   --verify 'pnpm test'
-.agents/workloop.py add-lane summaries api --worker implementer \
-  --workspace ../repo-summaries-api --path services/api
-.agents/workloop.py add-lane summaries web --worker implementer \
-  --workspace ../repo-summaries-web --path apps/web
+.agents/workloop.py add-lane summaries api --worker implementer --path services/api
+.agents/workloop.py add-lane summaries web --worker implementer --path apps/web
 ```
 
 `init` pins the base after the contract commit, so both lanes start with it

@@ -22,6 +22,11 @@ import workloop_git as wg
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_STATE = ROOT / ".agents/.workloop-state.json"
 WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-practice.md"
+# Lane and integration worktrees nest in the checkout they belong to, under a
+# gitignored folder (decision lane-worktrees-nest-in-the-checkout).
+WORKTREES = ".agents/worktrees"
+# Folders the system clears: a lane there loses its worktree mid-run.
+TEMPORARY_ROOTS = (Path("/tmp"), Path("/private/tmp"))
 # The delegation shapes, one line each; the workloop skill holds the full guide.
 SHAPES = """Delegation shapes (the workloop skill's guide; choose one before dispatching):
   one writer            the default: one cell edits the main tree, read-only cells around it; no run needed
@@ -177,6 +182,31 @@ def require_workspace(lane: dict) -> Path:
     return wg.worktree_root(Path(lane["workspace"]))
 
 
+def temporary(path: Path) -> bool:
+    return any(path == root or root in path.parents for root in TEMPORARY_ROOTS)
+
+
+def workspace_for(value: str | None, repo: Path, run_name: str, leaf: str, label: str) -> Path:
+    """The worktree path a lane or an integration uses.
+
+    Without --workspace it is <checkout>/.agents/worktrees/<run>/<leaf>. A
+    --workspace under /tmp is refused unless the checkout lies there too: the
+    system clears that folder, and the run would outlive its worktrees.
+    """
+    default = repo / WORKTREES / run_name / leaf
+    if value is None:
+        # Unignored, the worktree shows as untracked in the checkout, and a
+        # `git add -A` there would commit it as an embedded repository.
+        if not wg.ignored(repo, default):
+            print(f"workloop: WARNING: {repo} does not ignore {WORKTREES}/; add `{WORKTREES}/` to its .gitignore "
+                  "before committing there, or the worktree shows as untracked work", file=sys.stderr)
+        return default
+    workspace = Path(value).resolve()
+    if temporary(workspace) and not temporary(repo.resolve()):
+        fail(f"{label} workspace {value} lies under /tmp, which the system clears; omit --workspace to use the default {default}")
+    return workspace
+
+
 def shared_of(run: dict) -> list[str]:
     return run.get("shared", [])
 
@@ -305,7 +335,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
         if replayed(run, args.event_id): print("replayed event"); return
         repo = Path(run["repo"])
         base = run["base"]
-        workspace = Path(args.workspace).resolve()
+        workspace = workspace_for(args.workspace, repo, args.run, args.lane, "lane")
         existing = run["lanes"].get(args.lane)
         if existing:
             # A lane whose worktree or install failed is resumed, not refused:
@@ -381,6 +411,44 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
         print(text, file=sys.stderr)
         fail(f"lane {args.lane!r} exists but its environment is broken; fix it and run: provision {args.run} {args.lane}")
     print(f"added lane {args.lane!r} on {branch}; {text}")
+
+
+def cmd_widen(args: argparse.Namespace) -> None:
+    """Grow a running lane's owned paths, or its sparse cone, without a new lane."""
+    paths = list(dict.fromkeys(normalize_path(path) for path in args.path or []))
+    also = [normalize_path(path) for path in args.also or []]
+    if not paths and not also:
+        fail("widen needs --path or --also")
+    with Store(state_path(args.state)) as data:
+        run = run_of(data, args.run)
+        if replayed(run, args.event_id): print("replayed event"); return
+        lane = lane_of(run, args.lane)
+        if overlaps(paths, shared_of(run)):
+            fail("paths overlap a shared path; lanes edit shared paths without owning them")
+        for name, other in run["lanes"].items():
+            if name != args.lane and overlaps(paths, other["paths"]):
+                fail(f"paths overlap lane {name!r}; writing lanes need exclusive ownership")
+        cone = lane.get("sparse")
+        if also and not cone:
+            fail(f"lane {args.lane!r} is a full checkout; --also widens a sparse lane's cone only")
+        added = [path for path in paths if not owned(path, lane["paths"])]
+        gained: list[str] = []
+        if cone:
+            # The lane's own commits may have created a directory the base lacks.
+            workspace = require_workspace(lane)
+            wanted = wg.cone_dirs(workspace, "HEAD", paths + also)
+            gained = [entry for entry in dict.fromkeys(wanted) if not any(entry == c or entry.startswith(c + "/") for c in cone)]
+            if gained:
+                wg.sparse_add(workspace, gained)
+                lane["sparse"] = sorted(set(cone) | set(gained))
+        if not added and not gained:
+            print(f"lane {args.lane!r} already covers {', '.join(paths + also)}; nothing changed")
+            return
+        if added:
+            lane["paths"] = [path for path in lane["paths"] if not owned(path, added)] + added
+        changes = ([f"owned + {', '.join(added)}"] if added else []) + ([f"cone + {', '.join(gained)}"] if gained else [])
+        record(args.run, run, "widen", args.lane, "; ".join(changes), args.event_id)
+    print(f"widened lane {args.lane!r}: {'; '.join(changes)}")
 
 
 def cmd_claim(args: argparse.Namespace) -> None:
@@ -616,7 +684,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         *([f"Shared paths: {', '.join(shared_of(run))}\nShared paths: any lane may edit them. Append only; never restructure or reorder existing lines. Regenerate generated files (for example the API contract and its web types) instead of merging them by hand. When a lane you build on is reviewed, rebase onto its branch and resolve shared-path conflicts in your worktree."] if shared_of(run) else []),
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
         *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('branch')}"] if args.role == "reviewer" and (start := review_start(run, args.lane, lane)) else []),
-        *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; widen with: git sparse-checkout add <dir>"] if lane.get("sparse") else []),
+        *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {args.run} {args.lane} --also <dir>)"] if lane.get("sparse") else []),
         *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
         "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
@@ -822,7 +890,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
             if stray:
                 fail(f"lane {name!r} changed undeclared paths: " + ", ".join(stray) + "; rebase it onto the sibling's current branch")
             branches[name] = (branch, tip)
-    workspace = Path(args.workspace).resolve()
+    workspace = workspace_for(args.workspace, repo, args.run, "integration", "integration")
     taken = {Path(lane["workspace"]).resolve(): name for name, lane in run["lanes"].items()}
     if workspace in taken:
         fail(f"integration workspace is lane {taken[workspace]!r}'s worktree; use a separate path")
@@ -891,6 +959,9 @@ def release_run(repo: Path, run_name: str, lanes: dict[str, tuple[str, str | Non
                 errors.append(f"{label}: could not delete {branch}: {reason}")
         else:
             kept.append(f"{branch} ({keep_reason})")
+    run_folder = repo / WORKTREES / run_name
+    if run_folder.is_dir() and not any(run_folder.iterdir()):
+        run_folder.rmdir()
     return removed, kept, errors, wd.removed_count(docker_result)
 
 
@@ -945,7 +1016,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--event-id", help="idempotency key for a mutating command")
     sub = root.add_subparsers(required=True)
     init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="test command run once over the composed tree by integrate"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--shared", action="append", help="repository path every lane may edit without owning it (repeatable)"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.set_defaults(func=cmd_init)
-    add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", required=True); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="very large monorepos only: check out the owned directories, --also ones, and what the install needs"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.set_defaults(func=cmd_add_lane)
+    add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", help=f"the lane's worktree (default: {WORKTREES}/<run>/<lane> in the checkout)"); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="very large monorepos only: check out the owned directories, --also ones, and what the install needs"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.set_defaults(func=cmd_add_lane)
+    widen = sub.add_parser("widen"); widen.add_argument("run"); widen.add_argument("lane"); widen.add_argument("--path", action="append", help="repository path the lane comes to own (repeatable)"); widen.add_argument("--also", action="append", help="directory added to a sparse lane's cone (repeatable)"); widen.set_defaults(func=cmd_widen)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
     review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", choices=("P0", "P1", "P2"), help="required with --result reopen"); review.add_argument("--ruling", help="the operator's words authorising a review round past the third submission"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
@@ -955,7 +1027,7 @@ def parser() -> argparse.ArgumentParser:
     qa = sub.add_parser("qa"); qa.add_argument("run"); qa.add_argument("--evidence", required=True); qa.set_defaults(func=cmd_qa)
     check = sub.add_parser("check"); check.add_argument("run"); check.set_defaults(func=cmd_check)
     provision = sub.add_parser("provision"); provision.add_argument("run"); provision.add_argument("lane"); provision.set_defaults(func=cmd_provision)
-    integrate = sub.add_parser("integrate"); integrate.add_argument("run"); integrate.add_argument("--workspace", required=True); integrate.set_defaults(func=cmd_integrate)
+    integrate = sub.add_parser("integrate"); integrate.add_argument("run"); integrate.add_argument("--workspace", help=f"the integration worktree (default: {WORKTREES}/<run>/integration in the checkout)"); integrate.set_defaults(func=cmd_integrate)
     teardown = sub.add_parser("teardown"); teardown.add_argument("run"); teardown.set_defaults(func=cmd_teardown)
     abandon = sub.add_parser("abandon"); abandon.add_argument("run"); abandon.add_argument("--discard-branches", action="store_true", help="also delete lane branches whose commits HEAD does not contain"); abandon.set_defaults(func=cmd_abandon)
     brief = sub.add_parser("brief"); brief.add_argument("run"); brief.add_argument("lane"); brief.add_argument("--role", choices=("worker", "reviewer", "qa"), default="worker"); brief.set_defaults(func=cmd_brief)
