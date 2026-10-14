@@ -18,8 +18,9 @@
 #                  stops pass until a teardown clears the file or a new resource
 #                  re-arms it. Under Claude, SubagentStop maps here too, so a QA
 #                  cell must close its browser before it can hand results back;
-#                  a cell's stop skips the lead's worktree entries and writes
-#                  no marker. Codex and Kimi expose no subagent-stop event, so
+#                  each entry carries the agent_id that started it ("-" for
+#                  the lead), and a stop judges only its own agent's entries;
+#                  a cell writes no marker. Codex and Kimi expose no subagent-stop event, so
 #                  there a cell's browser is caught by the parent's Stop.
 #
 # The Claude PostToolUse matcher holds characters outside letters and `|`, so
@@ -446,11 +447,15 @@ if session_id and (
     spec.loader.exec_module(records)
     from pathlib import Path
     project = s("project_dir") or os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[1])))
+    # Kimi sends no call id; its snapshot is keyed by session and command, which
+    # its PreToolUse and PostToolUse of one call share.
+    import hashlib
+    call = s("tool_use_id") or session_id + "-" + hashlib.sha1(raw_command.encode()).hexdigest()[:16]
     if event == "PreToolUse":
-        records.snapshot(project, tool, raw_command, Path(where), s("tool_use_id"), Path(sys.argv[1]))
+        records.snapshot(project, tool, raw_command, Path(where), call, Path(sys.argv[1]))
         found = []
     else:
-        found = records.made(project, event, tool, Path(where), s("tool_use_id"))
+        found = records.made(project, event, tool, Path(where), call)
     if found:
         records.record(project, session_id, found)
     for entry in found:
@@ -462,7 +467,7 @@ print(s("project_dir"))
 print(event)
 print(re.sub(r"[^A-Za-z0-9_-]", "", s("session_id")))
 print("yes" if p.get("stop_hook_active") else "no")
-print("cell" if s("agent_id") else "lead")
+print(re.sub(r"[^A-Za-z0-9_-]", "", s("agent_id")) or "-")
 print("\n".join(verdicts))
 PY
 parsed="$(python3 -c "$parse" "$lib")"
@@ -470,7 +475,8 @@ proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 event="$(printf '%s\n' "$parsed" | sed -n '2p')"
 session="$(printf '%s\n' "$parsed" | sed -n '3p')"
 stop_active="$(printf '%s\n' "$parsed" | sed -n '4p')"
-stopper="$(printf '%s\n' "$parsed" | sed -n '5p')"
+# Who made a call or is stopping: a cell's agent_id, or "-" for the lead.
+agent="$(printf '%s\n' "$parsed" | sed -n '5p')"
 verdicts="$(printf '%s\n' "$parsed" | tail -n +6 | grep . || true)"
 [[ -z "$proj" ]] && proj="$repo"
 
@@ -556,7 +562,7 @@ PostToolUse|SubagentStart)
       # entry the pending file actually holds rather than one a later clause in
       # the same command replaced.
       +*) kind="${verdict#+}"; kind="${kind%%	*}"
-          printf '%s\t%s\t%s\n' "$kind" "waiting" "${verdict#*	}" >> "$pending"
+          printf '%s\t%s\t%s\t%s\n' "$kind" "waiting" "$agent" "${verdict#*	}" >> "$pending"
           opened="$verdict" ;;
       # A push makes every on-completion entry recorded so far due, and re-arms
       # a block already spent on other resources.
@@ -599,7 +605,7 @@ Stop)
     kept=""
     while IFS= read -r line; do
       if [[ "$line" == worktree$'\t'* ]]; then
-        place="${line#*	}"; place="${place#*	}"; place="${place% (workloop run *)}"
+        place="${line#*	}"; place="${place#*	}"; place="${place#*	}"; place="${place% (workloop run *)}"
         [[ -d "$place" ]] || continue
       fi
       kept="${kept}${line}"$'\n'
@@ -614,11 +620,11 @@ Stop)
     exit 0
   fi
 
-  entries="$(grep -v '^#' "$pending" | awk '!seen[$0]++')"
-  # A cell's stop (SubagentStop, carrying its agent_id) answers for what a
-  # cell holds, never for the lead's worktrees and runs, and leaves the
-  # one-shot marker alone so the lead's own notice still comes.
-  [[ "$stopper" == "cell" ]] && entries="$(printf '%s\n' "$entries" | grep -v '^worktree	' || true)"
+  # Each stop judges only what its own agent started: a cell's stop
+  # (SubagentStop, carrying its agent_id) the cell's entries, the lead's stop
+  # the lead's. A cell leaves the one-shot marker alone, so the lead's own
+  # notice still comes.
+  entries="$(grep -v '^#' "$pending" | awk -F'\t' -v who="$agent" '$3 == who && !seen[$0]++')"
   [[ -n "$entries" ]] || exit 0
 
   # Split by tier. An on-completion entry is due only once a push ran after it
@@ -631,7 +637,7 @@ Stop)
     kind="${entry%%	*}"
     rest="${entry#*	}"
     state="${rest%%	*}"
-    text="${rest#*	}"
+    text="${rest#*	}"; text="${text#*	}"
     line="  - [$kind] $text"$'\n'"     -> $(howto "$kind" "$text")  ($(due_why "$kind"))"
     case "$kind" in
       docker|build|emulator|worktree)
@@ -645,7 +651,7 @@ Stop)
   done <<< "$entries"
 
   [[ -n "$due" ]] || exit 0
-  [[ "$stopper" == "cell" ]] || printf '#blocked\n' >> "$pending"
+  [[ "$agent" != "-" ]] || printf '#blocked\n' >> "$pending"
   {
     printf 'Resources you started this session are still running:\n'
     printf '%s' "$due"

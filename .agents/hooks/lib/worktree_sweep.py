@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Sweep a session's records at its end, and the repository's at each start.
+"""End a session's records at its end, and sweep the repository's at each start.
 
     worktree_sweep.py end <project> <session> <reason> <workloop.py>   (session-end.sh)
     worktree_sweep.py sweep <project> <session> <workloop.py>          (session-start.sh)
 
-`sweep` prints the digest, one per repository at a time (a lock in the git
-directory). It folds back claims and parked folders a killed run left; ends
-the records of sessions whose process is gone or that an end marked `ended`;
-closes a run no record leads once all its workspaces are gone, and names the
-rest; and heals (ruling 20, amended): a worktree no record or run names,
-outside `.agents/worktrees/`, not locked by a running session, idle 24 h and
-with no process inside, goes only when nothing would be lost — nothing
-uncommitted, no nested repository, no ignored file beyond REBUILDABLE, and
-its commits merged into the default branch (a squash merge counts) or all on
-a remote; nothing is saved for it, and each other one is named with its work.
+`sweep` (one per repository at a time) folds back what a killed run left,
+ends the records of sessions whose process is gone, closes a run no record
+leads once git lists none of its workspaces, and names each idle worktree no
+record or run names with its work and a verdict, "could go: <why>" or
+"stays: <why>". It removes none of them: that is unit 5b's (ruling 24).
 """
 
 from __future__ import annotations
@@ -38,16 +33,9 @@ EXITS = {"prompt_input_exit", "other", "logout", "bypass_permissions_disabled"}
 IDLE_SECONDS = 24 * 3600
 PARKED_SECONDS = 600
 STATE = Path(".agents/.workloop-state.json")
-# Ignored content a worktree may hold and still be removed: each rebuilds from
-# the branch with an install or a build.
-REBUILDABLE_DIRS = frozenset({
-    "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-    ".tox", ".nox", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
-    ".cache", "coverage", ".nyc_output", "target", ".gradle", "Pods", "DerivedData", ".expo", ".angular",
-})
+# Ignored files that rebuild; rm.REBUILDABLE_DIRS holds the folders.
 REBUILDABLE_FILES = frozenset({".DS_Store", ".eslintcache"})
 REBUILDABLE_SUFFIXES = (".pyc", ".pyo", ".tsbuildinfo")
-# Never rebuildable, wherever they sit outside a rebuildable folder.
 KEEPS = re.compile(r"^\.env|\.(sqlite3?|db)$")
 
 
@@ -64,9 +52,9 @@ def reclaim(folder: Path) -> None:
 def unpark(main: Path) -> None:
     trash = rm.trash_dir(main)
     for bin_ in trash.iterdir() if trash.is_dir() else []:
+        manifest = bin_ / "manifest.json"
         if time.time() - bin_.stat().st_mtime < PARKED_SECONDS:
             continue
-        manifest = bin_ / "manifest.json"
         worktree = json.loads(manifest.read_text())["worktree"] if manifest.is_file() else ""
         if worktree and Path(worktree).is_dir():
             rm.restore(bin_)
@@ -75,11 +63,8 @@ def unpark(main: Path) -> None:
 
 
 def over(entries: list[dict], path: Path) -> bool:
-    """The session ended: an end marked it after its last start, or its process is gone."""
-    kinds = [entry.get("type") for entry in entries if entry.get("type") in ("ended", "host")]
+    """The session's process is gone (a file with no host: untouched for 24 hours)."""
     stamp = wr.last_host(entries)
-    if kinds and kinds[-1] == "ended":
-        return True
     return not wr.alive(stamp) if stamp else time.time() - path.stat().st_mtime > IDLE_SECONDS
 
 
@@ -93,18 +78,42 @@ def close(path: Path, reason: str, workloop: Path) -> list[str]:
     entries, me = wr.load(claimed), wr.host()
     stamp = wr.last_host(entries)
     exclude = {pid for pid, _, _ in wr.chain()} if reason in EXITS else {os.getpid()}
-    ending = me[0] if reason and me else stamp[0] if stamp else None
-    remover = rm.Remover(f"session {path.stem}", exclude, ending)
-    # A lane whose writer cell is still live (parallel-writers-gate.sh's list)
-    # keeps its run; what stays is marked ended, so the next sweep takes it
-    # even while the process goes on after /clear or /resume.
-    live = path.parents[3] / ".agents" / f".writers-live-{path.stem}"
-    cells = {line.split("\t", 1)[0] for line in live.read_text().splitlines() if line.strip()} if live.is_file() else set()
-    remaining = rm.finish(entries, remover, workloop, cells, reason)
-    if remaining:
-        wr.append(path.parent, path.stem, [dict(e, host=stamp) for e in remaining] + [{"type": "ended", "at": int(time.time())}])
+    remover = rm.Remover(f"session {path.stem}", exclude, me[0] if reason and me else stamp[0] if stamp else None)
+    # What stays goes back under the session's host, so the first sweep after
+    # that process exits takes it: after /clear or /resume that is a run with
+    # an unsubmitted lane, whose cell may still be working.
+    wr.append(path.parent, path.stem, [dict(e, host=stamp) for e in finish(entries, remover, workloop, reason)])
     claimed.unlink()
     return remover.lines
+
+
+def finish(entries: list[dict], remover, workloop: Path, reason: str) -> list[dict]:
+    """Close the runs, then remove the worktrees; return the entries still standing.
+    Claude Code asks keep-or-remove only for the last worktree entered, and reports
+    the main checkout as the cwd after the answer (2.1.299), so only that one reads as kept."""
+    runs = {(e.get("run"), e.get("state")): e for e in entries if e.get("type") == "run"}
+    hold = reason in ("clear", "resume")
+    entered = [e["path"] for e in entries if e.get("by") == "EnterWorktree" and e.get("path")]
+    remaining = [entry for entry in runs.values() if not rm.close_run(remover, entry, workloop, hold)]
+    kept_runs, seen = {entry["run"] for entry in remaining}, set()
+    for entry in [e for e in entries if e.get("type") == "worktree" and e.get("path")]:
+        path = Path(entry["path"])
+        if str(path) in seen:
+            continue
+        seen.add(str(path))
+        if entry.get("run") in kept_runs:
+            remaining.append(entry)
+        elif reason == "prompt_input_exit" and entered and entry["path"] == entered[-1] and path.is_dir() \
+                and not lock_of(path):
+            remover.lines.append(f"kept {path}: kept at Claude Code's exit prompt")
+        elif remover.retire(path) == "kept":
+            remaining.append(entry)
+    return remaining
+
+
+def lock_of(path: Path) -> str | None:
+    main = wr.main_checkout(path)
+    return next((e["locked"] for e in wr.worktrees(main) if e["path"] == path.resolve()), None) if main else None
 
 
 def end(project: Path, session: str, reason: str, workloop: Path) -> list[str]:
@@ -112,30 +121,36 @@ def end(project: Path, session: str, reason: str, workloop: Path) -> list[str]:
     return close(path, reason or "other", workloop) if wr.session_key(session) and path.is_file() else []
 
 
-def ended_sessions(folder: Path, me: str, workloop: Path) -> list[str]:
-    lines = []
-    for path in sorted(folder.glob("*.jsonl")):
-        if path.stem != me and over(wr.load(path), path):
-            lines += close(path, "", workloop)
-    return lines
-
-
 def workspaces(run: dict) -> list[str]:
     return [s for s in [lane.get("workspace") for lane in (run.get("lanes") or {}).values()]
             + [(run.get("integration") or {}).get("workspace")] if s]
 
 
-def unowned_runs(main: Path, leads: set, workloop: Path) -> list[str]:
-    state = main / STATE
-    names, remover = [], rm.Remover("the sweep", set(), None)
+def drop_run(state: Path, name: str) -> None:
+    """Delete one run from the state file under workloop.py's own lock, as its Store writes it."""
+    with open(f"{state}.lock", "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = json.loads(state.read_text())
+        data["runs"].pop(name, None)
+        scratch = state.with_name(f"{state.name}.{os.getpid()}")
+        scratch.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        os.replace(scratch, state)
+
+
+def unowned_runs(main: Path, leads: set) -> list[str]:
+    """Close a run no record leads once git lists none of its workspaces (a missing path
+    may be an unmounted disk); a run with no lanes or no repository stays. Name the rest."""
+    state, names, lines = main / STATE, [], []
     for name, run in sorted(wr.runs_in(str(state)).items()):
         if name in leads:
             continue
-        if not any(Path(space).exists() for space in workspaces(run)):
-            rm.abandon(remover, name, str(state), workloop, [])
+        repo = wr.main_checkout(run.get("repo") or "/nonexistent")
+        listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
+        if run.get("lanes") and repo and not any(str(Path(s).resolve()) in listed for s in workspaces(run)):
+            drop_run(state, name)
+            lines.append(f"closed workloop run {name}: git lists none of its worktrees")
         else:
             names.append(name)
-    lines = remover.lines
     if names:
         lines.append("Workloop runs no session recorded as their lead, left alone with their worktrees: " + ", ".join(names))
     return lines
@@ -161,7 +176,7 @@ def unrebuildable(path: Path) -> list[str]:
     found = []
     for name in (entry for entry in listing.stdout.split("\0") if entry):
         parts = Path(name).parts
-        if any(part in REBUILDABLE_DIRS for part in parts):
+        if any(part in rm.REBUILDABLE_DIRS for part in parts):
             continue
         if not KEEPS.search(parts[-1]) and not name.endswith("/") and (
                 parts[-1] in REBUILDABLE_FILES or parts[-1].endswith(REBUILDABLE_SUFFIXES)):
@@ -172,8 +187,7 @@ def unrebuildable(path: Path) -> list[str]:
 
 def default_refs(main: Path) -> list[str]:
     remote = wr.out(main, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-    short = remote.rsplit("/", 1)[-1] if remote else ""
-    names = [short] if short else ["main", "master"]
+    names = [remote.rsplit("/", 1)[-1]] if remote else ["main", "master"]
     refs = [f"refs/heads/{name}" for name in names] + ([remote] if remote else [])
     return [ref for ref in refs if wr.out(main, "rev-parse", "-q", "--verify", ref)]
 
@@ -183,7 +197,7 @@ def merge_tree_ok() -> bool:
     return bool(found) and (int(found.group(1)), int(found.group(2))) >= (2, 38)
 
 
-def settled(path: Path, main: Path, defaults: list[str]) -> str | None:
+def settled(path: Path, defaults: list[str]) -> str | None:
     """How the worktree's commits are safe elsewhere, or None."""
     for ref in defaults:
         if wr.git(path, "merge-base", "--is-ancestor", "HEAD", ref).returncode == 0:
@@ -208,46 +222,31 @@ def about(path: Path, entry: dict, defaults: list[str]) -> str:
             f"{ahead} commit(s) not in the default branch, {changed} uncommitted file(s)")
 
 
-def heal(main: Path, recorded: set) -> list[str]:
+def verdict(path: Path, entry: dict, defaults: list[str], remover) -> str:
+    """Whether the worktree could go with nothing lost; no nested-repository walk."""
+    if entry["locked"] and not rm.claude_lock_ended(entry["locked"], None):
+        return f"stays: it is locked ({entry['locked']})"
+    why = remover.occupant(path) or rm.unsaveable(path) or ("it holds uncommitted work" if rm.dirty(path) else None)
+    extra = None if why else unrebuildable(path)
+    if extra:
+        why = "it holds ignored files that do not rebuild: " + ", ".join(extra[:5])
+    safe = None if why else settled(path, defaults)
+    return f"could go: {safe}" if safe else f"stays: {why or 'its commits are neither merged into the default branch nor on a remote'}"
+
+
+def name_idle(main: Path, recorded: set, lanes_of_runs: set) -> list[str]:
+    """Name each idle worktree no record or run names, and each lane folder no run owns."""
     lines, defaults = [], default_refs(main)
-    remover = rm.Remover("the sweep", {os.getpid()}, None)
-    lanes = main / ".agents" / "worktrees"
+    remover, folder = rm.Remover("the sweep", {os.getpid()}, None), main / ".agents" / "worktrees"
     for entry in wr.worktrees(main)[1:]:
         path = entry["path"]
-        if entry["prunable"] or not path.is_dir() or str(path) in recorded or path == lanes or lanes in path.parents:
+        if entry["prunable"] or not path.is_dir() or str(path) in recorded | lanes_of_runs:
             continue
-        if entry["locked"] and not rm.claude_lock_ended(entry["locked"], None):
-            continue
-        if time.time() - idle_since(path) < IDLE_SECONDS:
-            continue
-        why = judge(path, main, defaults, remover)
-        if why.startswith("removable: "):
-            # A lock left here is Claude Code's, from a session that ended.
-            if entry["locked"]:
-                wr.git(main, "worktree", "unlock", str(path))
-            note = rm.remove(path, main, force=False)
-            if note is None:
-                lines.append(f"removed idle {path}: {why[len('removable: '):]}" + rm.drop_branch(main, entry["branch"]))
-                continue
-            why = note
-        lines.append(f"idle {about(path, entry, defaults)}: stays, {why}")
+        if folder in path.parents:
+            lines.append(f"lane folder {about(path, entry, defaults)}: belongs to no workloop run")
+        elif time.time() - idle_since(path) >= IDLE_SECONDS:
+            lines.append(f"idle {about(path, entry, defaults)}: {verdict(path, entry, defaults, remover)}")
     return lines
-
-
-def judge(path: Path, main: Path, defaults: list[str], remover) -> str:
-    busy = remover.occupant(path)
-    if busy:
-        return busy
-    if rm.dirty(path):
-        return "it holds uncommitted work"
-    inner = rm.nested(path)
-    if inner:
-        return f"it holds a nested repository at {inner}"
-    extra = unrebuildable(path)
-    if extra:
-        return "it holds ignored files that do not rebuild: " + ", ".join(extra[:5])
-    safe = settled(path, main, defaults)
-    return f"removable: {safe}" if safe else "its commits are neither merged into the default branch nor on a remote"
 
 
 def sweep(project: Path, session: str, workloop: Path) -> list[str]:
@@ -270,22 +269,22 @@ def locked_sweep(main: Path, me: str, workloop: Path) -> list[str]:
         reclaim(folder)
         if me and (folder / f"{me}.jsonl").is_file():
             wr.append(folder, me, [{"type": "host", "host": wr.host(), "at": int(time.time())}])
-        lines += ended_sessions(folder, me, workloop)
+        for path in sorted(folder.glob("*.jsonl")):
+            if path.stem != me and over(wr.load(path), path):
+                lines += close(path, "", workloop)
     recorded, leads = set(), set()
     for path in folder.glob("*.jsonl") if folder.is_dir() else []:
         for entry in wr.load(path):
-            if entry.get("type") == "worktree":
-                recorded.add(str(Path(entry.get("path", "/")).resolve()))
+            recorded |= {str(Path(entry["path"]).resolve())} if entry.get("type") == "worktree" else set()
             leads.add(entry.get("run"))
-    # A run's workspaces are its lead's to close, wherever they sit; never healed.
-    for run in wr.runs_in(str(main / STATE)).values():
-        recorded |= {str(Path(space).resolve()) for space in workspaces(run)}
-    lines += heal(main, recorded)
+    lines += unowned_runs(main, leads)
+    runs = wr.runs_in(str(main / STATE)).values()
+    lines += name_idle(main, recorded, {str(Path(space).resolve()) for run in runs for space in workspaces(run)})
     saved = wr.out(main, "for-each-ref", "--format=%(refname:short) %(committerdate:short) %(subject)", "refs/heads/saved/")
     if saved:
         lines.append("Unsaved work from removed worktrees waits on these branches; merge what is wanted, then delete each branch:")
         lines += [f"  {line}" for line in saved.splitlines()]
-    return lines + unowned_runs(main, leads, workloop)
+    return lines
 
 
 if __name__ == "__main__":

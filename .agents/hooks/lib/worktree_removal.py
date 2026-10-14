@@ -2,17 +2,13 @@
 """Remove the worktrees and runs a session recorded, saving unsaved work first.
 
 `Remover.retire` keeps and names a worktree that is no linked worktree; is
-locked (Claude Code's own session lock counts only while that session runs,
-ruling 22); has a process inside, or cannot be checked for one (no lsof);
-holds a nested repository; or whose unsaved work cannot be committed. Unsaved
-work goes to `saved/<name>` through a copy of the index, under SAVE_CAP and
-with no new gitlink. Ignored folders are parked in `<git dir>/colloid-trash`
-behind a manifest the sweep can undo, then `git worktree remove` runs without
---force on a clean tree; the branch goes only when HEAD contains it.
-
-`finish` keeps an EnterWorktree worktree still on disk and unlocked after a
-`prompt_input_exit`: the operator kept it at Claude Code's exit prompt. A
-run stays while a lane's writer cell is live.
+locked (Claude Code's own lock counts only while its session runs, ruling
+22); has a process inside, or no lsof to tell; holds a nested repository
+outside REBUILDABLE_DIRS, or what a save cannot carry (`unsaveable`); or whose
+unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no new
+gitlink). Ignored folders are parked behind a manifest the sweep can undo,
+then `git worktree remove` runs without --force on a clean tree; the branch
+goes only when HEAD contains it.
 """
 
 from __future__ import annotations
@@ -36,17 +32,27 @@ _spec.loader.exec_module(wr)
 
 TRASH = "colloid-trash"
 SAVE_CAP = 200 * 1024 * 1024
-CLAUDE_LOCK = re.compile(r"^claude session .* \(pid (\d+) start (.+)\)$")
+CLAUDE_LOCK = re.compile(r"^claude (?:session|agent) \S+ \(pid (\d+)(?: start (.+))?\)$")
 GITLINK = re.compile(r"^160000 (?:commit )?([0-9a-f]+)(?: \d+)?\t(.*)$")
 STAMP = "%a %b %d %H:%M:%S %Y"
+# Folders that rebuild from the branch; the nested-repository walk skips them.
+REBUILDABLE_DIRS = frozenset({
+    "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".tox", ".nox", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
+    ".cache", "coverage", ".nyc_output", "target", ".gradle", "Pods", "DerivedData", ".expo", ".angular",
+})
+IN_PROGRESS = ("BISECT_LOG", "rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD")
 
 
 def claude_lock_ended(reason: str, ending_pid: int | None) -> bool:
-    """True when `reason` is Claude Code's session lock (start in UTC) and that session is over."""
+    """True when `reason` is Claude Code's lock (`claude session|agent <id> (pid N[ start S])`,
+    S in UTC) and that session is over: its pid is the ending one, gone, or started at another time."""
     match = CLAUDE_LOCK.match(reason or "")
     row = wr.ps_row(int(match.group(1))) if match else None
     if not match or int(match.group(1)) == ending_pid or row is None:
         return bool(match)
+    if not match.group(2):
+        return False
     try:
         locked, started = calendar.timegm(time.strptime(match.group(2), STAMP)), time.mktime(time.strptime(row[1], STAMP))
     except ValueError:
@@ -93,7 +99,9 @@ class Remover:
             return "locked", f"it is locked ({entry['locked']})"
         busy = self.occupant(path)
         inner = None if busy else nested(path)
-        return ("busy", busy) if busy else ("other", f"it holds a nested repository at {inner}") if inner else None
+        held = None if busy or inner else unsaveable(path)
+        return ("busy", busy) if busy else ("other", f"it holds a nested repository at {inner}") if inner \
+            else ("other", held) if held else None
 
     def retire(self, path: Path) -> str:
         """Remove one worktree; return "removed", "gone", "locked" or "kept"."""
@@ -122,9 +130,25 @@ class Remover:
 
 
 def nested(path: Path) -> str | None:
-    """The first `.git` below the worktree's own, ignored folders included."""
-    return next((root for root, dirs, files in os.walk(path)
-                 if Path(root) != path and (".git" in dirs or ".git" in files)), None)
+    """The first `.git` below the worktree's own, ignored folders included, rebuildable ones skipped."""
+    for root, dirs, files in os.walk(path):
+        if Path(root) != path and (".git" in dirs or ".git" in files):
+            return root
+        dirs[:] = [name for name in dirs if name not in REBUILDABLE_DIRS]
+    return None
+
+
+def unsaveable(path: Path) -> str | None:
+    """Why a save cannot carry the worktree's state: an operation in progress, or a
+    skip-worktree or assume-unchanged file on disk, whose edits `git status` and
+    `git add` do not see (a sparse checkout's absent files are fine)."""
+    admin = Path(wr.out(path, "rev-parse", "--path-format=absolute", "--git-dir"))
+    busy = [name for name in IN_PROGRESS if (admin / name).exists()]
+    if busy:
+        return f"a {busy[0]} operation is in progress"
+    flagged = [line[2:] for line in wr.git(path, "ls-files", "-v").stdout.splitlines()
+               if line[:1] in ("S", "s", "h") and os.path.lexists(path / line[2:])]
+    return f"it holds skip-worktree or assume-unchanged files git status does not show: {', '.join(flagged[:3])}" if flagged else None
 
 
 def dirty(path: Path) -> bool:
@@ -237,18 +261,25 @@ def drop_branch(main: Path, branch: str | None) -> str:
     return f"; branch {branch} kept: {result.stderr.strip()}" if result.returncode else f"; branch {branch} deleted, HEAD contains it"
 
 
-def close_run(remover: Remover, entry: dict, workloop: Path, live: set) -> bool:
-    """Save a run's worktrees and close it with `abandon`; False when it must stay."""
+def close_run(remover: Remover, entry: dict, workloop: Path, hold: bool) -> bool:
+    """Save a run's worktrees and close it with `abandon`; False when it must stay. With
+    `hold` (/clear, /resume) a lane not yet submitted keeps the run: its cell may still work."""
     name, state = entry.get("run"), entry.get("state") or ""
     run = wr.runs_in(state).get(name)
     if run is None:
         return True
     lanes = run.get("lanes") or {}
-    busy = next((f"lane {lane}'s writer cell {info['claimed_by']} is still live"
-                 for lane, info in lanes.items() if info.get("claimed_by") in live), None)
-    spaces = [info.get("workspace") for info in lanes.values()] + [(run.get("integration") or {}).get("workspace")]
-    present = [Path(space).resolve() for space in spaces if space and Path(space).is_dir()]
-    refusal = busy or next((f"{path}: {r[1]}" for path in present for r in [remover.blocked(path)] if r), None)
+    busy = next((f"lane {lane} is {info.get('state')}, not yet submitted, and the session's process goes on"
+                 for lane, info in lanes.items() if hold and info.get("state") not in ("review", "reviewed")), None)
+    spaces = [Path(s).resolve() for s in [i.get("workspace") for i in lanes.values()]
+              + [(run.get("integration") or {}).get("workspace")] if s]
+    present = [path for path in spaces if path.is_dir()]
+    repo = wr.main_checkout(run.get("repo") or "/nonexistent")
+    # Git still lists a workspace that is not on disk (an unmounted volume):
+    # abandon's prune would drop it, so the run stays.
+    away = next((f"git lists {e['path']} but it is not on disk" for e in (wr.worktrees(repo) if repo else [])
+                 if e["path"] in spaces and not e["path"].is_dir()), None)
+    refusal = busy or away or next((f"{path}: {r[1]}" for path in present for r in [remover.blocked(path)] if r), None)
     saved = []
     for path in [] if refusal else [path for path in present if dirty(path)]:
         branch, error = save(path, remover.label)
@@ -259,40 +290,10 @@ def close_run(remover: Remover, entry: dict, workloop: Path, live: set) -> bool:
     if refusal:
         remover.lines.append(f"kept workloop run {name}: {refusal}")
         return False
-    return abandon(remover, name, state, workloop, saved)
-
-
-def abandon(remover: Remover, name: str, state: str, workloop: Path, saved: list) -> bool:
     os.chdir(Path(state).parent)
     result = subprocess.run([sys.executable, str(workloop), "--state", state, "abandon", name],
                             text=True, capture_output=True, env=wr.clean_env())
-    if result.returncode:
-        remover.lines.append(f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}")
-        return False
-    remover.lines.append(f"closed workloop run {name}: {result.stdout.strip()}"
+    remover.lines.append(f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
+                         if result.returncode else f"closed workloop run {name}: {result.stdout.strip()}"
                          + ("; unsaved work: " + ", ".join(saved) if saved else ""))
-    return True
-
-
-def finish(entries: list[dict], remover: Remover, workloop: Path, live: set, reason: str) -> list[dict]:
-    """Close the runs, then remove the worktrees; return the entries still standing."""
-    runs = {(e.get("run"), e.get("state")): e for e in entries if e.get("type") == "run"}
-    remaining = [entry for entry in runs.values() if not close_run(remover, entry, workloop, live)]
-    kept_runs, seen = {entry["run"] for entry in remaining}, set()
-    for entry in [e for e in entries if e.get("type") == "worktree" and e.get("path")]:
-        path = Path(entry["path"])
-        if str(path) in seen:
-            continue
-        seen.add(str(path))
-        if entry.get("run") in kept_runs:
-            remaining.append(entry)
-        elif entry.get("by") == "EnterWorktree" and reason == "prompt_input_exit" and path.is_dir() and not locked(path):
-            remover.lines.append(f"kept {path}: kept at Claude Code's exit prompt")
-        elif remover.retire(path) == "kept":
-            remaining.append(entry)
-    return remaining
-
-
-def locked(path: Path) -> bool:
-    main = wr.main_checkout(path)
-    return bool(main) and any(e["path"] == path.resolve() and e["locked"] for e in wr.worktrees(main))
+    return not result.returncode

@@ -30,7 +30,7 @@ cp "$repo/.agents/workloop.py" "$repo/.agents/workloop_git.py" "$repo/.agents/wo
    "$repo/.agents/provision.sh" "$R/.agents/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$R/.agents/claude/"
 mkdir -p "$R/.claude/hooks" && ln -s ../../.agents/claude/adapter.sh "$R/.claude/hooks/adapter.sh"
-printf '.agents/\n.claude/\n*.log\n' > "$R/.gitignore"
+printf '.agents/\n.claude/\n*.log\nnode_modules/\n' > "$R/.gitignore"
 printf 'one\n' > "$R/src/app.txt"
 git -C "$R" init -q -b main
 git -C "$R" add .gitignore src
@@ -135,13 +135,20 @@ printf 'two\n' > "$scratch/wt-dirty/src/app.txt"
 printf 'new\n' > "$scratch/wt-dirty/src/untracked.txt"
 printf 'noise\n' > "$scratch/wt-dirty/build.log"
 printf 'lane work\n' > "$lane/src/lane.txt"
-for name in locked claude-dead claude-live busy here nested ignored-nested; do bash_call "$R" "git worktree add -q ../wt-$name -b $name"; done
+for name in locked claude-dead claude-live agent-dead agent-live busy here nested ignored-nested nm-nested skip bisect; do
+  bash_call "$R" "git worktree add -q ../wt-$name -b $name"
+done
+git init -q "$scratch/wt-nm-nested/node_modules/vendored"
+git -C "$scratch/wt-skip" update-index --skip-worktree src/app.txt && printf 'hidden edit\n' > "$scratch/wt-skip/src/app.txt"
+git -C "$scratch/wt-bisect" bisect start -q 2>/dev/null || git -C "$scratch/wt-bisect" bisect start >/dev/null
 git -C "$R" worktree lock "$scratch/wt-locked" --reason "keep for review"
 sleep 300 >/dev/null 2>&1 & gone=$!
 gone_start="$(utc_start "$gone")"; kill "$gone"; wait "$gone" 2>/dev/null || true
 git -C "$R" worktree lock "$scratch/wt-claude-dead" --reason "claude session claude-dead (pid $gone start $gone_start)"
 sleep 300 >/dev/null 2>&1 & sleepers+=($!)
 git -C "$R" worktree lock "$scratch/wt-claude-live" --reason "claude session claude-live (pid ${sleepers[0]} start $(utc_start "${sleepers[0]}"))"
+git -C "$R" worktree lock "$scratch/wt-agent-dead" --reason "claude agent ag1 (pid $gone)"
+git -C "$R" worktree lock "$scratch/wt-agent-live" --reason "claude agent ag2 (pid ${sleepers[0]})"
 (cd "$scratch/wt-busy" && exec sleep 120) >/dev/null 2>&1 & sleepers+=($!)
 git init -q "$scratch/wt-nested/vendor"
 mkdir -p "$scratch/wt-ignored-nested/deps.log" && git init -q "$scratch/wt-ignored-nested/deps.log/inner"
@@ -177,6 +184,15 @@ ok "a worktree this session made in another repository goes at its end; that rep
 [[ -d "$scratch/wt-claude-live" && "$report" == *"kept $scratch/wt-claude-live: it is locked (claude session"* ]] || fail "a running session's Claude lock keeps it: $report"
 [[ -d "$scratch/wt-locked" && "$report" == *"kept $scratch/wt-locked: it is locked (keep for review)"* ]] || fail "a locked worktree must stay: $report"
 ok "Claude Code's session lock keeps a worktree only while its session runs; any other lock keeps it"
+[[ ! -e "$scratch/wt-agent-dead" ]] || fail "Claude Code's agent lock of a dead process must not keep its worktree: $report"
+[[ -d "$scratch/wt-agent-live" && "$report" == *"kept $scratch/wt-agent-live: it is locked (claude agent ag2"* ]] || fail "a live agent lock keeps it: $report"
+ok "Claude Code's 'claude agent <id> (pid N)' lock is read like its session lock"
+[[ "$(git -C "$scratch/wt-skip" show HEAD:src/app.txt)" == one && "$(cat "$scratch/wt-skip/src/app.txt")" == "hidden edit" ]] || fail "a skip-worktree edit must survive: $report"
+[[ "$report" == *"kept $scratch/wt-skip: it holds skip-worktree or assume-unchanged files"* ]] || fail "the skip-worktree worktree must be named: $report"
+[[ -d "$scratch/wt-bisect" && "$report" == *"kept $scratch/wt-bisect: a BISECT_LOG operation is in progress"* ]] || fail "a bisect in progress must keep its worktree: $report"
+ok "a worktree with hidden index flags or an operation in progress stays: a save cannot carry them"
+[[ ! -e "$scratch/wt-nm-nested" ]] || fail "a repository inside node_modules must not keep its worktree: $report"
+ok "the nested-repository walk skips rebuildable folders"
 [[ -d "$scratch/wt-busy" && "$report" == *"kept $scratch/wt-busy: process ${sleepers[1]} is working in it"* ]] || fail "a busy worktree must stay: $report"
 [[ -d "$scratch/wt-nested/vendor/.git" && "$report" == *"kept $scratch/wt-nested: it holds a nested repository"* ]] || fail "a nested repository must keep its worktree: $report"
 [[ -f "$scratch/wt-ignored-nested/deps.log/inner/file.txt" && "$report" == *"kept $scratch/wt-ignored-nested: it holds a nested repository"* ]] \
@@ -194,7 +210,8 @@ ok "a missing lsof keeps the worktree rather than reading it empty"
 
 # ── EnterWorktree at /exit: the answer to Claude Code's prompt stands ───────
 rm -f "$records"/s1.jsonl
-for name in kept answered-none; do
+# Entered in this order; Claude Code asks keep-or-remove only for the last.
+for name in left-earlier answered-none kept; do
   calls=$((calls + 1))
   tool PreToolUse "$R" EnterWorktree "{\"name\":\"$name\"}"
   git -C "$R" worktree add -q "$R/.claude/worktrees/$name" -b "worktree-$name"
@@ -208,9 +225,10 @@ end_session prompt_input_exit
   || fail "a worktree the operator kept at the exit prompt must stay: $report"
 [[ ! -e "$R/.claude/worktrees/answered-none" ]] || fail "one still under this session's own lock was never answered for, so it goes: $report"
 [[ "$(recorded "$R/.claude/worktrees/kept")" == 0 ]] || fail "the kept worktree's record must go"
-ok "after /exit, a worktree kept at Claude Code's prompt stays; one under the ending session's own lock goes"
+[[ ! -e "$R/.claude/worktrees/left-earlier" ]] || fail "an earlier worktree the session left, unlocked, was never answered for: $report"
+ok "after /exit, the last worktree entered and kept at Claude Code's prompt stays; earlier ones and one under the ending session's own lock go"
 
-# ── /clear ends the conversation's worktrees; a live writer keeps its run ──
+# ── /clear ends the conversation's worktrees; an unsubmitted lane keeps its run
 bash_call "$R" "$wl init t2 --objective o --acceptance a --repo $R"
 bash_call "$R" "$wl add-lane t2 l2 --worker w --path src"
 $wl claim t2 l2 --agent cellA >/dev/null
@@ -218,12 +236,52 @@ printf 'cellA\tgeneral-purpose\tp1\n' > "$R/.agents/.writers-live-s1"
 bash_call "$R" 'git worktree add -q ../wt-clear -b clear'
 end_session clear
 [[ ! -e "$scratch/wt-clear" ]] || fail "/clear must end the conversation's worktrees: $report"
-[[ -d "$R/.agents/worktrees/t2/l2" && "$report" == *"kept workloop run t2: lane l2's writer cell cellA is still live"* ]] || fail "a live writer keeps its run: $report"
-grep -q '"type": "ended"' "$records/s1.jsonl" || fail "what stays must be marked ended for the next sweep"
+[[ -d "$R/.agents/worktrees/t2/l2" && "$report" == *"kept workloop run t2: lane l2 is active, not yet submitted"* ]] || fail "an unsubmitted lane keeps its run: $report"
 rm "$R/.agents/.writers-live-s1"
 sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s9 "$R/.agents/workloop.py")"
-[[ ! -e "$R/.agents/worktrees/t2/l2" && "$sweep_out" == *"closed workloop run t2"* ]] || fail "the next sweep must take the run once the cell ended: $sweep_out"
-ok "/clear ends the conversation's worktrees; a run with a live writer stays until the next sweep after it"
+[[ -d "$R/.agents/worktrees/t2/l2" ]] || fail "while the session's process lives, the sweep must leave the run: $sweep_out"
+python3 - "$records/s1.jsonl" "$gone" "$gone_start" <<'PY'
+import json, sys
+path, pid, start = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+lines = [json.loads(line) for line in open(path) if line.strip()]
+open(path, "w").write("".join(json.dumps(dict(e, host=[pid, start]), sort_keys=True) + "\n" for e in lines))
+PY
+sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s9 "$R/.agents/workloop.py")"
+[[ ! -e "$R/.agents/worktrees/t2/l2" && "$sweep_out" == *"closed workloop run t2"* ]] || fail "the first sweep after the process exits must take the run: $sweep_out"
+ok "/clear ends the conversation's worktrees; a run with an unsubmitted lane stays until its process exits, with no read of the writers list"
+
+# ── Codex and Kimi record through their own adapters ────────────────────────
+mkdir -p "$R/.agents/codex" "$R/.codex/hooks" "$R/.kimi/hooks"
+cp "$repo/.agents/codex/adapter.sh" "$repo/.agents/codex/normalize-hook.py" "$R/.agents/codex/"
+ln -s ../../.agents/codex/adapter.sh "$R/.codex/hooks/adapter.sh"
+cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$R/.kimi/hooks/"
+host_call() {  # <host> <session> <command> [tool_use_id]: PreToolUse, the command, PostToolUse
+  local input; input="{\"command\":$(json "$3")}"
+  for event in PreToolUse PostToolUse; do
+    [[ "$event" == PostToolUse ]] && { (cd "$R" && eval "$3") >/dev/null 2>&1 || true; }
+    printf '{"hook_event_name":"%s","cwd":"%s","session_id":"%s","tool_name":"Bash","tool_input":%s%s}' \
+      "$event" "$R" "$2" "$input" "${4:+,\"tool_use_id\":\"$4\"}" | (cd "$R" && bash "$R/.$1/hooks/adapter.sh" teardown-gate.sh) >/dev/null 2>&1 || true
+  done
+}
+host_call codex cx1 'git worktree add -q ../wt-codex -b codex' call-c1
+host_call codex cx1 "$wl init t3 --objective o --acceptance a --repo $R" call-c2
+host_call kimi km1 'git worktree add -q ../wt-kimi -b kimi'
+host_call kimi km1 "$wl init t4 --objective o --acceptance a --repo $R"
+[[ "$(grep -c "\"path\": \"$scratch/wt-codex\"" "$records/cx1.jsonl" 2>/dev/null)" == 1 ]] || fail "Codex must record git worktree add once: $(cat "$records"/cx1.jsonl 2>&1)"
+[[ "$(grep -c '"run": "t3"' "$records/cx1.jsonl")" == 1 ]] || fail "Codex must record workloop.py init once"
+[[ "$(grep -c "\"path\": \"$scratch/wt-kimi\"" "$records/km1.jsonl" 2>/dev/null)" == 1 ]] || fail "Kimi must record git worktree add once: $(cat "$records"/km1.jsonl 2>&1)"
+[[ "$(grep -c '"run": "t4"' "$records/km1.jsonl")" == 1 ]] || fail "Kimi must record workloop.py init once"
+ok "Codex and Kimi record git worktree add and workloop.py init once each, through their adapters"
+python3 - "$repo/.agents/codex/hooks.json" "$repo/.kimi/config.toml.example" <<'PY' || fail "Codex and Kimi must register teardown-gate.sh on PreToolUse for Bash"
+import json, re, sys
+codex = json.load(open(sys.argv[1]))["hooks"].get("PreToolUse", [])
+in_codex = any(group.get("matcher") == "Bash" and any(h["command"].endswith('adapter.sh\\" teardown-gate.sh') or
+               h["command"].endswith('adapter.sh" teardown-gate.sh') for h in group["hooks"]) for group in codex)
+blocks = re.split(r"^\[\[hooks\]\]", open(sys.argv[2]).read(), flags=re.M)
+in_kimi = any('event = "PreToolUse"' in b and 'matcher = "Bash"' in b and "teardown-gate.sh" in b for b in blocks)
+sys.exit(not (in_codex and in_kimi))
+PY
+ok "Codex and Kimi register the snapshot PreToolUse"
 
 # ── a failed save stops the removal ──────────────────────────────────────────
 git -C "$R" config user.useConfigOnly true
