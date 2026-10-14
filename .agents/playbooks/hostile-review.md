@@ -92,7 +92,7 @@ After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
 
 A multi-lane wave gets one review round, over every lane's diff from the start
-point its reviewer brief prints, and one report with a section per lane that
+point its reviewer brief names, and one report with a section per lane that
 each lane's `workloop review` cites; at critical stakes each axis reviewer reads
 every lane. The controller refuses to reopen a lane for a `P2`, and a lane's
 fourth submission without the operator's ruling.
