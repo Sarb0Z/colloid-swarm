@@ -437,6 +437,26 @@ git -C "$gitdir" worktree remove "$scratch/wt-b"
 stop; [[ $rc -eq 0 && ! -e "$pending" ]] || fail "removing the last worktree must clear the record: $(cat "$pending" 2>/dev/null)"
 ok "a worktree waits for a push, then blocks once, and clears when its path is gone"
 
+# ── each stop judges only what its own agent started ────────────────────────
+rm -f "$pending"
+sh 'npm run dev' true >/dev/null
+cell_call() {  # <agent_id> <event> [command]
+  set +e
+  err="$(printf '{"project_dir":"%s","event":"%s","session_id":"s1","agent_id":"%s","tool_name":"Bash","tool_input":{"command":"%s","run_in_background":true},"stop_hook_active":false}' \
+    "$dir" "$2" "$1" "${3:-}" | bash "$gate" 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+}
+cell_call cell-x Stop
+[[ $rc -eq 0 ]] || fail "the lead's dev server must not block a cell's stop (rc=$rc): $err"
+cell_call cell-x PostToolUse 'npm run dev'
+cell_call cell-x Stop
+[[ $rc -eq 2 && "$err" == *"[server]"* ]] || fail "a cell's own server must block its stop (rc=$rc): $err"
+grep -qx '#blocked' "$pending" && fail "a cell's stop must not spend the lead's block"
+stop; [[ $rc -eq 2 && "$err" == *"[server]"* ]] || fail "the lead's own server must still block the lead's stop (rc=$rc): $err"
+rm -f "$pending"
+ok "a cell's stop judges only its own entries; the lead's stop still blocks on the lead's"
+
 # ── identity and the config toggle ───────────────────────────────────────────
 [[ -z "$(printf '{"project_dir":"%s","event":"PostToolUse","session_id":"","tool_name":"mcp__playwright__browser_navigate","tool_input":{"url":"http://x"}}' "$dir" | bash "$gate")" ]] \
   || fail "no session id must do nothing"
