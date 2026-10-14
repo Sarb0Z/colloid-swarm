@@ -6,6 +6,8 @@ workloop lane, a WORKSPACE line) — and what that marker lets the cell write.
 Usage: cell_markers.py record <project> <session> <tool_use_id> <marker>
        cell_markers.py decide <repo> <project> <session> <transcript_path> <agent_id>
        cell_markers.py marked <project> <session> <transcript_path> <agent_id>
+       cell_markers.py sweep <project> <session> <transcript_path> <agent_id>...
+       cell_markers.py resumed <session> <transcript_path> <agent_id>:<offset>...
 
 The parallel-writers gate sees a marker once, at dispatch (PreToolUse on the
 Agent tool, which carries the prompt and a `tool_use_id`), but must enforce it
@@ -32,9 +34,30 @@ takes it off the live writers, and 0 otherwise:
   OUTSIDE    denied when any target belongs to the checkout
              (write_targets.in_checkout: a nested lane worktree does not).
 
-`marked` exits 3 when the cell carries a marker and 0 otherwise, unreadable
-metadata included; the gate asks it when a registered cell stops before its
-first write.
+`marked` exits 3 when the cell carries a marker, 0 when it carries none and 4
+when its metadata cannot be read; the gate asks it when a registered cell stops
+or dies. With no marked dispatch recorded this session every cell is unmarked
+and no metadata is read.
+
+`sweep` names, of the live writers given, each that no longer counts, one
+`<agent_id> <reason>` line apiece, and says nothing of the rest:
+  marked            alive, and its metadata now links it to a marker. The
+                    metadata does not exist yet at SubagentStart (2.1.299), so a
+                    marked cell sharing a writer's type registers there.
+  ended-<status>    its own transcript, `agent-<agent_id>.jsonl` beside the
+                    metadata, shows it ended without a SubagentStop: the last
+                    user or assistant record is `[Request interrupted by user…`
+                    (a TaskStop, or the user's Esc while it ran in the
+                    foreground, which fires no hook at all). <status> is what
+                    `marked` would report. An API-error record is no ending: a
+                    cell may recover from one and keep working.
+A missing transcript is not an ending; an unreadable one is reported on stderr
+and the cell stays live.
+
+`resumed` takes `<agent_id>:<offset>` pairs, each a cell that left the live
+writers and the size its transcript had then, and prints each cell whose
+transcript past that offset holds a user or assistant record that is neither
+an API error nor an interruption: the cell is working again.
 """
 
 import json
@@ -48,6 +71,9 @@ import write_targets  # noqa: E402
 
 MARKERS = ("READ-ONLY", "NOTES-ONLY", "OUTSIDE")
 MARKED = 3
+UNKNOWN = 4
+INTERRUPTED = "[Request interrupted by user"
+TAIL_BLOCK = 65536
 
 READ_ONLY_DENIAL = (
     "This cell was dispatched READ-ONLY, so it writes nothing, wherever the target is. Return the content as "
@@ -70,8 +96,12 @@ def ledger(project, session):
     return os.path.join(project, ".agents", f".cell-markers-{session}")
 
 
+def cell_file(transcript_path, session, agent_id, suffix):
+    return os.path.join(os.path.dirname(transcript_path), session, "subagents", f"agent-{agent_id}{suffix}")
+
+
 def meta_path(transcript_path, session, agent_id):
-    return os.path.join(os.path.dirname(transcript_path), session, "subagents", f"agent-{agent_id}.meta.json")
+    return cell_file(transcript_path, session, agent_id, ".meta.json")
 
 
 def record(project, session, tool_use_id, marker):
@@ -113,11 +143,115 @@ def marker_of(project, session, transcript_path, agent_id):
     return "unmarked"
 
 
+def last_turn(path):
+    """The cell transcript's last user or assistant record, read backwards from
+    the end; None when there is none. Attachment and system records carry no
+    progress, so they are skipped."""
+    with open(path, "rb") as source:
+        source.seek(0, os.SEEK_END)
+        position = source.tell()
+        tail = b""
+        last = True
+        while position > 0:
+            step = min(TAIL_BLOCK, position)
+            position -= step
+            source.seek(position)
+            tail = source.read(step) + tail
+            lines = tail.split(b"\n")
+            # The first piece may be a partial line unless the file's start was read.
+            complete = lines if position == 0 else lines[1:]
+            for raw in reversed(complete):
+                if not raw.strip():
+                    continue
+                was_last, last = last, False
+                try:
+                    record = json.loads(raw)
+                except ValueError:
+                    if was_last:
+                        return None  # a record still being written: the cell is at work
+                    continue
+                if isinstance(record, dict) and record.get("type") in ("user", "assistant"):
+                    return record
+            tail = lines[0] if position else b""
+    return None
+
+
+def is_interruption(record):
+    if record.get("type") != "user":
+        return False
+    content = (record.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content.startswith(INTERRUPTED)
+    return isinstance(content, list) and any(
+        isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").startswith(INTERRUPTED)
+        for part in content)
+
+
+def resumed(session, transcript_path, pairs):
+    """The agent ids, of `<agent_id>:<offset>` pairs, whose transcript shows
+    progress past the offset."""
+    found = []
+    for pair in pairs:
+        agent_id, _, offset = pair.partition(":")
+        path = cell_file(transcript_path, session, agent_id, ".jsonl")
+        try:
+            with open(path, "rb") as source:
+                source.seek(int(offset))
+                added = source.read()
+        except (OSError, ValueError) as error:
+            print(f"cell_markers.py: {path} cannot be read past {offset} ({error}); {agent_id} stays off the live writers.",
+                  file=sys.stderr)
+            continue
+        for raw in added.split(b"\n"):
+            try:
+                record = json.loads(raw)
+            except ValueError:
+                continue  # a partial line, at either end of what was added
+            if (isinstance(record, dict) and record.get("type") in ("user", "assistant")
+                    and record.get("isApiErrorMessage") is not True and not is_interruption(record)):
+                found.append(agent_id)
+                break
+    return found
+
+
+def sweep(project, session, transcript_path, agent_ids):
+    """(agent_id, reason) for each live writer that no longer counts."""
+    found = []
+    for agent_id in agent_ids:
+        state = status(project, session, transcript_path, agent_id)
+        path = cell_file(transcript_path, session, agent_id, ".jsonl")
+        try:
+            record = last_turn(path)
+        except FileNotFoundError:
+            # Claude Code writes the transcript asynchronously, so a cell that
+            # has just started may have none yet.
+            record = None
+        except OSError as error:
+            print(f"cell_markers.py: {path} cannot be read ({error.strerror}); {agent_id} stays live.", file=sys.stderr)
+            record = None
+        if record is not None and is_interruption(record):
+            found.append((agent_id, f"ended-{state}"))
+        elif state == "marked":
+            found.append((agent_id, "marked"))
+    return found
+
+
+def status(project, session, transcript_path, agent_id):
+    """marked, unmarked or unknown. With no marked dispatch recorded this
+    session every cell is unmarked, and no metadata is read."""
+    if not os.path.exists(ledger(project, session)):
+        return "unmarked"
+    marker = marker_of(project, session, transcript_path, agent_id)
+    return "marked" if marker in MARKERS else marker
+
+
 def registered(project, session, agent_id):
-    """True when the cell is on the gate's live writers."""
+    """True when the cell is on the gate's live writers; a line with a `gone`
+    column records a cell that left them."""
     try:
         with open(os.path.join(project, ".agents", f".writers-live-{session}"), encoding="utf-8") as source:
-            return any(line.split("\t")[0] == agent_id for line in source.read().splitlines())
+            return any(line.split("\t")[0] == agent_id and "gone" not in line.split("\t")[3:4]
+                       for line in source.read().splitlines())
     except FileNotFoundError:
         return False
 
@@ -165,10 +299,20 @@ def main(argv):
         print(reason, end="")
         return MARKED if marked else 0
     if command == "marked" and len(argv) == 6:
-        return MARKED if marker_of(*argv[2:]) in MARKERS else 0
+        return {"marked": MARKED, "unmarked": 0, "unknown": UNKNOWN}[status(*argv[2:])]
+    if command == "sweep" and len(argv) >= 6:
+        for agent_id, reason in sweep(argv[2], argv[3], argv[4], argv[5:]):
+            print(f"{agent_id}\t{reason}")
+        return 0
+    if command == "resumed" and len(argv) >= 5:
+        for agent_id in resumed(argv[2], argv[3], argv[4:]):
+            print(agent_id)
+        return 0
     raise SystemExit("cell_markers.py: usage: cell_markers.py record <project> <session> <tool_use_id> <marker> | "
                      "decide <repo> <project> <session> <transcript_path> <agent_id> | "
-                     "marked <project> <session> <transcript_path> <agent_id>")
+                     "marked <project> <session> <transcript_path> <agent_id> | "
+                     "sweep <project> <session> <transcript_path> <agent_id>... | "
+                     "resumed <session> <transcript_path> <agent_id>:<offset>...")
 
 
 if __name__ == "__main__":

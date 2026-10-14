@@ -79,11 +79,19 @@ def normalize(payload, policy, repo):
         # PostToolUse output, but the recording it does is a file write, so the
         # Stop block still sees everything the session started.
         event = payload.get("hook_event_name", "")
-        out["event"] = "Stop" if event in ("Stop", "SubagentStop") else "PostToolUse"
+        # PreToolUse snapshots what exists before a call that may make a worktree.
+        out["event"] = "Stop" if event in ("Stop", "SubagentStop") else event if event == "PreToolUse" else "PostToolUse"
         out["session_id"] = payload.get("session_id", "")
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
+        out["cwd"] = payload.get("cwd") or ""
+        out["tool_use_id"] = payload.get("tool_use_id") or ""
+        out["agent_id"] = payload.get("agent_id") or ""
+    elif policy == "session-end.sh":
+        out["session_id"] = payload.get("session_id", "")
+        out["reason"] = payload.get("reason", "")
+        out["cwd"] = payload.get("cwd") or ""
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "") or "auto"
     return out
