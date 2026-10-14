@@ -43,7 +43,15 @@ def canonical_reference(value: str, roots: list[Path]) -> str:
         target = Path(file_name).resolve()
         if not target.is_file():
             fail(f"review reference must name an existing file: {value!r}")
-        return str(target) + ("#" + anchor if separator else "")
+        suffix = "#" + anchor if separator else ""
+        # Inside a root it is the repository's own file, which the lane's
+        # diff and dirty checks match by repository-relative path.
+        for root in roots:
+            try:
+                return str(target.relative_to(root.resolve())) + suffix
+            except ValueError:
+                continue
+        return str(target) + suffix
     normalized = normalize_path(file_name)
     for root in roots:
         candidate = (root / normalized).resolve()

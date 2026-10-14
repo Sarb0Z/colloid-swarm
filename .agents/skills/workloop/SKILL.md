@@ -63,7 +63,8 @@ owned paths, and the working practice to `<lane worktree>/.workloop/BRIEF.md`
 (`BRIEF-reviewer.md` and `BRIEF-qa.md` for those roles; git ignores the folder,
 and every `brief` call rewrites the file, so a widened lane gets a current one).
 It prints a dispatch prompt: the header line, then one line naming that file for
-the cell to read first. Paste the prompt unchanged as the cell's prompt, and
+the cell to read first. `brief` writes into the lane's worktree, so it needs
+one: it fails after `teardown` or a failed `add-lane`. Paste the prompt unchanged as the cell's prompt, and
 append the lane's own objective, its contract, what it returns and when it
 stops below it, leaving the header line first: the parallel-writers gate
 recognises a lane cell by that line. A cell outside a run gets a brief you write: paste
