@@ -217,8 +217,8 @@ nfire() {
   local args=(--arg project_dir "$nf" --arg session_id s2 --arg transcript_path "$transcripts/main.jsonl") pair
   for pair in "$@"; do args+=(--arg "${pair%%=*}" "${pair#*=}"); done
   jq -nc "${args[@]}" '$ARGS.named
-    | .tool_input = ({subagent_type, prompt, file_path} | with_entries(select(.value != null)))
-    | del(.subagent_type, .prompt, .file_path)' | env HOME="$home" bash "$ngate" 2>"$scratch/gerr"
+    | .tool_input = ({subagent_type, prompt, file_path, task_id} | with_entries(select(.value != null)))
+    | del(.subagent_type, .prompt, .file_path, .task_id)' | env HOME="$home" bash "$ngate" 2>"$scratch/gerr"
 }
 ndispatch() { nfire event=PreToolUse tool_name=Agent prompt_id="$1" subagent_type="$2" prompt="$3" tool_use_id="$4"; }
 nstart() { nfire event=SubagentStart prompt_id="$3" agent_id="$1" agent_type="$2" >/dev/null; }
@@ -407,6 +407,68 @@ for order in writer-live writer-stopped never-writes; do
   [[ -z "$(ndispatch p17 general-purpose 'change another module' tuw17c)" ]] || fail "$order: a writer was refused after every cell of its turn stopped"
 done
 ok "a marked cell that starts before its turn's writer leaves the writer pending exactly until it starts, in every order"
+
+# --- dead cells stop counting ---------------------------------------------------
+# Claude Code 2.1.299 fires SubagentStop only on a normal finish. A cell's API
+# error or usage limit fires StopFailure with its agent_id; a TaskStop fires
+# PostToolUse in the caller; the user's Esc on a foreground cell fires nothing
+# and leaves an interruption as the last record of the cell's transcript.
+cell_log() {  # <agent_id> <last record kind: interrupted|api-error|working>
+  mkdir -p "$subagents"
+  {
+    printf '{"type":"user","agentId":"%s","message":{"role":"user","content":"change the module"}}\n' "$1"
+    printf '{"type":"assistant","agentId":"%s","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]}}\n' "$1"
+    case "$2" in
+      interrupted) printf '{"type":"user","agentId":"%s","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"rejected"}]}}\n' "$1"
+                   printf '{"type":"attachment","agentId":"%s","attachment":{"type":"prompt_snapshot"}}\n' "$1"
+                   printf '{"type":"user","agentId":"%s","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}\n' "$1" ;;
+      api-error) printf '{"type":"assistant","agentId":"%s","isApiErrorMessage":true,"error":"rate_limit","message":{"role":"assistant","content":[{"type":"text","text":"API Error: Rate limit reached"}]}}\n' "$1" ;;
+      working) printf '{"type":"attachment","agentId":"%s","attachment":{"type":"todo"}}\n' "$1" ;;
+    esac
+  } > "$subagents/agent-$1.jsonl"
+}
+for death in StopFailure TaskStop interrupted api-error; do
+  reset
+  [[ -z "$(ndispatch p40 general-purpose 'change the module' tuw40)" ]] || fail "$death: the writer was refused"
+  meta w40 tuw40; nstart w40 general-purpose p40; cell_log w40 working
+  case "$death" in
+    StopFailure) nfire event=StopFailure agent_id=w40 agent_type=general-purpose error=rate_limit >/dev/null ;;
+    TaskStop) nfire event=PostToolUse tool_name=TaskStop prompt_id=p40 task_id=w40 >/dev/null ;;
+    *) cell_log w40 "$death" ;;
+  esac
+  [[ -z "$(nlead p41 "$nf/src/x.py")" ]] || fail "$death: a dead writer still held the lead's edit"
+  [[ -z "$(ndispatch p41 general-purpose 'change another module' tuw41)" ]] || fail "$death: a dead writer still blocked the next writer"
+done
+ok "a writer that dies of an API error or usage limit, is stopped by TaskStop, or is interrupted by the user stops counting"
+
+reset
+[[ -z "$(ndispatch p42 implementer 'change the module' tuw42)" ]] || fail "the writer was refused"
+meta w42 tuw42; nstart w42 implementer p42; cell_log w42 working
+nfire event=StopFailure agent_type=main error=rate_limit >/dev/null
+nfire event=PostToolUse tool_name=TaskStop prompt_id=p42 task_id=bash-task-9 >/dev/null
+out="$(ndispatch p43 mechanic 'change another module' tuw43)"
+denied "$out" && [[ "$out" == *"still live: w42 (implementer)"* && "$out" == *"TaskStop"* ]] \
+  || fail "a working writer stopped counting, or the denial does not say what was checked and who is live ($out)"
+denied "$(nlead p43 "$nf/src/x.py")" || fail "a working writer stopped holding the lead's edit"
+ok "a working writer, the lead's own StopFailure and a TaskStop of another task leave the writer live; the denial names it and what was checked"
+
+# --- a marked cell working only through its shell -------------------------------
+for marker in READ-ONLY 'WORKSPACE:'; do
+  reset
+  mkdir -p "$scratch/copy-a"
+  prompt="$marker look around"; [[ "$marker" == WORKSPACE: ]] && prompt="build it
+WORKSPACE: $scratch/copy-a"
+  [[ -z "$(ndispatch p44 general-purpose 'change the module' tuw44)" ]] || fail "$marker: the writer was refused"
+  [[ -z "$(ndispatch p44 general-purpose "$prompt" tum44)" ]] || fail "$marker: the marked dispatch was refused"
+  meta w44 tuw44; meta m44 tum44
+  nstart m44 general-purpose p44; nstart w44 general-purpose p44
+  [[ "$(live_lines)" -eq 2 ]] || fail "$marker: expected both cells registered at start, got $(live_lines)"
+  nstop w44 general-purpose
+  [[ -z "$(nlead p45 "$nf/src/x.py")" ]] || fail "$marker: a marked cell that never wrote held the lead's edit after the writer stopped"
+  [[ "$(live_lines)" -eq 0 ]] || fail "$marker: the marked cell stayed a live writer"
+  [[ -z "$(ndispatch p45 general-purpose 'change another module' tuw45)" ]] || fail "$marker: a marked cell that never wrote blocked the next writer"
+done
+ok "a marked cell that never writes leaves the live writers once its metadata names its marker"
 
 # --- long turns ---------------------------------------------------------------
 # One turn runs two writers of a type one after the other; a WORKSPACE cell of
