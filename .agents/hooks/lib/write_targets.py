@@ -39,12 +39,10 @@ def under(path, root):
 def in_checkout(path, root):
     """True when the real path `path` belongs to the checkout at real path `root`.
 
-    The nearest Git working tree above the path decides, so a path under a
-    workloop lane nested at `.agents/worktrees/<run>/<lane>`, or under any other
-    worktree or clone nested in the checkout, belongs to that tree. A submodule
-    is the exception: Git names it part of its superproject, and a writer in
-    the checkout edits it, so it stays the checkout's. A path that does not
-    exist yet is read from its nearest existing folder.
+    A path under a worktree of this repository nested in the checkout, a
+    workloop lane at `.agents/worktrees/<run>/<lane>`, belongs to that worktree;
+    every other nested tree stays the checkout's (see `_tree_belongs`). A path
+    that does not exist yet is read from its nearest existing folder.
     """
     if not under(path, root):
         return False
@@ -90,13 +88,16 @@ def _common_dir(root):
 
 
 def _tree_belongs(folder, root):
-    """Whether the working tree holding `folder` is the checkout's or a submodule of it.
+    """Whether the working tree holding `folder` is the checkout's.
 
     Asked once per folder per process: the gate is one process per tool call.
-    A worktree of this repository, a workloop lane, is told apart in one Git
-    call; only a nested tree of another repository asks whether it is a
-    submodule, which costs Git a second process. Whatever Git cannot answer is
-    the checkout's, so the gate fails closed.
+    Only a worktree of this repository nested in the checkout, a workloop lane
+    or a `.claude/worktrees` session, is its own: it shares the checkout's Git
+    directory, so a lane is told apart in one Git call. Any other nested tree
+    stays the checkout's: a submodule, which a writer in the checkout edits,
+    and a repository someone ran `git init` in, which may cover files the
+    checkout tracks and would otherwise let a second writer through. Whatever
+    Git cannot answer is the checkout's too, so the gate fails closed.
     """
     if folder in _TREES:
         return _TREES[folder]
@@ -104,16 +105,7 @@ def _tree_belongs(folder, root):
     lines = _git_lines(folder, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
     if lines and len(lines) == 2:
         top = os.path.realpath(lines[0])
-        if top != root and under(top, root):
-            if os.path.realpath(lines[1]) == _common_dir(root):
-                belongs = False
-            else:
-                superproject = _git_lines(top, "rev-parse", "--show-superproject-working-tree")
-                if superproject == []:
-                    belongs = False
-                elif superproject:
-                    parent = os.path.realpath(superproject[0])
-                    if parent != root and under(parent, root):
-                        belongs = _tree_belongs(parent, root)
+        if top != root and under(top, root) and os.path.realpath(lines[1]) == _common_dir(root):
+            belongs = False
     _TREES[folder] = belongs
     return belongs
