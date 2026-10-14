@@ -31,6 +31,10 @@
 #   - The work log (hooks.worklog, off by default): the procedure in
 #     .agents/playbooks/worklog.md and today's file, or why the configured
 #     folder was refused (hooks/lib/worklog.py).
+#   - Worktrees (hooks.teardown_gate): the sweep of sessions that ended without
+#     session-end.sh and of worktrees idle 24 hours that no record names, what
+#     it removed or kept, each `saved/` branch, and workloop runs with no
+#     recorded lead (hooks/lib/worktree_records.py).
 
 set -euo pipefail
 
@@ -38,9 +42,10 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 lib="$repo/.agents/hooks/lib"
 
 switches="$(python3 "$lib/config.py" "$repo/.agents/config.json" \
-  hooks.session_start.enabled=true hooks.learning_output_style.enabled=true)"
+  hooks.session_start.enabled=true hooks.learning_output_style.enabled=true hooks.teardown_gate.enabled=true)"
 session_start_enabled="$(printf '%s\n' "$switches" | sed -n '1p')"
 learning_enabled="$(printf '%s\n' "$switches" | sed -n '2p')"
+teardown_enabled="$(printf '%s\n' "$switches" | sed -n '3p')"
 worklog="$(python3 "$lib/worklog.py" "$repo")" || { echo "session-start: the work-log folder could not be resolved; no work-log context this session" >&2; worklog="off"; }
 worklog_status="$(printf '%s\n' "$worklog" | sed -n '1p')"
 worklog_detail="$(printf '%s\n' "$worklog" | sed -n '2p')"
@@ -96,6 +101,17 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
          "$proj/.agents/.writers-kinds-$writers_session" \
          "$proj/.agents/.writers-lock-$writers_session" "$proj/.agents/.cells-$writers_session" \
          "$proj/.agents/.cell-markers-$writers_session" 2>/dev/null || true
+fi
+
+# Worktrees end with the session that made them (worktree_records.py). Sessions
+# that never reached session-end.sh — killed, or on a host with no such event —
+# are swept here once their process is gone, along with worktrees no record
+# names that sat idle 24 hours. Every source sweeps: a resumed session keeps
+# its own records and only the others' are judged.
+worktree_digest=""
+if [[ "$teardown_enabled" == "yes" && -f "$lib/worktree_records.py" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  worktree_digest="$(python3 "$lib/worktree_records.py" sweep "$proj" "${session_id:-}" "$repo/.agents/workloop.py")" \
+    || { echo "session-start: the worktree sweep failed; worktrees of ended sessions stay until the next start" >&2; worktree_digest=""; }
 fi
 
 items=""
@@ -176,7 +192,7 @@ if [[ "$worklog_status" == "ok" && -f "$worklog_playbook" ]]; then
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -257,6 +273,12 @@ EOF
     section
     echo "Workloop runs in flight (.agents/.workloop-state.json — lanes, messages, and gates a lead owns):"
     printf '%s\n' "$workloop_digest"
+  fi
+
+  if [[ -n "$worktree_digest" ]]; then
+    section
+    echo "Worktrees end with the session that made them (hooks/lib/worktree_records.py; \`git worktree lock <path>\` keeps one):"
+    printf '%s\n' "$worktree_digest"
   fi
 
   if [[ -n "$open" ]]; then
