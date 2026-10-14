@@ -172,6 +172,7 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 21 | Where cells' time goes | Addressed in this redesign and measured in its QA; a gate on shell file writes waits on that measure | this spec |
 | 22 | `EnterWorktree` worktrees, which Claude Code locks | Removed after their session unless the operator answered "keep" at Claude Code's exit prompt; any other lock keeps a worktree | `worktrees-end-with-their-session` |
 | 23 | Does `/clear` end a session | Yes: `/clear` and `/resume` end the old conversation's worktrees and runs as an exit does | `worktrees-end-with-their-session` |
+| 24 | How large a lane may grow | One behaviour per lane, by language; `workloop.py` warns in the digest when a lane grows past a size, and never refuses | this spec |
 
 ## Design
 
@@ -206,6 +207,18 @@ adds a worktree, an install, a review and a merge (measured 2026-10-13 on this
 machine, real disk: about 6 s and 0.26 GB per lane here, 7 s and 0.24 GB on
 `food-app-core`, 12 s and 0.9 GB on `claims-app`); a bake-off pays every attempt
 in full.
+
+Each lane carries one behaviour, at most one migration, and merges within
+about a day (ruling 24). A part that is riskier than its neighbours, such as
+one that touches what no session recorded, is its own lane, built after the
+parts it rests on are reviewed. Evidence, 2026-10-14: this spec's unit 5 put
+five behaviours in its `worktrees` lane, 1,277 lines with one 810-line
+module, which drew a P0, six P1s and three operator rulings, while its
+two-behaviour `writers` lane, 380 lines, drew two P1s. In `claims-app`, as
+that repository's session reported the same day, packet E5 bundled six leak
+types, a data sync and three migrations: its two lanes' file lists each grew
+past 100 paths into each other's, it took nine review rounds, and A5, A8,
+I2/I4 and F3 merged under it, causing 14 conflicts.
 
 Every brief states: the objective and why; what the cell owns and what it must
 not touch; the contract it builds against, if any; the narrowest acceptance it
@@ -360,6 +373,13 @@ stays in the lead's checkout, where the gate and the digest read it.
 - **Every run's composed test runs**: `check` runs it in the main checkout for
   a main-tree lane and requires a passing `integrate` for worktree lanes.
 - **The digest names QA and `check`** when a run is ready for them.
+- **A lane that grows is named** (ruling 24). The lead's digest warns when a
+  lane's diff from its start point passes 800 changed lines, when it owns
+  more than 15 paths, when it is widened a second time, or when its run has
+  stayed open over a day while its default branch moved. The warning names
+  the lane, the figure, and the remedy: split what remains into a new lane
+  after this one is reviewed. Nothing refuses; file count alone is a weak
+  signal, and a split mid-review repeats reviews already passed.
 - **Provisioning stops walking dependency folders.** `provision.sh`'s lockfile
   search (`nested()`) filters `node_modules`, `.venv`, `target` and `vendor`
   after descending into them; it runs again after every install to hash the
@@ -543,7 +563,8 @@ controller honours.
 5. Frictions in the gate: dead cells, marker at first tool call, long turns;
    worktrees in the teardown gate, removed at the session's end (§8).
 6. The main-tree lane and the one-command one-writer run, every run's composed
-   test, the brief as a dispatch line, review references, the digest.
+   test, the brief as a dispatch line, review references, the digest, and
+   the lane-size warning with the one-behaviour line in the shape guide.
 7. Read-only cells in runs (`add-cell`, `returned`, `check`), and D3's
    second sentence in the root.
 8. Shared files (`share`, `--rebuild`).
@@ -570,6 +591,10 @@ operations before adding commands to it.
   and `add-lane` and recorded; a clean one removed at session end; a dirty one
   saved to its branch, then removed; a dead session's swept at the next start;
   an unrecorded one idle 24 hours saved and removed; a locked one and one active today untouched.
+- Lane size: a test per case — a lane past 800 changed lines, one owning
+  more than 15 paths, one widened twice, and a run open over a day behind a
+  moved default branch each named in the digest with the split remedy; a lane
+  under every limit not named; no command refused.
 - Cells' time (§9), in two parts:
   - In the three Claude headline sessions, every cell, by `cell-time.py`: no
     blind wait runs; no command's execution time passes its Bash timeout; no
