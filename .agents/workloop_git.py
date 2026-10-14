@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Git, provisioning, and composition steps behind workloop.py.
 
-workloop.py owns the state file and its transitions; everything that shells
-out lives here, so a reader of the controller sees decisions and a reader of
-this file sees every command the controller can run.
+workloop_state.py owns the state file and the command modules its
+transitions; everything that shells out lives here, so a reader of the
+commands sees decisions and a reader of this file sees every command the
+controller can run.
 """
 
 from __future__ import annotations
