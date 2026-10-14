@@ -2,7 +2,13 @@
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
-# Two events share one policy because they share one state file:
+# Four events share one policy because they share one state file:
+#   PreToolUse   — for worktrees only: a call that may create a worktree or a
+#                  workloop run snapshots what exists, under its tool_use_id
+#                  (worktree_records.py), so PostToolUse records only what the
+#                  call itself created. Never blocks.
+#   SubagentStart — for worktrees only: an isolated cell's `agent-<id>`
+#                  worktree, which the Agent call's own PostToolUse cannot name.
 #   PostToolUse  — a tool call that starts a long-lived resource records it in
 #                  .agents/.teardown-pending-<session>; the first such call in a
 #                  batch also injects a reminder. A tool call that stops that
@@ -12,8 +18,10 @@
 #                  stops pass until a teardown clears the file or a new resource
 #                  re-arms it. Under Claude, SubagentStop maps here too, so a QA
 #                  cell must close its browser before it can hand results back;
-#                  Codex and Kimi expose no subagent-stop event, so there a
-#                  cell's browser is caught by the parent's Stop instead.
+#                  each entry carries the agent_id that started it ("-" for
+#                  the lead), and a stop judges only its own agent's entries;
+#                  a cell writes no marker. Codex and Kimi expose no subagent-stop event, so
+#                  there a cell's browser is caught by the parent's Stop.
 #
 # The Claude PostToolUse matcher holds characters outside letters and `|`, so
 # the host reads it as an unanchored regex rather than a tool-name list, and
@@ -37,6 +45,20 @@
 #                            `git push` runs after it started; reported
 #                            alongside any other block before that, never
 #                            blocking alone.
+#   worktree on completion — made by `git worktree add`, EnterWorktree, an
+#                            Agent cell with isolation "worktree", or
+#                            `workloop.py add-lane`; `workloop.py init` records
+#                            its run. Each is also appended to the session's
+#                            record file (hooks/lib/worktree_records.py), from
+#                            which session-end.sh removes what is left when the
+#                            session ends, and session-start.sh what a session
+#                            that never reached that hook left. One clears when
+#                            its path is gone from disk.
+#
+# The payload's cwd is the session's directory after the call — inside the
+# new worktree after EnterWorktree, the cell's worktree at an isolated cell's
+# SubagentStart — and a relative `git worktree add` path resolves from there.
+# A host that sends no cwd runs the hook in that same directory.
 #
 # COMPLETION IS A PUSH. A commit is not: work lands in per-chunk commits
 # mid-unit, and a container torn down at each would be rebuilt for the next.
@@ -64,10 +86,12 @@
 # The user's own long-running process is not this gate's business. It only ever
 # records what an agent tool call started inside the session.
 #
-# Input (stdin JSON): {"project_dir", "event": "PostToolUse"|"Stop",
-#   "session_id", "tool_name", "tool_input": {...}, "stop_hook_active": bool}
+# Input (stdin JSON): {"project_dir", "event": "PreToolUse"|"PostToolUse"|
+#   "SubagentStart"|"Stop", "session_id", "tool_name", "tool_input": {...},
+#   "stop_hook_active": bool, "cwd", "tool_use_id", "agent_id"}
 # Output: PostToolUse — an additionalContext object on the first record, exit 0.
-#   Stop — exit 2 + stderr reason on a block, exit 0 otherwise.
+#   Stop — exit 2 + stderr reason on a block, exit 0 otherwise. PreToolUse and
+#   SubagentStart — nothing, exit 0.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -405,10 +429,45 @@ def pushes(text):
 if raw_command and re.search(r"\bpush\b", raw_command) and pushes(raw_command):
     verdicts.append("=push")
 
+# A worktree, or a workloop run, this call made is recorded for the session's
+# end (worktree_records.py) and listed here in the on-completion tier. Only a
+# call that could make one pays for the import.
+event = s("event")
+session_id = s("session_id")
+# The payload's cwd first; a host that sends none runs the hook in the
+# session's directory after the call, which is the same place.
+where = s("cwd") or os.getcwd()
+maker = tool == "EnterWorktree" or re.search(r"\bworktree\b[^|;&\n]*\badd\b|workloop\.py", raw_command)
+if session_id and (
+    (event == "SubagentStart" and "/.claude/worktrees/agent-" in where)
+    or (event in ("PreToolUse", "PostToolUse") and maker)
+):
+    spec = importlib.util.spec_from_file_location("worktree_records", os.path.join(sys.argv[1], "worktree_records.py"))
+    records = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(records)
+    from pathlib import Path
+    project = s("project_dir") or os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[1])))
+    # Kimi sends no call id; its snapshot is keyed by session and command, which
+    # its PreToolUse and PostToolUse of one call share.
+    import hashlib
+    call = s("tool_use_id") or session_id + "-" + hashlib.sha1(raw_command.encode()).hexdigest()[:16]
+    if event == "PreToolUse":
+        records.snapshot(project, tool, raw_command, Path(where), call, Path(sys.argv[1]))
+        found = []
+    else:
+        found = records.made(project, event, tool, Path(where), call)
+    if found:
+        records.record(project, session_id, found)
+    for entry in found:
+        if entry["type"] == "worktree":
+            run = f" (workloop run {entry['run']})" if entry.get("run") else ""
+            verdicts.append("+worktree\t" + entry["path"] + run)
+
 print(s("project_dir"))
-print(s("event"))
+print(event)
 print(re.sub(r"[^A-Za-z0-9_-]", "", s("session_id")))
 print("yes" if p.get("stop_hook_active") else "no")
+print(re.sub(r"[^A-Za-z0-9_-]", "", s("agent_id")) or "-")
 print("\n".join(verdicts))
 PY
 parsed="$(python3 -c "$parse" "$lib")"
@@ -416,7 +475,9 @@ proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 event="$(printf '%s\n' "$parsed" | sed -n '2p')"
 session="$(printf '%s\n' "$parsed" | sed -n '3p')"
 stop_active="$(printf '%s\n' "$parsed" | sed -n '4p')"
-verdicts="$(printf '%s\n' "$parsed" | tail -n +5 | grep . || true)"
+# Who made a call or is stopping: a cell's agent_id, or "-" for the lead.
+agent="$(printf '%s\n' "$parsed" | sed -n '5p')"
+verdicts="$(printf '%s\n' "$parsed" | tail -n +6 | grep . || true)"
 [[ -z "$proj" ]] && proj="$repo"
 
 # No session identity means no state to key on; do nothing rather than share one
@@ -428,6 +489,12 @@ pending="$proj/.agents/.teardown-pending-$session"
 # have to guess which tool ends which resource.
 howto() {
   case "$1" in
+    worktree)      if [[ "${2:-}" == *" (workloop run "*")" ]]; then
+                     run="${2##* (workloop run }"
+                     printf 'run `workloop.py teardown %s` (or `abandon %s` when it will not complete)' "${run%)}" "${run%)}"
+                   else
+                     printf 'run `git worktree remove %s` after committing what it holds' "${2:-<path>}"
+                   fi ;;
     browser)       printf 'call browser_close' ;;
     device)        printf 'call appium_session_management with action=delete' ;;
     docker)        printf 'run `docker compose down` (or `docker stop <id>`)' ;;
@@ -445,12 +512,13 @@ due_why() {
     docker)   printf 'the push made it due; it earned its keep while the work ran' ;;
     build)    printf 'the push made it due; the warm cache earned its keep until then' ;;
     emulator) printf 'the push made it due; a boot costs a minute, so it earned its keep' ;;
+    worktree) printf 'the push made it due; the session end removes it anyway, saving unsaved work to saved/<name>' ;;
     *)        printf 'restarts in seconds, so it is not worth holding between turns' ;;
   esac
 }
 
 case "$event" in
-PostToolUse)
+PostToolUse|SubagentStart)
   [[ -z "$verdicts" ]] && exit 0
   mkdir -p "$proj/.agents"
 
@@ -494,12 +562,12 @@ PostToolUse)
       # entry the pending file actually holds rather than one a later clause in
       # the same command replaced.
       +*) kind="${verdict#+}"; kind="${kind%%	*}"
-          printf '%s\t%s\t%s\n' "$kind" "waiting" "${verdict#*	}" >> "$pending"
+          printf '%s\t%s\t%s\t%s\n' "$kind" "waiting" "$agent" "${verdict#*	}" >> "$pending"
           opened="$verdict" ;;
       # A push makes every on-completion entry recorded so far due, and re-arms
       # a block already spent on other resources.
       =push)
-          on_completion='$1=="docker" || $1=="build" || $1=="emulator"'
+          on_completion='$1=="docker" || $1=="build" || $1=="emulator" || $1=="worktree"'
           if [[ -f "$pending" ]] && awk -F'\t' "($on_completion) && \$2 != \"pushed\" {found=1} END {exit !found}" "$pending"; then
             awk -F'\t' 'BEGIN {OFS="\t"} $1 == "#blocked" {next} '"$on_completion"' {$2 = "pushed"} {print}' \
               "$pending" > "$tmp" && mv "$tmp" "$pending"
@@ -516,8 +584,14 @@ PostToolUse)
   rm -f "$tmp"
   [[ "$held" == "yes" ]] && { trap - EXIT; rmdir "$lock" 2>/dev/null || true; }
 
-  [[ -z "$opened" || "$first" == "no" ]] && exit 0
+  # A cell's start is no place for the lead's reminder; its Stop lists it.
+  [[ -z "$opened" || "$first" == "no" || "$event" == "SubagentStart" ]] && exit 0
   kind="${opened#+}"; kind="${kind%%	*}"
+  if [[ "$kind" == "worktree" ]]; then
+    printf '%s' "Made a worktree: ${opened#*	}. Remove it once the work is pushed, or before the session ends — $(howto worktree "${opened#*	}"). Whatever is left when the session ends is removed then, its unsaved work committed to a saved/ branch first; \`git worktree lock <path>\` keeps one." \
+      | python3 "$lib/emit-context.py" PostToolUse
+    exit 0
+  fi
   printf '%s' "Started a resource that keeps running: ${opened#*	}. Tear it down before you report the work done — $(howto "$kind"). Leftover browsers, servers, and containers hold the machine's memory until it is restarted." \
     | python3 "$lib/emit-context.py" PostToolUse
   exit 0
@@ -525,6 +599,20 @@ PostToolUse)
 Stop)
   find "$proj/.agents" -maxdepth 1 -name '.teardown-pending-*' -mtime +7 -delete 2>/dev/null || true
   [[ -s "$pending" ]] || exit 0
+  # A worktree clears by its path, not its class: one removed is gone from
+  # disk, and removing one says nothing about the others.
+  if grep -q '^worktree	' "$pending"; then
+    kept=""
+    while IFS= read -r line; do
+      if [[ "$line" == worktree$'\t'* ]]; then
+        place="${line#*	}"; place="${place#*	}"; place="${place#*	}"; place="${place% (workloop run *)}"
+        [[ -d "$place" ]] || continue
+      fi
+      kept="${kept}${line}"$'\n'
+    done < "$pending"
+    printf '%s' "$kept" > "$pending.$$" && mv "$pending.$$" "$pending"
+    grep -qv '^#' "$pending" 2>/dev/null || { rm -f "$pending"; exit 0; }
+  fi
   # A sibling Stop hook may have blocked; the host flag says so. Pass without
   # marking, so the next stop still gets judged on the same resources.
   [[ "$stop_active" == "yes" ]] && exit 0
@@ -532,7 +620,11 @@ Stop)
     exit 0
   fi
 
-  entries="$(grep -v '^#' "$pending" | awk '!seen[$0]++')"
+  # Each stop judges only what its own agent started: a cell's stop
+  # (SubagentStop, carrying its agent_id) the cell's entries, the lead's stop
+  # the lead's. A cell leaves the one-shot marker alone, so the lead's own
+  # notice still comes.
+  entries="$(grep -v '^#' "$pending" | awk -F'\t' -v who="$agent" '$3 == who && !seen[$0]++')"
   [[ -n "$entries" ]] || exit 0
 
   # Split by tier. An on-completion entry is due only once a push ran after it
@@ -545,10 +637,10 @@ Stop)
     kind="${entry%%	*}"
     rest="${entry#*	}"
     state="${rest%%	*}"
-    text="${rest#*	}"
-    line="  - [$kind] $text"$'\n'"     -> $(howto "$kind")  ($(due_why "$kind"))"
+    text="${rest#*	}"; text="${text#*	}"
+    line="  - [$kind] $text"$'\n'"     -> $(howto "$kind" "$text")  ($(due_why "$kind"))"
     case "$kind" in
-      docker|build|emulator)
+      docker|build|emulator|worktree)
         if [[ "$state" == "pushed" ]]; then
           due="${due}${line}"$'\n'
         else
@@ -559,12 +651,12 @@ Stop)
   done <<< "$entries"
 
   [[ -n "$due" ]] || exit 0
-  printf '#blocked\n' >> "$pending"
+  [[ "$agent" != "-" ]] || printf '#blocked\n' >> "$pending"
   {
     printf 'Resources you started this session are still running:\n'
     printf '%s' "$due"
     if [[ -n "$waiting" ]]; then
-      printf 'Still useful while the work continues, but tear these down before you push or the session ends:\n'
+      printf 'Still useful while the work continues, but tear these down (remove a worktree) before you push or the session ends:\n'
       printf '%s' "$waiting"
     fi
     printf 'Tear down every resource listed as due, then report the turn done. The tiers are heuristics: keep one you still need, and name it and why in your reply. This gate blocks once per batch, until a teardown clears it or a new resource re-arms it.\n'

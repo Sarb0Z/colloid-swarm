@@ -217,8 +217,8 @@ nfire() {
   local args=(--arg project_dir "$nf" --arg session_id s2 --arg transcript_path "$transcripts/main.jsonl") pair
   for pair in "$@"; do args+=(--arg "${pair%%=*}" "${pair#*=}"); done
   jq -nc "${args[@]}" '$ARGS.named
-    | .tool_input = ({subagent_type, prompt, file_path} | with_entries(select(.value != null)))
-    | del(.subagent_type, .prompt, .file_path)' | env HOME="$home" bash "$ngate" 2>"$scratch/gerr"
+    | .tool_input = ({subagent_type, prompt, file_path, task_id} | with_entries(select(.value != null)))
+    | del(.subagent_type, .prompt, .file_path, .task_id)' | env HOME="$home" bash "$ngate" 2>"$scratch/gerr"
 }
 ndispatch() { nfire event=PreToolUse tool_name=Agent prompt_id="$1" subagent_type="$2" prompt="$3" tool_use_id="$4"; }
 nstart() { nfire event=SubagentStart prompt_id="$3" agent_id="$1" agent_type="$2" >/dev/null; }
@@ -230,7 +230,9 @@ meta() {  # <agent_id> <tool_use_id>: Claude Code's record of a running cell
   printf '{"agentType":"general-purpose","description":"d","toolUseId":"%s","spawnDepth":1}\n' "$2" > "$subagents/agent-$1.meta.json"
 }
 reset() { rm -rf "$nf/.agents/".writers-* "$nf/.agents/".cell-markers-* "$transcripts"; }
-live_lines() { if [[ -f "$nlive" ]]; then grep -c . "$nlive" || true; else echo 0; fi; }
+# The live file also remembers cells that left, on lines carrying a gone column.
+live_lines() { if [[ -f "$nlive" ]]; then grep -v '	gone	' "$nlive" | grep -c . || true; else echo 0; fi; }
+live_has() { [[ -f "$nlive" ]] && grep "^$1	" "$nlive" | grep -vq '	gone	'; }
 
 # dispatch: the marker passes beside a live writer, and a second plain writer is refused
 reset
@@ -279,7 +281,7 @@ for marker in READ-ONLY NOTES-ONLY; do
   nstart w4 general-purpose p4; nstart m4 general-purpose p4
   [[ "$(live_lines)" -eq 2 ]] || fail "$marker: expected both cells registered at start, got $(live_lines)"
   nwrite m4 general-purpose "$pf/notes/x.md" >/dev/null
-  [[ "$(live_lines)" -eq 1 ]] && grep -q '^w4	' "$nlive" || fail "$marker: the marked cell stayed a live writer after its first write"
+  [[ "$(live_lines)" -eq 1 ]] && live_has w4 || fail "$marker: the marked cell stayed a live writer after its first write"
   denied "$(nlead p4 "$nf/src/x.py")" || fail "$marker: the lead edited beside the live writer"
   nstop w4 general-purpose
   [[ -z "$(nlead p4 "$nf/src/x.py")" ]] || fail "$marker: the demoted cell still blocked the lead"
@@ -408,6 +410,188 @@ for order in writer-live writer-stopped never-writes; do
 done
 ok "a marked cell that starts before its turn's writer leaves the writer pending exactly until it starts, in every order"
 
+# --- dead cells stop counting ---------------------------------------------------
+# Claude Code 2.1.299 fires SubagentStop only on a normal finish. A cell's API
+# error or usage limit fires StopFailure with its agent_id; a TaskStop fires
+# PostToolUse in the caller; the user's Esc on a foreground cell fires nothing
+# and leaves an interruption as the last record of the cell's transcript.
+cell_log() {  # <agent_id> <last record kind: interrupted|api-error|working>
+  mkdir -p "$subagents"
+  {
+    printf '{"type":"user","agentId":"%s","message":{"role":"user","content":"change the module"}}\n' "$1"
+    printf '{"type":"assistant","agentId":"%s","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]}}\n' "$1"
+    case "$2" in
+      interrupted) printf '{"type":"user","agentId":"%s","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"rejected"}]}}\n' "$1"
+                   printf '{"type":"attachment","agentId":"%s","attachment":{"type":"prompt_snapshot"}}\n' "$1"
+                   printf '{"type":"user","agentId":"%s","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}\n' "$1" ;;
+      api-error) printf '{"type":"assistant","agentId":"%s","isApiErrorMessage":true,"error":"rate_limit","message":{"role":"assistant","content":[{"type":"text","text":"API Error: Rate limit reached"}]}}\n' "$1" ;;
+      working) printf '{"type":"attachment","agentId":"%s","attachment":{"type":"todo"}}\n' "$1" ;;
+    esac
+  } > "$subagents/agent-$1.jsonl"
+}
+for death in StopFailure TaskStop interrupted; do
+  reset
+  [[ -z "$(ndispatch p40 general-purpose 'change the module' tuw40)" ]] || fail "$death: the writer was refused"
+  meta w40 tuw40; nstart w40 general-purpose p40; cell_log w40 working
+  case "$death" in
+    StopFailure) nfire event=StopFailure agent_id=w40 agent_type=general-purpose error=rate_limit >/dev/null ;;
+    TaskStop) nfire event=PostToolUse tool_name=TaskStop prompt_id=p40 task_id=w40 >/dev/null ;;
+    *) cell_log w40 "$death" ;;
+  esac
+  [[ -z "$(nlead p41 "$nf/src/x.py")" ]] || fail "$death: a dead writer still held the lead's edit"
+  [[ -z "$(ndispatch p41 general-purpose 'change another module' tuw41)" ]] || fail "$death: a dead writer still blocked the next writer"
+done
+ok "a writer that dies of an API error or usage limit (StopFailure), is stopped by TaskStop, or is interrupted by the user stops counting"
+
+reset
+[[ -z "$(ndispatch p42 implementer 'change the module' tuw42)" ]] || fail "the writer was refused"
+meta w42 tuw42; nstart w42 implementer p42; cell_log w42 working
+nfire event=StopFailure agent_type=main error=rate_limit >/dev/null
+nfire event=PostToolUse tool_name=TaskStop prompt_id=p42 task_id=bash-task-9 >/dev/null
+out="$(ndispatch p43 mechanic 'change another module' tuw43)"
+denied "$out" && [[ "$out" == *"still live: w42 (implementer)"* && "$out" == *"TaskStop"* ]] \
+  || fail "a working writer stopped counting, or the denial does not say what was checked and who is live ($out)"
+denied "$(nlead p43 "$nf/src/x.py")" || fail "a working writer stopped holding the lead's edit"
+ok "a working writer, the lead's own StopFailure and a TaskStop of another task leave the writer live; the denial names it and what was checked"
+
+# --- resumed and recovering cells ---------------------------------------------
+# A cell resumed after it finished or died starts again under its own id, in
+# its turn or a later one, and must register whatever the turn's counts say.
+resume_row() {  # <SubagentStop|StopFailure>
+  reset
+  [[ -z "$(ndispatch p50 general-purpose 'change the module' tuw50)" ]] || fail "$1: the writer was refused"
+  meta w50 tuw50; nstart w50 general-purpose p50; cell_log w50 working
+  if [[ "$1" == SubagentStop ]]; then nstop w50 general-purpose
+  else nfire event=StopFailure agent_id=w50 agent_type=general-purpose error=overloaded >/dev/null; fi
+  [[ -z "$(nlead p50 "$nf/src/x.py")" ]] || fail "$1: the writer still held the lead after it left"
+  nstart w50 general-purpose p50
+  denied "$(nlead p50 "$nf/src/x.py")" || fail "$1: a writer resumed in its own turn did not register again"
+  [[ -z "$(cut -f3 "$nf/.agents/.writers-kinds-s2" | tr -d ' ')" ]] \
+    || fail "$1: the resumed writer left its finish counted: '$(cat "$nf/.agents/.writers-kinds-s2")'"
+}
+resume_row SubagentStop
+ok "a writer resumed in its own turn after SubagentStop registers again and takes back its finish"
+resume_row StopFailure
+ok "a writer resumed in its own turn after StopFailure registers again and takes back its finish"
+
+reset
+[[ -z "$(ndispatch p52 general-purpose 'change the module' tuw52)" ]] || fail "the writer was refused"
+meta w52 tuw52; nstart w52 general-purpose p52; nstop w52 general-purpose
+[[ -z "$(ndispatch p53 general-purpose 'READ-ONLY: look' tur53)" ]] || fail "the READ-ONLY dispatch was refused"
+nstart w52 general-purpose p53
+denied "$(nlead p53 "$nf/src/x.py")" || fail "a writer resumed in a later turn that recorded only a READ-ONLY dispatch did not register"
+ok "a writer resumed in a later turn that recorded only a READ-ONLY dispatch registers again"
+
+reset
+[[ -z "$(ndispatch p54 general-purpose 'change the module' tuw54)" ]] || fail "the writer was refused"
+[[ -z "$(ndispatch p54 general-purpose 'READ-ONLY: look' tum54)" ]] || fail "the READ-ONLY dispatch was refused"
+meta w54 tuw54; meta m54 tum54
+nstart m54 general-purpose p54; nstart w54 general-purpose p54; nstop w54 general-purpose
+[[ -z "$(nlead p54 "$nf/src/x.py")" ]] || fail "the marked cell held the lead"
+nstart m54 general-purpose p54
+[[ "$(live_lines)" -eq 0 ]] || fail "a marked cell resumed and registered as a writer"
+ok "a resumed marked cell does not register"
+
+# An API-error record is no death: the cell may recover and keep working. A
+# cell dropped by StopFailure or by the sweep comes back when its transcript
+# shows new work; an API error or interruption appended alone does not.
+reset
+[[ -z "$(ndispatch p56 general-purpose 'change the module' tuw56)" ]] || fail "the writer was refused"
+meta w56 tuw56; nstart w56 general-purpose p56; cell_log w56 api-error
+denied "$(nlead p56 "$nf/src/x.py")" || fail "a writer whose transcript ends in an API-error record stopped counting"
+ok "a writer whose transcript ends in an API-error record stays live"
+
+restore_row() {  # <StopFailure|interrupted>
+  reset
+  [[ -z "$(ndispatch p57 general-purpose 'change the module' tuw57)" ]] || fail "$1: the writer was refused"
+  meta w57 tuw57; nstart w57 general-purpose p57; cell_log w57 working
+  if [[ "$1" == StopFailure ]]; then nfire event=StopFailure agent_id=w57 agent_type=general-purpose error=server_error >/dev/null
+  else cell_log w57 interrupted; fi
+  [[ -z "$(nlead p57 "$nf/src/x.py")" ]] || fail "$1: the dropped writer still held the lead"
+  printf '{"type":"assistant","agentId":"w57","isApiErrorMessage":true,"message":{"role":"assistant","content":[{"type":"text","text":"API Error"}]}}\n' >> "$subagents/agent-w57.jsonl"
+  [[ -z "$(nlead p57 "$nf/src/x.py")" ]] || fail "$1: an API-error record appended alone brought the writer back"
+  # The cell writes another tool call.
+  printf '{"type":"assistant","agentId":"w57","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{}}]}}\n' >> "$subagents/agent-w57.jsonl"
+  out="$(nlead p57 "$nf/src/x.py")"
+  denied "$out" && [[ "$out" == *"w57 (general-purpose)"* ]] || fail "$1: a writer that kept working after it was dropped did not come back ($out)"
+  denied "$(ndispatch p58 mechanic 'change another module' tuw58)" || fail "$1: a second writer passed beside the recovered one"
+}
+restore_row StopFailure
+ok "a writer dropped by StopFailure comes back when its transcript shows new work, and not for an appended API error"
+restore_row interrupted
+ok "a writer swept for an interruption comes back when its transcript shows new work, and not for an appended API error"
+
+# --- fail-closed paths ----------------------------------------------------------
+# Unreadable metadata at a stop changes no counts, so later starts of the type
+# keep registering.
+reset
+[[ -z "$(ndispatch p60 general-purpose 'READ-ONLY: look' tur60)" ]] || fail "the READ-ONLY dispatch was refused"
+[[ -z "$(ndispatch p60 general-purpose 'change the module' tuw60)" ]] || fail "the writer was refused"
+nstart w60 general-purpose p60
+before_kinds="$(cat "$nf/.agents/.writers-kinds-s2")"; before_turn="$(cat "$nf/.agents/.writers-turn-s2")"
+nstop w60 general-purpose
+[[ "$(cat "$nf/.agents/.writers-kinds-s2")" == "$before_kinds" && "$(cat "$nf/.agents/.writers-turn-s2")" == "$before_turn" ]] \
+  || fail "a stop whose metadata could not be read changed the turn's counts"
+grep -q 'no dispatch marker could be read for w60' "$scratch/gerr" || fail "an unreadable marker at a stop passed silently"
+nstart w61 general-purpose p60
+live_has w61 || fail "a start after an unreadable stop did not register"
+ok "an unreadable marker at a stop changes no counts, says so, and later starts of the type still register"
+
+# The sweep keeps a writer it cannot read as ended: an unreadable transcript,
+# one ending in a partial line, and a just-started cell with no files at all.
+for state in unreadable partial bare; do
+  reset
+  [[ -z "$(ndispatch p62 general-purpose 'READ-ONLY: look' tur62)" ]] || fail "$state: the READ-ONLY dispatch was refused"
+  [[ -z "$(ndispatch p62 general-purpose 'change the module' tuw62)" ]] || fail "$state: the writer was refused"
+  nstart w62 general-purpose p62
+  case "$state" in
+    unreadable) meta w62 tuw62; cell_log w62 interrupted; chmod 000 "$subagents/agent-w62.jsonl" ;;
+    partial) meta w62 tuw62; cell_log w62 interrupted; printf '{"type":"assistant","agentId":"w62","mess' >> "$subagents/agent-w62.jsonl" ;;
+    bare) ;;
+  esac
+  denied "$(nlead p62 "$nf/src/x.py")" || fail "$state: the sweep dropped a writer it could not read as ended"
+  denied "$(ndispatch p63 mechanic 'change another module' tuw63)" || fail "$state: a second writer passed"
+  [[ "$state" != unreadable ]] || { chmod 644 "$subagents/agent-w62.jsonl"; grep -q 'cannot be read' "$scratch/gerr" || fail "unreadable: the sweep kept the writer silently"; }
+done
+ok "the sweep keeps a writer whose transcript is unreadable or ends in a partial line, and a just-started one with no transcript or metadata"
+
+# --- a marked cell working only through its shell -------------------------------
+for marker in READ-ONLY 'WORKSPACE:'; do
+  reset
+  mkdir -p "$scratch/copy-a"
+  prompt="$marker look around"; [[ "$marker" == WORKSPACE: ]] && prompt="build it
+WORKSPACE: $scratch/copy-a"
+  [[ -z "$(ndispatch p44 general-purpose 'change the module' tuw44)" ]] || fail "$marker: the writer was refused"
+  [[ -z "$(ndispatch p44 general-purpose "$prompt" tum44)" ]] || fail "$marker: the marked dispatch was refused"
+  meta w44 tuw44; meta m44 tum44
+  nstart m44 general-purpose p44; nstart w44 general-purpose p44
+  [[ "$(live_lines)" -eq 2 ]] || fail "$marker: expected both cells registered at start, got $(live_lines)"
+  nstop w44 general-purpose
+  [[ -z "$(nlead p45 "$nf/src/x.py")" ]] || fail "$marker: a marked cell that never wrote held the lead's edit after the writer stopped"
+  [[ "$(live_lines)" -eq 0 ]] || fail "$marker: the marked cell stayed a live writer"
+  [[ -z "$(ndispatch p45 general-purpose 'change another module' tuw45)" ]] || fail "$marker: a marked cell that never wrote blocked the next writer"
+done
+ok "a marked cell that never writes leaves the live writers once its metadata names its marker"
+
+# --- long turns ---------------------------------------------------------------
+# One turn runs two writers of a type one after the other; a WORKSPACE cell of
+# that type dispatched after both stopped never registers, while a third writer
+# of the type still does.
+reset
+mkdir -p "$scratch/copy-a"
+for n in 1 2; do
+  [[ -z "$(ndispatch p46 general-purpose 'change the module' "tuw46-$n")" ]] || fail "sequential writer $n was refused"
+  meta "w46-$n" "tuw46-$n"; nstart "w46-$n" general-purpose p46; nstop "w46-$n" general-purpose
+done
+[[ -z "$(ndispatch p46 general-purpose "benchmark it
+WORKSPACE: $scratch/copy-a" tuo46)" ]] || fail "the WORKSPACE cell was refused"
+nstart o46 general-purpose p46
+[[ "$(live_lines)" -eq 0 ]] || fail "a WORKSPACE cell registered as a writer because earlier writers of its type ran in its turn"
+[[ -z "$(ndispatch p46 general-purpose 'change a third module' tuw46-3)" ]] || fail "the third sequential writer was refused"
+nstart w46-3 general-purpose p46
+live_has w46-3 || fail "the third writer of the turn did not register"
+ok "a long turn's finished writers grant no registration to a later marked cell of their type; a later writer still registers"
+
 # demotion happens only under the lock: with the lock busy the write is still denied and the cell stays live
 reset
 [[ -z "$(ndispatch p15 general-purpose 'READ-ONLY: look' tum15)" ]] || fail "READ-ONLY dispatch refused"
@@ -416,7 +600,7 @@ mkdir "$nf/.agents/.writers-lock-s2"
 out="$(nwrite m15 general-purpose "$pf/notes/x.md")"
 rmdir "$nf/.agents/.writers-lock-s2"
 denied "$out" || fail "a READ-ONLY write passed while the lock was busy"
-grep -q '^m15	' "$nlive" && grep -q 'lock is busy' "$scratch/gerr" || fail "a demotion ran without the lock, or skipped it silently"
+live_has m15 && grep -q 'lock is busy' "$scratch/gerr" || fail "a demotion ran without the lock, or skipped it silently"
 ok "with the lock busy a marked cell's write is denied and its demotion is skipped aloud"
 
 # many concurrent marked writes beside live writers: every one denied, the writers kept
@@ -426,8 +610,8 @@ nstart w16a implementer p-a; nstart w16b mechanic p-b
 meta m16 tum16; nstart m16 general-purpose p-c
 for i in $(seq 1 24); do (nwrite m16 general-purpose "$pf/notes/x.md" > "$scratch/c16-$i" 2>/dev/null) & done; wait
 for i in $(seq 1 24); do denied "$(<"$scratch/c16-$i")" || fail "concurrent READ-ONLY write $i was not denied ('$(<"$scratch/c16-$i")')"; done
-grep -q '^w16a	' "$nlive" && grep -q '^w16b	' "$nlive" || fail "concurrent demotions lost a live writer: '$(cat "$nlive")'"
-! grep -q '^m16	' "$nlive" || fail "the marked cell stayed live after 24 writes"
+live_has w16a && live_has w16b || fail "concurrent demotions lost a live writer: '$(cat "$nlive")'"
+! live_has m16 || fail "the marked cell stayed live after 24 writes"
 ok "24 concurrent READ-ONLY writes are all denied and both live writers stay registered"
 
 # OUTSIDE cells: two in one message pass beside a writer, write their own
@@ -442,9 +626,9 @@ grep -q $'^tuo20a\tOUTSIDE$' "$nf/.agents/.cell-markers-s2" && grep -q $'^tuo20b
   || fail "the outside dispatches were not recorded: $(cat "$nf/.agents/.cell-markers-s2")"
 meta w20 tuw20; meta o20a tuo20a; meta o20b tuo20b
 nstart w20 general-purpose p20; nstart o20a general-purpose p20; nstart o20b implementer p20
-! grep -q '^o20b	' "$nlive" || fail "an outside cell of a type no writer shares registered as a writer"
+! live_has o20b || fail "an outside cell of a type no writer shares registered as a writer"
 [[ -z "$(nwrite o20a general-purpose "$scratch/copy-a/finance.py")" ]] || fail "an outside cell was refused its own directory"
-! grep -q '^o20a	' "$nlive" || fail "an outside cell that shared a writer's type stayed live after its first write"
+! live_has o20a || fail "an outside cell that shared a writer's type stayed live after its first write"
 out="$(nwrite o20b implementer "$nf/src/x.py")"
 denied "$out" && [[ "$out" == *"dispatched to work outside this checkout"* ]] || fail "an outside cell wrote in the checkout ($out)"
 denied "$(nwrite o20a general-purpose "src/y.py")" || fail "an outside cell wrote in the checkout through a relative path"
