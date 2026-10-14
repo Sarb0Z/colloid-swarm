@@ -32,9 +32,10 @@ takes it off the live writers, and 0 otherwise:
   OUTSIDE    denied when any target belongs to the checkout
              (write_targets.in_checkout: a nested lane worktree does not).
 
-`marked` exits 3 when the cell carries a marker and 0 otherwise, unreadable
-metadata included; the gate asks it when a registered cell stops before its
-first write.
+`marked` exits 3 when the cell carries a marker, 0 when it carries none and 4
+when its metadata cannot be read; the gate asks it when a registered cell stops.
+With no marked dispatch recorded this session every cell is unmarked
+and no metadata is read.
 """
 
 import json
@@ -48,6 +49,7 @@ import write_targets  # noqa: E402
 
 MARKERS = ("READ-ONLY", "NOTES-ONLY", "OUTSIDE")
 MARKED = 3
+UNKNOWN = 4
 
 READ_ONLY_DENIAL = (
     "This cell was dispatched READ-ONLY, so it writes nothing, wherever the target is. Return the content as "
@@ -70,8 +72,12 @@ def ledger(project, session):
     return os.path.join(project, ".agents", f".cell-markers-{session}")
 
 
+def cell_file(transcript_path, session, agent_id, suffix):
+    return os.path.join(os.path.dirname(transcript_path), session, "subagents", f"agent-{agent_id}{suffix}")
+
+
 def meta_path(transcript_path, session, agent_id):
-    return os.path.join(os.path.dirname(transcript_path), session, "subagents", f"agent-{agent_id}.meta.json")
+    return cell_file(transcript_path, session, agent_id, ".meta.json")
 
 
 def record(project, session, tool_use_id, marker):
@@ -111,6 +117,15 @@ def marker_of(project, session, transcript_path, agent_id):
         if recorded == clean(tool_use_id) and marker in MARKERS:
             return marker
     return "unmarked"
+
+
+def status(project, session, transcript_path, agent_id):
+    """marked, unmarked or unknown. With no marked dispatch recorded this
+    session every cell is unmarked, and no metadata is read."""
+    if not os.path.exists(ledger(project, session)):
+        return "unmarked"
+    marker = marker_of(project, session, transcript_path, agent_id)
+    return "marked" if marker in MARKERS else marker
 
 
 def registered(project, session, agent_id):
@@ -165,7 +180,7 @@ def main(argv):
         print(reason, end="")
         return MARKED if marked else 0
     if command == "marked" and len(argv) == 6:
-        return MARKED if marker_of(*argv[2:]) in MARKERS else 0
+        return {"marked": MARKED, "unmarked": 0, "unknown": UNKNOWN}[status(*argv[2:])]
     raise SystemExit("cell_markers.py: usage: cell_markers.py record <project> <session> <tool_use_id> <marker> | "
                      "decide <repo> <project> <session> <transcript_path> <agent_id> | "
                      "marked <project> <session> <transcript_path> <agent_id>")
