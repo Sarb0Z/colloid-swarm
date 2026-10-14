@@ -33,8 +33,9 @@
 #     folder was refused (hooks/lib/worklog.py).
 #   - Worktrees (hooks.teardown_gate): the sweep of sessions that ended without
 #     session-end.sh and of worktrees idle 24 hours that no record names, what
-#     it removed or kept, each `saved/` branch, and workloop runs with no
-#     recorded lead (hooks/lib/worktree_records.py).
+#     it removed or kept and what each kept one's work is about, each `saved/`
+#     branch, and workloop runs with no recorded lead
+#     (hooks/lib/worktree_sweep.py).
 
 set -euo pipefail
 
@@ -103,14 +104,15 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
          "$proj/.agents/.cell-markers-$writers_session" 2>/dev/null || true
 fi
 
-# Worktrees end with the session that made them (worktree_records.py). Sessions
+# Worktrees end with the session that made them (worktree_sweep.py). Sessions
 # that never reached session-end.sh — killed, or on a host with no such event —
-# are swept here once their process is gone, along with worktrees no record
-# names that sat idle 24 hours. Every source sweeps: a resumed session keeps
-# its own records and only the others' are judged.
+# are swept here once their process is gone. Worktrees no record names that
+# sat idle 24 hours go only when nothing in them would be lost; the rest are
+# named with what their work was about. Every source sweeps: a resumed
+# session keeps its own records and only the others' are judged.
 worktree_digest=""
-if [[ "$teardown_enabled" == "yes" && -f "$lib/worktree_records.py" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  worktree_digest="$(python3 "$lib/worktree_records.py" sweep "$proj" "${session_id:-}" "$repo/.agents/workloop.py")" \
+if [[ "$teardown_enabled" == "yes" && -f "$lib/worktree_sweep.py" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  worktree_digest="$(python3 "$lib/worktree_sweep.py" sweep "$proj" "${session_id:-}" "$repo/.agents/workloop.py")" \
     || { echo "session-start: the worktree sweep failed; worktrees of ended sessions stay until the next start" >&2; worktree_digest=""; }
 fi
 
@@ -277,7 +279,7 @@ EOF
 
   if [[ -n "$worktree_digest" ]]; then
     section
-    echo "Worktrees end with the session that made them (hooks/lib/worktree_records.py; \`git worktree lock <path>\` keeps one):"
+    echo "Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock <path>\` keeps one):"
     printf '%s\n' "$worktree_digest"
   fi
 

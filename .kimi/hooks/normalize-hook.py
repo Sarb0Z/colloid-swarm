@@ -84,6 +84,13 @@ def normalize(payload, policy, repo):
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
+        out["cwd"] = payload.get("cwd") or ""
+        out["tool_use_id"] = payload.get("tool_use_id") or ""
+        out["agent_id"] = payload.get("agent_id") or ""
+    elif policy == "session-end.sh":
+        out["session_id"] = payload.get("session_id", "")
+        out["reason"] = payload.get("reason", "")
+        out["cwd"] = payload.get("cwd") or ""
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "") or "auto"
     return out
