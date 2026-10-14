@@ -78,6 +78,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-style-inject.sh
 .agents/test-ui-gate.sh
 .agents/test-teardown-gate.sh
+.agents/test-session-end.sh
 .agents/test-post-edit-check.sh
 .agents/test-stop-investigate.sh
 .agents/test-provenance-gate.sh

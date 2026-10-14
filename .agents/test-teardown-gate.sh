@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib" "$dir/.agents/claude" "$dir/.agents/codex" "$dir/.codex/hooks"
 cp "$repo/.agents/hooks/policy/teardown-gate.sh" "$dir/.agents/hooks/policy/"
-cp "$repo"/.agents/hooks/lib/{config,emit-context,write_targets}.py "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{config,emit-context,write_targets,worktree_records,guard-destructive}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
 cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
 cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
@@ -356,7 +356,7 @@ gitdir="$scratch/repo"
 mkdir -p "$gitdir/.agents/hooks/policy" "$gitdir/.agents/hooks/lib"
 cp "$gate" "$gitdir/.agents/hooks/policy/"
 cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" \
-  "$repo/.agents/hooks/lib/guard-destructive.py" "$gitdir/.agents/hooks/lib/"
+  "$repo/.agents/hooks/lib/guard-destructive.py" "$repo/.agents/hooks/lib/worktree_records.py" "$gitdir/.agents/hooks/lib/"
 git -C "$gitdir" init -q
 git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
 gate="$gitdir/.agents/hooks/policy/teardown-gate.sh"
@@ -411,6 +411,25 @@ for command in 'git -C /srv/app push origin main' 'timeout 60 git push' 'env GIT
 done
 rm -f "$pending"
 ok "every push spelling the shell parser reads counts"
+
+# ── a worktree: on completion, cleared by its path ──────────────────────────
+real="$(cd "$scratch" && pwd -P)"
+git -C "$gitdir" worktree add -q "$scratch/wt-a" -b wt-a
+git -C "$gitdir" worktree add -q "$scratch/wt-b" -b wt-b
+reminder="$(cd "$gitdir" && sh "git worktree add -q $scratch/wt-a -b wt-a")"
+(cd "$gitdir" && sh "git worktree add -q ../wt-b -b wt-b") >/dev/null
+[[ "$(grep -c '^worktree	waiting	' "$pending")" == 2 ]] || fail "both worktrees must be recorded as waiting: $(cat "$pending")"
+[[ "$reminder" == *"Made a worktree: $real/wt-a"* && "$reminder" == *"git worktree remove $real/wt-a"* ]] \
+  || fail "the reminder must name the worktree and its removal: $reminder"
+grep -q "\"path\": \"$real/wt-a\"" "$gitdir/.agents/worktrees/.records/s1.jsonl" || fail "the session's record file must name the worktree"
+stop; [[ $rc -eq 0 ]] || fail "a worktree before a push must not block alone: $err"
+sh 'git push origin HEAD' >/dev/null
+git -C "$gitdir" worktree remove "$scratch/wt-a"
+stop; [[ $rc -eq 2 && "$err" == *"git worktree remove $real/wt-b"* ]] || fail "a push must make the worktree due (rc=$rc): $err"
+[[ "$err" != *"wt-a"* ]] || fail "a removed worktree must clear by its path: $err"
+git -C "$gitdir" worktree remove "$scratch/wt-b"
+stop; [[ $rc -eq 0 && ! -e "$pending" ]] || fail "removing the last worktree must clear the record: $(cat "$pending" 2>/dev/null)"
+ok "a worktree waits for a push, then blocks once, and clears when its path is gone"
 
 # ── identity and the config toggle ───────────────────────────────────────────
 [[ -z "$(printf '{"project_dir":"%s","event":"PostToolUse","session_id":"","tool_name":"mcp__playwright__browser_navigate","tool_input":{"url":"http://x"}}' "$dir" | bash "$gate")" ]] \

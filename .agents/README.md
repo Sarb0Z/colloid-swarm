@@ -272,6 +272,26 @@ person's session store outside the repository, it is opt-in: the toggle is
 registration is in `.agents/claude/README.md`. See decision
 `worktree-sessions-opt-in`.
 
+No worktree an agent makes outlives the session that made it (decision
+`worktrees-end-with-their-session`). `teardown-gate.sh` records each one —
+`git worktree add`, `EnterWorktree`, an isolated cell's worktree at its
+`SubagentStart`, `workloop.py add-lane` — and each run `workloop.py init`
+creates, in `.agents/worktrees/.records/<session>.jsonl` with the session's
+process; after a `git push` it lists one as due with `git worktree remove` or
+`workloop.py teardown`. `session-end.sh` (Claude's `SessionEnd`, 60 s budget)
+removes what the session recorded: a clean worktree at once, a dirty one after
+committing its tracked changes and unignored files to `saved/<name>`, a run's
+lanes the same way before `workloop.py abandon` closes it. A branch goes only
+when the main checkout's HEAD contains it. `session-start.sh` sweeps the
+records of sessions whose process is gone, saves and removes any unrecorded
+worktree of the repository idle 24 hours, and names each `saved/` branch and
+each run no session leads. A locked worktree, one a running process works in,
+and another repository's are never touched; `git worktree lock` keeps one.
+Ignored folders such as `node_modules` are moved into the git directory and
+deleted in the background: removing a lane with 45,000 files takes 2.8 s in
+place and 11 ms this way. `hooks.teardown_gate.enabled` switches all of it
+off. `hooks/lib/worktree_records.py` holds the rules.
+
 `edit-record.sh` lets the session wrap measure only its own session: it
 appends each path an editor tool writes to `.wrap-edits-<session>` and each
 commit the session makes or integrates to `.wrap-commits-<session>`, both

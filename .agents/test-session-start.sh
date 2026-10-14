@@ -31,7 +31,8 @@ make_fixture() {
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
-     "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
+     "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -468,5 +469,80 @@ printf 'ok: an empty folder setting keeps the log in .agents/worklog/\n'
 printf '{"hooks":{"session_start":{"enabled":false},"learning_output_style":{"enabled":false},"worklog":{"enabled":true,"dir":""}}}\n' \
   > "$wl/.agents/config.json"
 assert_contains "$(context_of "$(run_policy "$wl")")" "Today's work log:"
+
+# ── the worktree sweep ───────────────────────────────────────────────────────
+# Sessions that ended without session-end.sh, and worktrees no record names
+# that sat idle 24 hours, are saved and removed; everything else stays.
+sw="$(make_fixture sweep)"
+sw="$(cd "$sw" && pwd -P)"
+git -C "$sw" config user.name fixture
+git -C "$sw" config user.email fixture@example.invalid
+printf '.agents/\n' > "$sw/.gitignore"
+mkdir -p "$sw/src" && printf 'one\n' > "$sw/src/app.txt"
+git -C "$sw" add .gitignore src
+GIT_COMMITTER_DATE=2026-01-01T00:00:00 git -C "$sw" commit -qm init --date 2026-01-01T00:00:00
+wt() { git -C "$sw" worktree add -q "$scratch/sweep-$1" -b "$1"; }
+age() {  # <worktree name>: no commit, checkout or file change for 24 hours
+  find "$scratch/sweep-$1" "$sw/.git/worktrees/sweep-$1" -exec touch -h -t 202601010000 {} +
+}
+sleepers=()
+trap 'for pid in "${sleepers[@]+"${sleepers[@]}"}"; do kill "$pid" 2>/dev/null || true; done; rm -rf "$scratch"' EXIT
+host_of() { printf '[%s, "%s"]' "$1" "$(ps -o lstart= -p "$1" | awk '{$1=$1};1')"; }
+# Backgrounded with their output closed, so no command substitution waits on them.
+sleep 300 >/dev/null 2>&1 & sleepers+=($!)
+live="$(host_of "${sleepers[0]}")"
+sleep 300 >/dev/null 2>&1 & gone=$!
+dead="$(host_of "$gone")"
+kill "$gone"; wait "$gone" 2>/dev/null || true
+records="$sw/.agents/worktrees/.records"
+mkdir -p "$records"
+note() { printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": %s}\n' "$scratch/sweep-$1" "$2"; }
+
+wt dead; printf 'unsaved\n' > "$scratch/sweep-dead/src/new.txt"
+note dead "$dead" > "$records/ended-session.jsonl"
+wt live; note live "$live" > "$records/running-session.jsonl"
+wt mine; note mine "$dead" > "$records/fixture-session.jsonl"
+wt idle; printf 'left behind\n' > "$scratch/sweep-idle/src/old.txt"; age idle
+wt today
+wt locked; age locked; git -C "$sw" worktree lock "$scratch/sweep-locked"
+wt busy; age busy
+(cd "$scratch/sweep-busy" && exec sleep 120) >/dev/null 2>&1 & sleepers+=($!)
+wt lane; age lane
+printf '{"version": 1, "runs": {"lq-ui": {"repo": "%s", "lanes": {"ui": {"workspace": "%s"}}, "messages": [], "events": []}}}\n' \
+  "$sw" "$scratch/sweep-lane" > "$sw/.agents/.workloop-state.json"
+other="$scratch/sweep-other-repo"
+git init -q "$other" && git -C "$other" -c user.name=f -c user.email=f@x commit -q --allow-empty -m init
+git -C "$other" worktree add -q "$scratch/sweep-foreign" -b foreign
+find "$scratch/sweep-foreign" "$other/.git/worktrees" -exec touch -h -t 202601010000 {} +
+for _ in $(seq 50); do lsof -a -p "${sleepers[1]}" -d cwd >/dev/null 2>&1 && break; sleep 0.1; done
+
+sweep_context="$(context_of "$(run_policy "$sw" resume)")"
+[[ ! -e "$scratch/sweep-dead" ]] || fail "an ended session's worktree must be swept"
+[[ "$(git -C "$sw" show saved/sweep-dead:src/new.txt)" == unsaved ]] || fail "the ended session's unsaved work must be saved"
+[[ ! -e "$records/ended-session.jsonl" ]] || fail "a swept session's records must go"
+printf 'ok: a session that ended without its hook is swept at the next start, unsaved work saved\n'
+[[ -d "$scratch/sweep-live" && -f "$records/running-session.jsonl" ]] || fail "a running session's worktree must stay"
+[[ -d "$scratch/sweep-mine" ]] || fail "the resumed session's own worktree must stay"
+grep -q '"type": "host"' "$records/fixture-session.jsonl" || fail "a resumed session must record its new process"
+printf 'ok: a running session and the resumed session keep their worktrees\n'
+[[ ! -e "$scratch/sweep-idle" ]] || fail "an unrecorded worktree idle 24 hours must be removed"
+[[ "$(git -C "$sw" show saved/sweep-idle:src/old.txt)" == "left behind" ]] || fail "the idle worktree's work must be saved"
+printf 'ok: an unrecorded worktree idle 24 hours is saved and removed\n'
+[[ -d "$scratch/sweep-today" ]] || fail "a worktree active today must stay"
+[[ -d "$scratch/sweep-locked" ]] || fail "a locked worktree must stay"
+[[ -d "$scratch/sweep-busy" ]] || fail "a worktree a process works in must stay"
+real="$(cd "$scratch" && pwd -P)"
+assert_contains "$sweep_context" "kept $real/sweep-busy: process ${sleepers[1]} is working in it"
+[[ -d "$scratch/sweep-foreign" ]] || fail "another repository's worktree must stay"
+printf 'ok: active, locked, occupied and foreign worktrees stay\n'
+[[ -d "$scratch/sweep-lane" ]] || fail "a run with no recorded lead must keep its worktrees"
+assert_contains "$sweep_context" "Workloop runs no session recorded as their lead, left alone with their worktrees: lq-ui"
+printf 'ok: a run with no recorded lead is only named\n'
+assert_contains "$sweep_context" "removed $real/sweep-dead; its unsaved work is on branch saved/sweep-dead"
+assert_contains "$sweep_context" "  saved/sweep-idle "
+again="$(context_of "$(run_policy "$sw")")"
+assert_contains "$again" "  saved/sweep-dead "
+assert_not_contains "$again" "removed $real/sweep-dead"
+printf 'ok: the digest names each saved branch until it is deleted\n'
 
 printf 'PASS: session-start policy\n'
