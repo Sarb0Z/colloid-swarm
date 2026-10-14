@@ -430,4 +430,31 @@ done
   || fail "only keep/ may install; a pruned folder's lockfile was walked: $(cat "$scratch/npm.pwd.log")"
 ok "a lockfile inside node_modules, .git, vendor, .venv or target is ignored and the one beside them installs"
 
+# 18. only folders inside the checkout are pruned: a checkout whose own path
+# sits under a vendor/ parent still finds its nested lockfile
+vp="$scratch/vendor/target/co"; mkdir -p "$vp/keep"; git init -q "$vp"; git -C "$vp" config user.email t@t; git -C "$vp" config user.name t
+printf '{"name":"keep","lockfileVersion":3}\n' > "$vp/keep/package-lock.json"
+: > "$scratch/npm.pwd.log"
+"$prov" "$vp" >/dev/null || fail "checkout under vendor/ failed to provision"
+[[ "$(cat "$scratch/npm.pwd.log")" == "$vp/keep" ]] \
+  || fail "a checkout under vendor/ must install its nested lockfile: $(cat "$scratch/npm.pwd.log")"
+ok "a checkout whose parent folders are named vendor or target still installs its nested lockfile"
+
+# 19. a folder find cannot enter fails provisioning by name: skipping it would
+# drop a lockfile unseen
+if [[ "$(id -u)" != 0 ]]; then
+  un="$scratch/unreadable"; mkdir -p "$un/locked"; git init -q "$un"
+  printf '{"name":"locked","lockfileVersion":3}\n' > "$un/locked/package-lock.json"
+  chmod 000 "$un/locked"
+  : > "$scratch/npm.pwd.log"
+  set +e; out="$("$prov" "$un" 2>&1)"; rc=$?; set -e
+  chmod 755 "$un/locked"
+  [[ $rc -eq 1 ]] || fail "an unreadable folder must fail provisioning (rc=$rc): $out"
+  [[ "$out" == *"cannot search $un/locked"* ]] || fail "the failure must name the folder: $out"
+  [[ ! -s "$scratch/npm.pwd.log" ]] || fail "an install ran despite the failed search"
+  ok "an unreadable folder fails provisioning and is named"
+else
+  ok "skipped: the unreadable-folder row cannot run as root"
+fi
+
 printf '\nall provision tests passed\n'

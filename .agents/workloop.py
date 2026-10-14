@@ -329,7 +329,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
                     fail(f"paths overlap lane {name!r}; writing lanes need exclusive ownership")
             if workspace == repo.resolve():
                 fail(f"lane workspace is the main checkout {repo}; a lane needs its own worktree")
-            cone, cone_notes = wg.cone_for(repo, base, paths, args.also or []) if args.sparse else (None, [])
+            cone, cone_notes = wg.cone_for(repo, base, paths, [normalize_path(path) for path in args.also or []]) if args.sparse else (None, [])
             for note in cone_notes:
                 print(f"add-lane {args.lane}: {note}", file=sys.stderr)
             run["lanes"][args.lane] = {

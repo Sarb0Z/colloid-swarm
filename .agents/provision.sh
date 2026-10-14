@@ -156,33 +156,54 @@ python_for() {  # <dir> -> interpreter path on stdout, or exit 1 with a reason o
 
 # Dependency and VCS folders are pruned, not filtered afterwards: descending
 # into a populated node_modules costs seconds on every lane, and this runs
-# again after each install to hash the lockfiles. A find error (an unreadable
-# folder) reaches stderr rather than hiding a lockfile.
-nested() {
+# again after each install to hash the lockfiles. A folder find cannot enter
+# fails provisioning by name: skipping it would drop its lockfile unseen.
+# Callers run it as `found="$(nested …)" || exit 1`; an exit inside the
+# substitution would end only the substitution.
+nested() {  # <file name>
+  local err rc
+  err="$(mktemp "${TMPDIR:-/tmp}/provision-find.XXXXXX")"
   find "$dir" -mindepth 1 -type d \( -name node_modules -o -name .git -o -name vendor -o -name .venv -o -name target \) -prune \
-    -o -type f -name "$1" -print | LC_ALL=C sort
+    -o -type f -name "$1" -print 2>"$err" | LC_ALL=C sort
+  rc="${PIPESTATUS[0]}"
+  if (( rc != 0 )); then
+    if [[ -s "$err" ]]; then
+      sed -E "s/^find: '?(.*[^'])'?: ([^:]+)\$/provision: cannot search \\1: \\2/" "$err" >&2
+    else
+      echo "provision: cannot search $dir (find exit $rc)" >&2
+    fi
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
 }
 
 lockfiles=""
 add() { lockfiles="${lockfiles}${lockfiles:+
 }$1	$2"; }
 
+# Add every nested lockfile called <name>, or exit when the search fails.
+add_nested() {  # <name> <manager>
+  local found path
+  found="$(nested "$1")" || exit 1
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && add "$2" "$path"
+  done <<<"$found"
+  return 0
+}
+
 if [[ -n "$js_root" ]]; then
   add "$(manager_for "$js_root")" "$dir/$js_root"
 else
   for name in pnpm-lock.yaml bun.lock bun.lockb yarn.lock package-lock.json; do
-    while IFS= read -r path; do
-      [[ -n "$path" ]] && add "$(manager_for "$name")" "$path"
-    done <<<"$(nested "$name")"
+    add_nested "$name" "$(manager_for "$name")"
   done
 fi
 for name in uv.lock poetry.lock Gemfile.lock Cargo.lock go.sum; do
   if [[ -f "$dir/$name" ]]; then
     add "$(manager_for "$name")" "$dir/$name"
   else
-    while IFS= read -r path; do
-      [[ -n "$path" ]] && add "$(manager_for "$name")" "$path"
-    done <<<"$(nested "$name")"
+    add_nested "$name" "$(manager_for "$name")"
   fi
 done
 # A pinned requirements.txt counts, unless uv or poetry already owns that
@@ -199,9 +220,10 @@ add_requirements() {  # <path>
 if [[ -f "$dir/requirements.txt" ]]; then
   add_requirements "$dir/requirements.txt"
 else
+  found="$(nested requirements.txt)" || exit 1
   while IFS= read -r path; do
     [[ -n "$path" ]] && add_requirements "$path"
-  done <<<"$(nested requirements.txt)"
+  done <<<"$found"
 fi
 
 if [[ -z "$lockfiles" ]]; then

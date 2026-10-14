@@ -100,11 +100,17 @@ the lockfile hash. A writing lane owns exclusive paths.
 Lanes are full checkouts. Add `--sparse` only on a very large monorepo: the
 worktree then holds the owned directories, the root files, any `--also <dir>`,
 and what the install needs, read from the base commit: the folders holding
-`patchedDependencies` patches and every workspace member (`workspaces`,
-`pnpm-workspace.yaml`), which `add-lane` prints as `cone + <dir> (<why>)`. It
-refuses, naming each file and the `--also <dir>` that fixes it, when the cone
-would drop any other lockfile, and when `pnpm-workspace.yaml` has a `packages:`
-shape it cannot read. Name the review directory in the cone, because git refuses
+`patchedDependencies` patches (from `package.json` or `pnpm-workspace.yaml`) and
+every JavaScript workspace member (`workspaces`, `pnpm-workspace.yaml`), which
+`add-lane` prints as `cone + <dir> (<why>)`. Workspaces of uv, Cargo and go are
+not read; their own install fails loudly when a member is missing. It refuses,
+naming each file and the `--also <dir>` that fixes it, when the cone would drop
+a lockfile that `provision.sh` installs in a full checkout (a root lockfile
+makes nested ones of its ecosystem irrelevant). It refuses, telling you to drop
+`--sparse`, when a workspace pattern uses more than `*`, `**`, a leading `!` and
+a leading `./`; when a positive pattern matches no folder holding a
+`package.json`; and when `pnpm-workspace.yaml` has a `packages:` or
+`patchedDependencies:` shape it cannot read. Name the review directory in the cone, because git refuses
 to stage a file outside it, and any directory the tests import from. A directory
 absent at the base is created empty. The integration worktree is always full.
 
