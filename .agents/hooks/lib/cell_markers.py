@@ -7,6 +7,7 @@ Usage: cell_markers.py record <project> <session> <tool_use_id> <marker>
        cell_markers.py decide <repo> <project> <session> <transcript_path> <agent_id>
        cell_markers.py marked <project> <session> <transcript_path> <agent_id>
        cell_markers.py sweep <project> <session> <transcript_path> <agent_id>...
+       cell_markers.py resumed <session> <transcript_path> <agent_id>:<offset>...
 
 The parallel-writers gate sees a marker once, at dispatch (PreToolUse on the
 Agent tool, which carries the prompt and a `tool_use_id`), but must enforce it
@@ -47,11 +48,16 @@ and no metadata is read.
                     metadata, shows it ended without a SubagentStop: the last
                     user or assistant record is `[Request interrupted by user…`
                     (a TaskStop, or the user's Esc while it ran in the
-                    foreground, which fires no hook at all) or an assistant
-                    record flagged `isApiErrorMessage` (an API error or usage
-                    limit). <status> is what `marked` would report.
+                    foreground, which fires no hook at all). <status> is what
+                    `marked` would report. An API-error record is no ending: a
+                    cell may recover from one and keep working.
 A missing transcript is not an ending; an unreadable one is reported on stderr
 and the cell stays live.
+
+`resumed` takes `<agent_id>:<offset>` pairs, each a cell that left the live
+writers and the size its transcript had then, and prints each cell whose
+transcript past that offset holds a user or assistant record that is neither
+an API error nor an interruption: the cell is working again.
 """
 
 import json
@@ -145,6 +151,7 @@ def last_turn(path):
         source.seek(0, os.SEEK_END)
         position = source.tell()
         tail = b""
+        last = True
         while position > 0:
             step = min(TAIL_BLOCK, position)
             position -= step
@@ -156,9 +163,12 @@ def last_turn(path):
             for raw in reversed(complete):
                 if not raw.strip():
                     continue
+                was_last, last = last, False
                 try:
                     record = json.loads(raw)
                 except ValueError:
+                    if was_last:
+                        return None  # a record still being written: the cell is at work
                     continue
                 if isinstance(record, dict) and record.get("type") in ("user", "assistant"):
                     return record
@@ -166,17 +176,42 @@ def last_turn(path):
     return None
 
 
-def has_ended(record):
-    if record is None:
+def is_interruption(record):
+    if record.get("type") != "user":
         return False
-    if record.get("type") == "assistant":
-        return record.get("isApiErrorMessage") is True
     content = (record.get("message") or {}).get("content")
     if isinstance(content, str):
         return content.startswith(INTERRUPTED)
     return isinstance(content, list) and any(
         isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").startswith(INTERRUPTED)
         for part in content)
+
+
+def resumed(session, transcript_path, pairs):
+    """The agent ids, of `<agent_id>:<offset>` pairs, whose transcript shows
+    progress past the offset."""
+    found = []
+    for pair in pairs:
+        agent_id, _, offset = pair.partition(":")
+        path = cell_file(transcript_path, session, agent_id, ".jsonl")
+        try:
+            with open(path, "rb") as source:
+                source.seek(int(offset))
+                added = source.read()
+        except (OSError, ValueError) as error:
+            print(f"cell_markers.py: {path} cannot be read past {offset} ({error}); {agent_id} stays off the live writers.",
+                  file=sys.stderr)
+            continue
+        for raw in added.split(b"\n"):
+            try:
+                record = json.loads(raw)
+            except ValueError:
+                continue  # a partial line, at either end of what was added
+            if (isinstance(record, dict) and record.get("type") in ("user", "assistant")
+                    and record.get("isApiErrorMessage") is not True and not is_interruption(record)):
+                found.append(agent_id)
+                break
+    return found
 
 
 def sweep(project, session, transcript_path, agent_ids):
@@ -194,7 +229,7 @@ def sweep(project, session, transcript_path, agent_ids):
         except OSError as error:
             print(f"cell_markers.py: {path} cannot be read ({error.strerror}); {agent_id} stays live.", file=sys.stderr)
             record = None
-        if has_ended(record):
+        if record is not None and is_interruption(record):
             found.append((agent_id, f"ended-{state}"))
         elif state == "marked":
             found.append((agent_id, "marked"))
@@ -211,10 +246,12 @@ def status(project, session, transcript_path, agent_id):
 
 
 def registered(project, session, agent_id):
-    """True when the cell is on the gate's live writers."""
+    """True when the cell is on the gate's live writers; a line with a `gone`
+    column records a cell that left them."""
     try:
         with open(os.path.join(project, ".agents", f".writers-live-{session}"), encoding="utf-8") as source:
-            return any(line.split("\t")[0] == agent_id for line in source.read().splitlines())
+            return any(line.split("\t")[0] == agent_id and "gone" not in line.split("\t")[3:4]
+                       for line in source.read().splitlines())
     except FileNotFoundError:
         return False
 
@@ -267,10 +304,15 @@ def main(argv):
         for agent_id, reason in sweep(argv[2], argv[3], argv[4], argv[5:]):
             print(f"{agent_id}\t{reason}")
         return 0
+    if command == "resumed" and len(argv) >= 5:
+        for agent_id in resumed(argv[2], argv[3], argv[4:]):
+            print(agent_id)
+        return 0
     raise SystemExit("cell_markers.py: usage: cell_markers.py record <project> <session> <tool_use_id> <marker> | "
                      "decide <repo> <project> <session> <transcript_path> <agent_id> | "
                      "marked <project> <session> <transcript_path> <agent_id> | "
-                     "sweep <project> <session> <transcript_path> <agent_id>...")
+                     "sweep <project> <session> <transcript_path> <agent_id>... | "
+                     "resumed <session> <transcript_path> <agent_id>:<offset>...")
 
 
 if __name__ == "__main__":
