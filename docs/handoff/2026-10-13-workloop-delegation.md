@@ -168,8 +168,10 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 17 | The root light touch | The drafted sentence, approved as contract text | this spec |
 | 18 | Tier follows difficulty, not stakes | Left as it is: the root's tier sentence and `hostile-review.md` unchanged | `cell-tier-wording-unchanged` |
 | 19 | Worktrees left behind | None outlasts the session that made it: the teardown gate records it, the session end removes it, unsaved work is committed to a saved branch first | `worktrees-end-with-their-session` |
-| 20 | Worktrees already left behind | Healed by the scaffold once transplanted: unrecorded, unlocked and idle 24 hours, they are saved and removed | `worktrees-end-with-their-session` |
+| 20 | Worktrees already left behind | Healed by the scaffold once transplanted, judged by their work: an unrecorded, unlocked worktree idle 24 hours goes only when its work is merged into the default branch or stable on its remote and nothing in it is unsaved; every other one is named with what its work was about (ruled 2026-10-14) | `worktrees-end-with-their-session` |
 | 21 | Where cells' time goes | Addressed in this redesign and measured in its QA; a gate on shell file writes waits on that measure | this spec |
+| 22 | `EnterWorktree` worktrees, which Claude Code locks | Removed after their session unless the operator answered "keep" at Claude Code's exit prompt; any other lock keeps a worktree | `worktrees-end-with-their-session` |
+| 23 | Does `/clear` end a session | Yes: `/clear` and `/resume` end the old conversation's worktrees and runs as an exit does | `worktrees-end-with-their-session` |
 
 ## Design
 
@@ -348,8 +350,12 @@ stays in the lead's checkout, where the gate and the digest read it.
   write, and a long turn's record of writer types stops granting registration
   to cells dispatched after those writers stopped. Seen in this session: a
   `WORKSPACE` benchmark cell registered as a writer because two earlier writers
-  of its type had run in the same, hours-long turn. The widened matcher checks
-  the live list in shell first, so only a cell still on it pays for Python.
+  of its type had run in the same, hours-long turn. As built, the gate reads
+  markers where a live record costs anything: at the lead's writer dispatch and
+  edit, it sweeps the live list and drops a marked or dead cell. Every adapter
+  runs Python before any policy, so a first-tool-call check would put Python on
+  every cell call; the sweep puts it on none and gives the lead the same
+  result. A cell resumed after it finished or died registers again.
 - **A review may cite any existing file**, not only one in the repository.
 - **Every run's composed test runs**: `check` runs it in the main checkout for
   a main-tree lane and requires a passing `integrate` for worktree lanes.
@@ -395,14 +401,27 @@ it as one more resource class.
   sweeps the records of sessions no longer running and treats them the same
   way, so Codex and Kimi lanes are covered too.
 - **Healing what predates the scaffold.** The operator expects a transplant
-  to clear the worktrees older sessions left (ruling 20), so the session-start
-  sweep also takes each worktree of the repository that no record names, is
-  not locked, and has been idle 24 hours (no commit, checkout or file change):
-  saved and removed like any other. Idle time, not a running process, decides,
+  to clear the worktrees older sessions left, judged by their work (ruling
+  20). The session-start sweep looks at each worktree of the repository that
+  no record names, is not locked, is no workloop lane, and has been idle 24
+  hours (no commit, checkout or file change). It removes one only when nothing
+  would be lost: no uncommitted or untracked work, no nested repository, no
+  ignored file beyond rebuildable folders such as `node_modules`, and its
+  branch's work either merged into the default branch (a squash merge counts:
+  merging the branch would change nothing) or stable on its remote. Every
+  other idle worktree is named in the digest with what its work was about:
+  branch, last commit subject, unmerged commits, uncommitted files. Nobody
+  records who made an old worktree, so the rule is the same for the
+  operator's and an agent's. Idle time, not a running process, decides,
   because Claude Code resets a shell's folder to the checkout and a session
   working in a sibling worktree by absolute paths shows no process there.
-  `git worktree lock <path>` is how anyone keeps one, such as
-  `writing-app-export`; the sweep never touches a locked worktree.
+  `git worktree lock <path>` still keeps any worktree out of the sweep.
+- **`EnterWorktree` and `/clear`.** Claude Code locks every `EnterWorktree`
+  worktree with its own session lock, which outlives the session. That lock
+  does not keep the worktree once its session has ended, unless the operator
+  answered "keep" at Claude Code's exit prompt (ruling 22); any other lock
+  does. `/clear` and `/resume` fire the session-end hook and end the old
+  conversation's worktrees and runs as an exit does (ruling 23).
 - **Workloop runs.** A run's lanes belong to the lead session that added them,
   so a run does not outlive its lead either: the session end saves and removes
   its worktrees and closes the run. A run whose worktrees are already gone,
