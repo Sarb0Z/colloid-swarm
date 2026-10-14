@@ -3,11 +3,12 @@
 
 Usage: writers-payload.py   # the gate's payload on stdin
 
-Prints thirteen lines, in order: project_dir, event, session_id, prompt_id,
+Prints fourteen lines, in order: project_dir, event, session_id, prompt_id,
 agent_id, agent_type, tool_name, the dispatch's subagent_type, the dispatch's
 kind, whether every write target lies outside the checkout (yes|no),
-tool_use_id, transcript_path, and why a declared workspace was refused (empty
-when none was declared or it was accepted). Ids that name state files keep only
+tool_use_id, transcript_path, why a declared workspace was refused (empty
+when none was declared or it was accepted), and the task a TaskStop call
+names, which for a background cell is its agent id. Ids that name state files keep only
 [A-Za-z0-9_-]; every other field is flattened to one line. A payload that is
 not a JSON object reads as empty, which the gate ignores.
 
@@ -141,6 +142,7 @@ def fields(payload):
         line(tool_input.get("subagent_type") or "general-purpose"),
         kind(root, prompt, refusal), outside(root, tool_input),
         line(payload.get("tool_use_id")), line(payload.get("transcript_path")), line(refusal),
+        ident(tool_input.get("task_id")),
     ]
 
 
