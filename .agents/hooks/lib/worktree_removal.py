@@ -152,7 +152,11 @@ def unsaveable(path: Path) -> str | None:
 
 
 def dirty(path: Path) -> bool:
-    return bool(wr.out(path, "--no-optional-locks", "status", "--porcelain", "--ignore-submodules=none"))
+    """Uncommitted or untracked work. The flags override what the repository's config may
+    hide: `status.showUntrackedFiles=no` blanks untracked files, and `git worktree remove`
+    without --force then deletes them; a stale fsmonitor or untracked cache can miss edits."""
+    return bool(wr.out(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+                       "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all"))
 
 
 def gitlinks(path: Path, *args, env: dict | None = None) -> set:
