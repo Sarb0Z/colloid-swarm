@@ -561,7 +561,11 @@ controller honours.
 4. Lane worktrees inside the checkout, the gate's nearest-working-tree rule,
    the hook lookup, `widen`.
 5. Frictions in the gate: dead cells, marker at first tool call, long turns;
-   worktrees in the teardown gate, removed at the session's end (§8).
+   worktrees in the teardown gate, removed at the session's end (§8); idle
+   unrecorded worktrees named with what their work was about.
+5b. The heal removes what would lose nothing (ruling 20), as its own lane
+   after unit 5 lands (ruling 24), with findings S1, S3 and S9's cache from
+   `docs/reviews/2026-10-14-workloop-u5.md`.
 6. The main-tree lane and the one-command one-writer run, every run's composed
    test, the brief as a dispatch line, review references, the digest, and
    the lane-size warning with the one-behaviour line in the shape guide.
