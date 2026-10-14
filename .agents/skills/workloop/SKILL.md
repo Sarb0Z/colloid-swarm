@@ -58,10 +58,15 @@ Every brief states:
 - for a writing or QA cell, the working practice in `working-practice.md`
   (how it tests, starts servers, waits and edits).
 
-For a lane, `brief` prints the run's objective and acceptance, the lane's
-owned paths, and the working practice; append the lane's own objective, its
-contract, what it returns and when it stops below the brief, leaving the
-header line first. A cell outside a run gets a brief you write: paste
+For a lane, `brief` writes the run's objective and acceptance, the lane's
+owned paths, and the working practice to `<lane worktree>/.workloop/BRIEF.md`
+(`BRIEF-reviewer.md` and `BRIEF-qa.md` for those roles; git ignores the folder,
+and every `brief` call rewrites the file, so a widened lane gets a current one).
+It prints a dispatch prompt: the header line, then one line naming that file for
+the cell to read first. Paste the prompt unchanged as the cell's prompt, and
+append the lane's own objective, its contract, what it returns and when it
+stops below it, leaving the header line first: the parallel-writers gate
+recognises a lane cell by that line. A cell outside a run gets a brief you write: paste
 `working-practice.md` into a generic cell's prompt, while `implementer` and
 `qa-verifier` carry it already. `shapes.md` shows one worked example per
 shape.
@@ -156,7 +161,7 @@ unattended with no hook in front of it. Give it no cleaning or resetting step:
 `integrate` already resets the worktree to the base and cleans
 it before merging, and such a step is exactly what the floor refuses.
 
-Use `brief` as the bounded dispatch prompt. The cell claims the lane, works only in
+Use the prompt `brief` prints as the bounded dispatch prompt. The cell claims the lane, works only in
 its worktree and declared paths, commits on the lane branch, and submits observed
 test evidence. `claim` refuses a lane whose lockfiles changed since it
 was provisioned, or whose install failed, until `provision <run> <lane>`
@@ -203,7 +208,9 @@ containers behind. The controller answers with ownership, leases, and progress:
 
 ## Feedback and recovery
 
-The reviewer records `accept` or `reopen` with a canonical report reference. For
+The reviewer records `accept` or `reopen` with a canonical report reference: a
+path in the repository, or the absolute path of any existing file, such as a
+report written in another project. For
 a P0 or a path conflict, the lead runs `attention`, delivers the printed prompt,
 and records the cell's acknowledgement before the correction cycle.
 
@@ -214,7 +221,7 @@ and records the cell's acknowledgement before the correction cycle.
 ```
 
 **One review round per wave.** A multi-lane wave gets one review round that
-reads every lane's diff; `brief --role reviewer` prints each lane's start point
+reads every lane's diff; `brief --role reviewer` writes each lane's start point
 and the `git diff <start>..<lane-branch>` command. Each lane's `review` cites
 its section of the one report. A P2 finding is filed, never reopened:
 `review --result reopen` takes `--severity P0` or `P1` explicitly, and a P2
