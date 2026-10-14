@@ -209,14 +209,19 @@ about under `hooks.guard_publish.outward_commands`, and under
 operator's ignored `config.json` overrides either per machine, except that it
 can only extend the outward list and cannot declare a rehearsal.
 
-`wait-gate.sh` refuses a main-agent Bash call, under Claude only, that waits
-blind: sleeps longer than 5 s, a sleep that polls a background task's output
-file, or a process started with a bare `&` and never waited for. Its denial
-names the wait that ends when the thing happens — end the turn for work the
-host reports on, `run_in_background` for a process the agent starts, a short
-capped `until` loop for a condition. Calls the host already runs in the
-background pass. Codex and Kimi have no background flag to point to, so the
-gate is not wired there. The toggle is `hooks.wait_gate.enabled`.
+`wait-gate.sh` refuses a Bash call, under Claude only, that waits blind:
+sleeps longer than 5 s, or a process started with a bare `&` and never waited
+for. For the lead it also refuses a sleep that polls a background task's
+output file. Its denial names the wait that ends when the thing happens, and
+the remedy depends on `agent_id`, which only a spawned cell carries. The lead
+ends its turn, starts a process with `run_in_background`, or runs a short
+capped `for` loop. A cell runs a command of up to 10 minutes in the foreground
+with Bash's `timeout` set, starts a longer one in the background with an
+`exit=` end marker, and waits for it with a capped loop on the output file, so
+a sleep of 5 s or less on a task's output passes for a cell. Calls the host
+already runs in the background pass. Codex and Kimi have no background flag to
+point to, so the gate is not wired there. The toggle is
+`hooks.wait_gate.enabled`.
 
 `guard-publish.sh` also refuses, in every mode, a command that runs a script
 writing to a hosted management API when that script is outside the

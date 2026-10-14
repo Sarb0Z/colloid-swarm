@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Decide whether a shell command waits blind, and say what to do instead.
 
-Input  (stdin JSON): {"command": "<shell command>", "run_in_background": bool}
+Input  (stdin JSON): {"command": "<shell command>", "run_in_background": bool,
+"agent_id": "<id of the spawned cell, empty for the lead>"}
 Output: exit 2 and the remedy on stderr when a rule fires; exit 0 otherwise.
 
 A foreground `sleep` holds the session and learns nothing; a bare `&` starts a
@@ -13,6 +14,11 @@ falls back to sleeping and tailing its log. Three shapes are refused:
 * any sleep in a command that reads a host task's output file, which the host
   already reports on completion;
 * a segment backgrounded with `&` in a command that never runs `wait`.
+
+The lead and a cell get different remedies, since only a cell cannot end its turn
+to wait. A cell's call is capped at 10 minutes by Bash's own timeout, so the second
+rule does not apply to it: a capped poll on a task's output file passes while no
+sleep in it is longer than SHORT seconds.
 
 A short sleep passes: `kill 123; sleep 2` waits for a port to free, and
 `until curl -sf ...; do sleep 2; done` ends the moment the condition holds.
@@ -33,11 +39,19 @@ SCALE = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 WRAPPERS = {"timeout", "gtimeout", "nice", "stdbuf"}
 PREFIXES = {"then", "else", "elif", "{", "}", "!", "time", "nohup", "command", "builtin", "exec"}
 
-WAIT = """Pick the wait that ends with the event:
+LEAD_WAIT = """Pick the wait that ends with the event:
 - A background shell or cell you started: end your turn. The harness re-invokes you when it finishes; report then.
 - A process you are about to start (tests, a build, a server): run it as its own Bash call with run_in_background: true. You are notified when it exits, and TaskStop stops it.
-- A condition (a port answers, a file appears): poll briefly under a cap, such as timeout 120 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'.
+- A condition (a port answers, a file appears): poll briefly under a cap, such as for i in $(seq 60); do curl -sf http://localhost:3000 >/dev/null && break; sleep 2; done.
 - CI or a deploy: gh run watch <id> --exit-status with run_in_background: true.
+Sleeps of 5 s or less pass."""
+
+CELL_WAIT = """Pick the wait that ends with the event:
+- A command that ends within 10 minutes: run it in the foreground and set Bash's timeout parameter to cover it (the default is 2 minutes; the ceiling is 600000).
+- A server, a watcher or a longer command: start it as its own Bash call with run_in_background: true, its command ending in ; echo "exit=$?". You are told when it ends with your next tool result, so keep working.
+- With nothing left to do, wait for its end marker: for i in $(seq 110); do grep -q '^exit=' <output file> && break; sleep 5; done, run with the timeout parameter at 600000, and repeat until the marker shows.
+- A condition (a port answers): for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done.
+- Stop what you started with TaskStop before you return.
 Sleeps of 5 s or less pass."""
 
 
@@ -141,23 +155,26 @@ def scan(text, nested=False):
     return top, inner, background, waits
 
 
-def verdict(command):
-    """The reason to block, or None."""
+def verdict(command, agent):
+    """The reason to block, or None. `agent` is "lead" or "cell"."""
     if "sleep" not in command and "&" not in command:
         return None
+    cell = agent == "cell"
+    wait = CELL_WAIT if cell else LEAD_WAIT
     top, inner, background, waits = scan(command)
-    if (top or inner) and TASK_OUTPUT.search(command):
+    if not cell and (top or inner) and TASK_OUTPUT.search(command):
         return ("Blocked: this sleeps and then reads a background task's output file. "
                 "The harness notifies you when that task finishes; end your turn and read the file then.")
     if top > SHORT or inner > SHORT:
         length = top if top > SHORT else inner
-        return f"Blocked: sleeping {length:g} s holds the session and learns nothing. {WAIT}"
+        return f"Blocked: sleeping {length:g} s holds the session and learns nothing. {wait}"
     if background and not waits:
         shown = background[0] if len(background[0]) <= 80 else background[0][:77] + "..."
-        return ("Blocked: `" + shown + " &` starts a process the harness cannot see: nothing "
-                "reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash "
-                "call with run_in_background: true; to run commands in parallel inside one call, end "
-                "the command with `wait`.")
+        reason = ("Blocked: `" + shown + " &` starts a process the harness cannot see: nothing "
+                  "reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash "
+                  "call with run_in_background: true; to run commands in parallel inside one call, end "
+                  "the command with `wait`.")
+        return f"{reason} {wait}" if cell else reason
     return None
 
 
@@ -177,7 +194,7 @@ def main():
     command = payload.get("command")
     if not isinstance(command, str) or not command.strip():
         return 0
-    reason = verdict(command)
+    reason = verdict(command, "cell" if str(payload.get("agent_id") or "").strip() else "lead")
     if not reason:
         return 0
     print(reason, file=sys.stderr)
