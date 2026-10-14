@@ -9,6 +9,7 @@ code are covered too.
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -125,6 +126,10 @@ check("the cell's bare & refusal carries the cell's remedy",
 check("the lead's bare & refusal carries the lead's text",
       "`wait`" in lead_amp and "run_in_background: true" in lead_amp and "seq 110" not in lead_amp)
 check("the lead's remedy no longer names timeout", "timeout" not in lead_sleep and "bash -c" not in lead_sleep)
+check("each remedy's capped loop reports how it ended",
+      "echo up || echo down" in lead_sleep and "echo up || echo down" in cell_sleep and "|| echo still-running" in cell_sleep)
+check("the cell's end marker covers the whole command and names a pipeline's status",
+      '{ <cmd>; } 2>&1; echo "exit=$?"' in cell_sleep and "pipefail" in cell_sleep)
 for name, text in (("lead sleep", lead_sleep), ("cell sleep", cell_sleep), ("lead &", lead_amp), ("cell &", cell_amp),
                    ("lead task poll", gate.verdict(CELL_ALLOW[1], "lead") or "")):
     check(f"no {name} remedy names timeout followed by a number", not re.search(r"timeout\W+\d", text), text)
@@ -163,11 +168,30 @@ tool = {"command": "sleep 20", "run_in_background": False}
 check("the normalizer passes a cell's agent_id to the gate",
       normalized({"tool_input": tool, "agent_id": "a1b2", "agent_type": "implementer"})["agent_id"] == "a1b2")
 check("the normalizer passes an empty agent_id for the lead", normalized({"tool_input": tool})["agent_id"] == "")
+# A `claude --agent <name>` main session carries agent_type alone; it is the lead.
+check("the normalizer treats a named main session as the lead",
+      normalized({"tool_input": tool, "agent_type": "implementer"})["agent_id"] == "")
 registered = json.loads((here / "claude" / "settings.json").read_text())
 wait_commands = [hook["command"] for group in registered["hooks"]["PreToolUse"] for hook in group["hooks"]
                  if "wait-gate.sh" in hook["command"]]
 check("wait-gate is registered once, for every agent",
       len(wait_commands) == 1 and "--agent" not in wait_commands[0], str(wait_commands))
+
+
+def through_hook(extra):
+    """Run the registered hook command end to end: adapter, normalizer, policy."""
+    payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": tool, **extra}
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(here.parent)}
+    return subprocess.run(["bash", "-c", wait_commands[0]], input=json.dumps(payload), capture_output=True,
+                          text=True, env=env, cwd=here.parent)
+
+
+hook_cell = through_hook({"agent_id": "a1b2", "agent_type": "implementer"})
+hook_named = through_hook({"agent_type": "implementer"})
+check("through the hook, a cell gets the cell's remedy",
+      hook_cell.returncode == 2 and "seq 110" in hook_cell.stderr, hook_cell.stderr)
+check("through the hook, a named main session gets the lead's remedy",
+      hook_named.returncode == 2 and "end your turn" in hook_named.stderr, hook_named.stderr)
 
 with tempfile.TemporaryDirectory() as scratch:
     root = pathlib.Path(scratch)

@@ -16,9 +16,11 @@ falls back to sleeping and tailing its log. Three shapes are refused:
 * a segment backgrounded with `&` in a command that never runs `wait`.
 
 The lead and a cell get different remedies, since only a cell cannot end its turn
-to wait. A cell's call is capped at 10 minutes by Bash's own timeout, so the second
-rule does not apply to it: a capped poll on a task's output file passes while no
-sleep in it is longer than SHORT seconds.
+to wait. Bash's own timeout ends a call after at most 10 minutes, so the second
+rule does not apply to a cell: a poll on a task's output file passes while no
+sleep in it is longer than SHORT seconds. Nothing here checks that a loop carries
+its own cap; a loop of short sleeps, for lead or cell, is bounded only by that
+timeout.
 
 A short sleep passes: `kill 123; sleep 2` waits for a port to free, and
 `until curl -sf ...; do sleep 2; done` ends the moment the condition holds.
@@ -42,15 +44,15 @@ PREFIXES = {"then", "else", "elif", "{", "}", "!", "time", "nohup", "command", "
 LEAD_WAIT = """Pick the wait that ends with the event:
 - A background shell or cell you started: end your turn. The harness re-invokes you when it finishes; report then.
 - A process you are about to start (tests, a build, a server): run it as its own Bash call with run_in_background: true. You are notified when it exits, and TaskStop stops it.
-- A condition (a port answers, a file appears): poll briefly under a cap, such as for i in $(seq 60); do curl -sf http://localhost:3000 >/dev/null && break; sleep 2; done.
+- A condition (a port answers, a file appears): poll briefly under a cap that reports how it ended, such as for i in $(seq 60); do curl -sf http://localhost:3000 >/dev/null && break; sleep 2; done; curl -sf http://localhost:3000 >/dev/null && echo up || echo down.
 - CI or a deploy: gh run watch <id> --exit-status with run_in_background: true.
 Sleeps of 5 s or less pass."""
 
 CELL_WAIT = """Pick the wait that ends with the event:
 - A command that ends within 10 minutes: run it in the foreground and set Bash's timeout parameter to cover it (the default is 2 minutes; the ceiling is 600000).
-- A server, a watcher or a longer command: start it as its own Bash call with run_in_background: true, its command ending in ; echo "exit=$?". You are told when it ends with your next tool result, so keep working.
-- With nothing left to do, wait for its end marker: for i in $(seq 110); do grep -q '^exit=' <output file> && break; sleep 5; done, run with the timeout parameter at 600000, and repeat until the marker shows.
-- A condition (a port answers): for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done.
+- A server, a watcher or a longer command: start it as its own Bash call with run_in_background: true, written as { <cmd>; } 2>&1; echo "exit=$?" (set -o pipefail first when <cmd> is a pipeline, whose status is otherwise its last stage's). You are told when it ends with your next tool result, so keep working; a command that is killed writes no marker, and that notice is its end.
+- With nothing left to do, wait for its end marker: for i in $(seq 110); do grep -q '^exit=' <output file> && break; sleep 5; done; grep '^exit=' <output file> || echo still-running, run with the timeout parameter at 600000, and repeat while it prints still-running.
+- A condition (a port answers): for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done; curl -sf <url> >/dev/null && echo up || echo down.
 - Stop what you started with TaskStop before you return.
 Sleeps of 5 s or less pass."""
 
