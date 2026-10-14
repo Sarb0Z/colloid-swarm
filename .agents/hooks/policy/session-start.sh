@@ -25,6 +25,9 @@
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
 #     marker is consumed (deleted) here; source=compact is the trigger, not
 #     the marker's existence.
+#   - In the carrier only: installed copies of the output style (the device
+#     policy's appended prompt, the account's output-styles/colloid.md) that
+#     differ from .agents/claude/output-style.md (hooks/lib/output_style.py).
 #   - The work log (hooks.worklog, off by default): the procedure in
 #     .agents/playbooks/worklog.md and today's file, or why the configured
 #     folder was refused (hooks/lib/worklog.py).
@@ -153,6 +156,19 @@ if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]];
   workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" 2>/dev/null || true)"
 fi
 
+# Installed copies of the output style that say something else. The carrier
+# alone checks: the device policy is built from its style, and a satellite's
+# adapted style differs from it on purpose.
+style_drift=""
+style_file="$repo/.agents/claude/output-style.md"
+carrier="$(python3 "$lib/config.py" "$repo/.agents/config.json.example" stack_packs.carrier=false)"
+if [[ "$session_start_enabled" == "yes" && "$carrier" == "yes" && -f "$style_file" ]]; then
+  style_drift="$(python3 "$lib/output_style.py" drift "$style_file" \
+    "${COLLOID_DEVICE_POLICY:-/Library/Application Support/ClaudeCode/policy.json}" \
+    "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/output-styles/colloid.md")" \
+    || { echo "session-start: could not compare the installed output-style copies with $style_file" >&2; style_drift=""; }
+fi
+
 worklog_body=""
 worklog_playbook="$repo/.agents/playbooks/worklog.md"
 if [[ "$worklog_status" == "ok" && -f "$worklog_playbook" ]]; then
@@ -160,7 +176,7 @@ if [[ "$worklog_status" == "ok" && -f "$worklog_playbook" ]]; then
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" && "$worklog_status" == "off" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -222,6 +238,19 @@ EOF
     section
     echo "Work log refused: $worklog_detail"
     echo "Tell the operator the log is off until hooks.worklog.dir in .agents/config.json names an existing folder beside this repository — inside the folder that holds it, not in a Git repository, not hidden — or is left empty to keep the log in .agents/worklog/."
+  fi
+
+  if [[ -n "$style_drift" ]]; then
+    section
+    echo "Installed output-style copies are stale, so sessions on this machine run rules other than .agents/claude/output-style.md. Tell the operator at the start of your reply, with the fix:"
+    printf '%s\n' "$style_drift" | sed 's/^/  - /'
+    # A worktree's file goes when the worktree does, so the link names the
+    # main checkout's.
+    common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    link_target="$style_file"
+    [[ "$common" == */.git ]] && link_target="${common%/.git}/.agents/claude/output-style.md"
+    echo "  An account copy is fixed by linking it to the main checkout's file: ln -sf \"$link_target\" <that path>."
+    echo "  The device policy is rebuilt with \`python3 .agents/claude/device/build.py <staging folder>\` and installed by the operator with admin rights; the machine's setup guide names both."
   fi
 
   if [[ -n "$workloop_digest" ]]; then

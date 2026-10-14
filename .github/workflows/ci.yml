@@ -91,6 +91,9 @@ jobs:
       - name: Workloop inbox policy
         run: .agents/test-workloop-inbox.sh
 
+      - name: Output style reach
+        run: .agents/test-style-inject.sh
+
       - name: Post-edit policy
         run: .agents/test-post-edit-check.sh
 

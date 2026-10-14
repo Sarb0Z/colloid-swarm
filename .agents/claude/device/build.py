@@ -19,22 +19,18 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS = os.path.join(HERE, "..", "settings.json")
 STYLE = os.path.join(HERE, "..", "output-style.md")
+HOOK_LIB = os.path.join(HERE, "..", "..", "hooks", "lib")
 
 # The only keys Claude Code accepts from a policy helper's stdout.
 ENVELOPE_KEYS = {"managedSettings", "claudeMd", "appendSystemPrompt"}
 
 
-def style_body():
-    """The output style without its YAML frontmatter; the system prompt takes prose only."""
-    with open(STYLE, encoding="utf-8") as handle:
-        text = handle.read()
-    if text.startswith("---\n"):
-        text = text.split("\n---\n", 1)[1]
-    return text.strip()
-
-
 def payload():
-    prose = style_body()
+    # The style is read the way every other consumer reads it; the system
+    # prompt takes its prose only, without the frontmatter.
+    sys.path.insert(0, HOOK_LIB)
+    import output_style
+    prose = output_style.body(STYLE)
     with open(SETTINGS, encoding="utf-8") as handle:
         ask = json.load(handle)["permissions"]["ask"]
     if not prose:
