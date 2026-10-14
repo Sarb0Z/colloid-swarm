@@ -82,6 +82,14 @@ it counts whole. The figures are pattern matches, close enough to rank the
 causes; unit 1's `cell-time.py` recomputes them with the definitions in §9,
 and the QA compares against that rerun, not these numbers.
 
+The rerun (2026-10-14, commit a7a965d, records 2026-09-30 to 2026-10-14,
+921 cells): 613 blind waits ran under the cell's rules (16h42m of
+execution); 27 Bash calls past 600 s and 155 past their own timeout; 44
+windows of store-wide silence, 179h52m in all, removed from every delay;
+566 shell writes to tracked source files against 2,448 Edit and Write
+calls, so the pattern above overstated shell writes about tenfold; tests
+11h40m and builds 1h08m of execution.
+
 - 404 hours from each cell's first record to its last. 207 of them are gaps
   over 30 minutes: 131 hours parked until the lead messaged the cell again,
   and 48 hours before a model response, cause not established. The rest
@@ -472,6 +480,8 @@ one gate, because it exists and only its scope is wrong.
   edits a source file from one that generates output by reading the command
   alone, so the language goes first and QA measures it. A rate still above
   one shell source write per Edit or Write call is filed as the next unit.
+  The rerun baseline is 566 against 2,448, already below that line, so the
+  gate waits on the rate rising, not falling.
 - **The measure is committed.** `.agents/eval/cell-time.py` reads Claude
   Code's session store, selecting records by their own timestamps within a
   period and cells by their working folder's repository, and prints per cell
