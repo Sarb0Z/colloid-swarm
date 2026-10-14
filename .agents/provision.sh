@@ -163,7 +163,10 @@ python_for() {  # <dir> -> interpreter path on stdout, or exit 1 with a reason o
 nested() {  # <file name>
   local err rc
   err="$(mktemp "${TMPDIR:-/tmp}/provision-find.XXXXXX")"
-  find "$dir" -mindepth 1 -type d \( -name node_modules -o -name .git -o -name vendor -o -name .venv -o -name target \) -prune \
+  # Nested worktrees (workloop lanes, EnterWorktree sessions) carry their own
+  # installs; walking into them would provision every lane from the main tree.
+  find "$dir" -mindepth 1 -type d \( -name node_modules -o -name .git -o -name vendor -o -name .venv -o -name target \
+    -o -path "$dir/.agents/worktrees" -o -path "$dir/.claude/worktrees" \) -prune \
     -o -type f -name "$1" -print 2>"$err" | LC_ALL=C sort
   rc="${PIPESTATUS[0]}"
   if (( rc != 0 )); then

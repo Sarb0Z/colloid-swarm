@@ -26,7 +26,8 @@ WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-pr
 # gitignored folder (decision lane-worktrees-nest-in-the-checkout).
 WORKTREES = ".agents/worktrees"
 # Folders the system clears: a lane there loses its worktree mid-run.
-TEMPORARY_ROOTS = (Path("/tmp"), Path("/private/tmp"))
+# Folders the system clears on its own, which once took a run's lanes with them.
+TEMPORARY_ROOTS = tuple({Path("/tmp"), Path("/private/tmp"), Path(tempfile.gettempdir()).resolve()})
 # The delegation shapes, one line each; the workloop skill holds the full guide.
 SHAPES = """Delegation shapes (the workloop skill's guide; choose one before dispatching):
   one writer            the default: one cell edits the main tree, read-only cells around it; no run needed
@@ -203,7 +204,7 @@ def workspace_for(value: str | None, repo: Path, run_name: str, leaf: str, label
         return default
     workspace = Path(value).resolve()
     if temporary(workspace) and not temporary(repo.resolve()):
-        fail(f"{label} workspace {value} lies under /tmp, which the system clears; omit --workspace to use the default {default}")
+        fail(f"{label} workspace {value} lies in a temporary folder, which the system clears; omit --workspace to use the default {default}")
     return workspace
 
 
