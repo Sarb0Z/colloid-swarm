@@ -444,7 +444,9 @@ expect 'COLLOID_RUN=res COLLOID_LANE=browser-a COMPOSE_PROJECT_NAME=res-browser-
 expect 'Exclusive: playwright' full_brief res browser-a
 expect 'integrate runs the composed test once over the merged tree' full_brief res plain
 expect 'Working practice:' full_brief res plain --role qa
-full_brief res plain --role reviewer | grep -q 'Working practice:' && fail "a reviewer brief carries the working practice"
+reviewer_brief="$(full_brief res plain --role reviewer)"
+grep -q 'WORKLOOP REVIEWER BRIEF' <<<"$reviewer_brief" || fail "the reviewer brief is missing"
+! grep -q 'Working practice:' <<<"$reviewer_brief" || fail "a reviewer brief carries the working practice"
 ok "the brief exports the lane's environment, its lease, and the working practice for workers and QA only"
 
 # ── the brief is a dispatch line over a file in the lane's worktree ──────────
@@ -482,6 +484,23 @@ mkdir -p "$scratch/elsewhere"; printf 'report\n' > "$scratch/elsewhere/review.md
 expect 'existing file' "${tool[@]}" review brf one --reference "$scratch/elsewhere/absent.md#ok" --result accept
 expect 'recorded accept review' "${tool[@]}" review brf one --reference "$scratch/elsewhere/review.md#ok" --result accept
 ok "a review may cite an existing file outside the repository by absolute path; a missing one is refused"
+# An absolute path inside the lane is stored repository-relative, so the
+# reopen, correct and resubmit cycle does not count the report as undeclared.
+"${tool[@]}" init abs --objective x --acceptance y --repo "$work" --verify 'true' --supervised
+aw="$scratch/lane-abs"; "${tool[@]}" add-lane abs one --worker implementer --workspace "$aw" --path src >/dev/null 2>&1
+"${tool[@]}" add-lane abs rev --worker reviewer --workspace "$scratch/lane-abs-rev" --path tests >/dev/null 2>&1
+"${tool[@]}" claim abs one --agent abs1; "${tool[@]}" claim abs rev --agent absr
+aw_real="$(cd "$aw" && pwd -P)"
+printf 'a\n' >> "$aw/src/app.txt"; commit "$aw" abs
+"${tool[@]}" submit abs one --evidence ok
+mkdir -p "$aw/docs"; printf 'r\n' > "$aw/docs/rev.md"
+"${tool[@]}" review abs one --reference "$aw_real/docs/rev.md#f1" --result reopen --severity P1 --message m
+"${tool[@]}" ack abs one --agent abs1
+printf 'b\n' >> "$aw/src/app.txt"; commit "$aw" abs2
+expect 'ready for final review' "${tool[@]}" submit abs one --evidence ok
+expect 'does not claim to interrupt' "${tool[@]}" attention abs one --severity P1 --message m --reference "$aw_real/docs/rev.md#f1"
+expect 'sent' "${tool[@]}" send abs --from-lane rev --to-lane one --agent absr --kind finding --message m --reference "$aw_real/docs/rev.md#f1"
+ok "an absolute in-lane reference survives review, reopen, resubmit, attention and send"
 expect 'contract-first split' "${tool[@]}" --help
 ok "--help names the delegation shapes"
 "${tool[@]}" heartbeat res plain --agent rp --progress 'migrations 3/9'
