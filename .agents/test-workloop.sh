@@ -133,8 +133,10 @@ for value in ("/tmp/lane", "/private/tmp/lane"):
         assert "/home/u/repo/.agents/worktrees/r/l" in str(exc), exc
 assert workloop.workspace_for("/private/tmp/lane", Path("/private/tmp/repo"), "r", "l", "lane") == Path("/private/tmp/lane").resolve()
 PY
-if [[ "$real_work" != /tmp/* && "$real_work" != /private/tmp/* ]]; then
-  expect "lies under /tmp, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/three" \
+# A checkout that itself lives in a temporary folder (mktemp on Linux CI, or
+# $TMPDIR on macOS) may keep its lanes there, so only check the refusal outside one.
+if python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import workloop; from pathlib import Path; sys.exit(workloop.temporary(Path(sys.argv[2]).resolve()))' "$repo/.agents" "$real_work"; then
+  expect "lies in a temporary folder, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/three" \
     "${tool[@]}" add-lane nest three --worker implementer --workspace "/tmp/colloid-lane-$$" --path lib
   [[ ! -e "/tmp/colloid-lane-$$" ]] || fail "a refused /tmp workspace was created"
 fi
@@ -170,8 +172,8 @@ for l in one two; do
   printf 'r\n' > "$d/docs/$l/r.md"; commit "$d" "$l"
   "${tool[@]}" submit nest "$l" --evidence ok; "${tool[@]}" review nest "$l" --reference "docs/$l/r.md#ok" --result accept
 done
-if [[ "$real_work" != /tmp/* && "$real_work" != /private/tmp/* ]]; then
-  expect "integration workspace /tmp/colloid-int-$$ lies under /tmp, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/integration" \
+if python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import workloop; from pathlib import Path; sys.exit(workloop.temporary(Path(sys.argv[2]).resolve()))' "$repo/.agents" "$real_work"; then
+  expect "integration workspace /tmp/colloid-int-$$ lies in a temporary folder, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/integration" \
     "${tool[@]}" integrate nest --workspace "/tmp/colloid-int-$$"
 fi
 expect "PASS: integrated one, two in $real_work/.agents/worktrees/nest/integration" "${tool[@]}" integrate nest

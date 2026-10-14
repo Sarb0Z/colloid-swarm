@@ -424,11 +424,16 @@ for pruned in node_modules .git vendor .venv target; do
   mkdir -p "$pr/keep/$pruned/inner"
   printf '{"name":"%s","lockfileVersion":3}\n' "$pruned" > "$pr/keep/$pruned/inner/package-lock.json"
 done
+# Nested worktrees carry their own installs, so the main tree never walks them.
+for nest in .agents/worktrees/r/l .claude/worktrees/w; do
+  mkdir -p "$pr/$nest"
+  printf '{"name":"nest","lockfileVersion":3}\n' > "$pr/$nest/package-lock.json"
+done
 : > "$scratch/npm.pwd.log"
 "$prov" "$pr" >/dev/null || fail "prune fixture failed to provision"
 [[ "$(wc -l < "$scratch/npm.pwd.log" | tr -d ' ')" == 1 && "$(cat "$scratch/npm.pwd.log")" == "$pr/keep" ]] \
   || fail "only keep/ may install; a pruned folder's lockfile was walked: $(cat "$scratch/npm.pwd.log")"
-ok "a lockfile inside node_modules, .git, vendor, .venv or target is ignored and the one beside them installs"
+ok "a lockfile inside node_modules, .git, vendor, .venv, target or a nested worktree is ignored and the one beside them installs"
 
 # 18. only folders inside the checkout are pruned: a checkout whose own path
 # sits under a vendor/ parent still finds its nested lockfile

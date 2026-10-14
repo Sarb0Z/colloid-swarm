@@ -103,8 +103,10 @@ which the system clears. `.gitignore` hides `.agents/worktrees/` from
 `git status` and `rg`, and `add-lane` warns where it does not. A test runner
 that walks the tree without honouring `.gitignore`, such as an unanchored
 vitest or jest glob, finds every lane's copy of the tests: when a repository's
-first run starts, check the runner's discovery roots. Lane hooks run the main
-checkout's guards and read the run state there.
+first run starts, check the runner's discovery roots. A Claude Code cell the
+lead dispatches from the main checkout runs that checkout's guards and reads
+the run state there; a Codex session, or a Claude session launched inside a
+lane, uses the lane's own copy of the scaffold.
 
 `widen <run> <lane> --path <p>` gives a running lane another owned path, and
 `--also <dir>` adds a directory to a sparse lane's cone and checks it out. It
