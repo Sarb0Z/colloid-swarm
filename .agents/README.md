@@ -218,8 +218,10 @@ ends its turn, starts a process with `run_in_background`, or runs a short
 capped `for` loop. A cell runs a command of up to 10 minutes in the foreground
 with Bash's `timeout` set, starts a longer one in the background with an
 `exit=` end marker, and waits for it with a capped loop on the output file, so
-a sleep of 5 s or less on a task's output passes for a cell. Calls the host
-already runs in the background pass. Codex and Kimi have no background flag to
+a sleep of 5 s or less on a task's output passes for a cell. No rule checks
+that a loop caps itself: a loop of short sleeps is bounded only by Bash's own
+timeout, 10 minutes at most. Calls the host already runs in the background
+pass. Codex and Kimi have no background flag to
 point to, so the gate is not wired there. The toggle is
 `hooks.wait_gate.enabled`.
 
