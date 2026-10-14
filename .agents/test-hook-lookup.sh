@@ -21,7 +21,8 @@ home="$scratch/home"
 pf="$scratch/pf"
 other="$scratch/other"
 lane="$pf/repo/.claude/worktrees/lane"
-mkdir -p "$home" "$scratch/outside" "$pf/.claude" "$pf/repo/sub"
+workloop_lane="$pf/repo/.agents/worktrees/r/l"
+mkdir -p "$home" "$scratch/outside" "$pf/.claude" "$pf/repo/sub" "$workloop_lane/sub"
 
 # A stub repository answers with the folder it was given and what it received.
 stub() {  # <root> <name>
@@ -36,6 +37,7 @@ stub() {  # <root> <name>
 stub "$pf/repo" repo
 stub "$other" other
 stub "$lane" lane
+stub "$workloop_lane" workloop-lane
 
 events=(); cmds=()
 while IFS=$'\t' read -r event cmd; do
@@ -113,6 +115,21 @@ runs_nothing 6 "a bogus launch folder and a walk to the root end as row 4" \
 # POST_EDIT_MODE the stub received against the ones written in the command.
 runs_stub 9 "a lane under .claude/worktrees maps back to the checkout's adapter" \
   "$pf" "$lane" repo "$pf/repo"
+runs_stub 11 "no launch folder, working inside a workloop lane under .agents/worktrees: the checkout's adapter runs, so the lane's hooks read the run state where it lives" \
+  - "$workloop_lane/sub" repo "$pf/repo"
+
+before=$fails
+for i in "${!cmds[@]}"; do
+  case "${cmds[$i]}" in
+    *'*/.claude/worktrees/*)'*'*/.agents/worktrees/*)'*) ;;
+    *) fail "row 11: ${events[$i]} '$(args_of "${cmds[$i]}")' lacks the .claude/worktrees or the .agents/worktrees fallback" ;;
+  esac
+done
+case "$status_cmd" in
+  *'*/.claude/worktrees/*)'*'*/.agents/worktrees/*)'*) ;;
+  *) fail "row 11: the statusLine command lacks the .claude/worktrees or the .agents/worktrees fallback" ;;
+esac
+[[ "$fails" -eq "$before" ]] && ok "row 11: every hook command and the statusLine carry both nested-worktree fallbacks"
 
 before=$fails
 write_count=0
