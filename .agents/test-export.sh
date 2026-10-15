@@ -55,6 +55,7 @@ for path in \
   .agents/eval .agents/fixtures .agents/breadcrumbs.md .agents/debt-log.md \
   .agents/decisions.md \
   .agents/export .agents/export-scaffold.py .agents/test-export.sh \
+  .agents/port-public.py .agents/test-port-public.sh .agents/public \
   .agents/test-stack-packs.sh; do
   [[ ! -e "$kit/$path" ]] || fail "export retained $path"
 done

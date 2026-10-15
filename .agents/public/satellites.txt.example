@@ -1,0 +1,8 @@
+# Private name ==> public replacement, one per line, longest names applied first.
+# A word-like name matches whole words, case-insensitively; a name with `/` or
+# `@` matches literally. A replacement uses only letters, digits, `.`, `_`, `/`,
+# `@` and `-`, so HTML escaping in generated pages cannot change it.
+acme-billing==>billing-app
+acme-billing-api==>billing-api
+client-org==>client-org-a
+/Users/me==>/Users/alice
