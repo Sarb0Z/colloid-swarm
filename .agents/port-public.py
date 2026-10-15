@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -371,6 +372,9 @@ def build(repo, out, against):
     if out.exists() and any(out.iterdir()):
         fail(f"{out} is not empty")
     out.parent.mkdir(parents=True, exist_ok=True)
+    # A killed build (SIGKILL, a crash) skips its cleanup and may leave an unfiltered clone here.
+    for stale in out.parent.glob(f".{out.name}.partial-*"):
+        shutil.rmtree(stale)
     work = Path(tempfile.mkdtemp(prefix=f".{out.name}.partial-", dir=out.parent))
     try:
         with tempfile.TemporaryDirectory(prefix="port-public-") as scratch:
@@ -404,6 +408,8 @@ def main():
     build_parser.add_argument("out", type=Path)
     build_parser.add_argument("--against", help="the published repository to compare with")
     args = parser.parse_args()
+    # SIGTERM becomes an exit, so `build` still removes its scratch copy of the private history.
+    signal.signal(signal.SIGTERM, lambda *_: fail("terminated"))
     repo = args.repo.resolve()
     if args.command == "check":
         check(repo)

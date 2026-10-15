@@ -165,6 +165,23 @@ python3 "$tool" --repo "$repo" build "$work/out-common-word-3" >/dev/null \
   || fail "common-word: a reviewed use still failed the build"
 pass=$((pass + 1))
 
+# A scratch copy a killed build left behind is removed by the next build.
+repo="$(fixture killed)"
+mkdir -p "$work/.out-killed.partial-x/copy" && printf 'unfiltered\n' > "$work/.out-killed.partial-x/copy/leak"
+python3 "$tool" --repo "$repo" build "$work/out-killed" >/dev/null
+compgen -G "$work/.out-killed.partial-*" >/dev/null && fail "killed: a stale scratch copy survived the next build"
+pass=$((pass + 1))
+
+# A terminated build removes its scratch copy.
+repo="$(fixture terminated)"
+python3 "$tool" --repo "$repo" build "$work/out-terminated" >/dev/null 2>&1 &
+until compgen -G "$work/.out-terminated.partial-*" >/dev/null || ! kill -0 $! 2>/dev/null; do :; done
+kill -TERM $! || fail "terminated: the build ended before it could be signalled"
+status=0; wait $! || status=$?
+[[ $status -ne 0 ]] || fail "terminated: the build finished before the signal landed"
+compgen -G "$work/.out-terminated.partial-*" >/dev/null && fail "terminated: the scratch copy survived SIGTERM"
+pass=$((pass + 1))
+
 # Uncommitted work never reaches a port.
 repo="$(fixture dirty)"
 printf 'draft\n' >> "$repo/README.md"
