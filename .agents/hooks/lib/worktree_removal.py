@@ -146,7 +146,10 @@ def unsaveable(path: Path) -> str | None:
     busy = [name for name in IN_PROGRESS if (admin / name).exists()]
     if busy:
         return f"a {busy[0]} operation is in progress"
-    flagged = [line[2:] for line in wr.git(path, "ls-files", "-v").stdout.splitlines()
+    listing = wr.git(path, "ls-files", "-v")
+    if listing.returncode:
+        return f"git could not read its index: {listing.stderr.strip()}"
+    flagged = [line[2:] for line in listing.stdout.splitlines()
                if line[:1] in ("S", "s", "h") and os.path.lexists(path / line[2:])]
     return f"it holds skip-worktree or assume-unchanged files git status does not show: {', '.join(flagged[:3])}" if flagged else None
 
@@ -154,9 +157,11 @@ def unsaveable(path: Path) -> str | None:
 def dirty(path: Path) -> bool:
     """Uncommitted or untracked work. The flags override what the repository's config may
     hide: `status.showUntrackedFiles=no` blanks untracked files, and `git worktree remove`
-    without --force then deletes them; a stale fsmonitor or untracked cache can miss edits."""
-    return bool(wr.out(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-                       "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all"))
+    without --force then deletes them; a stale fsmonitor or untracked cache can miss edits.
+    A status that fails counts as dirty."""
+    status = wr.git(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+                    "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
+    return bool(status.returncode or status.stdout.strip())
 
 
 def gitlinks(path: Path, *args, env: dict | None = None) -> set:
