@@ -30,6 +30,15 @@ readiness with a capped loop, such as
 macOS has no `timeout` command. Kill every process you started before
 returning, and name any you must leave running.
 
+Drive a browser check of more than a few steps with a Playwright script run in
+one shell call, `node - <<'JS' … JS`, from a folder where `playwright`
+resolves (the project when it depends on Playwright, otherwise a scratch folder
+after `npm i playwright`); assert in code so a failure exits non-zero, rerun
+the same call after a fix, and put the script's text under EXECUTED. A browser
+MCP tool costs a model turn per action: a 14-step check took 34 s that way, 12 s
+as a script and 0.9 s to rerun. Use one only for a check of a few steps or to
+find a page's selectors.
+
 Return exactly:
 
 ```

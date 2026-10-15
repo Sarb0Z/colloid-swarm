@@ -42,6 +42,16 @@ capped loop, such as
 `for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done`:
 macOS has no `timeout` command. Stop it with `TaskStop`.
 
+Drive a browser check of more than a few steps with a Playwright script, not
+the Playwright MCP tools: run it in one Bash call as `node - <<'JS' … JS` from
+a folder where `playwright` resolves (the project when it depends on
+Playwright, otherwise a scratch folder after `npm i playwright`), assert in
+code so a failure exits non-zero, and rerun the same call after a fix. Each MCP
+action is a model turn: a 14-step check took 34 s through MCP, 12 s as a
+script and 0.9 s to rerun (`.agents/knowledge/research/2026-10-15-playwright-mcp-vs-scripts.md`).
+Use the MCP tools for a check of a few steps or to find a page's selectors.
+Put the script's text under EXECUTED so the lead can rerun it.
+
 Before you return, close what you opened: verification is short, its resources
 not worth holding. Call `browser_close` once the last interaction is observed,
 end any device session, and stop any server or watcher you backgrounded. A
