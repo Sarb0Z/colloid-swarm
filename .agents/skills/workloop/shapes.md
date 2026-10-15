@@ -2,7 +2,10 @@
 
 Each example answers the guide's six questions in `SKILL.md`, then shows the
 dispatch. Briefs are abridged to their fields; a writing or QA cell's brief
-also carries `working-practice.md` verbatim.
+also carries `working-practice.md` verbatim. For a lane, `brief` writes the
+brief to `.workloop/BRIEF.md` in its worktree and prints a two-line dispatch
+prompt (the header, then the path to read); that prompt is what the lead
+dispatches.
 
 ## Contents
 
@@ -72,7 +75,7 @@ in any order (3), two writers:
 .agents/workloop.py brief audit accounts --role worker
 ```
 
-Dispatch each brief as its cell's prompt, then review both lanes in one round,
+Dispatch each printed prompt as its cell's prompt, then review both lanes in one round,
 `integrate`, `qa`, `check`, `teardown`.
 
 ## Contract-first split
@@ -91,7 +94,7 @@ git commit -m 'feat(contracts): claim summary shape for the API and the web app'
 ```
 
 `init` pins the base after the contract commit, so both lanes start with it
-and build at once. Below each printed brief, append the lane's part:
+and build at once. Below each printed prompt, append the lane's part:
 
 ```text
 Contract: packages/contracts/claim-summary.ts and fixtures/claim-summary.json,
