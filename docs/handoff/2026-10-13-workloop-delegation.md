@@ -173,7 +173,7 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 22 | `EnterWorktree` worktrees, which Claude Code locks | Removed after their session unless the operator answered "keep" at Claude Code's exit prompt; any other lock keeps a worktree | `worktrees-end-with-their-session` |
 | 23 | Does `/clear` end a session | Yes: `/clear` and `/resume` end the old conversation's worktrees and runs as an exit does | `worktrees-end-with-their-session` |
 | 24 | How large a lane may grow | One behaviour per lane, by language; `workloop.py` warns in the digest when a lane grows past a size, and never refuses | this spec |
-
+| 25 | What counts as rebuildable when the heal judges a worktree | Only folders a package manager reinstalls from the repository's lockfile (`node_modules`, `.venv`, `Pods` and the like); any other ignored file, build output included, keeps the worktree, and so does any `.git` outside those folders (2026-10-15, after three review rounds of the same data-loss shape) | `worktrees-end-with-their-session` |
 ## Design
 
 ### 1. The shape guide (the language)
