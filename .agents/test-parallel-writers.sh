@@ -597,6 +597,8 @@ reset
 [[ -z "$(ndispatch p15 general-purpose 'READ-ONLY: look' tum15)" ]] || fail "READ-ONLY dispatch refused"
 meta m15 tum15; nstart m15 general-purpose p-unrecorded
 mkdir "$nf/.agents/.writers-lock-s2"
+# dated an hour ahead, so a write slowed past the reap age under load still finds the lock busy
+python3 -c 'import os,sys,time; t=time.time()+3600; os.utime(sys.argv[1], (t, t))' "$nf/.agents/.writers-lock-s2"
 out="$(nwrite m15 general-purpose "$pf/notes/x.md")"
 rmdir "$nf/.agents/.writers-lock-s2"
 denied "$out" || fail "a READ-ONLY write passed while the lock was busy"
