@@ -315,6 +315,26 @@ removing a lane with 45,000 files takes 2.8 s in place and 11 ms this way.
 `hooks/lib/worktree_records.py`, `worktree_removal.py` and `worktree_sweep.py`
 hold the rules.
 
+The heal (unit 5b, ruling 20) removes an idle worktree no record or run names,
+outside every `.agents/worktrees/`, when nothing in it would be lost, and saves
+nothing to `saved/`. It must be unlocked (a Claude Code lock of an ended
+session also keeps it, since nothing records the operator's answer at the exit
+prompt) with no process inside; hold no uncommitted or untracked file, however
+the repository's config hides them, no skip-worktree or assume-unchanged file,
+and no bisect, rebase, merge or cherry-pick in progress; contain no other
+worktree and no nested repository outside rebuild-list folders; hold only
+ignored files that rebuild, with keep-list files (`.env*`, local databases,
+keys, Terraform state) counting wherever they lie, `build/` included; have its
+branch merged into the default branch, squash included, or every commit on its
+upstream as of the last fetch, or a detached HEAD the default branch contains;
+and have no commit only its HEAD log reaches while git would keep it. Removal
+is `git worktree remove` without --force, the branch goes only when HEAD
+contains it, and the digest says what each removed worktree held and why it
+could go. A kept verdict is cached in `.git/colloid-heal-cache.json` until the
+worktree's HEAD, lock, index, git folder or top folder changes, a branch tip
+it turned on moves, or a week passes: 20 kept worktrees cost 3.6 s at the
+first start and 0.2 s after.
+
 `edit-record.sh` lets the session wrap measure only its own session: it
 appends each path an editor tool writes to `.wrap-edits-<session>` and each
 commit the session makes or integrates to `.wrap-commits-<session>`, both
