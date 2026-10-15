@@ -50,8 +50,9 @@ def clean_env(extra: dict | None = None) -> dict:
     return env
 
 
-def git(cwd, *args, env: dict | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(cwd), *args], text=True, capture_output=True, env=clean_env(env))
+def git(cwd, *args, env: dict | None = None, stdin: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(cwd), *args], text=True, capture_output=True, env=clean_env(env),
+                          input=stdin)
 
 
 def out(cwd, *args) -> str:
