@@ -274,10 +274,15 @@ sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s
 ok "/clear ends the conversation's worktrees; a run with an unsubmitted lane stays until its process exits, with no read of the writers list"
 
 # ── Codex and Kimi record through their own adapters ────────────────────────
-mkdir -p "$R/.agents/codex" "$R/.codex/hooks" "$R/.kimi/hooks"
+# Kimi is optional: only repositories that wire the engine carry .kimi/.
+kimi=""; [[ -f "$repo/.kimi/hooks/adapter.sh" ]] && kimi=yes
+mkdir -p "$R/.agents/codex" "$R/.codex/hooks"
 cp "$repo/.agents/codex/adapter.sh" "$repo/.agents/codex/normalize-hook.py" "$R/.agents/codex/"
 ln -s ../../.agents/codex/adapter.sh "$R/.codex/hooks/adapter.sh"
-cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$R/.kimi/hooks/"
+if [[ -n "$kimi" ]]; then
+  mkdir -p "$R/.kimi/hooks"
+  cp "$repo/.kimi/hooks/adapter.sh" "$repo/.kimi/hooks/normalize-hook.py" "$R/.kimi/hooks/"
+fi
 host_call() {  # <host> <session> <command> [tool_use_id]: PreToolUse, the command, PostToolUse
   local input; input="{\"command\":$(json "$3")}"
   for event in PreToolUse PostToolUse; do
@@ -288,23 +293,27 @@ host_call() {  # <host> <session> <command> [tool_use_id]: PreToolUse, the comma
 }
 host_call codex cx1 'git worktree add -q ../wt-codex -b codex' call-c1
 host_call codex cx1 "$wl init t3 --objective o --acceptance a --repo $R" call-c2
-host_call kimi km1 'git worktree add -q ../wt-kimi -b kimi'
-host_call kimi km1 "$wl init t4 --objective o --acceptance a --repo $R"
 [[ "$(grep -c "\"path\": \"$scratch/wt-codex\"" "$records/cx1.jsonl" 2>/dev/null)" == 1 ]] || fail "Codex must record git worktree add once: $(cat "$records"/cx1.jsonl 2>&1)"
 [[ "$(grep -c '"run": "t3"' "$records/cx1.jsonl")" == 1 ]] || fail "Codex must record workloop.py init once"
-[[ "$(grep -c "\"path\": \"$scratch/wt-kimi\"" "$records/km1.jsonl" 2>/dev/null)" == 1 ]] || fail "Kimi must record git worktree add once: $(cat "$records"/km1.jsonl 2>&1)"
-[[ "$(grep -c '"run": "t4"' "$records/km1.jsonl")" == 1 ]] || fail "Kimi must record workloop.py init once"
-ok "Codex and Kimi record git worktree add and workloop.py init once each, through their adapters"
-python3 - "$repo/.agents/codex/hooks.json" "$repo/.kimi/config.toml.example" <<'PY' || fail "Codex and Kimi must register teardown-gate.sh on PreToolUse for Bash"
+if [[ -n "$kimi" ]]; then
+  host_call kimi km1 'git worktree add -q ../wt-kimi -b kimi'
+  host_call kimi km1 "$wl init t4 --objective o --acceptance a --repo $R"
+  [[ "$(grep -c "\"path\": \"$scratch/wt-kimi\"" "$records/km1.jsonl" 2>/dev/null)" == 1 ]] || fail "Kimi must record git worktree add once: $(cat "$records"/km1.jsonl 2>&1)"
+  [[ "$(grep -c '"run": "t4"' "$records/km1.jsonl")" == 1 ]] || fail "Kimi must record workloop.py init once"
+fi
+ok "Codex${kimi:+ and Kimi} record git worktree add and workloop.py init once each, through their adapters"
+python3 - "$repo/.agents/codex/hooks.json" "${kimi:+$repo/.kimi/config.toml.example}" <<'PY' || fail "Codex${kimi:+ and Kimi} must register teardown-gate.sh on PreToolUse for Bash"
 import json, re, sys
 codex = json.load(open(sys.argv[1]))["hooks"].get("PreToolUse", [])
 in_codex = any(group.get("matcher") == "Bash" and any(h["command"].endswith('adapter.sh\\" teardown-gate.sh') or
                h["command"].endswith('adapter.sh" teardown-gate.sh') for h in group["hooks"]) for group in codex)
-blocks = re.split(r"^\[\[hooks\]\]", open(sys.argv[2]).read(), flags=re.M)
-in_kimi = any('event = "PreToolUse"' in b and 'matcher = "Bash"' in b and "teardown-gate.sh" in b for b in blocks)
+in_kimi = True
+if sys.argv[2]:
+    blocks = re.split(r"^\[\[hooks\]\]", open(sys.argv[2]).read(), flags=re.M)
+    in_kimi = any('event = "PreToolUse"' in b and 'matcher = "Bash"' in b and "teardown-gate.sh" in b for b in blocks)
 sys.exit(not (in_codex and in_kimi))
 PY
-ok "Codex and Kimi register the snapshot PreToolUse"
+ok "Codex${kimi:+ and Kimi} register the snapshot PreToolUse"
 
 # ── a config that hides untracked files hides nothing from the save ─────────
 # With status.showUntrackedFiles=no, `git status` prints nothing and `git

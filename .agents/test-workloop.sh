@@ -472,7 +472,10 @@ gate_kind="$(python3 -c 'import json,sys; print(json.dumps({"project_dir": sys.a
 ok "the parallel-writers gate recognises the dispatch prompt as a lane cell"
 git -C "$bw" check-ignore -q .workloop/BRIEF.md || fail ".workloop/ is not ignored in the lane"
 [[ -z "$(git -C "$bw" status --porcelain --untracked-files=all)" ]] || fail "the brief dirties the lane: $(git -C "$bw" status --porcelain)"
-grep -qx '\.workloop/' "$repo/.gitignore" && grep -qx '\.workloop/' "$repo/.agents/export/gitignore-fragment" || fail ".workloop/ is missing from .gitignore or the export fragment"
+# Only the carrier ships the export fragment; a satellite has its .gitignore alone.
+grep -qx '\.workloop/' "$repo/.gitignore" || fail ".workloop/ is missing from .gitignore"
+fragment="$repo/.agents/export/gitignore-fragment"
+[[ ! -f "$fragment" ]] || grep -qx '\.workloop/' "$fragment" || fail ".workloop/ is missing from the export fragment"
 ok ".workloop/ is ignored in the lane and listed in .gitignore and the export fragment"
 "${tool[@]}" widen brf one --path gen --also tests >/dev/null
 full_brief brf one | grep -q 'Sparse cone: .*tests' || fail "a rerun after widen did not refresh the brief"
