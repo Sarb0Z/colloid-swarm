@@ -10,9 +10,10 @@
 # `workloop.py abandon`. A worktree locked by anything but Claude Code's own
 # lock of this session, one a running process works in, one holding a nested
 # repository, and an EnterWorktree worktree kept at Claude Code's exit prompt
-# all stay and are named; so does a run whose lane's writer cell is still
-# live. hooks/lib/worktree_removal.py owns the order of the checks, and
-# hooks/lib/worktree_sweep.py `end` the session's record file.
+# all stay and are named. A run `workloop.py check` refuses waits 24 hours
+# for the conversation's resume, and one whose worktrees hold ignored files
+# that would not come back stays. hooks/lib/worktree_removal.py owns the order
+# of the checks, and hooks/lib/worktree_sweep.py `end` the session's record file.
 #
 # What a session that never reaches this hook leaves (a killed process, a host
 # without the event) is swept by session-start.sh at the next start.

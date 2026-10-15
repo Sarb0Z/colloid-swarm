@@ -20,22 +20,20 @@ import fcntl
 import importlib.util
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-_spec = importlib.util.spec_from_file_location("worktree_heal", Path(__file__).with_name("worktree_heal.py"))
-hl = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(hl)
-rm, wr = hl.rm, hl.wr
+_spec = importlib.util.spec_from_file_location("worktree_runs", Path(__file__).with_name("worktree_runs.py"))
+rn = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(rn)
+hl, rm, wr = rn.hl, rn.rm, rn.wr
 
 # Reasons after which the session's process exits; after /clear and /resume it
 # goes on working, so its own folder still counts as occupied.
 EXITS = {"prompt_input_exit", "other", "logout", "bypass_permissions_disabled"}
 IDLE_SECONDS = 24 * 3600
 PARKED_SECONDS = 600
-STATE = Path(".agents/.workloop-state.json")
 
 
 def reclaim(folder: Path) -> None:
@@ -43,8 +41,14 @@ def reclaim(folder: Path) -> None:
     for claim in folder.glob(".*.jsonl.*-*"):
         pid = claim.name.rsplit("-", 1)[-1]
         if pid.isdigit() and wr.ps_row(int(pid)) is None:
-            with open(folder / claim.name[1:].rsplit(".", 1)[0], "a") as stream:
+            record = folder / claim.name[1:].rsplit(".", 1)[0]
+            live = resumed(record)
+            with open(record, "a") as stream:
                 stream.write(claim.read_text())
+            # The folded entries end under their dead host; a session that resumed
+            # meanwhile is written last again, so it does not read as gone.
+            if live:
+                wr.append(folder, record.stem, [{"type": "host", "host": live, "at": int(time.time())}])
             claim.unlink()
 
 
@@ -76,75 +80,65 @@ def close(path: Path, reason: str, workloop: Path) -> list[str]:
         return []  # another end or sweep claimed it first
     entries, me = wr.load(claimed), wr.host()
     stamp = wr.last_host(entries)
+    if not reason and stamp and wr.alive(stamp):
+        # Its session resumed between the sweep's look and the claim: give the records back.
+        wr.append(path.parent, path.stem, entries)
+        claimed.unlink()
+        return []
     exclude = {pid for pid, _, _ in wr.chain()} if reason in EXITS else {os.getpid()}
-    remover = rm.Remover(f"session {path.stem}", exclude, me[0] if reason and me else stamp[0] if stamp else None)
-    # What stays goes back under the session's host, so the first sweep after
-    # that process exits takes it: after /clear or /resume that is a run with
-    # an unsubmitted lane, whose cell may still be working.
-    wr.append(path.parent, path.stem, [dict(e, host=stamp) for e in finish(entries, remover, workloop, reason)])
+    remover = rm.Remover(f"session {path.stem}", exclude, me[0] if reason and me else stamp[0] if stamp else None,
+                         rn.lost_files)
+    standing = finish(entries, remover, workloop, reason, path)
+    # What stays goes back under the session's host, so only a sweep after that
+    # process exits takes it; under a live one when the session resumed meanwhile.
+    wr.append(path.parent, path.stem, [dict(e, host=resumed(path) or stamp) for e in standing])
     claimed.unlink()
     return remover.lines
 
 
-def finish(entries: list[dict], remover, workloop: Path, reason: str) -> list[dict]:
-    """Close the runs, then remove the worktrees; return the entries still standing.
+def resumed(path: Path):
+    """The live host a resumed session wrote to its record while a sweep held the claim."""
+    stamp = wr.last_host(wr.load(path)) if path.is_file() else None
+    return stamp if stamp and wr.alive(stamp) else None
+
+
+def finish(entries: list[dict], remover, workloop: Path, reason: str, record: Path) -> list[dict]:
+    """Close the finished runs, then remove the worktrees; return the entries still standing.
     Claude Code asks keep-or-remove only for the last worktree entered, and reports
     the main checkout as the cwd after the answer (2.1.299), so only that one reads as kept."""
     runs = {(e.get("run"), e.get("state")): e for e in entries if e.get("type") == "run"}
-    hold = reason in ("clear", "resume")
+    since, now = max((e.get("at") or 0 for e in entries if e.get("type") == "host"), default=0), time.time()
     entered = [e["path"] for e in entries if e.get("by") == "EnterWorktree" and e.get("path")]
-    remaining = [entry for entry in runs.values() if not close_run(remover, entry, workloop, hold)]
+    remaining = []
+    for entry in runs.values():
+        why = rn.unfinished(entry, workloop)
+        if why and rn.waits(entry, reason, since, now):
+            until = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry["held"] + rn.HOLD_SECONDS))
+            remover.lines.append(f"kept workloop run {entry['run']}: {why}; it waits for this conversation's "
+                                 f"resume until {until}")
+            remaining.append(entry)
+        elif not reason and resumed(record):
+            remover.lines.append(f"kept workloop run {entry['run']}: its session resumed during this sweep")
+            remaining.append(entry)
+        elif not rn.close_run(remover, entry, workloop):
+            remaining.append(entry)
     kept_runs, seen = {entry["run"] for entry in remaining}, set()
     for entry in [e for e in entries if e.get("type") == "worktree" and e.get("path")]:
-        path = Path(entry["path"])
-        if str(path) in seen:
+        worktree = Path(entry["path"])
+        if str(worktree) in seen:
             continue
-        seen.add(str(path))
+        seen.add(str(worktree))
         if entry.get("run") in kept_runs:
             remaining.append(entry)
-        elif reason == "prompt_input_exit" and entered and entry["path"] == entered[-1] and path.is_dir() \
-                and not lock_of(path):
-            remover.lines.append(f"kept {path}: kept at Claude Code's exit prompt")
-        elif remover.retire(path) == "kept":
+        elif not reason and resumed(record):
+            remover.lines.append(f"kept {worktree}: its session resumed during this sweep")
+            remaining.append(entry)
+        elif reason == "prompt_input_exit" and entered and entry["path"] == entered[-1] and worktree.is_dir() \
+                and not lock_of(worktree):
+            remover.lines.append(f"kept {worktree}: kept at Claude Code's exit prompt")
+        elif remover.retire(worktree) == "kept":
             remaining.append(entry)
     return remaining
-
-
-def close_run(remover, entry: dict, workloop: Path, hold: bool) -> bool:
-    """Save a run's worktrees and close it with `abandon`; False when it must stay. With
-    `hold` (/clear, /resume) a lane not yet submitted keeps the run: its cell may still work."""
-    name, state = entry.get("run"), entry.get("state") or ""
-    run = wr.runs_in(state).get(name)
-    if run is None:
-        return True
-    lanes = run.get("lanes") or {}
-    busy = next((f"lane {lane} is {info.get('state')}, not yet submitted, and the session's process goes on"
-                 for lane, info in lanes.items() if hold and info.get("state") not in ("review", "reviewed")), None)
-    spaces = [Path(s).resolve() for s in workspaces(run)]
-    present = [path for path in spaces if path.is_dir()]
-    repo = wr.main_checkout(run.get("repo") or "/nonexistent")
-    # Git still lists a workspace that is not on disk (an unmounted volume):
-    # abandon's prune would drop it, so the run stays.
-    away = next((f"git lists {e['path']} but it is not on disk" for e in (wr.worktrees(repo) if repo else [])
-                 if e["path"] in spaces and not e["path"].is_dir()), None)
-    refusal = busy or away or next((f"{path}: {r[1]}" for path in present for r in [remover.blocked(path)] if r), None)
-    saved = []
-    for path in [] if refusal else [path for path in present if rm.dirty(path)]:
-        branch, error = rm.save(path, remover.label)
-        refusal = f"{path}: its unsaved work could not be committed ({error})" if error else None
-        if refusal:
-            break
-        saved.append(f"{path} -> {branch}")
-    if refusal:
-        remover.lines.append(f"kept workloop run {name}: {refusal}")
-        return False
-    os.chdir(Path(state).parent)
-    result = subprocess.run([sys.executable, str(workloop), "--state", state, "abandon", name],
-                            text=True, capture_output=True, env=wr.clean_env())
-    remover.lines.append(f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
-                         if result.returncode else f"closed workloop run {name}: {result.stdout.strip()}"
-                         + ("; unsaved work: " + ", ".join(saved) if saved else ""))
-    return not result.returncode
 
 
 def lock_of(path: Path) -> str | None:
@@ -155,41 +149,6 @@ def lock_of(path: Path) -> str | None:
 def end(project: Path, session: str, reason: str, workloop: Path) -> list[str]:
     path = wr.records_dir(project) / f"{wr.session_key(session)}.jsonl"
     return close(path, reason or "other", workloop) if wr.session_key(session) and path.is_file() else []
-
-
-def workspaces(run: dict) -> list[str]:
-    return [s for s in [lane.get("workspace") for lane in (run.get("lanes") or {}).values()]
-            + [(run.get("integration") or {}).get("workspace")] if s]
-
-
-def drop_run(state: Path, name: str) -> None:
-    """Delete one run from the state file under the controller's own lock, as `workloop_state.Store` writes it."""
-    with open(f"{state}.lock", "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        data = json.loads(state.read_text())
-        data["runs"].pop(name, None)
-        scratch = state.with_name(f"{state.name}.{os.getpid()}")
-        scratch.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-        os.replace(scratch, state)
-
-
-def unowned_runs(main: Path, leads: set) -> list[str]:
-    """Close a run no record leads once git lists none of its workspaces (a missing path
-    may be an unmounted disk); a run with no lanes or no repository stays. Name the rest."""
-    state, names, lines = main / STATE, [], []
-    for name, run in sorted(wr.runs_in(str(state)).items()):
-        if name in leads:
-            continue
-        repo = wr.main_checkout(run.get("repo") or "/nonexistent")
-        listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
-        if run.get("lanes") and repo and not any(str(Path(s).resolve()) in listed for s in workspaces(run)):
-            drop_run(state, name)
-            lines.append(f"closed workloop run {name}: git lists none of its worktrees")
-        else:
-            names.append(name)
-    if names:
-        lines.append("Workloop runs no session recorded as their lead, left alone with their worktrees: " + ", ".join(names))
-    return lines
 
 
 def common_dir(main: Path) -> Path:
@@ -227,10 +186,18 @@ def listing(project: Path) -> list[str]:
     return lines or [f"No kept idle worktree is cached for {main or project}."]
 
 
+def rehost(folder: Path, me: str) -> None:
+    """Claim a resumed session's records for its new process, before any lock: a start that
+    finds another sweeping skips the sweep, never this. A record another sweep holds counts."""
+    if me and ((folder / f"{me}.jsonl").is_file() or any(folder.glob(f".{me}.jsonl.*-*"))):
+        wr.append(folder, me, [{"type": "host", "host": wr.host(), "at": int(time.time())}])
+
+
 def sweep(project: Path, session: str, source: str, workloop: Path, emit, budget: float) -> None:
     main = wr.main_checkout(project)
     if main is None:
         return
+    rehost(main / wr.RECORDS, wr.session_key(session))
     with open(common_dir(main) / "colloid-sweep.lock", "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -245,8 +212,7 @@ def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget:
     unpark(main)
     if folder.is_dir():
         reclaim(folder)
-        if me and (folder / f"{me}.jsonl").is_file():
-            wr.append(folder, me, [{"type": "host", "host": wr.host(), "at": int(time.time())}])
+        rehost(folder, me)  # again: a claim folded back above ends under its old host
         for path in sorted(folder.glob("*.jsonl")):
             if path.stem != me and over(wr.load(path), path):
                 for line in close(path, "", workloop):
@@ -256,11 +222,11 @@ def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget:
         for entry in wr.load(path):
             recorded |= {str(Path(entry["path"]).resolve())} if entry.get("type") == "worktree" else set()
             leads.add(entry.get("run"))
-    for line in unowned_runs(main, leads):
+    for line in rn.unowned_runs(main, leads):
         emit(line)
     # A run's state may live in any checkout of the repository, so every one's lanes are spared.
-    runs = [run for entry in wr.worktrees(main) for run in wr.runs_in(str(entry["path"] / STATE)).values()]
-    spared = recorded | {str(Path(space).resolve()) for run in runs for space in workspaces(run)}
+    runs = [run for entry in wr.worktrees(main) for run in wr.runs_in(str(entry["path"] / rn.STATE)).values()]
+    spared = recorded | {str(Path(space).resolve()) for run in runs for space in rn.workspaces(run)}
     common = common_dir(main)
     save_cache(common, hl.heal(main, spared, load_cache(common), emit, source != "compact", budget))
     saved = wr.out(main, "for-each-ref", "--format=%(refname:short) %(committerdate:short) %(subject)", "refs/heads/saved/")

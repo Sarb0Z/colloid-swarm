@@ -35,6 +35,8 @@ REFLOG_KEEP_SECONDS = 30 * 86400
 REMOVE_SECONDS = 20.0
 # Ignored files written again by a tool or the scaffold, which never keep a worktree.
 ANYWHERE = frozenset({".DS_Store", "next-env.d.ts"})
+# Caches a tool rebuilds the next time it runs, holding no work (ruling 29).
+CACHE_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
 LEDGERS = (".wrap-*", ".teardown-pending-*", ".ui-pending-*", ".provenance-*", ".writers-*", ".cells-*",
            ".cell-markers-*", ".inbox-seen-*", ".publish-approved-*", ".compaction-pending", ".genome-ledger",
            ".mutagen-ledger", ".kimi-pending-findings-*", ".workloop-state.json.lock")
@@ -56,11 +58,12 @@ def idle_since(path: Path) -> float:
 
 
 def rebuilds(path: Path, name: str) -> bool:
-    """An ignored entry that comes back on its own: inside a package folder, the lane brief
-    folder `.workloop/`, a file in ANYWHERE, a session-keyed scaffold ledger directly in
-    `.agents/`, or `.agents/.workloop-state.json` holding no run."""
+    """An ignored entry that comes back on its own: inside a package folder or a tool cache,
+    the lane brief folder `.workloop/`, a file in ANYWHERE, a session-keyed scaffold ledger
+    directly in `.agents/`, or `.agents/.workloop-state.json` holding no run."""
     parts = Path(name).parts
-    if rm.PACKAGE_DIRS.intersection(parts) or parts[0] == ".workloop" or (not name.endswith("/") and parts[-1] in ANYWHERE):
+    if (rm.PACKAGE_DIRS | CACHE_DIRS).intersection(parts) or parts[0] == ".workloop" \
+            or (not name.endswith("/") and parts[-1] in ANYWHERE):
         return True
     if len(parts) != 2 or parts[0] != ".agents":
         return False

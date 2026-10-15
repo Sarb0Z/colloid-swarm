@@ -33,7 +33,8 @@ make_fixture() {
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
-     "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_heal.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
+     "$repo/.agents/hooks/lib/worktree_heal.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -789,7 +790,7 @@ row kept sc-run "$sc_context" "a workloop state file holding a run" .agents/.wor
 row kept sc-worklog "$sc_context" "a work log" .agents/worklog/day.md
 row kept sc-config "$sc_context" "the operator's .agents/config.json" .agents/config.json
 row kept sc-local "$sc_context" "CLAUDE.local.md" CLAUDE.local.md
-row kept sc-pycache "$sc_context" "a __pycache__ folder, which no package manager reinstalls" src/__pycache__/m.pyc
+row removed sc-pycache "$sc_context" "only a __pycache__ folder, a cache Python rebuilds"
 pace_first="$(context_of "$(WORKTREE_HEAL_SECONDS=0 run_policy "$pace")")"
 row kept pace "$pace_first" "past the removal budget: named, left for the next start"
 pace_compact="$(run_policy "$pace" compact)"

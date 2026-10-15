@@ -1,6 +1,6 @@
 """The workloop state file and the reads every command makes of it.
 
-`Store` and `ReadStore` hold the state file's lock. `.agents/hooks/lib/worktree_sweep.py`
+`Store` and `ReadStore` hold the state file's lock. `.agents/hooks/lib/worktree_runs.py`
 writes the same file under the same `<state>.lock` file and `flock` protocol, so
 the lock's name and the file's JSON layout (version 1, indented, sorted keys)
 stay as they are here.

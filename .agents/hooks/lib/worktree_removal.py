@@ -61,8 +61,9 @@ def claude_lock_ended(reason: str, ending_pid: int | None) -> bool:
 class Remover:
     """Retires worktrees; collects one report line per outcome."""
 
-    def __init__(self, label: str, exclude: set, ending_pid: int | None):
-        self.label, self.exclude, self.ending_pid = label, exclude, ending_pid
+    def __init__(self, label: str, exclude: set, ending_pid: int | None, lost=None):
+        """`lost(path)` says what a removal would lose that a save cannot carry, or None."""
+        self.label, self.exclude, self.ending_pid, self.lost = label, exclude, ending_pid, lost
         self.lines: list[str] = []
         self._procs, self._loaded = None, False
 
@@ -111,6 +112,10 @@ class Remover:
         if refusal:
             self.lines.append(f"kept {path}: {refusal[1]}")
             return "locked" if refusal[0] == "locked" else "kept"
+        loss = self.lost(path) if self.lost else None
+        if loss:
+            self.lines.append(f"kept {path}: {loss}")
+            return "kept"
         saved, error = save(path, self.label) if dirty(path) else (None, None)
         if error:
             self.lines.append(f"kept {path}: its unsaved work could not be committed ({error})")

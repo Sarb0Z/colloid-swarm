@@ -289,9 +289,14 @@ worktree at once, a dirty one after committing its tracked changes and
 unignored files to `saved/<name>`, a run's lanes the same way before
 `workloop.py abandon` closes it. A branch goes only when the main checkout's
 HEAD contains it. `/clear` and `/resume` end the old conversation's worktrees
-and runs as an exit does, with one carve-out: a run with a lane not yet
-submitted or reviewed stays while the session's process lives, since its cell
-may still be working, and the first sweep after that process exits takes it.
+and runs as an exit does. Only a finished run closes, one `workloop.py check`
+passes; any other run waits 24 hours for the conversation's resume, its
+record stamped at each session end. A start that finds a killed session's run
+unstamped, or stamped before the conversation's last resume, stamps it then
+and keeps it; resuming re-hosts the record, before the sweep's lock, so the
+run is the lead's again; after the 24 hours the next start saves and closes
+it. A worktree or a run's worktree holding ignored files that would not come
+back, judged as the heal judges them below, stays and is named.
 A worktree stays and is named when it is locked (Claude Code's own `claude
 session|agent` lock counts only while its session runs; the last worktree the
 session entered, if the operator kept it at Claude Code's exit prompt,
@@ -311,8 +316,8 @@ worktree. Ignored folders are moved into the git directory and deleted in the
 background, behind a manifest the sweep uses to move them back after a kill:
 removing a lane with 45,000 files takes 2.8 s in place and 11 ms this way.
 `hooks.teardown_gate.enabled` switches all of it off;
-`hooks/lib/worktree_records.py`, `worktree_removal.py`, `worktree_sweep.py`
-and `worktree_heal.py` hold the rules.
+`hooks/lib/worktree_records.py`, `worktree_removal.py`, `worktree_sweep.py`,
+`worktree_runs.py` and `worktree_heal.py` hold the rules.
 
 The same start heals what older sessions left (`worktree_heal.py`). It removes
 an idle worktree (24 hours) that no record or run in any checkout names,
@@ -326,7 +331,8 @@ commit on its upstream as of the last fetch; a detached HEAD counts only
 inside the default branch. No commit may be reachable only from its HEAD log
 or its `refs/worktree/` refs while git would keep it. It must contain no
 other worktree and no `.git` outside package folders. Every ignored file must
-lie in a package folder or be one a tool writes again: `.workloop/`,
+lie in a package folder or a tool cache (`__pycache__/`, `.pytest_cache/`,
+`.mypy_cache/`, `.ruff_cache/`) or be one a tool writes again: `.workloop/`,
 `.DS_Store`, `next-env.d.ts`, the session-keyed scaffold ledgers in
 `.agents/`, and `.agents/.workloop-state.json` while it holds no run. Any
 other ignored file keeps it, build output included. The checks run again in

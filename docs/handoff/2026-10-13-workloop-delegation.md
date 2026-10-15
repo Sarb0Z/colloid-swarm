@@ -174,7 +174,13 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 23 | Does `/clear` end a session | Yes: `/clear` and `/resume` end the old conversation's worktrees and runs as an exit does | `worktrees-end-with-their-session` |
 | 24 | How large a lane may grow | One behaviour per lane, by language; `workloop.py` warns in the digest when a lane grows past a size, and never refuses | this spec |
 | 25 | What counts as rebuildable when the heal judges a worktree | Only folders a package manager reinstalls from the repository's lockfile (`node_modules`, `.venv`, `Pods` and the like); any other ignored file, build output included, keeps the worktree, and so does any `.git` outside those folders (2026-10-15, after three review rounds of the same data-loss shape) | `worktrees-end-with-their-session` |
-| 26 | Does a session end close an unfinished run | No: a run with lanes not yet reviewed stays for 24 hours, so resuming the conversation picks it back up; unresumed, the next start after that saves and closes it. Finished runs and worktrees with nothing unfinished still go at session end (2026-10-15, after a restart closed run w6) | `worktrees-end-with-their-session` |## Design
+| 26 | Does a session end close an unfinished run | No: a run with lanes not yet reviewed stays for 24 hours, so resuming the conversation picks it back up; unresumed, the next start after that saves and closes it. Finished runs and worktrees with nothing unfinished still go at session end (2026-10-15, after a restart closed run w6) | `worktrees-end-with-their-session` |
+| 27 | What counts as a finished run | One `workloop.py check` passes: every lane reviewed, QA evidence recorded, a current integrate. A run short of that waits as ruling 26 says, so a restart between review and the merge keeps it (2026-10-15) | `worktrees-end-with-their-session` |
+| 28 | Does closing a run delete ignored files | No: a run whose worktrees hold ignored files that would not come back, as ruling 25 judges them for the heal, stays and is named; package folders and scaffold ledgers do not keep it (2026-10-15) | `worktrees-end-with-their-session` |
+| 29 | Do tool caches keep a worktree | No: `__pycache__/`, `.pytest_cache/`, `.mypy_cache/` and `.ruff_cache/` rebuild when the tool next runs and count as rebuildable, for the heal and for a session end alike (2026-10-16) | `worktrees-end-with-their-session` |
+| 30 | Does ruling 28 cover a plain worktree | Yes: a worktree a session made with `git worktree add` or `EnterWorktree` that holds ignored files that would not come back stays at the session end and is named, like a run's (2026-10-16) | `worktrees-end-with-their-session` |
+
+## Design
 
 ### 1. The shape guide (the language)
 
@@ -442,10 +448,17 @@ it as one more resource class.
   answered "keep" at Claude Code's exit prompt (ruling 22); any other lock
   does. `/clear` and `/resume` fire the session-end hook and end the old
   conversation's worktrees and runs as an exit does (ruling 23).
-- **Workloop runs.** A run's lanes belong to the lead session that added them,
-  so a run does not outlive its lead either: the session end saves and removes
-  its worktrees and closes the run. A run whose worktrees are already gone,
-  as `fold` and `register-rewrite` are today, is closed by the same sweep.
+- **Workloop runs.** A run's lanes belong to the lead session that added them.
+  A finished run, one `check` passes (ruling 27), ends with its lead: the
+  session end saves and removes its worktrees and closes the run. Any other run
+  waits 24 hours instead (ruling 26), its record stamped with the hour it was
+  held: resuming the conversation re-stamps the record with the live process,
+  so the run is the lead's again; a start that finds a killed session's run
+  unstamped, or stamped before the last resume, stamps it then; unresumed, the
+  first start after the 24 hours saves and closes it. A run whose worktrees
+  hold ignored files that would not come back stays and is named (ruling 28). A run whose worktrees are already
+  gone, as `fold` and `register-rewrite` are today, is closed by the same
+  sweep.
 - **Unit 5 probes first** that Claude Code's `SessionEnd` hook fires on
   `/exit`, a closed terminal and a resumed session, and how long it may run:
   removing a lane with `node_modules` took 4–5 s in the benchmark.
