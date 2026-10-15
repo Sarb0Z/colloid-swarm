@@ -295,25 +295,52 @@ may still be working, and the first sweep after that process exits takes it.
 A worktree stays and is named when it is locked (Claude Code's own `claude
 session|agent` lock counts only while its session runs; the last worktree the
 session entered, if the operator kept it at Claude Code's exit prompt,
-stays), a running process works in it or lsof cannot tell, it holds a nested
-repository outside rebuildable folders, it holds what a save cannot carry
-(skip-worktree or assume-unchanged files, a bisect, rebase, merge or
-cherry-pick in progress), or its unsaved work cannot be committed.
-`session-start.sh` sweeps the records of sessions whose process is gone. It
-removes no worktree that no record names: it names each idle one (24 hours)
-outside `.agents/worktrees/` with its branch, last commit, commits not in the
-default branch and uncommitted files, and a verdict — "could go: merged into
-main" (or squash-merged, or every commit on its remote) or "stays: <why>".
-Removing those is unit 5b's. It names each lane folder under
-`.agents/worktrees/` that belongs to no run, closes a run no session leads
-only when it has lanes, its repository exists and git lists none of its
-worktrees (dropping the entry, with no prune), names the rest, and names each
-`saved/` branch. `git worktree lock` keeps any worktree. Ignored folders are moved into the git directory and deleted in the
+stays), a running process works in it or lsof cannot tell, it holds another
+worktree or a nested repository outside package folders (`node_modules`,
+`.venv`, `Pods` and the others a package manager reinstalls from the
+lockfile), it holds what a save cannot carry (skip-worktree or
+assume-unchanged files, a bisect, rebase, merge or cherry-pick in progress),
+or its unsaved work cannot be committed. Paths are compared by device and
+inode, so a path git records in another case still matches.
+`session-start.sh` sweeps the records of sessions whose process is gone,
+names each lane folder under `.agents/worktrees/` that belongs to no run,
+closes a run no session leads only when it has lanes, its repository exists
+and git lists none of its worktrees (dropping the entry, with no prune), names
+the rest, and names each `saved/` branch. `git worktree lock` keeps any
+worktree. Ignored folders are moved into the git directory and deleted in the
 background, behind a manifest the sweep uses to move them back after a kill:
 removing a lane with 45,000 files takes 2.8 s in place and 11 ms this way.
 `hooks.teardown_gate.enabled` switches all of it off;
-`hooks/lib/worktree_records.py`, `worktree_removal.py` and `worktree_sweep.py`
-hold the rules.
+`hooks/lib/worktree_records.py`, `worktree_removal.py`, `worktree_sweep.py`
+and `worktree_heal.py` hold the rules.
+
+The same start heals what older sessions left (`worktree_heal.py`). It removes
+an idle worktree (24 hours) that no record or run in any checkout names,
+outside every `.agents/worktrees/`, only when nothing in it would be lost, and
+saves nothing to `saved/`. No lock may hold it but Claude Code's lock of a
+session that has ended, and no process may work in it. It must hold no
+uncommitted or untracked file, however the repository's config hides them,
+no skip-worktree or assume-unchanged file, and no operation in progress. Its
+branch must be merged into the default branch, squash included, or have every
+commit on its upstream as of the last fetch; a detached HEAD counts only
+inside the default branch. No commit may be reachable only from its HEAD log
+or its `refs/worktree/` refs while git would keep it. It must contain no
+other worktree and no `.git` outside package folders. Every ignored file must
+lie in a package folder or be one a tool writes again: `.workloop/`,
+`.DS_Store`, `next-env.d.ts`, the session-keyed scaffold ledgers in
+`.agents/`, and `.agents/.workloop-state.json` while it holds no run. Any
+other ignored file keeps it, build output included. The checks run again in
+full just before each removal, which is `git worktree remove` without
+--force; the branch goes only when HEAD contains it. Each line names the
+worktree's work and either why it could go or why it stays, with the command
+that shows it. A start begins no removal 20 s into the heal, and a compaction
+start removes nothing; the next start removes the rest. Kept verdicts are
+cached in `.git/colloid-heal-cache.json` until the worktree's HEAD, lock,
+index, git folder or top folder changes, a branch tip the verdict turned on
+moves, or a week passes. The first start lists every kept worktree; later
+starts count them and print `python3 .agents/hooks/lib/worktree_sweep.py list
+<repository>`, which lists them dated. Twenty kept worktrees cost 3.8 s at
+the first start and 0.2 s after; twenty removals cost 12.3 s.
 
 `edit-record.sh` lets the session wrap measure only its own session: it
 appends each path an editor tool writes to `.wrap-edits-<session>` and each
