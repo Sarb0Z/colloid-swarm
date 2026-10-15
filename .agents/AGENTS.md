@@ -45,7 +45,6 @@ Read the nearest `AGENTS.md` before editing a subtree. Canonical scoped files ca
 | Scope | Canonical |
 | --- | --- |
 | Demo | `demo/AGENTS.md` |
-| trial-co trial | `trial-project/AGENTS.md` |
 <!-- /colloid-only -->
 
 Fan-out is by symlink:
