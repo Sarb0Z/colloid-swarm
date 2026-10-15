@@ -179,6 +179,8 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 28 | Does closing a run delete ignored files | No: a run whose worktrees hold ignored files that would not come back, as ruling 25 judges them for the heal, stays and is named; package folders and scaffold ledgers do not keep it (2026-10-15) | `worktrees-end-with-their-session` |
 | 29 | Do tool caches keep a worktree | No: `__pycache__/`, `.pytest_cache/`, `.mypy_cache/` and `.ruff_cache/` rebuild when the tool next runs and count as rebuildable, for the heal and for a session end alike (2026-10-16) | `worktrees-end-with-their-session` |
 | 30 | Does ruling 28 cover a plain worktree | Yes: a worktree a session made with `git worktree add` or `EnterWorktree` that holds ignored files that would not come back stays at the session end and is named, like a run's (2026-10-16) | `worktrees-end-with-their-session` |
+| 31 | Which lane works in the main tree (refines ruling 14) | Only a run's sole lane: the lane `init --lane` records works in the main tree, `add-lane` always gives a worktree and refuses a run holding a main lane, so no run mixes the two (2026-10-16) | this spec |
+| 32 | What a main-tree lane's work is | The commits since its first claim that touch its owned or shared paths; other writers' commits in that range are listed and do not block (2026-10-16) | this spec |
 
 ## Design
 
@@ -250,18 +252,21 @@ Where it lives (ruling 11):
 A run is one multi-cell delegation, kept from plan to verified result.
 
 - `init` records the objective, the shape, and the composed test as today.
-- Writers are lanes (`add-lane`). A lane added while no other lane of the run is
-  active works in the main tree, committing on the current branch: no worktree,
-  no install, nothing to merge (ruling 14). It records no branch and no
-  worktree, so `teardown` removes neither, and its work is the commit range
-  from the run's base. `check` verifies it by running the composed test in the
-  main checkout; no integration worktree is made. A lane added while another is
-  active gets a worktree (section 6), and `integrate` merges and verifies the
-  worktree lanes with the main tree's commits as their base.
+- Writers are lanes. A run's sole lane works in the main tree, committing on
+  the current branch: no worktree, no install, nothing to merge (rulings 14 and
+  31). It records no branch and no worktree, so `teardown` removes neither, and
+  its work is the commits since its first claim that touch its owned or shared
+  paths (ruling 32); others' commits in that range are listed, not refused.
+  `check` verifies it by running the composed test in the main checkout; no
+  integration worktree is made. `check --recorded` judges from recorded results
+  and runs nothing, for the session end. Every lane `add-lane` makes gets a
+  worktree (section 6), `add-lane` refuses a run holding a main lane, and
+  `integrate` merges and verifies the worktree lanes, one or more.
 - The one-writer shape is one command plus the dispatch:
-  `init <run> --objective … --verify … --lane <name> --paths …` records the
-  run and its main-tree lane together. The skill states each shape's command
-  sequence and its length.
+  `init <run> --objective … --acceptance … --verify … --lane <name> --worker
+  <type> --path …` records the run and its main-tree lane together and prints
+  the lane's dispatch line. The skill states each shape's command sequence and
+  its length.
 - The guide says a multi-cell job is a run; nothing refuses a read-only dispatch
   outside one (ruling 15). The gate notes each dispatch that carries no run
   header, and the lead's per-prompt digest names them: "3 cells this turn
@@ -377,7 +382,8 @@ stays in the lead's checkout, where the gate and the digest read it.
   result. A cell resumed after it finished or died registers again.
 - **A review may cite any existing file**, not only one in the repository.
 - **Every run's composed test runs**: `check` runs it in the main checkout for
-  a main-tree lane and requires a passing `integrate` for worktree lanes.
+  a main-tree lane and requires a passing `integrate` for worktree lanes;
+  `check --recorded`, which the session end calls, never runs it.
 - **The digest names QA and `check`** when a run is ready for them.
 - **A lane that grows is named** (ruling 24). The lead's digest warns when a
   lane's diff from its start point passes 800 changed lines, when it owns
