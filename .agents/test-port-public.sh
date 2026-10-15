@@ -44,12 +44,13 @@ fixture() {
               "registry": "$machine/registry.md"},
   "own": [],
   "common_words": ["Beacon"],
+  "debt_not_pointers": [],
   "reviewed": []
 }
 JSON
-  printf 'AcmeCo==>product-a\nacme-api==>product-a-api\nacme-org==>org-a\nwork@acme.example==>dev@example.com\n' \
+  printf 'AcmeCo==>product-a\nacme-api==>product-a-api\nacme-org==>org-a\nwork@acme.example==>dev@example.com\n-home-work-==>-home-dev-\n' \
     > "$repo/.agents/public/satellites.txt"
-  printf 'Deployed for AcmeCo through acme-api.\n' > "$repo/README.md"
+  printf 'Deployed for AcmeCo through acme-api.\nLogs land in /tmp/-home-work-projects-x.\n' > "$repo/README.md"
   printf 'client inventory\n' > "$repo/secret/inventory.txt"
   git -C "$repo" add -A
   commit "$repo" "Work <work@acme.example>" "feat: wire the acme-api client for AcmeCo"
@@ -62,6 +63,8 @@ expect_fail() {  # expect_fail <label> <pattern> <repo>
     fail "$1: build passed; expected it to fail on $2"
   fi
   grep -q -- "$2" <<<"$out" || fail "$1: build failed without naming $2: $out"
+  compgen -G "$work/out-$1" >/dev/null || compgen -G "$work/.out-$1.partial-*" >/dev/null \
+    && fail "$1: a failed build left a copy of the history behind"
   pass=$((pass + 1))
 }
 
@@ -72,11 +75,15 @@ out="$work/out-clean"
 git -C "$out" log --all --format='%an <%ae> %cn <%ce> %B' | grep -qiE 'acme|work@' \
   && fail "clean: a name or the work identity survived in the history"
 grep -q 'product-a through product-a-api' "$out/README.md" || fail "clean: README was not rewritten"
+grep -q -- '-home-dev-projects-x' "$out/README.md" || fail "clean: a name with hyphen edges was not rewritten"
 [[ ! -e "$out/secret" ]] || fail "clean: a dropped folder shipped"
 [[ -z "$(git -C "$out" remote)" ]] || fail "clean: the public copy keeps a remote to the private repository"
 pass=$((pass + 1))
 
 # The same inputs give the same hashes, so a second port fast-forwards.
+git init -q --bare "$work/published.git"
+python3 "$tool" --repo "$repo" build "$work/out-first" --against "$work/published.git" > "$work/first.log"
+grep -q 'first publication' "$work/first.log" || fail "first publication: an empty remote was not reported as one"
 python3 "$tool" --repo "$repo" build "$work/out-again" --against "$out" > "$work/again.log"
 [[ "$(git -C "$out" rev-parse HEAD)" == "$(git -C "$work/out-again" rev-parse HEAD)" ]] \
   || fail "determinism: two ports of one history differ"
@@ -88,6 +95,33 @@ repo="$(fixture unclassified)"
 mkdir -p "$machine/projects/ZetaCorp"
 expect_fail unclassified "nobody classified" "$repo"
 rmdir "$machine/projects/ZetaCorp"
+
+# A deploy server reached by a non-GitHub remote is a name too.
+repo="$(fixture server)"
+git -C "$machine/projects/AcmeCo/acme-api" remote add deploy root@203.0.113.9:/srv/acme-api
+expect_fail server "203.0.113.9" "$repo"
+git -C "$machine/projects/AcmeCo/acme-api" remote remove deploy
+
+# A name source that is missing stops the build instead of reading as empty.
+repo="$(fixture missing-source)"
+mv "$machine/registry.md" "$machine/registry.md.away"
+expect_fail missing-source "name source \`registry\`" "$repo"
+mv "$machine/registry.md.away" "$machine/registry.md"
+
+# A spelling of a name the list does not carry, and a common word in lower case.
+repo="$(fixture variant)"
+printf 'Acme Co ships it.\n' >> "$repo/README.md"
+git -C "$repo" add -A && commit "$repo" "Dev <dev@example.com>" "docs: credit the client"
+expect_fail variant "\`Acme Co\` unreviewed" "$repo"
+repo="$(fixture lowercase-word)"
+printf 'cd ~/projects/beacon\n' >> "$repo/README.md"
+git -C "$repo" add -A && commit "$repo" "Dev <dev@example.com>" "docs: add the path"
+expect_fail lowercase-word "\`beacon\` unreviewed" "$repo"
+
+# The port replays one branch, so it builds only from that branch.
+repo="$(fixture off-branch)"
+git -C "$repo" checkout -q -b feature
+expect_fail off-branch "HEAD is on \`feature\`" "$repo"
 
 # A name in a file path, which text replacement never rewrites.
 repo="$(fixture path-name)"
@@ -148,6 +182,9 @@ grep -q '^### x-one' "$repo/.agents/public/tree/.agents/debt-log.md" || fail "st
 grep -q '^### x-two' "$repo/.agents/public/tree/.agents/debt-log.md" && fail "stale: an uncited entry shipped"
 printf '# debt: x-two\n' >> "$repo/.agents/tool.sh"
 python3 "$tool" --repo "$repo" check >/dev/null 2>&1 && fail "stale: check passed after a new pointer"
+printf '# debt: x-three\n' >> "$repo/.agents/tool.sh"
+{ python3 "$tool" --repo "$repo" refresh 2>&1 || true; } | grep -q "lacks: \['x-three'\]" \
+  || fail "stale: a pointer to a missing entry was not refused"
 pass=$((pass + 1))
 
 echo "port-public: $pass scenarios passed"

@@ -12,5 +12,6 @@
   },
   "own": ["my-scaffold"],
   "common_words": ["Beacon"],
+  "debt_not_pointers": [],
   "reviewed": []
 }
