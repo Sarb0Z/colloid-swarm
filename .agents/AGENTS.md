@@ -45,7 +45,6 @@ Read the nearest `AGENTS.md` before editing a subtree. Canonical scoped files ca
 | Scope | Canonical |
 | --- | --- |
 | Demo | `demo/AGENTS.md` |
-| trial-co trial | `trial-project/AGENTS.md` |
 <!-- /colloid-only -->
 
 Fan-out is by symlink:
@@ -103,6 +102,8 @@ python3 .agents/lint-contract.py
 python3 .agents/eval/test-cell-time.py
 .agents/test-export.sh
 .agents/test-stack-packs.sh
+python3 .agents/port-public.py check
+.agents/test-port-public.sh
 # /colloid-only
 ```
 

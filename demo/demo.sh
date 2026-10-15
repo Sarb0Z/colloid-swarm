@@ -63,7 +63,7 @@ probe "quoted, not run"    "$(j 'grep -q "rm -rf /" notes.md')"
 sec "4. Progressive disclosure — scoped AGENTS.md + symlink fan-out"
 rule
 canon=$(find . -name AGENTS.md -type f | wc -l | tr -d ' ')
-links=$(find .agents .claude demo trial-project .github -type l | wc -l | tr -d ' ')
+links=$(find .agents .claude demo .github -type l | wc -l | tr -d ' ')
 broken=$(find . -type l ! -exec test -e {} \; -print)
 printf '  canonical AGENTS.md files: %s\n' "$canon"
 printf '  fan-out symlinks:          %s\n' "$links"

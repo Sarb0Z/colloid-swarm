@@ -1,0 +1,17 @@
+{
+  "branch": "main",
+  "drop": ["docs/", ".agents/knowledge/research/", ".agents/public/satellites.txt", ".agents/public/port.json"],
+  "allow": [".agents/", ".claude/", ".github/", "docs/handoff/", "AGENTS.md", "CLAUDE.md", "README.md", ".gitignore"],
+  "binaries": [],
+  "authors": ["You <12345+you@users.noreply.github.com>"],
+  "mailmap": ["You <12345+you@users.noreply.github.com> You <you@work.example>"],
+  "sources": {
+    "projects": "~/Projects",
+    "identities": "~/.config/git-identities.json",
+    "registry": "~/Projects/SATELLITES.md"
+  },
+  "own": ["my-scaffold"],
+  "common_words": ["Beacon"],
+  "debt_not_pointers": [],
+  "reviewed": []
+}

@@ -55,6 +55,7 @@ for path in \
   .agents/eval .agents/fixtures .agents/breadcrumbs.md .agents/debt-log.md \
   .agents/decisions.md \
   .agents/export .agents/export-scaffold.py .agents/test-export.sh \
+  .agents/port-public.py .agents/test-port-public.sh .agents/public \
   .agents/test-stack-packs.sh; do
   [[ ! -e "$kit/$path" ]] || fail "export retained $path"
 done
@@ -145,7 +146,7 @@ rm "$tree/stray-file"
 # absence; on the source it rejects an entry that lost a required line.
 python3 "$kit/.agents/lint-decisions.py" >/dev/null || fail "lint-decisions.py failed in a kit with no decisions.md"
 python3 "$tree/.agents/lint-decisions.py" >/dev/null || fail "lint-decisions.py rejects the committed decisions.md"
-sed 's/^- \*\*Why\*\*/- **Because**/' "$tree/.agents/decisions.md" >"$work/broken-decisions.md"
+printf '### sample\n\n- **Decision** — d.\n- **Because** — w.\n- **Reopens when** — r.\n' >"$work/broken-decisions.md"
 if python3 "$tree/.agents/lint-decisions.py" "$work/broken-decisions.md" >/dev/null 2>&1; then
   fail "lint-decisions.py accepted an entry with no Why line"
 fi
