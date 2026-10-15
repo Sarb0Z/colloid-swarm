@@ -59,11 +59,8 @@ def expected_links() -> dict[Path, str]:
     if mods.is_dir():
         for mod in sorted(path for path in mods.iterdir() if (path / ".claude-plugin/plugin.json").is_file()):
             links[Path(".claude/skills") / f"colloid-{mod.name}"] = f"../../.agents/claude/mods/{mod.name}"
-    for name in ("demo", "trial-project"):
-        if (ROOT / name / "AGENTS.md").is_file():
-            links[Path(".github/instructions") / f"{name}.instructions.md"] = (
-                f"../../{name}/AGENTS.md"
-            )
+    if (ROOT / "demo/AGENTS.md").is_file():
+        links[Path(".github/instructions/demo.instructions.md")] = "../../demo/AGENTS.md"
     return links
 
 
