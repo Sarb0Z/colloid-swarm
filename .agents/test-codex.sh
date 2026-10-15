@@ -197,20 +197,26 @@ loader=skipped
 if command -v codex >/dev/null 2>&1; then
   python3 - "$repo" <<'PY'
 from pathlib import Path
+import os
 import subprocess
 import sys
+import tempfile
 import tomllib
 
 repo = Path(sys.argv[1])
 with (repo / ".codex/config.toml").open("rb") as stream:
     names = set(tomllib.load(stream).get("mcp_servers", {}))
-try:
-    result = subprocess.run(
-        ["codex", "mcp", "list"], cwd=repo, text=True,
-        capture_output=True, timeout=20,
-    )
-except subprocess.TimeoutExpired:
-    raise SystemExit("test-codex: `codex mcp list` timed out after 20 seconds")
+# Codex reads a project's config only once the project is trusted, and the
+# operator's own CODEX_HOME trusts only the checkouts they opened.
+with tempfile.TemporaryDirectory(prefix="test-codex-home.") as home:
+    (Path(home) / "config.toml").write_text(f'[projects."{repo.resolve()}"]\ntrust_level = "trusted"\n')
+    try:
+        result = subprocess.run(
+            ["codex", "mcp", "list"], cwd=repo, text=True,
+            capture_output=True, timeout=20, env={**os.environ, "CODEX_HOME": home},
+        )
+    except subprocess.TimeoutExpired:
+        raise SystemExit("test-codex: `codex mcp list` timed out after 20 seconds")
 if result.returncode:
     raise SystemExit("test-codex: Codex rejected project config:\n" + result.stderr)
 missing = sorted(name for name in names if name not in result.stdout)
