@@ -40,6 +40,7 @@ REBUILDABLE_DIRS = frozenset({
     "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".tox", ".nox", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
     ".cache", "coverage", ".nyc_output", "target", ".gradle", "Pods", "DerivedData", ".expo", ".angular",
+    ".workloop",  # a lane's brief, which `workloop.py brief` writes again
 })
 IN_PROGRESS = ("BISECT_LOG", "rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD")
 
@@ -146,13 +147,22 @@ def unsaveable(path: Path) -> str | None:
     busy = [name for name in IN_PROGRESS if (admin / name).exists()]
     if busy:
         return f"a {busy[0]} operation is in progress"
-    flagged = [line[2:] for line in wr.git(path, "ls-files", "-v").stdout.splitlines()
+    listing = wr.git(path, "ls-files", "-v")
+    if listing.returncode:
+        return f"git could not read its index: {listing.stderr.strip()}"
+    flagged = [line[2:] for line in listing.stdout.splitlines()
                if line[:1] in ("S", "s", "h") and os.path.lexists(path / line[2:])]
     return f"it holds skip-worktree or assume-unchanged files git status does not show: {', '.join(flagged[:3])}" if flagged else None
 
 
 def dirty(path: Path) -> bool:
-    return bool(wr.out(path, "--no-optional-locks", "status", "--porcelain", "--ignore-submodules=none"))
+    """Uncommitted or untracked work. The flags override what the repository's config may
+    hide: `status.showUntrackedFiles=no` blanks untracked files, and `git worktree remove`
+    without --force then deletes them; a stale fsmonitor or untracked cache can miss edits.
+    A status that fails counts as dirty."""
+    status = wr.git(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+                    "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
+    return bool(status.returncode or status.stdout.strip())
 
 
 def gitlinks(path: Path, *args, env: dict | None = None) -> set:
@@ -206,9 +216,15 @@ def trash_dir(main: Path) -> Path:
 def remove(path: Path, main: Path, force: bool) -> str | None:
     """Park the ignored folders, run `git worktree remove`; return why it stayed, or None."""
     listing = wr.git(path, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
+    if listing.returncode:
+        return f"git could not list its ignored files ({listing.stderr.strip()})"
+    names = [item for item in listing.stdout.split("\0") if item]
+    # A folder holding only ignored files is listed with its contents; moving the
+    # folder moves them, and a second move of a file inside would fail.
+    outermost = [name for name in names if not any(other != name and other.endswith("/") and name.startswith(other)
+                                                   for other in names)]
     bin_ = trash_dir(main) / f"{time.time_ns()}-{os.getpid()}"
-    moves = [(str(path / name.rstrip("/")), str(bin_ / str(number)))
-             for number, name in enumerate(item for item in listing.stdout.split("\0") if item)]
+    moves = [(str(path / name.rstrip("/")), str(bin_ / str(number))) for number, name in enumerate(outermost)]
     if moves:
         bin_.mkdir(parents=True, exist_ok=True)
         (bin_ / "manifest.json").write_text(json.dumps({"worktree": str(path), "moves": moves}))

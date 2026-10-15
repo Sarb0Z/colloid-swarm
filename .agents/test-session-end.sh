@@ -282,6 +282,17 @@ sys.exit(not (in_codex and in_kimi))
 PY
 ok "Codex and Kimi register the snapshot PreToolUse"
 
+# ── a config that hides untracked files hides nothing from the save ─────────
+# With status.showUntrackedFiles=no, `git status` prints nothing and `git
+# worktree remove` without --force deletes the untracked file.
+git -C "$R" config status.showUntrackedFiles no
+bash_call "$R" 'git worktree add -q ../wt-hidden -b hidden'
+printf 'notes\n' > "$scratch/wt-hidden/notes.txt"
+end_session other
+git -C "$R" config --unset status.showUntrackedFiles
+[[ "$(git -C "$R" show saved/wt-hidden:notes.txt 2>/dev/null)" == notes ]] || fail "an untracked file the config hides must be saved: $report"
+ok "an untracked file hidden by status.showUntrackedFiles=no is saved before the removal"
+
 # ── a failed save stops the removal ──────────────────────────────────────────
 git -C "$R" config user.useConfigOnly true
 bash_call "$R" 'git worktree add -q ../wt-nosave -b nosave'
