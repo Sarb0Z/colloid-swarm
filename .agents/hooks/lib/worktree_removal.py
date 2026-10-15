@@ -215,9 +215,15 @@ def trash_dir(main: Path) -> Path:
 def remove(path: Path, main: Path, force: bool) -> str | None:
     """Park the ignored folders, run `git worktree remove`; return why it stayed, or None."""
     listing = wr.git(path, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
+    if listing.returncode:
+        return f"git could not list its ignored files ({listing.stderr.strip()})"
+    names = [item for item in listing.stdout.split("\0") if item]
+    # A folder holding only ignored files is listed with its contents; moving the
+    # folder moves them, and a second move of a file inside would fail.
+    outermost = [name for name in names if not any(other != name and other.endswith("/") and name.startswith(other)
+                                                   for other in names)]
     bin_ = trash_dir(main) / f"{time.time_ns()}-{os.getpid()}"
-    moves = [(str(path / name.rstrip("/")), str(bin_ / str(number)))
-             for number, name in enumerate(item for item in listing.stdout.split("\0") if item)]
+    moves = [(str(path / name.rstrip("/")), str(bin_ / str(number))) for number, name in enumerate(outermost)]
     if moves:
         bin_.mkdir(parents=True, exist_ok=True)
         (bin_ / "manifest.json").write_text(json.dumps({"worktree": str(path), "moves": moves}))
