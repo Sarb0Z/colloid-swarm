@@ -99,6 +99,8 @@ python3 .agents/test-browser-sync.py
 python3 .agents/lint-contract.py
 .agents/test-export.sh
 .agents/test-stack-packs.sh
+python3 .agents/port-public.py check
+.agents/test-port-public.sh
 # /colloid-only
 ```
 

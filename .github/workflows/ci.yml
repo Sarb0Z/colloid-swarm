@@ -141,6 +141,12 @@ jobs:
       - name: Export kit
         run: .agents/test-export.sh
 
+      - name: Public port
+        run: |
+          pip install git-filter-repo==2.47.0
+          python3 .agents/port-public.py check
+          .agents/test-port-public.sh
+
       # check-inventory.py finds a hook or skill with no card; it cannot see a
       # card whose embedded source went stale when the file it quotes changed.
       # Regenerating here leaves the drift as a dirty tree for the next step.
