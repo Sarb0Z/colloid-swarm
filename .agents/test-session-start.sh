@@ -758,7 +758,11 @@ mwt() {  # <repo> <name>: an idle worktree of <repo> at $scratch/sweep-<name>
 }
 mage() { find "$scratch/sweep-$2" "$1/.git/worktrees/sweep-$2" -exec touch -h -t 202601010000 {} +; }
 export GIT_COMMITTER_DATE=2026-01-01T00:00:00 GIT_AUTHOR_DATE=2026-01-01T00:00:00
-sc="$({ cat "$repo/.agents/export/gitignore-fragment"; printf '%s\n' .DS_Store next-env.d.ts; } | mini scaffolded)"
+# The carrier keeps the scaffold's ignore rules in the export fragment; a
+# satellite carries them in its own .gitignore.
+fragment="$repo/.agents/export/gitignore-fragment"
+[[ -f "$fragment" ]] || fragment="$repo/.gitignore"
+sc="$({ cat "$fragment"; printf '%s\n' .DS_Store next-env.d.ts; } | mini scaffolded)"
 mwt "$sc" sc-ledgers
 for ledger in .wrap-state-s1 .teardown-pending-s1 .compaction-pending .workloop-state.json.lock; do
   printf 'x\n' > "$scratch/sweep-sc-ledgers/.agents/$ledger"
