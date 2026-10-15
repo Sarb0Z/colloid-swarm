@@ -174,7 +174,7 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 23 | Does `/clear` end a session | Yes: `/clear` and `/resume` end the old conversation's worktrees and runs as an exit does | `worktrees-end-with-their-session` |
 | 24 | How large a lane may grow | One behaviour per lane, by language; `workloop.py` warns in the digest when a lane grows past a size, and never refuses | this spec |
 | 25 | What counts as rebuildable when the heal judges a worktree | Only folders a package manager reinstalls from the repository's lockfile (`node_modules`, `.venv`, `Pods` and the like); any other ignored file, build output included, keeps the worktree, and so does any `.git` outside those folders (2026-10-15, after three review rounds of the same data-loss shape) | `worktrees-end-with-their-session` |
-## Design
+| 26 | Does a session end close an unfinished run | No: a run with lanes not yet reviewed stays for 24 hours, so resuming the conversation picks it back up; unresumed, the next start after that saves and closes it. Finished runs and worktrees with nothing unfinished still go at session end (2026-10-15, after a restart closed run w6) | `worktrees-end-with-their-session` |## Design
 
 ### 1. The shape guide (the language)
 
@@ -566,6 +566,11 @@ controller honours.
 5b. The heal removes what would lose nothing (ruling 20), as its own lane
    after unit 5 lands (ruling 24), with findings S1, S3 and S9's cache from
    `docs/reviews/2026-10-14-workloop-u5.md`.
+5c. An unfinished run outlives its lead session's end for 24 hours, so a
+   resumed conversation picks it back up (ruling 26); and `cell-time.py`
+   classifies a command by any segment that runs a test, check, build or
+   browser, not by its first reading program, before the QA's cells'-time
+   claims rely on it.
 6. The main-tree lane and the one-command one-writer run, every run's composed
    test, the brief as a dispatch line, review references, the digest, and
    the lane-size warning with the one-behaviour line in the shape guide.
