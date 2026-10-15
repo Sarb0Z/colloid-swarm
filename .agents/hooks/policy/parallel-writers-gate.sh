@@ -148,7 +148,8 @@ is_reader() {
 }
 
 # mkdir is the atomic test-and-set stock macOS has. The hold is milliseconds,
-# so a lock older than a minute belongs to a dead hook and is reaped; a hook
+# so a lock untouched for two minutes (macOS find counts whole minutes, so
+# -mmin +1 is two) belongs to a dead hook and is reaped; a hook
 # that cannot take the lock in a second proceeds without it rather than
 # stalling the dispatch behind it.
 held=""
