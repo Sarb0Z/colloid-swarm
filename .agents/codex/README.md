@@ -16,8 +16,8 @@ the exact default:
 
 The root `AGENTS.md` names capability tiers; on Codex, light is Luna / low,
 medium is Terra / medium, and heavy and frontier are Sol at high effort or
-above. The root's human gates stop the turn and report; they do not rely on
-any host plan-approval mode.
+above. The root's human gates stop the gated unit and report; they do not
+rely on any host plan-approval mode.
 
 These are defaults, not a closed taxonomy. A generic cell may use any tier the
 task needs. Codex cannot enforce Claude persona tool/MCP/skill frontmatter; the

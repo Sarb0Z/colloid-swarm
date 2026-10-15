@@ -22,7 +22,9 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   **contract-first split** commits the interface before the lanes start. A
   **bake-off** pays every attempt in full, so two or three, preferring
   competing designs from read-only cells, with the selection rule set first.
-  Each extra writer costs a worktree, an install, a review and a merge.
+  Each extra writer costs a worktree, an install, a review and a merge. While
+  implementation-ready work exists and two or more writers run, at least half
+  of all active cells, rounded up, are writers (the root's Delegation section).
 - A writing or QA cell works by `.agents/skills/workloop/working-practice.md`:
   how it tests, starts servers, waits and edits. `brief` writes it into a
   lane's `.workloop/BRIEF.md` and prints a dispatch prompt (the header line and
@@ -51,5 +53,6 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
 - Plan mode blocks edits until the operator approves the plan, but only an
   attended terminal session offers that approval: unattended runs (`claude -p`,
   background cells) expose no plan-approval tool, and auto mode has none
-  (probed 2026-10-04 on 2.1.289). The root's human gates therefore stop and
-  report; plan mode is a convenience in an attended session, never the gate.
+  (probed 2026-10-04 on 2.1.289). The root's human gates hold the gated unit
+  and do not depend on plan mode; do not enter plan mode while independent
+  units remain, since it blocks every edit.
