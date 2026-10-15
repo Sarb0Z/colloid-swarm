@@ -178,11 +178,34 @@ CLASSIFIER = (
     ("docker compose up -d", "other"),
     ("docker compose run web ls", "other"),
     ("docker ps", "other"),
-    ("sleep 1", "other"),
+    ("pnpm build", "build"),
+    ("uv run pytest tests/", "test"),
+    (".agents/test-workloop.sh 2>&1 | tail -3", "test"),
+    ("for t in .agents/test-a.sh .agents/test-b.sh; do \"$t\"; done", "test"),
+    ("sleep 1", "wait"),
+    ("sleep 90; tail -5 /tmp/x/pytest.log", "wait"),
+    ("for i in $(seq 30); do curl -sf localhost:3000 && break; sleep 2; done", "wait"),
+    ("gh run watch 123", "wait"),
+    ("npx eslint src", "check"),
+    ("pnpm lint", "check"),
+    ("pnpm typecheck", "check"),
+    ("python3 -m mypy app", "check"),
+    ("python3 .agents/check-layout.py", "check"),
+    ("tsc --noEmit", "check"),
+    ("ruff format .", "other"),
+    ("prettier --check .", "check"),
+    ("node shot.mjs", "browser"),
+    ("node -e \"require('playwright').chromium.launch()\"", "browser"),
+    ("chromium --headless --screenshot x.png", "browser"),
+    ("cd /tmp/pw && node - <<'JS'\nconst { chromium } = require('playwright');\nJS", "browser"),
+    ("cat > shot.mjs <<'JS'\nimport { chromium } from 'playwright';\nJS", "read"),
+    ("rg -n puppeteer src", "read"),
     ("sed -i s/a/b/ a.txt", "other"),
     ("git -C x status", "read"),
+    ("git status", "read"),
     ("git commit -m x", "git"),
     ("rg foo", "read"),
+    ("rg -n foo src | head", "read"),
     ("sed -n 1p a.txt", "read"),
 )
 
@@ -272,7 +295,8 @@ class CellTime(unittest.TestCase):
         shell = self.report()["totals"]["shell"]
         self.assertEqual((shell["test"]["n"], shell["test"]["s"]), (1, 60))
         self.assertEqual((shell["read"]["n"], shell["read"]["s"]), (1, 1860))
-        self.assertEqual(shell["other"]["n"], 5)
+        self.assertEqual(shell["other"]["n"], 3)
+        self.assertEqual(shell["wait"]["n"], 2)
         self.assertEqual(shell["git"]["n"], 0)
 
     def test_longest_command_is_labelled_by_execution_and_delay(self):
@@ -327,7 +351,7 @@ class CellTime(unittest.TestCase):
         shell, _ = load_script().build_shell()
         for command, kind in CLASSIFIER:
             with self.subTest(command=command):
-                self.assertEqual(shell.kind(shell.programs(command)), kind)
+                self.assertEqual(shell.kind(shell.programs(command), command), kind)
 
     # ---- composed-test runs
 

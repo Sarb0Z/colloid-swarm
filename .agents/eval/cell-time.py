@@ -8,7 +8,8 @@ full. A spec's baseline and its later QA run this same code.
 Figures, per cell (`--json`) and in total:
 
 * time: span, idle gaps over 30 minutes by what ended them, active gaps;
-* Bash time by kind of program run (test, build, read, git, other), as
+* Bash time by kind of program run (test, check, build, browser, wait, read, git, other; the highest ranked of a
+  command's programs wins, so `sleep 90; tail log` is a wait, not a read), as
   execution: result delay minus store-wide silence and sibling waits;
 * the longest commands, by execution;
 * Bash calls past 600 s, past their own `timeout`, and timed out; background
@@ -44,7 +45,8 @@ IDLE_S = 1800
 LONG_CALL_S = 600
 DEFAULT_TIMEOUT_MS = 120000
 TOP = 10
-KINDS = ("test", "build", "read", "git", "other")
+# Ranked: the highest kind among a command's programs is the command's kind.
+KINDS = ("test", "check", "build", "browser", "wait", "read", "git", "other")
 GAPS = ("model", "tool", "lead", "other")
 GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
@@ -55,7 +57,22 @@ INTERPRETERS = re.compile(r"^(python[0-9.]*|bash|sh|zsh|node)$")
 TEST_SCRIPT = re.compile(r"^(test-.+\.sh|test[-_].+\.py)$")
 TEST_PROGRAMS = {"pytest", "py.test", "vitest", "jest", "bats"}
 BUILD_SUBCOMMANDS = {"install", "i", "ci", "add", "build"}
-BUILD_PROGRAMS = {"tsc", "pip", "pip3"}
+BUILD_PROGRAMS = {"pip", "pip3"}
+CHECK_PROGRAMS = {"eslint", "mypy", "pyright", "basedpyright", "pyflakes", "flake8", "pylint", "shellcheck",
+                  "actionlint", "stylelint", "markdownlint", "markdownlint-cli2", "golangci-lint", "swiftlint",
+                  "ktlint", "hadolint", "knip", "vue-tsc", "expo-doctor", "sqlfluff", "oxlint", "tsc-files",
+                  "check-jsonschema", "yamllint", "codespell"}
+# Formatters check when asked to report instead of rewrite.
+FORMATTERS = {"prettier", "biome", "black", "isort", "gofmt", "dprint"}
+FORMAT_CHECK_FLAGS = {"--check", "--check-only", "-c", "--list-different", "-l", "--diff", "ci", "check", "lint"}
+CHECK_FILE = re.compile(r"^((lint|check|validate|verify-layout)[-_].+\.(py|sh|mjs|js)|.*lint.*\.sh|.+[-_](lint|check)\.(py|sh))$")
+CHECK_MODULES = {"mypy", "pyright", "flake8", "pylint", "py_compile", "compileall"}
+# Package-manager script names that check; a build-prefixed name stays a build.
+SCRIPT_CHECK = re.compile(r"lint|typecheck|type-check|types|tsc|^check|:check|validate", re.I)
+BROWSER_PROGRAMS = {"chromium", "chrome", "google-chrome", "agent-browser", "puppeteer", "lighthouse", "shot-scraper"}
+BROWSER_FILE = re.compile(r"(screenshot|(^|[-_.])shots?([-_.]|$)|shoot|puppeteer|playwright|browser|chromium|headless)", re.I)
+BROWSER_SOURCE = re.compile(r"ms-playwright|--with[ =]playwright|from ['\"]?playwright|require\(['\"]playwright|chromium\.launch|puppeteer", re.I)
+BROWSER_DIR = re.compile(r"(^|/)([\w-]*qa\d*|pw|[\w-]*e2e[\w-]*)(/|$)", re.I)
 READ_PROGRAMS = {"rg", "grep", "egrep", "fgrep", "fd", "find", "ls", "cat", "head", "tail",
                  "awk", "wc", "bat", "jq", "tree"}
 READ_GIT = {"status", "diff", "log", "show", "ls-files", "rev-parse", "blame", "grep",
@@ -194,19 +211,68 @@ def script_kind(name):
         return "other"
     if "test" in name or "verify" in name:
         return "test"
-    return "build" if name in BUILD_SUBCOMMANDS or name.startswith("build") else "other"
+    if name in BUILD_SUBCOMMANDS or name.startswith("build"):
+        return "build"
+    return "check" if SCRIPT_CHECK.search(name) else "other"
 
 
 def interpreter_kind(args):
     if "-m" in args and args.index("-m") + 1 < len(args):
-        return "test" if args[args.index("-m") + 1] in ("pytest", "unittest") else "other"
+        module = args[args.index("-m") + 1]
+        if module in ("pytest", "unittest"):
+            return "test"
+        if module in CHECK_MODULES or module == "ruff":
+            return "check"
+        return playwright_kind(args[args.index("-m") + 2:]) if module == "playwright" else "other"
     script = first_arg(args)
-    return "test" if script and TEST_SCRIPT.match(os.path.basename(script)) else "other"
+    if not script:
+        return "other"
+    # `bash -n` and `node --check` parse without running; options after the script belong to it.
+    if any(a in ("-n", "--check") for a in args[:args.index(script)]):
+        return "check"
+    if any(BROWSER_SOURCE.search(a) for a in args):
+        return "browser"
+    name = os.path.basename(script)
+    if TEST_SCRIPT.match(name):
+        return "test"
+    if CHECK_FILE.match(name):
+        return "check"
+    if BROWSER_FILE.search(name) or BROWSER_DIR.search(os.path.dirname(script)):
+        return "browser"
+    return "other"
 
 
 def go_kind(args):
     sub = first_arg(args)
-    return "test" if sub == "test" else "build" if sub in ("build", "check") else "other"
+    if sub == "test":
+        return "test"
+    if sub in ("vet", "clippy", "check") or (sub == "fmt" and "--check" in args):
+        return "check"
+    return "build" if sub == "build" else "other"
+
+
+def tsc_kind(args):
+    return "build" if any(a in ("-b", "--build") for a in args) else "check"
+
+
+def ruff_kind(args):
+    rewrites = first_arg(args) == "format" and not any(a in ("--check", "--diff") for a in args)
+    return "other" if rewrites else "check"
+
+
+def format_kind(args):
+    return "check" if any(a in FORMAT_CHECK_FLAGS for a in args) else "other"
+
+
+def gh_kind(args):
+    """A CI watch is a wait; every other gh call is not."""
+    words = [a for a in args if not a.startswith("-")]
+    watching = words[:2] == ["run", "watch"] or (words[:2] == ["pr", "checks"] and "--watch" in args)
+    return "wait" if watching else "other"
+
+
+def wait_kind(args):
+    return "wait"
 
 
 def uv_kind(args):
@@ -214,18 +280,21 @@ def uv_kind(args):
 
 
 def next_kind(args):
-    return "build" if first_arg(args) == "build" else "other"
+    return {"build": "build", "lint": "check"}.get(first_arg(args), "other")
 
 
 def deno_kind(args):
     words = [a for a in args if not a.startswith("-")]
     if words[:1] == ["test"]:
         return "test"
+    if words[:1] in (["lint"], ["check"]):
+        return "check"
     return script_kind(words[1]) if words[:1] == ["task"] and len(words) > 1 else "other"
 
 
 def playwright_kind(args):
-    return "test" if first_arg(args) == "test" else "other"
+    sub = first_arg(args)
+    return "test" if sub == "test" else "build" if sub == "install" else "browser"
 
 
 def gradle_kind(args):
@@ -331,13 +400,16 @@ class Shell:
             "deno": deno_kind, "playwright": playwright_kind, "gradle": gradle_kind,
             "gradlew": gradle_kind, "mvn": maven_kind, "mvnw": maven_kind,
             "xcodebuild": xcodebuild_kind, "git": git_kind, "sed": sed_kind,
+            "sleep": wait_kind, "wait": wait_kind, "gh": gh_kind, "tsc": tsc_kind, "ruff": ruff_kind,
+            "marimo": lambda args: "check" if first_arg(args) == "check" else "other",
         }
+        self.kinds.update({name: format_kind for name in FORMATTERS})
 
     # -- reading
 
     def programs(self, cmd):
         """[(words, redirect targets)] for each program a command runs, `cd` kept."""
-        p, found = self.parser, []
+        p, found, loops = self.parser, [], {}
         for segment, _ in p.split_operators(p.strip_heredocs(cmd)):
             try:
                 words = shlex.split(p.separate_redirects(segment), comments=True)
@@ -356,6 +428,11 @@ class Shell:
             body = p.shell_body(words[1:]) if name in p.SHELLS else None
             if body is not None:
                 found += self.programs(body)
+            elif name == "for" and "in" in words:
+                loops[words[1]] = words[words.index("in") + 1:]
+            elif words[0].startswith("$") and words[0].lstrip("$").strip("{}") in loops:
+                # A loop runs each item its list names.
+                found += [([item], targets) for item in loops[words[0].lstrip("$").strip("{}")]]
             elif name not in SKIPPED_PROGRAMS or targets:
                 found.append((words, targets))
         return found
@@ -372,8 +449,13 @@ class Shell:
 
     # -- kinds
 
-    def kind(self, progs):
+    def kind(self, progs, cmd):
         found = {self.kind_of(w) for w in self.words(progs)}
+        # A script fed on stdin (`node - <<'JS'`) is a heredoc body the parser
+        # drops, so an interpreter reading one is judged by the command's text.
+        if "<<" in cmd and BROWSER_SOURCE.search(cmd) and any(
+                INTERPRETERS.match(os.path.basename(w[0])) for w in self.words(progs)):
+            found.add("browser")
         return next((kind for kind in KINDS if kind in found), "other")
 
     def kind_of(self, words):
@@ -383,6 +465,10 @@ class Shell:
             return self.kinds[name](args)
         if name in TEST_PROGRAMS or TEST_SCRIPT.match(name):
             return "test"
+        if name in CHECK_PROGRAMS or CHECK_FILE.match(name):
+            return "check"
+        if name in BROWSER_PROGRAMS:
+            return "browser"
         if INTERPRETERS.match(name):
             return interpreter_kind(args)
         if name in BUILD_PROGRAMS:
@@ -408,7 +494,8 @@ class Shell:
 
     def make(self, args):
         target = next((a for a in after_flags(args, MAKE_VALUED) if "=" not in a), None)
-        return "test" if target and script_kind(target) == "test" else "build"
+        kind = script_kind(target) if target else "other"
+        return kind if kind in ("test", "check") else "build"
 
     def docker(self, args):
         """build and pull are builds; run and exec are tests when what they run
@@ -424,7 +511,8 @@ class Shell:
             return "build"
         if sub in ("run", "exec"):
             command = after_flags(tail, valued | RUN_VALUED)[1:]
-            return "test" if command and self.kind_of(command) == "test" else "other"
+            inner = self.kind_of(command) if command else "other"
+            return inner if inner in ("test", "check", "browser") else "other"
         return "other"
 
     # -- writes
@@ -820,7 +908,7 @@ class CellAnalysis:
 
     def read_command(self, call, cmd, cwd):
         progs = self.shell.programs(cmd)
-        call.kind = self.shell.kind(progs)
+        call.kind = self.shell.kind(progs, cmd)
         if self.verify and self.shell.runs(progs, self.verify):
             self.composed += 1
         if self.shell.writes_source(progs, cmd, cwd, self.git):
@@ -998,7 +1086,7 @@ def render_shell(report):
            f"  store-wide silence cut from every delay and gap: {len(silence['windows'])} windows over 30 min "
            f"with no record in any transcript, {dur(silence['total_s'])} in all",
            "", "SHELL TIME BY KIND (execution: delay minus store-wide silence and sibling waits)"]
-    out += [f"  {k:<6} {t['shell'][k]['n']:>6} calls  execution {dur(t['shell'][k]['s'])}  (delay {dur(t['shell'][k]['delay_s'])})"
+    out += [f"  {k:<7} {t['shell'][k]['n']:>6} calls  execution {dur(t['shell'][k]['s'])}  (delay {dur(t['shell'][k]['delay_s'])})"
             for k in KINDS]
     b, g = t["bash"], t["background"]
     out += [f"  Bash calls past {LONG_CALL_S} s: {b['over_600s']}; past their own timeout: {b['over_timeout']}; "
