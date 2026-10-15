@@ -32,6 +32,9 @@ from workloop_state import (
 )
 
 WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-practice.md"
+# Where `brief` leaves each role's full brief, inside the lane's worktree.
+BRIEF_FOLDER = ".workloop"
+BRIEF_FILES = {"worker": "BRIEF.md", "reviewer": "BRIEF-reviewer.md", "qa": "BRIEF-qa.md"}
 MAX_REVIEW_ROUNDS = 4
 P2_REFUSAL = "a P2 is filed, not reopened: accept the lane and file the finding"
 
@@ -223,9 +226,14 @@ def cmd_brief(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         lane = lane_of(run, args.lane)
     command = f".agents/workloop.py --state {state_path(args.state)}"
+    brief_file = require_workspace(lane) / BRIEF_FOLDER / BRIEF_FILES[args.role]
+    brief_file.parent.mkdir(exist_ok=True)
+    # Ignored in every repository, so the lane's `git add -A` never stages a brief.
+    (brief_file.parent / ".gitignore").write_text("*\n")
     supervised = (f"Peer inbox: {command} inbox {args.run} {args.lane} — check it after claim and before every state-changing handoff." if run["supervised"] else "Peer inbox is disabled for this ordinary workloop.")
-    print("\n".join((
-        f"WORKLOOP {args.role.upper()} BRIEF — {args.run}/{args.lane}",
+    header = f"WORKLOOP {args.role.upper()} BRIEF — {args.run}/{args.lane}"
+    brief_file.write_text("\n".join((
+        header,
         f"Objective: {run['objective']}",
         f"Acceptance: {run['acceptance']}",
         f"Owned paths: {', '.join(lane['paths'])}",
@@ -248,4 +256,6 @@ def cmd_brief(args: argparse.Namespace) -> None:
         f"Worker handoff: {command} submit {args.run} {args.lane} --evidence '<command and observed result>'",
         f"Reviewer handoff: {command} review {args.run} {args.lane} --reference '<canonical-review-path>#<finding>' --result accept",
         "A finding must live in its canonical review report; use --result reopen to require a correction cycle.",
-    )))
+    )) + "\n")
+    # The gate that recognises a lane cell reads the header line of the prompt.
+    print(f"{header}\nRead the full brief at {brief_file} before anything else; it holds your scope, your commands and your handoff.")
