@@ -109,11 +109,13 @@ fi
 # are swept here once their process is gone. Worktrees no record names that
 # sat idle 24 hours go only when nothing in them would be lost; the rest are
 # named with what their work was about. Every source sweeps: a resumed
-# session keeps its own records and only the others' are judged.
+# session keeps its own records and only the others' are judged; a compaction
+# start removes no unrecorded worktree. A sweep that fails keeps the lines it
+# printed, so what it removed before failing is still reported.
 worktree_digest=""
 if [[ "$teardown_enabled" == "yes" && -f "$lib/worktree_sweep.py" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  worktree_digest="$(python3 "$lib/worktree_sweep.py" sweep "$proj" "${session_id:-}" "$repo/.agents/workloop.py")" \
-    || { echo "session-start: the worktree sweep failed; worktrees of ended sessions stay until the next start" >&2; worktree_digest=""; }
+  worktree_digest="$(python3 "$lib/worktree_sweep.py" sweep "$proj" "${session_id:-}" "${start_source:-startup}" "$repo/.agents/workloop.py")" \
+    || echo "session-start: the worktree sweep failed; what it did before failing is in the digest, and the rest waits for the next start" >&2
 fi
 
 items=""
