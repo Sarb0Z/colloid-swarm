@@ -2,13 +2,14 @@
 """Remove the worktrees and runs a session recorded, saving unsaved work first.
 
 `Remover.retire` keeps and names a worktree that is no linked worktree; is
-locked (Claude Code's own lock counts only while its session runs, ruling
-22); has a process inside, or no lsof to tell; holds a nested repository
-outside REBUILDABLE_DIRS, or what a save cannot carry (`unsaveable`); or whose
-unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no new
-gitlink). Ignored folders are parked behind a manifest the sweep can undo,
-then `git worktree remove` runs without --force on a clean tree; the branch
-goes only when HEAD contains it.
+locked (Claude Code's own lock counts only while its session runs); has a
+process inside, or no lsof to tell; holds another worktree, or a nested
+repository outside PACKAGE_DIRS, or what a save cannot carry (`unsaveable`);
+or whose unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no
+new gitlink). Ignored folders are parked behind a manifest the sweep can
+undo, then `git worktree remove` runs without --force on a clean tree; the
+branch goes only when HEAD contains it. Paths are compared by device and
+inode, so a path that differs from git's in case or by a link still matches.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -35,12 +35,10 @@ SAVE_CAP = 200 * 1024 * 1024
 CLAUDE_LOCK = re.compile(r"^claude (?:session|agent) \S+ \(pid (\d+)(?: start (.+))?\)$")
 GITLINK = re.compile(r"^160000 (?:commit )?([0-9a-f]+)(?: \d+)?\t(.*)$")
 STAMP = "%a %b %d %H:%M:%S %Y"
-# Folders that rebuild from the branch; the nested-repository walk skips them.
-REBUILDABLE_DIRS = frozenset({
-    "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-    ".tox", ".nox", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
-    ".cache", "coverage", ".nyc_output", "target", ".gradle", "Pods", "DerivedData", ".expo", ".angular",
-})
+# Folders a package manager reinstalls from the repository's lockfile: the only
+# folders whose ignored contents rebuild, and the only ones a walk skips. Build
+# output does not count: it can hold secrets, databases and repositories.
+PACKAGE_DIRS = frozenset({"node_modules", ".venv", "venv", ".tox", ".nox", "Pods", ".gradle"})
 IN_PROGRESS = ("BISECT_LOG", "rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD")
 
 
@@ -68,40 +66,41 @@ class Remover:
         self.lines: list[str] = []
         self._procs, self._loaded = None, False
 
-    def procs(self):
-        """(pid, cwd) of every visible process but lsof and this one, or None when lsof cannot say."""
+    def procs(self) -> dict | None:
+        """{folder identity: pids} for the working folder of every visible process but lsof
+        and this one, and each folder above it; None when lsof cannot say."""
         if not self._loaded and shutil.which("lsof"):
             child = subprocess.Popen(["lsof", "-n", "-P", "-w", "-d", "cwd", "-F", "pn"], text=True,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            rows, pid = [], None
+            found, pid, seen = {}, None, {}
             for line in child.communicate()[0].splitlines():
                 pid = int(line[1:]) if line.startswith("p") else pid
                 if line.startswith("n") and pid not in (None, child.pid, os.getpid()):
-                    rows.append((pid, Path(line[1:])))
-            self._procs = rows or None
+                    for folder in (Path(line[1:]), *Path(line[1:]).parents):
+                        key = seen[folder] if folder in seen else seen.setdefault(folder, identity(folder))
+                        found.setdefault(key, set()).add(pid)
+            self._procs = found or None
         self._loaded = True
         return self._procs
 
     def occupant(self, path: Path) -> str | None:
-        rows = self.procs()
-        if rows is None:
+        found = self.procs()
+        if found is None:
             return "lsof is missing or failed, so a process may be working in it"
-        pid = next((pid for pid, cwd in rows if pid not in self.exclude and (cwd == path or path in cwd.parents)), None)
-        return f"process {pid} is working in it" if pid else None
+        pid = min(found.get(identity(path), set()) - self.exclude, default=None)
+        return f"process {pid} is working in it; see `ps -p {pid}`" if pid else None
 
     def blocked(self, path: Path) -> tuple[str, str] | None:
         """(kind, reason) when `path` must stay; kind "locked" is a decision to keep it."""
         main = wr.main_checkout(path)
-        entry = next((item for item in wr.worktrees(main)[1:] if item["path"] == path), None) if main else None
+        listed = wr.worktrees(main) if main else []
+        entry = next((item for item in listed[1:] if item["path"] == path), None)
         if entry is None:
             return "other", "git lists it as no linked worktree"
         if entry["locked"] and not claude_lock_ended(entry["locked"], self.ending_pid):
             return "locked", f"it is locked ({entry['locked']})"
-        busy = self.occupant(path)
-        inner = None if busy else nested(path)
-        held = None if busy or inner else unsaveable(path)
-        return ("busy", busy) if busy else ("other", f"it holds a nested repository at {inner}") if inner \
-            else ("other", held) if held else None
+        why = self.occupant(path) or inner_worktree(path, listed) or nested(path) or unsaveable(path)
+        return ("other", why) if why else None
 
     def retire(self, path: Path) -> str:
         """Remove one worktree; return "removed", "gone", "locked" or "kept"."""
@@ -129,12 +128,29 @@ class Remover:
         return "removed"
 
 
+def identity(path: Path) -> tuple[int, int] | None:
+    """(device, inode) of a folder, None when it cannot be read."""
+    try:
+        found = os.stat(path)
+    except OSError:
+        return None
+    return found.st_dev, found.st_ino
+
+
+def inner_worktree(path: Path, listed: list[dict]) -> str | None:
+    """Why another listed worktree inside `path` keeps it: its removal would take the inner one."""
+    own = identity(path)
+    inner = next((e["path"] for e in listed if own and e["path"] != path
+                  and any(identity(folder) == own for folder in e["path"].parents)), None)
+    return f"another worktree lies inside it: {inner}; see `git worktree list`" if inner else None
+
+
 def nested(path: Path) -> str | None:
-    """The first `.git` below the worktree's own, ignored folders included, rebuildable ones skipped."""
+    """Why a `.git` below the worktree's own keeps it, ignored folders included, package folders skipped."""
     for root, dirs, files in os.walk(path):
         if Path(root) != path and (".git" in dirs or ".git" in files):
-            return root
-        dirs[:] = [name for name in dirs if name not in REBUILDABLE_DIRS]
+            return f"it holds a nested repository at {root}; see `git -C {root} status`"
+        dirs[:] = [name for name in dirs if name not in PACKAGE_DIRS and name != ".git"]
     return None
 
 
@@ -145,14 +161,24 @@ def unsaveable(path: Path) -> str | None:
     admin = Path(wr.out(path, "rev-parse", "--path-format=absolute", "--git-dir"))
     busy = [name for name in IN_PROGRESS if (admin / name).exists()]
     if busy:
-        return f"a {busy[0]} operation is in progress"
-    flagged = [line[2:] for line in wr.git(path, "ls-files", "-v").stdout.splitlines()
+        return f"a {busy[0]} operation is in progress; see `git -C {path} status`"
+    listing = wr.git(path, "ls-files", "-v")
+    if listing.returncode:
+        return f"git could not read its index ({listing.stderr.strip()}); see `git -C {path} status`"
+    flagged = [line[2:] for line in listing.stdout.splitlines()
                if line[:1] in ("S", "s", "h") and os.path.lexists(path / line[2:])]
-    return f"it holds skip-worktree or assume-unchanged files git status does not show: {', '.join(flagged[:3])}" if flagged else None
+    return (f"it holds skip-worktree or assume-unchanged files git status does not show: {', '.join(flagged[:3])}; "
+            f"see `git -C {path} ls-files -v`") if flagged else None
 
 
 def dirty(path: Path) -> bool:
-    return bool(wr.out(path, "--no-optional-locks", "status", "--porcelain", "--ignore-submodules=none"))
+    """Uncommitted or untracked work. The flags override what the repository's config may
+    hide: `status.showUntrackedFiles=no` blanks untracked files, and `git worktree remove`
+    without --force then deletes them; a stale fsmonitor or untracked cache can miss edits.
+    A status that fails counts as dirty."""
+    status = wr.git(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+                    "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
+    return bool(status.returncode or status.stdout.strip())
 
 
 def gitlinks(path: Path, *args, env: dict | None = None) -> set:
@@ -206,9 +232,15 @@ def trash_dir(main: Path) -> Path:
 def remove(path: Path, main: Path, force: bool) -> str | None:
     """Park the ignored folders, run `git worktree remove`; return why it stayed, or None."""
     listing = wr.git(path, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
+    if listing.returncode:
+        return f"git could not list its ignored files ({listing.stderr.strip()})"
+    names = [item for item in listing.stdout.split("\0") if item]
+    # A folder holding only ignored files is listed with its contents; moving the
+    # folder moves them, and a second move of a file inside would fail.
+    outermost = [name for name in names if not any(other != name and other.endswith("/") and name.startswith(other)
+                                                   for other in names)]
     bin_ = trash_dir(main) / f"{time.time_ns()}-{os.getpid()}"
-    moves = [(str(path / name.rstrip("/")), str(bin_ / str(number)))
-             for number, name in enumerate(item for item in listing.stdout.split("\0") if item)]
+    moves = [(str(path / name.rstrip("/")), str(bin_ / str(number))) for number, name in enumerate(outermost)]
     if moves:
         bin_.mkdir(parents=True, exist_ok=True)
         (bin_ / "manifest.json").write_text(json.dumps({"worktree": str(path), "moves": moves}))
@@ -259,41 +291,3 @@ def drop_branch(main: Path, branch: str | None) -> str:
         return f"; branch {branch} kept, HEAD does not contain it"
     result = wr.git(main, "branch", "-D", branch)
     return f"; branch {branch} kept: {result.stderr.strip()}" if result.returncode else f"; branch {branch} deleted, HEAD contains it"
-
-
-def close_run(remover: Remover, entry: dict, workloop: Path, hold: bool) -> bool:
-    """Save a run's worktrees and close it with `abandon`; False when it must stay. With
-    `hold` (/clear, /resume) a lane not yet submitted keeps the run: its cell may still work."""
-    name, state = entry.get("run"), entry.get("state") or ""
-    run = wr.runs_in(state).get(name)
-    if run is None:
-        return True
-    lanes = run.get("lanes") or {}
-    busy = next((f"lane {lane} is {info.get('state')}, not yet submitted, and the session's process goes on"
-                 for lane, info in lanes.items() if hold and info.get("state") not in ("review", "reviewed")), None)
-    spaces = [Path(s).resolve() for s in [i.get("workspace") for i in lanes.values()]
-              + [(run.get("integration") or {}).get("workspace")] if s]
-    present = [path for path in spaces if path.is_dir()]
-    repo = wr.main_checkout(run.get("repo") or "/nonexistent")
-    # Git still lists a workspace that is not on disk (an unmounted volume):
-    # abandon's prune would drop it, so the run stays.
-    away = next((f"git lists {e['path']} but it is not on disk" for e in (wr.worktrees(repo) if repo else [])
-                 if e["path"] in spaces and not e["path"].is_dir()), None)
-    refusal = busy or away or next((f"{path}: {r[1]}" for path in present for r in [remover.blocked(path)] if r), None)
-    saved = []
-    for path in [] if refusal else [path for path in present if dirty(path)]:
-        branch, error = save(path, remover.label)
-        refusal = f"{path}: its unsaved work could not be committed ({error})" if error else None
-        if refusal:
-            break
-        saved.append(f"{path} -> {branch}")
-    if refusal:
-        remover.lines.append(f"kept workloop run {name}: {refusal}")
-        return False
-    os.chdir(Path(state).parent)
-    result = subprocess.run([sys.executable, str(workloop), "--state", state, "abandon", name],
-                            text=True, capture_output=True, env=wr.clean_env())
-    remover.lines.append(f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
-                         if result.returncode else f"closed workloop run {name}: {result.stdout.strip()}"
-                         + ("; unsaved work: " + ", ".join(saved) if saved else ""))
-    return not result.returncode

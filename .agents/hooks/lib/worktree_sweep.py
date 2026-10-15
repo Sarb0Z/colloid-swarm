@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """End a session's records at its end, and sweep the repository's at each start.
 
-    worktree_sweep.py end <project> <session> <reason> <workloop.py>   (session-end.sh)
-    worktree_sweep.py sweep <project> <session> <workloop.py>          (session-start.sh)
+    worktree_sweep.py end <project> <session> <reason> <workloop.py>            (session-end.sh)
+    worktree_sweep.py sweep <project> <session> <source> <workloop.py>          (session-start.sh)
+    worktree_sweep.py list <project>          the kept verdicts earlier starts cached, dated
 
 `sweep` (one per repository at a time) folds back what a killed run left,
 ends the records of sessions whose process is gone, closes a run no record
-leads once git lists none of its workspaces, and names each idle worktree no
-record or run names with its work and a verdict, "could go: <why>" or
-"stays: <why>". It removes none of them: that is unit 5b's (ruling 24).
+leads once git lists none of its workspaces, and heals what older sessions
+left (worktree_heal.py). It prints each line as it happens, so a failure
+later keeps the report of what went. A compaction start (source `compact`)
+removes no unrecorded worktree. WORKTREE_HEAL_SECONDS overrides how long into
+the heal a start may still begin a removal.
 """
 
 from __future__ import annotations
@@ -17,15 +20,15 @@ import fcntl
 import importlib.util
 import json
 import os
-import re
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-_spec = importlib.util.spec_from_file_location("worktree_removal", Path(__file__).with_name("worktree_removal.py"))
-rm = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(rm)
-wr = rm.wr
+_spec = importlib.util.spec_from_file_location("worktree_heal", Path(__file__).with_name("worktree_heal.py"))
+hl = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(hl)
+rm, wr = hl.rm, hl.wr
 
 # Reasons after which the session's process exits; after /clear and /resume it
 # goes on working, so its own folder still counts as occupied.
@@ -33,10 +36,6 @@ EXITS = {"prompt_input_exit", "other", "logout", "bypass_permissions_disabled"}
 IDLE_SECONDS = 24 * 3600
 PARKED_SECONDS = 600
 STATE = Path(".agents/.workloop-state.json")
-# Ignored files that rebuild; rm.REBUILDABLE_DIRS holds the folders.
-REBUILDABLE_FILES = frozenset({".DS_Store", ".eslintcache"})
-REBUILDABLE_SUFFIXES = (".pyc", ".pyo", ".tsbuildinfo")
-KEEPS = re.compile(r"^\.env|\.(sqlite3?|db)$")
 
 
 def reclaim(folder: Path) -> None:
@@ -94,7 +93,7 @@ def finish(entries: list[dict], remover, workloop: Path, reason: str) -> list[di
     runs = {(e.get("run"), e.get("state")): e for e in entries if e.get("type") == "run"}
     hold = reason in ("clear", "resume")
     entered = [e["path"] for e in entries if e.get("by") == "EnterWorktree" and e.get("path")]
-    remaining = [entry for entry in runs.values() if not rm.close_run(remover, entry, workloop, hold)]
+    remaining = [entry for entry in runs.values() if not close_run(remover, entry, workloop, hold)]
     kept_runs, seen = {entry["run"] for entry in remaining}, set()
     for entry in [e for e in entries if e.get("type") == "worktree" and e.get("path")]:
         path = Path(entry["path"])
@@ -109,6 +108,43 @@ def finish(entries: list[dict], remover, workloop: Path, reason: str) -> list[di
         elif remover.retire(path) == "kept":
             remaining.append(entry)
     return remaining
+
+
+def close_run(remover, entry: dict, workloop: Path, hold: bool) -> bool:
+    """Save a run's worktrees and close it with `abandon`; False when it must stay. With
+    `hold` (/clear, /resume) a lane not yet submitted keeps the run: its cell may still work."""
+    name, state = entry.get("run"), entry.get("state") or ""
+    run = wr.runs_in(state).get(name)
+    if run is None:
+        return True
+    lanes = run.get("lanes") or {}
+    busy = next((f"lane {lane} is {info.get('state')}, not yet submitted, and the session's process goes on"
+                 for lane, info in lanes.items() if hold and info.get("state") not in ("review", "reviewed")), None)
+    spaces = [Path(s).resolve() for s in workspaces(run)]
+    present = [path for path in spaces if path.is_dir()]
+    repo = wr.main_checkout(run.get("repo") or "/nonexistent")
+    # Git still lists a workspace that is not on disk (an unmounted volume):
+    # abandon's prune would drop it, so the run stays.
+    away = next((f"git lists {e['path']} but it is not on disk" for e in (wr.worktrees(repo) if repo else [])
+                 if e["path"] in spaces and not e["path"].is_dir()), None)
+    refusal = busy or away or next((f"{path}: {r[1]}" for path in present for r in [remover.blocked(path)] if r), None)
+    saved = []
+    for path in [] if refusal else [path for path in present if rm.dirty(path)]:
+        branch, error = rm.save(path, remover.label)
+        refusal = f"{path}: its unsaved work could not be committed ({error})" if error else None
+        if refusal:
+            break
+        saved.append(f"{path} -> {branch}")
+    if refusal:
+        remover.lines.append(f"kept workloop run {name}: {refusal}")
+        return False
+    os.chdir(Path(state).parent)
+    result = subprocess.run([sys.executable, str(workloop), "--state", state, "abandon", name],
+                            text=True, capture_output=True, env=wr.clean_env())
+    remover.lines.append(f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
+                         if result.returncode else f"closed workloop run {name}: {result.stdout.strip()}"
+                         + ("; unsaved work: " + ", ".join(saved) if saved else ""))
+    return not result.returncode
 
 
 def lock_of(path: Path) -> str | None:
@@ -156,114 +192,56 @@ def unowned_runs(main: Path, leads: set) -> list[str]:
     return lines
 
 
-def idle_since(path: Path) -> float:
-    """The newest of the worktree's commit, checkout and file times."""
-    admin = Path(wr.out(path, "rev-parse", "--path-format=absolute", "--git-dir"))
-    stamps = [os.stat(item).st_mtime for item in (admin / "HEAD", admin / "index", admin / "logs" / "HEAD", path)
-              if item.exists()]
-    committed = wr.out(path, "log", "-1", "--format=%ct")
-    newest = max(stamps + ([float(committed)] if committed.isdigit() else []) or [0.0])
-    for name in wr.git(path, "ls-files", "-z", "--cached", "--others", "--exclude-standard").stdout.split("\0"):
-        if time.time() - newest < IDLE_SECONDS:
-            break
-        if name and os.path.lexists(path / name):
-            newest = max(newest, os.lstat(path / name).st_mtime)
-    return newest
+def common_dir(main: Path) -> Path:
+    return Path(wr.out(main, "rev-parse", "--path-format=absolute", "--git-common-dir"))
 
 
-def unrebuildable(path: Path) -> list[str]:
-    listing = wr.git(path, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
-    found = []
-    for name in (entry for entry in listing.stdout.split("\0") if entry):
-        parts = Path(name).parts
-        if any(part in rm.REBUILDABLE_DIRS for part in parts):
-            continue
-        if not KEEPS.search(parts[-1]) and not name.endswith("/") and (
-                parts[-1] in REBUILDABLE_FILES or parts[-1].endswith(REBUILDABLE_SUFFIXES)):
-            continue
-        found.append(name)
-    return found
+def load_cache(common: Path) -> dict | None:
+    """The heal's cached verdicts, or None when no start has cached any."""
+    path = common / hl.CACHE
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        wr.warn(f"{path} is unreadable ({error}); every idle worktree is judged again")
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
-def default_refs(main: Path) -> list[str]:
-    remote = wr.out(main, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-    names = [remote.rsplit("/", 1)[-1]] if remote else ["main", "master"]
-    refs = [f"refs/heads/{name}" for name in names] + ([remote] if remote else [])
-    return [ref for ref in refs if wr.out(main, "rev-parse", "-q", "--verify", ref)]
+def save_cache(common: Path, kept: dict) -> None:
+    try:
+        scratch = common / f"{hl.CACHE}.{os.getpid()}"
+        scratch.write_text(json.dumps(kept, sort_keys=True))
+        os.replace(scratch, common / hl.CACHE)
+    except OSError as error:
+        wr.warn(f"could not write {common / hl.CACHE} ({error}); the next start judges every idle worktree again")
 
 
-def merge_tree_ok() -> bool:
-    found = re.search(r"(\d+)\.(\d+)", wr.out(".", "version"))
-    return bool(found) and (int(found.group(1)), int(found.group(2))) >= (2, 38)
+def listing(project: Path) -> list[str]:
+    main = wr.main_checkout(project)
+    cache = (load_cache(common_dir(main)) or {}) if main else {}
+    lines = [f"{hit['line']} (judged {time.strftime('%Y-%m-%d', time.localtime(hit['at']))})"
+             for hit in cache.values() if isinstance(hit, dict) and isinstance(hit.get("line"), str)
+             and isinstance(hit.get("at"), (int, float))]
+    return lines or [f"No kept idle worktree is cached for {main or project}."]
 
 
-def settled(path: Path, defaults: list[str]) -> str | None:
-    """How the worktree's commits are safe elsewhere, or None."""
-    for ref in defaults:
-        if wr.git(path, "merge-base", "--is-ancestor", "HEAD", ref).returncode == 0:
-            return f"merged into {ref.split('/', 2)[-1]}"
-        if merge_tree_ok():
-            merged = wr.git(path, "merge-tree", "--write-tree", ref, "HEAD")
-            if merged.returncode == 0 and merged.stdout.split()[:1] == [wr.out(path, "rev-parse", f"{ref}^{{tree}}")]:
-                return f"its changes are already in {ref.split('/', 2)[-1]}"
-    upstream = wr.out(path, "rev-parse", "-q", "--abbrev-ref", "@{upstream}")
-    if upstream and wr.out(path, "rev-list", "--count", "HEAD", "--not", "@{upstream}") == "0":
-        return f"every commit is on {upstream}"
-    if not wr.out(path, "symbolic-ref", "-q", "HEAD") and wr.out(path, "branch", "-r", "--contains", "HEAD"):
-        return "its detached HEAD is on a remote branch"
-    return None
-
-
-def about(path: Path, entry: dict, defaults: list[str]) -> str:
-    subject = wr.out(path, "log", "-1", "--format=%cs %s")
-    ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", *defaults) if defaults else "?"
-    changed = len(wr.out(path, "--no-optional-locks", "status", "--porcelain").splitlines())
-    return (f"{path} [{entry['branch'] or 'detached'}] last commit {subject or 'none'}; "
-            f"{ahead} commit(s) not in the default branch, {changed} uncommitted file(s)")
-
-
-def verdict(path: Path, entry: dict, defaults: list[str], remover) -> str:
-    """Whether the worktree could go with nothing lost; no nested-repository walk."""
-    if entry["locked"] and not rm.claude_lock_ended(entry["locked"], None):
-        return f"stays: it is locked ({entry['locked']})"
-    why = remover.occupant(path) or rm.unsaveable(path) or ("it holds uncommitted work" if rm.dirty(path) else None)
-    extra = None if why else unrebuildable(path)
-    if extra:
-        why = "it holds ignored files that do not rebuild: " + ", ".join(extra[:5])
-    safe = None if why else settled(path, defaults)
-    return f"could go: {safe}" if safe else f"stays: {why or 'its commits are neither merged into the default branch nor on a remote'}"
-
-
-def name_idle(main: Path, recorded: set, lanes_of_runs: set) -> list[str]:
-    """Name each idle worktree no record or run names, and each lane folder no run owns."""
-    lines, defaults = [], default_refs(main)
-    remover, folder = rm.Remover("the sweep", {os.getpid()}, None), main / ".agents" / "worktrees"
-    for entry in wr.worktrees(main)[1:]:
-        path = entry["path"]
-        if entry["prunable"] or not path.is_dir() or str(path) in recorded | lanes_of_runs:
-            continue
-        if folder in path.parents:
-            lines.append(f"lane folder {about(path, entry, defaults)}: belongs to no workloop run")
-        elif time.time() - idle_since(path) >= IDLE_SECONDS:
-            lines.append(f"idle {about(path, entry, defaults)}: {verdict(path, entry, defaults, remover)}")
-    return lines
-
-
-def sweep(project: Path, session: str, workloop: Path) -> list[str]:
+def sweep(project: Path, session: str, source: str, workloop: Path, emit, budget: float) -> None:
     main = wr.main_checkout(project)
     if main is None:
-        return []
-    common = Path(wr.out(main, "rev-parse", "--path-format=absolute", "--git-common-dir"))
-    with open(common / "colloid-sweep.lock", "w") as lock:
+        return
+    with open(common_dir(main) / "colloid-sweep.lock", "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            return ["Another session start is sweeping this repository's worktrees; this one skipped it."]
-        return locked_sweep(main, wr.session_key(session), workloop)
+            emit("Another session start is sweeping this repository's worktrees; this one skipped it.")
+            return
+        locked_sweep(main, wr.session_key(session), source, workloop, emit, budget)
 
 
-def locked_sweep(main: Path, me: str, workloop: Path) -> list[str]:
-    folder, lines = main / wr.RECORDS, []
+def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget: float) -> None:
+    folder = main / wr.RECORDS
     unpark(main)
     if folder.is_dir():
         reclaim(folder)
@@ -271,28 +249,40 @@ def locked_sweep(main: Path, me: str, workloop: Path) -> list[str]:
             wr.append(folder, me, [{"type": "host", "host": wr.host(), "at": int(time.time())}])
         for path in sorted(folder.glob("*.jsonl")):
             if path.stem != me and over(wr.load(path), path):
-                lines += close(path, "", workloop)
+                for line in close(path, "", workloop):
+                    emit(line)
     recorded, leads = set(), set()
     for path in folder.glob("*.jsonl") if folder.is_dir() else []:
         for entry in wr.load(path):
             recorded |= {str(Path(entry["path"]).resolve())} if entry.get("type") == "worktree" else set()
             leads.add(entry.get("run"))
-    lines += unowned_runs(main, leads)
-    runs = wr.runs_in(str(main / STATE)).values()
-    lines += name_idle(main, recorded, {str(Path(space).resolve()) for run in runs for space in workspaces(run)})
+    for line in unowned_runs(main, leads):
+        emit(line)
+    # A run's state may live in any checkout of the repository, so every one's lanes are spared.
+    runs = [run for entry in wr.worktrees(main) for run in wr.runs_in(str(entry["path"] / STATE)).values()]
+    spared = recorded | {str(Path(space).resolve()) for run in runs for space in workspaces(run)}
+    common = common_dir(main)
+    save_cache(common, hl.heal(main, spared, load_cache(common), emit, source != "compact", budget))
     saved = wr.out(main, "for-each-ref", "--format=%(refname:short) %(committerdate:short) %(subject)", "refs/heads/saved/")
     if saved:
-        lines.append("Unsaved work from removed worktrees waits on these branches; merge what is wanted, then delete each branch:")
-        lines += [f"  {line}" for line in saved.splitlines()]
-    return lines
+        emit("Unsaved work from removed worktrees waits on these branches; merge what is wanted, then delete each branch:")
+        for line in saved.splitlines():
+            emit(f"  {line}")
+
+
+def say(line: str) -> None:
+    print(line, flush=True)
 
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["end"] and len(sys.argv) == 6:
-        report = end(Path(sys.argv[2]), sys.argv[3], sys.argv[4], Path(sys.argv[5]))
-    elif sys.argv[1:2] == ["sweep"] and len(sys.argv) == 5:
-        report = sweep(Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4]))
+        for report in end(Path(sys.argv[2]), sys.argv[3], sys.argv[4], Path(sys.argv[5])):
+            say(report)
+    elif sys.argv[1:2] == ["sweep"] and len(sys.argv) == 6:
+        seconds = os.environ.get("WORKTREE_HEAL_SECONDS") or str(hl.REMOVE_SECONDS)
+        sweep(Path(sys.argv[2]), sys.argv[3], sys.argv[4], Path(sys.argv[5]), say, float(seconds))
+    elif sys.argv[1:2] == ["list"] and len(sys.argv) == 3:
+        for report in listing(Path(sys.argv[2])):
+            say(report)
     else:
         sys.exit(__doc__)
-    for line in report:
-        print(line)
