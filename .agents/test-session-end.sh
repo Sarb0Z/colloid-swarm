@@ -134,10 +134,25 @@ printf 'two\n' > "$scratch/wt-dirty/src/app.txt"
 printf 'new\n' > "$scratch/wt-dirty/src/untracked.txt"
 printf 'noise\n' > "$scratch/wt-dirty/build.log"
 printf 'lane work\n' > "$lane/src/lane.txt"
-for name in locked claude-dead claude-live agent-dead agent-live busy here nested ignored-nested nm-nested skip bisect; do
+for name in locked claude-dead claude-live agent-dead agent-live busy here nested ignored-nested nm-nested skip bisect \
+    build-holder build-repo mc-holder; do
   bash_call "$R" "git worktree add -q ../wt-$name -b $name"
 done
 git init -q "$scratch/wt-nm-nested/node_modules/vendored"
+# Build output is no package folder: what lies under build/ keeps its holder.
+printf 'build/\n' >> "$R/.git/info/exclude"
+git -C "$R" worktree add -q "$scratch/wt-build-holder/build/inner" -b build-inner
+printf 'inner work\n' > "$scratch/wt-build-holder/build/inner/work.txt"
+git init -q "$scratch/wt-build-repo/build/vendored" && git -C "$scratch/wt-build-repo/build/vendored" commit -q --allow-empty -m unpushed
+# A worktree inside node_modules that git records in another case, as `git
+# worktree repair` with a mis-cased path leaves it.
+mc_inner=""
+if [[ -d "$scratch/WT-MC-HOLDER" ]]; then
+  git -C "$R" worktree add -q "$scratch/wt-mc-holder/node_modules/inner" -b mc-inner
+  printf '%s/.git\n' "$scratch/WT-MC-HOLDER/node_modules/inner" \
+    > "$(git -C "$scratch/wt-mc-holder/node_modules/inner" rev-parse --absolute-git-dir)/gitdir"
+  mc_inner="$scratch/wt-mc-holder/node_modules/inner/work.txt" && printf 'inner work\n' > "$mc_inner"
+fi
 git -C "$scratch/wt-skip" update-index --skip-worktree src/app.txt && printf 'hidden edit\n' > "$scratch/wt-skip/src/app.txt"
 git -C "$scratch/wt-bisect" bisect start -q 2>/dev/null || git -C "$scratch/wt-bisect" bisect start >/dev/null
 git -C "$R" worktree lock "$scratch/wt-locked" --reason "keep for review"
@@ -199,6 +214,15 @@ ok "the nested-repository walk skips rebuildable folders"
 [[ -d "$scratch/wt-s2b" && -f "$records/s2.jsonl" && -d "$scratch/wt-s2" ]] || fail "another session's worktrees must stay"
 [[ "$(recorded "$scratch/wt-busy")" == 1 && "$(recorded "$scratch/wt-locked")" == 0 ]] || fail "busy stays recorded for the next sweep; locked does not"
 ok "occupied, nested, ignored-nested and other sessions' worktrees stay, each named"
+[[ -f "$scratch/wt-build-holder/build/inner/work.txt" && "$report" == *"kept $scratch/wt-build-holder: another worktree lies inside it"* ]] \
+  || fail "a worktree holding another under build/ must stay: $report"
+[[ -d "$scratch/wt-build-repo/build/vendored/.git" && "$report" == *"kept $scratch/wt-build-repo: it holds a nested repository"* ]] \
+  || fail "a repository inside build/ must keep its worktree: $report"
+if [[ -n "$mc_inner" ]]; then
+  [[ -f "$mc_inner" && "$report" == *"kept $scratch/wt-mc-holder: another worktree lies inside it"* ]] \
+    || fail "a worktree added through a mis-cased path must keep its holder: $report"
+fi
+ok "build output keeps what lies in it: a worktree or a repository under build/, and an inner worktree git names in another case"
 
 # ── without lsof every worktree reads busy ──────────────────────────────────
 bash_call "$R" 'git worktree add -q ../wt-nolsof -b nolsof'
@@ -237,7 +261,7 @@ end_session clear
 [[ ! -e "$scratch/wt-clear" ]] || fail "/clear must end the conversation's worktrees: $report"
 [[ -d "$R/.agents/worktrees/t2/l2" && "$report" == *"kept workloop run t2: lane l2 is active, not yet submitted"* ]] || fail "an unsubmitted lane keeps its run: $report"
 rm "$R/.agents/.writers-live-s1"
-sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s9 "$R/.agents/workloop.py")"
+sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s9 startup "$R/.agents/workloop.py")"
 [[ -d "$R/.agents/worktrees/t2/l2" ]] || fail "while the session's process lives, the sweep must leave the run: $sweep_out"
 python3 - "$records/s1.jsonl" "$gone" "$gone_start" <<'PY'
 import json, sys
@@ -245,7 +269,7 @@ path, pid, start = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 lines = [json.loads(line) for line in open(path) if line.strip()]
 open(path, "w").write("".join(json.dumps(dict(e, host=[pid, start]), sort_keys=True) + "\n" for e in lines))
 PY
-sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s9 "$R/.agents/workloop.py")"
+sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" s9 startup "$R/.agents/workloop.py")"
 [[ ! -e "$R/.agents/worktrees/t2/l2" && "$sweep_out" == *"closed workloop run t2"* ]] || fail "the first sweep after the process exits must take the run: $sweep_out"
 ok "/clear ends the conversation's worktrees; a run with an unsubmitted lane stays until its process exits, with no read of the writers list"
 

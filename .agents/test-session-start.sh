@@ -33,7 +33,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
-     "$repo/.agents/hooks/lib/worktree_sweep.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_heal.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -517,15 +517,49 @@ find "$sw/.git/worktrees/sweep-bisecting" -exec touch -h -t 202601010000 {} +
 git -C "$sw" worktree add -q "$sw/.agents/worktrees/old-run/lane" -b old-lane
 find "$sw/.agents/worktrees/old-run/lane" "$sw/.git/worktrees/lane" -exec touch -h -t 202601010000 {} +
 # The heal's rows: what may go, and every way something could be lost.
-printf 'build/\n.env.*\n.workloop/\n.DS_Store\n' >> "$sw/.git/info/exclude"
+printf '%s\n' build/ '.env.*' .DS_Store out/ logs/ '*.pem' '*.tfstate' '*.sqlite3-wal' credentials.json >> "$sw/.git/info/exclude"
 wt build-env; mkdir -p "$scratch/sweep-build-env/build" && printf 'SECRET=1\n' > "$scratch/sweep-build-env/build/.env.production"; age build-env
 wt build-db; mkdir -p "$scratch/sweep-build-db/build" && printf 'rows\n' > "$scratch/sweep-build-db/build/local.db"; age build-db
 wt dist-env; mkdir -p "$scratch/sweep-dist-env/dist" && printf 'SECRET=1\n' > "$scratch/sweep-dist-env/dist/.env.production"; age dist-env
 wt build-only; mkdir -p "$scratch/sweep-build-only/build/static" && printf 'x\n' > "$scratch/sweep-build-only/build/static/app.js"
 printf 'x' > "$scratch/sweep-build-only/.DS_Store"; age build-only
+wt build-repo; git init -q "$scratch/sweep-build-repo/build/vendored"
+git -C "$scratch/sweep-build-repo/build/vendored" -c user.name=f -c user.email=f@x commit -q --allow-empty -m "unpushed"
+age build-repo
+wt out-csv; mkdir -p "$scratch/sweep-out-csv/out" && printf 'a,b\n' > "$scratch/sweep-out-csv/out/results.csv"; age out-csv
+# A tracked tools/build/ folder whose ignored secret git lists on its own.
+wt tools-build; mkdir -p "$scratch/sweep-tools-build/tools/build" && printf 'how\n' > "$scratch/sweep-tools-build/tools/build/README.md"
+git -C "$scratch/sweep-tools-build" add -f tools/build/README.md && git -C "$scratch/sweep-tools-build" commit -qm "tools"
+git -C "$scratch/sweep-tools-build" push -q -u origin tools-build 2>/dev/null
+printf '{"token": 1}\n' > "$scratch/sweep-tools-build/tools/build/credentials.json"; age tools-build
+for key in .env.local secrets.pem terraform.tfstate app.sqlite3-wal; do
+  wt "key$key"; printf 'secret\n' > "$scratch/sweep-key$key/$key"; age "key$key"
+done
+wt nm-env; mkdir -p "$scratch/sweep-nm-env/node_modules/pkg" && printf 'X=1\n' > "$scratch/sweep-nm-env/node_modules/pkg/.env"; age nm-env
 # Git lists a folder that holds only ignored files together with its contents.
 wt dsonly; mkdir -p "$scratch/sweep-dsonly/assets/icons" && printf 'x' > "$scratch/sweep-dsonly/assets/icons/.DS_Store"; age dsonly
-wt brief; mkdir -p "$scratch/sweep-brief/.workloop" && printf 'brief\n' > "$scratch/sweep-brief/.workloop/brief.md"; age brief
+# The lane brief as `workloop.py brief` writes it: a folder that ignores itself.
+wt brief; mkdir -p "$scratch/sweep-brief/.workloop" && printf '*\n' > "$scratch/sweep-brief/.workloop/.gitignore"
+printf 'brief\n' > "$scratch/sweep-brief/.workloop/brief.md"; age brief
+for name in expiry expiry-fresh; do
+  wt "$name"; mkdir -p "$scratch/sweep-$name/logs" && printf 'log\n' > "$scratch/sweep-$name/logs/run.log"; age "$name"
+done
+wt wtref; keep_commit="$(git -C "$scratch/sweep-wtref" commit-tree -p HEAD -m "only refs/worktree holds this" "HEAD^{tree}")"
+git -C "$scratch/sweep-wtref" update-ref refs/worktree/keep "$keep_commit"; age wtref
+# Git records a worktree's path in the case it was given when the folder did not
+# yet exist, or after `git worktree repair` with a mis-cased path; miscase() records it so.
+miscase() { printf '%s/.git\n' "$2" > "$sw/.git/worktrees/$1/gitdir"; }  # <admin name> <path as recorded>
+wt mcase; wt busy-mc
+if [[ -d "$scratch/SWEEP-MCASE" ]]; then
+  git -C "$sw" worktree add -q "$scratch/sweep-mcase/node_modules/inner-mc" -b inner-mc
+  miscase inner-mc "$scratch/SWEEP-MCASE/node_modules/inner-mc"
+  printf 'inner work\n' > "$scratch/sweep-mcase/node_modules/inner-mc/work.txt"
+  age mcase; find "$sw/.git/worktrees/inner-mc" -exec touch -h -t 202601010000 {} +
+  miscase sweep-busy-mc "$scratch/SWEEP-BUSY-MC"; age busy-mc
+else
+  printf 'note: this file system tells case apart; the mis-cased rows are skipped\n'
+  rm -rf "$scratch/sweep-mcase" "$scratch/sweep-busy-mc"; git -C "$sw" worktree prune
+fi
 wt assume; git -C "$scratch/sweep-assume" update-index --assume-unchanged src/app.txt
 printf 'hidden\n' > "$scratch/sweep-assume/src/app.txt"; age assume
 git -C "$sw" worktree add -q --detach "$scratch/sweep-detached-main" main; age detached-main
@@ -590,6 +624,10 @@ wt today
 wt locked; age locked; git -C "$sw" worktree lock "$scratch/sweep-locked"
 wt busy; age busy
 (cd "$scratch/sweep-busy" && exec sleep 120) >/dev/null 2>&1 & sleepers+=($!)
+busy_mc=""
+if [[ -d "$scratch/sweep-busy-mc" ]]; then
+  (cd "$scratch/sweep-busy-mc" && exec sleep 120) >/dev/null 2>&1 & busy_mc=$!; sleepers+=("$busy_mc")
+fi
 wt lane; age lane
 wt away; mv "$scratch/sweep-away" "$scratch/moved-away"
 python3 - "$sw" "$scratch" <<'PY' > "$sw/.agents/.workloop-state.json"
@@ -610,7 +648,9 @@ other="$scratch/sweep-other-repo"
 git init -q "$other" && git -C "$other" -c user.name=f -c user.email=f@x commit -q --allow-empty -m init
 git -C "$other" worktree add -q "$scratch/sweep-foreign" -b foreign
 find "$scratch/sweep-foreign" "$other/.git/worktrees" -exec touch -h -t 202601010000 {} +
-for _ in $(seq 50); do lsof -a -p "${sleepers[1]}" -d cwd >/dev/null 2>&1 && break; sleep 0.1; done
+for pid in "${sleepers[1]}" ${busy_mc:+"$busy_mc"}; do
+  for _ in $(seq 50); do lsof -a -p "$pid" -d cwd >/dev/null 2>&1 && break; sleep 0.1; done
+done
 
 sweep_context="$(context_of "$(run_policy "$sw" resume)")"
 [[ -n "${SWEEP_TEST_VERBOSE:-}" ]] && printf '%s\n' "$sweep_context"
@@ -644,43 +684,121 @@ row removed squash "$sweep_context" "a squash-merged branch"
 row removed stable "$sweep_context" "a branch whose upstream holds every commit"
 row removed deps "$sweep_context" "only node_modules ignored"
 row removed nested "$sweep_context" "a repository inside node_modules"
-row removed build-only "$sweep_context" "only build/ and .DS_Store ignored"
+row removed nm-env "$sweep_context" "a .env inside node_modules, which the walk skips"
 row removed dsonly "$sweep_context" "only .DS_Store, in folders holding nothing else"
-row removed brief "$sweep_context" "only a lane brief in .workloop/ ignored"
+row removed brief "$sweep_context" "only the lane brief, in a .workloop/ that ignores itself"
 row removed detached-main "$sweep_context" "a detached HEAD the default branch contains"
+row removed claude-stale "$sweep_context" "Claude Code's lock of a session that has ended"
 row kept envfile "$sweep_context" "a .env file" .env
-row kept build-env "$sweep_context" "build/.env.production inside an ignored build/ (S1)" build/.env.production
-row kept build-db "$sweep_context" "build/local.db inside an ignored build/ (S1)" build/local.db
-row kept dist-env "$sweep_context" "dist/.env.production with only .env.* ignored (S1)" dist/.env.production
+for key in .env.local secrets.pem terraform.tfstate app.sqlite3-wal; do
+  row kept "key$key" "$sweep_context" "an ignored $key" "$key"
+done
+row kept build-env "$sweep_context" "build/.env.production inside an ignored build/" build/.env.production
+row kept build-db "$sweep_context" "build/local.db inside an ignored build/" build/local.db
+row kept build-only "$sweep_context" "only build output in an ignored build/" build/static/app.js
+row kept build-repo "$sweep_context" "a repository with an unpushed commit inside build/" build/vendored/.git
+row kept out-csv "$sweep_context" "out/results.csv" out/results.csv
+row kept tools-build "$sweep_context" "an ignored secret under a tracked tools/build/" tools/build/credentials.json
+row kept dist-env "$sweep_context" "dist/.env.production with only .env.* ignored" dist/.env.production
 row kept dirty "$sweep_context" "an untracked file" src/draft.txt
 row kept hidden "$sweep_context" "an untracked file status.showUntrackedFiles=no hides" notes.txt
-row kept skipflag "$sweep_context" "a skip-worktree secret (S2)" src/app.txt
-row kept assume "$sweep_context" "an assume-unchanged edit (S2)" src/app.txt
-row kept bisecting "$sweep_context" "a bisect in progress (S2)"
+row kept skipflag "$sweep_context" "a skip-worktree secret" src/app.txt
+row kept assume "$sweep_context" "an assume-unchanged edit" src/app.txt
+row kept bisecting "$sweep_context" "a bisect in progress"
 row kept corrupt "$sweep_context" "an index git cannot read"
 row kept unmerged "$sweep_context" "a branch with unmerged commits"
 row kept later "$sweep_context" "a merged branch with later commits" two.txt
 row kept upgone "$sweep_context" "a branch whose upstream is gone"
-row kept detached-gone "$sweep_context" "a detached HEAD on a branch the remote deleted (S3)"
+row kept detached-gone "$sweep_context" "a detached HEAD on a branch the remote deleted"
 row kept reflog "$sweep_context" "commits only its HEAD log reaches"
+row kept wtref "$sweep_context" "a commit only its refs/worktree/ ref reaches"
 row kept holder "$sweep_context" "a worktree holding a nested lane"
 row kept holder/.agents/worktrees/r/l "$sweep_context" "the nested lane itself"
 row kept holder-build "$sweep_context" "a worktree holding another inside build/" build/inner/work.txt
+if [[ -n "$busy_mc" ]]; then
+  row kept mcase "$sweep_context" "a worktree holding another git records in another case" node_modules/inner-mc/work.txt
+  row kept busy-mc "$sweep_context" "a process inside a worktree git records in another case"
+fi
 row kept far-lane "$sweep_context" "a lane of a run whose state lives in another checkout"
-row kept claude-stale "$sweep_context" "Claude Code's lock of an ended session"
 row kept locked "$sweep_context" "a locked worktree"
 row kept busy "$sweep_context" "a worktree a process works in"
-# The second start: a kept verdict stands while its key does, and falls when it changes.
-rm "$scratch/sweep-build-db/build/local.db"
+# The second start: a kept verdict stands while its key does, and falls when it
+# changes or ages past a week.
 rm "$scratch/sweep-envfile/.env"  # then idle again, at another old time than the cached one
 find "$scratch/sweep-envfile" "$sw/.git/worktrees/sweep-envfile" -exec touch -h -t 202601020000 {} +
+rm "$scratch/sweep-expiry/logs/run.log" "$scratch/sweep-expiry-fresh/logs/run.log"
+python3 - "$sw/.git/colloid-heal-cache.json" "$real/sweep-expiry" <<'PY'
+import json, sys, time
+cache = json.load(open(sys.argv[1]))
+cache[sys.argv[2]]["at"] = time.time() - 8 * 86400
+json.dump(cache, open(sys.argv[1], "w"))
+PY
 git -C "$sw" merge -q --no-ff unmerged -m "merge unmerged"
 again="$(context_of "$(run_policy "$sw")")"
 [[ -n "${SWEEP_TEST_VERBOSE:-}" ]] && printf '%s\n' "$again"
 row removed unmerged "$again" "unmerged at the first start, merged before the second"
 row removed envfile "$again" "its .env deleted from the top folder before the second start"
-row kept build-db "$again" "build/local.db deleted inside build/: the cached verdict stands"
+row removed expiry "$again" "its log deleted inside logs/, its cached verdict a week old"
+row kept expiry-fresh "$again" "its log deleted inside logs/: the fresh cached verdict stands"
 row kept later "$again" "the default branch moved; still unmerged" two.txt
+
+# The scaffold's own ignored files, as its .gitignore fragment lists them.
+mini() {  # <name>: a fixture repository with one commit on main, whose .gitignore is <stdin>
+  local dir
+  dir="$(make_fixture "$1")"; dir="$(cd "$dir" && pwd -P)"
+  cat > "$dir/.gitignore"
+  mkdir -p "$dir/src" && printf 'one\n' > "$dir/src/app.txt"
+  git -C "$dir" add .gitignore src && git -C "$dir" -c user.name=f -c user.email=f@x commit -qm init
+  git -C "$dir" branch -M main
+  printf '%s\n' "$dir"
+}
+mwt() {  # <repo> <name>: an idle worktree of <repo> at $scratch/sweep-<name>
+  git -C "$1" worktree add -q "$scratch/sweep-$2" -b "$2"
+  mkdir -p "$scratch/sweep-$2/.agents"
+}
+mage() { find "$scratch/sweep-$2" "$1/.git/worktrees/sweep-$2" -exec touch -h -t 202601010000 {} +; }
+export GIT_COMMITTER_DATE=2026-01-01T00:00:00 GIT_AUTHOR_DATE=2026-01-01T00:00:00
+sc="$({ cat "$repo/.agents/export/gitignore-fragment"; printf '%s\n' .DS_Store next-env.d.ts; } | mini scaffolded)"
+mwt "$sc" sc-ledgers
+for ledger in .wrap-state-s1 .teardown-pending-s1 .compaction-pending .workloop-state.json.lock; do
+  printf 'x\n' > "$scratch/sweep-sc-ledgers/.agents/$ledger"
+done
+mkdir -p "$scratch/sweep-sc-ledgers/.agents/.writers-lock-s1" && printf 'x\n' > "$scratch/sweep-sc-ledgers/.agents/.writers-lock-s1/held"
+mwt "$sc" sc-no-run; printf '{"version": 1, "runs": {}}\n' > "$scratch/sweep-sc-no-run/.agents/.workloop-state.json"
+mwt "$sc" sc-run; printf '{"version": 1, "runs": {"r": {"lanes": {}}}}\n' > "$scratch/sweep-sc-run/.agents/.workloop-state.json"
+mwt "$sc" sc-worklog; mkdir -p "$scratch/sweep-sc-worklog/.agents/worklog" && printf 'did\n' > "$scratch/sweep-sc-worklog/.agents/worklog/day.md"
+mwt "$sc" sc-config; printf '{}\n' > "$scratch/sweep-sc-config/.agents/config.json"
+mwt "$sc" sc-local; printf 'mine\n' > "$scratch/sweep-sc-local/CLAUDE.local.md"
+mwt "$sc" sc-next-env; printf '/// x\n' > "$scratch/sweep-sc-next-env/next-env.d.ts"
+mwt "$sc" sc-pycache; mkdir -p "$scratch/sweep-sc-pycache/src/__pycache__" && printf 'x' > "$scratch/sweep-sc-pycache/src/__pycache__/m.pyc"
+for name in sc-ledgers sc-no-run sc-run sc-worklog sc-config sc-local sc-next-env sc-pycache; do mage "$sc" "$name"; done
+# One worktree each for the removal budget and compaction, and for a write between verdict and removal.
+pace="$(printf '.env*\n' | mini pace)"; mwt "$pace" pace; mage "$pace" pace
+late="$(printf '.env*\n' | mini late)"; mwt "$late" late; mage "$late" late
+unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
+sc_context="$(context_of "$(run_policy "$sc")")"
+[[ -n "${SWEEP_TEST_VERBOSE:-}" ]] && printf '%s\n' "$sc_context"
+row removed sc-ledgers "$sc_context" "only session-keyed scaffold ledgers in .agents/"
+row removed sc-no-run "$sc_context" "a workloop state file holding no run"
+row removed sc-next-env "$sc_context" "only next-env.d.ts"
+row kept sc-run "$sc_context" "a workloop state file holding a run" .agents/.workloop-state.json
+row kept sc-worklog "$sc_context" "a work log" .agents/worklog/day.md
+row kept sc-config "$sc_context" "the operator's .agents/config.json" .agents/config.json
+row kept sc-local "$sc_context" "CLAUDE.local.md" CLAUDE.local.md
+row kept sc-pycache "$sc_context" "a __pycache__ folder, which no package manager reinstalls" src/__pycache__/m.pyc
+pace_first="$(context_of "$(WORKTREE_HEAL_SECONDS=0 run_policy "$pace")")"
+row kept pace "$pace_first" "past the removal budget: named, left for the next start"
+pace_compact="$(run_policy "$pace" compact)"
+row kept pace "$pace_compact" "a compaction start removes nothing"
+pace_next="$(context_of "$(run_policy "$pace")")"
+row removed pace "$pace_next" "the next start, within the budget"
+# lsof's second call, which only the removal makes, writes an ignored file into the worktree.
+mkdir -p "$scratch/shim"
+printf '#!/bin/bash\nn=$(cat %q 2>/dev/null || echo 0); echo $((n + 1)) > %q\n(( n >= 1 )) && printf "LATE=1\\n" > %q\nexec %q "$@"\n' \
+  "$scratch/lsof-calls" "$scratch/lsof-calls" "$scratch/sweep-late/.env.late" "$(command -v lsof)" > "$scratch/shim/lsof"
+chmod +x "$scratch/shim/lsof"
+late_context="$(context_of "$(PATH="$scratch/shim:$PATH" run_policy "$late")")"
+row kept late "$late_context" "an ignored file written between the verdict and the removal" .env.late
 (( heal_failures == 0 )) || fail "$heal_failures heal row(s) failed"
 printf 'ok: the heal removes what would lose nothing and keeps the rest\n'
 assert_contains "$sweep_context" "removed idle $real/sweep-merged [merged] last commit 2026-01-01"
@@ -692,35 +810,49 @@ git -C "$sw" rev-parse -q --verify refs/heads/squash >/dev/null || fail "a squas
 assert_contains "$sweep_context" "idle $real/sweep-envfile [envfile] last commit"
 assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: .env"
 assert_contains "$sweep_context" "sweep-build-env [build-env]"
-assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: build/.env.production"
-assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: build/local.db"
+assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: build/; see \`git -C $real/sweep-build-env status --ignored\`"
 assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: dist/.env.production"
-assert_contains "$again" "stays: it holds ignored files that do not rebuild: build/local.db"
+assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: out/"
+assert_contains "$sweep_context" "stays: it holds ignored files that do not rebuild: tools/build/credentials.json"
+assert_contains "$sweep_context" "stays: it holds a nested repository at $real/sweep-build-repo/build/vendored; see \`git -C $real/sweep-build-repo/build/vendored status\`"
 assert_contains "$sweep_context" "idle $real/sweep-dirty [dirty]"
-assert_contains "$sweep_context" "1 uncommitted file(s): stays: it holds uncommitted work"
+assert_contains "$sweep_context" "1 uncommitted file(s): stays: it holds uncommitted work; see \`git -C $real/sweep-dirty status\`"
 assert_contains "$sweep_context" "idle $real/sweep-hidden [hidden] last commit 2026-01-01 merge later; 0 commit(s) not in the default branch, 1 uncommitted file(s): stays: it holds uncommitted work"
-assert_contains "$sweep_context" "idle $real/sweep-unmerged [unmerged] last commit 2026-01-01 unmerged: add local.txt; 1 commit(s) not in the default branch, 0 uncommitted file(s): stays: its commits are neither merged into the default branch nor on its upstream"
+assert_contains "$sweep_context" "idle $real/sweep-unmerged [unmerged] last commit 2026-01-01 unmerged: add local.txt; 1 commit(s) not in the default branch, 0 uncommitted file(s): stays: its commits are not in main and it has no upstream; see \`git -C $real/sweep-unmerged log main..HEAD\`"
 assert_not_contains "$sweep_context" "removed idle $real/sweep-unmerged"
 assert_contains "$again" "removed idle $real/sweep-unmerged [unmerged]"
 assert_contains "$sweep_context" "idle $real/sweep-skipflag [skipflag]"
 assert_contains "$sweep_context" "stays: it holds skip-worktree or assume-unchanged files git status does not show: src/app.txt"
 assert_contains "$sweep_context" "stays: a BISECT_LOG operation is in progress"
-assert_contains "$sweep_context" "sweep-corrupt [corrupt]"
-assert_contains "$sweep_context" "stays: git could not read its index"
+assert_contains "$sweep_context" "sweep-corrupt [corrupt] last commit 2026-01-01 merge later; 0 commit(s) not in the default branch, status unreadable: stays: git could not read its index"
 assert_contains "$sweep_context" "sweep-detached-gone [detached]"
-assert_contains "$sweep_context" "stays: its detached HEAD is not in the default branch"
-assert_contains "$sweep_context" "sweep-upgone [upgone]"
+assert_contains "$sweep_context" "stays: its detached HEAD is not in main"
+assert_contains "$sweep_context" "stays: its commits are not in main and its upstream origin/upgone is gone"
 assert_contains "$sweep_context" "sweep-reflog [reflog]"
-assert_contains "$sweep_context" "stays: its HEAD log holds 1 commit(s) no branch, tag or remote reaches, which git keeps until $(date -v+30d +%Y-%m-%d 2>/dev/null || date -d '+30 days' +%Y-%m-%d)"
+assert_contains "$sweep_context" "stays: 1 commit(s) only its HEAD log or refs/worktree/ refs reach, which git keeps until $(date -v+30d +%Y-%m-%d 2>/dev/null || date -d '+30 days' +%Y-%m-%d)"
+assert_contains "$sweep_context" "sweep-wtref [wtref]"
+assert_contains "$sweep_context" "stays: 1 commit(s) only its HEAD log or refs/worktree/ refs reach; see"
 assert_contains "$sweep_context" "stays: another worktree lies inside it: $real/sweep-holder/.agents/worktrees/r/l"
 assert_contains "$sweep_context" "lane folder $real/sweep-holder/.agents/worktrees/r/l [holder-lane]"
 assert_contains "$sweep_context" "stays: another worktree lies inside it: $real/sweep-holder-build/build/inner"
-assert_contains "$sweep_context" "stays: it is locked (claude session claude-stale"
+assert_contains "$sweep_context" "stays: it is locked (no reason given); \`git worktree unlock $real/sweep-locked\` lets the next start judge it"
+assert_contains "$sweep_context" "removed idle $real/sweep-claude-stale [claude-stale]"
 assert_not_contains "$sweep_context" "sweep-far-lane"
-assert_not_contains "$sweep_context" "nested repository"
 git -C "$sw" rev-parse -q --verify refs/heads/saved/sweep-dirty >/dev/null && fail "the heal must save nothing"
 [[ -f "$sw/.git/colloid-heal-cache.json" ]] || fail "the heal must cache its kept verdicts"
-printf 'ok: each idle unrecorded worktree is named with its work and why it went or stays\n'
+printf 'ok: each idle unrecorded worktree is named with its work, why it went or stays, and the command to look\n'
+# After the first start a kept verdict is counted, not repeated; the listing command prints it, dated.
+assert_not_contains "$again" "idle $real/sweep-dirty "
+assert_contains "$again" "other idle worktree(s) stay as judged at an earlier start; list them with \`python3 "
+listed="$(python3 "$sw/.agents/hooks/lib/worktree_sweep.py" list "$sw")"
+assert_contains "$listed" "idle $real/sweep-dirty [dirty]"
+assert_contains "$listed" "(judged $(date +%Y-%m-%d))"
+printf 'ok: later starts count the standing verdicts and name the command that lists them, dated\n'
+assert_contains "$sc_context" "stays: it holds ignored files that do not rebuild: .agents/config.json"
+assert_contains "$sc_context" "stays: it holds ignored files that do not rebuild: .agents/worklog/"
+assert_contains "$pace_first" "could go: merged into main; this start begins no removal after 0 s, so the next start removes it"
+assert_contains "$late_context" "stays: it holds ignored files that do not rebuild: .env.late"
+printf 'ok: scaffold ledgers rebuild and its operator files keep; the budget and compaction defer; a late write keeps\n'
 [[ -d "$sw/.agents/worktrees/old-run/lane" ]] || fail "a lane folder must never be removed by the sweep"
 assert_contains "$sweep_context" "lane folder $sw/.agents/worktrees/old-run/lane [old-lane]"
 assert_contains "$sweep_context" ": belongs to no workloop run"
