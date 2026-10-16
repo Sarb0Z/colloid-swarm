@@ -214,6 +214,25 @@ grep -q 'ci --ignore-scripts' "$NPM_LOG" || fail 'provision did not reinstall'
 "${tool[@]}" claim stale one --agent worker-9
 ok "a changed lockfile blocks claim until provision reruns"
 
+# an add-lane cut off between its worktree and its install leaves no branch on the lane
+"${tool[@]}" init nobranch --objective x --acceptance y --repo "$work" --verify true
+nb_lane="$scratch/lane-nobranch"
+"${tool[@]}" add-lane nobranch one --worker implementer --workspace "$nb_lane" --path src >/dev/null 2>&1
+python3 - "$state" <<'EOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+data["runs"]["nobranch"]["lanes"]["one"]["branch"] = None
+json.dump(data, open(sys.argv[1], "w"))
+EOF
+"${tool[@]}" provision nobranch one >/dev/null
+"${tool[@]}" claim nobranch one --agent worker-nb
+printf 'nb\n' >> "$nb_lane/src/app.txt"; printf 'r\n' > "$nb_lane/src/nb.md"; commit "$nb_lane" nb
+"${tool[@]}" submit nobranch one --evidence ok
+accept nobranch one src/nb.md#ok
+out="$("${tool[@]}" integrate nobranch --workspace "$scratch/integration-nobranch" 2>&1)" || fail "integrate refused a lane that provision healed: $out"
+[[ "$out" == *"PASS: integrated one"* ]] || fail "integrate did not pass: $out"
+ok "provision records a lane's branch when add-lane was cut off before it did"
+
 # ── ownership, attention, stale release ───────────────────────────────────────
 "${tool[@]}" init ownership --objective x --acceptance y --repo "$work" --verify true
 own="$scratch/lane-own"

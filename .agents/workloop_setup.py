@@ -244,6 +244,10 @@ def cmd_provision(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         lane = lane_of(run, args.lane)
+        # An add-lane cut off between its worktree and its install leaves a lane
+        # with a worktree and no branch; integrate refuses such a lane.
+        if not lane.get("branch"):
+            lane["branch"] = wg.branch_of(workspace)
         lane["env"] = "ready" if ok else "broken"
         lane["env_detail"] = text
         lane["lock_hash"] = lock_hash
