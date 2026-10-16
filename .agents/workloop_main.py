@@ -17,7 +17,7 @@ from pathlib import Path
 import workloop_cells as wc
 import workloop_git as wg
 from workloop_paths import WORKTREES, lane_allows, normalize_path, owned
-from workloop_state import fail, now, shared_of
+from workloop_state import fail, now, rebuild_of, shared_of
 
 PLACE = "main"
 ENV = "main"
@@ -214,7 +214,7 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     abandon removes it.
     """
     verify, accepted = run["verify"], lane["accepted_tip"]
-    wg.guard_command(verify, repo)
+    wg.guard_command(verify, repo, "verify")
     workspace = verify_workspace(repo, run_name)
     if workspace.exists() and not wg.remove_worktree(repo, workspace):
         fail(f"{workspace} exists and is not a worktree of {repo}; move it away, then rerun check")
@@ -226,7 +226,7 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     if not ok:
         wg.remove_worktree(repo, workspace)
         fail(f"the verify worktree could not be provisioned: {text}")
-    passed, tail = wg.run_verify(verify, workspace)
+    passed, tail = wg.run_verify(verify, workspace, "verify")
     if passed:
         wg.remove_worktree(repo, workspace)
     verified = {
@@ -260,6 +260,10 @@ def integration_problems(run: dict) -> list[str]:
         tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
         if tip != integration["lane_heads"].get(name):
             problems.append(f"integration:stale:{name}")
+    # A `share` after the merge changes what the merge should have kept out
+    # or rebuilt; records from before either field read as none.
+    if integration.get("rebuilt", {}) != rebuild_of(run) or integration.get("shared", []) != shared_of(run):
+        problems.append("integration:stale")
     return problems
 
 

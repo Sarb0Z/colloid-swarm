@@ -27,9 +27,11 @@ from workloop_state import (
     fail,
     lane_of,
     now,
+    rebuild_steps,
     record,
     replayed,
     run_of,
+    shared_of,
     state_path,
 )
 
@@ -104,6 +106,36 @@ def run_check(args: argparse.Namespace, run: dict) -> dict:
     return run
 
 
+def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str]]:
+    """Each lane's (branch, tip) once it is fit to merge; the first lane that is not stops integrate."""
+    repo, base = Path(run["repo"]), run["base"]
+    branches = {}
+    for name in order:
+        lane = run["lanes"][name]
+        branch = lane.get("branch")
+        tip = wg.branch_tip(repo, branch) if branch else None
+        if tip is None:
+            fail(f"lane {name!r} branch {branch!r} no longer exists in {repo}")
+        if tip == base or not wg.is_ancestor(repo, base, tip):
+            fail(f"lane {name!r} branch {branch} is not ahead of the base {base[:12]}")
+        # The branch is what merges; work still sitting uncommitted in the
+        # lane's worktree would be verified by nobody.
+        lane_workspace = Path(lane["workspace"])
+        if lane_workspace.is_dir():
+            dirty = uncommitted_owned(run, lane, lane_workspace)
+            if dirty:
+                fail(f"lane {name!r} has uncommitted work in its worktree; commit or discard it first: " + ", ".join(dirty))
+        if lane.get("accepted_tip") != tip:
+            fail(f"lane {name!r} moved after its accepted review; re-submit it for review")
+        # Sibling branches may have been amended since this lane was
+        # submitted, so its own work is measured again against them.
+        stray = undeclared_paths(run, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
+        if stray:
+            fail(f"lane {name!r} changed undeclared paths: " + ", ".join(stray) + "; rebase it onto the sibling's current branch")
+        branches[name] = (branch, tip)
+    return branches
+
+
 def cmd_integrate(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
@@ -122,51 +154,37 @@ def cmd_integrate(args: argparse.Namespace) -> None:
             fail("integration is blocked by " + ", ".join(blockers))
         repo, base, verify = Path(run["repo"]), run["base"], run["verify"]
         order = wg.topo_order(run["lanes"])
-        branches = {}
-        for name in order:
-            lane = run["lanes"][name]
-            branch = lane.get("branch")
-            tip = wg.branch_tip(repo, branch) if branch else None
-            if tip is None:
-                fail(f"lane {name!r} branch {branch!r} no longer exists in {repo}")
-            if tip == base or not wg.is_ancestor(repo, base, tip):
-                fail(f"lane {name!r} branch {branch} is not ahead of the base {base[:12]}")
-            # The branch is what merges; work still sitting uncommitted in the
-            # lane's worktree would be verified by nobody.
-            lane_workspace = Path(lane["workspace"])
-            if lane_workspace.is_dir():
-                dirty = uncommitted_owned(run, lane, lane_workspace)
-                if dirty:
-                    fail(f"lane {name!r} has uncommitted work in its worktree; commit or discard it first: " + ", ".join(dirty))
-            if lane.get("accepted_tip") != tip:
-                fail(f"lane {name!r} moved after its accepted review; re-submit it for review")
-            # Sibling branches may have been amended since this lane was
-            # submitted, so its own work is measured again against them.
-            stray = undeclared_paths(run, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
-            if stray:
-                fail(f"lane {name!r} changed undeclared paths: " + ", ".join(stray) + "; rebase it onto the sibling's current branch")
-            branches[name] = (branch, tip)
+        branches = integrable_branches(run, order)
+        # What this merge used: a `share` landing meanwhile makes it stale.
+        steps, shared = rebuild_steps(run), list(shared_of(run))
     workspace = workspace_for(args.workspace, repo, args.run, "integration", "integration")
     taken = {Path(lane["workspace"]).resolve(): name for name, lane in run["lanes"].items()}
     if workspace in taken:
         fail(f"integration workspace is lane {taken[workspace]!r}'s worktree; use a separate path")
     if workspace == repo.resolve() or (workspace.exists() and not wg.is_linked_worktree(workspace)):
         fail(f"integration workspace must be a new path or a linked worktree of {repo}, not a checkout: {workspace}")
-    wg.guard_command(verify, repo)
+    wg.guard_command(verify, repo, "verify")
+    for _, command in steps:
+        wg.guard_command(command, repo, "rebuild")
     print(f"integrate: preparing {workspace} at {base[:12]}", file=sys.stderr)
     wg.prepare_integration(repo, workspace, f"{args.run}/integration", base)
-    merged: list[str] = []
+    merged: dict[str, str] = {}
     for name in order:
         print(f"integrate: merging {name} ({branches[name][0]})", file=sys.stderr)
-        wg.merge_lane(workspace, name, branches[name][0], merged)
-        merged.append(name)
-    print("integrate: provisioning", file=sys.stderr)
-    ok, text = wg.provision(workspace, repo)
-    if not ok:
-        print(text, file=sys.stderr)
-        fail("integration workspace could not be provisioned")
-    print(f"integrate: running verify: {verify}", file=sys.stderr)
-    passed, tail = wg.run_verify(verify, workspace)
+        wg.merge_lane(repo, workspace, base, name, branches[name][0], merged, [path for path, _ in steps])
+        merged[name] = branches[name][0]
+    rebuilt_ok, passed, tail = True, False, ""
+    if steps:
+        print(f"integrate: rebuilding {', '.join(path for path, _ in steps)}", file=sys.stderr)
+        rebuilt_ok, tail = wg.rebuild_all(workspace, steps)
+    if rebuilt_ok:
+        print("integrate: provisioning", file=sys.stderr)
+        ok, text = wg.provision(workspace, repo)
+        if not ok:
+            print(text, file=sys.stderr)
+            fail("integration workspace could not be provisioned")
+        print(f"integrate: running verify: {verify}", file=sys.stderr)
+        passed, tail = wg.run_verify(verify, workspace, "verify")
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         run["integration"] = {
@@ -176,13 +194,17 @@ def cmd_integrate(args: argparse.Namespace) -> None:
             "base_head": base,
             "lane_heads": {name: tip for name, (_, tip) in branches.items()},
             "verify": verify,
+            "rebuilt": dict(steps),
+            "shared": shared,
             "result": "pass" if passed else "fail",
             "tail": tail,
         }
+        if not rebuilt_ok:
+            run["integration"]["failed_at"] = "rebuild"
         record(args.run, run, "integrate", detail=run["integration"]["result"], supplied=args.event_id)
     if not passed:
         print(tail, file=sys.stderr)
-        fail(f"verify failed over the composed tree in {workspace}")
+        fail(f"{'verify' if rebuilt_ok else 'rebuild'} failed over the composed tree in {workspace}")
     print(f"PASS: integrated {', '.join(order)} in {workspace}; verify passed")
 
 

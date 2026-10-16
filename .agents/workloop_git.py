@@ -10,22 +10,32 @@ controller can run.
 from __future__ import annotations
 
 import json
+import math
 import os
 import posixpath
 import re
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SHA = re.compile(r"[0-9a-f]{40}")
-VERIFY_TIMEOUT = 1800
+# One budget for the composed test, and one for all of a run's rebuild
+# commands together; WORKLOOP_VERIFY_TIMEOUT (seconds) overrides it for a
+# repository whose suite needs longer, and for the test that times one out.
+VERIFY_TIMEOUT = int(os.environ.get("WORKLOOP_VERIFY_TIMEOUT") or 1800)
 TAIL_LINES = 40
 
 
 def fail(message: str) -> None:
     raise SystemExit(f"workloop: {message}")
+
+
+def within(path: str, roots: list[str]) -> bool:
+    """True when `path` is one of `roots` or lies under one."""
+    return any(path == root or path.startswith(root + "/") for root in roots)
 
 
 def git(repo: Path | str, *args: str, check: bool = True, strip: bool = True) -> str:
@@ -462,6 +472,19 @@ def lock_hash(path: Path | str) -> str:
     return result.stdout.strip()
 
 
+def unshare(path: Path | str) -> str:
+    """Remove every node_modules in `path` that provision linked from another checkout.
+
+    A rebuild that installs would otherwise write through the links into the
+    checkout the tree was shared from. provision.sh owns the marker, so it does
+    the removal and forgets its memo, and the next provision installs.
+    """
+    result = subprocess.run([str(provision_script()), "--unshare", str(path)], text=True, capture_output=True)
+    if result.returncode != 0:
+        fail(f"cannot unshare node_modules in {path}: {(result.stderr or result.stdout).strip()}")
+    return result.stdout.strip()
+
+
 # --- composition -------------------------------------------------------------
 
 def topo_order(lanes: dict) -> list[str]:
@@ -513,19 +536,89 @@ def prepare_integration(repo: Path, workspace: Path, branch: str, base: str) -> 
         git(workspace, "clean", "-q", "-fd")
 
 
-def merge_lane(workspace: Path, lane: str, branch: str, merged: list[str]) -> None:
+def _conflicts(workspace: Path) -> list[str]:
+    return sorted(line for line in git(workspace, "diff", "--name-only", "--diff-filter=U").splitlines() if line)
+
+
+def _merging(workspace: Path) -> bool:
+    return bool(git(workspace, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False))
+
+
+def _conflict_message(repo: Path, base: str, lane: str, paths: list[str], merged: dict[str, str]) -> str:
+    """Who a conflict is with and what to do: the merged lanes whose commits touch the paths, else the base."""
+    touched = {name: set(committed_files(repo, base, branch)) for name, branch in merged.items()}
+    against = {name: [p for p in paths if p in files] for name, files in touched.items()}
+    against = {name: hit for name, hit in against.items() if hit}
+    where = ", ".join(paths)
+    if not against:
+        return f"lane {lane} conflicts with the base in {where}; rebase {lane} onto the base ({base[:12]}), resolve it there and re-submit {lane}"
+    names = ", ".join(f"lane {name}" for name in against)
+    onto = ", then ".join(f"{name}'s branch ({merged[name]})" for name in against)
+    return f"lane {lane} conflicts with {names} in {where}; rebase {lane} onto {onto}, resolve it there and re-submit {lane}"
+
+
+def merge_lane(repo: Path, workspace: Path, base: str, lane: str, branch: str, merged: dict[str, str], rebuild: list[str]) -> None:
+    """Merge a lane's branch into the integration tree; `merged` maps the lanes already in it to their branches.
+
+    The merge stops before committing so the rebuild paths can leave it: a
+    lockfile two lanes both changed conflicts as plain text, and a rebuild
+    replaces it anyway. Whatever the merge's exit, those paths are removed and
+    restored from the base (a path the base lacks stays removed, and a file a
+    lane added under a generated folder goes). Only conflicts left after that
+    stop the integration.
+    """
     result = subprocess.run(
-        ["git", "-C", str(workspace), "merge", "--no-ff", "--no-edit", "-m", f"integrate {lane}", branch],
+        ["git", "-C", str(workspace), "merge", "--no-ff", "--no-commit", "--no-edit", branch],
         text=True, capture_output=True,
     )
-    if result.returncode != 0:
+    git_text = (result.stdout + result.stderr).strip()
+    if result.returncode != 0 and not _merging(workspace):
+        fail(f"merging lane {lane} failed: {git_text}")
+    if rebuild and _merging(workspace):
+        git(workspace, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--", *rebuild)
+        held = [line for line in git(workspace, "ls-tree", "--name-only", base, "--", *rebuild).splitlines() if line]
+        if held:
+            git(workspace, "checkout", base, "--", *held)
+    conflicts = _conflicts(workspace)
+    if conflicts:
         git(workspace, "merge", "--abort", check=False)
-        against = ", ".join(merged) if merged else "the base"
-        fail(f"lane {lane!r} conflicts with {against}: {(result.stdout + result.stderr).strip()}")
+        fail(_conflict_message(repo, base, lane, conflicts, merged))
+    if result.returncode != 0 and not rebuild:
+        git(workspace, "merge", "--abort", check=False)
+        fail(f"merging lane {lane} failed with no conflicted path: {git_text}")
+    if _merging(workspace):
+        git(workspace, "commit", "-q", "--no-edit", "-m", f"integrate {lane}")
 
 
-def guard_command(command: str, repo: Path) -> None:
-    """Refuse a verify command the destructive and publish rules would refuse.
+def rebuild_all(workspace: Path, steps: list[tuple[str, str]], timeout: int = VERIFY_TIMEOUT) -> tuple[bool, str]:
+    """Run each rebuild command in the integration tree, in order, and commit what they changed.
+
+    One budget covers all of them. Node links shared from another checkout go
+    first, or an installing command would write through them into it. Only the
+    declared paths may change; anything else a command touches stops the
+    integration, since the composed test would then run on files the run never
+    declared. Returns (ok, the failure text or the committed paths).
+    """
+    paths = [path for path, _ in steps]
+    unshare(workspace)
+    deadline = time.monotonic() + timeout
+    for path, command in steps:
+        left = math.ceil(deadline - time.monotonic())
+        passed, tail = run_verify(command, workspace, "rebuild", left) if left > 0 else (False, f"the {timeout}s rebuild budget was spent before it began")
+        if not passed:
+            return False, f"rebuild of {path} failed: {command}\n{tail}"
+    dirty = dirty_paths(workspace)
+    stray = [path for path in dirty if not within(path, paths)]
+    if stray:
+        return False, f"rebuild changed paths outside the declared rebuild paths ({', '.join(paths)}): {', '.join(stray)}"
+    if dirty:
+        git(workspace, "add", "-A", "--", *dirty)
+        git(workspace, "commit", "-q", "-m", f"integrate: rebuild {', '.join(paths)}")
+    return True, ", ".join(dirty)
+
+
+def guard_command(command: str, repo: Path, what: str) -> None:
+    """Refuse a command (`what` names it: verify, rebuild) the destructive and publish rules would refuse.
 
     The controller runs the command outside any tool call, so no PreToolUse
     hook sees it. Both guards are asked with --force: the config toggles
@@ -540,25 +633,25 @@ def guard_command(command: str, repo: Path) -> None:
         input=json.dumps({"command": command}), text=True, capture_output=True,
     )
     if destructive.returncode == 2:
-        fail(f"verify command refused by guard-destructive: {destructive.stderr.strip()}")
+        fail(f"{what} command refused by guard-destructive: {destructive.stderr.strip()}")
     if destructive.returncode != 0:
-        fail(f"guard-destructive could not evaluate the verify command (exit {destructive.returncode}): {destructive.stderr.strip()}")
+        fail(f"guard-destructive could not evaluate the {what} command (exit {destructive.returncode}): {destructive.stderr.strip()}")
     publish = subprocess.run(
         [sys.executable, str(lib / "guard-publish.py"), str(repo), "--force"],
         input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "permission_mode": "default"}),
         text=True, capture_output=True,
     )
     if publish.returncode != 0:
-        fail(f"guard-publish could not evaluate the verify command (exit {publish.returncode}): {publish.stderr.strip()}")
+        fail(f"guard-publish could not evaluate the {what} command (exit {publish.returncode}): {publish.stderr.strip()}")
     if publish.stdout.strip():
         try:
             reason = json.loads(publish.stdout)["hookSpecificOutput"].get("permissionDecisionReason", "")
         except (ValueError, KeyError, TypeError):
             reason = publish.stdout.strip()
-        fail(f"verify command refused by guard-publish: {reason}")
+        fail(f"{what} command refused by guard-publish: {reason}")
 
 
-def run_verify(command: str, cwd: Path, timeout: int = VERIFY_TIMEOUT) -> tuple[bool, str]:
+def run_verify(command: str, cwd: Path, what: str, timeout: int = VERIFY_TIMEOUT) -> tuple[bool, str]:
     # A new session puts the shell and everything it spawns in one process
     # group, so a timeout kills a test runner's server or watcher too, not
     # just the shell in front of it.
@@ -571,7 +664,7 @@ def run_verify(command: str, cwd: Path, timeout: int = VERIFY_TIMEOUT) -> tuple[
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
-        return False, f"verify did not finish within {timeout}s"
+        return False, f"{what} did not finish within {timeout}s"
     return process.returncode == 0, "\n".join((output or "").splitlines()[-TAIL_LINES:])
 
 

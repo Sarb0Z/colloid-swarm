@@ -29,11 +29,21 @@ def normalize_path(value: str) -> str:
 
 
 def owned(path: str, declared: list[str]) -> bool:
-    return any(path == root or path.startswith(root + "/") for root in declared)
+    return wg.within(path, declared)
 
 
 def overlaps(left: list[str], right: list[str]) -> bool:
     return any(owned(path, right) for path in left) or any(owned(path, left) for path in right)
+
+
+def owning_lane(paths: list[str], lanes: dict, exclude: str | None = None) -> str | None:
+    """The lane, other than `exclude`, whose owned paths overlap `paths`; None when none does.
+
+    One check for every command that gives a path an owner or a sharer:
+    add-lane and widen refuse the overlap because writing lanes own their
+    paths exclusively, share because a shared path has no owner.
+    """
+    return next((name for name, other in lanes.items() if name != exclude and overlaps(paths, other["paths"])), None)
 
 
 def canonical_reference(value: str, roots: list[Path]) -> str:

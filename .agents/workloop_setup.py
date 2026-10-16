@@ -10,7 +10,7 @@ import workloop_cells as wc
 import workloop_git as wg
 import workloop_main as wm
 from workloop_lanes import dispatch_prompt
-from workloop_paths import normalize_path, overlaps, owned, workspace_for
+from workloop_paths import normalize_path, overlaps, owned, owning_lane, workspace_for
 from workloop_state import (
     ReadStore,
     Store,
@@ -70,6 +70,7 @@ def new_run(args: argparse.Namespace, repo: Path, base: str, shared: list[str]) 
         "repo": str(repo),
         "base": base,
         "shared": shared,
+        "rebuild": {},
         "max_lanes": args.max_lanes,
         "supervised": args.supervised,
         "message_limit": args.message_limit,
@@ -92,7 +93,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     repo = wg.toplevel(args.repo or Path.cwd())
     base = wg.resolve_commit(repo, args.base)
     if args.verify:
-        wg.guard_command(args.verify, repo)
+        wg.guard_command(args.verify, repo, "verify")
     with Store(state_path(args.state)) as data:
         if args.run in data["runs"]:
             if replayed(data["runs"][args.run], args.event_id):
@@ -148,9 +149,9 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
                 fail(f"unknown dependency lanes: {', '.join(unknown)}")
             if overlaps(paths, shared_of(run)):
                 fail("paths overlap a shared path; lanes edit shared paths without owning them")
-            for name, other in run["lanes"].items():
-                if overlaps(paths, other["paths"]):
-                    fail(f"paths overlap lane {name!r}; writing lanes need exclusive ownership")
+            clash = owning_lane(paths, run["lanes"], args.lane)
+            if clash:
+                fail(f"paths overlap lane {clash!r}; writing lanes need exclusive ownership")
             if workspace == repo.resolve():
                 fail(f"lane workspace is the main checkout {repo}; a lane needs its own worktree")
             cone, cone_notes = wg.cone_for(repo, base, paths, [normalize_path(path) for path in args.also or []]) if args.sparse else (None, [])
@@ -220,9 +221,9 @@ def cmd_widen(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if overlaps(paths, shared_of(run)):
             fail("paths overlap a shared path; lanes edit shared paths without owning them")
-        for name, other in run["lanes"].items():
-            if name != args.lane and overlaps(paths, other["paths"]):
-                fail(f"paths overlap lane {name!r}; writing lanes need exclusive ownership")
+        clash = owning_lane(paths, run["lanes"], args.lane)
+        if clash:
+            fail(f"paths overlap lane {clash!r}; writing lanes need exclusive ownership")
         cone = lane.get("sparse")
         if also and not cone:
             fail(f"lane {args.lane!r} is a full checkout; --also widens a sparse lane's cone only")

@@ -348,7 +348,7 @@ done
 "${tool[@]}" qa clash --evidence ok
 set +e; err="$("${tool[@]}" integrate clash --workspace "$scratch/integration-clash" 2>&1 >/dev/null)"; rc=$?; set -e
 [[ $rc -ne 0 ]] || fail 'conflicting lanes integrated'
-grep -q "lane 'y' conflicts with x" <<<"$err" || fail "conflict did not name the lanes: $err"
+grep -q "lane y conflicts with lane x in docs/review.md; rebase y onto x's branch (clash/x), resolve it there and re-submit y" <<<"$err" || fail "conflict did not name the lanes, the path and the remedy: $err"
 [[ -z "$(git -C "$scratch/integration-clash" status --porcelain)" ]] || fail 'conflict left the integration tree dirty'
 set +e; "${tool[@]}" integrate clash --workspace "$scratch/integration-clash" >/dev/null 2>&1; rc=$?; set -e
 [[ $rc -ne 0 ]] || fail 'second integrate passed a conflict'
@@ -1306,6 +1306,221 @@ if wide:
     sys.exit("workloop_cells functions over four parameters: " + ", ".join(wide))
 EOF
 ok "the controller's modules import one another without a cycle, and no cell function takes over four parameters"
+
+# ── share: a path lanes edit without owning, merged by Git or rebuilt at integrate ──
+shr_repo() {  # <dir>: the fixture for the shared-file rows
+  git init -q "$1"; git -C "$1" config user.email test@example.com; git -C "$1" config user.name test
+  mkdir -p "$1/a" "$1/b" "$1/gen" "$1/docs"
+  printf 'l1\nl2\nl3\n' > "$1/README.md"; printf 'x\n' > "$1/a/dep.txt"; printf 'y\n' > "$1/b/dep.txt"
+  printf '{"name":"f","lockfileVersion":3}\n' > "$1/package-lock.json"; printf 'base-lock\n' > "$1/lock.txt"
+  printf 'old\n' > "$1/gen/api.json"; printf 'review\n' > "$1/docs/review.md"
+  printf 'node_modules/\n.agents/worktrees/\n' > "$1/.gitignore"
+  git -C "$1" add . && git -C "$1" commit -qm base
+}
+shr_init() {  # <run> <verify> <lane>...: a fixture repository, the run, and one lane per name owning the folder of that name
+  local run="$1" verify="$2"; shift 2
+  shr_repo "$scratch/$run-repo"
+  "${tool[@]}" init "$run" --objective x --acceptance y --repo "$scratch/$run-repo" --verify "$verify" >/dev/null
+  for l in "$@"; do "${tool[@]}" add-lane "$run" "$l" --worker implementer --workspace "$scratch/$run-$l" --path "$l" >/dev/null 2>&1; done
+}
+shr_done() {  # <run> <lane>: claim, commit the worktree, submit, accept
+  "${tool[@]}" claim "$1" "$2" --agent "$2" >/dev/null
+  commit "$scratch/$1-$2" "$2 work"
+  "${tool[@]}" submit "$1" "$2" --evidence ok >/dev/null
+  accept "$1" "$2" docs/review.md#ok >/dev/null
+}
+shr_integrate() { "${tool[@]}" integrate "$1" --workspace "$scratch/int-$1" 2>&1; }
+run_field() {  # <run> <key>...: a JSON value from the state file
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))["runs"][sys.argv[2]]
+for k in sys.argv[3:]: v=v.get(k) if isinstance(v,dict) else v
+print(json.dumps(v,sort_keys=True))' "$state" "$@"
+}
+LOCK='cat a/dep.txt b/dep.txt | LC_ALL=C sort > lock.txt'
+
+# refusals, and the forms of a repeated share
+shr_init sh1 true a b
+expect "lane 'a' owns it" "${tool[@]}" share sh1 a/dep.txt
+expect "lane 'b' owns it" "${tool[@]}" share sh1 b
+"${tool[@]}" init fan --objective x --acceptance y --repo "$scratch/sh1-repo" >/dev/null
+expect 'declared no --verify' "${tool[@]}" share fan README.md
+"${tool[@]}" init one --objective x --acceptance y --repo "$scratch/sh1-repo" --verify true --lane solo --worker implementer --path a >/dev/null
+expect 'one-writer run merges nothing' "${tool[@]}" share one lock.txt --rebuild "$LOCK"
+expect 'shared README.md' "${tool[@]}" share one README.md
+python3 - "$state" <<'EOF2'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["gone"] = json.loads(json.dumps(s["runs"]["sh1"])); s["runs"]["gone"]["torn_down"] = {"at": "x"}; json.dump(s, open(p, "w"))
+EOF2
+expect 'is torn down' "${tool[@]}" share gone README.md
+expect 'rebuild command refused' "${tool[@]}" share sh1 lock.txt --rebuild 'git push origin main'
+[[ "$(run_field sh1 shared)" == '[]' ]] || fail "a refused share changed the shared list: $(run_field sh1 shared)"
+ok "share refuses a path a lane owns, a fan-out, a rebuild on a one-writer run, a torn-down run and a rebuild command the guards refuse"
+expect 'shared lock.txt (rebuilt by: echo one)' "${tool[@]}" share sh1 lock.txt --rebuild 'echo one'
+expect 'lock.txt is already shared, rebuilt by: echo one' "${tool[@]}" share sh1 lock.txt
+[[ "$(run_field sh1 rebuild)" == '{"lock.txt": "echo one"}' ]] || fail "a share without --rebuild changed the command"
+expect 'rebuilt by: echo two' "${tool[@]}" share sh1 lock.txt --rebuild 'echo two'
+[[ "$(run_field sh1 rebuild)" == '{"lock.txt": "echo two"}' && "$(run_field sh1 shared)" == '["lock.txt"]' ]] || fail "re-sharing did not replace the command in place"
+expect $'shared\tlock.txt (rebuilt by: echo two)' "${tool[@]}" status sh1
+expect 'shared lock.txt$' "${tool[@]}" share sh1 lock.txt --rebuild ''
+[[ "$(run_field sh1 rebuild)" == '{}' && "$(run_field sh1 shared)" == '["lock.txt"]' ]] || fail "--rebuild '' did not clear the command"
+"${tool[@]}" share sh1 gen >/dev/null
+expect 'shared gen/api.json (rebuilt by: echo nested)' "${tool[@]}" share sh1 gen/api.json --rebuild 'echo nested'
+[[ "$(run_field sh1 shared)" == '["lock.txt", "gen", "gen/api.json"]' ]] || fail "a rebuild path inside a merged shared path was refused or reordered"
+ok "a repeated share sets, keeps, replaces or clears the rebuild command in place; a rebuild path may sit inside a merged one"
+
+# lanes declared before a share learn it from a fresh brief
+"${tool[@]}" claim sh1 a --agent sh1a >/dev/null
+out="$("${tool[@]}" share sh1 README.md)"
+[[ "$out" == *"brief sh1 a"* && "$out" != *"brief sh1 b"* ]] || fail "share did not name the claimed lane alone: $out"
+"${tool[@]}" share sh1 docs/rules --rebuild 'echo r' >/dev/null
+expect 'Shared paths: lock.txt, gen, gen/api.json, README.md, docs/rules' full_brief sh1 a
+expect 'Shared path README.md — merged by Git: any lane may edit it. Append only; never restructure or reorder existing lines.' full_brief sh1 a
+expect 'same end of a list still conflict, so add in the middle of a sorted list' full_brief sh1 a
+expect 'Shared path docs/rules — rebuilt at integrate by `echo r`: change it to test in your worktree and commit it with your work; integrate replaces it' full_brief sh1 a
+expect 'rebase onto its branch and resolve shared-path conflicts in your worktree' full_brief sh1 a
+ok "share names the claimed lanes to re-brief, and the brief states each shared path's rule"
+
+# a conflict on a merged shared path names both lanes, the path and the remedy
+shr_init sh2 true a b
+"${tool[@]}" share sh2 README.md >/dev/null
+printf 'l1\nA\nl3\n' > "$scratch/sh2-a/README.md"; printf 'l1\nB\nl3\n' > "$scratch/sh2-b/README.md"
+shr_done sh2 a; shr_done sh2 b
+"${tool[@]}" qa sh2 --evidence ok >/dev/null
+out="$(shr_integrate sh2)" && fail "two lanes' README edits integrated: $out"
+grep -q "lane b conflicts with lane a in README.md; rebase b onto a's branch (sh2/a), resolve it there and re-submit b" <<<"$out" || fail "the conflict did not name both lanes, the path and the remedy: $out"
+[[ -z "$(git -C "$scratch/int-sh2" status --porcelain)" ]] || fail "the conflict left the integration tree dirty"
+ok "a shared-path conflict names both lanes, the path and the rebase remedy"
+
+# two lanes' lockfiles conflict as text; a rebuild path is rebuilt once instead
+shr_init sh3 'grep -q adep lock.txt && grep -q bdep lock.txt' a b
+"${tool[@]}" share sh3 lock.txt --rebuild "$LOCK" >/dev/null
+printf 'x\nadep\n' > "$scratch/sh3-a/a/dep.txt"; printf 'lock-a\n' > "$scratch/sh3-a/lock.txt"
+printf 'y\nbdep\n' > "$scratch/sh3-b/b/dep.txt"; printf 'lock-b\n' > "$scratch/sh3-b/lock.txt"
+shr_done sh3 a; shr_done sh3 b
+probe="$scratch/sh3-probe"; git clone -q "$scratch/sh3-repo" "$probe"
+git -C "$probe" checkout -q -b probe origin/sh3/a
+if git -C "$probe" merge -q --no-edit origin/sh3/b >/dev/null 2>&1; then fail "the fixture's lockfiles do not conflict as plain Git merges"; fi
+"${tool[@]}" qa sh3 --evidence ok >/dev/null
+out="$(shr_integrate sh3)" || fail "integrate failed over two lanes' conflicting lockfiles: $out"
+[[ "$(git -C "$scratch/int-sh3" show HEAD:lock.txt)" == $'adep\nbdep\nx\ny' ]] || fail "lock.txt is not the rebuilt copy: $(git -C "$scratch/int-sh3" show HEAD:lock.txt)"
+[[ "$(git -C "$scratch/int-sh3" log -1 --format=%s)" == "integrate: rebuild lock.txt" ]] || fail "the rebuild was not committed: $(git -C "$scratch/int-sh3" log -1 --format=%s)"
+[[ "$(git -C "$scratch/int-sh3" log --format=%s | grep -c '^integrate: rebuild')" == 1 ]] || fail "more than one rebuild commit"
+[[ "$(run_field sh3 integration rebuilt)" == "{\"lock.txt\": \"$LOCK\"}" && "$(run_field sh3 integration shared)" == '["lock.txt"]' ]] || fail "the integration record lacks rebuilt/shared: $(run_field sh3 integration)"
+expect PASS "${tool[@]}" check sh3
+ok "two lanes' conflicting lockfiles integrate: each lane merge takes the path from the base and one rebuild commit lands before the composed test"
+
+# a dependent lane rebased onto its producer, both changing the lockfile
+shr_init sh4 'grep -q adep lock.txt && grep -q bdep lock.txt' a b
+"${tool[@]}" share sh4 lock.txt --rebuild "$LOCK" >/dev/null
+python3 - "$state" <<'EOF2'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["sh4"]["lanes"]["b"]["depends_on"] = ["a"]; json.dump(s, open(p, "w"))
+EOF2
+printf 'x\nadep\n' > "$scratch/sh4-a/a/dep.txt"; printf 'lock-a\n' > "$scratch/sh4-a/lock.txt"
+shr_done sh4 a
+git -C "$scratch/sh4-b" rebase -q sh4/a
+printf 'y\nbdep\n' > "$scratch/sh4-b/b/dep.txt"; printf 'lock-a\nlock-b\n' > "$scratch/sh4-b/lock.txt"
+shr_done sh4 b
+"${tool[@]}" qa sh4 --evidence ok >/dev/null
+out="$(shr_integrate sh4)" || fail "a dependent lane over a producer that also changed the lockfile did not integrate: $out"
+[[ "$(git -C "$scratch/int-sh4" show HEAD:lock.txt)" == $'adep\nbdep\nx\ny' ]] || fail "dependent lane's lockfile was not rebuilt"
+ok "a dependent lane rebased onto a producer that also changed the lockfile integrates"
+
+# a directory rebuild path drops a file a lane added; a path the base lacks is rebuilt; a rebuild that reproduces the base commits nothing
+shr_init sh5 'test ! -e gen/extra.json && grep -q adep gen/api.json && grep -q adep out.txt && ! grep -q lane-out out.txt && grep -q base-lock lock.txt' a
+"${tool[@]}" share sh5 gen --rebuild 'cat a/dep.txt > gen/api.json' >/dev/null
+"${tool[@]}" share sh5 out.txt --rebuild 'cat a/dep.txt > out.txt' >/dev/null
+"${tool[@]}" share sh5 lock.txt --rebuild 'true' >/dev/null
+printf 'x\nadep\n' > "$scratch/sh5-a/a/dep.txt"; printf 'lane\n' > "$scratch/sh5-a/gen/api.json"; printf 'lane\n' > "$scratch/sh5-a/gen/extra.json"
+printf 'lane-out\n' > "$scratch/sh5-a/out.txt"; printf 'lane-lock\n' > "$scratch/sh5-a/lock.txt"
+shr_done sh5 a
+"${tool[@]}" qa sh5 --evidence ok >/dev/null
+out="$(shr_integrate sh5)" || fail "directory, absent-at-base and no-change rebuilds did not integrate: $out"
+[[ "$(git -C "$scratch/int-sh5" log -1 --format=%s)" == "integrate: rebuild gen, out.txt, lock.txt" ]] || fail "the rebuild commit is missing or misnamed: $(git -C "$scratch/int-sh5" log -1 --format=%s)"
+[[ "$(git -C "$scratch/int-sh5" show HEAD:lock.txt)" == base-lock ]] || fail "a rebuild path that reproduces the base kept the lane's copy"
+ok "a directory rebuild path loses the lane's added file, a path the base lacks is rebuilt, and an unchanged path stays the base's"
+shr_init sh6 'grep -q base-lock lock.txt' a
+"${tool[@]}" share sh6 lock.txt --rebuild 'true' >/dev/null
+printf 'x\nadep\n' > "$scratch/sh6-a/a/dep.txt"; printf 'lane-lock\n' > "$scratch/sh6-a/lock.txt"
+shr_done sh6 a; "${tool[@]}" qa sh6 --evidence ok >/dev/null
+out="$(shr_integrate sh6)" || fail "a rebuild that reproduces the base failed integrate: $out"
+[[ "$(git -C "$scratch/int-sh6" log --format=%s | grep -c '^integrate: rebuild')" == 0 ]] || fail "an empty rebuild made a commit"
+[[ "$(run_field sh6 integration rebuilt)" == '{"lock.txt": "true"}' ]] || fail "rebuilt is not recorded when the rebuild changed nothing"
+ok "a rebuild that reproduces the base commits nothing and still records rebuilt"
+
+# a rebuild that touches an undeclared path, fails, or runs out of time stops integrate and is recorded
+shr_init sh7 true a
+"${tool[@]}" share sh7 lock.txt --rebuild 'echo x > stray.txt' >/dev/null
+printf 'x\nadep\n' > "$scratch/sh7-a/a/dep.txt"; shr_done sh7 a
+out="$(shr_integrate sh7)" && fail "a rebuild writing outside its paths passed: $out"
+grep -q 'rebuild changed paths outside the declared rebuild paths (lock.txt): stray.txt' <<<"$out" || fail "the stray path was not named: $out"
+grep -q 'rebuild failed over the composed tree' <<<"$out" || fail "the failure was not reported as a rebuild failure: $out"
+[[ "$(run_field sh7 integration result)" == '"fail"' && "$(run_field sh7 integration failed_at)" == '"rebuild"' ]] || fail "the failed rebuild was not recorded"
+expect 'integration:fail' "${tool[@]}" check sh7
+"${tool[@]}" share sh7 lock.txt --rebuild 'echo boom >&2; exit 3' >/dev/null
+out="$(shr_integrate sh7)" && fail "a failing rebuild passed: $out"
+grep -q 'rebuild of lock.txt failed: echo boom >&2; exit 3' <<<"$out" && grep -q '^boom' <<<"$out" || fail "the failing command, path and output were not named: $out"
+"${tool[@]}" share sh7 lock.txt --rebuild 'sleep 30' >/dev/null
+out="$(WORKLOOP_VERIFY_TIMEOUT=2 shr_integrate sh7)" && fail "a hanging rebuild passed: $out"
+grep -q 'rebuild did not finish within 2s' <<<"$out" || fail "the rebuild timeout was not reported: $out"
+"${tool[@]}" share sh7 lock.txt --rebuild 'sleep 2; echo a > a.txt' >/dev/null
+"${tool[@]}" share sh7 a.txt --rebuild 'true' >/dev/null
+"${tool[@]}" share sh7 b.txt --rebuild 'sleep 2; echo b > b.txt' >/dev/null
+out="$(WORKLOOP_VERIFY_TIMEOUT=3 shr_integrate sh7)" && fail "two rebuilds each inside the limit but over it together passed: $out"
+grep -q 'rebuild of b.txt failed' <<<"$out" || fail "the second rebuild did not run out of the shared budget: $out"
+ok "a stray path, a failing command and a timeout (one budget across all rebuilds) stop integrate, name the command and are recorded as a rebuild failure"
+
+# rebuilds run in the order the paths were shared, across a state save, and before the install
+shr_init sh8 'grep -q z lock.txt' a
+"${tool[@]}" share sh8 z.txt --rebuild 'echo z > z.txt' >/dev/null
+"${tool[@]}" share sh8 a.txt --rebuild "test -f z.txt && cat z.txt > a.txt && echo \$(wc -l < $NPM_LOG) > npm-lines.txt" >/dev/null
+"${tool[@]}" share sh8 npm-lines.txt --rebuild 'true' >/dev/null
+"${tool[@]}" share sh8 lock.txt --rebuild 'cat z.txt > lock.txt' >/dev/null
+[[ "$(run_field sh8 rebuild | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)))')" == "a.txt,lock.txt,npm-lines.txt,z.txt" ]] || fail "the state file did not sort the rebuild map; the row proves nothing"
+printf 'x\nadep\n' > "$scratch/sh8-a/a/dep.txt"; shr_done sh8 a; "${tool[@]}" qa sh8 --evidence ok >/dev/null
+before="$(wc -l < "$NPM_LOG" | tr -d ' ')"
+out="$(shr_integrate sh8)" || fail "rebuilds in declaration order failed (a.txt needs z.txt first): $out"
+[[ "$(git -C "$scratch/int-sh8" show HEAD:npm-lines.txt)" == "$before" ]] || fail "a rebuild ran after the install: it saw $(git -C "$scratch/int-sh8" show HEAD:npm-lines.txt) npm calls, $before before"
+[[ "$(wc -l < "$NPM_LOG" | tr -d ' ')" -gt "$before" ]] || fail "integrate did not install after the rebuild"
+ok "rebuilds run in declaration order, not the sorted state order, and before provision installs"
+
+# a share after integrate makes the integration stale; a share mid-integrate does not leak into its record
+shr_init stl true a
+"${tool[@]}" share stl lock.txt --rebuild "python3 $repo/.agents/workloop.py --state $state share stl extra.txt >/dev/null" >/dev/null
+printf 'x\nadep\n' > "$scratch/stl-a/a/dep.txt"; shr_done stl a; "${tool[@]}" qa stl --evidence ok >/dev/null
+out="$(shr_integrate stl)" || fail "integrate failed: $out"
+[[ "$(run_field stl integration shared)" == '["lock.txt"]' && "$(run_field stl shared)" == '["lock.txt", "extra.txt"]' ]] || fail "the record did not keep the snapshot the merge used: $(run_field stl integration shared) vs $(run_field stl shared)"
+expect 'integration:stale' "${tool[@]}" check stl
+out="$(shr_integrate stl)" || fail "re-integrate failed: $out"
+expect PASS "${tool[@]}" check stl
+"${tool[@]}" share stl README.md >/dev/null
+expect 'integration:stale' "${tool[@]}" check stl
+"${tool[@]}" share stl lock.txt --rebuild 'true' >/dev/null
+out="$(shr_integrate stl)" || fail "re-integrate with a changed rebuild failed: $out"
+expect PASS "${tool[@]}" check stl
+"${tool[@]}" share stl lock.txt --rebuild 'echo changed >/dev/null' >/dev/null
+expect 'integration:stale' "${tool[@]}" check stl
+ok "a share changing the shared paths or a rebuild command makes the integration stale until integrate reruns; the record keeps the snapshot its merge used"
+python3 - "$state" <<'EOF2'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); r = json.loads(json.dumps(s["runs"]["sh6"])); r["shared"] = []; r["rebuild"] = {}
+for key in ("rebuilt", "shared"): r["integration"].pop(key)
+r.pop("rebuild"); s["runs"]["sh6old"] = r; json.dump(s, open(p, "w"))
+EOF2
+expect PASS "${tool[@]}" check sh6old
+ok "an integration record from before rebuilt and shared reads as none, in a run that shares nothing"
+
+# a rebuild that installs cannot write through a node_modules shared from the checkout
+shr_init sh9 true a
+mkdir -p "$scratch/sh9-repo/node_modules/pkg"; printf 'orig\n' > "$scratch/sh9-repo/node_modules/pkg/index.js"
+"${tool[@]}" share sh9 lock.txt --rebuild 'mkdir -p node_modules/pkg && echo installed > node_modules/pkg/installed.txt' >/dev/null
+printf 'x\nadep\n' > "$scratch/sh9-a/a/dep.txt"; shr_done sh9 a; "${tool[@]}" qa sh9 --evidence ok >/dev/null
+out="$(shr_integrate sh9)" || fail "first integrate failed: $out"
+[[ -f "$scratch/int-sh9/node_modules/.colloid-shared" ]] || fail "the row needs the integration tree provisioned by sharing the checkout's node_modules"
+listing="$(cd "$scratch/sh9-repo/node_modules" && find . | sort)"
+out="$(shr_integrate sh9)" || fail "second integrate failed: $out"
+[[ "$(cd "$scratch/sh9-repo/node_modules" && find . | sort)" == "$listing" ]] || fail "a rebuild wrote through the shared node_modules into the checkout"
+[[ "$(cat "$scratch/sh9-repo/node_modules/pkg/index.js")" == orig ]] || fail "the checkout's node_modules/pkg changed"
+ok "a rebuild after a shared provision leaves the checkout's node_modules untouched"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'

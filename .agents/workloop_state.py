@@ -149,5 +149,16 @@ def shared_of(run: dict) -> list[str]:
     return run.get("shared", [])
 
 
+def rebuild_of(run: dict) -> dict[str, str]:
+    """Each rebuilt shared path and its command; a run from before `share --rebuild` holds none."""
+    return run.get("rebuild", {})
+
+
+def rebuild_steps(run: dict) -> list[tuple[str, str]]:
+    """The rebuild commands in declaration order: the `shared` list's, since the state file sorts the map's keys."""
+    rebuild = rebuild_of(run)
+    return [(path, rebuild[path]) for path in shared_of(run) if path in rebuild]
+
+
 def pending_messages(run: dict, lane: str) -> list[dict]:
     return [message for message in run["messages"] if message["to"] == lane and message["requires_ack"] and not message.get("acknowledged_at")]

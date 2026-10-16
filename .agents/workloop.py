@@ -4,8 +4,8 @@
 This file is the command line: the argument parser that routes each command to
 its handler. The state file and its lock live in workloop_state.py, path
 ownership in workloop_paths.py, and the handlers in workloop_setup.py,
-workloop_lanes.py, workloop_cells.py, workloop_messages.py and
-workloop_finish.py.
+workloop_lanes.py, workloop_shared.py, workloop_cells.py,
+workloop_messages.py and workloop_finish.py.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from workloop_messages import (
 )
 from workloop_paths import WORKTREES, temporary, workspace_for
 from workloop_setup import SHAPES, cmd_add_lane, cmd_init, cmd_provision, cmd_widen
+from workloop_shared import cmd_share
 from workloop_state import ReadStore, fail, run_of, state_path
 
 # test-workloop.sh imports these two from here.
@@ -69,6 +70,7 @@ def parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="the composed test: check runs it in a worktree at a main lane's accepted commit, integrate over the merged tree for worktree lanes; a run declared without it is a read-only fan-out, which holds cells only"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--shared", action="append", help="repository path every lane may edit without owning it (repeatable)"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.add_argument("--lane", help="one writer: the run's sole lane, working in the checkout itself; prints its dispatch"); init.add_argument("--worker", help="the main lane's worker type (with --lane)"); init.add_argument("--path", action="append", help="a path the main lane owns (with --lane, repeatable)"); init.add_argument("--model", help="the main lane's model, printed in its brief and in status (with --lane)"); init.set_defaults(func=cmd_init)
     add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", help=f"the lane's worktree (default: {WORKTREES}/<run>/<lane> in the checkout)"); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="very large monorepos only: check out the owned directories, --also ones, and what the install needs"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.add_argument("--model", help="the lane's model, printed in its brief and in status"); add.set_defaults(func=cmd_add_lane)
     widen = sub.add_parser("widen"); widen.add_argument("run"); widen.add_argument("lane"); widen.add_argument("--path", action="append", help="repository path the lane comes to own (repeatable)"); widen.add_argument("--also", action="append", help="directory added to a sparse lane's cone (repeatable)"); widen.set_defaults(func=cmd_widen)
+    share = sub.add_parser("share", help="declare a repository path every lane may edit without owning it, optionally rebuilt once at integrate"); share.add_argument("run"); share.add_argument("path"); share.add_argument("--rebuild", help="command that regenerates the path (a lockfile, generated code): lane merges take the path from the base and integrate runs this once over the merged tree before the install; '' clears it"); share.set_defaults(func=cmd_share)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
     review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", choices=("P0", "P1", "P2"), help="required with --result reopen"); review.add_argument("--tip", help="required with --result accept: the commit the review read, as the reviewer brief names it"); review.add_argument("--ruling", help="the operator's words authorising a review round past the third submission"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)

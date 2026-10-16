@@ -22,6 +22,7 @@ from workloop_paths import (
     uncommitted_owned,
     undeclared_paths,
 )
+from workloop_shared import share_line, shared_lines
 from workloop_state import (
     ReadStore,
     Store,
@@ -263,7 +264,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         print(f"workloop {args.run}: {run['objective']}")
         if shared_of(run):
-            print(f"shared\t{', '.join(shared_of(run))}")
+            print(f"shared\t{', '.join(share_line(run, path) for path in shared_of(run))}")
         for name, lane in sorted(run["lanes"].items()):
             attention = " attention" if lane["attention"] else ""
             pending = len(pending_messages(run, name))
@@ -321,7 +322,7 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         f"Acceptance: {run['acceptance']}",
         *([f"Model: {lane['model']}"] if lane.get("model") else []),
         f"Owned paths: {', '.join(lane['paths'])}",
-        *([f"Shared paths: {', '.join(shared_of(run))}\nShared paths: any lane may edit them. Append only; never restructure or reorder existing lines. Regenerate generated files (for example the API contract and its web types) instead of merging them by hand. When a lane you build on is reviewed, rebase onto its branch and resolve shared-path conflicts in your worktree."] if shared_of(run) else []),
+        *shared_lines(run),
         *place_lines(run, run_name, lane_name, lane, role, command),
         f"Environment: export COLLOID_RUN={run_name} COLLOID_LANE={lane_name} COMPOSE_PROJECT_NAME={wd.project_name(run_name, lane_name)}. Label what only this lane uses with --label colloid.run={run_name} --label colloid.lane={lane_name} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={run_name} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
