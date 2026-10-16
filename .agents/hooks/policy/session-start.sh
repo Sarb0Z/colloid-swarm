@@ -101,7 +101,7 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
   rm -rf "$proj/.agents/.writers-live-$writers_session" "$proj/.agents/.writers-turn-$writers_session" \
          "$proj/.agents/.writers-kinds-$writers_session" \
          "$proj/.agents/.writers-lock-$writers_session" "$proj/.agents/.cells-$writers_session" \
-         "$proj/.agents/.cell-markers-$writers_session" 2>/dev/null || true
+         "$proj/.agents/.cell-markers-$writers_session" "$proj/.agents/.outside-runs-$writers_session" 2>/dev/null || true
 fi
 
 # Worktrees end with the session that made them (worktree_sweep.py). Sessions

@@ -24,7 +24,14 @@
 # lane all count as outside; a submodule stays the checkout's.
 #
 # Seven events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
+#   PreToolUse Agent — a dispatch. One that carries no WORKLOOP … BRIEF header
+#                  is first noted in .agents/.outside-runs-<session> as
+#                  "<prompt_id> <tool_use_id>", unless its type is one of the
+#                  host's own helpers (HELPERS); the lead's digest
+#                  (hooks/lib/workloop-inbox.py) counts a turn's lines at the
+#                  next prompt and names a turn with two or more, a multi-cell
+#                  delegation outside a run (ruling 36). Nothing is refused for
+#                  it. A read-only type passes. A prompt that
 #                  opens with READ-ONLY passes, as does one that opens with
 #                  NOTES-ONLY where the repository has a product folder
 #                  (hooks.product_folder.enabled; denied where it has none,
@@ -124,6 +131,8 @@ lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
 
 READERS="explore explorer plan researcher reviewer qa-verifier claude-code-guide statusline-setup"
+# The host's own helpers: no delegation of the lead's, so never a cell outside a run.
+HELPERS="claude-code-guide statusline-setup"
 
 payload="$(cat)"
 # A malformed toggle keeps the gate on: a broken gate must never silently
@@ -131,7 +140,7 @@ payload="$(cat)"
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.parallel_writers.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; read -r task_id; } < <(
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; read -r task_id; read -r header; } < <(
   printf '%s' "$payload" | python3 "$lib/writers-payload.py")
 
 [[ -n "$session" && -n "$proj" ]] || exit 0
@@ -140,12 +149,14 @@ turn="$proj/.agents/.writers-turn-$session"
 lock="$proj/.agents/.writers-lock-$session"
 kinds="$proj/.agents/.writers-kinds-$session"
 markers="$proj/.agents/.cell-markers-$session"
+outside_runs="$proj/.agents/.outside-runs-$session"
 
-is_reader() {
+named_in() {  # <type> <list> -> 0 when the type, case aside, is in the list
   local t; t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  for r in $READERS; do [[ "$t" == "$r" ]] && return 0; done
+  for r in $2; do [[ "$t" == "$r" ]] && return 0; done
   return 1
 }
+is_reader() { named_in "$1" "$READERS"; }
 
 # mkdir is the atomic test-and-set stock macOS has. The hold is milliseconds,
 # so a lock untouched for two minutes (macOS find counts whole minutes, so
@@ -418,6 +429,12 @@ case "$event" in
           deny "This repository has no product folder enabled (hooks.product_folder.enabled in .agents/config.json${why:+; $why}). Dispatch it READ-ONLY and write the notes yourself, or make it a writer."
         fi
         exit 0
+      fi
+      # The note sits before the reader exit, so read-only cells count, and
+      # after the notes-only denial, so a refused dispatch does not; a failed
+      # append is reported and never skips the writer check below.
+      if [[ "$header" != yes ]] && ! named_in "$tool_type" "$HELPERS"; then
+        printf '%s\t%s\n' "$prompt_id" "$tool_use_id" >>"$outside_runs" || echo "parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it." >&2
       fi
       is_reader "$tool_type" && exit 0
       take_lock

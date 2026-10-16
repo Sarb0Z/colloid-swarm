@@ -323,10 +323,11 @@ printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-sess
 printf 'p\t1' > "$writers/.agents/.writers-turn-fixture-session"
 printf 'p\t implementer' > "$writers/.agents/.writers-kinds-fixture-session"
 printf 'toolu_1\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-fixture-session"
+printf 'p1\ttoolu_1\n' > "$writers/.agents/.outside-runs-fixture-session"
 run_policy "$writers" compact >/dev/null
-[[ -f "$writers/.agents/.writers-live-fixture-session" && -f "$writers/.agents/.cell-markers-fixture-session" ]] || fail "compact cleared the live-writers record"
+[[ -f "$writers/.agents/.writers-live-fixture-session" && -f "$writers/.agents/.cell-markers-fixture-session" && -f "$writers/.agents/.outside-runs-fixture-session" ]] || fail "compact cleared the live-writers record"
 run_policy "$writers" startup >/dev/null
-[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" && ! -e "$writers/.agents/.writers-kinds-fixture-session" && ! -e "$writers/.agents/.cell-markers-fixture-session" ]] || fail "startup left a stale live-writers record"
+[[ ! -e "$writers/.agents/.writers-live-fixture-session" && ! -e "$writers/.agents/.writers-turn-fixture-session" && ! -e "$writers/.agents/.writers-kinds-fixture-session" && ! -e "$writers/.agents/.cell-markers-fixture-session" && ! -e "$writers/.agents/.outside-runs-fixture-session" ]] || fail "startup left a stale live-writers record"
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 run_policy "$writers" resume >/dev/null
 [[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"
@@ -769,7 +770,7 @@ fragment="$repo/.agents/export/gitignore-fragment"
 [[ -f "$fragment" ]] || fragment="$repo/.gitignore"
 sc="$({ cat "$fragment"; printf '%s\n' .DS_Store next-env.d.ts; } | mini scaffolded)"
 mwt "$sc" sc-ledgers
-for ledger in .wrap-state-s1 .teardown-pending-s1 .compaction-pending .workloop-state.json.lock; do
+for ledger in .wrap-state-s1 .teardown-pending-s1 .compaction-pending .outside-runs-s1 .workloop-state.json.lock; do
   printf 'x\n' > "$scratch/sweep-sc-ledgers/.agents/$ledger"
 done
 mkdir -p "$scratch/sweep-sc-ledgers/.agents/.writers-lock-s1" && printf 'x\n' > "$scratch/sweep-sc-ledgers/.agents/.writers-lock-s1/held"

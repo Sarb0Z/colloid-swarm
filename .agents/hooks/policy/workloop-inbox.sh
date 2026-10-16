@@ -12,8 +12,12 @@
 #   PostToolBatch      — unread messages for the lanes this cell has claimed,
 #                        between its tool calls, once each.
 #   UserPromptSubmit   — for the lead: lanes awaiting review, carrying
-#                        attention, stale, or broken; messages awaiting
-#                        acknowledgement; a run ready to integrate.
+#                        attention, stale, or broken; cells still out;
+#                        messages awaiting acknowledgement; a run ready to
+#                        integrate; and, run or no run, a turn that dispatched
+#                        two or more cells outside any run, read from the
+#                        parallel-writers gate's .agents/.outside-runs-<session>
+#                        (ruling 36).
 #
 # A hook cannot start a turn for an idle agent, so this reaches a cell only
 # while it is working and a lead only when they next speak. Codex and Kimi
@@ -44,11 +48,13 @@ for k in ("project_dir", "event", "session_id", "agent_id"):
 
 [[ -n "$proj" && -n "$session" ]] || exit 0
 state="$proj/.agents/.workloop-state.json"
+# The gate names its ledger by the session id reduced to [A-Za-z0-9_-].
+outside_runs="$proj/.agents/.outside-runs-$(printf '%s' "$session" | tr -cd 'A-Za-z0-9_-')"
 # A repository that never runs a workloop pays one interpreter start per
-# event and nothing more: the toggle is read only once there is state. A
-# subagent's start or stop is still recorded, so a run begun mid-session
-# knows which cells it can trust as its own.
-if [[ ! -f "$state" ]]; then
+# event and nothing more: the toggle is read only once there is state, or a
+# ledger of dispatches outside any run. A subagent's start or stop is still
+# recorded, so a run begun mid-session knows which cells it can trust as its own.
+if [[ ! -f "$state" && ! -f "$outside_runs" ]]; then
   [[ -n "$agent_id" && ( "$event" == "SubagentStart" || "$event" == "SubagentStop" ) ]] || exit 0
 fi
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"

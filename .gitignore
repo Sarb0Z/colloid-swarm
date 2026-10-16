@@ -17,6 +17,7 @@
 .agents/.inbox-seen-*
 .agents/.cells-*
 .agents/.cell-markers-*
+.agents/.outside-runs-*
 .agents/.kimi-pending-findings-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock

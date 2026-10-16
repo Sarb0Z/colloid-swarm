@@ -13,6 +13,9 @@ A subagent hears: its host agent id at start, so it can claim its lane with
 that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
 awaiting review, lanes carrying attention, lanes whose heartbeat is stale.
+At a prompt it also hears, run or no run, when the turn that just ended
+dispatched two or more cells outside any run, read once from the
+parallel-writers gate's ledger <seen-dir>/.outside-runs-<session> (ruling 36).
 
 The digest judges a composed result from state on every prompt, comparing the
 integration record to each lane's accepted tip; `check` judges from Git, also
@@ -199,15 +202,39 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = "") -> s
     return "\n".join(lines)
 
 
+OUTSIDE_RUNS_NOTE = ("WORKLOOP: {count} cells last turn outside any run. A multi-cell delegation is one workloop run: "
+                     ".agents/workloop.py init <run> --objective '…' --acceptance '…' (with --verify '<test>' and --lane for a writer), "
+                     "then add-cell <run> <name> --role research|review|qa --model <model> and dispatch what it prints.")
+
+
+def outside_runs_note(seen_dir: Path, session: str) -> str:
+    """The turn that just ended, counted from the gate's ledger of dispatches with no run
+    header ("<prompt id>\\t<tool use id>" per line) and consumed: the last prompt's distinct
+    dispatches, named at two or more (ruling 36). Older lines were a turn already reported."""
+    path = seen_dir / f".outside-runs-{session}"
+    try:
+        lines = [line.split("\t", 1) for line in path.read_text().splitlines() if "\t" in line]
+    except OSError:
+        return ""
+    try:
+        path.unlink()
+    except OSError as error:
+        print(f"workloop-inbox: could not remove {path}: {error}", file=sys.stderr)
+    if not lines:
+        return ""
+    count = len({tool_use for prompt, tool_use in lines if prompt == lines[-1][0]})
+    return OUTSIDE_RUNS_NOTE.format(count=count) if count >= 2 else ""
+
+
 def main() -> None:
     state_path, seen_dir, session, event, agent_id = (Path(sys.argv[1]), Path(sys.argv[2]), *sys.argv[3:6])
     if agent_id:
         record_cell(seen_dir, session, agent_id, event)
     runs = live_runs(load(state_path))
-    if not runs:
-        return
     safe = re.sub(r"[^A-Za-z0-9_-]", "", session)
     if agent_id:
+        if not runs:
+            return
         seen_path = seen_dir / f".inbox-seen-{safe}-{re.sub(r'[^A-Za-z0-9_-]', '', agent_id)}"
         try:
             seen = set(seen_path.read_text().split())
@@ -217,7 +244,10 @@ def main() -> None:
         if delivered:
             seen_path.write_text("\n".join(sorted(seen | delivered)) + "\n")
     else:
-        block = main_block(runs, seen_dir, session)
+        # The count stands with no run and no state file: the note is for a
+        # lead who opened no run.
+        outside = outside_runs_note(seen_dir, safe) if event == "UserPromptSubmit" else ""
+        block = "\n".join(part for part in (outside, main_block(runs, seen_dir, session) if runs else "") if part)
     if block:
         print(block)
 

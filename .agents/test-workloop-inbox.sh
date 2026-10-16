@@ -41,6 +41,21 @@ context() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["hookSp
 [[ -z "$(fire SubagentStart a1)" && -z "$(fire UserPromptSubmit '')" ]] || fail "spoke with no workloop state"
 ok "silent without a workloop state file"
 
+# ruling 36, with no run and no state file: the gate's ledger of header-less
+# dispatches is read at the lead's next prompt; a turn with two or more is
+# named once, a lone one is not, and a session start counts nothing
+ledger="$dir/.agents/.outside-runs-s1"
+printf 'p1\ttu1\n' > "$ledger"
+[[ -z "$(fire UserPromptSubmit '')" ]] || fail "a lone header-less dispatch was reported"
+[[ ! -e "$ledger" ]] || fail "a read ledger was kept"
+printf 'p1\ttu1\np2\ttu2\np2\ttu3\np2\ttu3\np2\ttu4\n' > "$ledger"
+[[ -z "$(fire SessionStart '')" && -f "$ledger" ]] || fail "a session start counted the ledger"
+ctx="$(context "$(fire UserPromptSubmit '')")"
+[[ "$ctx" == *"3 cells last turn outside any run"* && "$ctx" == *"add-cell"* ]] || fail "the outside-run note did not fire with no state file: $ctx"
+[[ ! -e "$ledger" ]] || fail "the counted lines were not consumed"
+[[ -z "$(fire UserPromptSubmit '')" ]] || fail "the note repeated at the next prompt"
+ok "two or more header-less dispatches in the turn that ended are named once at the next prompt, with no run open"
+
 old="$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > "$state" <<EOF
