@@ -50,11 +50,12 @@ for k in ("project_dir", "event", "session_id", "agent_id"):
 state="$proj/.agents/.workloop-state.json"
 # The gate names its ledger by the session id reduced to [A-Za-z0-9_-].
 outside_runs="$proj/.agents/.outside-runs-$(printf '%s' "$session" | tr -cd 'A-Za-z0-9_-')"
-# A repository that never runs a workloop pays one interpreter start per
-# event and nothing more: the toggle is read only once there is state, or a
-# ledger of dispatches outside any run. A subagent's start or stop is still
-# recorded, so a run begun mid-session knows which cells it can trust as its own.
-if [[ ! -f "$state" && ! -f "$outside_runs" ]]; then
+# Without state, an event costs the payload parse above and nothing more,
+# except a subagent's start or stop, which is recorded so a run begun
+# mid-session knows which cells it can trust as its own. The ledger of
+# dispatches outside any run lifts that exit at the lead's prompt alone, the
+# one event that reads it.
+if [[ ! -f "$state" ]] && ! [[ "$event" == "UserPromptSubmit" && -f "$outside_runs" ]]; then
   [[ -n "$agent_id" && ( "$event" == "SubagentStart" || "$event" == "SubagentStop" ) ]] || exit 0
 fi
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"

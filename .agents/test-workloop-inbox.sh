@@ -56,6 +56,17 @@ ctx="$(context "$(fire UserPromptSubmit '')")"
 [[ -z "$(fire UserPromptSubmit '')" ]] || fail "the note repeated at the next prompt"
 ok "two or more header-less dispatches in the turn that ended are named once at the next prompt, with no run open"
 
+# with a ledger and no state, a subagent's tool batch parses its payload and stops: only the lead's prompt reads the ledger
+mkdir -p "$scratch/pybin"
+printf '#!/usr/bin/env bash\nprintf "start\\n" >> "%s"\nexec "%s" "$@"\n' "$scratch/python3.log" "$(command -v python3)" > "$scratch/pybin/python3"
+chmod +x "$scratch/pybin/python3"
+printf 'p3\ttu5\np3\ttu6\n' > "$ledger"
+out="$(printf '{"project_dir":"%s","event":"PostToolBatch","session_id":"s1","agent_id":"a9"}' "$dir" | PATH="$scratch/pybin:$PATH" bash "$policy")"
+[[ -z "$out" && -f "$ledger" ]] || fail "a subagent's tool batch spoke or consumed the ledger: $out"
+[[ "$(wc -l < "$scratch/python3.log" | tr -d ' ')" == 1 ]] || fail "a subagent's tool batch with a ledger and no state started $(wc -l < "$scratch/python3.log" | tr -d ' ') interpreters, not one"
+rm -f "$ledger"
+ok "a subagent's tool batch with a ledger and no state prints nothing, leaves the ledger, and starts one interpreter"
+
 old="$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > "$state" <<EOF
