@@ -17,6 +17,7 @@ and you may depart from them by stating why.
 1. **Does it change files?** No: a **read-only fan-out** — research, review or
    QA cells that return text. Three cells by default, up to about ten for broad
    research, each with one distinct question. Each prompt opens `READ-ONLY`.
+   The run is `init` without `--verify` and one `add-cell` per cell (below).
 2. **Can one writer do it in reasonable time?** Yes: **one writer**, with
    read-only cells around it. This is the default; most delegations are this.
    The writer edits the main tree as a one-writer run: one `init … --lane`
@@ -126,6 +127,43 @@ at once start a run with worktree lanes. `check` tests the accepted commit in a
 short-lived worktree at `.agents/worktrees/<run>/verify`, removed after a pass
 and kept for inspection after a fail; a lane-path commit or uncommitted edit
 after the accept makes the run stale until the lane is re-submitted.
+
+## Read-only cells
+
+Every cell of a multi-cell delegation belongs to its run, the read-only ones
+too, so the run shows what was dispatched and what came back. A cell takes no
+worktree, branch or install:
+
+```sh
+.agents/workloop.py add-cell export trace --role research --model haiku
+# dispatch the printed prompt; when it comes back:
+.agents/workloop.py returned export trace --result reply
+```
+
+`add-cell <run> <name> --role research|review|qa --model <model>` records the
+cell as out and prints its dispatch prompt: a `READ-ONLY` line, the header
+`WORKLOOP CELL BRIEF — <run>/<name>`, then the brief to read, at
+`.agents/worktrees/<run>/.workloop/cell-<name>.md`. Append the cell's question
+below it. The cell returns its result as its reply and writes no file;
+`returned --result <path>` names a file the lead wrote from it instead of
+`reply`. `returned <run> <name> --failed '<reason>'` records a cell that died
+or was stopped, and `brief <run> <name> --again` sends a returned or failed
+cell out again. `status` and the lead's digest list cells still out; `check`,
+`teardown` and the session end will not close the run while one is, and
+`integrate` does not wait for them. No cell outlives its session, so a cell
+still out at a session start is named with `--failed` or `--again`.
+
+A lane's own review stays `brief <run> <lane> --role reviewer`, which names
+the commits and the `review --tip` handoff; a review cell is for what is not a
+lane, such as a plan. A run started without `--verify` is a read-only fan-out:
+it is finished once every cell is back, with no QA record and no composed test,
+and `add-lane` refuses it. When a writer will follow the cells, start with
+`init … --lane` instead and add the cells beside it. The lead's digest names a
+turn that dispatched two or more cells with no run header ("3 cells last turn
+outside any run"); it refuses nothing.
+
+`--model <model>` on `add-lane` or `init --lane` records a lane's model, shown
+in its brief and in `status`.
 
 For writers working at once, create one run with a testable objective, the test
 command proving the composed result, and a base revision, which `init` pins to

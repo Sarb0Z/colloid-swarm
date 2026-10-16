@@ -46,7 +46,15 @@ one command, which prints the prompt to dispatch:
   --lane csv --worker implementer --path apps/web/src/pages/reports
 ```
 
-After the cell submits: `brief export csv --role reviewer` for the reviewer,
+The tracing cell joins the same run, before the writer starts; its printed
+prompt, with the question above appended below it, is what the lead dispatches:
+
+```sh
+.agents/workloop.py add-cell export trace --role research --model haiku
+.agents/workloop.py returned export trace --result reply   # when it comes back
+```
+
+After the writer submits: `brief export csv --role reviewer` for the reviewer,
 then `check` (it runs `--verify` once at the accepted commit), `qa`, `check`,
 `teardown`.
 
@@ -70,7 +78,21 @@ READ-ONLY. Trace where services/ingest enqueues today and what it assumes
 about ordering. Return file:line references.
 ```
 
-The lead keeps the synthesis.
+The run declares no `--verify`, since nothing is tested, and records each
+cell; append each question above below its printed prompt:
+
+```sh
+.agents/workloop.py init queue --objective 'Pick a hosted queue for ingest' \
+  --acceptance 'a recommendation backed by the three returns'
+.agents/workloop.py add-cell queue pricing --role research --model sonnet
+.agents/workloop.py add-cell queue delivery --role research --model sonnet
+.agents/workloop.py add-cell queue current --role research --model haiku
+# as each comes back:
+.agents/workloop.py returned queue pricing --result reply
+```
+
+Once all three are back, `check queue` passes and `teardown queue` closes the
+run. The lead keeps the synthesis.
 
 ## Parallel slices
 
