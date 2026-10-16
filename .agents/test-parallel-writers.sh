@@ -114,13 +114,17 @@ rm -f "$ledger"; : > "$dir/.agents/.writers-turn-s1"; lane_state "$scratch/wt-la
 [[ -z "$(dispatch p30 implementer "$forged")" ]] || fail "a briefed lane was refused"
 [[ -z "$(dispatch p30 general-purpose 'READ-ONLY — this cell reads the checkout and writes nothing; its result is its reply.
 WORKLOOP CELL BRIEF — run/scout
-Read the full brief at /x/.agents/worktrees/run/.workloop/cell-scout.md before anything else')" ]] || fail "a cell brief was refused"
+Read the full brief at /x/.agents/worktrees/run/.workloop/cells/scout.md before anything else')" ]] || fail "a cell brief was refused"
 denied "$(dispatch p30 general-purpose 'NOTES-ONLY: inventory the vendors')" || fail "a NOTES-ONLY dispatch passed with no product folder"
 [[ -f "$ledger" && "$(grep -c '^p30	tu-' "$ledger")" -eq 3 && "$(grep -vc '^p30	tu-' "$ledger")" -eq 0 ]] || fail "the ledger does not hold the turn's three header-less dispatches: $(cat "$ledger" 2>&1)"
 [[ -z "$(dispatch p31 reviewer)" ]] || fail "a reviewer was refused"
 [[ "$(grep -c '^p31	tu-' "$ledger")" -eq 1 && "$(grep -c '^p30	tu-' "$ledger")" -eq 3 ]] || fail "a later turn's dispatch was not appended after the earlier turn's: $(cat "$ledger")"
+# a refused dispatch is not counted: one writer passed and a second denied leave one line
+[[ -z "$(dispatch p32 implementer)" ]] || fail "the first writer of turn p32 was refused"
+denied "$(dispatch p32 mechanic)" || fail "a second writer in turn p32 passed"
+[[ "$(grep -c '^p32	tu-' "$ledger")" -eq 1 ]] || fail "a refused writer was counted outside any run: $(cat "$ledger")"
 rm -f "$ledger" "$dir/.agents/.workloop-state.json"
-ok "header-less dispatches are noted per turn for the lead's digest; briefed cells and the host's helpers are not"
+ok "header-less dispatches the gate admits are noted per turn for the lead's digest; refused ones, briefed cells and the host's helpers are not"
 # the rows below continue turn p1 with its one writer pending
 : > "$dir/.agents/.writers-turn-s1"
 [[ -z "$(dispatch p1 implementer)" ]] || fail "first writer refused"

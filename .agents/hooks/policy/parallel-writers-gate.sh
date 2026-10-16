@@ -24,10 +24,11 @@
 # lane all count as outside; a submodule stays the checkout's.
 #
 # Seven events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. One that carries no WORKLOOP … BRIEF header
-#                  is first noted in .agents/.outside-runs-<session> as
-#                  "<prompt_id> <tool_use_id>", unless its type is one of the
-#                  host's own helpers (HELPERS); the lead's digest
+#   PreToolUse Agent — a dispatch. One the gate lets through that carries no
+#                  WORKLOOP … BRIEF header is noted in
+#                  .agents/.outside-runs-<session> as "<prompt_id>
+#                  <tool_use_id>", unless its type is one of the host's own
+#                  helpers (HELPERS); a refused one is not. The lead's digest
 #                  (hooks/lib/workloop-inbox.py) counts a turn's lines at the
 #                  next prompt and names a turn with two or more, a multi-cell
 #                  delegation outside a run (ruling 36). Nothing is refused for
@@ -417,6 +418,15 @@ live_names() {
   printf '%s' "$out"
 }
 
+# Notes an admitted dispatch with no run header for the lead's digest; called
+# at each exit that lets a dispatch through, never on a denial, so no refused
+# dispatch is counted. A failed append is reported and changes no decision.
+note_outside() {
+  [[ "$header" != yes ]] && ! named_in "$tool_type" "$HELPERS" || return 0
+  printf '%s\t%s\n' "$prompt_id" "$tool_use_id" >>"$outside_runs" ||
+    echo "parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it." >&2
+}
+
 SWEPT="The gate dropped every live writer that finished (SubagentStop), died of an API error or usage limit (StopFailure), was stopped (TaskStop, or an interruption closing its transcript), or whose metadata names a READ-ONLY, NOTES-ONLY or OUTSIDE dispatch, and brought back each that died or was swept and has written to its transcript since"
 
 case "$event" in
@@ -430,18 +440,17 @@ case "$event" in
         fi
         exit 0
       fi
-      # The note sits before the reader exit, so read-only cells count, and
-      # after the notes-only denial, so a refused dispatch does not; a failed
-      # append is reported and never skips the writer check below.
-      if [[ "$header" != yes ]] && ! named_in "$tool_type" "$HELPERS"; then
-        printf '%s\t%s\n' "$prompt_id" "$tool_use_id" >>"$outside_runs" || echo "parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it." >&2
+      if is_reader "$tool_type"; then
+        note_outside
+        exit 0
       fi
-      is_reader "$tool_type" && exit 0
       take_lock
       if [[ "$kind" != "plain" ]]; then
         marker="$kind"; [[ "$kind" == "brief" || "$kind" == "workspace" ]] && marker=outside
         if ! note_turn "$prompt_id" || ! python3 "$lib/cell_markers.py" record "$proj" "$session" "$tool_use_id" "$marker"; then
           deny "The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold."
+        else
+          note_outside
         fi
         exit 0
       fi
@@ -460,6 +469,8 @@ case "$event" in
       fi
       if ! count_turn "$prompt_id" dispatched || ! note_turn "$prompt_id" "$tool_type"; then
         deny "The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory's permissions and retry."
+      else
+        note_outside
       fi
     elif [[ -n "$agent_id" ]]; then
       # A cell's own write: its dispatch marker decides, before any bookkeeping.
