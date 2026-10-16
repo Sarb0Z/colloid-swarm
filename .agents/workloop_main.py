@@ -15,8 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import workloop_git as wg
-from workloop_paths import WORKTREES, lane_allows, normalize_path, uncommitted_owned
-from workloop_state import fail, now
+from workloop_paths import WORKTREES, lane_allows, normalize_path, owned
+from workloop_state import fail, now, shared_of
 
 PLACE = "main"
 ENV = "main"
@@ -111,10 +111,22 @@ def submit_main(run_name: str, run: dict, lane: dict, repo: Path) -> tuple[list[
     return sorted({path for _, paths, _ in own for path in paths}), others, mixed
 
 
+def lane_work(run: dict, lane: dict, path: str) -> bool:
+    """Whether a path is the lane's work after its review: owned or shared. A path
+    the review cites is the review report, which the lead commits in this same
+    checkout once the review is in, so it never moves the lane."""
+    return owned(path, lane["paths"]) or owned(path, shared_of(run))
+
+
 def moved_since(run: dict, lane: dict, repo: Path, since: str, until: str) -> list[str]:
-    """Commits in since..until touching the lane's paths."""
-    own, _ = own_commits(run, lane, repo, since, until)
-    return [sha for sha, _, _ in own]
+    """Commits in since..until touching the lane's owned or shared paths."""
+    return [sha for sha, files in wg.commits_with_files(repo, since, until)
+            if any(lane_work(run, lane, normalize_path(path)) for path in files)]
+
+
+def uncommitted_work(run: dict, lane: dict, repo: Path) -> list[str]:
+    """Dirty owned or shared paths in the checkout."""
+    return [path for path in wg.dirty_paths(repo) if lane_work(run, lane, path)]
 
 
 def review_range(run: dict, lane: dict) -> tuple[str, str, list[str], list[str]] | None:
@@ -143,7 +155,7 @@ def live_problems(run: dict, name: str, lane: dict) -> list[str]:
         problems.append(f"{name}:rewritten")
     elif moved_since(run, lane, repo, accepted, head):
         problems.append(f"{name}:moved-after-review")
-    if uncommitted_owned(run, lane, repo):
+    if uncommitted_work(run, lane, repo):
         problems.append(f"{name}:uncommitted")
     return problems
 
@@ -161,7 +173,7 @@ def remedies(run_name: str, run: dict, problems: list[str]) -> list[str]:
     if f"{name}:moved-after-review" in problems:
         lines.append(f"the checkout has commits touching the lane's paths after its accepted tip {lane['accepted_tip'][:12]}; re-submit the lane for review")
     if f"{name}:uncommitted" in problems:
-        lines.append("the checkout has uncommitted changes in the lane's paths: " + ", ".join(uncommitted_owned(run, lane, repo)) + "; commit or discard them")
+        lines.append("the checkout has uncommitted changes in the lane's paths: " + ", ".join(uncommitted_work(run, lane, repo)) + "; commit or discard them")
     return lines
 
 
