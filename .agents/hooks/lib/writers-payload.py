@@ -58,6 +58,10 @@ def real_lane(root, prompt):
         workspace = os.path.realpath(lane["workspace"])
     except (OSError, ValueError, KeyError, TypeError):
         return False
+    # A main lane works in its run's checkout, which may be a worktree or a
+    # clone of this one: wherever that is, its cell is a plain writer here.
+    if isinstance(lane, dict) and lane.get("place") == "main":
+        return False
     return not write_targets.in_checkout(workspace, root)
 
 

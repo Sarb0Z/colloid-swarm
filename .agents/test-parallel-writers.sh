@@ -742,6 +742,12 @@ denied "$(gwrite l30 implementer "$gr/src/x.py")" || fail "a nested lane cell wr
 denied "$(gdispatch p30 mechanic 'WORKLOOP WORKER BRIEF — r/gone' tug30)" || fail "a brief for a lane whose worktree is missing under the checkout exempted a writer"
 rm -f "$gr/.agents/.workloop-state.json"
 ok "a brief for a lane nested in the checkout passes as OUTSIDE; the cell writes its worktree and is denied the checkout"
+# a main lane is a plain writer of this checkout wherever its run's checkout is: a worktree of
+# this repository (`init --repo <worktree> --lane`) shares its tree with whoever works there
+printf '{"runs":{"r":{"lanes":{"solo":{"place":"main","workspace":"%s","branch":null}}}}}' "$glane" > "$gr/.agents/.workloop-state.json"
+denied "$(gdispatch p30 mechanic 'WORKLOOP WORKER BRIEF — r/solo' tus30)" || fail "a main lane whose checkout is a worktree of this repository exempted a second writer"
+rm -f "$gr/.agents/.workloop-state.json"
+ok "a main lane whose run checkout is a linked worktree is still a plain writer here"
 
 for ws in "$glane" "$glane/src" "$gr/src/vendor" "$gr/src/tracked"; do
   mkdir -p "$ws"
