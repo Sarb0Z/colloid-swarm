@@ -183,6 +183,8 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 32 | What a main-tree lane's work is | The commits since its first claim that touch its owned or shared paths; other writers' commits in that range are listed and do not block (2026-10-16) | this spec |
 | 33 | Where `check` tests a one-writer run | In a short-lived worktree at the lane's accepted commit, provisioned and removed after a pass, so other sessions' files and edits during the test stay out of the tested tree; the lane still works in the main tree (2026-10-16, after review round u6) | this spec |
 | 34 | A commit in a main lane's range touching its paths and others | Listed as mixed for the reviewer; it never blocks `submit`, whoever made it (2026-10-16) | this spec |
+| 35 | When a read-only fan-out run is finished (narrows ruling 27) | A run declared without `--verify` holds read-only cells only; it is finished once it holds a cell and every cell is back, with no QA record and no composed test (2026-10-16) | this spec |
+| 36 | Which dispatches the outside-run note counts (refines ruling 15) | A turn with two or more Agent dispatches that carry no run header, a multi-cell delegation; a lone one and the host's own helpers are not counted (2026-10-16) | `runs-record-every-cell` |
 
 ## Design
 
@@ -272,15 +274,21 @@ A run is one multi-cell delegation, kept from plan to verified result.
   its length.
 - The guide says a multi-cell job is a run; nothing refuses a read-only dispatch
   outside one (ruling 15). The gate notes each dispatch that carries no run
-  header, and the lead's per-prompt digest names them: "3 cells this turn
-  outside any run".
+  header, and at the next prompt the lead's digest names a turn that made two
+  or more of them, run or no run: "3 cells last turn outside any run"
+  (ruling 36).
+- A run declared without `--verify` is a read-only fan-out: `add-lane` refuses
+  it, naming `init … --lane` for a writer that will follow, and it is finished
+  once every cell is back (ruling 35).
 - A read-only cell is a light entry:
   `workloop.py add-cell <run> <name> --role research|review|qa --model <model>`.
   `brief <run> <name>` prints its prompt, opening `READ-ONLY`; when it returns,
   `workloop.py returned <run> <name> --result <path or "reply">` records where
   its result went; `returned <run> <name> --failed '<reason>'` records a cell
-  that died or was stopped without returning. `status` and the lead's digest
-  list cells still out, and `check` refuses to close the run while any is.
+  that died or was stopped without returning; `brief <run> <name> --again`
+  re-dispatches a returned or failed cell and tracks it out again. `status` and
+  the lead's digest list cells still out, and `check`, `teardown` and the
+  session end refuse to close the run while any is; `integrate` does not.
 - A lane records its model (`add-lane --model`), printed in its brief and in
   `status`.
 
