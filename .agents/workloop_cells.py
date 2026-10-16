@@ -15,13 +15,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-# A module import, never a from-import: workloop_main imports this module for
-# cell_problems and workloop_lanes for status_lines, and workloop_lanes imports
-# workloop_main, so whichever of the three is imported first finds the others
-# half-initialised and a from-import would fail.
-import workloop_lanes as wl
-from workloop_paths import BRIEF_FOLDER, WORKTREES
-from workloop_state import ReadStore, Store, fail, now, record, replayed, run_of, state_path, valid_name
+from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES
+from workloop_state import Store, fail, now, record, replayed, run_of, state_path, valid_name
 
 ROLES = {
     "research": "find and ground the facts the objective needs, each with its source and date",
@@ -64,9 +59,9 @@ def cmd_add_cell(args: argparse.Namespace) -> None:
         # One namespace per run: `brief <run> <name>` must name one thing.
         if args.name in run["lanes"] or args.name in cells_of(run):
             fail(f"run already has a lane or cell named {args.name!r}")
-        cell = run.setdefault("cells", {})[args.name] = {"role": args.role, "model": args.model, "state": "out", "added_at": now(), "out_since": now()}
+        run.setdefault("cells", {})[args.name] = {"role": args.role, "model": args.model, "state": "out", "added_at": now(), "out_since": now()}
         record(args.run, run, "add-cell", args.name, f"{args.role} {args.model}", args.event_id)
-    print(cell_prompt(state_path(args.state), args.run, run, args.name, cell))
+    print(cell_prompt(state_path(args.state), args.run, run, args.name))
 
 
 def cmd_returned(args: argparse.Namespace) -> None:
@@ -91,24 +86,15 @@ def cmd_returned(args: argparse.Namespace) -> None:
     print(f"cell {args.name!r} {cell['state']}" + (f"; still out: {', '.join(sorted(n for n, c in cells_of(run).items() if c['state'] == 'out'))}" if cell_problems(run) else ""))
 
 
-def cmd_brief(args: argparse.Namespace) -> None:
-    """A lane's role brief, or a cell's prompt; `--again` sends a returned or failed cell out again."""
-    with ReadStore(state_path(args.state)) as data:
-        run = run_of(data, args.run)
-        is_cell = args.lane in cells_of(run)
-    if not is_cell:
-        if args.again:
-            fail(f"--again sends a returned or failed cell out again; {args.lane!r} is a lane, whose brief prints without it")
-        lane = wl.lane_of(run, args.lane)
-        print(wl.dispatch_prompt(state_path(args.state), args.run, run, args.lane, lane, args.role or "worker"))
-        return
+def cell_brief(args: argparse.Namespace, run: dict) -> None:
+    """`brief` for a cell: reprint the prompt of a cell out, or with `--again` send a returned or failed one out again."""
     if args.role:
         fail(f"a cell's role is set at add-cell; brief {args.run} {args.lane} takes no --role for cell {args.lane!r}")
     if not args.again:
         cell = cell_of(run, args.lane)
         if cell["state"] != "out":
             fail(f"cell {args.lane!r} is {cell['state']}; a cell dispatched again is tracked again: brief {args.run} {args.lane} --again")
-        print(cell_prompt(state_path(args.state), args.run, run, args.lane, cell))
+        print(cell_prompt(state_path(args.state), args.run, run, args.lane))
         return
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
@@ -120,11 +106,12 @@ def cmd_brief(args: argparse.Namespace) -> None:
         for key in ("result", "reason", "returned_at"):
             cell.pop(key, None)
         record(args.run, run, "brief-again", args.lane, cell["role"], args.event_id)
-    print(cell_prompt(state_path(args.state), args.run, run, args.lane, cell))
+    print(cell_prompt(state_path(args.state), args.run, run, args.lane))
 
 
-def cell_prompt(state: Path, run_name: str, run: dict, name: str, cell: dict) -> str:
+def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
     """Write the cell's brief under the run's folder and return the short prompt the lead pastes."""
+    cell = cells_of(run)[name]
     command = f".agents/workloop.py --state {state}"
     # `cell-` keeps it apart from a main lane's `<lane>-reviewer.md` and `<lane>-qa.md` beside it.
     brief_file = Path(run["repo"]) / WORKTREES / run_name / BRIEF_FOLDER / f"cell-{name}.md"
@@ -140,7 +127,7 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str, cell: dict) ->
         f"Model: {cell['model']}",
         f"Workspace: the checkout {run['repo']}, read only — no worktree, no branch, no claim; another cell may be writing in it, so read committed state where it matters.",
         f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish.",
-        *([wl.WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
+        *([WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
         f"State: {command} status {run_name}",
     )) + "\n")
     # The gate reads the first line: READ-ONLY holds the cell to reading.

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 
-from workloop_cells import cmd_add_cell, cmd_brief, cmd_returned
+from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned
 from workloop_finish import (
     cmd_abandon,
     cmd_check,
@@ -30,6 +30,7 @@ from workloop_lanes import (
     cmd_review,
     cmd_status,
     cmd_submit,
+    dispatch_prompt,
 )
 from workloop_messages import (
     cmd_ack_message,
@@ -40,9 +41,24 @@ from workloop_messages import (
 )
 from workloop_paths import WORKTREES, temporary, workspace_for
 from workloop_setup import SHAPES, cmd_add_lane, cmd_init, cmd_provision, cmd_widen
+from workloop_state import ReadStore, fail, run_of, state_path
 
 # test-workloop.sh imports these two from here.
 __all__ = ["parser", "temporary", "workspace_for"]
+
+
+def cmd_brief(args: argparse.Namespace) -> None:
+    """A lane's role brief, or a cell's prompt: lanes and cells share one namespace per run."""
+    with ReadStore(state_path(args.state)) as data:
+        run = run_of(data, args.run)
+    if args.lane in cells_of(run):
+        cell_brief(args, run)
+        return
+    if args.lane not in run["lanes"]:
+        fail(f"run has no lane named {args.lane!r}")
+    if args.again:
+        fail(f"--again sends a returned or failed cell out again; {args.lane!r} is a lane, whose brief prints without it")
+    print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run["lanes"][args.lane], args.role or "worker"))
 
 
 def parser() -> argparse.ArgumentParser:

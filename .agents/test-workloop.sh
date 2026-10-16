@@ -1232,6 +1232,30 @@ wm_status="$("${tool[@]}" status wm)"
 "${tool[@]}" abandon wm --discard-branches >/dev/null
 ok "init --lane --model and add-lane --model record a lane's model for its brief and status; a lane without one prints nothing"
 
+# ── the controller's modules import one another without a cycle ──────────────
+python3 - "$repo/.agents" <<'EOF' || fail "the controller's module structure regressed"
+import ast, sys
+from pathlib import Path
+modules = {path.stem: ast.parse(path.read_text()) for path in Path(sys.argv[1]).glob("workloop*.py")}
+graph = {}
+for name, tree in modules.items():
+    names = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    names |= {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+    graph[name] = names & modules.keys()
+def cycle(name, path):
+    if name in path:
+        return path[path.index(name):] + [name]
+    return next((found for dep in sorted(graph[name]) if (found := cycle(dep, path + [name]))), None)
+found = next((found for name in sorted(graph) if (found := cycle(name, []))), None)
+if found:
+    sys.exit("import cycle: " + " -> ".join(found))
+wide = [f"{node.name} takes {len(node.args.args)}" for node in ast.walk(modules["workloop_cells"])
+        if isinstance(node, ast.FunctionDef) and len(node.args.args) > 4]
+if wide:
+    sys.exit("workloop_cells functions over four parameters: " + ", ".join(wide))
+EOF
+ok "the controller's modules import one another without a cycle, and no cell function takes over four parameters"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys

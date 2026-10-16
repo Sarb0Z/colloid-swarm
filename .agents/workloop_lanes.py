@@ -12,6 +12,7 @@ import workloop_git as wg
 import workloop_main as wm
 from workloop_paths import (
     BRIEF_FOLDER,
+    WORKING_PRACTICE,
     WORKTREES,
     canonical_reference,
     changed_paths,
@@ -36,7 +37,6 @@ from workloop_state import (
     state_path,
 )
 
-WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-practice.md"
 BRIEF_FILES = {"worker": "BRIEF.md", "reviewer": "BRIEF-reviewer.md", "qa": "BRIEF-qa.md"}
 BRIEF_SUFFIXES = {"worker": "", "reviewer": "-reviewer", "qa": "-qa"}
 # A main lane's reviewer or QA cell reads the checkout a writer works in; the

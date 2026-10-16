@@ -15,6 +15,8 @@ WORKTREES = ".agents/worktrees"
 # Where `brief` leaves each role's full brief: inside a worktree lane, or under
 # the run's folder for a main lane, so nothing lands in the checkout's tree.
 BRIEF_FOLDER = ".workloop"
+# How a writing or QA cell tests, waits and edits; a worker's and a QA brief carry it.
+WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-practice.md"
 # Folders the system clears on its own, which once took a run's lanes with them.
 TEMPORARY_ROOTS = tuple({Path("/tmp"), Path("/private/tmp"), Path(tempfile.gettempdir()).resolve()})
 
