@@ -402,7 +402,8 @@ PY
 sweep
 [[ "$sweep_out" == *"closed workloop run old: its cells went out over 24 hours ago"* ]] || fail "a fan-out whose cells all went out past the hold must close: $sweep_out"
 $wl abandon pre >/dev/null
-ok "a lead-less fan-out closes once every cell is back or every cell is out past the hold; a --verify run with no lane yet stays"
+! grep -q strptime "$repo/.agents/hooks/lib/worktree_runs.py" || fail "worktree_runs.py parses the controller's stamps itself instead of importing workloop_size's parse"
+ok "a lead-less fan-out closes once every cell is back or every cell is out past the hold, read by the digest's own stamp parse; a --verify run with no lane yet stays"
 
 # ── a resumed session claims its records even while another start sweeps ───
 bash_call "$R" "$wl init t7 --objective o --acceptance a --repo $R --verify true"

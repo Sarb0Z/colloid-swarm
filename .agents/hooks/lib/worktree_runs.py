@@ -10,7 +10,6 @@ worktree stays from the heal (ruling 28).
 
 from __future__ import annotations
 
-import calendar
 import fcntl
 import importlib.util
 import json
@@ -24,6 +23,10 @@ _spec = importlib.util.spec_from_file_location("worktree_heal", Path(__file__).w
 hl = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hl)
 rm, wr = hl.rm, hl.wr
+# The controller's timestamp parse, as the lead's digest reads it.
+_spec = importlib.util.spec_from_file_location("workloop_size", Path(__file__).with_name("workloop_size.py"))
+ws = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ws)
 
 # An unfinished run waits this long after its session ends for the conversation's resume.
 HOLD_SECONDS = 24 * 3600
@@ -136,14 +139,6 @@ def drop_run(state: Path, name: str) -> None:
         os.replace(scratch, state)
 
 
-def stamp_age(value, now: float) -> float | None:
-    """Seconds since a controller stamp (`%Y-%m-%dT%H:%M:%SZ`); None when it does not parse."""
-    try:
-        return now - calendar.timegm(time.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ"))
-    except (TypeError, ValueError):
-        return None
-
-
 def fanout_closed(run: dict, now: float) -> str | None:
     """Why a lead-less read-only fan-out (no `--verify`, so cells only) is closed: every cell
     is back, or every cell still out went out before the hold, since no cell outlives its
@@ -154,8 +149,8 @@ def fanout_closed(run: dict, now: float) -> str | None:
     out = [cell for cell in cells.values() if cell.get("state") == "out"]
     if not out:
         return "every cell is back"
-    ages = [stamp_age(cell.get("out_since"), now) for cell in out]
-    if all(age is not None and age >= HOLD_SECONDS for age in ages):
+    sent = [ws.stamp(cell.get("out_since")) for cell in out]
+    if all(at is not None and now - at >= HOLD_SECONDS for at in sent):
         return f"its cells went out over {HOLD_SECONDS // 3600} hours ago"
     return None
 
