@@ -1159,13 +1159,15 @@ ok "add-cell records a read-only cell beside a one-writer run's lane, one namesp
 ok "a cell's brief and a main lane's never share a file, whatever the names"
 
 # returned records where the result went or why none came; --again sends a cell out again
-expect 'names no file; it names a file the lead wrote, or the word reply' "${tool[@]}" returned oc scout --result docs/oc/none.md
+expect 'names no file (a relative path reads from the working directory); it names a file the lead wrote, or the word reply' "${tool[@]}" returned oc scout --result docs/oc/none.md
 mkdir -p "$work/docs/oc"; printf 'found\n' > "$work/docs/oc/scout.md"
-expect "cell 'scout' returned; still out: critic" "${tool[@]}" returned oc scout --result docs/oc/scout.md
+# a relative path reads from the working directory, not the run's checkout, and is stored absolute
+expect 'names no file' bash -c 'cd "$1" && shift && "$@"' _ "$scratch" "${tool[@]}" returned oc scout --result docs/oc/scout.md
+expect "cell 'scout' returned; still out: critic" bash -c 'cd "$1" && shift && "$@"' _ "$work/docs" "${tool[@]}" returned oc scout --result oc/scout.md
 expect "cell 'scout' is returned, not out; brief oc scout --again sends it out again" "${tool[@]}" returned oc scout --result reply
 expect "cell 'scout' is returned; a cell dispatched again is tracked again: brief oc scout --again" "${tool[@]}" brief oc scout
 expect "cell 'critic' is out already; brief without --again reprints its prompt" "${tool[@]}" brief oc critic --again
-python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["runs"]["oc"]["cells"]["scout"]; assert c["state"] == "returned" and c["result"] == "docs/oc/scout.md" and c["returned_at"], c' "$state"
+python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["runs"]["oc"]["cells"]["scout"]; assert c["state"] == "returned" and c["result"] == sys.argv[2] and c["returned_at"], c' "$state" "$real_work/docs/oc/scout.md"
 [[ "$("${tool[@]}" brief oc scout --again)" == "$cell_prompt" ]] || fail "brief --again did not print the cell's prompt"
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["oc"]; c=r["cells"]["scout"]; assert c["state"] == "out" and "result" not in c and "returned_at" not in c and r["events"][-1]["action"] == "brief-again", c' "$state"
 expect "cell 'scout' failed" "${tool[@]}" returned oc scout --failed 'stopped by the operator'

@@ -147,7 +147,8 @@ cell as out and prints its dispatch prompt: a `READ-ONLY` line, the header
 below the prompt, never above it: the gate reads `READ-ONLY` only as the first
 line, and the prompt tells the cell its question follows. The cell returns its result as its reply and writes no file;
 `returned --result <path>` names a file the lead wrote from it instead of
-`reply`. `returned <run> <name> --failed '<reason>'` records a cell that died
+`reply`; a relative path reads from the working directory and is stored
+absolute. `returned <run> <name> --failed '<reason>'` records a cell that died
 or was stopped, and `brief <run> <name> --again` sends a returned or failed
 cell out again. `status` and the lead's digest list cells still out; `check`,
 `teardown` and the session end will not close the run while one is, and

@@ -77,14 +77,18 @@ def cmd_returned(args: argparse.Namespace) -> None:
             cell["state"], cell["reason"] = "failed", args.failed
             cell.pop("result", None)
         else:
-            if args.result != "reply":
-                target = Path(args.result) if Path(args.result).is_absolute() else Path(run["repo"]) / args.result
+            result = args.result
+            if result != "reply":
+                # A path reads as the shell that typed it means it; stored
+                # absolute, it names the same file from wherever status runs.
+                target = Path(result).resolve()
                 if not target.is_file():
-                    fail(f"--result {args.result} names no file; it names a file the lead wrote, or the word reply")
-            cell["state"], cell["result"] = "returned", args.result
+                    fail(f"--result {result} names no file (a relative path reads from the working directory); it names a file the lead wrote, or the word reply")
+                result = str(target)
+            cell["state"], cell["result"] = "returned", result
             cell.pop("reason", None)
         cell["returned_at"] = now()
-        record(args.run, run, "returned", args.name, f"failed: {args.failed}" if args.failed else args.result, args.event_id)
+        record(args.run, run, "returned", args.name, f"failed: {args.failed}" if args.failed else cell["result"], args.event_id)
     print(f"cell {args.name!r} {cell['state']}" + (f"; still out: {', '.join(sorted(n for n, c in cells_of(run).items() if c['state'] == 'out'))}" if cell_problems(run) else ""))
 
 
