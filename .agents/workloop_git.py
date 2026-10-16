@@ -106,9 +106,16 @@ def worktree_root(workspace: Path) -> Path:
 
 def dirty_paths(workspace: Path | str) -> list[str]:
     # Porcelain lines are "XY path"; a modified file's X is a space, so the
-    # output must not be stripped before the slice.
-    lines = git(workspace, "status", "--porcelain", "--untracked-files=all", strip=False).splitlines()
+    # output must not be stripped before the slice. A staged rename is two
+    # paths, not one "old -> new" string.
+    lines = git(workspace, "status", "--porcelain", "--no-renames", "--untracked-files=all", strip=False).splitlines()
     return sorted(line[3:] for line in lines if len(line) > 3)
+
+
+def branches_containing(repo: Path | str, commit: str) -> list[str]:
+    """Local branches holding `commit`, the checked-out one excluded."""
+    out = git(repo, "branch", "--format=%(refname:short)%(if)%(HEAD)%(then) *%(end)", "--contains", commit, check=False)
+    return [line for line in out.splitlines() if line and not line.endswith(" *")]
 
 
 # Every path listing names a rename as its source and its destination, so a
@@ -415,8 +422,12 @@ def _install_folders(repo: Path, base: str, tree: list[str]) -> list[tuple[str, 
 
 
 def worktree_add_detached(repo: Path, workspace: Path, commit: str) -> None:
-    """Create a worktree checked out at `commit` on no branch, as a test tree."""
-    git(repo, "worktree", "add", "-q", "--detach", str(workspace), commit)
+    """Create a worktree checked out at `commit` on no branch, as a test tree.
+
+    `-f` overrides a stale registration at this path, a worktree whose folder
+    was deleted by hand; every other registration is left as it is.
+    """
+    git(repo, "worktree", "add", "-q", "-f", "--detach", str(workspace), commit)
 
 
 def worktree_add(repo: Path, workspace: Path, branch: str, base: str, cone: list[str] | None = None) -> None:

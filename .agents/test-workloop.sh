@@ -976,6 +976,11 @@ printf 'dirty\n' >> "$work/src/app.txt"
 expect "completion is blocked by solo:uncommitted, qa:missing, verified:missing"$'\n'"the checkout has uncommitted changes in the lane's paths: src/app.txt; commit or discard them" "${tool[@]}" check ow
 [[ ! -e "$mark" ]] || fail "check ran the composed test over a dirty lane path"
 git -C "$work" checkout -q -- src/app.txt
+# a staged rename into the lane's paths is a dirty lane path too
+git -C "$work" mv elsewhere/o.txt src/o.txt
+expect "completion is blocked by solo:uncommitted, qa:missing, verified:missing"$'\n'"the checkout has uncommitted changes in the lane's paths: src/o.txt" "${tool[@]}" check ow --recorded
+git -C "$work" mv src/o.txt elsewhere/o.txt
+[[ -z "$(git -C "$work" status --porcelain -- elsewhere src)" ]] || fail "the rename fixture was not undone: $(git -C "$work" status --porcelain)"
 printf 'lead\n' >> "$work/moved/x.txt"
 set +e; out="$("${tool[@]}" check ow 2>&1)"; rc=$?; set -e
 verify_dir="$real_work/.agents/worktrees/ow/verify"
@@ -988,7 +993,8 @@ python3 - "$state" "$late_sha" "$verify_dir" <<'EOF'
 import json, sys
 run = json.load(open(sys.argv[1]))["runs"]["ow"]
 v = run["verified"]
-assert v["result"] == "pass" and v["head"] == sys.argv[2] and v["lane_tips"] == {"solo": sys.argv[2]} and v["verify"] == run["verify"] and v["workspace"] == sys.argv[3] and "dirty" not in v, v
+# a pass records no worktree path: the worktree is gone, and a recorded path to it would read as a lost worktree at the start sweep
+assert v["result"] == "pass" and v["head"] == sys.argv[2] and v["lane_tips"] == {"solo": sys.argv[2]} and v["verify"] == run["verify"] and "workspace" not in v and "dirty" not in v, v
 assert run["events"][-1]["action"] == "verify" and run["events"][-1]["detail"] == "pass", run["events"][-1]
 EOF
 rm "$mark"
@@ -1035,7 +1041,13 @@ fail_dir="$real_work/.agents/worktrees/owf/verify"
 expect "verify failed in $fail_dir; the worktree stays for inspection" "${tool[@]}" check owf
 [[ -d "$fail_dir" && -n "$(worktree_paths | grep -F "$fail_dir")" ]] || fail "a failed verify did not leave its worktree"
 expect 'verified:fail' "${tool[@]}" check owf --recorded
+python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))["runs"]["owf"]["verified"]; assert v["workspace"] == sys.argv[2], v' "$state" "$fail_dir"
+# a verify folder deleted by hand leaves a stale registration, which the next check overrides;
+# another worktree whose folder is away keeps its registration (no prune)
+git -C "$work" worktree add -q "$scratch/wt-away" -b wt-away >/dev/null; rm -rf "$scratch/wt-away" "$fail_dir"
 expect "verify failed in $fail_dir" "${tool[@]}" check owf
+[[ -d "$fail_dir" && -n "$(worktree_paths | grep -F "$scratch/wt-away")" ]] || fail "check pruned a worktree whose folder is away, or did not override the verify path's stale registration: $(worktree_paths)"
+git -C "$work" worktree remove --force "$scratch/wt-away" 2>/dev/null || git -C "$work" worktree prune; git -C "$work" branch -q -D wt-away
 expect "abandoned 'owf': removed 1 worktree(s)" "${tool[@]}" abandon owf
 [[ ! -e "$fail_dir" && "$(worktree_paths)" == "$worktrees_before" ]] || fail "abandon left the failed verify worktree"
 ok "a failing composed test is recorded, its worktree stays and is named, and the next check or abandon removes it"
@@ -1060,6 +1072,20 @@ git -C "$work" -c user.email=t@e.com -c user.name=t commit -q --amend --no-edit 
 expect "no longer contains ${owa_tip:0:12}; re-submit the lane" "${tool[@]}" review owa a --reference docs/ow/review.md#ok --result accept --tip "$owa_tip"
 "${tool[@]}" submit owa a --evidence ok >/dev/null; expect 'recorded accept review' accept owa a docs/ow/review.md#ok
 "${tool[@]}" abandon owa >/dev/null
+# a checkout switched to another branch is told to switch back, not to re-submit
+"${tool[@]}" init owb --objective x --acceptance y --repo "$work" --verify true --lane b --worker implementer --path src >/dev/null
+"${tool[@]}" claim owb b --agent b1; owb_start="$(git -C "$work" rev-parse HEAD)"; owb_branch="$(git -C "$work" symbolic-ref --short HEAD)"
+printf 'b\n' >> "$work/src/app.txt"; commit_paths "$work" b src/app.txt
+"${tool[@]}" submit owb b --evidence ok >/dev/null; owb_tip="$(git -C "$work" rev-parse HEAD)"
+git -C "$work" checkout -q -b owb-elsewhere "$owb_start"
+expect "no longer contains ${owb_tip:0:12}, which branch $owb_branch still holds: switch back to it (git switch $owb_branch), then rerun" "${tool[@]}" review owb b --reference docs/ow/review.md#ok --result accept --tip "$owb_tip"
+git -C "$work" checkout -q "$owb_branch"; git -C "$work" branch -q -D owb-elsewhere
+expect 'recorded accept review' accept owb b docs/ow/review.md#ok
+git -C "$work" checkout -q -b owb-elsewhere "$owb_start"
+expect "completion is blocked by b:rewritten, qa:missing, verified:missing"$'\n'"HEAD ${owb_start:0:12} no longer contains ${owb_tip:0:12}, which branch $owb_branch still holds: switch back to it" "${tool[@]}" check owb --recorded
+git -C "$work" checkout -q "$owb_branch"; git -C "$work" branch -q -D owb-elsewhere
+"${tool[@]}" abandon owb >/dev/null
+ok "a checkout switched to another branch is told to switch back before a review or check can proceed"
 "${tool[@]}" init owr --objective x --acceptance y --repo "$work" --verify true --lane r --worker implementer --path src >/dev/null
 "${tool[@]}" claim owr r --agent r1
 printf 'r\n' >> "$work/src/app.txt"; commit_paths "$work" r src/app.txt

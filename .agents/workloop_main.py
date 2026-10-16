@@ -83,8 +83,13 @@ def mixed_line(sha: str, foreign: list[str]) -> str:
 
 
 def rewrite_remedy(run_name: str, lane: dict, repo: Path, head: str, lost: str) -> str:
-    """What to do when HEAD no longer contains `lost`: re-submit while the claim's
-    start is still in HEAD's history (an amend), else the run can never pass."""
+    """What to do when HEAD no longer contains `lost`: switch back when another local
+    branch still holds it, re-submit while the claim's start is still in HEAD's
+    history (an amend), else the run can never pass."""
+    elsewhere = wg.branches_containing(repo, lost)
+    if elsewhere:
+        return (f"HEAD {head[:12]} no longer contains {lost[:12]}, which branch {elsewhere[0]} still holds: "
+                f"switch back to it (git switch {elsewhere[0]}), then rerun")
     if lane.get("start") and wg.is_ancestor(repo, lane["start"], head):
         return f"HEAD {head[:12]} no longer contains {lost[:12]}; re-submit the lane, then review HEAD"
     return (f"HEAD {head[:12]} does not descend from the lane's start {str(lane.get('start'))[:12]}: the branch was "
@@ -196,7 +201,9 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     workspace = verify_workspace(repo, run_name)
     if workspace.exists() and not wg.remove_worktree(repo, workspace):
         fail(f"{workspace} exists and is not a worktree of {repo}; move it away, then rerun check")
-    wg.git(repo, "worktree", "prune", check=False)
+    # No prune here: it would drop the registration of any worktree whose
+    # folder is away (an unmounted disk); the forced add overrides a stale
+    # registration at the verify path alone.
     wg.worktree_add_detached(repo, workspace, accepted)
     ok, text = wg.provision(workspace, repo)
     if not ok:
@@ -205,15 +212,20 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     passed, tail = wg.run_verify(verify, workspace)
     if passed:
         wg.remove_worktree(repo, workspace)
-    return {
+    verified = {
         "at": now(),
-        "workspace": str(workspace),
         "head": accepted,
         "lane_tips": {name: accepted},
         "verify": verify,
         "result": "pass" if passed else "fail",
         "tail": tail,
     }
+    # The path is recorded only while the worktree stands: a recorded path to
+    # a removed worktree would read, at the start sweep, as a run whose every
+    # worktree is gone, and the run would be dropped before its QA.
+    if not passed:
+        verified["workspace"] = str(workspace)
+    return verified
 
 
 def completion_problems(run: dict) -> list[str]:

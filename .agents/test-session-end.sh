@@ -354,13 +354,22 @@ age 90000; sweep
 [[ ! -e "$l2" && "$sweep_out" == *"closed workloop run t2"* && "$(git -C "$R" show saved/l2:src/cell.txt)" == "cell work" ]] \
   || fail "past 24 hours with no resume, the sweep must save and close the run: $sweep_out"
 ok "past the 24 hours the next start saves and closes the run, unless an ignored file would be lost"
-# A one-writer run no session leads has no worktree for git to list; it stays and is named.
+# A one-writer run no session leads has no worktree for git to list; it stays and is named,
+# before and after its composed test passed (whose verify worktree is gone again).
 $wl init ow --objective o --acceptance a --repo "$R" --verify true --lane solo --worker w --path src >/dev/null
 sweep
 [[ "$sweep_out" == *"left alone with their worktrees: "*"ow"* && "$sweep_out" != *"closed workloop run ow"* ]] || fail "an unowned one-writer run must stay and be named: $sweep_out"
-python3 -c "import json,sys; sys.exit('ow' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the sweep dropped a one-writer run"
+$wl claim ow solo --agent cell-ow >/dev/null
+printf 'ow\n' >> "$R/src/app.txt" && git -C "$R" add -- src/app.txt && git -C "$R" commit -qm ow
+$wl submit ow solo --evidence ok >/dev/null && $wl review ow solo --reference src/app.txt#ok --result accept --tip "$(git -C "$R" rev-parse HEAD)" >/dev/null
+$wl check ow >/dev/null 2>&1 || true  # the test passes and is recorded; QA is still missing
+python3 -c "import json,sys; v=json.load(open('$R/.agents/.workloop-state.json'))['runs']['ow']['verified']; sys.exit(v['result'] != 'pass')" || fail "the one-writer fixture's test did not pass"
+[[ ! -e "$R/.agents/worktrees/ow/verify" ]] || fail "a passing check left its verify worktree"
+sweep
+[[ "$sweep_out" == *"left alone with their worktrees: "*"ow"* && "$sweep_out" != *"closed workloop run ow"* ]] || fail "an unowned one-writer run with a passing test and no QA must stay and be named: $sweep_out"
+python3 -c "import json,sys; sys.exit('ow' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the sweep dropped a one-writer run after its test passed"
 $wl abandon ow >/dev/null
-ok "a one-writer run with no recorded lead stays through the sweep: nothing on disk is its to lose"
+ok "a one-writer run with no recorded lead stays through the sweep, before and after its test passed: nothing on disk is its to lose"
 
 # ── a resumed session claims its records even while another start sweeps ───
 bash_call "$R" "$wl init t7 --objective o --acceptance a --repo $R --verify true"
