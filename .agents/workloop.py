@@ -4,13 +4,15 @@
 This file is the command line: the argument parser that routes each command to
 its handler. The state file and its lock live in workloop_state.py, path
 ownership in workloop_paths.py, and the handlers in workloop_setup.py,
-workloop_lanes.py, workloop_messages.py and workloop_finish.py.
+workloop_lanes.py, workloop_cells.py, workloop_messages.py and
+workloop_finish.py.
 """
 
 from __future__ import annotations
 
 import argparse
 
+from workloop_cells import cmd_add_cell, cmd_brief, cmd_returned
 from workloop_finish import (
     cmd_abandon,
     cmd_check,
@@ -22,7 +24,6 @@ from workloop_finish import (
 from workloop_lanes import (
     cmd_ack,
     cmd_attention,
-    cmd_brief,
     cmd_claim,
     cmd_heartbeat,
     cmd_release_stale,
@@ -64,7 +65,9 @@ def parser() -> argparse.ArgumentParser:
     integrate = sub.add_parser("integrate"); integrate.add_argument("run"); integrate.add_argument("--workspace", help=f"the integration worktree (default: {WORKTREES}/<run>/integration in the checkout)"); integrate.set_defaults(func=cmd_integrate)
     teardown = sub.add_parser("teardown"); teardown.add_argument("run"); teardown.set_defaults(func=cmd_teardown)
     abandon = sub.add_parser("abandon"); abandon.add_argument("run"); abandon.add_argument("--discard-branches", action="store_true", help="also delete lane branches whose commits HEAD does not contain"); abandon.set_defaults(func=cmd_abandon)
-    brief = sub.add_parser("brief"); brief.add_argument("run"); brief.add_argument("lane"); brief.add_argument("--role", choices=("worker", "reviewer", "qa"), default="worker"); brief.set_defaults(func=cmd_brief)
+    add_cell = sub.add_parser("add-cell", help="record a read-only cell: no worktree, branch or install; prints its dispatch"); add_cell.add_argument("run"); add_cell.add_argument("name"); add_cell.add_argument("--role", choices=("research", "review", "qa"), required=True); add_cell.add_argument("--model", required=True); add_cell.set_defaults(func=cmd_add_cell)
+    returned = sub.add_parser("returned", help="a cell came back, or did not"); returned.add_argument("run"); returned.add_argument("name"); outcome = returned.add_mutually_exclusive_group(required=True); outcome.add_argument("--result", help="where its result went: a file the lead wrote, or the word reply"); outcome.add_argument("--failed", help="why it died or was stopped without returning"); returned.set_defaults(func=cmd_returned)
+    brief = sub.add_parser("brief"); brief.add_argument("run"); brief.add_argument("lane", help="a lane or a cell"); brief.add_argument("--role", choices=("worker", "reviewer", "qa"), help="a lane's brief: worker (default), reviewer or qa; a cell's role is set at add-cell"); brief.add_argument("--again", action="store_true", help="send a returned or failed cell out again, tracked until it returns"); brief.set_defaults(func=cmd_brief)
     status = sub.add_parser("status"); status.add_argument("run"); status.set_defaults(func=cmd_status)
     send = sub.add_parser("send"); send.add_argument("run"); send.add_argument("--from-lane", required=True); send.add_argument("--to-lane", required=True); send.add_argument("--agent", required=True); send.add_argument("--kind", choices=("finding", "blocked", "evidence-ready", "status"), required=True); send.add_argument("--message", required=True); send.add_argument("--reference", default=""); send.add_argument("--requires-ack", action="store_true"); send.set_defaults(func=cmd_send)
     inbox = sub.add_parser("inbox"); inbox.add_argument("run"); inbox.add_argument("lane"); inbox.set_defaults(func=cmd_inbox)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import workloop_cells as wc
 import workloop_git as wg
 from workloop_paths import WORKTREES, lane_allows, normalize_path, owned
 from workloop_state import fail, now, shared_of
@@ -267,6 +268,7 @@ def completion_problems(run: dict) -> list[str]:
             problems.append(f"{name}:attention")
         if not lane["evidence"]:
             problems.append(f"{name}:no-evidence")
+    problems += wc.cell_problems(run)
     pending = [message["id"] for message in run["messages"] if message["requires_ack"] and not message.get("acknowledged_at")]
     if pending:
         problems.append("messages:" + ",".join(pending))

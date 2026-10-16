@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import workloop_cells as wc
 import workloop_docker as wd
 import workloop_git as wg
 import workloop_main as wm
@@ -271,14 +272,9 @@ def cmd_status(args: argparse.Namespace) -> None:
             # The reviewer's accept names this commit (--tip).
             tip = f"\ttip={lane['tip'][:12]}" if lane.get("tip") and lane["state"] in ("review", "reviewed") else ""
             print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}{tip}{lease}{progress}")
+        for line in wc.status_lines(run):
+            print(line)
         print("qa\t" + (run["qa"]["evidence"] if run["qa"] else "pending"))
-
-
-def cmd_brief(args: argparse.Namespace) -> None:
-    with ReadStore(state_path(args.state)) as data:
-        run = run_of(data, args.run)
-        lane = lane_of(run, args.lane)
-    print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, lane, args.role))
 
 
 def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str, command: str) -> list[str]:

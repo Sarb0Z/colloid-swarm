@@ -227,6 +227,32 @@ lacks "$ctx" "m-open: lane reviewed" "an unreviewed lane"
 lacks "$ctx" "m-open: all lanes" "an unreviewed lane"
 ok "a one-writer run names check, QA, then check and teardown by the verification's state"
 
+# cells still out are named with the remedy of the moment: at a prompt the lead
+# records each as it returns; at a session start no cell outlives its session
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+def run(cells, **extra):
+    r = {"objective": "o", "verify": "make test", "repo": repo, "base": base, "shared": [], "lanes": {}, "cells": cells,
+         "messages": [], "qa": None, "integration": None, "events": [{"id": "e0", "at": recent, "action": "init", "lane": None, "detail": "o"}]}
+    r.update(extra); return r
+cell = {"role": "research", "model": "opus", "state": "out", "added_at": now, "out_since": now}
+runs = {
+  "c-two": run({"scout": dict(cell), "critic": dict(cell), "done": dict(cell, state="returned", result="reply"), "dead": dict(cell, state="failed", reason="x")}),
+  "c-one": run({"scout": dict(cell)}),
+  "c-back": run({"scout": dict(cell, state="returned", result="reply")}),
+}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+ctx="$(digest)"
+has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); returned c-two <name> when each comes back" "two cells out"
+has "$ctx" "WORKLOOP c-one: 1 cell out (scout); returned c-one scout when it comes back" "one cell out"
+lacks "$ctx" "c-back" "a run whose cell is back"
+ctx="$(context "$(fire SessionStart '')")"
+has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); no cell outlives its session: returned c-two <name> --failed '<why>', or brief c-two <name> --again" "two cells out at a start"
+has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "one cell out at a start"
+ok "cells still out are named at a prompt with returned, and at a session start with --failed or brief --again"
+
 # closing steps: worktree run
 put_state <<'EOF'
 import json, sys

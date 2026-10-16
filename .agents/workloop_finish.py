@@ -99,7 +99,8 @@ def cmd_integrate(args: argparse.Namespace) -> None:
             fail("integrate needs a verify command; re-init the run with --verify '<test command>'")
         if wm.main_lane(run):
             fail(f"a one-writer run has nothing to integrate; check {args.run} runs the composed test in the checkout")
-        blockers = [problem for problem in wm.completion_problems(run) if not problem.startswith(("integration:", "qa:"))]
+        # A QA cell recorded before the merge waits for the merge; a cell out never blocks it.
+        blockers = [problem for problem in wm.completion_problems(run) if not problem.startswith(("integration:", "qa:", "cell:"))]
         if blockers:
             fail("integration is blocked by " + ", ".join(blockers))
         repo, base, verify = Path(run["repo"]), run["base"], run["verify"]

@@ -1126,6 +1126,70 @@ expect "abandoned 'owr': removed 0 worktree(s)" "${tool[@]}" abandon owr
 if "${tool[@]}" status owr 2>/dev/null; then fail 'abandon left the one-writer run in state'; fi
 ok "an amend after submit is re-submitted; a history that lost the claim's start is refused naming abandon, which closes the run without touching the checkout"
 
+# ── read-only cells: a light entry in any run, tracked until it returns (ruling 8) ──
+"${tool[@]}" init oc --objective 'cells beside a writer' --acceptance 'every cell back' --repo "$work" --verify true --lane solo --worker implementer --path src >/dev/null
+cell_prompt="$("${tool[@]}" add-cell oc scout --role research --model opus)"
+cell_file="$real_work/.agents/worktrees/oc/.workloop/cell-scout.md"
+[[ "$(head -n1 <<<"$cell_prompt")" == READ-ONLY* && "$(sed -n 2p <<<"$cell_prompt")" == "WORKLOOP CELL BRIEF — oc/scout" && "$(sed -n 3p <<<"$cell_prompt")" == "Read the full brief at $cell_file before anything else"* ]] || fail "add-cell did not print a READ-ONLY cell dispatch naming its brief: $cell_prompt"
+[[ "$(head -n1 "$cell_file")" == READ-ONLY* && "$(sed -n 2p "$cell_file")" == "WORKLOOP CELL BRIEF — oc/scout" ]] || fail "the cell brief does not open READ-ONLY at cell-<name>.md: $(cat "$cell_file" 2>&1)"
+for want in 'Objective: cells beside a writer' 'Role: research — ' 'Model: opus' 'your whole result is your reply to the lead' 'you write no file' "returned oc scout --result <path|reply>, or --failed"; do
+  grep -qF -- "$want" "$cell_file" || fail "the cell brief lacks '$want': $(cat "$cell_file")"
+done
+! grep -q 'A writing cell runs' "$cell_file" || fail "a research cell's brief carries the working practice"
+[[ "$(gate_kind "$real_work" "$cell_prompt")" == "read-only" ]] || fail "the gate did not read the cell dispatch as read-only"
+[[ "$(worktree_paths)" == "$worktrees_before" ]] || fail "add-cell made a worktree"
+python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["runs"]["oc"]["cells"]["scout"]; assert c["role"] == "research" and c["model"] == "opus" and c["state"] == "out" and c["out_since"] and c["added_at"], c' "$state"
+expect "run already has a lane or cell named 'solo'" "${tool[@]}" add-cell oc solo --role review --model opus
+expect "run already has a lane or cell named 'scout'" "${tool[@]}" add-cell oc scout --role review --model opus
+"${tool[@]}" add-cell oc critic --role qa --model sonnet >/dev/null
+grep -q 'A writing cell runs' "$real_work/.agents/worktrees/oc/.workloop/cell-critic.md" || fail "a qa cell's brief lacks the working practice"
+expect "a cell's role is set at add-cell" "${tool[@]}" brief oc scout --role qa
+[[ "$("${tool[@]}" brief oc scout)" == "$cell_prompt" ]] || fail "brief on a cell out did not reprint its prompt unchanged"
+expect "'solo' is a lane, whose brief prints without it" "${tool[@]}" brief oc solo --again
+oc_status="$("${tool[@]}" status oc)"
+[[ "$oc_status" == *$'scout\tcell out\tresearch\tmodel=opus'* && "$oc_status" == *$'critic\tcell out\tqa\tmodel=sonnet'* ]] || fail "status does not list the cells with role, model and state: $oc_status"
+ok "add-cell records a read-only cell beside a one-writer run's lane, one namespace with it, and prints a READ-ONLY dispatch to its cell-<name>.md brief"
+
+# returned records where the result went or why none came; --again sends a cell out again
+expect 'names no file; it names a file the lead wrote, or the word reply' "${tool[@]}" returned oc scout --result docs/oc/none.md
+mkdir -p "$work/docs/oc"; printf 'found\n' > "$work/docs/oc/scout.md"
+expect "cell 'scout' returned; still out: critic" "${tool[@]}" returned oc scout --result docs/oc/scout.md
+expect "cell 'scout' is returned, not out; brief oc scout --again sends it out again" "${tool[@]}" returned oc scout --result reply
+expect "cell 'scout' is returned; a cell dispatched again is tracked again: brief oc scout --again" "${tool[@]}" brief oc scout
+expect "cell 'critic' is out already; brief without --again reprints its prompt" "${tool[@]}" brief oc critic --again
+python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["runs"]["oc"]["cells"]["scout"]; assert c["state"] == "returned" and c["result"] == "docs/oc/scout.md" and c["returned_at"], c' "$state"
+[[ "$("${tool[@]}" brief oc scout --again)" == "$cell_prompt" ]] || fail "brief --again did not print the cell's prompt"
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["oc"]; c=r["cells"]["scout"]; assert c["state"] == "out" and "result" not in c and "returned_at" not in c and r["events"][-1]["action"] == "brief-again", c' "$state"
+expect "cell 'scout' failed" "${tool[@]}" returned oc scout --failed 'stopped by the operator'
+expect "cell 'critic' returned" "${tool[@]}" returned oc critic --result reply
+oc_status="$("${tool[@]}" status oc)"
+[[ "$oc_status" == *$'scout\tcell failed\tresearch\tmodel=opus\treason=stopped by the operator'* && "$oc_status" == *$'critic\tcell returned\tqa\tmodel=sonnet\tresult=reply'* ]] || fail "status does not show the cells' outcomes: $oc_status"
+ok "returned takes an existing path or reply, refuses a cell not out, --failed records why, and brief --again sends a returned or failed cell out again"
+
+# check and teardown wait for a cell out and not for a failed one; integrate does not wait
+"${tool[@]}" brief oc critic --again >/dev/null
+"${tool[@]}" claim oc solo --agent oc1; printf 'cells\n' >> "$work/src/app.txt"; commit_paths "$work" cells src/app.txt
+"${tool[@]}" submit oc solo --evidence ok >/dev/null; accept oc solo docs/oc/scout.md#ok
+"${tool[@]}" qa oc --evidence 'scenario passed'
+expect 'completion is blocked by cell:critic:out, verified:missing' "${tool[@]}" check oc --recorded
+expect 'teardown waits for completion; blocked by cell:critic:out' "${tool[@]}" teardown oc
+"${tool[@]}" returned oc critic --result reply >/dev/null
+expect PASS "${tool[@]}" check oc
+expect 'removed 0 worktree(s)' "${tool[@]}" teardown oc
+[[ ! -e "$real_work/.agents/worktrees/oc" ]] || fail "teardown left the cell briefs: $(ls -R "$real_work/.agents/worktrees/oc")"
+"${tool[@]}" init wc --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-cell wc qa1 --role qa --model sonnet >/dev/null
+"${tool[@]}" add-lane wc one --worker implementer --workspace "$scratch/lane-wc" --path tests >/dev/null 2>&1
+"${tool[@]}" claim wc one --agent wc1; mkdir -p "$scratch/lane-wc/tests"; printf 'c\n' > "$scratch/lane-wc/tests/c.txt"; commit "$scratch/lane-wc" c
+"${tool[@]}" submit wc one --evidence ok >/dev/null; accept wc one tests/c.txt#ok
+expect 'PASS: integrated one' "${tool[@]}" integrate wc --workspace "$scratch/integration-wc"
+"${tool[@]}" qa wc --evidence ok
+expect 'completion is blocked by cell:qa1:out' "${tool[@]}" check wc
+"${tool[@]}" returned wc qa1 --result reply >/dev/null
+expect PASS "${tool[@]}" check wc
+"${tool[@]}" abandon wc --discard-branches >/dev/null
+ok "a cell out blocks check and teardown, a failed one does not, and integrate merges with a QA cell still out"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys

@@ -153,7 +153,20 @@ def closing_notes(run_name: str, run: dict) -> list[str]:
     return [f"check {run_name}, then teardown {run_name}"]
 
 
-def main_block(runs: dict, seen_dir: Path | None = None, session: str = "") -> str:
+def cell_notes(run_name: str, run: dict, event: str) -> list[str]:
+    """Cells still out, with the remedy that fits the moment: at a prompt the lead
+    records each as it comes back; at a session start no cell outlives its session,
+    so each is failed or sent out again."""
+    out = sorted(name for name, cell in (run.get("cells") or {}).items() if cell.get("state") == "out")
+    if not out:
+        return []
+    name = out[0] if len(out) == 1 else "<name>"
+    remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"
+              if event == "SessionStart" else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")
+    return [f"{len(out)} cell{'s' if len(out) > 1 else ''} out ({', '.join(out)}); {remedy}"]
+
+
+def main_block(runs: dict, seen_dir: Path | None = None, session: str = "", event: str = "") -> str:
     now = time.time()
     git = GitBudget()
     lines: list[str] = []
@@ -193,7 +206,7 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = "") -> s
         pending = [m["id"] for m in run.get("messages", []) if m["requires_ack"] and not m.get("acknowledged_at")]
         if pending:
             notes.append(f"{len(pending)} message(s) await acknowledgement")
-        notes += closing_notes(run_name, run) + size_notes(git, run, now)
+        notes += cell_notes(run_name, run, event) + closing_notes(run_name, run) + size_notes(git, run, now)
         if notes:
             lines.append(f"WORKLOOP {run_name}: " + "; ".join(notes) + f". Status: .agents/workloop.py status {run_name}")
     orphans = wd.foreign_orphans() if (runs and wd is not None) else []
@@ -247,7 +260,7 @@ def main() -> None:
         # The count stands with no run and no state file: the note is for a
         # lead who opened no run.
         outside = outside_runs_note(seen_dir, safe) if event == "UserPromptSubmit" else ""
-        block = "\n".join(part for part in (outside, main_block(runs, seen_dir, session) if runs else "") if part)
+        block = "\n".join(part for part in (outside, main_block(runs, seen_dir, session, event) if runs else "") if part)
     if block:
         print(block)
 
