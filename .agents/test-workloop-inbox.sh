@@ -165,6 +165,172 @@ ctx="$(context "$(fire UserPromptSubmit '')")"
 [[ "$ctx" == *"all lanes reviewed; integrate r1"* ]] || fail "integrate prompt missing: $ctx"
 ok "a run with every lane reviewed tells the lead to integrate"
 
+# closing steps and lane size are read from state and fixture repositories
+fx="$scratch/fixture-repo"
+git init -q -b main "$fx"
+git -C "$fx" config user.email t@example.com; git -C "$fx" config user.name t
+mkdir -p "$fx/src" "$fx/other"; printf 'x\n' > "$fx/src/seed.txt"; printf 'x\n' > "$fx/other/seed.txt"
+git -C "$fx" add -A; git -C "$fx" commit -q -m base
+fbase="$(git -C "$fx" rev-parse HEAD)"
+longago="$(date -u -v-30H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+recent="$(date -u -v-2H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+
+# put_state: runs the python script on stdin with (state path, repo, base, now, 30h ago, 2h ago)
+put_state() { python3 - "$state" "$fx" "$fbase" "$now" "$longago" "$recent"; }
+digest() { context "$(fire UserPromptSubmit '')"; }
+has() { [[ "$1" == *"$2"* ]] || fail "$3: missing '$2' in: $1"; }
+lacks() { [[ "$1" != *"$2"* ]] || fail "$3: unexpected '$2' in: $1"; }
+
+# closing steps: one-writer run (main lane)
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+def run(lanes, **extra):
+    r = {"objective": "o", "verify": "make test", "repo": repo, "base": base, "shared": [], "lanes": lanes,
+         "messages": [], "qa": None, "integration": None, "events": [{"id": "e0", "at": recent, "action": "init", "lane": None, "detail": "o"}]}
+    r.update(extra); return r
+main = {"state": "reviewed", "place": "main", "workspace": repo, "branch": None, "paths": ["src"], "start": base, "tip": "t1", "accepted_tip": "t1", "attention": None, "env": "main"}
+ok_v = {"at": now, "head": "t1", "lane_tips": {"solo": "t1"}, "verify": "make test", "result": "pass", "tail": "", "dirty": []}
+runs = {
+  "m-none": run({"solo": dict(main)}),
+  "m-fail": run({"solo": dict(main)}, verified=dict(ok_v, result="fail")),
+  "m-stale": run({"solo": dict(main)}, verified=dict(ok_v, lane_tips={"solo": "t0"})),
+  "m-qa": run({"solo": dict(main)}, verified=ok_v),
+  "m-done": run({"solo": dict(main)}, verified=ok_v, qa={"at": now, "evidence": "e"}),
+  "m-open": run({"solo": dict(main, state="review", accepted_tip=None)}),
+}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+ctx="$(digest)"
+has "$ctx" "WORKLOOP m-none: lane reviewed; check m-none runs the composed test" "no verification"
+has "$ctx" "WORKLOOP m-fail: lane reviewed; check m-fail runs the composed test" "failed verification"
+has "$ctx" "WORKLOOP m-stale: lane reviewed; check m-stale runs the composed test" "stale verification"
+has "$ctx" "WORKLOOP m-qa: ready for QA; record it with qa m-qa --evidence" "passing verification, no QA"
+has "$ctx" "WORKLOOP m-done: check m-done, then teardown m-done" "QA recorded"
+lacks "$ctx" "m-open: lane reviewed" "an unreviewed lane"
+lacks "$ctx" "m-open: all lanes" "an unreviewed lane"
+ok "a one-writer run names check, QA, then check and teardown by the verification's state"
+
+# closing steps: worktree run
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+def lane(name, tip="t1"):
+    return {"state": "reviewed", "workspace": "/nonexistent/" + name, "branch": "b-" + name, "paths": [name], "accepted_tip": tip, "attention": None, "env": "ready"}
+def run(integration=None, qa=None, lanes=None):
+    return {"objective": "o", "verify": "make test", "repo": repo, "base": base, "shared": [], "messages": [], "qa": qa, "integration": integration,
+            "lanes": lanes or {"a": lane("a"), "b": lane("b", "t2")}, "events": [{"id": "e0", "at": recent, "action": "init", "lane": None, "detail": "o"}]}
+heads = {"a": "t1", "b": "t2"}
+runs = {
+  "w-none": run(),
+  "w-one": run(lanes={"a": lane("a")}),
+  "w-moved": run(integration={"result": "pass", "base_head": base, "lane_heads": {"a": "t1", "b": "old"}}),
+  "w-fail": run(integration={"result": "fail", "base_head": base, "lane_heads": heads}),
+  "w-qa": run(integration={"result": "pass", "base_head": base, "lane_heads": heads}),
+  "w-done": run(integration={"result": "pass", "base_head": base, "lane_heads": heads}, qa={"at": now, "evidence": "e"}),
+}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+ctx="$(digest)"
+has "$ctx" "WORKLOOP w-none: all lanes reviewed; integrate w-none" "no integration"
+has "$ctx" "WORKLOOP w-one: all lanes reviewed; integrate w-one" "one worktree lane"
+has "$ctx" "WORKLOOP w-moved: all lanes reviewed; integrate w-moved" "a lane moved after integration"
+has "$ctx" "WORKLOOP w-fail: the composed test failed at integrate; see status" "failed integration"
+has "$ctx" "WORKLOOP w-qa: ready for QA; record it with qa w-qa --evidence" "passing integration, no QA"
+has "$ctx" "WORKLOOP w-done: check w-done, then teardown w-done" "QA recorded"
+ok "a worktree run names integrate, the failed composed test, QA, then check and teardown"
+
+# lane size: each limit names the lane with its figure and remedy; lanes under every limit are silent
+remedy="split what remains into a new lane after this one is reviewed"
+big="$fx/src/big.txt"; seq 1 801 > "$big"; git -C "$fx" add -- src/big.txt; git -C "$fx" commit -q -m big
+exact="$fx/other/exact.txt"; seq 1 800 > "$exact"; git -C "$fx" add -- other/exact.txt; git -C "$fx" commit -q -m exact
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+def lane(paths, **extra):
+    l = {"state": "active", "workspace": repo, "branch": "b", "paths": paths, "attention": None, "env": "ready", "claimed_by": "a1", "claimed_at": now, "heartbeat_at": now}
+    l.update(extra); return l
+def ev(i, action, lane_name=None, at=recent):
+    return {"id": f"e{i}", "at": at, "action": action, "lane": lane_name, "detail": ""}
+runs = {"sz": {"objective": "o", "verify": "v", "repo": repo, "base": base, "shared": [], "messages": [], "qa": None, "integration": None,
+  "lanes": {
+    "huge": lane(["src"]),
+    "edge": lane(["other"]),
+    "wide": lane([f"d{i}" for i in range(16)]),
+    "fifteen": lane([f"e{i}" for i in range(15)]),
+    "twice": lane(["x1"]),
+    "once": lane(["x2"]),
+    "reviewed-huge": lane(["src"], state="reviewed"),
+  },
+  "events": [ev(0, "init"), ev(1, "widen", "twice"), ev(2, "widen", "twice"), ev(3, "widen", "once")]}}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+ctx="$(digest)"
+has "$ctx" "huge has 801 changed lines (over 800): $remedy" "a lane over 800 lines"
+has "$ctx" "wide owns 16 paths (over 15): $remedy" "a lane over 15 paths"
+has "$ctx" "twice was widened 2 times (the second widen is the limit): $remedy" "a lane widened twice"
+for quiet in "edge " "fifteen " "once " "reviewed-huge "; do lacks "$ctx" "$quiet" "a lane under every limit or already reviewed"; done
+lacks "$ctx" "past its base" "a run open for two hours"
+ok "a lane over 800 lines, 15 paths or one widen is named with its remedy; one at the limit is not"
+
+# a run open over a day while the default branch moved past its base
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+def lane(**extra):
+    l = {"state": "active", "workspace": repo, "branch": "b", "paths": ["nothing"], "attention": None, "env": "ready", "claimed_by": "a1", "claimed_at": now, "heartbeat_at": now}
+    l.update(extra); return l
+def run(at, lanes):
+    return {"objective": "o", "verify": "v", "repo": repo, "base": base, "shared": [], "messages": [], "qa": None, "integration": None, "lanes": lanes,
+            "events": [{"id": "e0", "at": at, "action": "init", "lane": None, "detail": "o"}]}
+runs = {"old": run(longago, {"slow": lane(), "done": lane(state="reviewed")}),
+        "fresh": run(recent, {"quick": lane()}),
+        "old-main": run(longago, {"solo": lane(place="main", start=base)})}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+ctx="$(digest)"
+has "$ctx" "slow's run has been open over a day and main has 2 commit(s) past its base: $remedy" "an old run behind its default branch"
+lacks "$ctx" "done's run" "a reviewed lane"
+lacks "$ctx" "quick's run" "a run open two hours"
+lacks "$ctx" "solo's run" "a main-tree lane"
+ok "a worktree run open over a day names the commits its default branch gained"
+
+# a main lane counts changes from its start, and is silent until it has one
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+lane = {"state": "active", "place": "main", "workspace": repo, "branch": None, "paths": ["src"], "attention": None, "env": "main", "claimed_by": "a1", "claimed_at": now, "heartbeat_at": now}
+runs = {"mn": {"objective": "o", "verify": "v", "repo": repo, "base": base, "shared": [], "messages": [], "qa": None, "integration": None,
+               "lanes": {"unclaimed": dict(lane), "fromstart": dict(lane, start=base), "after": dict(lane, start="HEAD")},
+               "events": [{"id": "e0", "at": recent, "action": "init", "lane": None, "detail": "o"}]}}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+ctx="$(digest)"
+has "$ctx" "fromstart has 801 changed lines (over 800)" "a main lane counts from its start"
+lacks "$ctx" "unclaimed has" "a main lane with no start"
+lacks "$ctx" "after has" "a main lane with nothing since its start"
+ok "a main lane counts changed lines from its start and is silent before it has one"
+
+# a run whose repository and workspaces are gone still prints its other notes, and the hook exits 0
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+lane = {"state": "review", "workspace": "/nonexistent/ws", "branch": "b", "paths": [f"p{i}" for i in range(16)], "attention": None, "env": "ready"}
+runs = {"gone": {"objective": "o", "verify": "v", "repo": "/nonexistent/repo", "base": base, "shared": [], "messages": [], "qa": None, "integration": None,
+                 "lanes": {"ghost": lane, "gmain": dict(lane, place="main", start=base)},
+                 "events": [{"id": "e0", "at": longago, "action": "init", "lane": None, "detail": "o"}]}}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+set +e
+raw="$(printf '{"project_dir":"%s","event":"UserPromptSubmit","session_id":"s1","agent_id":""}' "$dir" | bash "$policy" 2>"$scratch/gone.err")"; code=$?
+set -e
+[[ "$code" -eq 0 ]] || fail "the hook exited $code with a run whose workspace is gone"
+ctx="$(context "$raw")"
+has "$ctx" "ghost awaits review" "a lane whose workspace is gone"
+has "$ctx" "ghost owns 16 paths (over 15)" "a lane whose workspace is gone"
+lacks "$ctx" "changed lines" "a figure that cannot be measured"
+ok "a run whose repository and workspaces are gone still prints its other notes and exits 0"
+
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"
 [[ -z "$(fire UserPromptSubmit '')" ]] || fail "toggle did not disable"
