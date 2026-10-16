@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import workloop_cells as wc
 import workloop_git as wg
 import workloop_main as wm
 from workloop_lanes import dispatch_prompt
@@ -122,6 +123,8 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
         if replayed(run, args.event_id): print("replayed event"); return
         if not run.get("verify"):
             fail("this run declared no --verify, so it holds read-only cells only; a writer that will follow starts with init <run> … --verify '<test command>' --lane <name> --worker <type> --path <p> (widen grows its paths later)")
+        if args.lane in wc.cells_of(run):
+            fail(f"run already has a lane or cell named {args.lane!r}")
         if wm.main_lane(run):
             fail("a one-writer run's lane works in the main tree; start a new run for writers working at once")
         repo = Path(run["repo"])

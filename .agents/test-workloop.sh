@@ -1180,6 +1180,7 @@ expect 'removed 0 worktree(s)' "${tool[@]}" teardown oc
 [[ ! -e "$real_work/.agents/worktrees/oc" ]] || fail "teardown left the cell briefs: $(ls -R "$real_work/.agents/worktrees/oc")"
 "${tool[@]}" init wc --objective x --acceptance y --repo "$work" --verify true >/dev/null
 "${tool[@]}" add-cell wc qa1 --role qa --model sonnet >/dev/null
+expect "run already has a lane or cell named 'qa1'" "${tool[@]}" add-lane wc qa1 --worker implementer --workspace "$scratch/lane-wc-qa1" --path tests
 "${tool[@]}" add-lane wc one --worker implementer --workspace "$scratch/lane-wc" --path tests >/dev/null 2>&1
 "${tool[@]}" claim wc one --agent wc1; mkdir -p "$scratch/lane-wc/tests"; printf 'c\n' > "$scratch/lane-wc/tests/c.txt"; commit "$scratch/lane-wc" c
 "${tool[@]}" submit wc one --evidence ok >/dev/null; accept wc one tests/c.txt#ok
