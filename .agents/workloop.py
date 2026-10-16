@@ -55,7 +55,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
         cell_brief(args, run)
         return
     if args.lane not in run["lanes"]:
-        fail(f"run has no lane named {args.lane!r}")
+        fail(f"run has no lane or cell named {args.lane!r}")
     if args.again:
         fail(f"--again sends a returned or failed cell out again; {args.lane!r} is a lane, whose brief prints without it")
     print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run["lanes"][args.lane], args.role or "worker"))

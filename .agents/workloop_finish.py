@@ -38,6 +38,8 @@ def cmd_qa(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
+        if not run.get("verify"):
+            fail(f"run {args.run!r} declared no --verify: a read-only fan-out records no QA, and check {args.run} passes once every cell is back")
         unresolved = [name for name, lane in run["lanes"].items() if lane["state"] != "reviewed" or lane["attention"]]
         if unresolved:
             fail("QA is blocked by lanes: " + ", ".join(unresolved))
@@ -59,7 +61,11 @@ def cmd_check(args: argparse.Namespace) -> None:
         run = run_check(args, run)
     problems = wm.completion_problems(run)
     if problems:
-        fail("completion is blocked by " + ", ".join(problems) + "".join("\n" + line for line in wm.remedies(args.run, run, problems)))
+        lines = wm.remedies(args.run, run, problems)
+        if "run:empty" in problems:
+            lines.append(f"the run holds no lane or cell: add-cell {args.run} <name> --role research|review|qa --model <model>"
+                         + (f", or add-lane {args.run} <lane> --worker <type> --path <owned path>" if run.get("verify") else ""))
+        fail("completion is blocked by " + ", ".join(problems) + "".join("\n" + line for line in lines))
     if run.get("verify"):
         print(f"PASS: {args.run!r} has reviewed lanes, a passing composed test and QA evidence")
     else:
@@ -99,6 +105,8 @@ def run_check(args: argparse.Namespace, run: dict) -> dict:
 def cmd_integrate(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
+        if not run.get("verify") and not run["lanes"]:
+            fail(f"run {args.run!r} declared no --verify, so it has nothing to merge: a read-only fan-out holds cells only, and check {args.run} passes once every cell is back")
         if not run.get("verify"):
             fail("integrate needs a verify command; re-init the run with --verify '<test command>'")
         if wm.main_lane(run):

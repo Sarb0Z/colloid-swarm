@@ -1215,13 +1215,17 @@ ok "integrate drops exactly cell_problems and qa:missing, never a lane's problem
 out="$("${tool[@]}" init fo --objective 'three scouts' --acceptance 'three answers' --repo "$work")" || fail "init without --verify and --lane was refused: $out"
 [[ "$out" == *"created workloop 'fo'"*"a read-only fan-out: it holds cells only (add-cell fo <name>"* ]] || fail "init did not name the fan-out's next step: $out"
 expect 'completion is blocked by run:empty' "${tool[@]}" check fo
+# each command says what a fan-out needs: an empty one a cell, qa and integrate nothing
+expect '^the run holds no lane or cell: add-cell fo <name> --role research|review|qa --model <model>$' "${tool[@]}" check fo
+expect "^workloop: run 'fo' declared no --verify, so it has nothing to merge: a read-only fan-out holds cells only, and check fo passes once every cell is back$" "${tool[@]}" integrate fo
+expect "run has no lane or cell named 'nobody'" "${tool[@]}" brief fo nobody
 expect "this run declared no --verify, so it holds read-only cells only; a writer that will follow starts with init <run> … --verify '<test command>' --lane <name> --worker <type> --path <p> (widen grows its paths later)" "${tool[@]}" add-lane fo w --worker implementer --path tests
 if "${tool[@]}" status fo | grep -q '^qa'; then fail "a fan-out's status shows a QA line"; fi
 for c in a b c; do "${tool[@]}" add-cell fo "$c" --role research --model haiku >/dev/null; done
 expect 'completion is blocked by cell:a:out, cell:b:out, cell:c:out' "${tool[@]}" check fo
 "${tool[@]}" returned fo a --result reply >/dev/null; "${tool[@]}" returned fo b --failed 'usage limit' >/dev/null
 expect 'teardown waits for completion; blocked by cell:c:out' "${tool[@]}" teardown fo
-expect 'QA needs at least one reviewed lane' "${tool[@]}" qa fo --evidence x
+expect "run 'fo' declared no --verify: a read-only fan-out records no QA, and check fo passes once every cell is back" "${tool[@]}" qa fo --evidence x
 "${tool[@]}" returned fo c --result reply >/dev/null
 expect "PASS: 'fo' is a read-only fan-out and every cell is back" "${tool[@]}" check fo
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["fo"]; assert r["verify"] is None and r["qa"] is None and "verified" not in r, r' "$state"
