@@ -1183,6 +1183,10 @@ ok "returned takes an existing path or reply, refuses a cell not out, --failed r
 "${tool[@]}" qa oc --evidence 'scenario passed'
 expect 'completion is blocked by cell:critic:out, verified:missing' "${tool[@]}" check oc --recorded
 expect 'teardown waits for completion; blocked by cell:critic:out' "${tool[@]}" teardown oc
+# a cell out does not keep check from running the composed test, and check names returned for it
+oc_check="$("${tool[@]}" check oc 2>&1)" && fail "check passed with a cell out: $oc_check"
+[[ "$oc_check" == *"completion is blocked by cell:critic:out"$'\n'"cell critic is out: returned oc critic --result <path|reply> when it comes back, or --failed '<why>'" ]] || fail "check did not run the composed test past a cell out, or named no remedy: $oc_check"
+python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))["runs"]["oc"]["verified"]; assert v["result"] == "pass", v' "$state"
 "${tool[@]}" returned oc critic --result reply >/dev/null
 expect PASS "${tool[@]}" check oc
 expect 'removed 0 worktree(s)' "${tool[@]}" teardown oc

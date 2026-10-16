@@ -194,11 +194,14 @@ def verification_problems(run: dict) -> list[str]:
 
 
 def verification_due(run: dict) -> bool:
-    """`check` runs the composed test: only the test and QA stand between the run and completion."""
+    """`check` runs the composed test: only the test, QA and cells still out stand between the run
+    and completion. A QA cell may wait for the test as integrate lets it wait for the merge. Judged
+    by exact problem, never by prefix: a lane named `verified` has problems that start the same way."""
     if not main_lane(run) or not run.get("verify"):
         return False
-    problems = completion_problems(run)
-    return any(p.startswith("verified:") for p in problems) and all(p.startswith(("verified:", "qa:")) for p in problems)
+    problems, stale = completion_problems(run), set(verification_problems(run))
+    waiting = stale | {"qa:missing", *wc.cell_problems(run)}
+    return any(p in stale for p in problems) and all(p in waiting for p in problems)
 
 
 def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> dict:

@@ -62,6 +62,8 @@ def cmd_check(args: argparse.Namespace) -> None:
     problems = wm.completion_problems(run)
     if problems:
         lines = wm.remedies(args.run, run, problems)
+        lines += [f"cell {name} is out: returned {args.run} {name} --result <path|reply> when it comes back, or --failed '<why>'"
+                  for name, cell in sorted(wc.cells_of(run).items()) if cell["state"] == "out"]
         if "run:empty" in problems:
             lines.append(f"the run holds no lane or cell: add-cell {args.run} <name> --role research|review|qa --model <model>"
                          + (f", or add-lane {args.run} <lane> --worker <type> --path <owned path>" if run.get("verify") else ""))
