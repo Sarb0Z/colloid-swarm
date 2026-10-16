@@ -143,7 +143,7 @@ worktree, branch or install:
 `add-cell <run> <name> --role research|review|qa --model <model>` records the
 cell as out and prints its dispatch prompt: a `READ-ONLY` line, the header
 `WORKLOOP CELL BRIEF — <run>/<name>`, then the brief to read, at
-`.agents/worktrees/<run>/.workloop/cell-<name>.md`. Append the cell's question
+`.agents/worktrees/<run>/.workloop/cells/<name>.md`. Append the cell's question
 below it. The cell returns its result as its reply and writes no file;
 `returned --result <path>` names a file the lead wrote from it instead of
 `reply`. `returned <run> <name> --failed '<reason>'` records a cell that died

@@ -24,6 +24,8 @@ ROLES = {
     "qa": "run each scenario the acceptance names, as the working practice below says, and report evidence, failures and coverage gaps",
 }
 READ_ONLY = "READ-ONLY — this cell reads the checkout and writes nothing; its result is its reply."
+# The cells' briefs, under the run's .workloop folder.
+CELL_BRIEFS = "cells"
 
 
 def cells_of(run: dict) -> dict:
@@ -113,10 +115,12 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
     """Write the cell's brief under the run's folder and return the short prompt the lead pastes."""
     cell = cells_of(run)[name]
     command = f".agents/workloop.py --state {state}"
-    # `cell-` keeps it apart from a main lane's `<lane>-reviewer.md` and `<lane>-qa.md` beside it.
-    brief_file = Path(run["repo"]) / WORKTREES / run_name / BRIEF_FOLDER / f"cell-{name}.md"
+    # A folder of their own: no lane or cell name can make a main lane's
+    # `<lane>.md`, `<lane>-reviewer.md` or `<lane>-qa.md` beside it collide.
+    folder = Path(run["repo"]) / WORKTREES / run_name / BRIEF_FOLDER
+    brief_file = folder / CELL_BRIEFS / f"{name}.md"
     brief_file.parent.mkdir(parents=True, exist_ok=True)
-    (brief_file.parent / ".gitignore").write_text("*\n")
+    (folder / ".gitignore").write_text("*\n")
     header = f"WORKLOOP CELL BRIEF — {run_name}/{name}"
     brief_file.write_text("\n".join((
         READ_ONLY,

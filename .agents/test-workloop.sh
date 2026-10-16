@@ -1130,9 +1130,9 @@ ok "an amend after submit is re-submitted; a history that lost the claim's start
 # ── read-only cells: a light entry in any run, tracked until it returns (ruling 8) ──
 "${tool[@]}" init oc --objective 'cells beside a writer' --acceptance 'every cell back' --repo "$work" --verify true --lane solo --worker implementer --path src >/dev/null
 cell_prompt="$("${tool[@]}" add-cell oc scout --role research --model opus)"
-cell_file="$real_work/.agents/worktrees/oc/.workloop/cell-scout.md"
+cell_file="$real_work/.agents/worktrees/oc/.workloop/cells/scout.md"
 [[ "$(head -n1 <<<"$cell_prompt")" == READ-ONLY* && "$(sed -n 2p <<<"$cell_prompt")" == "WORKLOOP CELL BRIEF — oc/scout" && "$(sed -n 3p <<<"$cell_prompt")" == "Read the full brief at $cell_file before anything else"* ]] || fail "add-cell did not print a READ-ONLY cell dispatch naming its brief: $cell_prompt"
-[[ "$(head -n1 "$cell_file")" == READ-ONLY* && "$(sed -n 2p "$cell_file")" == "WORKLOOP CELL BRIEF — oc/scout" ]] || fail "the cell brief does not open READ-ONLY at cell-<name>.md: $(cat "$cell_file" 2>&1)"
+[[ "$(head -n1 "$cell_file")" == READ-ONLY* && "$(sed -n 2p "$cell_file")" == "WORKLOOP CELL BRIEF — oc/scout" ]] || fail "the cell brief does not open READ-ONLY at cells/<name>.md: $(cat "$cell_file" 2>&1)"
 for want in 'Objective: cells beside a writer' 'Role: research — ' 'Model: opus' 'your whole result is your reply to the lead' 'you write no file' "returned oc scout --result <path|reply>, or --failed"; do
   grep -qF -- "$want" "$cell_file" || fail "the cell brief lacks '$want': $(cat "$cell_file")"
 done
@@ -1143,13 +1143,20 @@ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["runs"]["oc"]["cells
 expect "run already has a lane or cell named 'solo'" "${tool[@]}" add-cell oc solo --role review --model opus
 expect "run already has a lane or cell named 'scout'" "${tool[@]}" add-cell oc scout --role review --model opus
 "${tool[@]}" add-cell oc critic --role qa --model sonnet >/dev/null
-grep -q 'A writing cell runs' "$real_work/.agents/worktrees/oc/.workloop/cell-critic.md" || fail "a qa cell's brief lacks the working practice"
+grep -q 'A writing cell runs' "$real_work/.agents/worktrees/oc/.workloop/cells/critic.md" || fail "a qa cell's brief lacks the working practice"
 expect "a cell's role is set at add-cell" "${tool[@]}" brief oc scout --role qa
 [[ "$("${tool[@]}" brief oc scout)" == "$cell_prompt" ]] || fail "brief on a cell out did not reprint its prompt unchanged"
 expect "'solo' is a lane, whose brief prints without it" "${tool[@]}" brief oc solo --again
 oc_status="$("${tool[@]}" status oc)"
 [[ "$oc_status" == *$'scout\tcell out\tresearch\tmodel=opus'* && "$oc_status" == *$'critic\tcell out\tqa\tmodel=sonnet'* ]] || fail "status does not list the cells with role, model and state: $oc_status"
-ok "add-cell records a read-only cell beside a one-writer run's lane, one namespace with it, and prints a READ-ONLY dispatch to its cell-<name>.md brief"
+ok "add-cell records a read-only cell beside a one-writer run's lane, one namespace with it, and prints a READ-ONLY dispatch to its cells/<name>.md brief"
+# a cell's brief never lands on a main lane's: lane cell-a's brief and cell a's are two files
+"${tool[@]}" init sc --objective x --acceptance y --repo "$work" --verify true --lane cell-a --worker implementer --path src >/dev/null
+"${tool[@]}" add-cell sc a --role research --model haiku >/dev/null
+[[ "$(head -n1 "$real_work/.agents/worktrees/sc/.workloop/cell-a.md")" == "WORKLOOP WORKER BRIEF — sc/cell-a" ]] || fail "cell a's brief overwrote main lane cell-a's: $(head -n2 "$real_work/.agents/worktrees/sc/.workloop/cell-a.md")"
+[[ "$(sed -n 2p "$real_work/.agents/worktrees/sc/.workloop/cells/a.md")" == "WORKLOOP CELL BRIEF — sc/a" ]] || fail "cell a's brief is not at cells/a.md"
+"${tool[@]}" abandon sc >/dev/null
+ok "a cell's brief and a main lane's never share a file, whatever the names"
 
 # returned records where the result went or why none came; --again sends a cell out again
 expect 'names no file; it names a file the lead wrote, or the word reply' "${tool[@]}" returned oc scout --result docs/oc/none.md
