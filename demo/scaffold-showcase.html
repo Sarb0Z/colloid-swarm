@@ -284,13 +284,13 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, twenty-two enforcement hooks, twenty skills, and an evidence trail —
+      A hostile-review workflow, twenty-four enforcement hooks, twenty skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">[Contract menu line — one line]</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">13 gates · 5 context injectors · 1 evidence trail · 4 checkpoints, on the session lifecycle.</span><span class="m-n">22 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">13 gates · 6 context injectors · 1 evidence trail · 5 checkpoints, on the session lifecycle.</span><span class="m-n">24 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
       <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">20 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
@@ -1089,6 +1089,46 @@ stamp=&quot;$(&quot;$repo/.agents/genome.sh&quot; 2&gt;/dev/null)&quot; || exit 
 [[ -z &quot;$stamp&quot; ]] &amp;&amp; exit 0
 
 printf &#x27;%s&#x27; &quot;$stamp&quot; | python3 &quot;$lib/emit-context.py&quot; SubagentStart
+exit 0
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="context">
+              <div class="top"><span class="id">style-inject</span><span class="badge context">context</span></div>
+              <p class="what">Hands every spawned cell the session&#x27;s output style. The host sends it to the main session only, so a cell would otherwise answer to the host&#x27;s defaults, such as branching before it commits, instead of the rules its lead runs under.</p>
+              <div class="io"><b>in</b> {project_dir} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 34 lines</span></summary><div class="srcpath">.agents/hooks/policy/style-inject.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: hand a spawned subagent the session&#x27;s output style.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;}
+# Output (STDOUT): a JSON object carrying hookSpecificOutput.additionalContext,
+#   or nothing. Always exit 0; never blocks.
+#
+# Claude Code sends the output style and an appended system prompt to the main
+# session only. A cell dispatched with the Agent tool sees CLAUDE.md and the
+# host&#x27;s own defaults, among them &quot;Commit or push only when the user asks. If
+# on the default branch, branch first.&quot;, and none of the counter-pressure that
+# answers them. SubagentStart context lands in the cell&#x27;s transcript before its
+# first prompt, so every cell carries the same rules as its lead.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.style_inject.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+style=&quot;$repo/.agents/claude/output-style.md&quot;
+if [[ ! -f &quot;$style&quot; ]]; then
+  echo &quot;style-inject: $style is missing, so this subagent runs without the session&#x27;s output style&quot; &gt;&amp;2
+  exit 0
+fi
+body=&quot;$(python3 &quot;$lib/output_style.py&quot; body &quot;$style&quot;)&quot; || { echo &quot;style-inject: could not read $style; this subagent runs without it&quot; &gt;&amp;2; exit 0; }
+[[ -z &quot;$body&quot; ]] &amp;&amp; exit 0
+
+{
+  echo &quot;The session&#x27;s output style, which Claude Code sends to the main session only; it binds this cell as it binds the lead. In a cell, \&quot;the user\&quot; is still the operator: approval comes only from their messages, and a question or a human gate returns to the lead in the final report. Commits in the lead&#x27;s tree are the lead&#x27;s; a cell commits only in its own workloop worktree.&quot;
+  echo
+  printf &#x27;%s\n&#x27; &quot;$body&quot;
+} | python3 &quot;$lib/emit-context.py&quot; SubagentStart
 exit 0
 </code></pre></details>
             </article>
@@ -6100,6 +6140,70 @@ trigger=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x
 
 mkdir -p &quot;$proj/.agents&quot;
 printf &#x27;%s\n&#x27; &quot;$trigger&quot; &gt; &quot;$proj/.agents/.compaction-pending&quot;
+exit 0
+</code></pre></details>
+            </article>
+          </div>
+        </div>
+        <div class="event">
+          <div class="ev-name">SessionEnd</div>
+          <div class="ev-when">The session exits, clears, or closes; it cannot block.</div>
+          <div class="hooks">
+            <article class="hook" data-t="checkpoint">
+              <div class="top"><span class="id">session-end</span><span class="badge checkpoint">checkpoint</span></div>
+              <p class="what">When a session ends, removes the worktrees it made: a clean one at once, one holding unsaved work after committing it to <code>saved/&lt;name&gt;</code>, and a workloop run&#x27;s lanes before the run is closed. A locked or busy worktree stays and is named; session-start sweeps what a killed session leaves.</p>
+              <div class="io"><b>in</b> {session_id, reason} &nbsp;→&nbsp; <b>out</b> removed | kept, on stderr &nbsp;·&nbsp; exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 52 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-end.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: when a session ends, remove the worktrees it made.
+#
+# teardown-gate.sh records every worktree an agent tool call makes, and every
+# workloop run it creates or adds lanes to, in the session&#x27;s record file.
+# This removes what is still on disk, in this repository or another: a clean
+# worktree at once, its branch deleted when the main checkout&#x27;s HEAD contains
+# it; one holding unsaved work after committing it to `saved/&lt;worktree name&gt;`;
+# a workloop run&#x27;s worktrees the same way, then the run closed with
+# `workloop.py abandon`. A worktree locked by anything but Claude Code&#x27;s own
+# lock of this session, one a running process works in, one holding a nested
+# repository, and an EnterWorktree worktree kept at Claude Code&#x27;s exit prompt
+# all stay and are named. A run `workloop.py check` refuses waits 24 hours
+# for the conversation&#x27;s resume, and one whose worktrees hold ignored files
+# that would not come back stays. hooks/lib/worktree_removal.py owns the order
+# of the checks, and hooks/lib/worktree_sweep.py `end` the session&#x27;s record file.
+#
+# What a session that never reaches this hook leaves (a killed process, a host
+# without the event) is swept by session-start.sh at the next start.
+#
+# Claude Code fires SessionEnd on /exit and Ctrl-D (reason prompt_input_exit,
+# after its keep-or-remove prompt for a dirty EnterWorktree worktree), /clear
+# (clear), /resume, a closed terminal and a finished `claude -p` (other); a
+# SIGKILL fires nothing. The event cannot block, and its 1.5 s default budget
+# is raised by the registration&#x27;s `timeout`.
+#
+# Input (stdin JSON): {&quot;project_dir&quot;, &quot;session_id&quot;, &quot;reason&quot;, &quot;cwd&quot;}. A payload
+# without session_id falls back to CLAUDE_CODE_SESSION_ID, which Claude Code
+# sets to the ending session&#x27;s id in every hook&#x27;s environment.
+# Output: one line per worktree removed or kept, on stderr. Always exit 0.
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.teardown_gate.enabled=true)&quot;
+[[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
+
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; project_dir session_id reason)&quot;
+proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
+session=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
+reason=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
+[[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$repo&quot;
+session=&quot;${session:-${CLAUDE_CODE_SESSION_ID:-}}&quot;
+if [[ -z &quot;$session&quot; ]]; then
+  echo &quot;session-end: no session id in the payload or CLAUDE_CODE_SESSION_ID; the next session start sweeps this session&#x27;s worktrees&quot; &gt;&amp;2
+  exit 0
+fi
+
+report=&quot;$(python3 &quot;$lib/worktree_sweep.py&quot; end &quot;$proj&quot; &quot;$session&quot; &quot;$reason&quot; &quot;$repo/.agents/workloop.py&quot;)&quot; \
+  || { echo &quot;session-end: removing this session&#x27;s worktrees failed; the next session start sweeps them&quot; &gt;&amp;2; exit 0; }
+[[ -n &quot;$report&quot; ]] &amp;&amp; printf &#x27;%s\n&#x27; &quot;$report&quot; | sed &#x27;s/^/session-end: /&#x27; &gt;&amp;2
 exit 0
 </code></pre></details>
             </article>

@@ -49,6 +49,8 @@ MANIFEST = {
     "parallel-writers-gate": ".agents/hooks/policy/parallel-writers-gate.sh",
     "product-folder":    ".agents/hooks/lib/product_folder.py",
     "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
+    "style-inject":      ".agents/hooks/policy/style-inject.sh",
+    "session-end":       ".agents/hooks/policy/session-end.sh",
     # skills (SKILL.md only)
     "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",
     "search-and-cite":                    ".agents/skills/search-and-cite/SKILL.md",
