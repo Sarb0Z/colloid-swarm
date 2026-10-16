@@ -356,6 +356,22 @@ out="$(cd "$share_lane" && PROVISION_SHARE_FROM="$share_lane" "$prov" . 2>&1 || 
 [[ "$out" != *"(shared from"* ]] || fail "a checkout shared from itself"
 ok "a checkout never shares from itself"
 
+# 13b. --unshare removes the marked node_modules (and the memo) and nothing else
+printf '{"name":"s","lockfileVersion":3}\n' > "$share_lane/package-lock.json"
+(cd "$share_lane" && PROVISION_SHARE_FROM="$share_main" "$prov" . >/dev/null) || fail "re-share for unshare failed"
+[[ -f "$share_lane/node_modules/.colloid-shared" ]] || fail "the row needs a shared tree to unshare"
+mkdir -p "$share_lane/own/node_modules/pkg"
+out="$("$prov" --unshare "$share_lane")" || fail "unshare failed: $out"
+[[ ! -e "$share_lane/node_modules" ]] || fail "--unshare left the shared node_modules"
+[[ -d "$share_lane/own/node_modules/pkg" ]] || fail "--unshare removed a node_modules it did not share"
+[[ -d "$share_main/node_modules/left-pad" ]] || fail "--unshare disturbed the shared tree"
+[[ ! -e "$(gitdir "$share_lane")/colloid-provisioned" ]] || fail "--unshare kept the memo of an install that is gone"
+rm -f "$scratch/npm.ran"
+(cd "$share_lane" && "$prov" . >/dev/null) || fail "provision after --unshare failed"
+[[ -e "$scratch/npm.ran" ]] || fail "the provision after --unshare did not install"
+rm -rf "$share_lane/own"
+ok "--unshare removes only linked node_modules and the memo, so the next provision installs"
+
 
 # 14. a source that declares workspaces is never shared; another ecosystem's
 # lockfile in the same directory leaves the link alone

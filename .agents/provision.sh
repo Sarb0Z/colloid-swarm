@@ -3,6 +3,10 @@
 #
 #   .agents/provision.sh <dir>          install, or confirm current
 #   .agents/provision.sh --hash <dir>   print the lockfile hash and stop
+#   .agents/provision.sh --unshare <dir>
+#                                       remove every node_modules linked from
+#                                       another checkout, and the memo, so the
+#                                       next run installs
 #
 # A linked worktree is a fresh checkout with no node_modules, .venv, or
 # vendor tree, so a writer isolated in one cannot run its tests until
@@ -56,9 +60,11 @@ set -uo pipefail
 
 FAILURE_SENTENCE='This is an environment failure, not a code failure. Do not edit source to satisfy it.'
 
-usage() { echo "usage: provision.sh [--hash] <dir>" >&2; exit 1; }
+usage() { echo "usage: provision.sh [--hash|--unshare] <dir>" >&2; exit 1; }
 hash_only=0
+unshare_only=0
 if [[ "${1:-}" == "--hash" ]]; then hash_only=1; shift; fi
+if [[ "${1:-}" == "--unshare" ]]; then unshare_only=1; shift; fi
 [[ $# -eq 1 ]] || usage
 [[ -d "$1" ]] || { echo "provision: not a directory: $1" >&2; exit 1; }
 dir="$(cd "$1" && pwd -P)"
@@ -78,6 +84,22 @@ case "$gitdir" in
 esac
 memo="$gitdir/colloid-provisioned"
 lockdir="$gitdir/colloid-provision.lock"
+
+# The marker is this script's own, so removing what it marks is its job: a
+# command that installs into the tree (a rebuild) would otherwise write
+# through the links into the checkout the tree was shared from. The memo goes
+# with them, since it vouches for an install that is no longer there.
+if [[ $unshare_only -eq 1 ]]; then
+  removed=0
+  while IFS= read -r nm; do
+    [[ -f "$nm/.colloid-shared" ]] || continue
+    rm -rf "$nm"
+    removed=$((removed + 1))
+  done < <(find "$dir" -name node_modules -type d -prune 2>/dev/null)
+  rm -rf "$memo" "$memo.parts"
+  echo "provision: unshared $removed node_modules in $dir"
+  exit 0
+fi
 
 sha256_stdin() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -c1-64; else sha256sum | cut -c1-64; fi
