@@ -899,7 +899,9 @@ done
 [[ -z "$(git -C "$work" status --porcelain --untracked-files=all | grep -F .workloop || true)" ]] || fail "the main lane's brief dirties the checkout: $(git -C "$work" status --porcelain)"
 expect "a one-writer run's lane works in the main tree; start a new run for writers working at once" "${tool[@]}" add-lane ow second --worker implementer --path tests
 expect 'a one-writer run has nothing to integrate' "${tool[@]}" integrate ow
-ok "init --lane records the main lane with no worktree, branch or install, prints its dispatch as a plain writer, and the run takes no second lane"
+expect "lane 'solo' works in the checkout itself, which the controller does not provision" "${tool[@]}" provision ow solo
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]; assert l["branch"] is None and l["env"] == "main", l' "$state" || fail "provision changed the main lane"
+ok "init --lane records the main lane with no worktree, branch or install, prints its dispatch as a plain writer, and the run takes no second lane or provision"
 
 # the brief for a reviewer or QA cell opens READ-ONLY, which the gate honours
 rev_prompt="$("${tool[@]}" brief ow solo --role reviewer)"

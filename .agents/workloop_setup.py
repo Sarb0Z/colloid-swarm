@@ -237,6 +237,8 @@ def cmd_provision(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
         lane = lane_of(run, args.lane)
+        if wm.is_main(lane):
+            fail(f"lane {args.lane!r} works in the checkout itself, which the controller does not provision; run .agents/provision.sh {run['repo']}")
         workspace = require_workspace(lane)
         repo = Path(run["repo"])
     ok, text = wg.provision(workspace, repo)
