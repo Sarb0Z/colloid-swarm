@@ -1251,6 +1251,14 @@ expect 'completion changed while teardown ran: blocked by cell:late:out;.*close 
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["tg"]; assert not r.get("torn_down") and r["cells"]["late"]["state"] == "out", r' "$state"
 "${tool[@]}" returned tg late --result reply >/dev/null; expect "abandoned 'tg'" "${tool[@]}" abandon tg
 ok "add-cell and brief --again refuse a torn-down run, and teardown refuses inside its write lock when a cell went out while it released the run"
+# a run that had no worktree prunes none: another worktree whose folder is away keeps its registration
+git -C "$work" worktree add -q --detach "$scratch/s7-away" && mv "$scratch/s7-away" "$scratch/s7-moved"
+"${tool[@]}" init s7 --objective x --acceptance y --repo "$work" >/dev/null
+"${tool[@]}" add-cell s7 a --role research --model haiku >/dev/null; "${tool[@]}" returned s7 a --result reply >/dev/null
+expect "abandoned 's7'" "${tool[@]}" abandon s7
+git -C "$work" worktree list --porcelain | grep -q "^worktree .*/s7-away$" || fail "abandon of a run with no worktree pruned another worktree's registration"
+mv "$scratch/s7-moved" "$scratch/s7-away" && git -C "$work" worktree remove --force "$scratch/s7-away"
+ok "abandon prunes worktree registrations only for a run that had a worktree"
 # a run with --verify and no lane yet is not finished: scouts returned before the first add-lane never let it close
 "${tool[@]}" init pre --objective x --acceptance y --repo "$work" --verify true >/dev/null
 "${tool[@]}" add-cell pre scout --role research --model haiku >/dev/null; "${tool[@]}" returned pre scout --result reply >/dev/null

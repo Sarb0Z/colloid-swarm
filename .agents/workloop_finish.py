@@ -201,7 +201,11 @@ def release_run(repo: Path, run_name: str, lane_names: list[str], worktrees: dic
     removed, kept, errors = [], [], []
     docker_result = wd.reap(run_name, sorted(lane_names))
     errors.extend(docker_result["failed"])
-    wg.git(repo, "worktree", "prune", check=False)
+    # The prune is repository-wide: it drops the registration of any worktree
+    # whose folder is away (an unmounted disk), so only a run that had a
+    # worktree of its own pays that risk.
+    if worktrees or integration.get("workspace") or wm.verify_workspace(repo, run_name).exists():
+        wg.git(repo, "worktree", "prune", check=False)
     targets = [(f"lane {name}", workspace, branch, f"not merged into {head[:12]}") for name, (workspace, branch) in sorted(worktrees.items())]
     targets.append(("integration", integration.get("workspace"), f"{run_name}/integration",
                     "carries the verified composition; land it, then rerun teardown"))
