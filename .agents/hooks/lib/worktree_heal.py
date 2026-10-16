@@ -38,8 +38,11 @@ ANYWHERE = frozenset({".DS_Store", "next-env.d.ts"})
 # Caches a tool rebuilds the next time it runs, holding no work (ruling 29).
 CACHE_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
 LEDGERS = (".wrap-*", ".teardown-pending-*", ".ui-pending-*", ".provenance-*", ".writers-*", ".cells-*",
-           ".cell-markers-*", ".inbox-seen-*", ".publish-approved-*", ".compaction-pending", ".genome-ledger",
-           ".mutagen-ledger", ".kimi-pending-findings-*", ".workloop-state.json.lock")
+           ".cell-markers-*", ".inbox-seen-*", ".publish-approved-*", ".compaction-pending",
+           ".kimi-pending-findings-*", ".workloop-state.json.lock")
+# colloid-only
+LEDGERS += (".genome-ledger", ".mutagen-ledger")
+# /colloid-only
 
 
 def idle_since(path: Path) -> float:
