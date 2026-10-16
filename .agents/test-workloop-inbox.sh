@@ -3,6 +3,7 @@
 # start and its lane's unread messages between tool calls, once each; the
 # lead hears a digest of what needs them.
 set -euo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
