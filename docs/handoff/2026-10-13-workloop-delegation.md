@@ -181,6 +181,8 @@ calls, so the pattern above overstated shell writes about tenfold; tests
 | 30 | Does ruling 28 cover a plain worktree | Yes: a worktree a session made with `git worktree add` or `EnterWorktree` that holds ignored files that would not come back stays at the session end and is named, like a run's (2026-10-16) | `worktrees-end-with-their-session` |
 | 31 | Which lane works in the main tree (refines ruling 14) | Only a run's sole lane: the lane `init --lane` records works in the main tree, `add-lane` always gives a worktree and refuses a run holding a main lane, so no run mixes the two (2026-10-16) | this spec |
 | 32 | What a main-tree lane's work is | The commits since its first claim that touch its owned or shared paths; other writers' commits in that range are listed and do not block (2026-10-16) | this spec |
+| 33 | Where `check` tests a one-writer run | In a short-lived worktree at the lane's accepted commit, provisioned and removed after a pass, so other sessions' files and edits during the test stay out of the tested tree; the lane still works in the main tree (2026-10-16, after review round u6) | this spec |
+| 34 | A commit in a main lane's range touching its paths and others | Listed as mixed for the reviewer; it never blocks `submit`, whoever made it (2026-10-16) | this spec |
 
 ## Design
 
@@ -256,9 +258,10 @@ A run is one multi-cell delegation, kept from plan to verified result.
   the current branch: no worktree, no install, nothing to merge (rulings 14 and
   31). It records no branch and no worktree, so `teardown` removes neither, and
   its work is the commits since its first claim that touch its owned or shared
-  paths (ruling 32); others' commits in that range are listed, not refused.
-  `check` verifies it by running the composed test in the main checkout; no
-  integration worktree is made. `check --recorded` judges from recorded results
+  paths (ruling 32); others' commits in that range, and commits touching its
+  paths and others, are listed, not refused (ruling 34). `check` verifies it
+  by running the composed test in a short-lived worktree at the lane's
+  accepted commit, removed after a pass (ruling 33); nothing is merged. `check --recorded` judges from recorded results
   and runs nothing, for the session end. Every lane `add-lane` makes gets a
   worktree (section 6), `add-lane` refuses a run holding a main lane, and
   `integrate` merges and verifies the worktree lanes, one or more.
@@ -381,8 +384,8 @@ stays in the lead's checkout, where the gate and the digest read it.
   every cell call; the sweep puts it on none and gives the lead the same
   result. A cell resumed after it finished or died registers again.
 - **A review may cite any existing file**, not only one in the repository.
-- **Every run's composed test runs**: `check` runs it in the main checkout for
-  a main-tree lane and requires a passing `integrate` for worktree lanes;
+- **Every run's composed test runs**: `check` runs it at the accepted commit
+  for a main-tree lane (ruling 33) and requires a passing `integrate` for worktree lanes;
   `check --recorded`, which the session end calls, never runs it.
 - **The digest names QA and `check`** when a run is ready for them.
 - **A lane that grows is named** (ruling 24). The lead's digest warns when a
