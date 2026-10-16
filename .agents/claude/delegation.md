@@ -16,7 +16,9 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   questions: does it change files; can one writer do it; are the parts
   disjoint; does one consume another's interface; is a choice worth paying for
   several times; which tier each cell needs. **One writer** is the default,
-  editing the main tree with read-only cells around it. A **read-only
+  editing the main tree with read-only cells around it, recorded with one
+  `workloop.py init … --lane`. Each lane carries one behaviour and merges
+  within about a day. A **read-only
   fan-out** is three cells by default, about ten for broad research.
   **Parallel slices** take about three writers at most, one lane each. A
   **contract-first split** commits the interface before the lanes start. A

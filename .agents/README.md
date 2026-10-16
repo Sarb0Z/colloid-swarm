@@ -289,8 +289,9 @@ worktree at once, a dirty one after committing its tracked changes and
 unignored files to `saved/<name>`, a run's lanes the same way before
 `workloop.py abandon` closes it. A branch goes only when the main checkout's
 HEAD contains it. `/clear` and `/resume` end the old conversation's worktrees
-and runs as an exit does. Only a finished run closes, one `workloop.py check`
-passes; any other run waits 24 hours for the conversation's resume, its
+and runs as an exit does. Only a finished run closes, one
+`workloop.py check --recorded` passes, which judges recorded results and never
+runs the test; any other run waits 24 hours for the conversation's resume, its
 record stamped at each session end. A start that finds a killed session's run
 unstamped, or stamped before the conversation's last resume, stamps it then
 and keeps it; resuming re-hosts the record, before the sweep's lock, so the

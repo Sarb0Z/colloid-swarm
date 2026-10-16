@@ -27,7 +27,7 @@ from workloop_state import (
 
 # The delegation shapes, one line each; the workloop skill holds the full guide.
 SHAPES = """Delegation shapes (the workloop skill's guide; choose one before dispatching):
-  one writer            the default: one cell edits the main tree, read-only cells around it; no run needed
+  one writer            the default: init <run> ... --lane <name> --worker <type> --path <p>; the lane edits the main tree, read-only cells around it
   read-only fan-out     research, review or QA cells returning text; three by default, about ten for broad research
   parallel slices       one lane per writer on disjoint files that merge in any order; about three writers at most
   contract-first split  commit the interface first, then producer and consumer lanes build against it at once

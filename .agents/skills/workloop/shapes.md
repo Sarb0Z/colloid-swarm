@@ -36,7 +36,19 @@ Stop and report if: the export needs a new API field.
 <working-practice.md>
 ```
 
-No run: the writer edits the main tree, and the lead verifies its result.
+The writer edits the main tree as a one-writer run. The lead records it with
+one command, which prints the prompt to dispatch:
+
+```sh
+.agents/workloop.py init export --objective 'Reports export their rows as CSV' \
+  --acceptance 'pnpm vitest run apps/web/src/pages/reports passes' \
+  --verify 'pnpm vitest run apps/web' \
+  --lane csv --worker implementer --path apps/web/src/pages/reports
+```
+
+After the cell submits: `brief export csv --role reviewer` for the reviewer,
+then `check` (it runs `--verify` once at the accepted commit), `qa`, `check`,
+`teardown`.
 
 ## Read-only fan-out
 

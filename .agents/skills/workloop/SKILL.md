@@ -19,7 +19,8 @@ and you may depart from them by stating why.
    research, each with one distinct question. Each prompt opens `READ-ONLY`.
 2. **Can one writer do it in reasonable time?** Yes: **one writer**, with
    read-only cells around it. This is the default; most delegations are this.
-   The writer edits the main tree; no run is needed.
+   The writer edits the main tree as a one-writer run: one `init … --lane`
+   records the run and its lane and prints the dispatch line (below).
 3. **Do the parts touch disjoint files and merge in any order?** Yes:
    **parallel slices**, one lane each. At most about three writers on one
    codebase unless you state why more pay off; the controller's ceiling of
@@ -38,10 +39,19 @@ and you may depart from them by stating why.
 6. **Which tier does each cell need?** The tier follows how hard the cell's own
    task is, by the root contract's tiers, not the stakes of the whole job.
 
+Each lane carries one behaviour, at most one migration, and merges within
+about a day. A part riskier than its neighbours is its own lane, built after
+the parts it rests on are reviewed. The lead's digest names a lane past 800
+changed lines in its paths, one owning more than 15 paths, one widened a second
+time, and a run open over a day while its default branch moved; it refuses
+nothing, and its remedy is to split what remains into a new lane once this one
+is reviewed.
+
 Weigh each shape's cost:
 
 - A read-only cell costs its tokens only.
-- The lone writer adds nothing to the checkout.
+- The lone writer adds nothing to the checkout while it works; its `check`
+  makes one short-lived worktree and install at the accepted commit.
 - Each extra writer adds a worktree, an install, a review and a merge:
   measured 2026-10-13 on real disk, about 6 s and 0.26 GB per lane on the
   scaffold, 7 s and 0.24 GB on `food-app-core`, 12 s and 0.9 GB on `claims-app`.
@@ -62,9 +72,12 @@ For a lane, `brief` writes the run's objective and acceptance, the lane's
 owned paths, and the working practice to `<lane worktree>/.workloop/BRIEF.md`
 (`BRIEF-reviewer.md` and `BRIEF-qa.md` for those roles; git ignores the folder,
 and every `brief` call rewrites the file, so a widened lane gets a current one).
-It prints a dispatch prompt: the header line, then one line naming that file for
-the cell to read first. `brief` writes into the lane's worktree, so it needs
-one: it fails after `teardown` or a failed `add-lane`. Paste the prompt unchanged as the cell's prompt, and
+A one-writer run's lane has no worktree: its briefs go to
+`.agents/worktrees/<run>/.workloop/<lane>.md` (`-reviewer`, `-qa`). It prints a
+dispatch prompt: the header line, then one line naming that file for the cell
+to read first; a reviewer or QA prompt opens with a `READ-ONLY` line, so the
+writers gate does not count that cell. A worktree lane's `brief` writes into its
+worktree, so it fails after `teardown` or a failed `add-lane`. Paste the prompt unchanged as the cell's prompt, and
 append the lane's own objective, its contract, what it returns and when it
 stops below it, leaving the header line first: the parallel-writers gate
 recognises a lane cell by that line. A cell outside a run gets a brief you write: paste
@@ -88,8 +101,35 @@ elsewhere the cells poll the durable inbox at each handoff.
 
 ## Start a run
 
-Create one run with a testable objective, the test command proving the composed
-result, and a base revision, which `init` pins to a commit. Add a lane
+A lone writer is a one-writer run: one command before the dispatch, five after
+the cell submits.
+
+```sh
+.agents/workloop.py init export --objective 'Reports export their rows as CSV' \
+  --acceptance 'the reports page test downloads the visible rows' \
+  --verify 'pnpm vitest run apps/web' \
+  --lane csv --worker implementer --path apps/web/src/pages/reports
+# dispatch the printed prompt; the cell claims, commits on the current branch, submits
+.agents/workloop.py brief export csv --role reviewer   # dispatch; it accepts with --tip
+.agents/workloop.py check export      # runs --verify once, at the accepted commit
+.agents/workloop.py qa export --evidence '<observed result>'
+.agents/workloop.py check export && .agents/workloop.py teardown export
+```
+
+The lane works in the main checkout on its current branch: no worktree, branch
+or install. Its cell stages by path (`git add -- <path>`), since others may
+hold uncommitted work in the checkout. Its work is the commits since its first
+claim that touch its paths; another writer's commits there are listed, not
+refused, and so is a commit touching its paths and others ("mixed"), for the
+reviewer to judge. `add-lane` refuses a run holding such a lane: writers working
+at once start a run with worktree lanes. `check` tests the accepted commit in a
+short-lived worktree at `.agents/worktrees/<run>/verify`, removed after a pass
+and kept for inspection after a fail; a lane-path commit or uncommitted edit
+after the accept makes the run stale until the lane is re-submitted.
+
+For writers working at once, create one run with a testable objective, the test
+command proving the composed result, and a base revision, which `init` pins to
+a commit. Add a lane
 per writer: `add-lane` creates the worktree on branch `<run>/<lane>` when the
 path does not exist, installs its dependencies from the lockfiles, and records
 the lockfile hash. A writing lane owns exclusive paths.
@@ -202,16 +242,18 @@ containers behind. The controller answers with ownership, leases, and progress:
   lane, and the digest and `status` show it beside the lane's age, so a slow
   lane reads as slow.
 - **Narrow acceptance.** A lane runs only the narrowest acceptance for its slice,
-  never the end-to-end or browser suite; `integrate` runs `--verify` once over
-  the merged tree. Every merge queue works this way. A one-lane run's `check`
-  does not ask for `integrate`, so its lane runs `--verify` once before
-  `submit`.
+  never the end-to-end or browser suite; `--verify` runs once over the result:
+  at `integrate` for a run with worktree lanes, one or more, and at `check` for
+  a one-writer run. Every merge queue works this way.
 
 ## Feedback and recovery
 
 The reviewer records `accept` or `reopen` with a canonical report reference: a
 path in the repository, or the absolute path of any existing file, such as a
-report written in another project. For
+report written in another project. An accept names the commit it reviewed,
+`--tip <sha>`, which the reviewer brief prints; it is refused when the lane
+moved past that commit, so the lane re-submits and the new commits are
+reviewed. For
 a P0 or a path conflict, the lead runs `attention`, delivers the printed prompt,
 and records the cell's acknowledgement before the correction cycle.
 
@@ -256,7 +298,8 @@ claimant acknowledges it, and the sender cannot acknowledge its own message.
 Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
 its host agent id at start and each unread message for its lane once between
 tool calls, and the lead hears at every prompt which lanes await review, carry
-attention, are stale or broken, and when a run is ready to integrate. A hook
+attention, are stale or broken or growing past their size, and each run's next
+closing step: `integrate`, `check`, QA, or `teardown`. A hook
 cannot wake an idle lead, so for a run that outlives the lead's turn, schedule
 the poll: `/loop 10m .agents/workloop.py watch <run>`. On Codex and Kimi the manual
 `inbox` stands.
@@ -281,7 +324,7 @@ worktree (`.agents/worktrees/<run>/integration` unless `--workspace` names
 one) to the base on branch `<run>/integration`, merges the lane branches in
 dependency order, provisions, and runs the `--verify` command once. A conflict
 aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
-On a run with more than one lane, `check` requires a passing integration whose
+On a run with worktree lanes, `check` requires a passing integration whose
 recorded lane tips still match; a lane commit after integration reports
 `integration:stale` until `integrate` reruns.
 
@@ -307,8 +350,10 @@ already contains and names the rest; `--discard-branches` deletes those too.
 
 Only the independent QA result advances the run. `check` is the completion
 gate: it fails when any lane is unresolved, lacks evidence, or has
-unacknowledged attention, when the run lacks QA evidence, or when a multi-lane
-run lacks a current passing integration.
+unacknowledged attention, when the run lacks QA evidence, or when its composed
+test has no current pass: an integration for worktree lanes, a verification at
+the accepted commit for a one-writer run. `check --recorded` judges from what is
+recorded and never runs the test; the session end uses it.
 
 The default ceiling is eight lanes; each further lane requires `--allow-more`
 when added, so the lead accepts the coordination cost deliberately.
