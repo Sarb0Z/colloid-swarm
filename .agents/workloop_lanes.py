@@ -274,7 +274,8 @@ def cmd_status(args: argparse.Namespace) -> None:
             print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}{tip}{lease}{progress}")
         for line in wc.status_lines(run):
             print(line)
-        print("qa\t" + (run["qa"]["evidence"] if run["qa"] else "pending"))
+        if run.get("verify"):
+            print("qa\t" + (run["qa"]["evidence"] if run["qa"] else "pending"))
 
 
 def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str, command: str) -> list[str]:

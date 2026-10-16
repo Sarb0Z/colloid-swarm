@@ -48,6 +48,8 @@ def main_lane_paths(args: argparse.Namespace, shared: list[str]) -> list[str]:
         return []
     if not (args.worker and args.path):
         fail("--lane needs --worker and at least one --path")
+    if not args.verify:
+        fail("--lane needs --verify: a writer's work is verified by the composed test; a run declared without --verify holds read-only cells only")
     valid_name("lane", args.lane)
     paths = [normalize_path(path) for path in args.path]
     if len(set(paths)) != len(paths):
@@ -86,7 +88,8 @@ def cmd_init(args: argparse.Namespace) -> None:
     lane_paths = main_lane_paths(args, shared)
     repo = wg.toplevel(args.repo or Path.cwd())
     base = wg.resolve_commit(repo, args.base)
-    wg.guard_command(args.verify, repo)
+    if args.verify:
+        wg.guard_command(args.verify, repo)
     with Store(state_path(args.state)) as data:
         if args.run in data["runs"]:
             if replayed(data["runs"][args.run], args.event_id):
@@ -101,6 +104,8 @@ def cmd_init(args: argparse.Namespace) -> None:
     print(f"created workloop {args.run!r} at {base[:12]} in {repo}")
     if args.lane:
         print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run["lanes"][args.lane], "worker"))
+    elif not args.verify:
+        print(f"a read-only fan-out: it holds cells only (add-cell {args.run} <name> --role research|review|qa --model <model>) and is finished once every cell is back")
     else:
         print(SHAPES)
 
@@ -113,6 +118,8 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
+        if not run.get("verify"):
+            fail("this run declared no --verify, so it holds read-only cells only; a writer that will follow starts with init <run> … --verify '<test command>' --lane <name> --worker <type> --path <p> (widen grows its paths later)")
         if wm.main_lane(run):
             fail("a one-writer run's lane works in the main tree; start a new run for writers working at once")
         repo = Path(run["repo"])

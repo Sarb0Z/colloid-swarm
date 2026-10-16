@@ -59,7 +59,10 @@ def cmd_check(args: argparse.Namespace) -> None:
     problems = wm.completion_problems(run)
     if problems:
         fail("completion is blocked by " + ", ".join(problems) + "".join("\n" + line for line in wm.remedies(args.run, run, problems)))
-    print(f"PASS: {args.run!r} has reviewed lanes, a passing composed test and QA evidence")
+    if run.get("verify"):
+        print(f"PASS: {args.run!r} has reviewed lanes, a passing composed test and QA evidence")
+    else:
+        print(f"PASS: {args.run!r} is a read-only fan-out and every cell is back")
     if not run.get("torn_down"):
         print(f"the run is still open; close it with: .agents/workloop.py teardown {args.run}")
 

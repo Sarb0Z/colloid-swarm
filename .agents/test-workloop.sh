@@ -74,13 +74,14 @@ gate_kind() {  # <project root> <prompt>
 # ── base is pinned, verify is guarded ────────────────────────────────────────
 "${tool[@]}" --event-id init-demo init demo --objective 'prove coordination' --acceptance 'all lanes reviewed and QA observed' --repo "$work" --base HEAD --verify 'grep -q change src/app.txt'
 expect 'replayed event' "${tool[@]}" --event-id init-demo init demo --objective 'ignored replay' --acceptance ignored --repo "$work" --verify true
-if "${tool[@]}" init noverify --objective x --acceptance y --repo "$work" 2>/dev/null; then fail 'init without --verify was accepted'; fi
+expect '\-\-lane needs --verify' "${tool[@]}" init noverify --objective x --acceptance y --repo "$work" --lane solo --worker implementer --path src
+if "${tool[@]}" status noverify >/dev/null 2>&1; then fail 'a refused init --lane without --verify left the run in state'; fi
 python3 - "$state" <<'EOF'
 import json, re, sys
 base = json.load(open(sys.argv[1]))["runs"]["demo"]["base"]
 assert re.fullmatch(r"[0-9a-f]{40}", base), base
 EOF
-ok "init resolves --base HEAD to a commit SHA and requires --verify"
+ok "init resolves --base HEAD to a commit SHA and requires --verify with --lane"
 if "${tool[@]}" init pushy --objective x --acceptance y --repo "$work" --verify 'git push origin main' 2>/dev/null; then fail 'a publishing verify command was accepted'; fi
 if "${tool[@]}" init nuke --objective x --acceptance y --repo "$work" --verify 'rm -rf /' 2>/dev/null; then fail 'a destructive verify command was accepted'; fi
 ok "verify commands pass the destructive and publish guards"
@@ -1189,6 +1190,29 @@ expect 'completion is blocked by cell:qa1:out' "${tool[@]}" check wc
 expect PASS "${tool[@]}" check wc
 "${tool[@]}" abandon wc --discard-branches >/dev/null
 ok "a cell out blocks check and teardown, a failed one does not, and integrate merges with a QA cell still out"
+
+# ── a run declared without --verify is a read-only fan-out (ruling 35) ───────
+out="$("${tool[@]}" init fo --objective 'three scouts' --acceptance 'three answers' --repo "$work")" || fail "init without --verify and --lane was refused: $out"
+[[ "$out" == *"created workloop 'fo'"*"a read-only fan-out: it holds cells only (add-cell fo <name>"* ]] || fail "init did not name the fan-out's next step: $out"
+expect 'completion is blocked by run:empty' "${tool[@]}" check fo
+expect "this run declared no --verify, so it holds read-only cells only; a writer that will follow starts with init <run> … --verify '<test command>' --lane <name> --worker <type> --path <p> (widen grows its paths later)" "${tool[@]}" add-lane fo w --worker implementer --path tests
+if "${tool[@]}" status fo | grep -q '^qa'; then fail "a fan-out's status shows a QA line"; fi
+for c in a b c; do "${tool[@]}" add-cell fo "$c" --role research --model haiku >/dev/null; done
+expect 'completion is blocked by cell:a:out, cell:b:out, cell:c:out' "${tool[@]}" check fo
+"${tool[@]}" returned fo a --result reply >/dev/null; "${tool[@]}" returned fo b --failed 'usage limit' >/dev/null
+expect 'teardown waits for completion; blocked by cell:c:out' "${tool[@]}" teardown fo
+expect 'QA needs at least one reviewed lane' "${tool[@]}" qa fo --evidence x
+"${tool[@]}" returned fo c --result reply >/dev/null
+expect "PASS: 'fo' is a read-only fan-out and every cell is back" "${tool[@]}" check fo
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["fo"]; assert r["verify"] is None and r["qa"] is None and "verified" not in r, r' "$state"
+expect 'removed 0 worktree(s)' "${tool[@]}" teardown fo
+[[ ! -e "$real_work/.agents/worktrees/fo" && "$(worktree_paths)" == "$worktrees_before" ]] || fail "the fan-out's teardown left briefs or touched worktrees"
+# a run with --verify and no lane yet is not finished: scouts returned before the first add-lane never let it close
+"${tool[@]}" init pre --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-cell pre scout --role research --model haiku >/dev/null; "${tool[@]}" returned pre scout --result reply >/dev/null
+expect 'completion is blocked by qa:missing, lanes:none' "${tool[@]}" check pre --recorded
+"${tool[@]}" abandon pre >/dev/null
+ok "a run without --verify takes cells and no lane, needs no QA or composed test, and is finished once every cell is back; one with --verify and no lane yet is not"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'

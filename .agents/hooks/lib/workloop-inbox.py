@@ -157,9 +157,11 @@ def cell_notes(run_name: str, run: dict, event: str) -> list[str]:
     """Cells still out, with the remedy that fits the moment: at a prompt the lead
     records each as it comes back; at a session start no cell outlives its session,
     so each is failed or sent out again."""
-    out = sorted(name for name, cell in (run.get("cells") or {}).items() if cell.get("state") == "out")
+    cells = run.get("cells") or {}
+    out = sorted(name for name, cell in cells.items() if cell.get("state") == "out")
     if not out:
-        return []
+        # A run declared without --verify is finished once every cell is back (ruling 35).
+        return [f"every cell is back; check {run_name}, then teardown {run_name}"] if cells and not run.get("verify") else []
     name = out[0] if len(out) == 1 else "<name>"
     remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"
               if event == "SessionStart" else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")

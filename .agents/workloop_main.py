@@ -272,19 +272,27 @@ def completion_problems(run: dict) -> list[str]:
     pending = [message["id"] for message in run["messages"] if message["requires_ack"] and not message.get("acknowledged_at")]
     if pending:
         problems.append("messages:" + ",".join(pending))
+    if not run["lanes"] and not wc.cells_of(run):
+        problems.append("run:empty")
+    # A run declared without --verify holds read-only cells only and is done
+    # once every cell is back: no QA, no composed test (ruling 35). One from
+    # before --verify was required that holds lanes can never pass.
+    if not run.get("verify"):
+        return problems + (["verify:undeclared"] if run["lanes"] else [])
     if not run["qa"]:
         problems.append("qa:missing")
-    # Every run's composed test runs: a main lane's at its accepted commit by
-    # `check`, worktree lanes' over the merged tree by `integrate`, re-run if
-    # any lane moved afterwards. A run from before `--verify` was required
-    # cannot. After teardown the checkout and the branches move on.
+    # Every other run's composed test runs: a main lane's at its accepted
+    # commit by `check`, worktree lanes' over the merged tree by `integrate`,
+    # re-run if any lane moved afterwards. After teardown the checkout and the
+    # branches move on. Scouts may return before the first add-lane: a run
+    # with --verify and no lane yet is not finished.
     found = main_lane(run)
-    if run["lanes"] and not run.get("verify"):
-        problems.append("verify:undeclared")
+    if not run["lanes"]:
+        problems.append("lanes:none")
     elif found:
         if not run.get("torn_down"):
             problems += live_problems(run, *found)
         problems += verification_problems(run)
-    elif run["lanes"] and not run.get("torn_down"):
+    elif not run.get("torn_down"):
         problems += integration_problems(run)
     return problems

@@ -241,13 +241,17 @@ runs = {
   "c-two": run({"scout": dict(cell), "critic": dict(cell), "done": dict(cell, state="returned", result="reply"), "dead": dict(cell, state="failed", reason="x")}),
   "c-one": run({"scout": dict(cell)}),
   "c-back": run({"scout": dict(cell, state="returned", result="reply")}),
+  "c-fanout": run({"scout": dict(cell, state="returned", result="reply"), "dead": dict(cell, state="failed", reason="x")}, verify=None),
+  "c-fanout-open": run({"scout": dict(cell)}, verify=None),
 }
 json.dump({"version": 1, "runs": runs}, open(path, "w"))
 EOF
 ctx="$(digest)"
 has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); returned c-two <name> when each comes back" "two cells out"
 has "$ctx" "WORKLOOP c-one: 1 cell out (scout); returned c-one scout when it comes back" "one cell out"
-lacks "$ctx" "c-back" "a run whose cell is back"
+lacks "$ctx" "c-back" "a run with --verify whose cell is back waits for its lane"
+has "$ctx" "WORKLOOP c-fanout: every cell is back; check c-fanout, then teardown c-fanout" "a fan-out whose cells are back"
+has "$ctx" "WORKLOOP c-fanout-open: 1 cell out (scout); returned c-fanout-open scout" "a fan-out with a cell out"
 ctx="$(context "$(fire SessionStart '')")"
 has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); no cell outlives its session: returned c-two <name> --failed '<why>', or brief c-two <name> --again" "two cells out at a start"
 has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "one cell out at a start"
