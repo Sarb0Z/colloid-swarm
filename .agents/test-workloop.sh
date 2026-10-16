@@ -1200,6 +1200,16 @@ expect 'completion is blocked by cell:qa1:out' "${tool[@]}" check wc
 expect PASS "${tool[@]}" check wc
 "${tool[@]}" abandon wc --discard-branches >/dev/null
 ok "a cell out blocks check and teardown, a failed one does not, and integrate merges with a QA cell still out"
+# integrate drops exactly the cells' and QA's problems: a reopened lane named cell still blocks it
+"${tool[@]}" init ic --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-lane ic cell --worker implementer --workspace "$scratch/lane-ic" --path tests >/dev/null 2>&1
+"${tool[@]}" add-cell ic q --role qa --model sonnet >/dev/null
+"${tool[@]}" claim ic cell --agent ic1; mkdir -p "$scratch/lane-ic/tests"; printf 'c\n' > "$scratch/lane-ic/tests/c.txt"; commit "$scratch/lane-ic" c
+"${tool[@]}" submit ic cell --evidence ok >/dev/null
+"${tool[@]}" review ic cell --reference tests/c.txt#p1 --result reopen --severity P1 >/dev/null
+expect 'integration is blocked by cell:reopened, cell:attention$' "${tool[@]}" integrate ic --workspace "$scratch/integration-ic"
+"${tool[@]}" abandon ic --discard-branches >/dev/null
+ok "integrate drops exactly cell_problems and qa:missing, never a lane's problem by its name's prefix"
 
 # ── a run declared without --verify is a read-only fan-out (ruling 35) ───────
 out="$("${tool[@]}" init fo --objective 'three scouts' --acceptance 'three answers' --repo "$work")" || fail "init without --verify and --lane was refused: $out"
