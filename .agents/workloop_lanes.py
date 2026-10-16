@@ -268,7 +268,9 @@ def cmd_status(args: argparse.Namespace) -> None:
             pending = len(pending_messages(run, name))
             progress = f"\t{lane['progress']}" if lane.get("progress") else ""
             lease = f"\texclusive={','.join(lane['exclusive'])}" if lane.get("exclusive") else ""
-            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}{lease}{progress}")
+            # The reviewer's accept names this commit (--tip).
+            tip = f"\ttip={lane['tip'][:12]}" if lane.get("tip") and lane["state"] in ("review", "reviewed") else ""
+            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}{tip}{lease}{progress}")
         print("qa\t" + (run["qa"]["evidence"] if run["qa"] else "pending"))
 
 

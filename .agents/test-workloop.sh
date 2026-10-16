@@ -930,6 +930,7 @@ git -C "$work" mv src/extra.txt elsewhere/extra.txt; git -C "$work" -c user.emai
 mv_sha="$(git -C "$work" rev-parse HEAD)"
 out="$("${tool[@]}" submit ow solo --evidence 'verify passed' 2>&1)" || fail "submit refused the main lane: $out"
 [[ "$out" == *"commit ${other_sha:0:12} is not this lane's"* && "$out" == *"mixed: ${mixed_sha:0:12} also touches tests/mixed.txt"* && "$out" == *"mixed: ${mv_sha:0:12} also touches elsewhere/extra.txt"* && "$out" == *"ready for final review at ${mv_sha:0:12}"* ]] || fail "submit did not list the other writer's and the mixed commits: $out"
+[[ "$("${tool[@]}" status ow)" == *$'\t'"tip=${mv_sha:0:12}"* ]] || fail "status does not show the submitted tip the reviewer's accept names: $("${tool[@]}" status ow)"
 python3 - "$state" "$mv_sha" "$mixed_sha" <<'EOF'
 import json, sys
 lane = json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]
