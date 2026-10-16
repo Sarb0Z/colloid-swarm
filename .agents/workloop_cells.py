@@ -129,10 +129,12 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
         f"Acceptance: {run['acceptance']}",
         f"Role: {cell['role']} — {ROLES[cell['role']]}.",
         f"Model: {cell['model']}",
+        "Question: the lead wrote it below the three lines of your dispatch prompt.",
         f"Workspace: the checkout {run['repo']}, read only — no worktree, no branch, no claim; another cell may be writing in it, so read committed state where it matters.",
         f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish.",
         *([WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
         f"State: {command} status {run_name}",
     )) + "\n")
-    # The gate reads the first line: READ-ONLY holds the cell to reading.
-    return "\n".join((READ_ONLY, header, f"Read the full brief at {brief_file} before anything else; it holds your question, what you return and to whom."))
+    # The gate reads the first line: READ-ONLY holds the cell to reading, so
+    # the lead appends the question below the prompt, never above it.
+    return "\n".join((READ_ONLY, header, f"Read the full brief at {brief_file} before anything else; it holds what you return and to whom. Your question follows below this prompt."))

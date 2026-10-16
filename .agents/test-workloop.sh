@@ -1131,9 +1131,9 @@ ok "an amend after submit is re-submitted; a history that lost the claim's start
 "${tool[@]}" init oc --objective 'cells beside a writer' --acceptance 'every cell back' --repo "$work" --verify true --lane solo --worker implementer --path src >/dev/null
 cell_prompt="$("${tool[@]}" add-cell oc scout --role research --model opus)"
 cell_file="$real_work/.agents/worktrees/oc/.workloop/cells/scout.md"
-[[ "$(head -n1 <<<"$cell_prompt")" == READ-ONLY* && "$(sed -n 2p <<<"$cell_prompt")" == "WORKLOOP CELL BRIEF — oc/scout" && "$(sed -n 3p <<<"$cell_prompt")" == "Read the full brief at $cell_file before anything else"* ]] || fail "add-cell did not print a READ-ONLY cell dispatch naming its brief: $cell_prompt"
+[[ "$(head -n1 <<<"$cell_prompt")" == READ-ONLY* && "$(sed -n 2p <<<"$cell_prompt")" == "WORKLOOP CELL BRIEF — oc/scout" && "$(sed -n 3p <<<"$cell_prompt")" == "Read the full brief at $cell_file before anything else"*"Your question follows below this prompt." ]] || fail "add-cell did not print a READ-ONLY cell dispatch naming its brief: $cell_prompt"
 [[ "$(head -n1 "$cell_file")" == READ-ONLY* && "$(sed -n 2p "$cell_file")" == "WORKLOOP CELL BRIEF — oc/scout" ]] || fail "the cell brief does not open READ-ONLY at cells/<name>.md: $(cat "$cell_file" 2>&1)"
-for want in 'Objective: cells beside a writer' 'Role: research — ' 'Model: opus' 'your whole result is your reply to the lead' 'you write no file' "returned oc scout --result <path|reply>, or --failed"; do
+for want in 'Objective: cells beside a writer' 'Role: research — ' 'Model: opus' 'Question: the lead wrote it below the three lines of your dispatch prompt.' 'your whole result is your reply to the lead' 'you write no file' "returned oc scout --result <path|reply>, or --failed"; do
   grep -qF -- "$want" "$cell_file" || fail "the cell brief lacks '$want': $(cat "$cell_file")"
 done
 ! grep -q 'A writing cell runs' "$cell_file" || fail "a research cell's brief carries the working practice"
