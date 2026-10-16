@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
 import workloop_docker as wd
 import workloop_git as wg
+import workloop_main as wm
 from workloop_paths import (
+    BRIEF_FOLDER,
     WORKTREES,
     normalize_path,
     start_point,
@@ -19,7 +22,6 @@ from workloop_paths import (
 from workloop_state import (
     ReadStore,
     Store,
-    completion_problems,
     fail,
     lane_of,
     now,
@@ -50,13 +52,28 @@ def cmd_qa(args: argparse.Namespace) -> None:
 def cmd_check(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
-        problems = completion_problems(run)
-        if problems:
-            fail("completion is blocked by " + ", ".join(problems))
-        torn_down = run.get("torn_down")
-    print(f"PASS: {args.run!r} has reviewed lanes and QA evidence")
-    if not torn_down:
-        print(f"worktrees are still up; run: .agents/workloop.py teardown {args.run}")
+        due = not args.recorded and wm.verification_due(run)
+    if due:
+        # The composed test runs outside the state lock, as integrate's does:
+        # a test is minutes, and every other command would wait on it.
+        name, lane = wm.main_lane(run)
+        print(f"check: running verify in {run['repo']}: {run['verify']}", file=sys.stderr)
+        verified = wm.verify_main(args.run, run, name, lane, Path(run["repo"]))
+        with Store(state_path(args.state)) as data:
+            run = run_of(data, args.run)
+            run["verified"] = verified
+            record(args.run, run, "verify", name, verified["result"], args.event_id)
+        for path in verified["dirty"]:
+            print(f"check: {path} is dirty in the checkout outside the lane's paths; the verified tree does not include it", file=sys.stderr)
+        if verified["result"] != "pass":
+            print(verified["tail"], file=sys.stderr)
+            fail(f"verify failed in {run['repo']}; fix it and rerun check")
+    problems = wm.completion_problems(run)
+    if problems:
+        fail("completion is blocked by " + ", ".join(problems))
+    print(f"PASS: {args.run!r} has reviewed lanes, a passing composed test and QA evidence")
+    if not run.get("torn_down"):
+        print(f"the run is still open; close it with: .agents/workloop.py teardown {args.run}")
 
 
 def cmd_integrate(args: argparse.Namespace) -> None:
@@ -64,7 +81,9 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         if not run.get("verify"):
             fail("integrate needs a verify command; re-init the run with --verify '<test command>'")
-        blockers = [problem for problem in completion_problems(run) if not problem.startswith(("integration:", "qa:"))]
+        if wm.main_lane(run):
+            fail(f"a one-writer run has nothing to integrate; check {args.run} runs the composed test in the checkout")
+        blockers = [problem for problem in wm.completion_problems(run) if not problem.startswith(("integration:", "qa:"))]
         if blockers:
             fail("integration is blocked by " + ", ".join(blockers))
         repo, base, verify = Path(run["repo"]), run["base"], run["verify"]
@@ -163,6 +182,9 @@ def release_run(repo: Path, run_name: str, lanes: dict[str, tuple[str, str | Non
         else:
             kept.append(f"{branch} ({keep_reason})")
     run_folder = repo / WORKTREES / run_name
+    briefs = run_folder / BRIEF_FOLDER
+    if briefs.is_dir():
+        shutil.rmtree(briefs)
     if run_folder.is_dir() and not any(run_folder.iterdir()):
         run_folder.rmdir()
     return removed, kept, errors, wd.removed_count(docker_result)
@@ -171,12 +193,12 @@ def release_run(repo: Path, run_name: str, lanes: dict[str, tuple[str, str | Non
 def cmd_teardown(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
-        problems = completion_problems(run)
+        problems = wm.completion_problems(run)
         if problems:
             fail("teardown waits for completion; blocked by " + ", ".join(problems))
         repo = Path(run["repo"])
         head = wg.head_of(repo)
-        lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in run["lanes"].items()}
+        lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in wm.worktree_lanes(run).items()}
         integration = run.get("integration") or {}
     removed, kept, errors, docker_removed = release_run(repo, args.run, lanes, integration, head, discard=False)
     with Store(state_path(args.state)) as data:
@@ -198,7 +220,7 @@ def cmd_abandon(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         repo = Path(run["repo"])
         head = wg.head_of(repo)
-        lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in run["lanes"].items()}
+        lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in wm.worktree_lanes(run).items()}
         integration = run.get("integration") or {}
     removed, kept, errors, docker_removed = release_run(repo, args.run, lanes, integration, head, args.discard_branches)
     # A failure leaves the run in state: rerunning abandon retries what is left.

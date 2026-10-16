@@ -56,18 +56,28 @@ base="$(git -C "$work" rev-parse HEAD)"
 tool=(python3 "$repo/.agents/workloop.py" --state "$state")
 # `brief` prints a short dispatch prompt and writes the full brief to a file
 # in the lane's worktree; this prints that file.
-full_brief() { local out file; out="$("${tool[@]}" brief "$@")"; file="$(sed -n '2s/^Read the full brief at \(.*\) before anything else.*$/\1/p' <<<"$out")"; [[ -f "$file" ]] || fail "brief wrote no file: $out"; cat "$file"; }
+full_brief() { local out file; out="$("${tool[@]}" brief "$@")"; file="$(sed -n 's/^Read the full brief at \(.*\) before anything else.*$/\1/p' <<<"$out")"; [[ -f "$file" ]] || fail "brief wrote no file: $out"; cat "$file"; }
 commit() { git -C "$1" add -A && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
+# A main lane stages by path: the checkout may hold others' uncommitted work.
+commit_paths() { git -C "$1" add -- "${@:3}" && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
+# The parallel-writers gate's reading of a dispatch prompt (line 9 of writers-payload.py),
+# with the current state copied under the project root it reads from, then removed.
+gate_kind() {  # <project root> <prompt>
+  mkdir -p "$1/.agents"; cp "$state" "$1/.agents/.workloop-state.json"
+  python3 -c 'import json,sys; print(json.dumps({"project_dir": sys.argv[1], "event": "PreToolUse", "tool_name": "Agent", "tool_input": {"prompt": sys.argv[2]}}))' "$1" "$2" | python3 "$repo/.agents/hooks/lib/writers-payload.py" | sed -n 9p
+  rm -f "$1/.agents/.workloop-state.json"
+}
 
 # ── base is pinned, verify is guarded ────────────────────────────────────────
-"${tool[@]}" --event-id init-demo init demo --objective 'prove coordination' --acceptance 'all lanes reviewed and QA observed' --repo "$work" --base HEAD
-expect 'replayed event' "${tool[@]}" --event-id init-demo init demo --objective 'ignored replay' --acceptance ignored --repo "$work"
+"${tool[@]}" --event-id init-demo init demo --objective 'prove coordination' --acceptance 'all lanes reviewed and QA observed' --repo "$work" --base HEAD --verify 'grep -q change src/app.txt'
+expect 'replayed event' "${tool[@]}" --event-id init-demo init demo --objective 'ignored replay' --acceptance ignored --repo "$work" --verify true
+if "${tool[@]}" init noverify --objective x --acceptance y --repo "$work" 2>/dev/null; then fail 'init without --verify was accepted'; fi
 python3 - "$state" <<'EOF'
 import json, re, sys
 base = json.load(open(sys.argv[1]))["runs"]["demo"]["base"]
 assert re.fullmatch(r"[0-9a-f]{40}", base), base
 EOF
-ok "init resolves --base HEAD to a commit SHA"
+ok "init resolves --base HEAD to a commit SHA and requires --verify"
 if "${tool[@]}" init pushy --objective x --acceptance y --repo "$work" --verify 'git push origin main' 2>/dev/null; then fail 'a publishing verify command was accepted'; fi
 if "${tool[@]}" init nuke --objective x --acceptance y --repo "$work" --verify 'rm -rf /' 2>/dev/null; then fail 'a destructive verify command was accepted'; fi
 ok "verify commands pass the destructive and publish guards"
@@ -98,13 +108,15 @@ commit "$lane" tests
 "${tool[@]}" submit demo implementation --evidence 'unit and regression tests passed'
 "${tool[@]}" review demo implementation --reference docs/reviews/demo.md#accepted --result accept
 "${tool[@]}" qa demo --evidence 'independent scenario passed'
+expect 'integration:missing' "${tool[@]}" check demo
+expect 'PASS: integrated implementation' "${tool[@]}" integrate demo --workspace "$scratch/integration-demo"
 expect PASS "${tool[@]}" check demo
 expect $'implementation\treviewed' "${tool[@]}" status demo
-ok "a single-lane run completes without an integration step"
+ok "a single worktree lane's composed test runs through integrate before check passes"
 
 # ── lanes default to .agents/worktrees inside the checkout ───────────────────
 real_work="$(cd "$work" && pwd -P)"
-"${tool[@]}" init unignored --objective x --acceptance y --repo "$work"
+"${tool[@]}" init unignored --objective x --acceptance y --repo "$work" --verify true
 expect "does not ignore .agents/worktrees/" "${tool[@]}" add-lane unignored one --worker implementer --path src
 "${tool[@]}" abandon unignored --discard-branches >/dev/null
 ok "a checkout that does not ignore .agents/worktrees/ is warned at add-lane"
@@ -156,7 +168,7 @@ expect 'is a full checkout; --also widens a sparse' "${tool[@]}" widen nest one 
 expect 'widen needs --path or --also' "${tool[@]}" widen nest one
 expect $'one\tready\tpending=0\timplementer\tsrc, docs/one, lib' "${tool[@]}" status nest
 ok "widen adds an owned path, refuses another lane's or a shared path, and reports what it changed"
-"${tool[@]}" init nestsp --objective x --acceptance y --repo "$work"
+"${tool[@]}" init nestsp --objective x --acceptance y --repo "$work" --verify true
 "${tool[@]}" add-lane nestsp sp --worker implementer --path brand-new --sparse >/dev/null 2>&1
 nsp="$real_work/.agents/worktrees/nestsp/sp"
 [[ -f "$nsp/package-lock.json" && ! -e "$nsp/src" ]] || fail "the sparse lane is wrong before widen: $(ls "$nsp")"
@@ -188,7 +200,7 @@ expect 'removed 3 worktree(s)' "${tool[@]}" teardown nest
 ok "integrate without --workspace composes at .agents/worktrees/<run>/integration and refuses /tmp; teardown removes the nested worktrees"
 
 # ── a lockfile change after provisioning refuses the claim ───────────────────
-"${tool[@]}" init stale --objective x --acceptance y --repo "$work"
+"${tool[@]}" init stale --objective x --acceptance y --repo "$work" --verify true
 stale_lane="$scratch/lane-stale"
 "${tool[@]}" add-lane stale one --worker implementer --workspace "$stale_lane" --path src
 printf '{"name":"fixture","lockfileVersion":3,"changed":true}\n' > "$stale_lane/package-lock.json"
@@ -200,7 +212,7 @@ grep -q 'ci --ignore-scripts' "$NPM_LOG" || fail 'provision did not reinstall'
 ok "a changed lockfile blocks claim until provision reruns"
 
 # ── ownership, attention, stale release ───────────────────────────────────────
-"${tool[@]}" init ownership --objective x --acceptance y --repo "$work"
+"${tool[@]}" init ownership --objective x --acceptance y --repo "$work" --verify true
 own="$scratch/lane-own"
 "${tool[@]}" add-lane ownership one --worker implementer --workspace "$own" --path src
 if "${tool[@]}" add-lane ownership two --worker implementer --workspace "$scratch/lane-two" --path src/app.txt 2>/dev/null; then fail 'overlapping paths were accepted'; fi
@@ -214,14 +226,14 @@ if "${tool[@]}" claim ownership one --agent worker-3 2>/dev/null; then fail 'sta
 ok "ownership, attention, and stale release hold"
 
 # ── concurrent add-lane, shared worktree refused ─────────────────────────────
-"${tool[@]}" init concurrent --objective x --acceptance y --repo "$work"
+"${tool[@]}" init concurrent --objective x --acceptance y --repo "$work" --verify true
 ("${tool[@]}" add-lane concurrent first --worker implementer --workspace "$scratch/lane-c1" --path src >/dev/null 2>&1) &
 ("${tool[@]}" add-lane concurrent second --worker implementer --workspace "$scratch/lane-c2" --path tests >/dev/null 2>&1) &
 wait
 expect $'first\tready' "${tool[@]}" status concurrent
 expect $'second\tready' "${tool[@]}" status concurrent
 "${tool[@]}" claim concurrent first --agent worker-3
-"${tool[@]}" init shared --objective x --acceptance y --repo "$work"
+"${tool[@]}" init shared --objective x --acceptance y --repo "$work" --verify true
 "${tool[@]}" add-lane shared a --worker implementer --workspace "$scratch/lane-c1" --path src
 "${tool[@]}" add-lane shared b --worker implementer --workspace "$scratch/lane-c1" --path tests
 "${tool[@]}" claim shared a --agent worker-4
@@ -229,7 +241,7 @@ if "${tool[@]}" claim shared b --agent worker-5 2>/dev/null; then fail 'shared w
 ok "concurrent add-lane lands both; a shared worktree cannot be claimed twice"
 
 # ── undeclared path ───────────────────────────────────────────────────────────
-"${tool[@]}" init boundary --objective x --acceptance y --repo "$work"
+"${tool[@]}" init boundary --objective x --acceptance y --repo "$work" --verify true
 bnd="$scratch/lane-bnd"
 "${tool[@]}" add-lane boundary src-only --worker implementer --workspace "$bnd" --path src
 "${tool[@]}" claim boundary src-only --agent worker-5
@@ -335,7 +347,7 @@ ok "teardown removes worktrees, keeps unmerged branches, and check still passes"
 
 
 # ── add-lane refuses the main checkout, resumes after a failure, refuses a stale branch
-"${tool[@]}" init guard --objective x --acceptance y --repo "$work"
+"${tool[@]}" init guard --objective x --acceptance y --repo "$work" --verify true
 if "${tool[@]}" add-lane guard main --worker implementer --workspace "$work" --path src 2>/dev/null; then fail 'add-lane accepted the main checkout as a lane workspace'; fi
 git -C "$work" branch -q guard/stale "$base"
 if "${tool[@]}" add-lane guard stale --worker implementer --workspace "$scratch/lane-stale2" --path src 2>/dev/null; then fail 'add-lane reused a branch from an earlier run'; fi
@@ -371,7 +383,7 @@ ok "teardown prunes a hand-deleted lane and check still passes"
 
 
 # ── abandon closes a run whose work landed outside integrate ─────────────────
-"${tool[@]}" init aband --objective x --acceptance y --repo "$work"
+"${tool[@]}" init aband --objective x --acceptance y --repo "$work" --verify true
 "${tool[@]}" add-lane aband one --worker implementer --workspace "$scratch/lane-ab" --path src
 "${tool[@]}" claim aband one --agent ab1
 printf 'landed elsewhere\n' >> "$scratch/lane-ab/src/app.txt"; commit "$scratch/lane-ab" ab
@@ -386,7 +398,7 @@ if "${tool[@]}" status aband 2>/dev/null; then fail 'abandon left the run in sta
 grep -q 'label=colloid.run=aband' "$DOCKER_LOG" || fail "abandon did not reap the run's labelled containers"
 git -C "$work" branch -q -D aband/one
 ok "abandon removes worktrees and the run, reaps containers, and keeps a branch HEAD does not contain"
-"${tool[@]}" init aband3 --objective x --acceptance y --repo "$work"
+"${tool[@]}" init aband3 --objective x --acceptance y --repo "$work" --verify true
 "${tool[@]}" add-lane aband3 one --worker implementer --workspace "$scratch/lane-ab3" --path src
 "${tool[@]}" claim aband3 one --agent ab3
 printf 'more\n' >> "$scratch/lane-ab3/src/app.txt"; commit "$scratch/lane-ab3" ab3
@@ -396,7 +408,7 @@ ok "abandon --discard-branches deletes an unmerged lane branch"
 
 
 # ── a review report kept in the main checkout is a valid reference ───────────
-"${tool[@]}" init mainref --objective x --acceptance y --repo "$work" --supervised
+"${tool[@]}" init mainref --objective x --acceptance y --repo "$work" --verify true --supervised
 "${tool[@]}" add-lane mainref w --worker implementer --workspace "$scratch/lane-mr-w" --path src
 "${tool[@]}" add-lane mainref r --worker reviewer --workspace "$scratch/lane-mr-r" --path tests
 "${tool[@]}" claim mainref w --agent mrw; "${tool[@]}" claim mainref r --agent mrr
@@ -432,7 +444,7 @@ ok "a sparse lane holds its owned and --also directories plus root files, and st
 
 
 # ── leases, progress, and reaping by ownership ───────────────────────────────
-"${tool[@]}" init res --objective x --acceptance y --repo "$work"
+"${tool[@]}" init res --objective x --acceptance y --repo "$work" --verify true
 "${tool[@]}" add-lane res browser-a --worker implementer --workspace "$scratch/lane-ra" --path src --exclusive playwright >/dev/null 2>&1
 "${tool[@]}" add-lane res browser-b --worker implementer --workspace "$scratch/lane-rb" --path tests --exclusive playwright >/dev/null 2>&1
 "${tool[@]}" add-lane res plain --worker implementer --workspace "$scratch/lane-rp" --path docs >/dev/null 2>&1
@@ -466,9 +478,8 @@ done
 grep -q 'WORKLOOP REVIEWER BRIEF' "$bw/.workloop/BRIEF-reviewer.md" && grep -q 'WORKLOOP QA BRIEF' "$bw/.workloop/BRIEF-qa.md" && grep -q 'WORKLOOP WORKER BRIEF' "$bw/.workloop/BRIEF.md" || fail "the roles do not keep one file each"
 ok "brief writes the full brief to .workloop/BRIEF.md, one file per role"
 # The parallel-writers gate's matcher recognises the dispatch prompt as a lane cell.
-mkdir -p "$scratch/gateroot/.agents"; cp "$state" "$scratch/gateroot/.agents/.workloop-state.json"
-gate_kind="$(python3 -c 'import json,sys; print(json.dumps({"project_dir": sys.argv[1], "event": "PreToolUse", "tool_name": "Agent", "tool_input": {"prompt": sys.argv[2]}}))' "$scratch/gateroot" "$prompt" | python3 "$repo/.agents/hooks/lib/writers-payload.py" | sed -n 9p)"
-[[ "$gate_kind" == "brief" ]] || fail "the gate's matcher read the dispatch prompt as '$gate_kind', not a lane brief"
+kind="$(gate_kind "$scratch/gateroot" "$prompt")"
+[[ "$kind" == "brief" ]] || fail "the gate's matcher read the dispatch prompt as '$kind', not a lane brief"
 ok "the parallel-writers gate recognises the dispatch prompt as a lane cell"
 git -C "$bw" check-ignore -q .workloop/BRIEF.md || fail ".workloop/ is not ignored in the lane"
 [[ -z "$(git -C "$bw" status --porcelain --untracked-files=all)" ]] || fail "the brief dirties the lane: $(git -C "$bw" status --porcelain)"
@@ -527,12 +538,12 @@ grep -q 'compose.project=res-plain' "$DOCKER_LOG" || fail "a lane's compose proj
 ! grep -q 'stranger' "$DOCKER_LOG" || fail "a stranger's compose project was reaped"
 grep -q 'rm -f .*compose1' "$DOCKER_LOG" || fail "the lane's compose container was not removed"
 ok "reap matches compose projects exactly against the run's lanes"
-if "${tool[@]}" init BadName --objective x --acceptance y --repo "$work" 2>/dev/null; then fail 'an uppercase run name was accepted'; fi
+if "${tool[@]}" init BadName --objective x --acceptance y --repo "$work" --verify true 2>/dev/null; then fail 'an uppercase run name was accepted'; fi
 if "${tool[@]}" add-lane res 'my lane' --worker implementer --workspace "$scratch/lane-bad" --path src 2>/dev/null; then fail 'a lane name with a space was accepted'; fi
 ok "run and lane names are constrained to what compose and labels accept"
 
 # ── supervised messaging ──────────────────────────────────────────────────────
-"${tool[@]}" init supervised --objective x --acceptance y --repo "$work" --supervised
+"${tool[@]}" init supervised --objective x --acceptance y --repo "$work" --verify true --supervised
 "${tool[@]}" add-lane supervised writer --worker implementer --workspace "$scratch/lane-w" --path src
 "${tool[@]}" add-lane supervised reviewer --worker reviewer --workspace "$scratch/lane-r" --path docs
 "${tool[@]}" claim supervised writer --agent writer-agent
@@ -571,7 +582,7 @@ for m in web api skip; do printf '{"name":"%s"}\n' "$m" > "$mono/apps/$m/package
 printf '{"name":"root","workspaces":{"packages":["apps/*","!apps/skip"]},"pnpm":{"patchedDependencies":{"x@1":"patches/x.patch"}},"patchedDependencies":{"y@1":"./vendored-patches/y.patch"}}\n' > "$mono/package.json"
 printf '{"name":"root","lockfileVersion":3}\n' > "$mono/package-lock.json"
 git -C "$mono" add -A; git -C "$mono" commit -qm mono
-monotool=("${tool[@]}"); mono_init() { "${monotool[@]}" init "$1" --objective x --acceptance y --repo "$mono" --base "${2:-HEAD}" >/dev/null; }
+monotool=("${tool[@]}"); mono_init() { "${monotool[@]}" init "$1" --objective x --acceptance y --repo "$mono" --base "${2:-HEAD}" --verify true >/dev/null; }
 mono_init gain
 out="$("${tool[@]}" add-lane gain g --worker implementer --workspace "$scratch/lane-gain" --path src --sparse 2>&1)"
 for want in 'cone + patches, vendored-patches (patchedDependencies)' 'cone + apps/api, apps/web (workspaces)'; do
@@ -707,8 +718,8 @@ PY
 ok "workloop_git.py and provision.sh name the same lockfiles"
 
 # ── shared paths: any lane edits them; a rebased lane is measured from its own start
-"${tool[@]}" init shr --objective x --acceptance y --repo "$work" --shared docs/index.md --shared gen
-if "${tool[@]}" init shrdup --objective x --acceptance y --repo "$work" --shared gen --shared gen/ 2>/dev/null; then fail 'a duplicate shared path was accepted'; fi
+"${tool[@]}" init shr --objective x --acceptance y --repo "$work" --verify true --shared docs/index.md --shared gen
+if "${tool[@]}" init shrdup --objective x --acceptance y --repo "$work" --verify true --shared gen --shared gen/ 2>/dev/null; then fail 'a duplicate shared path was accepted'; fi
 sa="$scratch/lane-sa"; sb="$scratch/lane-sb"; sc="$scratch/lane-sc"
 expect 'lanes edit shared paths without owning them' "${tool[@]}" add-lane shr bad --worker implementer --workspace "$scratch/lane-sbad" --path docs/index.md
 expect 'lanes edit shared paths without owning them' "${tool[@]}" add-lane shr bad --worker implementer --workspace "$scratch/lane-sbad" --path gen/api.json
@@ -773,7 +784,7 @@ expect "lane 'a' has uncommitted work" "${tool[@]}" integrate shint --workspace 
 ok "integrate refuses uncommitted shared work"
 
 # ── a rebase launders nothing: only a sibling in review, inside its paths, sets a start point
-"${tool[@]}" init lk --objective x --acceptance y --repo "$work"
+"${tool[@]}" init lk --objective x --acceptance y --repo "$work" --verify true
 lb="$scratch/lane-lkb"; lc="$scratch/lane-lkc"
 "${tool[@]}" add-lane lk b --worker implementer --workspace "$lb" --path tests
 "${tool[@]}" add-lane lk c --worker implementer --workspace "$lc" --path docs/c
@@ -809,7 +820,7 @@ expect "lane 'a' moved after its accepted review" "${tool[@]}" integrate am --wo
 ok "integrate refuses a lane built on a superseded sibling commit and one whose tip moved after accept"
 
 # ── review gate: a P2 is filed, and the fourth round needs a ruling ──────────
-"${tool[@]}" init gate --objective x --acceptance y --repo "$work"
+"${tool[@]}" init gate --objective x --acceptance y --repo "$work" --verify true
 gd="$scratch/lane-gate"; "${tool[@]}" add-lane gate g --worker implementer --workspace "$gd" --path src --path docs/g
 "${tool[@]}" claim gate g --agent g
 mkdir -p "$gd/docs/g"; printf 'g\n' >> "$gd/src/app.txt"; printf 'r\n' > "$gd/docs/g/r.md"; commit "$gd" g
@@ -834,6 +845,149 @@ assert lane["review_refs"][-1]["ruling"] == "one more round, go ahead", lane["re
 assert "ruling" not in lane["review_refs"][0], lane["review_refs"][0]
 EOF2
 ok "a P2 reopen is refused; an attention cycle counts as a round; the fourth round needs a recorded ruling"
+
+# ── one writer: init --lane records the run's sole lane in the checkout itself ─
+expect '\-\-path needs --lane' "${tool[@]}" init ow --objective x --acceptance y --repo "$work" --verify true --path src
+expect '\-\-worker needs --lane' "${tool[@]}" init ow --objective x --acceptance y --repo "$work" --verify true --worker implementer
+expect '\-\-lane needs --worker and at least one --path' "${tool[@]}" init ow --objective x --acceptance y --repo "$work" --verify true --lane solo
+expect '\-\-lane needs --worker and at least one --path' "${tool[@]}" init ow --objective x --acceptance y --repo "$work" --verify true --lane solo --worker implementer
+expect 'overlap a shared path' "${tool[@]}" init ow --objective x --acceptance y --repo "$work" --verify true --shared src --lane solo --worker implementer --path src/app.txt
+if "${tool[@]}" status ow >/dev/null 2>&1; then fail 'a refused init --lane left the run in state'; fi
+ok "init --lane is refused without --worker and --path, and --path or --worker without --lane"
+mark="$scratch/ran-ow"
+worktree_paths() { git -C "$work" worktree list --porcelain | grep '^worktree '; }
+worktrees_before="$(worktree_paths)"
+prompt="$("${tool[@]}" init ow --objective 'one writer' --acceptance 'the main lane is reviewed' --repo "$work" --verify "grep -q solo src/app.txt && touch $mark" --lane solo --worker implementer --path src --path docs/ow)"
+[[ "$prompt" == *"created workloop 'ow'"*$'\n'"WORKLOOP WORKER BRIEF — ow/solo"$'\n'"Read the full brief at $real_work/.agents/worktrees/ow/.workloop/solo.md before anything else"* ]] || fail "init --lane did not print the lane's dispatch line: $prompt"
+[[ -f "$real_work/.agents/worktrees/ow/.workloop/solo.md" ]] || fail "init --lane wrote no brief"
+[[ "$(worktree_paths)" == "$worktrees_before" ]] || fail "init --lane made a worktree"
+python3 - "$state" "$real_work" <<'EOF'
+import json, sys
+lane = json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]
+assert lane["place"] == "main" and lane["branch"] is None and lane["env"] == "main" and lane["workspace"] == sys.argv[2], lane
+assert lane["paths"] == ["src", "docs/ow"] and lane["state"] == "ready" and "start" not in lane, lane
+EOF
+solo_brief="$(cat "$real_work/.agents/worktrees/ow/.workloop/solo.md")"
+for want in "Workspace: the checkout $real_work, on its current branch — no worktree" 'staging by path only (git add -- <path>..., never -A, . or commit -a)' "Provision: .agents/provision.sh $real_work" 'Working practice:'; do
+  grep -qF -- "$want" <<<"$solo_brief" || fail "the main lane's worker brief lacks '$want'"
+done
+! grep -q 'lane branch' <<<"$solo_brief" || fail "the main lane's brief speaks of a lane branch"
+[[ "$(gate_kind "$real_work" "$prompt")" == "plain" ]] || fail "the gate did not read the main lane's worker dispatch as a plain writer"
+[[ -z "$(git -C "$work" status --porcelain --untracked-files=all | grep -F .workloop || true)" ]] || fail "the main lane's brief dirties the checkout: $(git -C "$work" status --porcelain)"
+expect "a one-writer run's lane works in the main tree; start a new run for writers working at once" "${tool[@]}" add-lane ow second --worker implementer --path tests
+expect 'a one-writer run has nothing to integrate' "${tool[@]}" integrate ow
+ok "init --lane records the main lane with no worktree, branch or install, prints its dispatch as a plain writer, and the run takes no second lane"
+
+# the brief for a reviewer or QA cell opens READ-ONLY, which the gate honours
+rev_prompt="$("${tool[@]}" brief ow solo --role reviewer)"
+[[ "$(head -n1 <<<"$rev_prompt")" == READ-ONLY* && "$(sed -n 2p <<<"$rev_prompt")" == "WORKLOOP REVIEWER BRIEF — ow/solo" ]] || fail "the main lane's reviewer dispatch does not open READ-ONLY: $rev_prompt"
+[[ "$(gate_kind "$real_work" "$rev_prompt")" == "read-only" ]] || fail "the gate did not read the main lane's reviewer dispatch as read-only"
+[[ "$(head -n1 "$real_work/.agents/worktrees/ow/.workloop/solo-reviewer.md")" == READ-ONLY* ]] || fail "the reviewer brief file does not open READ-ONLY"
+[[ "$(head -n1 <<<"$("${tool[@]}" brief ow solo --role qa)")" == READ-ONLY* && -f "$real_work/.agents/worktrees/ow/.workloop/solo-qa.md" ]] || fail "the main lane's QA dispatch does not open READ-ONLY"
+ok "a main lane's reviewer and QA briefs open READ-ONLY, one file per role under the run's .workloop folder"
+
+# claim sets start; submit attributes the commits since it by the lane's paths (ruling 32)
+"${tool[@]}" claim ow solo --agent solo1
+start_ow="$(git -C "$work" rev-parse HEAD)"
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]; assert l["start"] == sys.argv[2] and l["state"] == "active", l' "$state" "$start_ow"
+expect "no commits since the lane's first claim" "${tool[@]}" submit ow solo --evidence nothing
+mkdir -p "$work/elsewhere"; printf 'other\n' > "$work/elsewhere/o.txt"; commit_paths "$work" 'another writer' elsewhere/o.txt
+other_sha="$(git -C "$work" rev-parse HEAD)"
+mkdir -p "$work/tests"; printf 'solo\n' >> "$work/src/app.txt"; printf 'x\n' > "$work/tests/mixed.txt"; commit_paths "$work" mixed src/app.txt tests/mixed.txt
+mixed_sha="$(git -C "$work" rev-parse HEAD)"
+expect "commit ${mixed_sha:0:12} (HEAD) touches the lane's paths and undeclared ones: tests/mixed.txt" "${tool[@]}" submit ow solo --evidence mixed
+printf 'y\n' > "$work/elsewhere/o.txt"; commit_paths "$work" 'another writer again' elsewhere/o.txt
+expect "commit ${mixed_sha:0:12} (behind HEAD) touches the lane's paths and undeclared ones: tests/mixed.txt" "${tool[@]}" submit ow solo --evidence mixed
+printf 'x\n' >> "$work/src/app.txt"
+expect 'uncommitted changes; commit them in the checkout first: src/app.txt' "${tool[@]}" submit ow solo --evidence dirty
+git -C "$work" checkout -q -- src/app.txt
+# The cell rewrites its mixed commit with its own path alone; the other writer's change stays theirs.
+git -C "$work" reset -q --soft "$other_sha"; git -C "$work" restore --staged -- tests/mixed.txt elsewhere/o.txt; rm "$work/tests/mixed.txt"
+commit_paths "$work" solo src/app.txt; solo_sha="$(git -C "$work" rev-parse HEAD)"
+commit_paths "$work" 'another writer again' elsewhere/o.txt; other2_sha="$(git -C "$work" rev-parse HEAD)"
+out="$("${tool[@]}" submit ow solo --evidence 'verify passed' 2>&1)" || fail "submit refused the main lane: $out"
+[[ "$out" == *"commit ${other_sha:0:12} is not this lane's"* && "$out" == *"commit ${other2_sha:0:12} is not this lane's"* && "$out" == *"ready for final review"* ]] || fail "another writer's commits were not listed as not the lane's: $out"
+python3 - "$state" "$other2_sha" <<'EOF'
+import json, sys
+lane = json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]
+assert lane["tip"] == sys.argv[2] and lane["evidence"][-1]["paths"] == ["src/app.txt"], lane
+EOF
+[[ "$(worktree_paths)" == "$worktrees_before" ]] || fail "the main lane's lifecycle made a worktree"
+ok "a main lane's work is the commits since its first claim that touch its paths; a mixed commit is refused by hash, another writer's is listed"
+
+# review accept waits while the lane's paths move past the submitted tip; the reviewer brief names the range and the commits
+mkdir -p "$work/docs/ow"; printf 'late\n' >> "$work/src/app.txt"; printf 'r\n' > "$work/docs/ow/review.md"; commit_paths "$work" late src/app.txt docs/ow/review.md
+late_sha="$(git -C "$work" rev-parse HEAD)"
+expect "moved past the submitted tip ${other2_sha:0:12} with commits touching the lane's paths: ${late_sha:0:12}; re-submit" "${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept
+"${tool[@]}" submit ow solo --evidence 'verify passed again' >/dev/null 2>&1
+rev_brief="$(full_brief ow solo --role reviewer)"
+grep -qF "Diff: ${start_ow:0:12}..${late_sha:0:12} in the checkout; this lane's commits: ${solo_sha:0:12}, ${late_sha:0:12} — build its diff with: git diff $start_ow..$late_sha -- src docs/ow" <<<"$rev_brief" || fail "the reviewer brief does not name the range and the lane's commits: $rev_brief"
+! grep -q "${other_sha:0:12}" <<<"$rev_brief" || fail "the reviewer brief lists another writer's commit as the lane's"
+"${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]; assert l["accepted_tip"] == l["tip"] == sys.argv[2], l' "$state" "$late_sha"
+ok "an accepting review of a main lane refuses while its paths moved past the tip, and records the tip it accepted"
+
+# check runs the composed test in the checkout once the lane is reviewed; --recorded never runs it
+expect 'completion is blocked by qa:missing, verified:missing' "${tool[@]}" check ow --recorded
+[[ ! -e "$mark" ]] || fail "check --recorded ran the composed test"
+printf 'dirty\n' >> "$work/src/app.txt"
+expect "the checkout has uncommitted changes in the lane's paths: src/app.txt" "${tool[@]}" check ow
+[[ ! -e "$mark" ]] || fail "check ran the composed test over a dirty lane path"
+git -C "$work" checkout -q -- src/app.txt
+printf 'lead\n' >> "$work/moved/x.txt"
+set +e; out="$("${tool[@]}" check ow 2>&1)"; rc=$?; set -e
+[[ $rc -ne 0 && "$out" == *"running verify in $real_work"* && "$out" == *"moved/x.txt is dirty in the checkout outside the lane's paths"* && "$out" == *"completion is blocked by qa:missing"* && "$out" != *"verified:"* ]] || fail "check did not run and record the composed test: rc=$rc $out"
+[[ -f "$mark" ]] || fail "check did not run the verify command in the checkout"
+git -C "$work" checkout -q -- moved/x.txt
+python3 - "$state" "$late_sha" <<'EOF'
+import json, sys
+run = json.load(open(sys.argv[1]))["runs"]["ow"]
+v = run["verified"]
+assert v["result"] == "pass" and v["head"] == sys.argv[2] and v["lane_tips"] == {"solo": sys.argv[2]} and v["verify"] == run["verify"] and v["dirty"] == ["moved/x.txt"], v
+assert run["events"][-1]["action"] == "verify" and run["events"][-1]["detail"] == "pass", run["events"][-1]
+EOF
+rm "$mark"
+"${tool[@]}" qa ow --evidence 'scenario passed'
+expect "PASS: 'ow' has reviewed lanes, a passing composed test and QA evidence" "${tool[@]}" check ow
+[[ ! -e "$mark" ]] || fail "check reran a current, passing verification"
+ok "check runs the composed test in the checkout, records it with the dirt outside the lane's paths, and a current pass is not rerun"
+# only a pass is current: a recorded failure makes the next check run again
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state"
+expect 'verified:fail' "${tool[@]}" check ow --recorded
+expect PASS "${tool[@]}" check ow
+[[ -f "$mark" ]] || fail "check did not rerun after a recorded failure"
+ok "a recorded failure is not current: check runs the composed test again"
+# a failing verify is recorded and blocks; HEAD moving during the run is a failure
+"${tool[@]}" init owf --objective x --acceptance y --repo "$work" --verify 'test -f never/there' --lane f --worker implementer --path src >/dev/null
+"${tool[@]}" claim owf f --agent f1; printf 'f\n' >> "$work/src/app.txt"; commit_paths "$work" f src/app.txt
+"${tool[@]}" submit owf f --evidence ok >/dev/null; "${tool[@]}" review owf f --reference docs/ow/review.md#ok --result accept
+expect "verify failed in $real_work" "${tool[@]}" check owf
+expect 'verified:fail' "${tool[@]}" check owf --recorded
+"${tool[@]}" init owm --objective x --acceptance y --repo "$work" --verify 'git commit -q --allow-empty -m moved' --lane m --worker implementer --path src >/dev/null
+"${tool[@]}" claim owm m --agent m1; printf 'm\n' >> "$work/src/app.txt"; commit_paths "$work" m src/app.txt
+"${tool[@]}" submit owm m --evidence ok >/dev/null; "${tool[@]}" review owm m --reference docs/ow/review.md#ok --result accept
+expect 'HEAD moved from' "${tool[@]}" check owm
+expect 'verified:fail' "${tool[@]}" check owm --recorded
+ok "a failing composed test, or HEAD moving while it runs, is recorded as a failure that blocks completion"
+
+# teardown removes nothing but the briefs; the run stays passing
+expect 'removed 0 worktree(s)' "${tool[@]}" teardown ow
+[[ ! -e "$real_work/.agents/worktrees/ow" ]] || fail "teardown left the main lane's brief folder: $(ls -R "$real_work/.agents/worktrees/ow")"
+[[ "$(worktree_paths)" == "$worktrees_before" && "$(git -C "$work" rev-parse HEAD)" != "$start_ow" ]] || fail "teardown touched the checkout's worktrees or history"
+expect PASS "${tool[@]}" check ow
+expect PASS "${tool[@]}" check ow --recorded
+ok "teardown of a one-writer run removes its briefs and nothing else, and check still passes"
+
+# a rewritten branch leaves a run that can never pass; the refusals name abandon
+"${tool[@]}" init owr --objective x --acceptance y --repo "$work" --verify true --lane r --worker implementer --path src >/dev/null
+"${tool[@]}" claim owr r --agent r1
+printf 'r\n' >> "$work/src/app.txt"; commit_paths "$work" r src/app.txt
+git -C "$work" reset -q --hard HEAD~2; printf 'r2\n' >> "$work/src/app.txt"; commit_paths "$work" r2 src/app.txt
+expect "does not descend from the lane's start"'.*close it with: abandon owr' "${tool[@]}" submit owr r --evidence ok
+expect "abandoned 'owr': removed 0 worktree(s)" "${tool[@]}" abandon owr
+if "${tool[@]}" status owr 2>/dev/null; then fail 'abandon left the one-writer run in state'; fi
+"${tool[@]}" abandon owf >/dev/null; "${tool[@]}" abandon owm >/dev/null
+ok "a main lane whose history was rewritten is refused naming abandon, which closes the run without touching the checkout"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'

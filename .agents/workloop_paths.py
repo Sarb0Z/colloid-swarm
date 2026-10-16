@@ -12,6 +12,9 @@ from workloop_state import fail, require_workspace, shared_of
 # Lane and integration worktrees nest in the checkout they belong to, under a
 # gitignored folder (decision lane-worktrees-nest-in-the-checkout).
 WORKTREES = ".agents/worktrees"
+# Where `brief` leaves each role's full brief: inside a worktree lane, or under
+# the run's folder for a main lane, so nothing lands in the checkout's tree.
+BRIEF_FOLDER = ".workloop"
 # Folders the system clears on its own, which once took a run's lanes with them.
 TEMPORARY_ROOTS = tuple({Path("/tmp"), Path("/private/tmp"), Path(tempfile.gettempdir()).resolve()})
 

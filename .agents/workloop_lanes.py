@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import workloop_docker as wd
 import workloop_git as wg
+import workloop_main as wm
 from workloop_paths import (
+    BRIEF_FOLDER,
+    WORKTREES,
     canonical_reference,
     changed_paths,
     reference_roots,
@@ -32,9 +36,11 @@ from workloop_state import (
 )
 
 WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-practice.md"
-# Where `brief` leaves each role's full brief, inside the lane's worktree.
-BRIEF_FOLDER = ".workloop"
 BRIEF_FILES = {"worker": "BRIEF.md", "reviewer": "BRIEF-reviewer.md", "qa": "BRIEF-qa.md"}
+BRIEF_SUFFIXES = {"worker": "", "reviewer": "-reviewer", "qa": "-qa"}
+# A main lane's reviewer or QA cell reads the checkout a writer works in; the
+# marker makes the parallel-writers gate hold it to reading.
+READ_ONLY = "READ-ONLY — this lane works in the checkout itself; read it and write nothing."
 MAX_REVIEW_ROUNDS = 4
 P2_REFUSAL = "a P2 is filed, not reopened: accept the lane and file the finding"
 
@@ -65,13 +71,18 @@ def cmd_claim(args: argparse.Namespace) -> None:
         if held:
             holders = "; ".join(f"{name} holds {', '.join(sorted(set(other['exclusive']) & set(lane['exclusive'])))}" for name, other in held.items())
             fail(f"exclusive resource in use: {holders}. Claim again when that lane submits or is released.")
-        # A lane whose lockfiles moved since its install would fail its first
-        # test on a missing module and read that as a code defect.
-        repair = f"run: .agents/workloop.py provision {args.run} {args.lane}"
-        if lane.get("env") != "ready":
-            fail(f"lane environment is {lane.get('env')}; {repair}")
-        if wg.lock_hash(workspace) != lane.get("lock_hash"):
-            fail(f"lockfiles changed since the lane was provisioned; {repair}")
+        if wm.is_main(lane):
+            # The checkout's own install serves the lane; its work is measured
+            # from where the checkout stood at the first claim, across reopens.
+            lane.setdefault("start", wg.head_of(workspace))
+        else:
+            # A lane whose lockfiles moved since its install would fail its first
+            # test on a missing module and read that as a code defect.
+            repair = f"run: .agents/workloop.py provision {args.run} {args.lane}"
+            if lane.get("env") != "ready":
+                fail(f"lane environment is {lane.get('env')}; {repair}")
+            if wg.lock_hash(workspace) != lane.get("lock_hash"):
+                fail(f"lockfiles changed since the lane was provisioned; {repair}")
         lane["state"] = "active"
         lane["claimed_by"] = args.agent
         lane["claimed_at"] = now()
@@ -85,8 +96,9 @@ def cmd_submit(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
         lane = lane_of(run, args.lane)
-        # A reviewed lane whose branch moved is re-submitted for a fresh review.
-        if lane["state"] not in ("active", "reviewed"):
+        # A lane whose work moved after submit, before or after its review was
+        # accepted, is re-submitted for a fresh review.
+        if lane["state"] not in ("active", "review", "reviewed"):
             fail(f"lane is {lane['state']}, not active")
         if pending_messages(run, args.lane):
             fail("lane has acknowledgement-required peer messages; read inbox and acknowledge them first")
@@ -95,13 +107,19 @@ def cmd_submit(args: argparse.Namespace) -> None:
         workspace = require_workspace(lane)
         dirty = uncommitted_owned(run, lane, workspace)
         if dirty:
-            fail("lane has uncommitted changes; commit them on the lane branch first: " + ", ".join(dirty))
-        if wg.head_of(workspace) == run["base"]:
-            fail(f"lane branch {lane.get('branch')} has no commits beyond the base; nothing to review")
-        actual = changed_paths(lane, start_point(run, args.lane, wg.head_of(workspace)))
-        undeclared = undeclared_paths(run, lane, actual)
-        if undeclared:
-            fail("lane changed undeclared paths: " + ", ".join(undeclared))
+            where = "in the checkout" if wm.is_main(lane) else "on the lane branch"
+            fail(f"lane has uncommitted changes; commit them {where} first: " + ", ".join(dirty))
+        if wm.is_main(lane):
+            actual, others = wm.submit_main(args.run, run, lane, workspace)
+            for sha in others:
+                print(f"submit {args.lane}: commit {sha[:12]} is not this lane's: it touches none of its paths", file=sys.stderr)
+        else:
+            if wg.head_of(workspace) == run["base"]:
+                fail(f"lane branch {lane.get('branch')} has no commits beyond the base; nothing to review")
+            actual = changed_paths(lane, start_point(run, args.lane, wg.head_of(workspace)))
+            undeclared = undeclared_paths(run, lane, actual)
+            if undeclared:
+                fail("lane changed undeclared paths: " + ", ".join(undeclared))
         lane["evidence"].append({"at": now(), "text": args.evidence, "paths": actual})
         lane["state"] = "review"
         record(args.run, run, "submit", args.lane, args.evidence, args.event_id)
@@ -127,8 +145,9 @@ def cmd_review(args: argparse.Namespace) -> None:
             fail(f"lane has been submitted {rounds} times; review round {rounds} needs the operator's ruling: pass --ruling \"<operator's words>\"")
         reference = canonical_reference(args.reference, reference_roots(run, lane))
         if args.result == "accept":
+            repo = Path(run["repo"])
+            lane["accepted_tip"] = wm.accept_main(args.run, run, lane, repo) if wm.is_main(lane) else wg.branch_tip(repo, lane["branch"])
             lane["state"] = "reviewed"
-            lane["accepted_tip"] = wg.branch_tip(Path(run["repo"]), lane["branch"])
         else:
             lane["state"] = "reopened"
             lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
@@ -225,37 +244,64 @@ def cmd_brief(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
         lane = lane_of(run, args.lane)
-    command = f".agents/workloop.py --state {state_path(args.state)}"
-    brief_file = require_workspace(lane) / BRIEF_FOLDER / BRIEF_FILES[args.role]
-    brief_file.parent.mkdir(exist_ok=True)
-    # Ignored in every repository, so the lane's `git add -A` never stages a brief.
+    print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, lane, args.role))
+
+
+def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str, command: str) -> list[str]:
+    """Where the lane works and how it commits: a main lane in the checkout, any other in its worktree."""
+    if wm.is_main(lane):
+        repo = lane["workspace"]
+        found = wm.review_range(run, lane) if role == "reviewer" else None
+        return [
+            f"Workspace: the checkout {repo}, on its current branch — no worktree; this lane's work is the commits since its first claim that touch its paths.",
+            *([f"Diff: {found[0][:12]}..{found[1][:12]} in the checkout; this lane's commits: {', '.join(sha[:12] for sha in found[2])} — build its diff with: git diff {found[0]}..{found[1]} -- {' '.join(lane['paths'] + shared_of(run))}"] if found else []),
+            f"Provision: .agents/provision.sh {repo} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
+            "Commit on the checkout's current branch before submit, staging by path only (git add -- <path>..., never -A, . or commit -a): others may hold uncommitted work in this checkout. Review reads the commits, not the working tree.",
+        ]
+    return [
+        f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
+        *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('branch')}"] if role == "reviewer" and (start := review_start(run, lane_name, lane)) else []),
+        *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {run_name} {lane_name} --also <dir>)"] if lane.get("sparse") else []),
+        *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
+        f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
+        "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
+    ]
+
+
+def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane: dict, role: str) -> str:
+    """Write the role's full brief and return the short prompt the lead pastes."""
+    command = f".agents/workloop.py --state {state}"
+    if wm.is_main(lane):
+        brief_file = Path(lane["workspace"]) / WORKTREES / run_name / BRIEF_FOLDER / f"{lane_name}{BRIEF_SUFFIXES[role]}.md"
+    else:
+        brief_file = require_workspace(lane) / BRIEF_FOLDER / BRIEF_FILES[role]
+    brief_file.parent.mkdir(parents=True, exist_ok=True)
+    # Ignored in every repository, so a `git add -A` never stages a brief.
     (brief_file.parent / ".gitignore").write_text("*\n")
-    supervised = (f"Peer inbox: {command} inbox {args.run} {args.lane} — check it after claim and before every state-changing handoff." if run["supervised"] else "Peer inbox is disabled for this ordinary workloop.")
-    header = f"WORKLOOP {args.role.upper()} BRIEF — {args.run}/{args.lane}"
+    supervised = (f"Peer inbox: {command} inbox {run_name} {lane_name} — check it after claim and before every state-changing handoff." if run["supervised"] else "Peer inbox is disabled for this ordinary workloop.")
+    header = f"WORKLOOP {role.upper()} BRIEF — {run_name}/{lane_name}"
+    opening = [READ_ONLY] if wm.is_main(lane) and role != "worker" else []
     brief_file.write_text("\n".join((
+        *opening,
         header,
         f"Objective: {run['objective']}",
         f"Acceptance: {run['acceptance']}",
         f"Owned paths: {', '.join(lane['paths'])}",
         *([f"Shared paths: {', '.join(shared_of(run))}\nShared paths: any lane may edit them. Append only; never restructure or reorder existing lines. Regenerate generated files (for example the API contract and its web types) instead of merging them by hand. When a lane you build on is reviewed, rebase onto its branch and resolve shared-path conflicts in your worktree."] if shared_of(run) else []),
-        f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
-        *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('branch')}"] if args.role == "reviewer" and (start := review_start(run, args.lane, lane)) else []),
-        *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {args.run} {args.lane} --also <dir>)"] if lane.get("sparse") else []),
-        *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
-        f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
-        "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
-        f"Environment: export COLLOID_RUN={args.run} COLLOID_LANE={args.lane} COMPOSE_PROJECT_NAME={wd.project_name(args.run, args.lane)}. Label what only this lane uses with --label colloid.run={args.run} --label colloid.lane={args.lane} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={args.run} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
+        *place_lines(run, run_name, lane_name, lane, role, command),
+        f"Environment: export COLLOID_RUN={run_name} COLLOID_LANE={lane_name} COMPOSE_PROJECT_NAME={wd.project_name(run_name, lane_name)}. Label what only this lane uses with --label colloid.run={run_name} --label colloid.lane={lane_name} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={run_name} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
-        *([WORKING_PRACTICE.read_text().strip()] if args.role in {"worker", "qa"} else []),
-        f"Progress: {command} heartbeat {args.run} {args.lane} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
+        *([WORKING_PRACTICE.read_text().strip()] if role in {"worker", "qa"} else []),
+        f"Progress: {command} heartbeat {run_name} {lane_name} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
         "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
         "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",
         supervised,
-        f"State: {command} status {args.run}",
-        f"Claim: {command} claim {args.run} {args.lane} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls.",
-        f"Worker handoff: {command} submit {args.run} {args.lane} --evidence '<command and observed result>'",
-        f"Reviewer handoff: {command} review {args.run} {args.lane} --reference '<canonical-review-path>#<finding>' --result accept",
+        f"State: {command} status {run_name}",
+        f"Claim: {command} claim {run_name} {lane_name} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls.",
+        f"Worker handoff: {command} submit {run_name} {lane_name} --evidence '<command and observed result>'",
+        f"Reviewer handoff: {command} review {run_name} {lane_name} --reference '<canonical-review-path>#<finding>' --result accept",
         "A finding must live in its canonical review report; use --result reopen to require a correction cycle.",
     )) + "\n")
-    # The gate that recognises a lane cell reads the header line of the prompt.
-    print(f"{header}\nRead the full brief at {brief_file} before anything else; it holds your scope, your commands and your handoff.")
+    # The gate that recognises a lane cell reads the header line of the prompt,
+    # and a READ-ONLY marker before it outranks the header.
+    return "\n".join((*opening, header, f"Read the full brief at {brief_file} before anything else; it holds your scope, your commands and your handoff."))

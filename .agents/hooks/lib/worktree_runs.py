@@ -43,14 +43,15 @@ def runs_of(state: str) -> tuple[dict, str | None]:
 
 
 def unfinished(entry: dict, workloop: Path) -> str | None:
-    """Why `workloop.py check` refuses the run; None once it passes or the run is gone."""
+    """Why `workloop.py check --recorded` refuses the run; None once it passes or the run is gone.
+    The recorded form judges from results already recorded: a session end never runs a composed test."""
     name, state = entry.get("run"), entry.get("state") or ""
     runs, error = runs_of(state)
     if error:
         return error
     if name not in runs:
         return None
-    result = subprocess.run([sys.executable, str(workloop), "--state", state, "check", name],
+    result = subprocess.run([sys.executable, str(workloop), "--state", state, "check", name, "--recorded"],
                             text=True, capture_output=True, env=wr.clean_env())
     lines = (result.stderr or result.stdout).strip().splitlines()
     return (lines[-1].removeprefix("workloop: ") if lines else f"check exited {result.returncode}") \
@@ -116,7 +117,9 @@ def lost_files(path: Path) -> str | None:
 
 
 def workspaces(run: dict) -> list[str]:
-    return [s for s in [lane.get("workspace") for lane in (run.get("lanes") or {}).values()]
+    """The run's worktrees: its worktree lanes and its integration. A main lane
+    (`place` = "main") works in the checkout itself, which is nobody's to remove or judge."""
+    return [s for s in [lane.get("workspace") for lane in (run.get("lanes") or {}).values() if lane.get("place") != "main"]
             + [(run.get("integration") or {}).get("workspace")] if s]
 
 
@@ -132,15 +135,17 @@ def drop_run(state: Path, name: str) -> None:
 
 
 def unowned_runs(main: Path, leads: set) -> list[str]:
-    """Close a run no record leads once git lists none of its workspaces (a missing path
-    may be an unmounted disk); a run with no lanes or no repository stays. Name the rest."""
+    """Close a run no record leads once git lists none of its worktrees (a missing path
+    may be an unmounted disk); a run with no lanes, no repository or no worktree (a
+    one-writer run, whose lane works in the checkout) stays. Name the rest."""
     state, names, lines = main / STATE, [], []
     for name, run in sorted(wr.runs_in(str(state)).items()):
         if name in leads:
             continue
         repo = wr.main_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
-        if run.get("lanes") and repo and not any(str(Path(s).resolve()) in listed for s in workspaces(run)):
+        spaces = workspaces(run)
+        if run.get("lanes") and repo and spaces and not any(str(Path(s).resolve()) in listed for s in spaces):
             drop_run(state, name)
             lines.append(f"closed workloop run {name}: git lists none of its worktrees")
         else:

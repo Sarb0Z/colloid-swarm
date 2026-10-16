@@ -151,36 +151,3 @@ def shared_of(run: dict) -> list[str]:
 
 def pending_messages(run: dict, lane: str) -> list[dict]:
     return [message for message in run["messages"] if message["to"] == lane and message["requires_ack"] and not message.get("acknowledged_at")]
-
-
-def completion_problems(run: dict) -> list[str]:
-    problems = []
-    for name, lane in run["lanes"].items():
-        if lane["state"] != "reviewed":
-            problems.append(f"{name}:{lane['state']}")
-        if lane["attention"]:
-            problems.append(f"{name}:attention")
-        if not lane["evidence"]:
-            problems.append(f"{name}:no-evidence")
-    pending = [message["id"] for message in run["messages"] if message["requires_ack"] and not message.get("acknowledged_at")]
-    if pending:
-        problems.append("messages:" + ",".join(pending))
-    if not run["qa"]:
-        problems.append("qa:missing")
-    # One lane's composed result is the lane; two or more need the merged
-    # tree verified once, and re-verified if any lane moved afterwards.
-    if len(run["lanes"]) > 1 and not run.get("torn_down"):
-        integration = run.get("integration")
-        if not integration:
-            problems.append("integration:missing")
-        else:
-            if integration["result"] != "pass":
-                problems.append("integration:" + integration["result"])
-            if integration["base_head"] != run["base"]:
-                problems.append("integration:base-moved")
-            repo = Path(run["repo"])
-            for name, lane in run["lanes"].items():
-                tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
-                if tip != integration["lane_heads"].get(name):
-                    problems.append(f"integration:stale:{name}")
-    return problems

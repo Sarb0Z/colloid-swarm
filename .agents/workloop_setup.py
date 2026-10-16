@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 import workloop_git as wg
+import workloop_main as wm
+from workloop_lanes import dispatch_prompt
 from workloop_paths import normalize_path, overlaps, owned, workspace_for
 from workloop_state import (
     ReadStore,
@@ -36,20 +38,34 @@ def cmd_init(args: argparse.Namespace) -> None:
     valid_name("run", args.run)
     if args.max_lanes < 1 or args.message_limit < 1:
         fail("max-lanes and message-limit must be positive")
+    # The one-writer shape: the run's sole lane, working in the checkout.
+    if args.path and not args.lane:
+        fail("--path needs --lane: a run's sole lane is declared with --lane <name> --worker <type> --path <p>")
+    if args.worker and not args.lane:
+        fail("--worker needs --lane: a run's sole lane is declared with --lane <name> --worker <type> --path <p>")
+    if args.lane and not (args.worker and args.path):
+        fail("--lane needs --worker and at least one --path")
     repo = wg.toplevel(args.repo or Path.cwd())
     base = wg.resolve_commit(repo, args.base)
-    if args.verify:
-        wg.guard_command(args.verify, repo)
+    wg.guard_command(args.verify, repo)
     shared = [normalize_path(path) for path in args.shared or []]
     if len(set(shared)) != len(shared):
         fail("a run cannot declare the same shared path twice")
+    lane_paths = []
+    if args.lane:
+        valid_name("lane", args.lane)
+        lane_paths = [normalize_path(path) for path in args.path]
+        if len(set(lane_paths)) != len(lane_paths):
+            fail("a lane cannot declare the same path twice")
+        if overlaps(lane_paths, shared):
+            fail("paths overlap a shared path; lanes edit shared paths without owning them")
     with Store(state_path(args.state)) as data:
         if args.run in data["runs"]:
             if replayed(data["runs"][args.run], args.event_id):
                 print("replayed event")
                 return
             fail(f"run {args.run!r} already exists; init is intentionally not destructive")
-        data["runs"][args.run] = {
+        run = data["runs"][args.run] = {
             "objective": args.objective,
             "acceptance": args.acceptance,
             "verify": args.verify,
@@ -65,9 +81,15 @@ def cmd_init(args: argparse.Namespace) -> None:
             "integration": None,
             "events": [],
         }
-        record(args.run, data["runs"][args.run], "init", detail=args.objective, supplied=args.event_id)
+        record(args.run, run, "init", detail=args.objective, supplied=args.event_id)
+        if args.lane:
+            run["lanes"][args.lane] = wm.new_lane(args.worker, repo, lane_paths)
+            record(args.run, run, "add-lane", args.lane, ", ".join(lane_paths))
     print(f"created workloop {args.run!r} at {base[:12]} in {repo}")
-    print(SHAPES)
+    if args.lane:
+        print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run["lanes"][args.lane], "worker"))
+    else:
+        print(SHAPES)
 
 
 def cmd_add_lane(args: argparse.Namespace) -> None:
@@ -78,6 +100,8 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
+        if wm.main_lane(run):
+            fail("a one-writer run's lane works in the main tree; start a new run for writers working at once")
         repo = Path(run["repo"])
         base = run["base"]
         workspace = workspace_for(args.workspace, repo, args.run, args.lane, "lane")

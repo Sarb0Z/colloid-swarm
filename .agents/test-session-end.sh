@@ -27,6 +27,7 @@ R="$scratch/repo"
 mkdir -p "$R/.agents/hooks" "$R/.agents/claude" "$R/src"
 cp -R "$repo/.agents/hooks/lib" "$repo/.agents/hooks/policy" "$R/.agents/hooks/"
 cp "$repo"/.agents/workloop*.py "$repo/.agents/provision.sh" "$R/.agents/"
+mkdir -p "$R/.agents/skills/workloop" && cp "$repo/.agents/skills/workloop/working-practice.md" "$R/.agents/skills/workloop/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$R/.agents/claude/"
 mkdir -p "$R/.claude/hooks" && ln -s ../../.agents/claude/adapter.sh "$R/.claude/hooks/adapter.sh"
 printf '.agents/\n.claude/\n*.log\nnode_modules/\n__pycache__/\n' > "$R/.gitignore"
@@ -86,8 +87,8 @@ git -C "$R" worktree add -q "$scratch/wt-operator" -b operator
 bash_call "$R" 'git worktree add -q ../wt-operator -b again | tail -1'
 [[ "$(recorded "$scratch/wt-operator")" == 0 ]] || fail "a failed add adopted the operator's worktree"
 wl="python3 $R/.agents/workloop.py --state $R/.agents/.workloop-state.json"
-$wl init t0 --objective o --acceptance a --repo "$R" >/dev/null
-bash_call "$R" "$wl init t0 --objective o --acceptance a --repo $R | tail -1"
+$wl init t0 --objective o --acceptance a --repo "$R" --verify true >/dev/null
+bash_call "$R" "$wl init t0 --objective o --acceptance a --repo $R --verify true | tail -1"
 grep -q '"run": "t0"' "$records"/*.jsonl && fail "a failed init adopted another session's run"
 git -C "$R" worktree add -q "$scratch/wt-nosnap" -b nosnap
 calls=$((calls + 1))
@@ -107,13 +108,13 @@ gate "$(printf '{"hook_event_name":"SubagentStart","cwd":"%s","session_id":"s1"}
 [[ "$(recorded "$scratch/wt-operator")" == 0 ]] || fail "a cell started in someone's worktree recorded it"
 ok "EnterWorktree and an isolated cell's worktree are recorded from the payload's folder"
 
-bash_call "$R" "$wl init t1 --objective o --acceptance a --repo $R"
+bash_call "$R" "$wl init t1 --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane t1 l1 --worker w --path src"
 lane="$R/.agents/worktrees/t1/l1"
 [[ -d "$lane" && "$(recorded "$lane")" == 1 ]] || fail "add-lane was not recorded"
 grep -q '"run": "t1", "state"' "$records"/*.jsonl || fail "the run was not recorded with its lead"
 # t5 is finished, `check` passes; t1 stays unfinished, its lane never claimed.
-bash_call "$R" "$wl init t5 --objective o --acceptance a --repo $R"
+bash_call "$R" "$wl init t5 --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane t5 l5 --worker w --path docs"
 done5="$R/.agents/worktrees/t5/l5"
 $wl claim t5 l5 --agent cell5 >/dev/null
@@ -122,10 +123,28 @@ git -C "$done5" add docs && git -C "$done5" commit -qm l5
 $wl submit t5 l5 --evidence ok >/dev/null
 $wl review t5 l5 --reference docs/r.md#ok --result accept >/dev/null
 $wl qa t5 --evidence ok >/dev/null
+$wl integrate t5 >/dev/null 2>&1 || fail "the finished run's fixture does not integrate: $($wl integrate t5 2>&1)"
 $wl check t5 >/dev/null || fail "the finished run's fixture does not pass check: $($wl check t5 2>&1)"
 bash_call "$R" "git -C $O worktree add -q $scratch/other-made -b made"
 [[ "$(recorded "$scratch/other-made")" == 1 ]] || fail "a worktree made in another repository was not recorded"
 ok "add-lane is recorded with its run, and a worktree made in another repository"
+# t6 is a finished one-writer run: its lane worked in the checkout, and its composed
+# test leaves a marker whenever it runs, so a session end that ran it would show.
+mark6="$scratch/ran-t6"
+worktrees_before="$(git -C "$R" worktree list --porcelain | grep '^worktree ')"
+bash_call "$R" "$wl init t6 --objective o --acceptance a --repo $R --verify 'touch $mark6' --lane solo --worker w --path notes"
+grep -q '"run": "t6", "state"' "$records"/*.jsonl || fail "init --lane was not recorded with its lead"
+[[ "$(git -C "$R" worktree list --porcelain | grep '^worktree ')" == "$worktrees_before" ]] || fail "init --lane made a worktree"
+$wl claim t6 solo --agent cell6 >/dev/null
+mkdir -p "$R/notes" && printf 'solo\n' > "$R/notes/solo.txt" && git -C "$R" add -- notes/solo.txt && git -C "$R" commit -qm solo
+$wl submit t6 solo --evidence ok >/dev/null
+$wl review t6 solo --reference src/app.txt#ok --result accept >/dev/null
+$wl check t6 >/dev/null 2>&1 || true  # blocked by QA, still missing; the test ran
+[[ -f "$mark6" ]] || fail "check did not run the one-writer run's composed test in the checkout"
+$wl qa t6 --evidence ok >/dev/null
+rm "$mark6"
+$wl check t6 --recorded >/dev/null || fail "the one-writer fixture does not pass check --recorded: $($wl check t6 --recorded 2>&1)"
+ok "a one-writer run is recorded with its lead; check runs its composed test in the checkout"
 
 # ── due once a push follows; a cell's stop leaves the lead's worktrees ──────
 stop; [[ "$rc" -eq 0 ]] || fail "a worktree before any push must not block: $err"
@@ -211,6 +230,10 @@ ok "a plain worktree holding an ignored file that would not come back stays and 
 [[ ! -e "$done5" && "$(git -C "$R" show saved/l5:docs/extra.txt)" == "done work" ]] || fail "a finished run's lane must be saved and removed: $report"
 python3 -c "import json,sys; sys.exit('t5' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the finished run must be closed"
 ok "a finished workloop run ends with its lead: lanes saved and removed, the run closed"
+python3 -c "import json,sys; sys.exit('t6' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the finished one-writer run must be closed: $report"
+[[ ! -e "$mark6" && "$report" == *"closed workloop run t6"* ]] || fail "the session end must close a one-writer run from recorded results, never running its test: $report"
+[[ "$(git -C "$R" show HEAD:notes/solo.txt)" == solo && ! -e "$R/.agents/worktrees/t6" ]] || fail "closing a one-writer run must leave the checkout's commits and remove only its briefs"
+ok "a finished one-writer run closes at the session end without its composed test running; the checkout keeps its work"
 [[ -f "$lane/src/lane.txt" && "$report" == *"kept workloop run t1: completion is blocked by l1:ready"*"waits for this conversation's resume until"* ]] \
   || fail "an unfinished run must wait for the resume: $report"
 grep -q '"held": ' "$records/s1.jsonl" || fail "the waiting run's record carries no hold stamp: $(cat "$records/s1.jsonl")"
@@ -275,7 +298,7 @@ end_session prompt_input_exit
 ok "after /exit, the last worktree entered and kept at Claude Code's prompt stays; earlier ones and one under the ending session's own lock go"
 
 # ── /clear ends the conversation's worktrees; an unfinished run waits 24 hours
-bash_call "$R" "$wl init t2 --objective o --acceptance a --repo $R"
+bash_call "$R" "$wl init t2 --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane t2 l2 --worker w --path src"
 $wl claim t2 l2 --agent cellA >/dev/null
 l2="$R/.agents/worktrees/t2/l2"
@@ -331,9 +354,16 @@ age 90000; sweep
 [[ ! -e "$l2" && "$sweep_out" == *"closed workloop run t2"* && "$(git -C "$R" show saved/l2:src/cell.txt)" == "cell work" ]] \
   || fail "past 24 hours with no resume, the sweep must save and close the run: $sweep_out"
 ok "past the 24 hours the next start saves and closes the run, unless an ignored file would be lost"
+# A one-writer run no session leads has no worktree for git to list; it stays and is named.
+$wl init ow --objective o --acceptance a --repo "$R" --verify true --lane solo --worker w --path src >/dev/null
+sweep
+[[ "$sweep_out" == *"left alone with their worktrees: "*"ow"* && "$sweep_out" != *"closed workloop run ow"* ]] || fail "an unowned one-writer run must stay and be named: $sweep_out"
+python3 -c "import json,sys; sys.exit('ow' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the sweep dropped a one-writer run"
+$wl abandon ow >/dev/null
+ok "a one-writer run with no recorded lead stays through the sweep: nothing on disk is its to lose"
 
 # ── a resumed session claims its records even while another start sweeps ───
-bash_call "$R" "$wl init t7 --objective o --acceptance a --repo $R"
+bash_call "$R" "$wl init t7 --objective o --acceptance a --repo $R --verify true"
 end_session other
 age 3600
 lockfile="$(git -C "$R" rev-parse --path-format=absolute --git-common-dir)/colloid-sweep.lock"
@@ -395,7 +425,7 @@ ok "a session resumed during the sweep keeps its runs and worktrees, written bac
 
 # ── an unreadable state file keeps its run ──────────────────────────────────
 alt="$scratch/alt/.workloop-state.json"; mkdir -p "$scratch/alt"
-bash_call "$R" "python3 $R/.agents/workloop.py --state $alt init t9 --objective o --acceptance a --repo $R"
+bash_call "$R" "python3 $R/.agents/workloop.py --state $alt init t9 --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "python3 $R/.agents/workloop.py --state $alt add-lane t9 l9 --worker w --path docs"
 l9="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["t9"]["lanes"]["l9"]["workspace"])' "$alt")"
 [[ -d "$l9" ]] || fail "the t9 lane was not made"
@@ -425,12 +455,12 @@ host_call() {  # <host> <session> <command> [tool_use_id]: PreToolUse, the comma
   done
 }
 host_call codex cx1 'git worktree add -q ../wt-codex -b codex' call-c1
-host_call codex cx1 "$wl init t3 --objective o --acceptance a --repo $R" call-c2
+host_call codex cx1 "$wl init t3 --objective o --acceptance a --repo $R --verify true" call-c2
 [[ "$(grep -c "\"path\": \"$scratch/wt-codex\"" "$records/cx1.jsonl" 2>/dev/null)" == 1 ]] || fail "Codex must record git worktree add once: $(cat "$records"/cx1.jsonl 2>&1)"
 [[ "$(grep -c '"run": "t3"' "$records/cx1.jsonl")" == 1 ]] || fail "Codex must record workloop.py init once"
 if [[ -n "$kimi" ]]; then
   host_call kimi km1 'git worktree add -q ../wt-kimi -b kimi'
-  host_call kimi km1 "$wl init t4 --objective o --acceptance a --repo $R"
+  host_call kimi km1 "$wl init t4 --objective o --acceptance a --repo $R --verify true"
   [[ "$(grep -c "\"path\": \"$scratch/wt-kimi\"" "$records/km1.jsonl" 2>/dev/null)" == 1 ]] || fail "Kimi must record git worktree add once: $(cat "$records"/km1.jsonl 2>&1)"
   [[ "$(grep -c '"run": "t4"' "$records/km1.jsonl")" == 1 ]] || fail "Kimi must record workloop.py init once"
 fi
