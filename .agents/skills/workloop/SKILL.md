@@ -151,8 +151,10 @@ line, and the prompt tells the cell its question follows. The cell returns its r
 absolute. `returned <run> <name> --failed '<reason>'` records a cell that died
 or was stopped, and `brief <run> <name> --again` sends a returned or failed
 cell out again. `status` and the lead's digest list cells still out; `check`,
-`teardown` and the session end will not close the run while one is, and
-`integrate` does not wait for them. No cell outlives its session, so a cell
+`teardown` and the session end will not close the run while one is, though
+`check` still runs a one-writer run's composed test and names `returned` for
+each, and `integrate` does not wait for them. A torn-down run takes no cell.
+No cell outlives its session, so a cell
 still out at a startup or resume is named with `--failed` or `--again`, unless
 another live session leads its run; a compaction or `/clear` ends no cell.
 
@@ -160,7 +162,7 @@ A lane's own review stays `brief <run> <lane> --role reviewer`, which names
 the commits and the `review --tip` handoff; a review cell is for what is not a
 lane, such as a plan. A run started without `--verify` is a read-only fan-out:
 it is finished once every cell is back, with no QA record and no composed test,
-and `add-lane` refuses it. When a writer will follow the cells, start with
+so `qa` and `integrate` say there is nothing for them, and `add-lane` refuses it. When a writer will follow the cells, start with
 `init … --lane` instead and add the cells beside it. The lead's digest names a
 turn that dispatched two or more cells with no run header ("3 cells last turn
 outside any run"); it refuses nothing.
