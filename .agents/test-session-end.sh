@@ -383,6 +383,24 @@ $wl returned fo a --result reply >/dev/null; $wl returned fo b --failed x >/dev/
 sweep
 [[ "$sweep_out" == *"closed workloop run fo: every cell is back"* && "$sweep_out" == *"left alone with their worktrees: "*"pre"* && "$sweep_out" != *"closed workloop run pre"* ]] || fail "a fan-out whose cells are back must close, and a --verify run with no lane must stay: $sweep_out"
 python3 -c "import json,sys; r=json.load(open('$R/.agents/.workloop-state.json'))['runs']; sys.exit('fo' in r or 'pre' not in r)" || fail "the sweep dropped the wrong run"
+[[ ! -e "$R/.agents/worktrees/fo" && -d "$R/.agents/worktrees/pre/.workloop" ]] || fail "the close left the fan-out's briefs, or took another run's: $(ls -R "$R/.agents/worktrees/fo" 2>&1)"
+# the close judges the run again under the controller's lock: a cell added since the sweep read it keeps the run
+$wl init late --objective o --acceptance a --repo "$R" >/dev/null
+$wl add-cell late a --role research --model haiku >/dev/null; $wl returned late a --result reply >/dev/null
+stale="$(python3 -c "import json; print(json.dumps(json.load(open('$R/.agents/.workloop-state.json'))['runs']['late']))")"
+$wl add-cell late b --role research --model haiku >/dev/null
+late_out="$(cd "$R/.agents/hooks/lib" && python3 - "$R" "$stale" <<'PY'
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("worktree_runs", "worktree_runs.py"); rn = importlib.util.module_from_spec(spec); spec.loader.exec_module(rn)
+rn.wr.runs_in = lambda state: {"late": json.loads(sys.argv[2])}  # the read before the lock, from before cell b
+print("\n".join(rn.unowned_runs(Path(sys.argv[1]), set())))
+PY
+)"
+[[ "$late_out" == *"left alone with their worktrees: late"* && "$late_out" != *"closed workloop run late"* ]] || fail "the close dropped a fan-out a cell joined after the sweep read it: $late_out"
+python3 -c "import json,sys; sys.exit('late' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the run with a cell out was dropped from state"
+[[ -f "$R/.agents/worktrees/late/.workloop/cells/b.md" ]] || fail "the kept run lost its briefs"
+$wl returned late b --result reply >/dev/null
 $wl init old --objective o --acceptance a --repo "$R" >/dev/null
 $wl add-cell old a --role research --model haiku >/dev/null; $wl add-cell old b --role research --model haiku >/dev/null
 python3 - "$R/.agents/.workloop-state.json" <<'PY'
@@ -401,6 +419,7 @@ json.dump(s, open(path, "w"))
 PY
 sweep
 [[ "$sweep_out" == *"closed workloop run old: its cells went out over 24 hours ago"* ]] || fail "a fan-out whose cells all went out past the hold must close: $sweep_out"
+[[ ! -e "$R/.agents/worktrees/old" ]] || fail "the close left the fan-out's briefs: $(ls -R "$R/.agents/worktrees/old" 2>&1)"
 $wl abandon pre >/dev/null
 ! grep -q strptime "$repo/.agents/hooks/lib/worktree_runs.py" || fail "worktree_runs.py parses the controller's stamps itself instead of importing workloop_size's parse"
 ok "a lead-less fan-out closes once every cell is back or every cell is out past the hold, read by the digest's own stamp parse; a --verify run with no lane yet stays"

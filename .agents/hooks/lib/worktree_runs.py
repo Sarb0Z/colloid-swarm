@@ -14,6 +14,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -128,15 +129,35 @@ def workspaces(run: dict) -> list[str]:
             + [(run.get("integration") or {}).get("workspace"), (run.get("verified") or {}).get("workspace")] if s]
 
 
-def drop_run(state: Path, name: str) -> None:
-    """Delete one run from the state file under the controller's own lock, as `workloop_state.Store` writes it."""
+def drop_run(state: Path, name: str, why) -> str | None:
+    """Delete one run from the state file under the controller's own lock, as `workloop_state.Store`
+    writes it, when `why(run)`, judged on the run as read under that lock, still names a reason.
+    Returns the reason; None when the run is gone or changed since it was judged, and stays."""
     with open(f"{state}.lock", "a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         data = json.loads(state.read_text())
-        data["runs"].pop(name, None)
+        run = data["runs"].get(name)
+        reason = why(run) if run is not None else None
+        if reason is None:
+            return None
+        del data["runs"][name]
         scratch = state.with_name(f"{state.name}.{os.getpid()}")
         scratch.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
         os.replace(scratch, state)
+    return reason
+
+
+def remove_briefs(run: dict, name: str) -> str | None:
+    """Remove a closed run's briefs and its folder once empty, as `teardown` does; why not, or None."""
+    folder = Path(run.get("repo") or "/nonexistent") / wr.RECORDS.parent / name
+    try:
+        if (folder / ".workloop").is_dir():
+            shutil.rmtree(folder / ".workloop")
+        if folder.is_dir() and not any(folder.iterdir()):
+            folder.rmdir()
+    except OSError as error:
+        return f"its briefs in {folder} could not be removed ({error})"
+    return None
 
 
 def fanout_closed(run: dict, now: float) -> str | None:
@@ -167,13 +188,14 @@ def unowned_runs(main: Path, leads: set) -> list[str]:
         repo = wr.main_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
         spaces = workspaces(run)
-        closed = fanout_closed(run, time.time())
+        now = time.time()
         if run.get("lanes") and repo and spaces and not any(str(Path(s).resolve()) in listed for s in spaces):
-            drop_run(state, name)
+            drop_run(state, name, lambda _: "git lists none of its worktrees")
             lines.append(f"closed workloop run {name}: git lists none of its worktrees")
-        elif closed:
-            drop_run(state, name)
-            lines.append(f"closed workloop run {name}: {closed}")
+        # Judged again under the lock: a cell added since this read keeps the run.
+        elif fanout_closed(run, now) and (closed := drop_run(state, name, lambda current: fanout_closed(current, now))):
+            unremoved = remove_briefs(run, name)
+            lines.append(f"closed workloop run {name}: {closed}" + (f"; {unremoved}" if unremoved else ""))
         else:
             names.append(name)
     if names:
