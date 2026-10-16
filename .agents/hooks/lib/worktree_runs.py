@@ -10,12 +10,14 @@ worktree stays from the heal (ruling 28).
 
 from __future__ import annotations
 
+import calendar
 import fcntl
 import importlib.util
 import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location("worktree_heal", Path(__file__).with_name("worktree_heal.py"))
@@ -134,10 +136,35 @@ def drop_run(state: Path, name: str) -> None:
         os.replace(scratch, state)
 
 
+def stamp_age(value, now: float) -> float | None:
+    """Seconds since a controller stamp (`%Y-%m-%dT%H:%M:%SZ`); None when it does not parse."""
+    try:
+        return now - calendar.timegm(time.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return None
+
+
+def fanout_closed(run: dict, now: float) -> str | None:
+    """Why a lead-less read-only fan-out (no `--verify`, so cells only) is closed: every cell
+    is back, or every cell still out went out before the hold, since no cell outlives its
+    session (ruling 35); None for any other run, or while a cell may still return."""
+    cells = run.get("cells") or {}
+    if run.get("verify") or run.get("lanes") or not cells:
+        return None
+    out = [cell for cell in cells.values() if cell.get("state") == "out"]
+    if not out:
+        return "every cell is back"
+    ages = [stamp_age(cell.get("out_since"), now) for cell in out]
+    if all(age is not None and age >= HOLD_SECONDS for age in ages):
+        return f"its cells went out over {HOLD_SECONDS // 3600} hours ago"
+    return None
+
+
 def unowned_runs(main: Path, leads: set) -> list[str]:
     """Close a run no record leads once git lists none of its worktrees (a missing path
-    may be an unmounted disk); a run with no lanes, no repository or no worktree (a
-    one-writer run, whose lane works in the checkout) stays. Name the rest."""
+    may be an unmounted disk), or once it is a fan-out whose cells are back or past the
+    hold; a run with lanes and no repository or no worktree (a one-writer run, whose
+    lane works in the checkout) stays. Name the rest."""
     state, names, lines = main / STATE, [], []
     for name, run in sorted(wr.runs_in(str(state)).items()):
         if name in leads:
@@ -145,9 +172,13 @@ def unowned_runs(main: Path, leads: set) -> list[str]:
         repo = wr.main_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
         spaces = workspaces(run)
+        closed = fanout_closed(run, time.time())
         if run.get("lanes") and repo and spaces and not any(str(Path(s).resolve()) in listed for s in spaces):
             drop_run(state, name)
             lines.append(f"closed workloop run {name}: git lists none of its worktrees")
+        elif closed:
+            drop_run(state, name)
+            lines.append(f"closed workloop run {name}: {closed}")
         else:
             names.append(name)
     if names:

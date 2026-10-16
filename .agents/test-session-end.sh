@@ -370,6 +370,39 @@ sweep
 python3 -c "import json,sys; sys.exit('ow' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the sweep dropped a one-writer run after its test passed"
 $wl abandon ow >/dev/null
 ok "a one-writer run with no recorded lead stays through the sweep, before and after its test passed: nothing on disk is its to lose"
+# A read-only fan-out no session leads (no --verify, cells only) closes once every
+# cell is back, or once its cells went out before the 24-hour hold; a run with
+# --verify whose scouts are back still waits for its lane.
+$wl init fo --objective o --acceptance a --repo "$R" >/dev/null
+$wl add-cell fo a --role research --model haiku >/dev/null; $wl add-cell fo b --role review --model haiku >/dev/null
+$wl init pre --objective o --acceptance a --repo "$R" --verify true >/dev/null
+$wl add-cell pre scout --role research --model haiku >/dev/null; $wl returned pre scout --result reply >/dev/null
+sweep
+[[ "$sweep_out" == *"left alone with their worktrees: "*"fo"*"pre"* && "$sweep_out" != *"closed workloop run fo"* ]] || fail "a fan-out with a cell out must stay and be named: $sweep_out"
+$wl returned fo a --result reply >/dev/null; $wl returned fo b --failed x >/dev/null
+sweep
+[[ "$sweep_out" == *"closed workloop run fo: every cell is back"* && "$sweep_out" == *"left alone with their worktrees: "*"pre"* && "$sweep_out" != *"closed workloop run pre"* ]] || fail "a fan-out whose cells are back must close, and a --verify run with no lane must stay: $sweep_out"
+python3 -c "import json,sys; r=json.load(open('$R/.agents/.workloop-state.json'))['runs']; sys.exit('fo' in r or 'pre' not in r)" || fail "the sweep dropped the wrong run"
+$wl init old --objective o --acceptance a --repo "$R" >/dev/null
+$wl add-cell old a --role research --model haiku >/dev/null; $wl add-cell old b --role research --model haiku >/dev/null
+python3 - "$R/.agents/.workloop-state.json" <<'PY'
+import json, sys, time
+path = sys.argv[1]; s = json.load(open(path))
+s["runs"]["old"]["cells"]["a"]["out_since"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 25 * 3600))
+json.dump(s, open(path, "w"))
+PY
+sweep
+[[ "$sweep_out" != *"closed workloop run old"* ]] || fail "a fan-out with one cell out within the hold must stay: $sweep_out"
+python3 - "$R/.agents/.workloop-state.json" <<'PY'
+import json, sys, time
+path = sys.argv[1]; s = json.load(open(path))
+s["runs"]["old"]["cells"]["b"]["out_since"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 25 * 3600))
+json.dump(s, open(path, "w"))
+PY
+sweep
+[[ "$sweep_out" == *"closed workloop run old: its cells went out over 24 hours ago"* ]] || fail "a fan-out whose cells all went out past the hold must close: $sweep_out"
+$wl abandon pre >/dev/null
+ok "a lead-less fan-out closes once every cell is back or every cell is out past the hold; a --verify run with no lane yet stays"
 
 # ── a resumed session claims its records even while another start sweeps ───
 bash_call "$R" "$wl init t7 --objective o --acceptance a --repo $R --verify true"
