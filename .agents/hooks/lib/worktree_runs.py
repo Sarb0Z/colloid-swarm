@@ -164,6 +164,7 @@ def fanout_closed(run: dict, now: float) -> str | None:
     """Why a lead-less read-only fan-out (no `--verify`, so cells only) is closed: every cell
     is back, or every cell still out went out before the hold, since no cell outlives its
     session (ruling 35); None for any other run, or while a cell may still return."""
+    # debt: fanout-rule-copies -- completion_problems and the digest's cell notes read this rule too.
     cells = run.get("cells") or {}
     if run.get("verify") or run.get("lanes") or not cells:
         return None

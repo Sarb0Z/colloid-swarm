@@ -164,6 +164,7 @@ def cell_notes(run_name: str, run: dict, ended: bool) -> list[str]:
     out = sorted(name for name, cell in cells.items() if cell.get("state") == "out")
     if not out:
         # A run declared without --verify is finished once every cell is back (ruling 35).
+        # debt: fanout-rule-copies -- completion_problems and the lead-less close read this rule too.
         return [f"every cell is back; check {run_name}, then teardown {run_name}"] if cells and not run.get("verify") else []
     name = out[0] if len(out) == 1 else "<name>"
     remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"

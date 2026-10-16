@@ -281,6 +281,7 @@ def completion_problems(run: dict) -> list[str]:
     # A run declared without --verify holds read-only cells only and is done
     # once every cell is back: no QA, no composed test (ruling 35). One from
     # before --verify was required that holds lanes can never pass.
+    # debt: fanout-rule-copies -- the digest's cell notes and the lead-less close read this rule too.
     if not run.get("verify"):
         return problems + (["verify:undeclared"] if run["lanes"] else [])
     if not run["qa"]:
