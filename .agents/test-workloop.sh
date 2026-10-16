@@ -1021,6 +1021,15 @@ rm "$mark"
 expect "PASS: 'ow' has reviewed lanes, a passing composed test and QA evidence" "${tool[@]}" check ow
 [[ ! -e "$mark" ]] || fail "check reran a current, passing verification"
 ok "check tests the accepted commit in a provisioned verify worktree, removed after the pass, and a current pass is not rerun"
+# the review report is the lead's: editing and committing it in the checkout after the accept leaves the lane reviewed
+mkdir -p "$work/reports"; printf 'round 1\n' > "$work/reports/ow.md"
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["lanes"]["solo"]["review_refs"].append({"at": "2026-10-16T00:00:00Z", "reference": "reports/ow.md#ok", "result": "accept"}); json.dump(s, open(p,"w"))' "$state"
+expect PASS "${tool[@]}" check ow --recorded
+commit_paths "$work" report reports/ow.md
+printf 'trailing\n' >> "$work/reports/ow.md"
+expect PASS "${tool[@]}" check ow --recorded
+commit_paths "$work" report2 reports/ow.md
+ok "a commit or an edit to the cited review report after the accept does not move the lane"
 # only a pass is current: a recorded failure makes the next check run again
 python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state"
 expect 'verified:fail' "${tool[@]}" check ow --recorded
