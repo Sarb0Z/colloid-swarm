@@ -182,14 +182,13 @@ def unowned_runs(main: Path, leads: set) -> list[str]:
     may be an unmounted disk), or once it is a fan-out whose cells are back or past the
     hold; a run with lanes and no repository or no worktree (a one-writer run, whose
     lane works in the checkout) stays. Name the rest."""
-    state, names, lines = main / STATE, [], []
+    state, names, lines, now = main / STATE, [], [], time.time()
     for name, run in sorted(wr.runs_in(str(state)).items()):
         if name in leads:
             continue
         repo = wr.main_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
         spaces = workspaces(run)
-        now = time.time()
         if run.get("lanes") and repo and spaces and not any(str(Path(s).resolve()) in listed for s in spaces):
             drop_run(state, name, lambda _: "git lists none of its worktrees")
             lines.append(f"closed workloop run {name}: git lists none of its worktrees")
