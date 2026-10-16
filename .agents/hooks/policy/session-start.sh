@@ -170,10 +170,12 @@ if [[ "$learning_enabled" == "yes" && -f "$learning_playbook" ]]; then
 fi
 
 # A run mid-flight is the first thing a resumed lead needs to know about;
-# the digest is the same one workloop-inbox.sh gives at each prompt.
+# the digest is the same one workloop-inbox.sh gives at each prompt. The start
+# source, after the agent id, tells it whether this start ended the session's
+# earlier cells (startup, resume) or not (clear, compact).
 workloop_digest=""
 if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]]; then
-  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" 2>/dev/null || true)"
+  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" "${start_source:-startup}" 2>/dev/null || true)"
 fi
 
 # Installed copies of the output style that say something else. The carrier

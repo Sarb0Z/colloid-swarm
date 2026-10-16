@@ -153,7 +153,8 @@ or was stopped, and `brief <run> <name> --again` sends a returned or failed
 cell out again. `status` and the lead's digest list cells still out; `check`,
 `teardown` and the session end will not close the run while one is, and
 `integrate` does not wait for them. No cell outlives its session, so a cell
-still out at a session start is named with `--failed` or `--again`.
+still out at a startup or resume is named with `--failed` or `--again`, unless
+another live session leads its run; a compaction or `/clear` ends no cell.
 
 A lane's own review stays `brief <run> <lane> --role reviewer`, which names
 the commits and the `review --tip` handoff; a review cell is for what is not a

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """What a workloop participant needs to hear right now, as one block of text.
 
-Usage: workloop-inbox.py <state-path> <seen-dir> <session> <event> <agent-id>
+Usage: workloop-inbox.py <state-path> <seen-dir> <session> <event> <agent-id> [<start-source>]
 
+The start source is session-start.sh's (startup, resume, clear, compact).
 Prints the block, or nothing when there is nothing new. The state file is
 the controller's own; this reads it and never writes it. Delivery is
 remembered per agent in <seen-dir>/.inbox-seen-<session>-<agent>, so a
@@ -31,6 +32,8 @@ import re
 import sys
 import time
 from pathlib import Path
+
+import worktree_records as wr  # beside this script, so found before the path below is added
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
@@ -153,10 +156,10 @@ def closing_notes(run_name: str, run: dict) -> list[str]:
     return [f"check {run_name}, then teardown {run_name}"]
 
 
-def cell_notes(run_name: str, run: dict, event: str) -> list[str]:
-    """Cells still out, with the remedy that fits the moment: at a prompt the lead
-    records each as it comes back; at a session start no cell outlives its session,
-    so each is failed or sent out again."""
+def cell_notes(run_name: str, run: dict, ended: bool) -> list[str]:
+    """Cells still out, with the remedy that fits the moment: while their session may
+    still run them the lead records each as it comes back; once that session's process
+    has ended (`ended`), no cell outlives it, so each is failed or sent out again."""
     cells = run.get("cells") or {}
     out = sorted(name for name, cell in cells.items() if cell.get("state") == "out")
     if not out:
@@ -164,11 +167,31 @@ def cell_notes(run_name: str, run: dict, event: str) -> list[str]:
         return [f"every cell is back; check {run_name}, then teardown {run_name}"] if cells and not run.get("verify") else []
     name = out[0] if len(out) == 1 else "<name>"
     remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"
-              if event == "SessionStart" else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")
+              if ended else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")
     return [f"{len(out)} cell{'s' if len(out) > 1 else ''} out ({', '.join(out)}); {remedy}"]
 
 
-def main_block(runs: dict, seen_dir: Path | None = None, session: str = "", event: str = "") -> str:
+def ended_runs(runs: dict, seen_dir: Path, session: str, source: str) -> set[str]:
+    """The runs whose cells out no process still runs, at a session start.
+
+    A startup or resume begins a new process, so this session's earlier cells are
+    gone; a compaction or /clear ends none. A run another live session leads, by
+    the worktree records the session-start sweep reads, keeps its cells, unless
+    this session leads it too."""
+    if source not in ("startup", "resume"):
+        return set()
+    me, mine, theirs = wr.session_key(session), set(), set()
+    for path in wr.records_dir(seen_dir.parent).glob("*.jsonl"):
+        entries = wr.load(path)
+        led = {entry["run"] for entry in entries if entry.get("run")}
+        if path.stem == me:
+            mine |= led
+        elif wr.alive(wr.last_host(entries)):
+            theirs |= led
+    return {name for name in runs if name in mine or name not in theirs}
+
+
+def main_block(runs: dict, seen_dir: Path | None = None, session: str = "", ended: frozenset = frozenset()) -> str:
     now = time.time()
     git = GitBudget()
     lines: list[str] = []
@@ -208,7 +231,7 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = "", even
         pending = [m["id"] for m in run.get("messages", []) if m["requires_ack"] and not m.get("acknowledged_at")]
         if pending:
             notes.append(f"{len(pending)} message(s) await acknowledgement")
-        notes += cell_notes(run_name, run, event) + closing_notes(run_name, run) + size_notes(git, run, now)
+        notes += cell_notes(run_name, run, run_name in ended) + closing_notes(run_name, run) + size_notes(git, run, now)
         if notes:
             lines.append(f"WORKLOOP {run_name}: " + "; ".join(notes) + f". Status: .agents/workloop.py status {run_name}")
     orphans = wd.foreign_orphans() if (runs and wd is not None) else []
@@ -262,7 +285,9 @@ def main() -> None:
         # The count stands with no run and no state file: the note is for a
         # lead who opened no run.
         outside = outside_runs_note(seen_dir, safe) if event == "UserPromptSubmit" else ""
-        block = "\n".join(part for part in (outside, main_block(runs, seen_dir, session, event) if runs else "") if part)
+        source = sys.argv[6] if len(sys.argv) > 6 and event == "SessionStart" else ""
+        ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
+        block = "\n".join(part for part in (outside, main_block(runs, seen_dir, session, ended) if runs else "") if part)
     if block:
         print(block)
 

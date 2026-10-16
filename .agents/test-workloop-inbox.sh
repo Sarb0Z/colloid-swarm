@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
 mkdir -p "$scratch/bin"
 cat > "$scratch/bin/docker" <<'EOF'
@@ -263,10 +263,31 @@ has "$ctx" "WORKLOOP c-one: 1 cell out (scout); returned c-one scout when it com
 lacks "$ctx" "c-back" "a run with --verify whose cell is back waits for its lane"
 has "$ctx" "WORKLOOP c-fanout: every cell is back; check c-fanout, then teardown c-fanout" "a fan-out whose cells are back"
 has "$ctx" "WORKLOOP c-fanout-open: 1 cell out (scout); returned c-fanout-open scout" "a fan-out with a cell out"
-ctx="$(context "$(fire SessionStart '')")"
-has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); no cell outlives its session: returned c-two <name> --failed '<why>', or brief c-two <name> --again" "two cells out at a start"
-has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "one cell out at a start"
-ok "cells still out are named at a prompt with returned, and at a session start with --failed or brief --again"
+# the session start's call, as session-start.sh makes it: the start source follows the agent id
+start_digest() { python3 "$dir/.agents/hooks/lib/workloop-inbox.py" "$state" "$dir/.agents" s1 SessionStart "" "$1"; }
+for source in startup resume; do
+  ctx="$(start_digest "$source")"
+  has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); no cell outlives its session: returned c-two <name> --failed '<why>', or brief c-two <name> --again" "two cells out at a $source"
+  has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "one cell out at a $source"
+done
+# a compaction or /clear ends no cell, so its cells keep the prompt's remedy
+for source in compact clear; do
+  ctx="$(start_digest "$source")"
+  has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); returned c-two <name> when each comes back" "cells out at a $source"
+  lacks "$ctx" "no cell outlives its session" "a $source"
+done
+# a run another live session leads keeps its cells running; one this session also leads does not
+records="$dir/.agents/worktrees/.records"; mkdir -p "$records"
+live_host="$(cd "$dir/.agents/hooks/lib" && python3 -c 'import json, os, worktree_records as wr; print(json.dumps([os.getppid(), wr.ps_row(os.getppid())[1]]))')"
+printf '{"type": "run", "run": "c-two", "state": "x", "host": %s}\n{"type": "run", "run": "c-one", "state": "x", "host": %s}\n' "$live_host" "$live_host" > "$records/other.jsonl"
+printf '{"type": "run", "run": "c-one", "state": "x", "host": [1, "gone"]}\n' > "$records/s1.jsonl"
+ctx="$(start_digest startup)"
+has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); returned c-two <name> when each comes back" "another live session's run at a start"
+has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "a run this session leads beside a live one"
+printf '{"type": "run", "run": "c-two", "state": "x", "host": [1, "gone"]}\n' > "$records/other.jsonl"
+has "$(start_digest startup)" "no cell outlives its session: returned c-two <name>" "a run whose only other lead has ended"
+rm -rf "$records"
+ok "cells still out are named at a prompt with returned, and with --failed or brief --again only at a startup or resume, for runs this session or no live session leads"
 
 # closing steps: worktree run
 put_state <<'EOF'

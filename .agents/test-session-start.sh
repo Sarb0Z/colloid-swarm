@@ -342,6 +342,19 @@ inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
 [[ "$inflight_context" == *"Workloop runs in flight"* && "$inflight_context" == *"WORKLOOP r1: api awaits review"* ]] || fail "session start did not surface the run in flight"
 [[ "$inflight_context" != *"WORKLOOP old"* ]] || fail "session start surfaced a torn-down run"
 printf 'ok: a run in flight is surfaced at session start\n'
+# The start source reaches the digest: a startup ended the session's cells, a compaction did not.
+python3 - "$inflight/.agents/.workloop-state.json" <<'PY'
+import json, sys
+path = sys.argv[1]; s = json.load(open(path))
+s["runs"]["r1"]["cells"] = {"scout": {"role": "research", "model": "opus", "state": "out", "added_at": "2026-10-16T00:00:00Z", "out_since": "2026-10-16T00:00:00Z"}}
+json.dump(s, open(path, "w"))
+PY
+inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
+assert_contains "$inflight_context" "1 cell out (scout); no cell outlives its session: returned r1 scout --failed '<why>', or brief r1 scout --again"
+inflight_context="$(context_of "$(run_policy "$inflight" compact)")"
+assert_contains "$inflight_context" "1 cell out (scout); returned r1 scout when it comes back"
+assert_not_contains "$inflight_context" "no cell outlives its session"
+printf 'ok: the session start gives the dead-cell remedy at a startup and the prompt remedy at a compaction\n'
 
 # Startup, resume, and compact starts each inject one teaching contract.
 resume="$(make_fixture resume)"
