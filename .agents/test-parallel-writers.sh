@@ -74,6 +74,27 @@ ok "a writer carrying a workloop brief passes"
 denied "$(dispatch p9 mechanic)" || fail "a second plain writer passed beside the first"
 ok "lanes work outside the checkout, so one plain writer beside them passes and a second is denied"
 
+# a main lane (a one-writer run's sole lane, `place` main) works in the checkout itself:
+# its worker brief is a plain writer, and its reviewer or QA brief opens READ-ONLY
+printf '{"version":1,"runs":{"ow":{"lanes":{"solo":{"place":"main","workspace":"%s","branch":null,"state":"active"}}}}}' "$dir" > "$dir/.agents/.workloop-state.json"
+: > "$dir/.agents/.writers-turn-s1"
+main_brief='WORKLOOP WORKER BRIEF — ow/solo
+Read the full brief at /x/.agents/worktrees/ow/.workloop/solo.md before anything else'
+[[ -z "$(dispatch p10 implementer "$main_brief")" ]] || fail "the main lane's worker was refused with nothing live"
+denied "$(dispatch p10 mechanic)" || fail "a second writer passed beside the main lane's worker"
+denied "$(dispatch p10 mechanic "$main_brief")" || fail "the main lane's brief exempted a second dispatch as a lane"
+[[ -z "$(dispatch p10 general-purpose 'READ-ONLY — this lane works in the checkout itself; read it and write nothing.
+WORKLOOP REVIEWER BRIEF — ow/solo
+Read the full brief at /x/.agents/worktrees/ow/.workloop/solo-reviewer.md before anything else')" ]] || fail "the main lane's READ-ONLY reviewer brief was refused"
+[[ -z "$(dispatch p10 general-purpose 'READ-ONLY — this lane works in the checkout itself; read it and write nothing.
+WORKLOOP QA BRIEF — ow/solo')" ]] || fail "the main lane's READ-ONLY QA brief was refused"
+start a10 implementer p10
+denied "$(edit p10)" || fail "the lead edited the checkout while the main lane's cell was live"
+stop a10 implementer
+[[ -z "$(edit p10)" ]] || fail "the lead's edit was refused after the main lane's cell stopped"
+rm "$dir/.agents/.workloop-state.json"
+ok "a main lane's worker brief is one plain writer in the checkout, its reviewer and QA briefs pass as read-only, and the lead's edit waits for the cell"
+
 # a prompt that declares itself read-only passes
 : > "$dir/.agents/.writers-turn-s1"
 [[ -z "$(dispatch p1 implementer)" ]] || fail "first writer refused"
