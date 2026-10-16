@@ -135,7 +135,10 @@ def composed_result(run: dict) -> dict | None:
         record = run.get("verified")
         return record if record and record.get("lane_tips") == tips and record.get("verify") == run.get("verify") else None
     record = run.get("integration")
-    return record if record and record.get("lane_heads") == tips else None
+    # Current also means the shared paths and rebuild commands it merged with
+    # are the run's now (a record from before them reads as none).
+    same_rules = record and record.get("rebuilt", {}) == run.get("rebuild", {}) and record.get("shared", []) == run.get("shared", [])
+    return record if record and same_rules and record.get("lane_heads") == tips else None
 
 
 def closing_notes(run_name: str, run: dict) -> list[str]:

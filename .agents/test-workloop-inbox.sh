@@ -306,6 +306,11 @@ runs = {
   "w-fail": run(integration={"result": "fail", "base_head": base, "lane_heads": heads}),
   "w-qa": run(integration={"result": "pass", "base_head": base, "lane_heads": heads}),
   "w-done": run(integration={"result": "pass", "base_head": base, "lane_heads": heads}, qa={"at": now, "evidence": "e"}),
+  # a share after the merge: the run now rebuilds lock.txt, the record merged without it
+  "w-share": dict(run(integration={"result": "pass", "base_head": base, "lane_heads": heads, "shared": [], "rebuilt": {}}), shared=["lock.txt"], rebuild={"lock.txt": "make lock"}),
+  "w-shared": dict(run(integration={"result": "pass", "base_head": base, "lane_heads": heads, "shared": ["lock.txt"], "rebuilt": {"lock.txt": "make lock"}}), shared=["lock.txt"], rebuild={"lock.txt": "make lock"}),
+  # a record from before the two fields reads as none, and a run with none is current
+  "w-old": run(integration={"result": "pass", "base_head": base, "lane_heads": heads}),
 }
 json.dump({"version": 1, "runs": runs}, open(path, "w"))
 EOF
@@ -316,7 +321,10 @@ has "$ctx" "WORKLOOP w-moved: all lanes reviewed; integrate w-moved" "a lane mov
 has "$ctx" "WORKLOOP w-fail: the composed test failed at integrate; see status" "failed integration"
 has "$ctx" "WORKLOOP w-qa: ready for QA; record it with qa w-qa --evidence" "passing integration, no QA"
 has "$ctx" "WORKLOOP w-done: check w-done, then teardown w-done" "QA recorded"
-ok "a worktree run names integrate, the failed composed test, QA, then check and teardown"
+has "$ctx" "WORKLOOP w-share: all lanes reviewed; integrate w-share" "a share changed the rebuild rule after the integration"
+has "$ctx" "WORKLOOP w-shared: ready for QA; record it with qa w-shared --evidence" "an integration that used the run's shared paths and rebuild commands"
+has "$ctx" "WORKLOOP w-old: ready for QA; record it with qa w-old --evidence" "an integration record from before the two fields, in a run that shares nothing"
+ok "a worktree run names integrate, the failed composed test, QA, then check and teardown; a share after the merge is not ready for QA"
 
 # lane size: each limit names the lane with its figure and remedy; lanes under every limit are silent
 remedy="split what remains into a new lane after this one is reviewed"
