@@ -13,14 +13,18 @@ A subagent hears: its host agent id at start, so it can claim its lane with
 that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
 awaiting review, lanes carrying attention, lanes whose heartbeat is stale.
+
+The digest judges a composed result from state on every prompt, comparing the
+integration record to each lane's accepted tip; `check` judges from Git, also
+comparing live branch tips and the base head. A stale integration can
+therefore read "ready for QA" here until `check` says otherwise. Lane-size
+notes live in workloop_size.py.
 """
 
 from __future__ import annotations
 
-import calendar
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -31,21 +35,13 @@ try:
 except ImportError:  # a trimmed export without the controller still gets the digest
     wd = None  # type: ignore[assignment]
 
+from workloop_size import GitBudget, size_notes, stamp  # noqa: E402
+
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
 # file is written before the host reads the block, so a delivery must never
 # be larger than what is sure to arrive; the rest stays unseen for next time.
 MAX_DELIVER = 8
-
-# A lane past any of these is warned about, never refused: one behaviour per
-# lane keeps review and merge small.
-MAX_CHANGED_LINES = 800
-MAX_LANE_PATHS = 15
-WIDEN_LIMIT = 2
-OPEN_RUN_SECONDS = 24 * 3600
-GIT_TIMEOUT = 5
-SPLIT_REMEDY = "split what remains into a new lane after this one is reviewed"
-
 
 def load(path: Path) -> dict:
     try:
@@ -53,15 +49,6 @@ def load(path: Path) -> dict:
     except (OSError, ValueError):
         return {}
     return data.get("runs", {}) if isinstance(data, dict) else {}
-
-
-def stamp(value: str | None) -> float | None:
-    if not value:
-        return None
-    try:
-        return float(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")))
-    except ValueError:
-        return None
 
 
 def live_runs(runs: dict) -> dict:
@@ -163,80 +150,9 @@ def closing_notes(run_name: str, run: dict) -> list[str]:
     return [f"check {run_name}, then teardown {run_name}"]
 
 
-def git_out(repo: Path, *args: str) -> str | None:
-    """Git's stdout, or None with a note on stderr: a missing figure is dropped, not fatal."""
-    try:
-        result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, timeout=GIT_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        print(f"workloop-inbox: git {args[0]} in {repo} dropped: {error}", file=sys.stderr)
-        return None
-    if result.returncode != 0:
-        print(f"workloop-inbox: git {args[0]} in {repo} dropped: {result.stderr.strip()}", file=sys.stderr)
-        return None
-    return result.stdout
-
-
-def changed_lines(lane: dict, run: dict) -> int | None:
-    workspace = Path(lane.get("workspace") or "")
-    origin = lane.get("start") if lane.get("place") == "main" else run.get("base")
-    if not origin or not workspace.is_dir():
-        return None
-    paths = [*lane.get("paths", []), *run.get("shared", [])]
-    out = git_out(workspace, "diff", "--numstat", origin, "--", *paths)
-    if out is None:
-        return None
-    # Binary files report "-" and count as no lines.
-    return sum(int(count) for row in out.splitlines() for count in row.split("\t")[:2] if count.isdigit())
-
-
-def commits_behind(run: dict) -> tuple[int, str] | None:
-    """Commits on the default branch past the run base, with that branch's name."""
-    repo = Path(run.get("repo") or "")
-    if not repo.is_dir() or not run.get("base"):
-        return None
-    # for-each-ref exits 0 with no output for a ref that is absent, so a repository
-    # without origin/HEAD, main or master falls through quietly.
-    for pattern, field in (("refs/remotes/origin/HEAD", "symref"), ("refs/heads/main", "refname"), ("refs/heads/master", "refname")):
-        found = git_out(repo, "for-each-ref", f"--format=%({field}:short)", pattern)
-        if found is None:
-            return None
-        branch = found.strip().splitlines()[0] if found.strip() else ""
-        if branch:
-            out = git_out(repo, "rev-list", "--count", f"{run['base']}..{branch}")
-            return (int(out), branch) if out and out.strip().isdigit() else None
-    return None
-
-
-def size_notes(run_name: str, run: dict, now: float) -> list[str]:
-    """Warnings for a lane not yet reviewed whose size says it holds more than one behaviour."""
-    widens: dict[str, int] = {}
-    opened = None
-    for event in run.get("events", []):
-        if event.get("action") == "widen":
-            widens[event.get("lane")] = widens.get(event.get("lane"), 0) + 1
-        elif event.get("action") == "init":
-            opened = stamp(event.get("at"))
-    old_worktree_run = opened is not None and now - opened > OPEN_RUN_SECONDS and any(lane.get("place") != "main" for lane in run["lanes"].values())
-    behind = commits_behind(run) if old_worktree_run else None
-    notes: list[str] = []
-    for lane_name, lane in sorted(run["lanes"].items()):
-        if lane.get("state") == "reviewed":
-            continue
-        lines = changed_lines(lane, run)
-        if lines is not None and lines > MAX_CHANGED_LINES:
-            notes.append(f"{lane_name} has {lines:,} changed lines (over {MAX_CHANGED_LINES}): {SPLIT_REMEDY}")
-        owned = len(lane.get("paths", []))
-        if owned > MAX_LANE_PATHS:
-            notes.append(f"{lane_name} owns {owned} paths (over {MAX_LANE_PATHS}): {SPLIT_REMEDY}")
-        if widens.get(lane_name, 0) >= WIDEN_LIMIT:
-            notes.append(f"{lane_name} was widened {widens[lane_name]} times (the second widen is the limit): {SPLIT_REMEDY}")
-        if behind and behind[0] and lane.get("place") != "main":
-            notes.append(f"{lane_name}'s run has been open over a day and {behind[1]} has {behind[0]} commit(s) past its base: {SPLIT_REMEDY}")
-    return notes
-
-
 def main_block(runs: dict, seen_dir: Path | None = None, session: str = "") -> str:
     now = time.time()
+    git = GitBudget()
     lines: list[str] = []
     ours, live = dead_claimants(seen_dir, session) if seen_dir else (set(), set())
     for run_name, run in sorted(runs.items()):
@@ -274,7 +190,7 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = "") -> s
         pending = [m["id"] for m in run.get("messages", []) if m["requires_ack"] and not m.get("acknowledged_at")]
         if pending:
             notes.append(f"{len(pending)} message(s) await acknowledgement")
-        notes += closing_notes(run_name, run) + size_notes(run_name, run, now)
+        notes += closing_notes(run_name, run) + size_notes(git, run, now)
         if notes:
             lines.append(f"WORKLOOP {run_name}: " + "; ".join(notes) + f". Status: .agents/workloop.py status {run_name}")
     orphans = wd.foreign_orphans() if (runs and wd is not None) else []

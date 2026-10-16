@@ -34,7 +34,7 @@ make_fixture() {
   cp "$repo/.agents/hooks/lib/config.py" \
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
-     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" \
+     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" \
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \

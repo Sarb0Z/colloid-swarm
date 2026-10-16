@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
 mkdir -p "$scratch/bin"
 cat > "$scratch/bin/docker" <<'EOF'
@@ -331,6 +331,84 @@ has "$ctx" "ghost awaits review" "a lane whose workspace is gone"
 has "$ctx" "ghost owns 16 paths (over 15)" "a lane whose workspace is gone"
 lacks "$ctx" "changed lines" "a figure that cannot be measured"
 ok "a run whose repository and workspaces are gone still prints its other notes and exits 0"
+
+# Git behaviour of the size figures: a fake git logs each call, can be slow or
+# failing, and otherwise runs the real one.
+realgit="$(command -v git)"
+mkdir -p "$scratch/gitbin"
+cat > "$scratch/gitbin/git" <<EOF
+#!/usr/bin/env python3
+import os, sys, time
+with open(os.environ["WRAP_LOG"], "a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\n")
+if os.environ.get("WRAP_FAIL"):
+    sys.stderr.write("fatal: induced\n"); sys.exit(1)
+time.sleep(float(os.environ.get("WRAP_SLEEP", "0")))
+os.execv("$realgit", ["git", *sys.argv[1:]])
+EOF
+chmod +x "$scratch/gitbin/git"
+git_log="$scratch/git.log"
+tracked_lane_state() {  # <lane names...>: unclaimed-free main lanes, each 801 lines from the base
+  put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+lane = {"state": "active", "place": "main", "workspace": repo, "branch": None, "paths": ["src"], "start": base, "attention": None, "env": "main", "claimed_by": "a1", "claimed_at": now, "heartbeat_at": now}
+runs = {"gt": {"objective": "o", "verify": "v", "repo": repo, "base": base, "shared": [], "messages": [], "qa": None, "integration": None,
+               "lanes": {name: dict(lane) for name in ("l1", "l2", "l3")},
+               "events": [{"id": "e0", "at": recent, "action": "init", "lane": None, "detail": "o"}]}}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+}
+tracked_lane_state
+
+# location variables inherited from a git hook must not redirect the figures
+ctx="$(GIT_DIR="$scratch/nowhere" GIT_WORK_TREE="$scratch/nowhere" digest)"
+has "$ctx" "l1 has 801 changed lines (over 800)" "a digest run with GIT_DIR in its environment"
+ok "the digest's Git calls ignore inherited GIT_* variables"
+
+# a figure Git could not give reads "size unknown" in the digest itself
+: > "$git_log"
+ctx="$(PATH="$scratch/gitbin:$PATH" WRAP_LOG="$git_log" WRAP_FAIL=1 digest)"
+has "$ctx" "size unknown for l1" "a failing git"
+has "$ctx" "size unknown for l3" "a failing git"
+lacks "$ctx" "changed lines" "a failing git"
+ok "a figure dropped by a Git failure reads 'size unknown' in the digest"
+
+# measuring leaves the checkout's index untouched
+sleep 1.1; touch "$fx/src/seed.txt"  # git diff refreshes, and rewrites the index for, a file that is stat-dirty yet unchanged from the base; only once it is newer than the index
+before="$(cksum < "$fx/.git/index")"
+digest >/dev/null
+[[ "$(cksum < "$fx/.git/index")" == "$before" ]] || fail "the digest rewrote the checkout's index"
+ok "measuring changed lines leaves the checkout's index alone"
+: > "$git_log"
+PATH="$scratch/gitbin:$PATH" WRAP_LOG="$git_log" digest >/dev/null
+grep -q ' diff-index --numstat ' "$git_log" || fail "no diff-index call: $(cat "$git_log")"
+! grep -q ' diff ' "$git_log" || fail "the digest ran git diff"
+
+# one deadline for all of a digest's Git calls
+started=$SECONDS
+ctx="$(PATH="$scratch/gitbin:$PATH" WRAP_LOG="$git_log" WRAP_SLEEP=3 digest)"
+elapsed=$((SECONDS - started))
+[[ "$elapsed" -le 7 ]] || fail "three 3 s Git calls took ${elapsed}s; the deadline is 5 s in total"
+has "$ctx" "size unknown for l3" "a lane measured after the shared deadline"
+ok "the digest's Git calls share one 5 s deadline"
+
+# the default branch is read only while an unreviewed worktree lane exists
+put_state <<'EOF'
+import json, sys
+path, repo, base, now, longago, recent = sys.argv[1:7]
+def lane(**extra):
+    l = {"state": "reviewed", "workspace": "/nonexistent/ws", "branch": "b", "paths": ["nothing"], "accepted_tip": "t1", "attention": None, "env": "ready"}
+    l.update(extra); return l
+runs = {"old": {"objective": "o", "verify": "v", "repo": repo, "base": base, "shared": [], "messages": [], "qa": None, "integration": None,
+                "lanes": {"done": lane(), "main-open": lane(state="active", attention={"severity": "P1"}, place="main", start=base, workspace=repo, claimed_by="a1", claimed_at=now, heartbeat_at=now)},
+                "events": [{"id": "e0", "at": longago, "action": "init", "lane": None, "detail": "o"}]}}
+json.dump({"version": 1, "runs": runs}, open(path, "w"))
+EOF
+: > "$git_log"
+PATH="$scratch/gitbin:$PATH" WRAP_LOG="$git_log" digest >/dev/null
+! grep -q 'for-each-ref' "$git_log" || fail "the default branch was read for a run with no unreviewed worktree lane: $(cat "$git_log")"
+ok "an old run with no unreviewed worktree lane does not read the default branch"
 
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"
