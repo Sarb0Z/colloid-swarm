@@ -240,6 +240,24 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     return verified
 
 
+def integration_problems(run: dict) -> list[str]:
+    """Why the recorded `integration` does not settle a worktree run; empty when it does."""
+    integration = run.get("integration")
+    if not integration:
+        return ["integration:missing"]
+    problems = []
+    if integration["result"] != "pass":
+        problems.append("integration:" + integration["result"])
+    if integration["base_head"] != run["base"]:
+        problems.append("integration:base-moved")
+    repo = Path(run["repo"])
+    for name, lane in run["lanes"].items():
+        tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
+        if tip != integration["lane_heads"].get(name):
+            problems.append(f"integration:stale:{name}")
+    return problems
+
+
 def completion_problems(run: dict) -> list[str]:
     problems = []
     for name, lane in run["lanes"].items():
@@ -266,17 +284,5 @@ def completion_problems(run: dict) -> list[str]:
             problems += live_problems(run, *found)
         problems += verification_problems(run)
     elif run["lanes"] and not run.get("torn_down"):
-        integration = run.get("integration")
-        if not integration:
-            problems.append("integration:missing")
-        else:
-            if integration["result"] != "pass":
-                problems.append("integration:" + integration["result"])
-            if integration["base_head"] != run["base"]:
-                problems.append("integration:base-moved")
-            repo = Path(run["repo"])
-            for name, lane in run["lanes"].items():
-                tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
-                if tip != integration["lane_heads"].get(name):
-                    problems.append(f"integration:stale:{name}")
+        problems += integration_problems(run)
     return problems
