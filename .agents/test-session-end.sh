@@ -121,7 +121,7 @@ $wl claim t5 l5 --agent cell5 >/dev/null
 mkdir -p "$done5/docs" && printf 'r\n' > "$done5/docs/r.md"
 git -C "$done5" add docs && git -C "$done5" commit -qm l5
 $wl submit t5 l5 --evidence ok >/dev/null
-$wl review t5 l5 --reference docs/r.md#ok --result accept >/dev/null
+$wl review t5 l5 --reference docs/r.md#ok --result accept --tip "$(git -C "$done5" rev-parse HEAD)" >/dev/null
 $wl qa t5 --evidence ok >/dev/null
 $wl integrate t5 >/dev/null 2>&1 || fail "the finished run's fixture does not integrate: $($wl integrate t5 2>&1)"
 $wl check t5 >/dev/null || fail "the finished run's fixture does not pass check: $($wl check t5 2>&1)"
@@ -138,9 +138,9 @@ grep -q '"run": "t6", "state"' "$records"/*.jsonl || fail "init --lane was not r
 $wl claim t6 solo --agent cell6 >/dev/null
 mkdir -p "$R/notes" && printf 'solo\n' > "$R/notes/solo.txt" && git -C "$R" add -- notes/solo.txt && git -C "$R" commit -qm solo
 $wl submit t6 solo --evidence ok >/dev/null
-$wl review t6 solo --reference src/app.txt#ok --result accept >/dev/null
+$wl review t6 solo --reference src/app.txt#ok --result accept --tip "$(git -C "$R" rev-parse HEAD)" >/dev/null
 $wl check t6 >/dev/null 2>&1 || true  # blocked by QA, still missing; the test ran
-[[ -f "$mark6" ]] || fail "check did not run the one-writer run's composed test in the checkout"
+[[ -f "$mark6" && ! -e "$R/.agents/worktrees/t6/verify" ]] || fail "check did not run the one-writer run's composed test in a verify worktree removed after its pass"
 $wl qa t6 --evidence ok >/dev/null
 rm "$mark6"
 $wl check t6 --recorded >/dev/null || fail "the one-writer fixture does not pass check --recorded: $($wl check t6 --recorded 2>&1)"

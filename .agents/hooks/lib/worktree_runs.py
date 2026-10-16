@@ -120,7 +120,7 @@ def workspaces(run: dict) -> list[str]:
     """The run's worktrees: its worktree lanes and its integration. A main lane
     (`place` = "main") works in the checkout itself, which is nobody's to remove or judge."""
     return [s for s in [lane.get("workspace") for lane in (run.get("lanes") or {}).values() if lane.get("place") != "main"]
-            + [(run.get("integration") or {}).get("workspace")] if s]
+            + [(run.get("integration") or {}).get("workspace"), (run.get("verified") or {}).get("workspace")] if s]
 
 
 def drop_run(state: Path, name: str) -> None:

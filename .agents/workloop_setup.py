@@ -34,53 +34,66 @@ SHAPES = """Delegation shapes (the workloop skill's guide; choose one before dis
   bake-off              several attempts at one task, one kept; each is paid in full, so two or three, selection rule first"""
 
 
-def cmd_init(args: argparse.Namespace) -> None:
-    valid_name("run", args.run)
-    if args.max_lanes < 1 or args.message_limit < 1:
-        fail("max-lanes and message-limit must be positive")
-    # The one-writer shape: the run's sole lane, working in the checkout.
+def main_lane_paths(args: argparse.Namespace, shared: list[str]) -> list[str]:
+    """The owned paths of the main lane `init --lane` declares; empty without --lane.
+
+    The one-writer shape is one command: --lane, --worker and --path come
+    together, and the lane's paths obey the rules add-lane applies.
+    """
     if args.path and not args.lane:
         fail("--path needs --lane: a run's sole lane is declared with --lane <name> --worker <type> --path <p>")
     if args.worker and not args.lane:
         fail("--worker needs --lane: a run's sole lane is declared with --lane <name> --worker <type> --path <p>")
-    if args.lane and not (args.worker and args.path):
+    if not args.lane:
+        return []
+    if not (args.worker and args.path):
         fail("--lane needs --worker and at least one --path")
-    repo = wg.toplevel(args.repo or Path.cwd())
-    base = wg.resolve_commit(repo, args.base)
-    wg.guard_command(args.verify, repo)
+    valid_name("lane", args.lane)
+    paths = [normalize_path(path) for path in args.path]
+    if len(set(paths)) != len(paths):
+        fail("a lane cannot declare the same path twice")
+    if overlaps(paths, shared):
+        fail("paths overlap a shared path; lanes edit shared paths without owning them")
+    return paths
+
+
+def new_run(args: argparse.Namespace, repo: Path, base: str, shared: list[str]) -> dict:
+    return {
+        "objective": args.objective,
+        "acceptance": args.acceptance,
+        "verify": args.verify,
+        "repo": str(repo),
+        "base": base,
+        "shared": shared,
+        "max_lanes": args.max_lanes,
+        "supervised": args.supervised,
+        "message_limit": args.message_limit,
+        "lanes": {},
+        "messages": [],
+        "qa": None,
+        "integration": None,
+        "events": [],
+    }
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    valid_name("run", args.run)
+    if args.max_lanes < 1 or args.message_limit < 1:
+        fail("max-lanes and message-limit must be positive")
     shared = [normalize_path(path) for path in args.shared or []]
     if len(set(shared)) != len(shared):
         fail("a run cannot declare the same shared path twice")
-    lane_paths = []
-    if args.lane:
-        valid_name("lane", args.lane)
-        lane_paths = [normalize_path(path) for path in args.path]
-        if len(set(lane_paths)) != len(lane_paths):
-            fail("a lane cannot declare the same path twice")
-        if overlaps(lane_paths, shared):
-            fail("paths overlap a shared path; lanes edit shared paths without owning them")
+    lane_paths = main_lane_paths(args, shared)
+    repo = wg.toplevel(args.repo or Path.cwd())
+    base = wg.resolve_commit(repo, args.base)
+    wg.guard_command(args.verify, repo)
     with Store(state_path(args.state)) as data:
         if args.run in data["runs"]:
             if replayed(data["runs"][args.run], args.event_id):
                 print("replayed event")
                 return
             fail(f"run {args.run!r} already exists; init is intentionally not destructive")
-        run = data["runs"][args.run] = {
-            "objective": args.objective,
-            "acceptance": args.acceptance,
-            "verify": args.verify,
-            "repo": str(repo),
-            "base": base,
-            "shared": shared,
-            "max_lanes": args.max_lanes,
-            "supervised": args.supervised,
-            "message_limit": args.message_limit,
-            "lanes": {},
-            "messages": [],
-            "qa": None,
-            "integration": None,
-            "events": [],
-        }
+        run = data["runs"][args.run] = new_run(args, repo, base, shared)
         record(args.run, run, "init", detail=args.objective, supplied=args.event_id)
         if args.lane:
             run["lanes"][args.lane] = wm.new_lane(args.worker, repo, lane_paths)

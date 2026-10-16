@@ -109,21 +109,27 @@ def cmd_submit(args: argparse.Namespace) -> None:
         if dirty:
             where = "in the checkout" if wm.is_main(lane) else "on the lane branch"
             fail(f"lane has uncommitted changes; commit them {where} first: " + ", ".join(dirty))
+        mixed: list[dict] = []
         if wm.is_main(lane):
-            actual, others = wm.submit_main(args.run, run, lane, workspace)
+            actual, others, mixed = wm.submit_main(args.run, run, lane, workspace)
             for sha in others:
                 print(f"submit {args.lane}: commit {sha[:12]} is not this lane's: it touches none of its paths", file=sys.stderr)
+            for entry in mixed:
+                print(f"submit {args.lane}: {entry['text']}", file=sys.stderr)
         else:
-            if wg.head_of(workspace) == run["base"]:
+            head = wg.head_of(workspace)
+            if head == run["base"]:
                 fail(f"lane branch {lane.get('branch')} has no commits beyond the base; nothing to review")
-            actual = changed_paths(lane, start_point(run, args.lane, wg.head_of(workspace)))
+            actual = changed_paths(lane, start_point(run, args.lane, head))
             undeclared = undeclared_paths(run, lane, actual)
             if undeclared:
                 fail("lane changed undeclared paths: " + ", ".join(undeclared))
-        lane["evidence"].append({"at": now(), "text": args.evidence, "paths": actual})
+            # The commit the review reads; an accepting review must name it.
+            lane["tip"] = head
+        lane["evidence"].append({"at": now(), "text": args.evidence, "paths": actual, "mixed": mixed})
         lane["state"] = "review"
         record(args.run, run, "submit", args.lane, args.evidence, args.event_id)
-    print(f"lane {args.lane!r} is ready for final review")
+    print(f"lane {args.lane!r} is ready for final review at {lane['tip'][:12]}")
 
 
 def cmd_review(args: argparse.Namespace) -> None:
@@ -145,8 +151,7 @@ def cmd_review(args: argparse.Namespace) -> None:
             fail(f"lane has been submitted {rounds} times; review round {rounds} needs the operator's ruling: pass --ruling \"<operator's words>\"")
         reference = canonical_reference(args.reference, reference_roots(run, lane))
         if args.result == "accept":
-            repo = Path(run["repo"])
-            lane["accepted_tip"] = wm.accept_main(args.run, run, lane, repo) if wm.is_main(lane) else wg.branch_tip(repo, lane["branch"])
+            lane["accepted_tip"] = accepted_tip(args, run, lane)
             lane["state"] = "reviewed"
         else:
             lane["state"] = "reopened"
@@ -157,6 +162,33 @@ def cmd_review(args: argparse.Namespace) -> None:
         lane["review_refs"].append(entry)
         record(args.run, run, "review-" + args.result, args.lane, reference, args.event_id)
     print(f"recorded {args.result} review for lane {args.lane!r}")
+
+
+def accepted_tip(args: argparse.Namespace, run: dict, lane: dict) -> str:
+    """The commit an accepting review binds: the one submit recorded, named by --tip, still the lane's live tip.
+
+    A review reads one commit. Without the binding, an accept after the lane
+    moved would record commits the reviewer's brief never named.
+    """
+    repo, recorded = Path(run["repo"]), lane.get("tip")
+    if not args.tip:
+        fail(f"--result accept needs --tip <commit>: the commit the review read, {str(recorded)[:12]} (the reviewer brief names it)")
+    if not recorded:
+        fail("the lane has no submitted tip; re-submit it, then review that commit")
+    if wg.resolve_commit(repo, args.tip) != recorded:
+        fail(f"--tip {args.tip} is not the submitted tip {recorded[:12]}; review that commit (the reviewer brief names it)")
+    if wm.is_main(lane):
+        head = wg.head_of(repo)
+        if not wg.is_ancestor(repo, recorded, head):
+            fail(wm.rewrite_remedy(args.run, lane, repo, head, recorded))
+        moved = wm.moved_since(run, lane, repo, recorded, head)
+        if moved:
+            fail(f"the lane moved since the reviewed commit {recorded[:12]}: {', '.join(sha[:12] for sha in moved)} touch its paths; re-submit, then review {head[:12]}")
+    else:
+        live = wg.branch_tip(repo, lane["branch"])
+        if live != recorded:
+            fail(f"the lane moved since the reviewed commit {recorded[:12]}; re-submit, then review {str(live)[:12]}")
+    return recorded
 
 
 def cmd_attention(args: argparse.Namespace) -> None:
@@ -255,12 +287,13 @@ def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str,
         return [
             f"Workspace: the checkout {repo}, on its current branch — no worktree; this lane's work is the commits since its first claim that touch its paths.",
             *([f"Diff: {found[0][:12]}..{found[1][:12]} in the checkout; this lane's commits: {', '.join(sha[:12] for sha in found[2])} — build its diff with: git diff {found[0]}..{found[1]} -- {' '.join(lane['paths'] + shared_of(run))}"] if found else []),
+            *([f"Mixed commits — {'; '.join(found[3])}: paths outside the lane's in its own commits; judge whether they are this lane's work or another writer's"] if found and found[3] else []),
             f"Provision: .agents/provision.sh {repo} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
             "Commit on the checkout's current branch before submit, staging by path only (git add -- <path>..., never -A, . or commit -a): others may hold uncommitted work in this checkout. Review reads the commits, not the working tree.",
         ]
     return [
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
-        *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('branch')}"] if role == "reviewer" and (start := review_start(run, lane_name, lane)) else []),
+        *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('tip') or lane.get('branch')}"] if role == "reviewer" and (start := review_start(run, lane_name, lane)) else []),
         *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {run_name} {lane_name} --also <dir>)"] if lane.get("sparse") else []),
         *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
@@ -299,7 +332,7 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         f"State: {command} status {run_name}",
         f"Claim: {command} claim {run_name} {lane_name} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls.",
         f"Worker handoff: {command} submit {run_name} {lane_name} --evidence '<command and observed result>'",
-        f"Reviewer handoff: {command} review {run_name} {lane_name} --reference '<canonical-review-path>#<finding>' --result accept",
+        f"Reviewer handoff: {command} review {run_name} {lane_name} --reference '<canonical-review-path>#<finding>' --result accept --tip {lane.get('tip') or '<the commit submit recorded; status shows it>'}",
         "A finding must live in its canonical review report; use --result reopen to require a correction cycle.",
     )) + "\n")
     # The gate that recognises a lane cell reads the header line of the prompt,

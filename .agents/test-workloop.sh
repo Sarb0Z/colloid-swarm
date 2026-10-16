@@ -60,6 +60,9 @@ full_brief() { local out file; out="$("${tool[@]}" brief "$@")"; file="$(sed -n 
 commit() { git -C "$1" add -A && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
 # A main lane stages by path: the checkout may hold others' uncommitted work.
 commit_paths() { git -C "$1" add -- "${@:3}" && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
+tip_of() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"][sys.argv[2]]["lanes"][sys.argv[3]].get("tip") or "")' "$state" "$1" "$2"; }
+# An accepting review names the commit it read, as the reviewer brief prints it.
+accept() { local run="$1" lane="$2" ref="$3"; shift 3; "${tool[@]}" review "$run" "$lane" --reference "$ref" --result accept --tip "$(tip_of "$run" "$lane")" "$@"; }
 # The parallel-writers gate's reading of a dispatch prompt (line 9 of writers-payload.py),
 # with the current state copied under the project root it reads from, then removed.
 gate_kind() {  # <project root> <prompt>
@@ -106,7 +109,7 @@ if "${tool[@]}" qa demo --evidence nope 2>/dev/null; then fail 'QA passed a reop
 mkdir -p "$lane/tests"; printf 'test\n' > "$lane/tests/app.txt"
 commit "$lane" tests
 "${tool[@]}" submit demo implementation --evidence 'unit and regression tests passed'
-"${tool[@]}" review demo implementation --reference docs/reviews/demo.md#accepted --result accept
+accept demo implementation docs/reviews/demo.md#accepted
 "${tool[@]}" qa demo --evidence 'independent scenario passed'
 expect 'integration:missing' "${tool[@]}" check demo
 expect 'PASS: integrated implementation' "${tool[@]}" integrate demo --workspace "$scratch/integration-demo"
@@ -185,7 +188,7 @@ for l in one two; do
   d="$real_work/.agents/worktrees/nest/$l"; "${tool[@]}" claim nest "$l" --agent "$l"
   mkdir -p "$d/tests" "$d/docs/$l"; [[ $l == one ]] && printf 'n\n' >> "$d/src/app.txt" || printf 't\n' > "$d/tests/t.txt"
   printf 'r\n' > "$d/docs/$l/r.md"; commit "$d" "$l"
-  "${tool[@]}" submit nest "$l" --evidence ok; "${tool[@]}" review nest "$l" --reference "docs/$l/r.md#ok" --result accept
+  "${tool[@]}" submit nest "$l" --evidence ok; accept nest "$l" "docs/$l/r.md#ok"
 done
 if python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import workloop; from pathlib import Path; sys.exit(workloop.temporary(Path(sys.argv[2]).resolve()))' "$repo/.agents" "$real_work"; then
   expect "integration workspace /tmp/colloid-int-$$ lies in a temporary folder, which the system clears; omit --workspace to use the default $real_work/.agents/worktrees/nest/integration" \
@@ -261,11 +264,11 @@ printf 'change\n' >> "$la/src/app.txt"; mkdir -p "$la/docs/alpha"; printf 'r\n' 
 # a provisioning link out of the worktree is environment, not a changed path
 mkdir -p "$work/node_modules/pkg" "$la/node_modules"; ln -s "$work/node_modules/pkg" "$la/node_modules/pkg"; printf '%s\n' "$work/node_modules" > "$la/node_modules/.colloid-shared"
 "${tool[@]}" submit multi alpha --evidence 'alpha ok'
-"${tool[@]}" review multi alpha --reference docs/alpha/review.md#ok --result accept
+accept multi alpha docs/alpha/review.md#ok
 "${tool[@]}" claim multi beta --agent b1
 mkdir -p "$lb/tests"; printf 'test\n' > "$lb/tests/app.txt"; mkdir -p "$lb/docs/beta"; printf 'r\n' > "$lb/docs/beta/review.md"; commit "$lb" beta
 "${tool[@]}" submit multi beta --evidence 'beta ok'
-"${tool[@]}" review multi beta --reference docs/beta/review.md#ok --result accept
+accept multi beta docs/beta/review.md#ok
 "${tool[@]}" qa multi --evidence 'scenarios passed'
 if "${tool[@]}" check multi 2>/dev/null; then fail 'a two-lane run passed check without integration'; fi
 expect 'integration:missing' "${tool[@]}" check multi
@@ -284,7 +287,7 @@ ok "integrate merges reviewed lanes in dependency order and check passes; a shar
 printf 'more\n' >> "$la/src/app.txt"; commit "$la" more
 expect 'integration:stale:alpha' "${tool[@]}" check multi
 expect 'moved after its accepted review' "${tool[@]}" integrate multi --workspace "$integ"
-"${tool[@]}" submit multi alpha --evidence 'more'; "${tool[@]}" review multi alpha --reference docs/alpha/review.md#ok2 --result accept
+"${tool[@]}" submit multi alpha --evidence 'more'; accept multi alpha docs/alpha/review.md#ok2
 expect PASS "${tool[@]}" integrate multi --workspace "$integ"
 expect PASS "${tool[@]}" check multi
 ok "a lane commit after integration is stale until integrate reruns"
@@ -297,7 +300,7 @@ for l in p q; do
   d="$scratch/lane-$l"; "${tool[@]}" claim failing "$l" --agent "$l"
   mkdir -p "$d/tests" "$d/docs/$l"; [[ $l == p ]] && printf 'p\n' >> "$d/src/app.txt" || printf 'q\n' > "$d/tests/app.txt"
   printf 'r\n' > "$d/docs/$l/r.md"; commit "$d" "$l"
-  "${tool[@]}" submit failing "$l" --evidence ok; "${tool[@]}" review failing "$l" --reference "docs/$l/r.md#ok" --result accept
+  "${tool[@]}" submit failing "$l" --evidence ok; accept failing "$l" "docs/$l/r.md#ok"
 done
 "${tool[@]}" qa failing --evidence ok
 if "${tool[@]}" integrate failing --workspace "$scratch/integration-failing" 2>/dev/null; then fail 'a failing verify passed integrate'; fi
@@ -320,7 +323,7 @@ for l in x y; do
   "${tool[@]}" review clash "$l" --reference docs/review.md#p1 --result reopen --severity P1 --message 'tighten'
   "${tool[@]}" ack clash "$l" --agent "$l"
   "${tool[@]}" submit clash "$l" --evidence ok
-  "${tool[@]}" review clash "$l" --reference docs/review.md#ok --result accept
+  accept clash "$l" docs/review.md#ok
 done
 "${tool[@]}" qa clash --evidence ok
 set +e; err="$("${tool[@]}" integrate clash --workspace "$scratch/integration-clash" 2>&1 >/dev/null)"; rc=$?; set -e
@@ -366,7 +369,7 @@ for l in m n; do
   "${tool[@]}" claim dirtyint "$l" --agent "$l"
   mkdir -p "$d/tests" "$d/docs/$l"; [[ $l == m ]] && printf 'm\n' >> "$d/src/app.txt" || printf 'n\n' > "$d/tests/app.txt"
   printf 'r\n' > "$d/docs/$l/r.md"; commit "$d" "$l"
-  "${tool[@]}" submit dirtyint "$l" --evidence ok; "${tool[@]}" review dirtyint "$l" --reference "docs/$l/r.md#ok" --result accept
+  "${tool[@]}" submit dirtyint "$l" --evidence ok; accept dirtyint "$l" "docs/$l/r.md#ok"
 done
 printf 'late\n' >> "$scratch/lane-di-m/src/app.txt"
 expect "lane 'm' has uncommitted work" "${tool[@]}" integrate dirtyint --workspace "$scratch/integration-di"
@@ -419,8 +422,8 @@ expect 'does not claim to interrupt' "${tool[@]}" attention mainref w --severity
 expect 'sent' "${tool[@]}" send mainref --from-lane r --to-lane w --agent mrr --kind finding --message m --reference docs/reviews/main-only.md#p1
 "${tool[@]}" ack mainref w --agent mrw
 "${tool[@]}" submit mainref w --evidence ok
-expect 'existing file in the main checkout or the lane worktree' "${tool[@]}" review mainref w --reference docs/reviews/absent.md#ok --result accept
-expect 'recorded accept review' "${tool[@]}" review mainref w --reference docs/reviews/main-only.md#ok --result accept
+expect 'existing file in the main checkout or the lane worktree' accept mainref w docs/reviews/absent.md#ok
+expect 'recorded accept review' accept mainref w docs/reviews/main-only.md#ok
 ok "attention, send, and review resolve a reference against the main checkout"
 
 
@@ -436,7 +439,7 @@ printf 'sparse\n' >> "$sp/src/app.txt"; commit "$sp" sparse
 "${tool[@]}" submit sparse s --evidence ok
 mkdir -p "$sp/docs"; printf 'r\n' > "$sp/docs/r.md"; commit "$sp" review
 "${tool[@]}" review sparse s --reference docs/r.md#ok --result reopen --severity P1 --message m; "${tool[@]}" ack sparse s --agent sp1
-"${tool[@]}" submit sparse s --evidence ok; "${tool[@]}" review sparse s --reference docs/r.md#ok --result accept
+"${tool[@]}" submit sparse s --evidence ok; accept sparse s docs/r.md#ok
 "${tool[@]}" add-lane sparse t --worker implementer --workspace "$scratch/lane-sparse-t" --path tests --also src --sparse >/dev/null 2>&1
 [[ -f "$scratch/lane-sparse-t/src/app.txt" ]] || fail "--also directory absent from the cone"
 mkdir -p "$scratch/lane-sparse-t/tests"; printf 'x\n' > "$scratch/lane-sparse-t/tests/new.txt"; git -C "$scratch/lane-sparse-t" add tests/new.txt || fail "a file inside the cone could not be staged"
@@ -495,8 +498,8 @@ ok "a rerun after widen rewrites the brief file"
 printf 'b\n' >> "$bw/src/app.txt"; commit "$bw" brf
 "${tool[@]}" submit brf one --evidence ok
 mkdir -p "$scratch/elsewhere"; printf 'report\n' > "$scratch/elsewhere/review.md"
-expect 'existing file' "${tool[@]}" review brf one --reference "$scratch/elsewhere/absent.md#ok" --result accept
-expect 'recorded accept review' "${tool[@]}" review brf one --reference "$scratch/elsewhere/review.md#ok" --result accept
+expect 'existing file' accept brf one "$scratch/elsewhere/absent.md#ok"
+expect 'recorded accept review' accept brf one "$scratch/elsewhere/review.md#ok"
 ok "a review may cite an existing file outside the repository by absolute path; a missing one is refused"
 # An absolute path inside the lane is stored repository-relative, so the
 # reopen, correct and resubmit cycle does not count the report as undeclared.
@@ -755,9 +758,10 @@ assert sorted(r) == ["docs/index.md", "tests/b.txt"], r
 EOF2
 ok "a lane rebased onto a sibling submits and records only its own paths"
 start_b="$(git -C "$sb" rev-parse shr/a)"
-expect "git diff $start_b\.\.shr/b" full_brief shr b --role reviewer
+expect "git diff $start_b\.\.$(git -C "$sb" rev-parse HEAD)" full_brief shr b --role reviewer
 expect "start point $start_b" full_brief shr b --role reviewer
-ok "a reviewer brief names the lane's start point and its diff command"
+expect "result accept --tip $(git -C "$sb" rev-parse HEAD)" full_brief shr b --role reviewer
+ok "a reviewer brief names the lane's start point, the submitted commit its diff ends at, and the accept command naming it"
 mkdir -p "$sc/docs/c" "$sc/tests"; printf 'c\n' > "$sc/docs/c/ok.txt"; commit "$sc" c
 python3 - "$state" <<'EOF2'
 import json, sys
@@ -778,7 +782,7 @@ ok "a path that is neither owned nor shared is still refused"
 "${tool[@]}" claim shint a --agent a
 mkdir -p "$scratch/lane-shi/docs/a" "$scratch/lane-shi/docs/shared"; printf 'a\n' >> "$scratch/lane-shi/src/app.txt"; printf 'r\n' > "$scratch/lane-shi/docs/a/r.md"
 printf 'one\n' > "$scratch/lane-shi/docs/shared/log.md"; commit "$scratch/lane-shi" a
-"${tool[@]}" submit shint a --evidence ok; "${tool[@]}" review shint a --reference docs/a/r.md#ok --result accept
+"${tool[@]}" submit shint a --evidence ok; accept shint a docs/a/r.md#ok
 printf 'late\n' >> "$scratch/lane-shi/docs/shared/log.md"
 expect "lane 'a' has uncommitted work" "${tool[@]}" integrate shint --workspace "$scratch/integration-shi"
 ok "integrate refuses uncommitted shared work"
@@ -812,8 +816,8 @@ mkdir -p "$ab/tests" "$ab/docs/b"; printf 'b\n' > "$ab/tests/b.txt"; printf 'r\n
 "${tool[@]}" ack am a --agent a
 git -C "$aa" reset -q --hard HEAD~1; mkdir -p "$aa/docs/a"; printf 'r\n' > "$aa/docs/a/r.md"; commit "$aa" a2
 "${tool[@]}" submit am a --evidence amended
-"${tool[@]}" review am a --reference docs/a/r.md#ok --result accept
-"${tool[@]}" review am b --reference docs/b/r.md#ok --result accept
+accept am a docs/a/r.md#ok
+accept am b docs/b/r.md#ok
 expect "rebase it onto the sibling's current branch" "${tool[@]}" integrate am --workspace "$scratch/integration-am"
 printf 'x\n' > "$aa/docs/a/x.md"; commit "$aa" a3
 expect "lane 'a' moved after its accepted review" "${tool[@]}" integrate am --workspace "$scratch/integration-am"
@@ -835,8 +839,8 @@ if "${tool[@]}" review gate g --reference docs/g/r.md#p3 --result reopen --sever
 "${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence three
 "${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen --severity P1 --message m
 "${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence four
-expect 'needs the operator' "${tool[@]}" review gate g --reference docs/g/r.md#ok --result accept
-"${tool[@]}" review gate g --reference docs/g/r.md#ok --result accept --ruling 'one more round, go ahead'
+expect 'needs the operator' accept gate g docs/g/r.md#ok
+accept gate g docs/g/r.md#ok --ruling 'one more round, go ahead'
 python3 - "$state" <<'EOF2'
 import json, sys
 lane = json.load(open(sys.argv[1]))["runs"]["gate"]["lanes"]["g"]
@@ -857,7 +861,7 @@ ok "init --lane is refused without --worker and --path, and --path or --worker w
 mark="$scratch/ran-ow"
 worktree_paths() { git -C "$work" worktree list --porcelain | grep '^worktree '; }
 worktrees_before="$(worktree_paths)"
-prompt="$("${tool[@]}" init ow --objective 'one writer' --acceptance 'the main lane is reviewed' --repo "$work" --verify "grep -q solo src/app.txt && touch $mark" --lane solo --worker implementer --path src --path docs/ow)"
+prompt="$("${tool[@]}" init ow --objective 'one writer' --acceptance 'the main lane is reviewed' --repo "$work" --verify "test -f src/app.txt && test -e node_modules && pwd -P > $scratch/verify-cwd && git rev-parse HEAD > $scratch/verify-head && touch $mark" --lane solo --worker implementer --path src --path docs/ow)"
 [[ "$prompt" == *"created workloop 'ow'"*$'\n'"WORKLOOP WORKER BRIEF — ow/solo"$'\n'"Read the full brief at $real_work/.agents/worktrees/ow/.workloop/solo.md before anything else"* ]] || fail "init --lane did not print the lane's dispatch line: $prompt"
 [[ -f "$real_work/.agents/worktrees/ow/.workloop/solo.md" ]] || fail "init --lane wrote no brief"
 [[ "$(worktree_paths)" == "$worktrees_before" ]] || fail "init --lane made a worktree"
@@ -886,7 +890,8 @@ rev_prompt="$("${tool[@]}" brief ow solo --role reviewer)"
 [[ "$(head -n1 <<<"$("${tool[@]}" brief ow solo --role qa)")" == READ-ONLY* && -f "$real_work/.agents/worktrees/ow/.workloop/solo-qa.md" ]] || fail "the main lane's QA dispatch does not open READ-ONLY"
 ok "a main lane's reviewer and QA briefs open READ-ONLY, one file per role under the run's .workloop folder"
 
-# claim sets start; submit attributes the commits since it by the lane's paths (ruling 32)
+# claim sets start; submit attributes the commits since it by the lane's paths (ruling 32):
+# another writer's commit is listed, a mixed one is listed for the reviewer (ruling 34), none refuses
 "${tool[@]}" claim ow solo --agent solo1
 start_ow="$(git -C "$work" rev-parse HEAD)"
 python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]; assert l["start"] == sys.argv[2] and l["state"] == "active", l' "$state" "$start_ow"
@@ -895,90 +900,166 @@ mkdir -p "$work/elsewhere"; printf 'other\n' > "$work/elsewhere/o.txt"; commit_p
 other_sha="$(git -C "$work" rev-parse HEAD)"
 mkdir -p "$work/tests"; printf 'solo\n' >> "$work/src/app.txt"; printf 'x\n' > "$work/tests/mixed.txt"; commit_paths "$work" mixed src/app.txt tests/mixed.txt
 mixed_sha="$(git -C "$work" rev-parse HEAD)"
-expect "commit ${mixed_sha:0:12} (HEAD) touches the lane's paths and undeclared ones: tests/mixed.txt" "${tool[@]}" submit ow solo --evidence mixed
-printf 'y\n' > "$work/elsewhere/o.txt"; commit_paths "$work" 'another writer again' elsewhere/o.txt
-expect "commit ${mixed_sha:0:12} (behind HEAD) touches the lane's paths and undeclared ones: tests/mixed.txt" "${tool[@]}" submit ow solo --evidence mixed
 printf 'x\n' >> "$work/src/app.txt"
 expect 'uncommitted changes; commit them in the checkout first: src/app.txt' "${tool[@]}" submit ow solo --evidence dirty
 git -C "$work" checkout -q -- src/app.txt
-# The cell rewrites its mixed commit with its own path alone; the other writer's change stays theirs.
-git -C "$work" reset -q --soft "$other_sha"; git -C "$work" restore --staged -- tests/mixed.txt elsewhere/o.txt; rm "$work/tests/mixed.txt"
-commit_paths "$work" solo src/app.txt; solo_sha="$(git -C "$work" rev-parse HEAD)"
-commit_paths "$work" 'another writer again' elsewhere/o.txt; other2_sha="$(git -C "$work" rev-parse HEAD)"
+# a rename out of the lane is seen leaving: the deleted source is the lane's, the destination is not
+printf 'extra\n' > "$work/src/extra.txt"; commit_paths "$work" extra src/extra.txt
+git -C "$work" mv src/extra.txt elsewhere/extra.txt; git -C "$work" -c user.email=t@e.com -c user.name=t commit -qm 'moved out'
+mv_sha="$(git -C "$work" rev-parse HEAD)"
 out="$("${tool[@]}" submit ow solo --evidence 'verify passed' 2>&1)" || fail "submit refused the main lane: $out"
-[[ "$out" == *"commit ${other_sha:0:12} is not this lane's"* && "$out" == *"commit ${other2_sha:0:12} is not this lane's"* && "$out" == *"ready for final review"* ]] || fail "another writer's commits were not listed as not the lane's: $out"
-python3 - "$state" "$other2_sha" <<'EOF'
+[[ "$out" == *"commit ${other_sha:0:12} is not this lane's"* && "$out" == *"mixed: ${mixed_sha:0:12} also touches tests/mixed.txt"* && "$out" == *"mixed: ${mv_sha:0:12} also touches elsewhere/extra.txt"* && "$out" == *"ready for final review at ${mv_sha:0:12}"* ]] || fail "submit did not list the other writer's and the mixed commits: $out"
+python3 - "$state" "$mv_sha" "$mixed_sha" <<'EOF'
 import json, sys
 lane = json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]
-assert lane["tip"] == sys.argv[2] and lane["evidence"][-1]["paths"] == ["src/app.txt"], lane
+evidence = lane["evidence"][-1]
+assert lane["tip"] == sys.argv[2] and evidence["paths"] == ["src/app.txt", "src/extra.txt"], evidence
+assert [m["commit"] for m in evidence["mixed"]] == [sys.argv[3], sys.argv[2]] and evidence["mixed"][0]["paths"] == ["tests/mixed.txt"], evidence["mixed"]
+assert evidence["mixed"][0]["text"] == f"mixed: {sys.argv[3][:12]} also touches tests/mixed.txt", evidence["mixed"]
 EOF
 [[ "$(worktree_paths)" == "$worktrees_before" ]] || fail "the main lane's lifecycle made a worktree"
-ok "a main lane's work is the commits since its first claim that touch its paths; a mixed commit is refused by hash, another writer's is listed"
+ok "a main lane's work is the commits since its first claim that touch its paths; mixed commits and a rename out are listed, another writer's commit named, none refused"
 
-# review accept waits while the lane's paths move past the submitted tip; the reviewer brief names the range and the commits
-mkdir -p "$work/docs/ow"; printf 'late\n' >> "$work/src/app.txt"; printf 'r\n' > "$work/docs/ow/review.md"; commit_paths "$work" late src/app.txt docs/ow/review.md
-late_sha="$(git -C "$work" rev-parse HEAD)"
-expect "moved past the submitted tip ${other2_sha:0:12} with commits touching the lane's paths: ${late_sha:0:12}; re-submit" "${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept
-"${tool[@]}" submit ow solo --evidence 'verify passed again' >/dev/null 2>&1
+# a merge commit counts by the paths its own resolution changed
+branch_ow="$(git -C "$work" symbolic-ref --short HEAD)"
+git -C "$work" checkout -q -b ow-side "$other_sha"; printf 'side\n' >> "$work/src/app.txt"; commit_paths "$work" side src/app.txt
+git -C "$work" checkout -q "$branch_ow"
+git -C "$work" -c user.email=t@e.com -c user.name=t merge -q --no-edit ow-side >/dev/null 2>&1 || true
+printf 'resolved\n' > "$work/src/app.txt"; git -C "$work" add -- src/app.txt; git -C "$work" -c user.email=t@e.com -c user.name=t commit -q --no-edit
+merge_sha="$(git -C "$work" rev-parse HEAD)"
+[[ "$(git -C "$work" rev-list --parents -n1 HEAD | wc -w)" -eq 3 ]] || fail "the merge fixture is not a merge commit"
+"${tool[@]}" submit ow solo --evidence 'verify passed' >/dev/null 2>&1
 rev_brief="$(full_brief ow solo --role reviewer)"
-grep -qF "Diff: ${start_ow:0:12}..${late_sha:0:12} in the checkout; this lane's commits: ${solo_sha:0:12}, ${late_sha:0:12} — build its diff with: git diff $start_ow..$late_sha -- src docs/ow" <<<"$rev_brief" || fail "the reviewer brief does not name the range and the lane's commits: $rev_brief"
+grep -qF "Diff: ${start_ow:0:12}..${merge_sha:0:12} in the checkout; this lane's commits: " <<<"$rev_brief" || fail "the reviewer brief does not name the range: $rev_brief"
+for sha in "$mixed_sha" "$mv_sha" "$merge_sha"; do grep -q "this lane's commits: .*${sha:0:12}" <<<"$rev_brief" || fail "the reviewer brief omits the lane's commit ${sha:0:12}: $rev_brief"; done
+grep -qF -- "-- src docs/ow" <<<"$rev_brief" && grep -qF "Mixed commits — mixed: ${mixed_sha:0:12} also touches tests/mixed.txt; mixed: ${mv_sha:0:12} also touches elsewhere/extra.txt" <<<"$rev_brief" || fail "the reviewer brief does not list the mixed commits: $rev_brief"
 ! grep -q "${other_sha:0:12}" <<<"$rev_brief" || fail "the reviewer brief lists another writer's commit as the lane's"
-"${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept
-python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]; assert l["accepted_tip"] == l["tip"] == sys.argv[2], l' "$state" "$late_sha"
-ok "an accepting review of a main lane refuses while its paths moved past the tip, and records the tip it accepted"
+grep -qF "review ow solo --reference '<canonical-review-path>#<finding>' --result accept --tip $merge_sha" <<<"$rev_brief" || fail "the reviewer brief's accept command does not name the tip: $rev_brief"
+ok "a merge's own resolution is the lane's; the reviewer brief names the range, the lane's commits, the mixed ones and the accept command with its tip"
 
-# check runs the composed test in the checkout once the lane is reviewed; --recorded never runs it
+# an accepting review binds the commit it read: --tip must be the submitted tip, still the lane's live tip
+mkdir -p "$work/docs/ow"; printf 'r\n' > "$work/docs/ow/review.md"
+expect 'result accept needs --tip' "${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept
+expect "is not the submitted tip ${merge_sha:0:12}" "${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept --tip "$other_sha"
+printf 'late\n' >> "$work/src/app.txt"; commit_paths "$work" late src/app.txt docs/ow/review.md
+late_sha="$(git -C "$work" rev-parse HEAD)"
+expect "the lane moved since the reviewed commit ${merge_sha:0:12}: ${late_sha:0:12} touch its paths; re-submit, then review ${late_sha:0:12}" "${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept --tip "$merge_sha"
+"${tool[@]}" submit ow solo --evidence 'verify passed again' >/dev/null 2>&1
+expect 'recorded accept review' "${tool[@]}" review ow solo --reference docs/ow/review.md#ok --result accept --tip "${late_sha:0:12}"
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]; assert l["accepted_tip"] == l["tip"] == sys.argv[2], l' "$state" "$late_sha"
+# the same binding for a worktree lane, whose live tip is its branch head
+"${tool[@]}" init wt --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-lane wt one --worker implementer --workspace "$scratch/lane-wt" --path tests >/dev/null 2>&1
+"${tool[@]}" claim wt one --agent wt1; mkdir -p "$scratch/lane-wt/tests"; printf 'a\n' > "$scratch/lane-wt/tests/a.txt"; commit "$scratch/lane-wt" a
+expect "ready for final review at $(git -C "$scratch/lane-wt" rev-parse --short=12 HEAD)" "${tool[@]}" submit wt one --evidence ok
+wt_tip="$(git -C "$scratch/lane-wt" rev-parse HEAD)"
+expect 'result accept needs --tip' "${tool[@]}" review wt one --reference tests/a.txt#ok --result accept
+printf 'b\n' > "$scratch/lane-wt/tests/b.txt"; commit "$scratch/lane-wt" b
+expect "the lane moved since the reviewed commit ${wt_tip:0:12}; re-submit, then review $(git -C "$scratch/lane-wt" rev-parse --short=12 HEAD)" "${tool[@]}" review wt one --reference tests/a.txt#ok --result accept --tip "$wt_tip"
+"${tool[@]}" submit wt one --evidence ok >/dev/null
+expect "is not the submitted tip" "${tool[@]}" review wt one --reference tests/a.txt#ok --result accept --tip "$wt_tip"
+expect 'recorded accept review' accept wt one tests/a.txt#ok
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["wt"]["lanes"]["one"]; assert l["accepted_tip"] == l["tip"] == sys.argv[2], l' "$state" "$(git -C "$scratch/lane-wt" rev-parse HEAD)"
+# a rename out of, and into, a worktree lane is seen on both sides
+git -C "$scratch/lane-wt" mv tests/a.txt moved-a.txt; commit "$scratch/lane-wt" 'moved out'
+expect 'lane changed undeclared paths: moved-a.txt' "${tool[@]}" submit wt one --evidence x
+git -C "$scratch/lane-wt" reset -q --hard HEAD~1
+git -C "$scratch/lane-wt" mv src/app.txt tests/app.txt; commit "$scratch/lane-wt" 'moved in'
+expect 'lane changed undeclared paths: src/app.txt' "${tool[@]}" submit wt one --evidence x
+"${tool[@]}" abandon wt --discard-branches >/dev/null
+ok "an accepting review needs --tip naming the submitted commit, refuses a lane that moved, and renames are seen leaving and arriving in worktree lanes too"
+
+# check runs the composed test in a worktree at the accepted commit (ruling 33); --recorded never runs it
 expect 'completion is blocked by qa:missing, verified:missing' "${tool[@]}" check ow --recorded
 [[ ! -e "$mark" ]] || fail "check --recorded ran the composed test"
 printf 'dirty\n' >> "$work/src/app.txt"
-expect "the checkout has uncommitted changes in the lane's paths: src/app.txt" "${tool[@]}" check ow
+expect "completion is blocked by solo:uncommitted, qa:missing, verified:missing"$'\n'"the checkout has uncommitted changes in the lane's paths: src/app.txt; commit or discard them" "${tool[@]}" check ow
 [[ ! -e "$mark" ]] || fail "check ran the composed test over a dirty lane path"
 git -C "$work" checkout -q -- src/app.txt
 printf 'lead\n' >> "$work/moved/x.txt"
 set +e; out="$("${tool[@]}" check ow 2>&1)"; rc=$?; set -e
-[[ $rc -ne 0 && "$out" == *"running verify in $real_work"* && "$out" == *"moved/x.txt is dirty in the checkout outside the lane's paths"* && "$out" == *"completion is blocked by qa:missing"* && "$out" != *"verified:"* ]] || fail "check did not run and record the composed test: rc=$rc $out"
-[[ -f "$mark" ]] || fail "check did not run the verify command in the checkout"
+verify_dir="$real_work/.agents/worktrees/ow/verify"
+[[ $rc -ne 0 && "$out" == *"running verify at ${late_sha:0:12} in $verify_dir"* && "$out" == *"completion is blocked by qa:missing"* && "$out" != *"verified:"* ]] || fail "check did not run and record the composed test: rc=$rc $out"
+# the verify command itself checks node_modules: the worktree is provisioned (shared from the checkout) before it runs
+[[ -f "$mark" && "$(cat "$scratch/verify-cwd")" == "$verify_dir" && "$(cat "$scratch/verify-head")" == "$late_sha" ]] || fail "the composed test did not run in a provisioned verify worktree at the accepted commit: $(cat "$scratch/verify-cwd" "$scratch/verify-head" 2>&1)"
+[[ ! -e "$verify_dir" && "$(worktree_paths)" == "$worktrees_before" ]] || fail "a passing check left the verify worktree"
 git -C "$work" checkout -q -- moved/x.txt
-python3 - "$state" "$late_sha" <<'EOF'
+python3 - "$state" "$late_sha" "$verify_dir" <<'EOF'
 import json, sys
 run = json.load(open(sys.argv[1]))["runs"]["ow"]
 v = run["verified"]
-assert v["result"] == "pass" and v["head"] == sys.argv[2] and v["lane_tips"] == {"solo": sys.argv[2]} and v["verify"] == run["verify"] and v["dirty"] == ["moved/x.txt"], v
+assert v["result"] == "pass" and v["head"] == sys.argv[2] and v["lane_tips"] == {"solo": sys.argv[2]} and v["verify"] == run["verify"] and v["workspace"] == sys.argv[3] and "dirty" not in v, v
 assert run["events"][-1]["action"] == "verify" and run["events"][-1]["detail"] == "pass", run["events"][-1]
 EOF
 rm "$mark"
 "${tool[@]}" qa ow --evidence 'scenario passed'
 expect "PASS: 'ow' has reviewed lanes, a passing composed test and QA evidence" "${tool[@]}" check ow
 [[ ! -e "$mark" ]] || fail "check reran a current, passing verification"
-ok "check runs the composed test in the checkout, records it with the dirt outside the lane's paths, and a current pass is not rerun"
+ok "check tests the accepted commit in a provisioned verify worktree, removed after the pass, and a current pass is not rerun"
 # only a pass is current: a recorded failure makes the next check run again
 python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state"
 expect 'verified:fail' "${tool[@]}" check ow --recorded
 expect PASS "${tool[@]}" check ow
 [[ -f "$mark" ]] || fail "check did not rerun after a recorded failure"
+rm "$mark"
 ok "a recorded failure is not current: check runs the composed test again"
-# a failing verify is recorded and blocks; HEAD moving during the run is a failure
-"${tool[@]}" init owf --objective x --acceptance y --repo "$work" --verify 'test -f never/there' --lane f --worker implementer --path src >/dev/null
-"${tool[@]}" claim owf f --agent f1; printf 'f\n' >> "$work/src/app.txt"; commit_paths "$work" f src/app.txt
-"${tool[@]}" submit owf f --evidence ok >/dev/null; "${tool[@]}" review owf f --reference docs/ow/review.md#ok --result accept
-expect "verify failed in $real_work" "${tool[@]}" check owf
+# the run reads live state after its review: a lane-path commit or a dirty lane path makes it stale everywhere
+printf 'after\n' >> "$work/src/app.txt"; commit_paths "$work" after src/app.txt; after_sha="$(git -C "$work" rev-parse HEAD)"
+expect "completion is blocked by solo:moved-after-review"$'\n'"the checkout has commits touching the lane's paths after its accepted tip ${late_sha:0:12}; re-submit the lane for review" "${tool[@]}" check ow
+expect 'solo:moved-after-review' "${tool[@]}" check ow --recorded
+expect 'teardown waits for completion; blocked by solo:moved-after-review' "${tool[@]}" teardown ow
+[[ ! -e "$mark" ]] || fail "check ran the composed test for a lane that moved after its review"
+# a re-submission is a review round like any other: this is the lane's fourth, so the accept carries a ruling
+"${tool[@]}" submit ow solo --evidence 'verify passed' >/dev/null 2>&1; accept ow solo docs/ow/review.md#ok --ruling 'moved after review; review it again'
+expect 'verified:stale' "${tool[@]}" check ow --recorded
+expect PASS "${tool[@]}" check ow
+[[ -f "$mark" ]] || fail "check did not retest the newly accepted commit"
+rm "$mark"
+ok "a lane-path commit after the accepted review blocks check, check --recorded and teardown until a new review and test"
+# one check per run at a time; a run with no verify is named
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state"
+python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"a+"); fcntl.flock(f,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)' "$real_work/.agents/worktrees/ow/.workloop/check.lock" "$scratch/check-held" & holder=$!
+for _ in $(seq 50); do [[ -e "$scratch/check-held" ]] && break; sleep 0.1; done
+expect "check is already running for 'ow'" "${tool[@]}" check ow
+kill "$holder"; wait "$holder" 2>/dev/null || true
+expect PASS "${tool[@]}" check ow
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["verify"]=None; json.dump(s, open(p,"w"))' "$state"
+expect 'completion is blocked by verify:undeclared' "${tool[@]}" check ow --recorded
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["runs"]["ow"]["verify"]=s["runs"]["ow"]["verified"]["verify"]; json.dump(s, open(p,"w"))' "$state"
+ok "a second check waits for the first; a run with lanes and no verify reports verify:undeclared"
+# a failing verify leaves its worktree named; the next check, or abandon, removes it
+"${tool[@]}" init owf --objective x --acceptance y --repo "$work" --verify 'test -f never/there' --lane f --worker implementer --path docs/owf >/dev/null
+"${tool[@]}" claim owf f --agent f1; mkdir -p "$work/docs/owf"; printf 'f\n' > "$work/docs/owf/f.txt"; commit_paths "$work" f docs/owf/f.txt
+"${tool[@]}" submit owf f --evidence ok >/dev/null; accept owf f docs/ow/review.md#ok
+fail_dir="$real_work/.agents/worktrees/owf/verify"
+expect "verify failed in $fail_dir; the worktree stays for inspection" "${tool[@]}" check owf
+[[ -d "$fail_dir" && -n "$(worktree_paths | grep -F "$fail_dir")" ]] || fail "a failed verify did not leave its worktree"
 expect 'verified:fail' "${tool[@]}" check owf --recorded
-"${tool[@]}" init owm --objective x --acceptance y --repo "$work" --verify 'git commit -q --allow-empty -m moved' --lane m --worker implementer --path src >/dev/null
-"${tool[@]}" claim owm m --agent m1; printf 'm\n' >> "$work/src/app.txt"; commit_paths "$work" m src/app.txt
-"${tool[@]}" submit owm m --evidence ok >/dev/null; "${tool[@]}" review owm m --reference docs/ow/review.md#ok --result accept
-expect 'HEAD moved from' "${tool[@]}" check owm
-expect 'verified:fail' "${tool[@]}" check owm --recorded
-ok "a failing composed test, or HEAD moving while it runs, is recorded as a failure that blocks completion"
+expect "verify failed in $fail_dir" "${tool[@]}" check owf
+expect "abandoned 'owf': removed 1 worktree(s)" "${tool[@]}" abandon owf
+[[ ! -e "$fail_dir" && "$(worktree_paths)" == "$worktrees_before" ]] || fail "abandon left the failed verify worktree"
+ok "a failing composed test is recorded, its worktree stays and is named, and the next check or abandon removes it"
 
-# teardown removes nothing but the briefs; the run stays passing
+# teardown reaps the main lane's labelled resources, removes the briefs and nothing else; the run stays passing
+: > "$DOCKER_LOG"
 expect 'removed 0 worktree(s)' "${tool[@]}" teardown ow
+grep -q 'label=colloid.run=ow' "$DOCKER_LOG" && grep -q 'label=com.docker.compose.project=ow-solo' "$DOCKER_LOG" || fail "teardown did not reap the main lane's compose project and the run's labelled resources: $(cat "$DOCKER_LOG")"
 [[ ! -e "$real_work/.agents/worktrees/ow" ]] || fail "teardown left the main lane's brief folder: $(ls -R "$real_work/.agents/worktrees/ow")"
 [[ "$(worktree_paths)" == "$worktrees_before" && "$(git -C "$work" rev-parse HEAD)" != "$start_ow" ]] || fail "teardown touched the checkout's worktrees or history"
+printf 'later\n' >> "$work/src/app.txt"; commit_paths "$work" later src/app.txt
 expect PASS "${tool[@]}" check ow
 expect PASS "${tool[@]}" check ow --recorded
-ok "teardown of a one-writer run removes its briefs and nothing else, and check still passes"
+ok "teardown of a one-writer run reaps its lane's resources and removes its briefs; check still passes as the checkout moves on"
 
-# a rewritten branch leaves a run that can never pass; the refusals name abandon
+# an amend after submit names re-submit; only a history that lost the claim's start names abandon
+"${tool[@]}" init owa --objective x --acceptance y --repo "$work" --verify true --lane a --worker implementer --path src >/dev/null
+"${tool[@]}" claim owa a --agent a1
+printf 'a\n' >> "$work/src/app.txt"; commit_paths "$work" a src/app.txt
+"${tool[@]}" submit owa a --evidence ok >/dev/null; owa_tip="$(git -C "$work" rev-parse HEAD)"
+git -C "$work" -c user.email=t@e.com -c user.name=t commit -q --amend --no-edit -m 'a amended'
+expect "no longer contains ${owa_tip:0:12}; re-submit the lane" "${tool[@]}" review owa a --reference docs/ow/review.md#ok --result accept --tip "$owa_tip"
+"${tool[@]}" submit owa a --evidence ok >/dev/null; expect 'recorded accept review' accept owa a docs/ow/review.md#ok
+"${tool[@]}" abandon owa >/dev/null
 "${tool[@]}" init owr --objective x --acceptance y --repo "$work" --verify true --lane r --worker implementer --path src >/dev/null
 "${tool[@]}" claim owr r --agent r1
 printf 'r\n' >> "$work/src/app.txt"; commit_paths "$work" r src/app.txt
@@ -986,8 +1067,7 @@ git -C "$work" reset -q --hard HEAD~2; printf 'r2\n' >> "$work/src/app.txt"; com
 expect "does not descend from the lane's start"'.*close it with: abandon owr' "${tool[@]}" submit owr r --evidence ok
 expect "abandoned 'owr': removed 0 worktree(s)" "${tool[@]}" abandon owr
 if "${tool[@]}" status owr 2>/dev/null; then fail 'abandon left the one-writer run in state'; fi
-"${tool[@]}" abandon owf >/dev/null; "${tool[@]}" abandon owm >/dev/null
-ok "a main lane whose history was rewritten is refused naming abandon, which closes the run without touching the checkout"
+ok "an amend after submit is re-submitted; a history that lost the claim's start is refused naming abandon, which closes the run without touching the checkout"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'

@@ -111,12 +111,30 @@ def dirty_paths(workspace: Path | str) -> list[str]:
     return sorted(line[3:] for line in lines if len(line) > 3)
 
 
+# Every path listing names a rename as its source and its destination, so a
+# file moved out of a lane's paths is seen leaving and one moved in is seen
+# deleting where it came from.
 def committed_files(repo: Path | str, since: str, until: str) -> list[str]:
-    return sorted(line for line in git(repo, "diff", "--name-only", f"{since}..{until}").splitlines() if line)
+    return sorted(line for line in git(repo, "diff", "--name-only", "--no-renames", f"{since}..{until}").splitlines() if line)
+
+
+def commits_with_files(repo: Path | str, since: str, until: str) -> list[tuple[str, list[str]]]:
+    """Each commit in since..until, oldest first, with the paths it changes.
+
+    A merge commit lists the paths its own resolution changed against every
+    parent (`--diff-merges=cc`), not what it brought in from them.
+    """
+    out = git(repo, "log", "--reverse", "--format=%x1e%H", "--name-only", "--no-renames", "--diff-merges=cc", f"{since}..{until}", strip=False)
+    commits = []
+    for chunk in out.split("\x1e"):
+        lines = [line for line in chunk.splitlines() if line]
+        if lines:
+            commits.append((lines[0], sorted(lines[1:])))
+    return commits
 
 
 def changed_files(workspace: Path, base: str) -> list[str]:
-    seen: set[str] = set(line for line in git(workspace, "diff", "--name-only", base).splitlines() if line)
+    seen: set[str] = set(line for line in git(workspace, "diff", "--name-only", "--no-renames", base).splitlines() if line)
     root = workspace.resolve()
     for line in git(workspace, "ls-files", "--others", "--exclude-standard").splitlines():
         if not line:
@@ -394,6 +412,11 @@ def _install_folders(repo: Path, base: str, tree: list[str]) -> list[tuple[str, 
         patch_sources.append(patches)
         gained.append(("pnpm-workspace.yaml", _members(patterns, tree)))
     return [("patchedDependencies", _patch_folders(patch_sources))] + gained
+
+
+def worktree_add_detached(repo: Path, workspace: Path, commit: str) -> None:
+    """Create a worktree checked out at `commit` on no branch, as a test tree."""
+    git(repo, "worktree", "add", "-q", "--detach", str(workspace), commit)
 
 
 def worktree_add(repo: Path, workspace: Path, branch: str, base: str, cone: list[str] | None = None) -> None:
