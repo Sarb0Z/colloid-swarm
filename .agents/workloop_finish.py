@@ -231,6 +231,13 @@ def cmd_teardown(args: argparse.Namespace) -> None:
     removed, kept, errors, docker_removed = release_run(repo, args.run, names, lanes, integration, head, discard=False)
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
+        # The release ran outside the lock, so a cell added or a lane moved
+        # meanwhile is caught here. Judged as torn down: the release itself
+        # removed the worktrees and merged branches the live checks read.
+        changed = wm.completion_problems(dict(run, torn_down=True))
+        if changed:
+            fail(f"completion changed while teardown ran: blocked by {', '.join(changed)}; the worktrees and containers are "
+                 f"released ({len(removed)} worktree(s) removed) but the run stays open: once that is resolved, close it with abandon {args.run}")
         run["torn_down"] = {"at": now(), "removed": removed, "kept": kept, "errors": errors}
         record(args.run, run, "teardown", detail=f"removed {len(removed)}, kept {len(kept)}, errors {len(errors)}", supplied=args.event_id)
     print(f"removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)")

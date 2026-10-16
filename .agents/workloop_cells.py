@@ -45,6 +45,12 @@ def cell_problems(run: dict) -> list[str]:
     return [f"cell:{name}:out" for name, cell in sorted(cells_of(run).items()) if cell["state"] == "out"]
 
 
+def refuse_torn_down(run_name: str, run: dict) -> None:
+    """A torn-down run is closed: a cell sent out on it would never be waited for."""
+    if run.get("torn_down"):
+        fail(f"run {run_name!r} is torn down, so nothing waits for a cell sent out on it; start a new run with init for new work")
+
+
 def status_lines(run: dict) -> list[str]:
     lines = []
     for name, cell in sorted(cells_of(run).items()):
@@ -58,6 +64,7 @@ def cmd_add_cell(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
+        refuse_torn_down(args.run, run)
         # One namespace per run: `brief <run> <name>` must name one thing.
         if args.name in run["lanes"] or args.name in cells_of(run):
             fail(f"run already has a lane or cell named {args.name!r}")
@@ -105,6 +112,7 @@ def cell_brief(args: argparse.Namespace, run: dict) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
+        refuse_torn_down(args.run, run)
         cell = cell_of(run, args.lane)
         if cell["state"] == "out":
             fail(f"cell {args.lane!r} is out already; brief without --again reprints its prompt")

@@ -1227,6 +1227,22 @@ expect "PASS: 'fo' is a read-only fan-out and every cell is back" "${tool[@]}" c
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["fo"]; assert r["verify"] is None and r["qa"] is None and "verified" not in r, r' "$state"
 expect 'removed 0 worktree(s)' "${tool[@]}" teardown fo
 [[ ! -e "$real_work/.agents/worktrees/fo" && "$(worktree_paths)" == "$worktrees_before" ]] || fail "the fan-out's teardown left briefs or touched worktrees"
+# a torn-down run takes no cell: nothing would wait for it
+expect "run 'fo' is torn down, so nothing waits for a cell sent out on it" "${tool[@]}" add-cell fo d --role research --model haiku
+expect "run 'fo' is torn down, so nothing waits for a cell sent out on it" "${tool[@]}" brief fo a --again
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["fo"]; assert "d" not in r["cells"] and r["cells"]["a"]["state"] == "returned", r["cells"]' "$state"
+# a cell added while teardown releases the run is caught under teardown's write lock
+"${tool[@]}" init tg --objective x --acceptance y --repo "$work" >/dev/null
+"${tool[@]}" add-cell tg early --role research --model haiku >/dev/null; "${tool[@]}" returned tg early --result reply >/dev/null
+mkdir -p "$scratch/bin-late"
+printf '#!/usr/bin/env bash\n[[ -e "%s/late.done" ]] || { touch "%s/late.done"; %s add-cell tg late --role review --model opus >/dev/null; }\nexec "%s/bin/docker" "$@"\n' \
+  "$scratch" "$scratch" "${tool[*]}" "$scratch" > "$scratch/bin-late/docker"
+chmod +x "$scratch/bin-late/docker"
+expect 'completion changed while teardown ran: blocked by cell:late:out;.*close it with abandon tg' env PATH="$scratch/bin-late:$PATH" "${tool[@]}" teardown tg
+[[ -e "$scratch/late.done" ]] || fail "the late cell was never added during teardown"
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["tg"]; assert not r.get("torn_down") and r["cells"]["late"]["state"] == "out", r' "$state"
+"${tool[@]}" returned tg late --result reply >/dev/null; expect "abandoned 'tg'" "${tool[@]}" abandon tg
+ok "add-cell and brief --again refuse a torn-down run, and teardown refuses inside its write lock when a cell went out while it released the run"
 # a run with --verify and no lane yet is not finished: scouts returned before the first add-lane never let it close
 "${tool[@]}" init pre --objective x --acceptance y --repo "$work" --verify true >/dev/null
 "${tool[@]}" add-cell pre scout --role research --model haiku >/dev/null; "${tool[@]}" returned pre scout --result reply >/dev/null
