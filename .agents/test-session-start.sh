@@ -5,6 +5,10 @@ set -euo pipefail
 # A caller such as `git rebase -x` exports these; the git calls below must
 # reach only their own temporary repositories.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+# The heal begins no removal past its time budget, and judging this file's ~60
+# worktrees outlasts the default 20 s on a slower machine, so every removal row
+# would read as kept. Only the removal-budget row sets a budget of its own.
+export WORKTREE_HEAL_SECONDS=inf
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
