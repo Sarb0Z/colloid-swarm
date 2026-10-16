@@ -269,9 +269,10 @@ def cmd_status(args: argparse.Namespace) -> None:
             pending = len(pending_messages(run, name))
             progress = f"\t{lane['progress']}" if lane.get("progress") else ""
             lease = f"\texclusive={','.join(lane['exclusive'])}" if lane.get("exclusive") else ""
+            model = f"\tmodel={lane['model']}" if lane.get("model") else ""
             # The reviewer's accept names this commit (--tip).
             tip = f"\ttip={lane['tip'][:12]}" if lane.get("tip") and lane["state"] in ("review", "reviewed") else ""
-            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}\t{', '.join(lane['paths'])}{tip}{lease}{progress}")
+            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}{model}\t{', '.join(lane['paths'])}{tip}{lease}{progress}")
         for line in wc.status_lines(run):
             print(line)
         if run.get("verify"):
@@ -318,6 +319,7 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         header,
         f"Objective: {run['objective']}",
         f"Acceptance: {run['acceptance']}",
+        *([f"Model: {lane['model']}"] if lane.get("model") else []),
         f"Owned paths: {', '.join(lane['paths'])}",
         *([f"Shared paths: {', '.join(shared_of(run))}\nShared paths: any lane may edit them. Append only; never restructure or reorder existing lines. Regenerate generated files (for example the API contract and its web types) instead of merging them by hand. When a lane you build on is reviewed, rebase onto its branch and resolve shared-path conflicts in your worktree."] if shared_of(run) else []),
         *place_lines(run, run_name, lane_name, lane, role, command),

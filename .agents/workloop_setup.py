@@ -44,6 +44,8 @@ def main_lane_paths(args: argparse.Namespace, shared: list[str]) -> list[str]:
         fail("--path needs --lane: a run's sole lane is declared with --lane <name> --worker <type> --path <p>")
     if args.worker and not args.lane:
         fail("--worker needs --lane: a run's sole lane is declared with --lane <name> --worker <type> --path <p>")
+    if args.model and not args.lane:
+        fail("--model needs --lane: it is the main lane's model; a cell's comes with add-cell --model")
     if not args.lane:
         return []
     if not (args.worker and args.path):
@@ -99,7 +101,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         run = data["runs"][args.run] = new_run(args, repo, base, shared)
         record(args.run, run, "init", detail=args.objective, supplied=args.event_id)
         if args.lane:
-            run["lanes"][args.lane] = wm.new_lane(args.worker, repo, lane_paths)
+            run["lanes"][args.lane] = wm.new_lane(args.worker, repo, lane_paths, args.model)
             record(args.run, run, "add-lane", args.lane, ", ".join(lane_paths))
     print(f"created workloop {args.run!r} at {base[:12]} in {repo}")
     if args.lane:
@@ -153,6 +155,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
                 print(f"add-lane {args.lane}: {note}", file=sys.stderr)
             run["lanes"][args.lane] = {
                 "worker": args.worker,
+                "model": args.model,
                 "workspace": str(workspace),
                 "branch": None,
                 "sparse": cone,

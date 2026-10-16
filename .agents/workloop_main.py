@@ -37,9 +37,10 @@ def worktree_lanes(run: dict) -> dict[str, dict]:
     return {name: lane for name, lane in run["lanes"].items() if not is_main(lane)}
 
 
-def new_lane(worker: str, repo: Path, paths: list[str]) -> dict:
+def new_lane(worker: str, repo: Path, paths: list[str], model: str | None) -> dict:
     return {
         "worker": worker,
+        "model": model,
         "place": PLACE,
         "workspace": str(repo),
         "branch": None,

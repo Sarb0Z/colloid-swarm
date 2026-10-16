@@ -1214,6 +1214,23 @@ expect 'completion is blocked by qa:missing, lanes:none' "${tool[@]}" check pre 
 "${tool[@]}" abandon pre >/dev/null
 ok "a run without --verify takes cells and no lane, needs no QA or composed test, and is finished once every cell is back; one with --verify and no lane yet is not"
 
+# ── a lane's model is recorded, printed in its brief and in status; absent prints nothing ──
+expect '\-\-model needs --lane' "${tool[@]}" init om --objective x --acceptance y --repo "$work" --verify true --model opus
+"${tool[@]}" init om --objective x --acceptance y --repo "$work" --verify true --lane m --worker implementer --path src --model opus >/dev/null
+grep -qx 'Model: opus' "$real_work/.agents/worktrees/om/.workloop/m.md" || fail "the main lane's brief lacks its model: $(cat "$real_work/.agents/worktrees/om/.workloop/m.md")"
+[[ "$("${tool[@]}" status om)" == *$'m\tready\tpending=0\timplementer\tmodel=opus\tsrc'* ]] || fail "status does not show the main lane's model: $("${tool[@]}" status om)"
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["om"]["lanes"]["m"]; assert l["model"] == "opus", l' "$state"
+"${tool[@]}" abandon om >/dev/null
+"${tool[@]}" init wm --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-lane wm with --worker implementer --workspace "$scratch/lane-wm-with" --path tests --model sonnet >/dev/null 2>&1
+"${tool[@]}" add-lane wm without --worker implementer --workspace "$scratch/lane-wm-without" --path docs >/dev/null 2>&1
+grep -qx 'Model: sonnet' <<<"$(full_brief wm with)" || fail "a worktree lane's brief lacks its model"
+! grep -q '^Model:' <<<"$(full_brief wm without)" || fail "a lane without --model prints a Model line"
+wm_status="$("${tool[@]}" status wm)"
+[[ "$wm_status" == *$'with\tready\tpending=0\timplementer\tmodel=sonnet\ttests'* && "$wm_status" == *$'without\tready\tpending=0\timplementer\tdocs'* ]] || fail "status does not show a lane's model, or shows one it has not: $wm_status"
+"${tool[@]}" abandon wm --discard-branches >/dev/null
+ok "init --lane --model and add-lane --model record a lane's model for its brief and status; a lane without one prints nothing"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys
