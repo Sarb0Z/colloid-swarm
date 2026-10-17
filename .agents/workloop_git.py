@@ -144,6 +144,10 @@ def dirty_paths(workspace: Path | str) -> list[str]:
     return sorted(paths)
 
 
+def _nul_paths(out: str) -> list[str]:
+    return [name for name in out.split("\0") if name]
+
+
 def branches_containing(repo: Path | str, commit: str) -> list[str]:
     """Local branches holding `commit`, the checked-out one excluded."""
     out = git(repo, "branch", "--format=%(refname:short)%(if)%(HEAD)%(then) *%(end)", "--contains", commit, check=False)
@@ -154,7 +158,7 @@ def branches_containing(repo: Path | str, commit: str) -> list[str]:
 # file moved out of a lane's paths is seen leaving and one moved in is seen
 # deleting where it came from.
 def committed_files(repo: Path | str, since: str, until: str) -> list[str]:
-    return sorted(line for line in git(repo, "diff", "--name-only", "--no-renames", f"{since}..{until}").splitlines() if line)
+    return sorted(_nul_paths(git(repo, "diff", "-z", "--name-only", "--no-renames", f"{since}..{until}", strip=False)))
 
 
 def commits_with_files(repo: Path | str, since: str, until: str) -> list[tuple[str, list[str]]]:
@@ -163,21 +167,21 @@ def commits_with_files(repo: Path | str, since: str, until: str) -> list[tuple[s
     A merge commit lists the paths its own resolution changed against every
     parent (`--diff-merges=cc`), not what it brought in from them.
     """
-    out = git(repo, "log", "--reverse", "--format=%x1e%H", "--name-only", "--no-renames", "--diff-merges=cc", f"{since}..{until}", strip=False)
+    # With -z the header ends in a NUL, the first path follows one newline, and
+    # every path ends in a NUL; the record separator marks where a commit begins.
+    out = git(repo, "log", "-z", "--reverse", "--format=%x1e%H", "--name-only", "--no-renames", "--diff-merges=cc", f"{since}..{until}", strip=False)
     commits = []
     for chunk in out.split("\x1e"):
-        lines = [line for line in chunk.splitlines() if line]
-        if lines:
-            commits.append((lines[0], sorted(lines[1:])))
+        head, _, listing = chunk.partition("\0")
+        if head:
+            commits.append((head, sorted(_nul_paths(listing.removeprefix("\n")))))
     return commits
 
 
 def changed_files(workspace: Path, base: str) -> list[str]:
-    seen: set[str] = set(line for line in git(workspace, "diff", "--name-only", "--no-renames", base).splitlines() if line)
+    seen: set[str] = set(_nul_paths(git(workspace, "diff", "-z", "--name-only", "--no-renames", base, strip=False)))
     root = workspace.resolve()
-    for line in git(workspace, "ls-files", "--others", "--exclude-standard").splitlines():
-        if not line:
-            continue
+    for line in _nul_paths(git(workspace, "ls-files", "-z", "--others", "--exclude-standard", strip=False)):
         # A `node_modules/` ignore pattern matches directories only, so the
         # link provisioning leaves behind is listed as untracked. A link that
         # points out of the worktree is environment, never the lane's work.
@@ -559,7 +563,7 @@ def prepare_integration(repo: Path, workspace: Path, branch: str, base: str) -> 
 
 
 def _conflicts(workspace: Path) -> list[str]:
-    return sorted(line for line in git(workspace, "diff", "--name-only", "--diff-filter=U").splitlines() if line)
+    return sorted(_nul_paths(git(workspace, "diff", "-z", "--name-only", "--diff-filter=U", strip=False)))
 
 
 def _merging(workspace: Path) -> bool:

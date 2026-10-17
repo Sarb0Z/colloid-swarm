@@ -1605,6 +1605,31 @@ out="$(shr_integrate pl)" || fail "a glob-looking rebuild path did not integrate
 "${tool[@]}" add-lane pl loc --worker implementer --workspace "$scratch/pl-loc" --path 'web/[locale]' >/dev/null || fail "add-lane refused a path containing brackets"
 ok "shared and rebuild paths reach git as literal names; bracketed lane paths are still accepted"
 
+# path listings are read NUL-separated: git quotes a name with a non-ASCII character, a double quote or a backslash otherwise
+shr_repo "$scratch/nq-repo"; mkdir -p "$scratch/nq-repo/src"; printf 'b\n' > "$scratch/nq-repo/src/ü.txt"; printf 'b\n' > "$scratch/nq-repo/src/q\"x.txt"; printf 'b\n' > "$scratch/nq-repo/src/b\\s.txt"
+git -C "$scratch/nq-repo" add . && git -C "$scratch/nq-repo" commit -qm names
+"${tool[@]}" init nq --objective x --acceptance y --repo "$scratch/nq-repo" --verify true --lane solo --worker implementer --path src >/dev/null
+"${tool[@]}" claim nq solo --agent s >/dev/null
+printf 'one\n' >> "$scratch/nq-repo/src/ü.txt"; commit_paths "$scratch/nq-repo" one src/ü.txt
+"${tool[@]}" submit nq solo --evidence ok >/dev/null; accept nq solo docs/review.md#ok >/dev/null
+expect "completion is blocked by qa:missing, verified:missing" "${tool[@]}" check nq --recorded
+for late in 'src/ü.txt' 'src/q"x.txt' 'src/b\s.txt'; do
+  printf 'late\n' >> "$scratch/nq-repo/$late"; commit_paths "$scratch/nq-repo" late "$late"
+  expect 'solo:moved-after-review' "${tool[@]}" check nq --recorded
+  git -C "$scratch/nq-repo" reset -q --hard HEAD~1
+done
+ok "a commit after the review to an owned path with a non-ASCII character, a quote or a backslash in its name moves the lane"
+shr_repo "$scratch/nw-repo"; mkdir -p "$scratch/nw-repo/a"
+"${tool[@]}" init nw --objective x --acceptance y --repo "$scratch/nw-repo" --verify true --shared 'docs/é "q".md' >/dev/null
+"${tool[@]}" add-lane nw a --worker implementer --workspace "$scratch/nw-a" --path a >/dev/null 2>&1
+"${tool[@]}" claim nw a --agent a >/dev/null
+printf 'x\n' > "$scratch/nw-a/a/ü.txt"; printf 'x\n' > "$scratch/nw-a/docs/é \"q\".md"; printf 'x\n' > "$scratch/nw-a/a/b\\s.txt"
+commit "$scratch/nw-a" names
+"${tool[@]}" submit nw a --evidence ok >/dev/null || fail "a lane editing a non-ASCII shared path and owned paths with a quote or a backslash was refused at submit"
+printf 'y\n' > "$scratch/nw-a/a/ü2.txt"
+expect 'uncommitted changes; commit them on the lane branch first: a/ü2.txt' "${tool[@]}" submit nw a --evidence dirty
+ok "a worktree lane editing shared and owned paths with unusual names submits"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys

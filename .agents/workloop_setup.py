@@ -189,7 +189,7 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
         cone = (existing or run["lanes"][args.lane]).get("sparse")
         shape = f" sparse to {', '.join(cone)}" if cone else ""
         for entry in cone or []:
-            if wg.git(repo, "ls-tree", "--name-only", base, "--", entry) != entry:
+            if entry not in wg.git(repo, "--literal-pathspecs", "ls-tree", "-z", "--name-only", base, "--", entry, strip=False).split("\0"):
                 print(f"add-lane {args.lane}: cone directory {entry!r} does not exist at the base; created empty", file=sys.stderr)
         print(f"add-lane {args.lane}: creating worktree {workspace} on {branch} at {base[:12]}{shape}", file=sys.stderr)
         wg.worktree_add(repo, workspace, branch, base, cone)
