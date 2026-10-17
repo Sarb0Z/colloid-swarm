@@ -1365,12 +1365,15 @@ expect 'shared lock.txt$' "${tool[@]}" share sh1 lock.txt --rebuild ''
 "${tool[@]}" share sh1 gen >/dev/null
 expect 'shared gen/api.json (rebuilt by: echo nested)' "${tool[@]}" share sh1 gen/api.json --rebuild 'echo nested'
 [[ "$(run_field sh1 shared)" == '["lock.txt", "gen", "gen/api.json"]' ]] || fail "a rebuild path inside a merged shared path was refused or reordered"
+expect 'gen is shared with no rebuild command, so there is none to clear' "${tool[@]}" share sh1 gen --rebuild ''
+expect "already shared with that rebuild command" "${tool[@]}" share sh1 gen/api.json --rebuild 'echo nested'
 ok "a repeated share sets, keeps, replaces or clears the rebuild command in place; a rebuild path may sit inside a merged one"
 
 # lanes declared before a share learn it from a fresh brief
 "${tool[@]}" claim sh1 a --agent sh1a >/dev/null
 out="$("${tool[@]}" share sh1 README.md)"
 [[ "$out" == *"brief sh1 a"* && "$out" != *"brief sh1 b"* ]] || fail "share did not name the claimed lane alone: $out"
+grep -q "^\.agents/workloop\.py --state .*/state\.json brief sh1 a$" <<<"$out" || fail "share did not print the full re-brief command: $out"
 "${tool[@]}" share sh1 docs/rules --rebuild 'echo r' >/dev/null
 expect 'Shared paths: lock.txt, gen, gen/api.json, README.md, docs/rules' full_brief sh1 a
 expect 'Shared path README.md — merged by Git: any lane may edit it. Append only; never restructure or reorder existing lines.' full_brief sh1 a

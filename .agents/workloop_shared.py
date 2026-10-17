@@ -90,6 +90,9 @@ def cmd_share(args: argparse.Namespace) -> None:
         if path in shared and args.rebuild is None:
             print(f"{path} is already shared" + (f", rebuilt by: {rebuild[path]}" if path in rebuild else ""))
             return
+        if path in shared and args.rebuild == "" and path not in rebuild:
+            print(f"{path} is shared with no rebuild command, so there is none to clear")
+            return
         if path in shared and rebuild.get(path) == (args.rebuild or None):
             print(f"{path} is already shared with that rebuild command")
             return
@@ -105,4 +108,4 @@ def cmd_share(args: argparse.Namespace) -> None:
         briefed = [name for name, lane in run["lanes"].items() if lane.get("claimed_by") and lane["state"] != "reviewed"]
     print(f"shared {share_line(run, path)}")
     for name in briefed:
-        print(f"brief {args.run} {name}")
+        print(f".agents/workloop.py --state {state_path(args.state)} brief {args.run} {name}")
