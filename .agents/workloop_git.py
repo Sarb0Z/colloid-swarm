@@ -115,11 +115,25 @@ def worktree_root(workspace: Path) -> Path:
 
 
 def dirty_paths(workspace: Path | str) -> list[str]:
-    # Porcelain lines are "XY path"; a modified file's X is a space, so the
-    # output must not be stripped before the slice. A staged rename is two
-    # paths, not one "old -> new" string.
-    lines = git(workspace, "status", "--porcelain", "--no-renames", "--untracked-files=all", strip=False).splitlines()
-    return sorted(line[3:] for line in lines if len(line) > 3)
+    """Every path `git status` reports, NUL-separated so names with spaces or non-ASCII characters arrive unquoted.
+
+    Entries are "XY path"; a modified file's X is a space, so the output must
+    not be stripped. A rename or copy entry is followed by a second field, its
+    source, and both paths count.
+    """
+    fields = git(workspace, "status", "--porcelain", "-z", "--untracked-files=all", strip=False).split("\0")
+    paths: list[str] = []
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if len(entry) <= 3:
+            continue
+        paths.append(entry[3:])
+        if entry[0] in "RC" or entry[1] in "RC":
+            paths.append(fields[index])
+            index += 1
+    return sorted(paths)
 
 
 def branches_containing(repo: Path | str, commit: str) -> list[str]:
@@ -577,7 +591,7 @@ def merge_lane(repo: Path, workspace: Path, base: str, lane: str, branch: str, m
     if rebuild and _merging(workspace):
         # Declared paths are names, not patterns: `*.txt` or `app/[id]` must not match other files.
         git(workspace, "--literal-pathspecs", "rm", "-r", "-q", "-f", "--ignore-unmatch", "--", *rebuild)
-        held = [line for line in git(workspace, "--literal-pathspecs", "ls-tree", "--name-only", base, "--", *rebuild).splitlines() if line]
+        held = [name for name in git(workspace, "--literal-pathspecs", "ls-tree", "-z", "--name-only", base, "--", *rebuild, strip=False).split("\0") if name]
         if held:
             git(workspace, "--literal-pathspecs", "checkout", base, "--", *held)
     conflicts = _conflicts(workspace)

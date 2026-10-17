@@ -1534,6 +1534,19 @@ grep -q 'To change a lockfile run only its lockfile-only form (`pnpm install --l
 grep -q 'On a rebase conflict in it, regenerate it with that command instead of merging it by hand' <<<"$brief" || fail "the rebuilt-path rule lost the regenerate instruction: $brief"
 ok "the lane brief names the lockfile-only commands and the provision command, and says to regenerate a rebuilt path instead of merging it by hand"
 
+# names with spaces or non-ASCII characters survive status and ls-tree: a rebuild writing them is not stray, and a base rebuild path with one is restored
+shr_repo "$scratch/uni-repo"; printf 'base-é\n' > "$scratch/uni-repo/é.txt"; git -C "$scratch/uni-repo" add . && git -C "$scratch/uni-repo" commit -qm unicode
+"${tool[@]}" init uni --objective x --acceptance y --repo "$scratch/uni-repo" --verify 'test -f "gen/a b.json" && test -f "gen/é.json" && grep -q base-é é.txt' >/dev/null
+"${tool[@]}" add-lane uni a --worker implementer --workspace "$scratch/uni-a" --path a >/dev/null 2>&1
+"${tool[@]}" share uni gen --rebuild 'echo 1 > "gen/a b.json"; echo 2 > "gen/é.json"' >/dev/null
+"${tool[@]}" share uni é.txt --rebuild 'true' >/dev/null
+printf 'x\nadep\n' > "$scratch/uni-a/a/dep.txt"
+shr_done uni a
+"${tool[@]}" qa uni --evidence ok >/dev/null
+out="$(shr_integrate uni)" || fail "a rebuild writing names with a space or a non-ASCII character, or restoring one, did not integrate: $out"
+[[ "$(git -C "$scratch/int-uni" show HEAD:é.txt)" == base-é ]] || fail "the non-ASCII rebuild path was not restored from the base"
+ok "rebuilds writing names with spaces and non-ASCII characters integrate, and a non-ASCII base rebuild path is restored"
+
 # a merged path inside a rebuild path is refused in either declaration order; the reverse nesting stays allowed
 shr_init nst true a
 "${tool[@]}" share nst gen --rebuild 'true' >/dev/null
