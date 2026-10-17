@@ -1630,6 +1630,19 @@ printf 'y\n' > "$scratch/nw-a/a/ü2.txt"
 expect 'uncommitted changes; commit them on the lane branch first: a/ü2.txt' "${tool[@]}" submit nw a --evidence dirty
 ok "a worktree lane editing shared and owned paths with unusual names submits"
 
+# dirty_paths lists each changed path once, whatever status.renames says: with copy detection a staged copy's source arrives as a second field
+shr_repo "$scratch/cp-repo"; seq 1 40 > "$scratch/cp-repo/gen/s.txt"; git -C "$scratch/cp-repo" add . && git -C "$scratch/cp-repo" commit -qm seq
+git -C "$scratch/cp-repo" config status.renames copies
+printf '41\n' >> "$scratch/cp-repo/gen/s.txt"; cp "$scratch/cp-repo/gen/s.txt" "$scratch/cp-repo/docs/c.txt"; git -C "$scratch/cp-repo" add gen/s.txt docs/c.txt
+[[ "$(git -C "$scratch/cp-repo" status --porcelain | head -1)" == C* ]] || fail "the fixture's staged copy was not detected as a copy: $(git -C "$scratch/cp-repo" status --porcelain)"
+PYTHONPATH="$repo/.agents" python3 - "$scratch/cp-repo" <<'EOF'
+import sys
+import workloop_git as wg
+paths = wg.dirty_paths(sys.argv[1])
+assert paths == ["docs/c.txt", "gen/s.txt"], paths
+EOF
+ok "a staged copy under status.renames=copies lists its source once"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys

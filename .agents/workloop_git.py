@@ -126,22 +126,12 @@ def dirty_paths(workspace: Path | str) -> list[str]:
     """Every path `git status` reports, NUL-separated so names with spaces or non-ASCII characters arrive unquoted.
 
     Entries are "XY path"; a modified file's X is a space, so the output must
-    not be stripped. A rename or copy entry is followed by a second field, its
-    source, and both paths count.
+    not be stripped. `--no-renames` gives every entry one path, so a moved or
+    copied file counts as its source and its destination, whatever
+    `status.renames` says.
     """
-    fields = git(workspace, "status", "--porcelain", "-z", "--untracked-files=all", strip=False).split("\0")
-    paths: list[str] = []
-    index = 0
-    while index < len(fields):
-        entry = fields[index]
-        index += 1
-        if len(entry) <= 3:
-            continue
-        paths.append(entry[3:])
-        if entry[0] in "RC" or entry[1] in "RC":
-            paths.append(fields[index])
-            index += 1
-    return sorted(paths)
+    out = git(workspace, "status", "--porcelain", "-z", "--no-renames", "--untracked-files=all", strip=False)
+    return sorted(entry[3:] for entry in out.split("\0") if len(entry) > 3)
 
 
 def _nul_paths(out: str) -> list[str]:
