@@ -219,23 +219,52 @@ a leading `./`; when a positive pattern matches no folder holding a
 to stage a file outside it, and any directory the tests import from. A directory
 absent at the base is created empty. The integration worktree is always full.
 
-Some files every lane appends to: service wiring, a generated API contract,
-a seed entry point, a doc index. Declare them with `init --shared <path>`
-(repeatable). A lane cannot own a shared path (`add-lane` refuses any path that
-overlaps one), and any lane may edit one: `submit` accepts changes to shared
-paths, and dirty shared work blocks `submit` and `integrate` like owned work.
-Lanes append to shared files and regenerate generated ones. A sparse lane
-receives a shared directory only through `--also`. A lane may rebase onto a
+Some files every lane changes: a manifest, service wiring, a doc index, a
+lockfile, generated code. Declare each as shared, with `init --shared <path>`
+(repeatable) at the start or `share <run> <path>` at any point. A lane cannot
+own a shared path (`add-lane` and `share` refuse any overlap), and any lane may
+edit one: `submit` accepts changes to shared paths, and dirty shared work
+blocks `submit` and `integrate` like owned work. Each shared path has one of
+two rules:
+
+- **Merged** (the default: manifests, indexes, READMEs). Git merges the lanes'
+  edits at `integrate`; lanes append and never reorder. A conflict stops
+  `integrate` naming both lanes, the paths, and the remedy: rebase the later
+  lane onto the earlier one's branch, resolve it there, and re-submit.
+- **Rebuilt** (`share <run> <path> --rebuild '<command>'`: lockfiles, generated
+  code). Lanes change and commit it to test in their worktrees; `integrate`
+  takes the base's copy in every lane merge, so lockfiles never conflict, then
+  runs each rebuild command once over the merged tree, in the order the paths
+  were shared and before any install, and commits the result when it changed.
+  Rebuild commands run outside every hook, so prefer forms that re-lock
+  without installing or running package scripts (`uv lock`,
+  `pnpm install --lockfile-only`,
+  `npm install --package-lock-only --ignore-scripts`). A command that needs
+  installed packages installs them itself, scripts off
+  (`pnpm install --ignore-scripts && pnpm gen`). A lane re-locks the same
+  way, then runs provision: a full install in a lane whose `node_modules` is
+  linked from the checkout writes into the checkout. A rebuild that fails,
+  times out, or changes a path outside the rebuilt ones stops `integrate`.
+  A rebuild path may sit inside a merged one (`share web`, then
+  `share web/package-lock.json --rebuild …`), never the reverse, since the
+  merged file would be reset with it. `--rebuild ''` clears the command; a
+  one-writer run takes none, since it merges nothing.
+
+A `share` after lanes start reaches them only through a fresh brief: it names
+each claimed lane to re-brief. A `share` after `integrate` makes the
+integration stale until it runs again. A sparse lane receives a shared
+directory only through `--also`. A lane may rebase onto a
 sibling in `review` or `reviewed`; `submit` measures its changes from where
 its own commits begin, so the sibling's files do not count against it, but
 only while the sibling's work stays inside its own paths. `integrate` measures
 each lane again against the siblings' current branches, and refuses one whose
 branch moved after its accepted review: `submit` it again. It
-merges in dependency order and still stops on a conflict.
+merges in dependency order.
 
 ```sh
 .agents/workloop.py init slice-3b --objective '...' --acceptance '...' \
-  --shared docs/index.md --shared apps/web/src/api/schema.ts
+  --verify 'uv run pytest' --shared pyproject.toml --shared docs/index.md
+.agents/workloop.py share slice-3b uv.lock --rebuild 'uv lock'
 ```
 
 `--verify` must be a test command. `init` refuses one the destructive or publish

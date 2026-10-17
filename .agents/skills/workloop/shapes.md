@@ -122,13 +122,16 @@ git add packages/contracts/claim-summary.ts packages/contracts/fixtures/claim-su
 git commit -m 'feat(contracts): claim summary shape for the API and the web app'
 .agents/workloop.py init summaries --objective 'Claim summaries from API to screen' \
   --acceptance 'API test returns the fixture shape; web test renders the fixture' \
-  --verify 'pnpm test'
+  --verify 'pnpm test' --shared package.json
+.agents/workloop.py share summaries pnpm-lock.yaml --rebuild 'pnpm install --lockfile-only'
 .agents/workloop.py add-lane summaries api --worker implementer --path services/api
 .agents/workloop.py add-lane summaries web --worker implementer --path apps/web
 ```
 
 `init` pins the base after the contract commit, so both lanes start with it
-and build at once. Below each printed prompt, append the lane's part:
+and build at once. Either lane may add a dependency: Git merges `package.json`,
+and `integrate` re-locks `pnpm-lock.yaml` once from the base's copy instead of
+merging two lockfiles. Below each printed prompt, append the lane's part:
 
 ```text
 Contract: packages/contracts/claim-summary.ts and fixtures/claim-summary.json,
