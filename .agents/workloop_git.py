@@ -575,10 +575,11 @@ def merge_lane(repo: Path, workspace: Path, base: str, lane: str, branch: str, m
     if result.returncode != 0 and not _merging(workspace):
         fail(f"merging lane {lane} failed: {git_text}")
     if rebuild and _merging(workspace):
-        git(workspace, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--", *rebuild)
-        held = [line for line in git(workspace, "ls-tree", "--name-only", base, "--", *rebuild).splitlines() if line]
+        # Declared paths are names, not patterns: `*.txt` or `app/[id]` must not match other files.
+        git(workspace, "--literal-pathspecs", "rm", "-r", "-q", "-f", "--ignore-unmatch", "--", *rebuild)
+        held = [line for line in git(workspace, "--literal-pathspecs", "ls-tree", "--name-only", base, "--", *rebuild).splitlines() if line]
         if held:
-            git(workspace, "checkout", base, "--", *held)
+            git(workspace, "--literal-pathspecs", "checkout", base, "--", *held)
     conflicts = _conflicts(workspace)
     if conflicts:
         git(workspace, "merge", "--abort", check=False)
@@ -612,7 +613,7 @@ def rebuild_all(workspace: Path, steps: list[tuple[str, str]], timeout: int = VE
     if stray:
         return False, f"rebuild changed paths outside the declared rebuild paths ({', '.join(paths)}): {', '.join(stray)}"
     if dirty:
-        git(workspace, "add", "-A", "--", *dirty)
+        git(workspace, "--literal-pathspecs", "add", "-A", "--", *dirty)
         git(workspace, "commit", "-q", "-m", f"integrate: rebuild {', '.join(paths)}")
     return True, ", ".join(dirty)
 

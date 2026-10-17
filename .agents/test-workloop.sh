@@ -1522,6 +1522,16 @@ out="$(shr_integrate sh9)" || fail "second integrate failed: $out"
 [[ "$(cat "$scratch/sh9-repo/node_modules/pkg/index.js")" == orig ]] || fail "the checkout's node_modules/pkg changed"
 ok "a rebuild after a shared provision leaves the checkout's node_modules untouched"
 
+# a rebuild path is a name, not a pattern: '*.txt' leaves lane-owned and other base files alone
+shr_init pl 'grep -q adep a/dep.txt' a
+"${tool[@]}" share pl '*.txt' --rebuild 'true' >/dev/null
+printf 'x\nadep\n' > "$scratch/pl-a/a/dep.txt"
+shr_done pl a; "${tool[@]}" qa pl --evidence ok >/dev/null
+out="$(shr_integrate pl)" || fail "a glob-looking rebuild path did not integrate: $out"
+[[ "$(git -C "$scratch/int-pl" show HEAD:a/dep.txt)" == $'x\nadep' ]] || fail "a rebuild path '*.txt' was read as a pattern and reset a lane's file it does not name"
+"${tool[@]}" add-lane pl loc --worker implementer --workspace "$scratch/pl-loc" --path 'web/[locale]' >/dev/null || fail "add-lane refused a path containing brackets"
+ok "shared and rebuild paths reach git as literal names; bracketed lane paths are still accepted"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys
