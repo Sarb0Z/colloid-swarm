@@ -567,16 +567,31 @@ def _merging(workspace: Path) -> bool:
 
 
 def _conflict_message(repo: Path, base: str, lane: str, paths: list[str], merged: dict[str, str]) -> str:
-    """Who a conflict is with and what to do: the merged lanes whose commits touch the paths, else the base."""
+    """Who a conflict is with and what to do.
+
+    The merged lanes whose commits list the paths are named. A conflict no
+    merged lane lists (Git moves a file into a folder another lane renamed)
+    could come from any of them, so all are named; only when no lane has been
+    merged is the base the other side. A lane can be rebased onto one lane's
+    branch only, so a conflict with several is settled against one of them
+    and the edits that overlap the others are dropped or deferred.
+    """
     touched = {name: set(committed_files(repo, base, branch)) for name, branch in merged.items()}
     against = {name: [p for p in paths if p in files] for name, files in touched.items()}
     against = {name: hit for name, hit in against.items() if hit}
     where = ", ".join(paths)
-    if not against:
+    if not merged:
         return f"lane {lane} conflicts with the base in {where}; rebase {lane} onto the base ({base[:12]}), resolve it there and re-submit {lane}"
+    if not against:
+        names = ", ".join(f"lane {name}" for name in merged)
+        return (f"lane {lane} conflicts in {where}, which no merged lane lists among its files, so Git moved it with a rename and any merged lane may be the cause: {names}; "
+                f"rebase {lane} onto one of their branches ({', '.join(f'{name}: {branch}' for name, branch in merged.items())}) and drop or defer the edits that depend on the others, then re-submit {lane}")
     names = ", ".join(f"lane {name}" for name in against)
-    onto = ", then ".join(f"{name}'s branch ({merged[name]})" for name in against)
-    return f"lane {lane} conflicts with {names} in {where}; rebase {lane} onto {onto}, resolve it there and re-submit {lane}"
+    if len(against) == 1:
+        (name,) = against
+        return f"lane {lane} conflicts with {names} in {where}; rebase {lane} onto {name}'s branch ({merged[name]}), resolve it there and re-submit {lane}"
+    return (f"lane {lane} conflicts with {names} in {where}; a lane can be rebased onto one lane's branch only ({', '.join(f'{name}: {merged[name]}' for name in against)}): "
+            f"rebase {lane} onto one of them, drop or defer the edits that overlap the others, then re-submit {lane}")
 
 
 def merge_lane(repo: Path, workspace: Path, base: str, lane: str, branch: str, merged: dict[str, str], rebuild: list[str]) -> None:

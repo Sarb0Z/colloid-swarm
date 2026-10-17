@@ -1576,6 +1576,22 @@ expect 'gen/hand.json.*inside gen' "${tool[@]}" share nst2 gen --rebuild 'true'
 "${tool[@]}" share nst2 gen --rebuild 'true' >/dev/null || fail "a rebuild path over a now-rebuilt path was refused"
 ok "share refuses a merged path inside a rebuild path in either order, init --shared included, and keeps a rebuild path inside a merged one allowed"
 
+# a conflict with two merged lanes names both and the one remedy the controller supports; one no merged lane lists names every merged lane
+shr_init cf true a b d
+"${tool[@]}" share cf README.md >/dev/null
+printf 'A\nl2\nl3\n' > "$scratch/cf-a/README.md"; printf 'l1\nl2\nB\n' > "$scratch/cf-b/README.md"; printf 'l1\nD\nl3\n' > "$scratch/cf-d/README.md"
+shr_done cf a; shr_done cf b; shr_done cf d; "${tool[@]}" qa cf --evidence ok >/dev/null
+out="$(shr_integrate cf)" && fail "a lane conflicting with two merged lanes integrated: $out"
+grep -q "lane d conflicts with lane a, lane b in README.md; a lane can be rebased onto one lane's branch only (a: cf/a, b: cf/b): rebase d onto one of them, drop or defer the edits that overlap the others, then re-submit d" <<<"$out" || fail "the two-lane conflict message is wrong: $out"
+shr_init cr true a b
+"${tool[@]}" share cr gen >/dev/null; "${tool[@]}" share cr gen2 >/dev/null
+git -C "$scratch/cr-a" mv gen gen2; printf 'new\n' > "$scratch/cr-b/gen/new.json"
+shr_done cr a; shr_done cr b; "${tool[@]}" qa cr --evidence ok >/dev/null
+out="$(shr_integrate cr)" && fail "a directory rename colliding with an added file integrated: $out"
+grep -q 'lane b conflicts in gen2/new.json, which no merged lane lists among its files' <<<"$out" && grep -q 'any merged lane may be the cause: lane a' <<<"$out" || fail "an unlisted conflict did not name the merged lanes: $out"
+grep -q 'conflicts with the base' <<<"$out" && fail "an unlisted conflict still blames the base: $out"
+ok "a conflict with several merged lanes names them all and the one-branch remedy; a conflict no merged lane lists names every merged lane and not the base"
+
 # a rebuild path is a name, not a pattern: '*.txt' leaves lane-owned and other base files alone
 shr_init pl 'grep -q adep a/dep.txt' a
 "${tool[@]}" share pl '*.txt' --rebuild 'true' >/dev/null
