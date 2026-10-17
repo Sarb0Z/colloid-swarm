@@ -229,8 +229,10 @@ two rules:
 
 - **Merged** (the default: manifests, indexes, READMEs). Git merges the lanes'
   edits at `integrate`; lanes append and never reorder. A conflict stops
-  `integrate` naming both lanes, the paths, and the remedy: rebase the later
-  lane onto the earlier one's branch, resolve it there, and re-submit.
+  `integrate` naming the lanes, the paths, and the remedy: rebase the later
+  lane onto the earlier one's branch, resolve it there, and re-submit. A lane
+  rebases onto one branch only, so one conflicting with several merged lanes
+  drops or defers the edits that overlap the others.
 - **Rebuilt** (`share <run> <path> --rebuild '<command>'`: lockfiles, generated
   code). Lanes change and commit it to test in their worktrees; `integrate`
   takes the base's copy in every lane merge, so lockfiles never conflict, then
@@ -250,8 +252,8 @@ two rules:
   merged file would be reset with it. `--rebuild ''` clears the command; a
   one-writer run takes none, since it merges nothing.
 
-A `share` after lanes start reaches them only through a fresh brief: it names
-each claimed lane to re-brief. A `share` after `integrate` makes the
+A `share` after lanes start reaches them only through a fresh brief: it prints
+the `brief` command for each claimed lane not yet reviewed. A `share` after `integrate` makes the
 integration stale until it runs again. A sparse lane receives a shared
 directory only through `--also`. A lane may rebase onto a
 sibling in `review` or `reviewed`; `submit` measures its changes from where
