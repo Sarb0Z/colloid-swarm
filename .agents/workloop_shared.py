@@ -27,11 +27,13 @@ from workloop_state import (
 
 MERGED_RULE = ("any lane may edit it. Append only; never restructure or reorder existing lines. Two lanes appending at the "
                "same end of a list still conflict, so add in the middle of a sorted list where the file allows it.")
-LOCKFILE_ONLY = "`pnpm install --lockfile-only` or `npm install --package-lock-only --ignore-scripts`"
+# Each manager's form that rewrites the lockfile and installs nothing.
+LOCKFILE_ONLY = ("`pnpm install --lockfile-only`, `npm install --package-lock-only --ignore-scripts`, "
+                 "`bun install --lockfile-only` or `yarn install --mode update-lockfile`")
 REBUILT_RULE = ("change it to test in your worktree and commit it with your work; integrate replaces it with the copy "
-                "that command rebuilds. On a rebase conflict in it, regenerate it with that command instead of merging it by hand. "
-                f"To change a lockfile run only its lockfile-only form ({LOCKFILE_ONLY}), then `{{provision}}` to install; "
-                "a plain install can write through a node_modules linked from the checkout.")
+                "that command rebuilds. On a rebase conflict in it, regenerate it with that command instead of merging it by hand.")
+LOCKFILE_RULE = (f"To change a lockfile run only its lockfile-only form ({LOCKFILE_ONLY}), then `{{provision}}` to install; "
+                 "a plain install can write through a node_modules linked from the checkout.")
 
 
 def shared_lines(run: dict, provision: str) -> list[str]:
@@ -39,9 +41,10 @@ def shared_lines(run: dict, provision: str) -> list[str]:
     paths, rebuild = shared_of(run), rebuild_of(run)
     if not paths:
         return []
-    rules = [f"Shared path {path} — rebuilt at integrate by `{rebuild[path]}`: {REBUILT_RULE.format(provision=provision)}" if path in rebuild
+    rules = [f"Shared path {path} — rebuilt at integrate by `{rebuild[path]}`: {REBUILT_RULE}" if path in rebuild
              else f"Shared path {path} — merged by Git: {MERGED_RULE}" for path in paths]
     return [f"Shared paths: {', '.join(paths)}", *rules,
+            *([LOCKFILE_RULE.format(provision=provision)] if rebuild else []),
             "When a lane you build on is reviewed, rebase onto its branch and resolve shared-path conflicts in your worktree."]
 
 

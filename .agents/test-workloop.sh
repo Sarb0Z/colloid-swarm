@@ -1536,10 +1536,12 @@ shr_repo "$scratch/lkb-repo"; mkdir -p "$scratch/lkb-repo/node_modules/pkg"; pri
 "${tool[@]}" init lkb --objective x --acceptance y --repo "$scratch/lkb-repo" --verify true >/dev/null
 "${tool[@]}" add-lane lkb a --worker implementer --workspace "$scratch/lkb-a" --path a >/dev/null 2>&1
 "${tool[@]}" share lkb lock.txt --rebuild 'true' >/dev/null
+"${tool[@]}" share lkb gen --rebuild 'true' >/dev/null
 brief="$(full_brief lkb a)"; ws="$(cd "$scratch/lkb-a" && pwd -P)"
 grep -q 'node_modules here is a link into the checkout' <<<"$brief" || fail "the fixture's lane has no linked node_modules; the row proves nothing: $brief"
-grep -q 'Never install into it: change the lockfile with `pnpm install --lockfile-only` or `npm install --package-lock-only --ignore-scripts`, then run .agents/provision.sh '"$ws"', which gives' <<<"$brief" || fail "the linked node_modules sentence lacks the lockfile-only commands and the provision command: $brief"
-grep -q 'To change a lockfile run only its lockfile-only form (`pnpm install --lockfile-only` or `npm install --package-lock-only --ignore-scripts`), then `.agents/provision.sh '"$ws"'` to install' <<<"$brief" || fail "the rebuilt-path rule lacks the lockfile-only commands and the provision command: $brief"
+grep -q 'Never install into it: change the lockfile with `pnpm install --lockfile-only`, `npm install --package-lock-only --ignore-scripts`, `bun install --lockfile-only` or `yarn install --mode update-lockfile`, then run .agents/provision.sh '"$ws"', which gives' <<<"$brief" || fail "the linked node_modules sentence lacks the lockfile-only commands and the provision command: $brief"
+grep -q 'To change a lockfile run only its lockfile-only form (`pnpm install --lockfile-only`, `npm install --package-lock-only --ignore-scripts`, `bun install --lockfile-only` or `yarn install --mode update-lockfile`), then `.agents/provision.sh '"$ws"'` to install' <<<"$brief" || fail "the rebuilt-path rule lacks the lockfile-only commands and the provision command: $brief"
+[[ "$(grep -c 'To change a lockfile run only its lockfile-only form' <<<"$brief")" == 1 ]] || fail "the lockfile-only sentence is not said exactly once for two rebuilt paths: $brief"
 grep -q 'On a rebase conflict in it, regenerate it with that command instead of merging it by hand' <<<"$brief" || fail "the rebuilt-path rule lost the regenerate instruction: $brief"
 ok "the lane brief names the lockfile-only commands and the provision command, and says to regenerate a rebuilt path instead of merging it by hand"
 
