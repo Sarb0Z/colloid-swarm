@@ -22,11 +22,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SHA = re.compile(r"[0-9a-f]{40}")
-# One budget for the composed test, and one for all of a run's rebuild
-# commands together; WORKLOOP_VERIFY_TIMEOUT (seconds) overrides it for a
-# repository whose suite needs longer, and for the test that times one out.
-VERIFY_TIMEOUT = int(os.environ.get("WORKLOOP_VERIFY_TIMEOUT") or 1800)
 TAIL_LINES = 40
+
+
+def verify_timeout() -> int:
+    """The budget in seconds for the composed test, and for all of a run's rebuild commands together.
+
+    WORKLOOP_VERIFY_TIMEOUT overrides the 30-minute default for a repository
+    whose suite needs longer, and for the test that times one out.
+    """
+    raw = os.environ.get("WORKLOOP_VERIFY_TIMEOUT") or "1800"
+    if not raw.isdecimal() or int(raw) <= 0:
+        fail(f"WORKLOOP_VERIFY_TIMEOUT must be a positive whole number of seconds, got {raw!r}")
+    return int(raw)
 
 
 def fail(message: str) -> None:
@@ -605,7 +613,7 @@ def merge_lane(repo: Path, workspace: Path, base: str, lane: str, branch: str, m
         git(workspace, "commit", "-q", "--no-edit", "-m", f"integrate {lane}")
 
 
-def rebuild_all(workspace: Path, steps: list[tuple[str, str]], timeout: int = VERIFY_TIMEOUT) -> tuple[bool, str]:
+def rebuild_all(workspace: Path, steps: list[tuple[str, str]], timeout: int) -> tuple[bool, str]:
     """Run each rebuild command in the integration tree, in order, and commit what they changed.
 
     One budget covers all of them. Node links shared from another checkout go
@@ -619,7 +627,7 @@ def rebuild_all(workspace: Path, steps: list[tuple[str, str]], timeout: int = VE
     deadline = time.monotonic() + timeout
     for path, command in steps:
         left = math.ceil(deadline - time.monotonic())
-        passed, tail = run_verify(command, workspace, "rebuild", left) if left > 0 else (False, f"the {timeout}s rebuild budget was spent before it began")
+        passed, tail = run_verify(command, workspace, "rebuild", left, timeout) if left > 0 else (False, f"the {timeout}s rebuild budget was spent before it began")
         if not passed:
             return False, f"rebuild of {path} failed: {command}\n{tail}"
     dirty = dirty_paths(workspace)
@@ -666,7 +674,8 @@ def guard_command(command: str, repo: Path, what: str) -> None:
         fail(f"{what} command refused by guard-publish: {reason}")
 
 
-def run_verify(command: str, cwd: Path, what: str, timeout: int = VERIFY_TIMEOUT) -> tuple[bool, str]:
+def run_verify(command: str, cwd: Path, what: str, timeout: int, budget: int | None = None) -> tuple[bool, str]:
+    """Run `command` for at most `timeout` seconds; a timeout names `budget`, the whole allowance, when it is the part left of it."""
     # A new session puts the shell and everything it spawns in one process
     # group, so a timeout kills a test runner's server or watcher too, not
     # just the shell in front of it.
@@ -679,7 +688,7 @@ def run_verify(command: str, cwd: Path, what: str, timeout: int = VERIFY_TIMEOUT
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
-        return False, f"{what} did not finish within {timeout}s"
+        return False, f"{what} did not finish within {budget or timeout}s"
     return process.returncode == 0, "\n".join((output or "").splitlines()[-TAIL_LINES:])
 
 

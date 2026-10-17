@@ -214,6 +214,7 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     abandon removes it.
     """
     verify, accepted = run["verify"], lane["accepted_tip"]
+    timeout = wg.verify_timeout()
     wg.guard_command(verify, repo, "verify")
     workspace = verify_workspace(repo, run_name)
     if workspace.exists() and not wg.remove_worktree(repo, workspace):
@@ -226,7 +227,7 @@ def verify_main(run_name: str, run: dict, name: str, lane: dict, repo: Path) -> 
     if not ok:
         wg.remove_worktree(repo, workspace)
         fail(f"the verify worktree could not be provisioned: {text}")
-    passed, tail = wg.run_verify(verify, workspace, "verify")
+    passed, tail = wg.run_verify(verify, workspace, "verify", timeout)
     if passed:
         wg.remove_worktree(repo, workspace)
     verified = {

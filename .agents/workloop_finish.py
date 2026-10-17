@@ -163,6 +163,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         fail(f"integration workspace is lane {taken[workspace]!r}'s worktree; use a separate path")
     if workspace == repo.resolve() or (workspace.exists() and not wg.is_linked_worktree(workspace)):
         fail(f"integration workspace must be a new path or a linked worktree of {repo}, not a checkout: {workspace}")
+    timeout = wg.verify_timeout()
     wg.guard_command(verify, repo, "verify")
     for _, command in steps:
         wg.guard_command(command, repo, "rebuild")
@@ -176,7 +177,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
     rebuilt_ok, passed, tail = True, False, ""
     if steps:
         print(f"integrate: rebuilding {', '.join(path for path, _ in steps)}", file=sys.stderr)
-        rebuilt_ok, tail = wg.rebuild_all(workspace, steps)
+        rebuilt_ok, tail = wg.rebuild_all(workspace, steps, timeout)
     if rebuilt_ok:
         print("integrate: provisioning", file=sys.stderr)
         ok, text = wg.provision(workspace, repo)
@@ -184,7 +185,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
             print(text, file=sys.stderr)
             fail("integration workspace could not be provisioned")
         print(f"integrate: running verify: {verify}", file=sys.stderr)
-        passed, tail = wg.run_verify(verify, workspace, "verify")
+        passed, tail = wg.run_verify(verify, workspace, "verify", timeout)
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         run["integration"] = {

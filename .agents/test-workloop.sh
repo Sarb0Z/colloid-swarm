@@ -1467,6 +1467,12 @@ grep -q 'rebuild did not finish within 2s' <<<"$out" || fail "the rebuild timeou
 "${tool[@]}" share sh7 b.txt --rebuild 'sleep 2; echo b > b.txt' >/dev/null
 out="$(WORKLOOP_VERIFY_TIMEOUT=3 shr_integrate sh7)" && fail "two rebuilds each inside the limit but over it together passed: $out"
 grep -q 'rebuild of b.txt failed' <<<"$out" || fail "the second rebuild did not run out of the shared budget: $out"
+grep -q 'rebuild did not finish within 3s' <<<"$out" || fail "the timeout line did not report the budget, 3s, but the time left: $out"
+for bad in abc 0 -5 1.5; do
+  out="$(WORKLOOP_VERIFY_TIMEOUT=$bad shr_integrate sh7)" && fail "WORKLOOP_VERIFY_TIMEOUT=$bad integrated: $out"
+  grep -q "WORKLOOP_VERIFY_TIMEOUT must be a positive whole number of seconds, got '$bad'" <<<"$out" || fail "WORKLOOP_VERIFY_TIMEOUT=$bad was not named: $out"
+done
+WORKLOOP_VERIFY_TIMEOUT=abc "${tool[@]}" status sh7 >/dev/null || fail "a bad WORKLOOP_VERIFY_TIMEOUT broke a command that runs no verify"
 ok "a stray path, a failing command and a timeout (one budget across all rebuilds) stop integrate, name the command and are recorded as a rebuild failure"
 
 # rebuilds run in the order the paths were shared, across a state save, and before the install
