@@ -22,7 +22,7 @@ from workloop_paths import (
     uncommitted_owned,
     undeclared_paths,
 )
-from workloop_shared import share_line, shared_lines
+from workloop_shared import LOCKFILE_ONLY, share_line, shared_lines
 from workloop_state import (
     ReadStore,
     Store,
@@ -296,7 +296,7 @@ def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str,
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
         *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('tip') or lane.get('branch')}"] if role == "reviewer" and (start := review_start(run, lane_name, lane)) else []),
         *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {run_name} {lane_name} --also <dir>)"] if lane.get("sparse") else []),
-        *(["node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile and run provision, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
+        *([f"node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile with {LOCKFILE_ONLY}, then run .agents/provision.sh {lane['workspace']}, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
         "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
     ]
@@ -322,7 +322,7 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         f"Acceptance: {run['acceptance']}",
         *([f"Model: {lane['model']}"] if lane.get("model") else []),
         f"Owned paths: {', '.join(lane['paths'])}",
-        *shared_lines(run),
+        *shared_lines(run, f".agents/provision.sh {lane['workspace']}"),
         *place_lines(run, run_name, lane_name, lane, role, command),
         f"Environment: export COLLOID_RUN={run_name} COLLOID_LANE={lane_name} COMPOSE_PROJECT_NAME={wd.project_name(run_name, lane_name)}. Label what only this lane uses with --label colloid.run={run_name} --label colloid.lane={lane_name} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={run_name} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),

@@ -1522,6 +1522,18 @@ out="$(shr_integrate sh9)" || fail "second integrate failed: $out"
 [[ "$(cat "$scratch/sh9-repo/node_modules/pkg/index.js")" == orig ]] || fail "the checkout's node_modules/pkg changed"
 ok "a rebuild after a shared provision leaves the checkout's node_modules untouched"
 
+# the brief tells a lane how to change a lockfile without writing through a linked node_modules, and how to settle a rebase conflict in a rebuilt path
+shr_repo "$scratch/lkb-repo"; mkdir -p "$scratch/lkb-repo/node_modules/pkg"; printf 'orig\n' > "$scratch/lkb-repo/node_modules/pkg/index.js"
+"${tool[@]}" init lkb --objective x --acceptance y --repo "$scratch/lkb-repo" --verify true >/dev/null
+"${tool[@]}" add-lane lkb a --worker implementer --workspace "$scratch/lkb-a" --path a >/dev/null 2>&1
+"${tool[@]}" share lkb lock.txt --rebuild 'true' >/dev/null
+brief="$(full_brief lkb a)"; ws="$(cd "$scratch/lkb-a" && pwd -P)"
+grep -q 'node_modules here is a link into the checkout' <<<"$brief" || fail "the fixture's lane has no linked node_modules; the row proves nothing: $brief"
+grep -q 'Never install into it: change the lockfile with `pnpm install --lockfile-only` or `npm install --package-lock-only --ignore-scripts`, then run .agents/provision.sh '"$ws"', which gives' <<<"$brief" || fail "the linked node_modules sentence lacks the lockfile-only commands and the provision command: $brief"
+grep -q 'To change a lockfile run only its lockfile-only form (`pnpm install --lockfile-only` or `npm install --package-lock-only --ignore-scripts`), then `.agents/provision.sh '"$ws"'` to install' <<<"$brief" || fail "the rebuilt-path rule lacks the lockfile-only commands and the provision command: $brief"
+grep -q 'On a rebase conflict in it, regenerate it with that command instead of merging it by hand' <<<"$brief" || fail "the rebuilt-path rule lost the regenerate instruction: $brief"
+ok "the lane brief names the lockfile-only commands and the provision command, and says to regenerate a rebuilt path instead of merging it by hand"
+
 # a merged path inside a rebuild path is refused in either declaration order; the reverse nesting stays allowed
 shr_init nst true a
 "${tool[@]}" share nst gen --rebuild 'true' >/dev/null
