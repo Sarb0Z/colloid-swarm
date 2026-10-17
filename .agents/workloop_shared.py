@@ -48,6 +48,20 @@ def share_line(run: dict, path: str) -> str:
     return f"{path} (rebuilt by: {command})" if command else path
 
 
+def refuse_merged_in_rebuilt(path: str, shared: list[str], rebuild: dict[str, str]) -> None:
+    """Refuse a merged path that lies inside a rebuild path, as `path` has just been declared.
+
+    Every lane merge resets a rebuild path to the base, so a merged path
+    inside it would be briefed as Git-merged and then lose every lane's edit.
+    The reverse nesting, a rebuild path inside a merged one, is sound.
+    """
+    for merged in (p for p in shared if p not in rebuild):
+        for rebuilt in rebuild:
+            if merged != rebuilt and (path in (merged, rebuilt)) and wg.within(merged, [rebuilt]):
+                fail(f"{merged} is merged by Git but lies inside {rebuilt}, which is rebuilt by `{rebuild[rebuilt]}`: every lane merge resets {rebuilt} to the base, "
+                     f"so lanes' edits to {merged} would be lost; share {merged} with its own --rebuild command, or share a path outside {rebuilt}")
+
+
 def cmd_share(args: argparse.Namespace) -> None:
     """Declare a shared path mid-run, or change how an existing one is handled."""
     path = normalize_path(args.path)
@@ -82,6 +96,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             rebuild[path] = args.rebuild
         else:
             rebuild.pop(path, None)
+        refuse_merged_in_rebuilt(path, shared, rebuild)
         run["shared"], run["rebuild"] = shared, rebuild
         record(args.run, run, "share", detail=f"{path}" + (f" rebuilt by {args.rebuild}" if args.rebuild else ""), supplied=args.event_id)
         briefed = [name for name, lane in run["lanes"].items() if lane.get("claimed_by") and lane["state"] != "reviewed"]

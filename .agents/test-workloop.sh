@@ -1522,6 +1522,29 @@ out="$(shr_integrate sh9)" || fail "second integrate failed: $out"
 [[ "$(cat "$scratch/sh9-repo/node_modules/pkg/index.js")" == orig ]] || fail "the checkout's node_modules/pkg changed"
 ok "a rebuild after a shared provision leaves the checkout's node_modules untouched"
 
+# a merged path inside a rebuild path is refused in either declaration order; the reverse nesting stays allowed
+shr_init nst true a
+"${tool[@]}" share nst gen --rebuild 'true' >/dev/null
+out="$("${tool[@]}" share nst gen/hand.json 2>&1)" && fail "a merged path inside a rebuild path was accepted: $out"
+grep -q 'gen/hand.json.*inside gen.*share gen/hand.json with its own --rebuild command' <<<"$out" || fail "the refusal did not name both paths and the next step: $out"
+"${tool[@]}" share nst docs/hand >/dev/null
+out="$("${tool[@]}" share nst docs --rebuild 'true' 2>&1)" && fail "a rebuild path over a merged one was accepted: $out"
+grep -q 'docs/hand.*inside docs' <<<"$out" || fail "the refusal did not name both paths: $out"
+[[ "$(run_field nst shared)" == '["gen", "docs/hand"]' && "$(run_field nst rebuild)" == '{"gen": "true"}' ]] || fail "a refused share changed the run: $(run_field nst shared) $(run_field nst rebuild)"
+"${tool[@]}" share nst gen --rebuild 'echo again' >/dev/null || fail "re-sharing a rebuild path with a new command was refused"
+"${tool[@]}" share nst docs/hand --rebuild 'true' >/dev/null || fail "giving a merged path its own rebuild command was refused"
+"${tool[@]}" share nst docs --rebuild 'true' >/dev/null || fail "a rebuild path over a rebuilt path was refused"
+"${tool[@]}" share nst README.md >/dev/null && "${tool[@]}" share nst README.md/x --rebuild 'true' >/dev/null || fail "a rebuild path inside a merged path was refused"
+shr_repo "$scratch/nst2-repo"
+"${tool[@]}" init nst2 --objective x --acceptance y --repo "$scratch/nst2-repo" --verify true --shared gen/hand.json >/dev/null
+"${tool[@]}" add-lane nst2 a --worker implementer --workspace "$scratch/nst2-a" --path a >/dev/null 2>&1
+expect 'gen/hand.json.*inside gen' "${tool[@]}" share nst2 gen --rebuild 'true'
+"${tool[@]}" share nst2 docs --rebuild 'true' >/dev/null
+"${tool[@]}" share nst2 docs/hand >/dev/null 2>&1 && fail "a merged path inside docs was accepted after docs was rebuilt"
+"${tool[@]}" share nst2 gen/hand.json --rebuild 'true' >/dev/null || fail "a declared merged path could not take its own rebuild command"
+"${tool[@]}" share nst2 gen --rebuild 'true' >/dev/null || fail "a rebuild path over a now-rebuilt path was refused"
+ok "share refuses a merged path inside a rebuild path in either order, init --shared included, and keeps a rebuild path inside a merged one allowed"
+
 # a rebuild path is a name, not a pattern: '*.txt' leaves lane-owned and other base files alone
 shr_init pl 'grep -q adep a/dep.txt' a
 "${tool[@]}" share pl '*.txt' --rebuild 'true' >/dev/null
