@@ -42,9 +42,12 @@ __pycache__/
 .DS_Store
 
 # Generated connection files produced by .agents/mcp.py from .agents/mcp.json.
+# OpenCode's config also renders the permission rules and personas.
 /.mcp.json
 /.kimi-code/mcp.json
 /.codex/config.toml
+/.opencode/opencode.json
+/.opencode/instructions/colloid.md
 
 # Reader browser tier. The launch config carries absolute paths, so it is
 # machine-local; the extension tree is operator-supplied payload the repository

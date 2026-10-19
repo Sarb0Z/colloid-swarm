@@ -1,6 +1,6 @@
 # Colloid Swarm
 
-A portable agent scaffold for Claude Code, Codex, Kimi, and GitHub Copilot.
+A portable agent scaffold for Claude Code, Codex, Kimi, OpenCode, and GitHub Copilot.
 Canonical instructions, skills, hook policies, personas, and MCP definitions
 live under `.agents/`; host directories contain direct links or thin adapters.
 
@@ -32,6 +32,8 @@ local state does not travel.
 - `.agents/rules/`: scoped codebase and framework guidance.
 - `.agents/hooks/`: engine-neutral policies plus host payload adapters.
 - `.agents/mcp.json`: server definitions and project on/off state.
+- `.opencode/`: generated OpenCode config; permissions and agent roles render
+  from the Claude sources (`.agents/opencode/README.md`).
 - `.agents/playbooks/`: focused review, QA, wrap, and reporting procedures.
 
 Run `python3 .agents/check-layout.py` after changing scaffold inventory. It
@@ -64,8 +66,9 @@ python3 .agents/mcp.py disable appium-mcp
 ```
 
 The command writes `.mcp.json`, `.codex/config.toml`, optional
-`.kimi-code/mcp.json`, Claude's enabled-server list, and the reader and default
-browser configs. Restart the session after a state change.
+`.kimi-code/mcp.json`, `.opencode/opencode.json` with its instruction file,
+Claude's enabled-server list, and the reader and default browser configs.
+Restart the session after a state change.
 
 | Server | Default | Purpose |
 | --- | --- | --- |

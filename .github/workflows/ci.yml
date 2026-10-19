@@ -121,6 +121,9 @@ jobs:
       - name: MCP registry
         run: .agents/test-mcp.sh
 
+      - name: OpenCode adapter
+        run: .agents/test-opencode.sh
+
       - name: Browser sync
         run: python3 .agents/test-browser-sync.py
 

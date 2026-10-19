@@ -18,6 +18,7 @@ from pathlib import Path
 from mcp_codex import META_FIELDS as CODEX_META_FIELDS
 from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
+import mcp_opencode
 import mcp_playwright as playwright
 
 ROOT_TOKEN = "${REPO_ROOT}"
@@ -271,6 +272,7 @@ def _build(repo, doc=None, settings_path=None, rotate=False):
         "kimi": _kimi_config(repo, servers),
         "settings": _claude_settings(repo, servers, enabled),
         "codex": render_codex(repo, servers),
+        "opencode": mcp_opencode.payload(repo, servers),
     }
 
 
@@ -286,6 +288,8 @@ def _commit(repo, outputs):
         _write_json(repo / ".kimi-code/mcp.json", outputs["kimi"], 0o600)
     _write_json(repo / ".claude/settings.local.json", outputs["settings"])
     _write_text(repo / ".codex/config.toml", outputs["codex"])
+    _write_json(repo / mcp_opencode.CONFIG, outputs["opencode"]["config"])
+    _write_text(repo / mcp_opencode.INSTRUCTIONS, outputs["opencode"]["instructions"] + "\n")
 
 
 USAGE = "usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME..."

@@ -71,13 +71,21 @@ ON = {"fx-docs", "fx-plain"}
 try:
     agents = work / ".agents"
     (agents / "codex").mkdir(parents=True)
-    for relative in ("mcp.py", "mcp_codex.py", "mcp_playwright.py"):
+    for relative in ("mcp.py", "mcp_codex.py", "mcp_opencode.py", "mcp_playwright.py"):
         shutil.copy2(source / ".agents" / relative, agents / relative)
     (agents / "mcp.py").chmod(0o755)
     # A minimal Codex base, so the rendered mcp_servers tables are all that is
     # asserted and the carrier's own Codex configuration is not read.
     (agents / "codex/config.toml").write_text('model = "fixture"\n')
     (agents / "mcp.json").write_text(json.dumps(FIXTURE, indent=2) + "\n")
+    # Minimal sources for OpenCode's rendered permissions, agents, and style.
+    (agents / "claude").mkdir()
+    (agents / "claude/settings.json").write_text(json.dumps(
+        {"permissions": {"ask": ["Bash(git push:*)"], "deny": []}}))
+    (agents / "claude/output-style.md").write_text("---\nname: fixture\n---\n\nFixture style.\n")
+    (agents / "personas").mkdir()
+    (agents / "personas/fixture.md").write_text(
+        "---\nname: fixture\ndescription: Fixture persona.\ntools: [\"Read\"]\n---\n\nFixture body.\n")
     for name in ("fx-owned",):
         (agents / "mcp-servers" / name / "dist").mkdir(parents=True)
         (agents / "mcp-servers" / name / "dist/server.js").write_text("// fixture\n")
@@ -109,6 +117,18 @@ try:
     for item in claude.values():
         assert item["type"] in {"stdio", "http"}
         assert not ({"description", "sources", "outward", "codex_startup_timeout_sec"} & set(item)), item
+    # OpenCode renders the same enabled set, plus the hosts' own shapes.
+    opencode = json.loads((work / ".opencode/opencode.json").read_text())
+    assert set(opencode["mcp"]["servers"]) == defaults, opencode["mcp"]["servers"]
+    assert opencode["mcp"]["servers"]["fx-docs"]["command"] == ["npx", "-y", "fx-docs"]
+    fixture = opencode["agents"]["fixture"]
+    assert fixture["description"] == "Fixture persona."
+    assert fixture["mode"] == "subagent" and fixture["system"] == "Fixture body."
+    # The persona's tool grant is an allowlist over OpenCode's allow-all base.
+    assert fixture["permissions"][0] == {"action": "*", "resource": "*", "effect": "deny"}
+    assert {"action": "read", "resource": "*", "effect": "allow"} in fixture["permissions"]
+    assert opencode["permissions"] == [
+        {"action": "shell", "resource": "git push *", "effect": "ask"}], opencode["permissions"]
     assert json.loads((work / ".claude/settings.local.json").read_text())["enabledMcpjsonServers"] \
         == sorted(defaults | {"outside"})
     assert (agents / ".playwright-reader.json").is_file()
