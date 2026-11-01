@@ -62,6 +62,9 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
 
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
+    elif policy == "keychain-notice.sh":
+        out["command"] = tool_input.get("command", "")
+        out["cwd"] = text(source, "cwd")
     # colloid-only
     elif policy == "genome-inject.sh":
         out["subagent_type"] = text(source, "agent_type")

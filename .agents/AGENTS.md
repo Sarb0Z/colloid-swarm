@@ -86,6 +86,7 @@ python3 .agents/check-test-isolation.py
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
+.agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
 python3 .agents/test-hosted-scripts.py

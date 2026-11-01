@@ -225,6 +225,22 @@ pass. Codex and Kimi have no background flag to
 point to, so the gate is not wired there. The toggle is
 `hooks.wait_gate.enabled`.
 
+`keychain-notice.sh` names the agent's shell command that is about to read
+the macOS login keychain. The keychain dialog names only the program, such as
+`supabase`, and never the command or the session that ran it. The hook posts a
+notification with the project folder, the reader, and the command line that
+runs it, shows the same text in the tmux status line inside tmux, and appends
+the whole command to the ignored `.agents/.keychain-notices.log`. The readers
+are the Supabase CLI and `security find-generic-password` and
+`find-internet-password`; a repository adds a script of its own that calls
+`security` by name under `hooks.keychain_notice.readers` in `policy.json`.
+Matching is textual, so a command that only mentions a reader, such as
+`git add supabase`, also gets a notice. Once its adapter is found, the hook
+never blocks a command: a notifier that hangs is stopped after five seconds.
+It does nothing off macOS and runs under Claude and Codex. If no notification
+appears, allow notifications for Script Editor in System Settings. The toggle
+is `hooks.keychain_notice.enabled`.
+
 `guard-publish.sh` also refuses, in every mode, a command that runs a script
 writing to a hosted management API when that script is outside the
 repository, untracked, or edited since the last commit, and inline code that
@@ -505,6 +521,7 @@ python3 .agents/check-test-isolation.py
 python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
+.agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
 python3 .agents/test-hosted-scripts.py

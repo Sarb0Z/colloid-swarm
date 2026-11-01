@@ -28,6 +28,7 @@
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
 .agents/.publish-approved-*
+.agents/.keychain-notices.log
 .agents/worktrees/
 .workloop/
 .agents/claude/mods/*/.claude-plugin/types/

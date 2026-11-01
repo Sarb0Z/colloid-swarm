@@ -40,6 +40,9 @@
     "denied_tool": {
       "enabled": true
     },
+    "keychain_notice": {
+      "enabled": true
+    },
     "wait_gate": {
       "enabled": true
     },
