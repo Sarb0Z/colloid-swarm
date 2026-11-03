@@ -23,7 +23,7 @@
         "${REPO_ROOT}/.agents/playwright-session.py",
         "npx",
         "-y",
-        "@playwright/mcp@0.0.83",
+        "@playwright/mcp@0.0.84",
         "--config",
         "${REPO_ROOT}/.agents/.browser/playwright.json"
       ]
@@ -38,7 +38,7 @@
         "${REPO_ROOT}/.agents/playwright-session.py",
         "npx",
         "-y",
-        "@playwright/mcp@0.0.83",
+        "@playwright/mcp@0.0.84",
         "--config",
         "${REPO_ROOT}/.agents/.playwright-reader.json"
       ]
