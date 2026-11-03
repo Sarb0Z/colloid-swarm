@@ -89,7 +89,8 @@ def rows_of(path):
 def fixture(root):
     agents = root / ".agents"
     (agents / "codex").mkdir(parents=True)
-    for name in ("mcp.py", "mcp_codex.py", "mcp_playwright.py", "browser-sync.py", "playwright-session.py"):
+    for name in ("mcp.py", "mcp_codex.py", "mcp_opencode.py", "mcp_playwright.py", "browser-sync.py",
+                 "playwright-session.py"):
         shutil.copy2(here / name, agents / name)
     (agents / "codex/config.toml").write_text('model = "fixture"\n')
     (agents / "mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {
@@ -97,6 +98,13 @@ def fixture(root):
         "args": ["-y", "fixture-playwright", "--config",
                  "${REPO_ROOT}/.agents/.browser/playwright.json"]}}}))
     (agents / "config.json").write_text(json.dumps({"browser": {"sync_sites": SITES}}))
+    # Minimal sources for the OpenCode config that mcp.py sync also renders.
+    (agents / "claude").mkdir()
+    (agents / "claude/settings.json").write_text(json.dumps({"permissions": {"ask": [], "deny": []}}))
+    (agents / "claude/output-style.md").write_text("---\nname: fixture\n---\n\nFixture style.\n")
+    (agents / "personas").mkdir()
+    (agents / "personas/fixture.md").write_text(
+        "---\nname: fixture\ndescription: Fixture persona.\ntools: [\"Read\"]\n---\n\nFixture body.\n")
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     return agents
 
