@@ -27,10 +27,14 @@ workloop run of two or more lanes, never, since `integrate` runs the composed
 test. When one acceptance run costs over a minute, say so. A command that ends
 within 10 minutes runs in the foreground with Bash's `timeout` set to cover it
 (the default is 2 minutes). Start a server, a watcher or a longer command with
-`run_in_background: true`, never in the foreground or behind a bare `&`; you
-are told when it ends, with your next tool result. Wait with a capped loop
-(`for i in $(seq 60); do … && break; sleep 2; done`): macOS has no `timeout`
-command. Stop what you started with `TaskStop` before returning. Edit with
+`run_in_background: true`, never in the foreground or behind a bare `&`. A
+background call or an agent you started reports when it ends, with its exit
+code: keep working, and with nothing left, end your turn and you are woken. A
+condition such as a server coming up gets a capped poll in its own call within
+2 minutes
+(`for i in $(seq 30); do curl -sf -m 1 <url> >/dev/null && break; sleep 2; done`):
+macOS has no `timeout` command. Stop what you started with `TaskStop` before
+returning. Edit with
 Read, then Edit or Write: a shell script that rewrites a source file skips the
 post-edit hooks. Return only:
 

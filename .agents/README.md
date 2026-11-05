@@ -209,21 +209,22 @@ about under `hooks.guard_publish.outward_commands`, and under
 operator's ignored `config.json` overrides either per machine, except that it
 can only extend the outward list and cannot declare a rehearsal.
 
-`wait-gate.sh` refuses a Bash call, under Claude only, that waits blind:
-sleeps longer than 5 s, or a process started with a bare `&` and never waited
-for. For the lead it also refuses a sleep that polls a background task's
-output file. Its denial names the wait that ends when the thing happens, and
-the remedy depends on `agent_id`, which only a spawned cell carries. The lead
-ends its turn, starts a process with `run_in_background`, or runs a short
-capped `for` loop. A cell runs a command of up to 10 minutes in the foreground
-with Bash's `timeout` set, starts a longer one in the background with an
-`exit=` end marker, and waits for it with a capped loop on the output file, so
-a sleep of 5 s or less on a task's output passes for a cell. No rule checks
-that a loop caps itself: a loop of short sleeps is bounded only by Bash's own
-timeout, 10 minutes at most. Calls the host already runs in the background
-pass. Codex and Kimi have no background flag to
-point to, so the gate is not wired there. The toggle is
-`hooks.wait_gate.enabled`.
+`wait-gate.sh` refuses a Bash call, under Claude only, that waits blind. Every
+agent, lead or spawned cell, gets the same rules, because a cell ends its turn
+and is woken by its own background call or child agent as the lead is. The gate
+refuses, in this order: any sleep in a command that reads a background task's
+output file; a sleep whose length it cannot read (`sleep $s`); sleeps longer
+than 5 s, summed at the top level or any one inside a loop; a sleep inside a
+loop when Bash's `timeout` parameter, which the normalizer passes through as
+`timeout` in milliseconds, is above the 2-minute default; and a process
+started with a bare `&` and never waited for. A sleep of 5 s or less passes,
+as does a short polling loop under the default limit. The denial names the wait
+that ends when the thing happens: end the turn for a background call or agent,
+a foreground call with `timeout` for up to 10 minutes, `run_in_background` for
+a longer command, a capped poll in its own call for a condition, and `gh run
+watch` for CI. Calls the host already runs in the background pass. Codex and
+Kimi have no background flag to point to, so the gate is not wired there. The
+toggle is `hooks.wait_gate.enabled`.
 
 `keychain-notice.sh` names the agent's shell command that is about to read
 the macOS login keychain. The keychain dialog names only the program, such as

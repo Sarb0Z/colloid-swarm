@@ -81,58 +81,111 @@ ALLOW = [
     "",
 ]
 
-# Lead refusals that a cell's call, capped by Bash's own timeout, may run:
-# a sleep of 5 s or less in a command reading a task's output file.
-SHORT_POLLS = {BLOCK[15], BLOCK[16]}
-CELL_ALLOW = [
-    "for i in $(seq 110); do grep -q '^exit=' /tmp/out.log && break; sleep 5; done",
-    "for i in $(seq 110); do grep -q '^exit=' /private/tmp/claude-501/p/s/tasks/b72i5hegt.output && break; sleep 5; done",
-    "until [ -s /private/tmp/claude-501/p/s/tasks/b72i5hegt.output ]; do sleep 1; done",
-]
-CELL_BLOCK = [
-    "for i in $(seq 110); do grep -q '^exit=' /private/tmp/claude-501/p/s/tasks/b72i5hegt.output && break; sleep 30; done",
-    "sleep 90; tail -4 /private/tmp/claude-501/p/s/tasks/b72i5hegt.output",
-    "for i in $(seq 110); do grep -q '^exit=' /tmp/out.log && break; sleep 30; done",
-    "sleep 4; sleep 4; tail /private/tmp/claude-501/p/s/tasks/b72i5hegt.output",
-]
+tax-appeals-app = "for i in $(seq 1 115); do [ -f /tmp/x/final-done.txt ] && break; sleep 5; done"
 
 for command in BLOCK:
-    check(f"refuses {command!r}", gate.verdict(command, "lead") is not None)
-    check(f"a cell {'passes' if command in SHORT_POLLS else 'is refused'} {command!r}",
-          (gate.verdict(command, "cell") is None) == (command in SHORT_POLLS))
+    reason = gate.verdict(command, None)
+    check(f"refuses {command!r}", reason is not None)
 for command in ALLOW:
-    for agent in ("lead", "cell"):
-        reason = gate.verdict(command, agent)
-        check(f"passes {command!r} for the {agent}", reason is None, reason or "")
-for command in CELL_ALLOW:
-    reason = gate.verdict(command, "cell")
-    check(f"a cell's capped poll passes {command!r}", reason is None, reason or "")
-for command in CELL_BLOCK:
-    check(f"a cell's long sleep refused {command!r}", gate.verdict(command, "cell") is not None)
-check("a lead's capped poll on a task's output is refused as before",
-      "output file" in (gate.verdict(CELL_ALLOW[1], "lead") or ""))
+    reason = gate.verdict(command, None)
+    check(f"passes {command!r}", reason is None, reason or "")
 
-lead_sleep = gate.verdict("sleep 90; echo waited", "lead") or ""
-cell_sleep = gate.verdict("sleep 90; echo waited", "cell") or ""
-lead_amp = gate.verdict("npm run dev &", "lead") or ""
-cell_amp = gate.verdict("npm run dev &", "cell") or ""
-check("the lead's sleep remedy names each way to wait",
-      all(part in lead_sleep for part in ("end your turn", "run_in_background: true", "for i in $(seq 60)", "gh run watch")))
-check("the cell's sleep remedy is the cell's",
-      all(part in cell_sleep for part in ("run_in_background: true", 'echo "exit=$?"', "seq 110", "TaskStop", "600000"))
-      and "end your turn" not in cell_sleep)
-check("the cell's bare & refusal carries the cell's remedy",
-      "`wait`" in cell_amp and "run_in_background: true" in cell_amp and "seq 110" in cell_amp)
-check("the lead's bare & refusal carries the lead's text",
-      "`wait`" in lead_amp and "run_in_background: true" in lead_amp and "seq 110" not in lead_amp)
-check("the lead's remedy no longer names timeout", "timeout" not in lead_sleep and "bash -c" not in lead_sleep)
-check("each remedy's capped loop reports how it ended",
-      "echo up || echo down" in lead_sleep and "echo up || echo down" in cell_sleep and "|| echo still-running" in cell_sleep)
-check("the cell's end marker covers the whole command and names a pipeline's status",
-      '{ <cmd>; } 2>&1; echo "exit=$?"' in cell_sleep and "pipefail" in cell_sleep)
-for name, text in (("lead sleep", lead_sleep), ("cell sleep", cell_sleep), ("lead &", lead_amp), ("cell &", cell_amp),
-                   ("lead task poll", gate.verdict(CELL_ALLOW[1], "lead") or "")):
-    check(f"no {name} remedy names timeout followed by a number", not re.search(r"timeout\W+\d", text), text)
+# (command, Bash's timeout in ms, refused?)
+TIMED = [
+    (tax-appeals-app, 600000, True),
+    (tax-appeals-app, None, False),
+    (tax-appeals-app, 120000, False),
+    (tax-appeals-app, "abc", False),
+    ("until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done", 600000, True),
+    ("for i in $(seq 1 40); do curl -sf localhost:3000 && break; sleep 2; done; bun run visual > /tmp/v.log",
+     600000, True),
+    ("timeout 120 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'", 600000, True),
+    ("pytest -q", 600000, False),
+    ("kill 39150; sleep 2; npm run build", 300000, False),
+]
+for command, limit, refused in TIMED:
+    check(f"timeout {limit!r} {'refuses' if refused else 'passes'} {command!r}",
+          (gate.verdict(command, limit) is not None) == refused)
+
+UNREADABLE = [
+    "sleep $s",
+    'sleep "$DELAY"; echo hi',
+    "s=30; [ $s -gt 0 ] && [ $s -lt 590 ] && sleep $s; date -u +%H:%M:%S",
+]
+for command in UNREADABLE:
+    check(f"refuses an unreadable sleep {command!r}", "cannot read" in (gate.verdict(command, None) or ""))
+
+LOOP_CONDITIONS = [
+    "while sleep 5; do [ -f x ] && break; done",
+    "until sleep 30; do :; done",
+    "while ! sleep 5 || [ ! -f x ]; do :; done",
+    "while [ ! -f x ] && sleep 5; do :; done",
+    "while [ ! -f x ]\ndo\nsleep 5\ndone",
+    "while [ ! -f x ] &&\nsleep 5\ndo :; done",
+]
+for command in LOOP_CONDITIONS:
+    check(f"refuses a loop-condition sleep {command!r}", gate.verdict(command, 600000) is not None)
+EXTRA_TIMED = [
+    ("while sleep 600; do break; done", None, True),
+    ("until sleep 30; do :; done", None, True),
+    ("if sleep 600; then echo; fi", None, True),
+    ("bash -lc 'sleep 600'", None, True),
+    ("bash -lc 'until [ -f x ]; do sleep 5; done'", 600000, True),
+    ("bash -c 'sleep 3; sleep 3'", None, True),
+    ("bash -c 'sleep 2; npm run build'", 300000, False),
+    ("sh -c 'kill 1; sleep 1' && npm test", 300000, False),
+    ('while read -r line; do echo "$line"; done < f', 600000, False),
+    ("for i in 1 2 3; do echo $i; done", 600000, False),
+]
+for command, limit, refused in EXTRA_TIMED:
+    check(f"timeout {limit!r} {'refuses' if refused else 'passes'} {command!r}",
+          (gate.verdict(command, limit) is not None) == refused)
+
+# The first rule that fires names itself.
+ORDER = [
+    ("sleep 90; tail /tmp/c/tasks/abc123.output", None, "background task's output"),
+    ("sleep $s", None, "cannot read"),
+    ("sleep 90", None, "sleeping 90 s"),
+    ("until curl -sf localhost:3000; do sleep 2; done", 600000, "this polls"),
+    ("npm run dev &", None, "starts a process"),
+]
+for command, limit, part in ORDER:
+    check(f"{command!r} is refused as {part!r}", part in (gate.verdict(command, limit) or ""))
+
+LOOPED = "until curl -sf localhost:3000; do sleep 2; done"
+for limit in (True, 0, -5, float("nan"), float("inf"), "600000", None):
+    check(f"timeout {limit!r} reads as the default", gate.limit_ms(limit) == gate.DEFAULT_TIMEOUT_MS)
+    check(f"timeout {limit!r} passes a looped short sleep", gate.verdict(LOOPED, limit) is None)
+check("120001 refuses a looped sleep", gate.verdict(LOOPED, 120001) is not None)
+check("a limit past the host's ceiling is quoted at the ceiling", "600 s" in (gate.verdict(LOOPED, 9999999) or ""))
+
+wait = gate.WAIT
+sleep_reason = gate.verdict("sleep 90; echo waited", None) or ""
+check("the remedy names each way to wait",
+      all(part in wait for part in ("end your turn", "run_in_background: true", "for i in $(seq 30)",
+                                    "gh run watch", "split", "echo up || echo down")) and "seq 110" not in wait)
+check("a refusal carries the remedy", wait in sleep_reason)
+unreadable = gate.verdict("sleep $s", None) or ""
+check("the unreadable refusal names the remedy once",
+      unreadable.count("Pick the wait that ends with the event") == 1, unreadable)
+example = re.search(r"for i in \$\(seq (\d+)\); do .*? -m (\d+) .*?sleep (\d+); done", wait)
+check("the remedy's own poll fits the 2-minute default",
+      bool(example) and int(example[1]) * (int(example[3]) + int(example[2])) + int(example[2]) < 120,
+      str(example and example.groups()))
+# Every poll the scaffold's prose recommends must itself finish inside Bash's default limit.
+for doc in sorted([*(here / "personas").glob("*.md"), here / "skills" / "workloop" / "working-practice.md"]):
+    for line in doc.read_text().splitlines():
+        for found in re.finditer(r"seq (\d+)\)[^\n]*?sleep (\d+)", line):
+            count, nap = int(found[1]), int(found[2])
+            probe = re.search(r"-m (\d+)", line)
+            probe_s = int(probe[1]) if probe else 0
+            check(f"{doc.name}: seq {count} / sleep {nap} fits the default limit",
+                  count * (nap + probe_s) + probe_s < 120, line)
+for name, text in (("sleep", sleep_reason), ("bare &", gate.verdict("npm run dev &", None) or ""),
+                   ("task poll", gate.verdict(BLOCK[15], None) or ""), ("remedy", wait)):
+    check(f"no {name} text names timeout followed by a number", not re.search(r"timeout\W+\d", text), text)
+check("a bare & refusal names wait and run_in_background",
+      all(part in (gate.verdict("npm run dev &", None) or "") for part in ("`wait`", "run_in_background: true")))
 
 policy = here / "hooks" / "policy" / "wait-gate.sh"
 
@@ -151,11 +204,13 @@ check("a command the host runs in the background passes", background.returncode 
 garbage = subprocess.run(["bash", str(policy)], input="not json", capture_output=True, text=True)
 check("an unreadable payload passes", garbage.returncode == 0)
 
-cell_blocked = run(here.parent, {"command": "sleep 300", "agent_id": "a1"})
-check("the policy gives a payload with an agent_id the cell's remedy",
-      cell_blocked.returncode == 2 and "seq 110" in cell_blocked.stderr, cell_blocked.stderr)
-check("the policy gives a payload without one the lead's remedy",
-      blocked.returncode == 2 and "seq 110" not in blocked.stderr and "end your turn" in blocked.stderr)
+timed = run(here.parent, {"command": tax-appeals-app, "timeout": 600000})
+untimed = run(here.parent, {"command": tax-appeals-app})
+check("the policy refuses the polling loop under a raised timeout", timed.returncode == 2, timed.stderr)
+check("the policy passes the polling loop without a timeout", untimed.returncode == 0, untimed.stderr)
+with_agent = run(here.parent, {"command": "sleep 300", "agent_id": "a1"})
+check("a payload with an agent_id gets the same verdict as one without",
+      with_agent.returncode == blocked.returncode and with_agent.stderr == blocked.stderr, with_agent.stderr)
 
 
 def normalized(payload):
@@ -165,12 +220,9 @@ def normalized(payload):
 
 
 tool = {"command": "sleep 20", "run_in_background": False}
-check("the normalizer passes a cell's agent_id to the gate",
-      normalized({"tool_input": tool, "agent_id": "a1b2", "agent_type": "implementer"})["agent_id"] == "a1b2")
-check("the normalizer passes an empty agent_id for the lead", normalized({"tool_input": tool})["agent_id"] == "")
-# A `claude --agent <name>` main session carries agent_type alone; it is the lead.
-check("the normalizer treats a named main session as the lead",
-      normalized({"tool_input": tool, "agent_type": "implementer"})["agent_id"] == "")
+check("the normalizer passes Bash's timeout to the gate",
+      normalized({"tool_input": {**tool, "timeout": 600000}})["timeout"] == 600000)
+check("the normalizer gives None when no timeout is set", normalized({"tool_input": tool})["timeout"] is None)
 registered = json.loads((here / "claude" / "settings.json").read_text())
 wait_commands = [hook["command"] for group in registered["hooks"]["PreToolUse"] for hook in group["hooks"]
                  if "wait-gate.sh" in hook["command"]]
@@ -180,18 +232,20 @@ check("wait-gate is registered once, for every agent",
 
 def through_hook(extra):
     """Run the registered hook command end to end: adapter, normalizer, policy."""
-    payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": tool, **extra}
+    payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", **extra}
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(here.parent)}
     return subprocess.run(["bash", "-c", wait_commands[0]], input=json.dumps(payload), capture_output=True,
                           text=True, env=env, cwd=here.parent)
 
 
-hook_cell = through_hook({"agent_id": "a1b2", "agent_type": "implementer"})
-hook_named = through_hook({"agent_type": "implementer"})
-check("through the hook, a cell gets the cell's remedy",
-      hook_cell.returncode == 2 and "seq 110" in hook_cell.stderr, hook_cell.stderr)
-check("through the hook, a named main session gets the lead's remedy",
-      hook_named.returncode == 2 and "end your turn" in hook_named.stderr, hook_named.stderr)
+loop = {"command": tax-appeals-app, "timeout": 600000}
+hook_lead = through_hook({"tool_input": loop})
+hook_cell = through_hook({"tool_input": loop, "agent_id": "a1b2", "agent_type": "implementer"})
+hook_plain = through_hook({"tool_input": {"command": tax-appeals-app}})
+check("through the hook, the lead's polling loop under a raised timeout is refused",
+      hook_lead.returncode == 2, hook_lead.stderr)
+check("through the hook, a cell's is refused too", hook_cell.returncode == 2, hook_cell.stderr)
+check("through the hook, the same loop without a timeout passes", hook_plain.returncode == 0, hook_plain.stderr)
 
 with tempfile.TemporaryDirectory() as scratch:
     root = pathlib.Path(scratch)

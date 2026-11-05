@@ -100,7 +100,7 @@ LITERAL_WRITES = (
 DUP_TARGET = re.compile(r"\d+|-")
 LANE_HEADER = re.compile(r"WORKLOOP \w+ BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)")
 GATE_PREFIX = "PreToolUse:Bash hook error:"
-GATE_BLOCK = re.compile(r"Blocked: (?:this sleeps and then reads|sleeping \S+ s holds|`)")
+GATE_BLOCK = re.compile(r"Blocked: (?:this sleeps and then reads|this polls|sleeping \S+ s holds|sleeping for a length|`)")
 TIMED_OUT_TEXT = "did not complete within its"
 FRACTION = re.compile(r"\.(\d+)")
 RAW_STAMP = re.compile(rb'"timestamp"\s*:\s*"(\d{4}-\d\d-\d\d)T(\d\d):(\d\d):(\d\d)')
@@ -913,7 +913,7 @@ class CellAnalysis:
             self.composed += 1
         if self.shell.writes_source(progs, cmd, cwd, self.git):
             self.fig["writes"]["shell_source_writes"] += 1
-        call.blind = not call.background and bool(self.gate.verdict(cmd, "cell"))
+        call.blind = not call.background and bool(self.gate.verdict(cmd, call.inp.get("timeout")))
 
     def result(self, rec, use_id, outcome):
         call = self.pending.pop(use_id, None)

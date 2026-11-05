@@ -64,8 +64,8 @@ def normalize(payload, policy, repo):
     elif policy == "wait-gate.sh":
         out["command"] = tool_input.get("command", "")
         out["run_in_background"] = bool(tool_input.get("run_in_background"))
-        # Empty for the lead; a spawned cell gets its own remedy.
-        out["agent_id"] = payload.get("agent_id") or ""
+        # Bash's own time limit in ms; the gate reads it against a polling loop.
+        out["timeout"] = tool_input.get("timeout")
     elif policy == "guard-publish.sh":
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input

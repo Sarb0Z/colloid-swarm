@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Engine-agnostic policy: refuse a shell command that waits blind — a long
-# `sleep`, a sleep that polls a host task's output, or a bare `&` background.
+# Engine-agnostic policy: refuse a shell command that waits blind — a sleep that
+# polls a host task's output, a sleep whose length is unreadable, a sleep over
+# 5 s, a sleep in a loop under a raised timeout, or a bare `&` background.
 #
-# Input  (stdin JSON): {"command": "<shell command>", "run_in_background": bool}
+# Input  (stdin JSON): {"command": "<shell command>", "run_in_background": bool,
+#          "timeout": <ms or null>}
 # Output: exit 2 + stderr remedy on block; exit 0 otherwise.
 #
 # The decision needs the shell-aware split in ../lib/guard-destructive.py, so it

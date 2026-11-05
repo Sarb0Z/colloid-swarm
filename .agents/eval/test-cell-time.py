@@ -417,12 +417,31 @@ class CellTime(unittest.TestCase):
         _, totals = self.single(records)
         self.assertEqual(totals["blind"]["refusals"], 1)
 
-    def test_a_capped_poll_on_a_task_output_is_not_a_blind_wait(self):
+    def test_a_poll_on_a_task_output_is_a_blind_wait(self):
         records = bash("10:00:00", "10:08:00", self.repo, "p1", CAPPED_LOOP, timeout=600000)
         records += bash("10:08:10", "10:09:10", self.repo, "p2", "sleep 60")
         _, totals = self.single(records)
-        self.assertEqual(totals["blind"]["ran"], 1)
-        self.assertEqual(totals["blind"]["ran_s"], 60)
+        self.assertEqual(totals["blind"]["ran"], 2)
+        self.assertEqual(totals["blind"]["ran_s"], 540)
+
+    def test_every_gate_refusal_matches_the_refusal_pattern(self):
+        spec = importlib.util.spec_from_file_location(
+            "wait_gate", os.path.join(HERE, "..", "hooks", "lib", "wait-gate.py"))
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        cell_time = load_script()
+        refused = [
+            ("sleep 2; tail /tmp/c/tasks/abc123.output", None),
+            ("sleep $s", None),
+            ("sleep 90", None),
+            ("until curl -sf localhost:3000; do sleep 2; done", 600000),
+            ("npm run dev &", None),
+        ]
+        for command, limit in refused:
+            reason = gate.verdict(command, limit)
+            self.assertTrue(reason, command)
+            text = f"PreToolUse:Bash hook error: [/repo/.agents/hooks/wait-gate.sh]: {reason}"
+            self.assertTrue(cell_time.is_gate_refusal(text), command)
 
     # ---- long calls, timeouts, background
 

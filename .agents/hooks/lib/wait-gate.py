@@ -2,33 +2,32 @@
 """Decide whether a shell command waits blind, and say what to do instead.
 
 Input  (stdin JSON): {"command": "<shell command>", "run_in_background": bool,
-"agent_id": "<id of the spawned cell, empty for the lead>"}
+"timeout": <Bash's timeout parameter in ms, or null>}
 Output: exit 2 and the remedy on stderr when a rule fires; exit 0 otherwise.
 
 A foreground `sleep` holds the session and learns nothing; a bare `&` starts a
 process the host cannot see, so nothing reports when it ends and the agent
-falls back to sleeping and tailing its log. Three shapes are refused:
+falls back to sleeping and tailing its log. Every agent, lead or spawned cell,
+gets the same rules, checked in this order:
 
-* sleeps longer than SHORT seconds, summed over the top level, or any single
-  one inside a loop body or an `sh -c` payload;
 * any sleep in a command that reads a host task's output file, which the host
   already reports on completion;
+* a sleep whose length cannot be read (`sleep $s`);
+* sleeps summed over the top level, or any one inside a loop (condition or body) or an
+  `sh -c` payload, longer than SHORT seconds;
+* a sleep inside a loop body or an `sh -c` payload when Bash's timeout
+  parameter is above its 2-minute default, since the loop can then hold the
+  session for that long;
 * a segment backgrounded with `&` in a command that never runs `wait`.
 
-The lead and a cell get different remedies, since only a cell cannot end its turn
-to wait. Bash's own timeout ends a call after at most 10 minutes, so the second
-rule does not apply to a cell: a poll on a task's output file passes while no
-sleep in it is longer than SHORT seconds. Nothing here checks that a loop carries
-its own cap; a loop of short sleeps, for lead or cell, is bounded only by that
-timeout.
-
 A short sleep passes: `kill 123; sleep 2` waits for a port to free, and
-`until curl -sf ...; do sleep 2; done` ends the moment the condition holds.
-Heredoc bodies are data, as in guard-destructive.
+`until curl -sf ...; do sleep 2; done` ends the moment the condition holds,
+under the default limit. Heredoc bodies are data, as in guard-destructive.
 """
 
 import importlib.util
 import json
+import math
 import os
 import re
 import shlex
@@ -39,22 +38,18 @@ TASK_OUTPUT = re.compile(r"/tasks/[A-Za-z0-9_-]+\.output\b")
 DURATION = re.compile(r"^(\d+(?:\.\d*)?|\.\d+)([smhd]?)$")
 SCALE = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 WRAPPERS = {"timeout", "gtimeout", "nice", "stdbuf"}
-PREFIXES = {"then", "else", "elif", "{", "}", "!", "time", "nohup", "command", "builtin", "exec"}
+PREFIXES = {"if", "then", "else", "elif", "{", "}", "!", "time", "nohup", "command", "builtin", "exec"}
 
-LEAD_WAIT = """Pick the wait that ends with the event:
-- A background shell or cell you started: end your turn. The harness re-invokes you when it finishes; report then.
-- A process you are about to start (tests, a build, a server): run it as its own Bash call with run_in_background: true. You are notified when it exits, and TaskStop stops it.
-- A condition (a port answers, a file appears): poll briefly under a cap that reports how it ended, such as for i in $(seq 60); do curl -sf http://localhost:3000 >/dev/null && break; sleep 2; done; curl -sf http://localhost:3000 >/dev/null && echo up || echo down.
+DEFAULT_TIMEOUT_MS = 120000  # Claude Code's Bash default when no timeout is given
+MAX_TIMEOUT_MS = 600000  # the host's ceiling on Bash's timeout parameter
+
+WAIT = """Pick the wait that ends with the event:
+- A background shell or agent you started: end your turn. The harness wakes you with its result, a spawned agent included.
+- A command you are about to run: up to 10 minutes in the foreground, with Bash's timeout parameter covering it. A longer one, or a server or watcher: its own Bash call with run_in_background: true, stopped with TaskStop when done.
+- A condition (a port answers, a file appears) that holds within 2 minutes: its own call under the default limit, with a cap that reports how it ended: for i in $(seq 30); do curl -sf -m 1 http://localhost:3000 >/dev/null && break; sleep 2; done; curl -sf -m 1 http://localhost:3000 >/dev/null && echo up || echo down. A condition that may take longer: that poll with run_in_background: true.
+- A short poll before long work (a build, a test run): split it, the poll in one call and the work in the next.
 - CI or a deploy: gh run watch <id> --exit-status with run_in_background: true.
-Sleeps of 5 s or less pass."""
-
-CELL_WAIT = """Pick the wait that ends with the event:
-- A command that ends within 10 minutes: run it in the foreground and set Bash's timeout parameter to cover it (the default is 2 minutes; the ceiling is 600000).
-- A server, a watcher or a longer command: start it as its own Bash call with run_in_background: true, written as { <cmd>; } 2>&1; echo "exit=$?" (set -o pipefail first when <cmd> is a pipeline, whose status is otherwise its last stage's). You are told when it ends with your next tool result, so keep working; a command that is killed writes no marker, and that notice is its end.
-- With nothing left to do, wait for its end marker: for i in $(seq 110); do grep -q '^exit=' <output file> && break; sleep 5; done; grep '^exit=' <output file> || echo still-running, run with the timeout parameter at 600000, and repeat while it prints still-running.
-- A condition (a port answers): for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done; curl -sf <url> >/dev/null && echo up || echo down.
-- Stop what you started with TaskStop before you return.
-Sleeps of 5 s or less pass."""
+A sleep of 5 s or less, written as a number, passes, except inside a loop under a raised time limit."""
 
 
 def load(name, file):
@@ -120,9 +115,63 @@ def strip_comments(text):
     return "".join(out)
 
 
-def scan(text, nested=False):
-    """(top-level sleep seconds, longest sleep in a loop or payload, backgrounded, waits)."""
-    top, inner, background, waits, depth = 0.0, 0.0, [], False, 0
+def note_sleep(found, words, looped):
+    """Record one `sleep` word list in `found`."""
+    length = seconds(words)
+    found["slept"] = True
+    if length is None:
+        found["unreadable"] = True
+        return
+    if looped:
+        found["looped"] = True
+        found["inner"] = max(found["inner"], length)
+    else:
+        found["top"] += length
+
+
+def merge(found, payload):
+    """Fold a `sh -c` payload's findings into its parent's.
+
+    The payload runs in sequence with its parent, so its top-level sleeps add."""
+    found["top"] += payload["top"]
+    found["inner"] = max(found["inner"], payload["inner"])
+    for key in ("slept", "unreadable", "looped"):
+        found[key] = found[key] or payload[key]
+
+
+def enter(stack, words):
+    """Strip a segment's leading loop and prefix words, tracking loop frames.
+
+    A frame is "cond" (a `while`/`until` condition, rerun every pass), "head" (a
+    `for`/`select` list, evaluated once) or "body"; `do` turns the open frame
+    into a body and `done` (handled by the caller) closes one."""
+    while words:
+        word = words[0]
+        if word in ("while", "until"):
+            stack.append("cond")
+        elif word in ("for", "select"):
+            stack.append("head")
+            return []
+        elif word == "do":
+            if stack and stack[-1] != "body":
+                stack[-1] = "body"
+            else:
+                stack.append("body")
+        elif word not in PREFIXES:
+            break
+        words = words[1:]
+    return words
+
+
+def scan(text):
+    """What a command's sleeps and backgrounding look like, as a dict.
+
+    Keys: top (summed top-level sleep seconds), inner (longest sleep in a loop),
+    looped (any sleep there, at any length), slept (any sleep at all),
+    unreadable (a sleep length the gate cannot read), background, waits."""
+    found = {"top": 0.0, "inner": 0.0, "looped": False, "slept": False,
+             "unreadable": False, "background": [], "waits": False}
+    stack = []
     # Comment text is prose; an `&` in it is not an operator.
     code = strip_comments(parser.strip_heredocs(text))
     for segment, operator in parser.split_operators(code):
@@ -131,52 +180,58 @@ def scan(text, nested=False):
         except ValueError:
             continue
         words, _ = parser.cut_redirects(words)
-        while words and words[0] in PREFIXES | {"do"}:
-            depth += words.pop(0) == "do"
+        words = enter(stack, words)
         if words and words[0] == "done":
-            depth = max(0, depth - 1)
+            stack = stack[:-1]
             words = words[1:]
         # `( ... ) &` leaves an empty segment between the `)` and the `&`.
         if operator.startswith("&") and not operator.startswith("&&"):
-            background.append(segment or "( ... )")
+            found["background"].append(segment or "( ... )")
         words = unwrap(parser.lead(words))
         if not words:
             continue
         name = os.path.basename(words[0])
-        if name == "wait":
-            waits = True
+        found["waits"] = found["waits"] or name == "wait"
         if name == "sleep":
-            length = seconds(words) or 0.0
-            if depth or nested:
-                inner = max(inner, length)
-            else:
-                top += length
-        if name in parser.SHELLS and "-c" in words and words.index("-c") + 1 < len(words):
-            _, deeper, _, _ = scan(words[words.index("-c") + 1], nested=True)
-            inner = max(inner, deeper)
-    return top, inner, background, waits
+            note_sleep(found, words, any(frame != "head" for frame in stack))
+        body = parser.shell_body(words[1:]) if name in parser.SHELLS else None
+        if body is not None:
+            merge(found, scan(body))
+    return found
 
 
-def verdict(command, agent):
-    """The reason to block, or None. `agent` is "lead" or "cell"."""
+def limit_ms(timeout):
+    """Bash's time limit in ms, at most the host's ceiling; no usable number is the default."""
+    usable = (isinstance(timeout, (int, float)) and not isinstance(timeout, bool)
+              and math.isfinite(timeout) and timeout > 0)
+    return min(timeout, MAX_TIMEOUT_MS) if usable else DEFAULT_TIMEOUT_MS
+
+
+def verdict(command, timeout):
+    """The reason to block, or None. `timeout` is Bash's parameter in ms."""
     if "sleep" not in command and "&" not in command:
         return None
-    cell = agent == "cell"
-    wait = CELL_WAIT if cell else LEAD_WAIT
-    top, inner, background, waits = scan(command)
-    if not cell and (top or inner) and TASK_OUTPUT.search(command):
+    found = scan(command)
+    if found["slept"] and TASK_OUTPUT.search(command):
         return ("Blocked: this sleeps and then reads a background task's output file. "
                 "The harness notifies you when that task finishes; end your turn and read the file then.")
-    if top > SHORT or inner > SHORT:
-        length = top if top > SHORT else inner
-        return f"Blocked: sleeping {length:g} s holds the session and learns nothing. {wait}"
-    if background and not waits:
-        shown = background[0] if len(background[0]) <= 80 else background[0][:77] + "..."
-        reason = ("Blocked: `" + shown + " &` starts a process the harness cannot see: nothing "
-                  "reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash "
-                  "call with run_in_background: true; to run commands in parallel inside one call, end "
-                  "the command with `wait`.")
-        return f"{reason} {wait}" if cell else reason
+    if found["unreadable"]:
+        return ("Blocked: sleeping for a length the gate cannot read can hold the session for minutes. "
+                "Write the length as a number of 5 s or less. " + WAIT)
+    if found["top"] > SHORT or found["inner"] > SHORT:
+        length = found["top"] if found["top"] > SHORT else found["inner"]
+        return f"Blocked: sleeping {length:g} s holds the session and learns nothing. {WAIT}"
+    limit = limit_ms(timeout)
+    if found["looped"] and limit > DEFAULT_TIMEOUT_MS:
+        return (f"Blocked: this polls with a sleep in a loop under a {limit / 1000:g} s time limit, "
+                f"so it can hold the session that long. {WAIT}")
+    if found["background"] and not found["waits"]:
+        shown = found["background"][0]
+        shown = shown if len(shown) <= 80 else shown[:77] + "..."
+        return ("Blocked: `" + shown + " &` starts a process the harness cannot see: nothing "
+                "reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash "
+                "call with run_in_background: true; to run commands in parallel inside one call, end "
+                "the command with `wait`.")
     return None
 
 
@@ -196,7 +251,7 @@ def main():
     command = payload.get("command")
     if not isinstance(command, str) or not command.strip():
         return 0
-    reason = verdict(command, "cell" if str(payload.get("agent_id") or "").strip() else "lead")
+    reason = verdict(command, payload.get("timeout"))
     if not reason:
         return 0
     print(reason, file=sys.stderr)

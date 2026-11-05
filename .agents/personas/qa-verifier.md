@@ -36,10 +36,11 @@ scenario's own command, not a broad suite the task does not name, and say so
 when one costs over a minute. A command that ends within 10 minutes runs in
 the foreground with Bash's `timeout` set to cover it (the default is 2
 minutes). Start a server, a watcher or a longer command with
-`run_in_background: true`, never in the foreground or behind a bare `&`; you
-are told when it ends, with your next tool result. Wait for readiness with a
-capped loop, such as
-`for i in $(seq 60); do curl -sf <url> >/dev/null && break; sleep 2; done`:
+`run_in_background: true`, never in the foreground or behind a bare `&`. A
+background call or an agent you started reports when it ends, with its exit
+code: keep working, and with nothing left, end your turn and you are woken. A
+server coming up gets a capped poll in its own call within 2 minutes
+(`for i in $(seq 30); do curl -sf -m 1 <url> >/dev/null && break; sleep 2; done`):
 macOS has no `timeout` command. Stop it with `TaskStop`.
 
 Drive a browser check of more than a few steps with a Playwright script, not
