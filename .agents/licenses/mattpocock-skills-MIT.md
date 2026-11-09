@@ -59,10 +59,11 @@ source in these ways:
   proceeds, in place of showing it to the user and proceeding without an
   answer only when the user is away.
 - Phase 5 notes a missing seam in the report, in place of flagging it for a
-  later phase, and ends by sending the agent to the Stuck lenses in
+  later phase, and ends by sending the agent to the Stuck lens in
   `.agents/lenses.md` after two failed fixes.
 - Phase 6 deletes throwaway prototypes, with no option to keep them.
-- Its description adds the Fix workflow as a trigger.
+- Its description adds a Fix that cannot build a failing command, whose first
+  run does not make the cause plain, or whose fix has failed as a trigger.
 
 ## Adapted text at a later commit
 

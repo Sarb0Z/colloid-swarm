@@ -1,11 +1,15 @@
 # Lenses
 
 A rule says what must be true; a lens says where to look. The workflows name
-the moment each section fires. Apply each lens the artifact can exhibit, and
-name each one that changed the plan, the fix, or the findings, with what it
-changed. A lens answer that enlarges scope is weighed under the root
-Principles: Gall's Law and YAGNI decide whether the rewrite or the larger
-abstraction is built now.
+the moment each section fires: the root `AGENTS.md` asks the Plan lenses
+inline at the Build plan step and the Stuck lens after two failed fixes, and
+the reviewer contract reads the Review section. This file says what each lens
+catches. Apply each lens the artifact can exhibit, and name each one that
+changed the plan, the fix, or the findings, with what it changed. A lens
+answer that enlarges scope is weighed under the root Principles: Gall's Law
+and YAGNI decide whether the rewrite or the larger abstraction is built now,
+and a rewrite beyond the ask goes to the operator as an out-of-scope
+discovery.
 
 ## Plan
 
@@ -31,7 +35,7 @@ Critical stakes.
 
 ## Stuck
 
-Fires after two failed fixes, and whenever patches pile up around one defect.
+Fires after two failed fixes.
 
 - **Are you in a rabbit hole, duct-taping custom fixes together? Is there a
   native way of doing this that would be cleaner?** Catches hand-built

@@ -10,7 +10,7 @@ paths:
 ## Business Invariants
 - This skill is MIT-licensed third-party content. `.agents/licenses/mattpocock-skills-MIT.md` holds its notice, its source commit and every difference from the source. Keep that file while this skill remains, and record each local edit in it.
 - `SKILL.md` follows upstream. To change it, prefer an update from upstream that records the new commit. A local fork must be recorded before it lands.
-- The root `AGENTS.md` Fix workflow names this skill as its reproduction loop. A change that weakens Phase 1's completion criterion changes the Fix workflow too.
+- The root `AGENTS.md` Fix workflow states Phase 1's first step inline and sends a defect here when no command that goes red can be built, its first run does not make the cause plain, or a fix has failed. The description's Fix clause matches those three conditions; a change to it or to Phase 1 changes the Fix workflow too.
 
 ## Abnormal Cases and Rationale
 - Phase 3 states the ranked hypotheses in an update and always proceeds, where upstream shows the list to the user and proceeds without an answer only when the user is away. The root contract sends the user only blockers that are theirs, and a ranking the session can test is not one.

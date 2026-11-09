@@ -32,8 +32,7 @@ evidence supports it; do not substitute static inference for missing execution.
 Read `.agents/playbooks/review-axes.md` and the Review lenses in
 `.agents/lenses.md`; if either is unavailable, stop and report that blocker.
 Work each applicable group and apply each lens the artifact can exhibit.
-Skip pure style and formatting, naming that no repository rule or behaviour
-depends on, and anything a linter, formatter, or CI check already enforces. This is a static review: inspect
+Report every defect you find; the lead dispositions each one. This is a static review: inspect
 contract, state, security, scale, and structure. Do not claim runtime behavior
 you did not execute. If changed observable behavior lacks QA evidence, report
 that as a coverage gap and hand it to `qa-verifier`.
@@ -92,7 +91,11 @@ errors, stops early, or returns no report has not run: dispatch it again or
 report the gap, and never count it as `FINDINGS: none`. External evidence alone belongs in knowledge; create no parallel
 review ledger. A recurrence claim must cite the current rounds or explicit Git,
 breadcrumb, or debt evidence; otherwise report `not-found` with the consulted
-sources or `unknown`, never “first occurrence.”
+sources or `unknown`, never “first occurrence.” The two rules on checkable
+declines and on reviewers that have not run are adapted from Google's
+elephant-goldfish-model under Apache-2.0;
+`.agents/licenses/elephant-goldfish-model-APACHE-2.0.md` quotes the source and
+lists the changes.
 
 Do not repeat a completed review in the active context while the ask, plan, and
 artifact are unchanged and every finding is dispositioned. A changed artifact

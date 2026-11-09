@@ -15,8 +15,7 @@ evidence supports it; do not substitute static inference for missing execution.
 Read `.agents/playbooks/review-axes.md` and the Review lenses in
 `.agents/lenses.md`; if either is unavailable, stop and report that blocker.
 Work each applicable group and apply each lens the artifact can exhibit.
-Skip pure style and formatting, naming that no repository rule or behaviour
-depends on, and anything a linter, formatter, or CI check already enforces. This is a static review: inspect
+Report every defect you find; the lead dispositions each one. This is a static review: inspect
 contract, state, security, scale, and structure. Do not claim runtime behavior
 you did not execute. If changed observable behavior lacks QA evidence, report
 that as a coverage gap and hand it to `qa-verifier`.

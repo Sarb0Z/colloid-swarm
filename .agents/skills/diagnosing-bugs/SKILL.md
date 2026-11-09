@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow, and whenever the Fix workflow has to reproduce a defect.
+description: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow, and whenever a Fix cannot build a command that goes red on the defect, its first run does not make the cause plain, or a fix has failed.
 ---
 
 # Diagnosing Bugs
@@ -127,7 +127,7 @@ If a correct seam exists:
 4. Watch it pass.
 5. Re-run the Phase 1 feedback loop against the original (un-minimised) scenario.
 
-A fix that fails falsifies its hypothesis. After two failed fixes, stop changing code and apply the Stuck lenses in `.agents/lenses.md` before the next probe.
+A fix that fails falsifies its hypothesis. After two failed fixes, stop changing code and apply the Stuck lens in `.agents/lenses.md` before the next probe.
 
 ## Phase 6: Cleanup
 

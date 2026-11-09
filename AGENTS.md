@@ -19,7 +19,7 @@ Every task has a **workflow**, its kind, which selects the steps, and **stakes**
 |---|---|
 | Disposable | Nothing is kept or shipped, and nothing writes outside the working tree or the scratch directory. |
 | Standard | Kept in a repository and shipped; a mistake is cheap and reversible. |
-| Critical | Touches production, money, authentication, data that can be lost, a guard or gate hook, or a contract (this file, `.agents/AGENTS.md`, the playbooks, the hostile-review contract). |
+| Critical | Touches production, money, authentication, data that can be lost, a guard or gate hook, or a contract (this file, `.agents/AGENTS.md`, the playbooks, `.agents/lenses.md`, the hostile-review contract). |
 
 Stakes follow the effect of the change — the paths it touches and what it does — never the destination of its output. An outward mutation or a write to a live system is never disposable, so Ship and Operate have no disposable level; Answer has no stakes. When unsure, take the higher level; never downgrade.
 
@@ -43,7 +43,7 @@ Read a playbook workflow's file before its first step.
 | Step | Disposable | Standard | Critical |
 |---|---|---|---|
 | Grill and model the domain (`grill-me`) | — | — | Yes |
-| Plan: affected modules, constraints, the one or two options worth weighing, and the claim QA must reproduce, after asking what higher-level abstraction would make the problem disappear and applying the rest of the Plan lenses in `.agents/lenses.md` | — | Yes | Yes |
+| Plan: affected modules, constraints, the one or two options worth weighing, the claim QA must reproduce, and a `Lenses:` block giving one line to each Plan lens below the plan can exhibit and `n/a` to the rest | — | Yes | Yes |
 | Hostile review of the plan; settle every `P0` and `P1` before code | — | Yes | Yes |
 | Stop and report: no code in the unit before the operator's OK on its plan | — | — | Yes |
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |
@@ -53,15 +53,17 @@ Read a playbook workflow's file before its first step.
 | Apply the safe changes; walk the operator through each one that needs them | — | Safe changes | Both |
 | Commit along seams as each chunk lands | — | Yes | Yes; walk-through fixes fold in before push |
 
+**Plan lenses.** What higher-level abstraction would make this entire problem disappear? Reduce this problem to its irreducible constraints and rebuild it from zero. Carve the problem at the joints. What would a principal architect immediately rewrite before even starting this? Find every implicit state machine. Concession drift: you will get money pumped. Gall's Law and YAGNI decide what an answer adds now, and an answer that grows scope beyond the ask goes to the operator. `.agents/lenses.md` says what each lens catches.
+
 **Units.** Workflow steps serialize work within one unit, never across units. Every gate, the operator's included, holds only its unit: a unit's QA and hostile review gate its integration, publication, and claim of completion, and a unit whose consumed contracts are settled proceeds while another awaits a gate.
 
 **Feedback checkpoint.** In user-visible work, once one vertical unit runs end to end on the real backend with its authentication, tenant, money, and destructive-operation safeguards, give the operator the command that runs it, numbered test steps, expected values, known gaps, and what the agent did not check itself. Breadth waits for that review — exhaustive edge-case QA, a second browser, release evidence; quality does not. Keep building independent units meanwhile; at critical stakes the checkpoint is a human gate.
 
-**Implement and test.** Agree the seams under test before writing tests, each with one line on what it catches and what it misses, and build in vertical slices: one test and its implementation at a time. Tie every fix to observed evidence — a reproduced defect, or system, user, log, or test output. A theory read from the code suffices to act on; a hunch does not, so instrument. A fix that fails falsifies its theory: after two, stop changing code, ask whether you are duct-taping custom fixes where a native way exists (the Stuck lenses in `.agents/lenses.md`), instrument, and gather the missing evidence. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. A failure is diagnosed and fixed; a fix that forces a redesign returns to the plan.
+**Implement and test.** Before writing tests, name the seams under test in the plan, the lane brief, or the Fix report, each with one line on what it catches and what it misses, and build in vertical slices: one test and its implementation at a time. Tie every fix to observed evidence — a reproduced defect, or system, user, log, or test output. A theory read from the code suffices to act on; a hunch does not, so instrument. A fix that fails falsifies its theory: after two, stop changing code, ask whether you are duct-taping custom fixes where a native way exists (the Stuck lens in `.agents/lenses.md`), instrument, and gather the missing evidence. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. A failure is diagnosed and fixed; a fix that forces a redesign returns to the plan.
 
 ### Fix
 
-Reproduce first, by the loop in the `diagnosing-bugs` skill, and report both the root and the proximate cause before changing code. When something that worked stops working, the most recent change is the first hypothesis: find it before offering a workaround, after any critical containment. A defect that returns every release is a missing invariant: encode it (Gates over prose). Then run Build from "Implement and test" onward at the same stakes. **Delegate** reproduction and instrumentation to a cell when the defect spans systems, and independent review to a reviewer cell. Critical adds containment before diagnosis, the operator's OK before the fix, and the critical Build reviews.
+Reproduce first: build one command that goes red on this defect — a failing test, a script, a request — and report both the root and the proximate cause. When no such command can be built, that run does not make the cause plain, or a fix has failed, work the `diagnosing-bugs` skill's loop. When something that worked stops working, the most recent change is the first hypothesis: find it before offering a workaround, after any critical containment. A defect that returns every release is a missing invariant: encode it (Gates over prose). Then run Build from "Implement and test" onward at the same stakes. **Delegate** reproduction and instrumentation to a cell when the defect spans systems, and independent review to a reviewer cell. Critical adds containment before diagnosis, the operator's OK before the fix, and the critical Build reviews.
 
 ### Answer, Ship, Operate
 
