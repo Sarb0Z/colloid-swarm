@@ -12,6 +12,7 @@ paths:
 - Scope each rule to the exact case it holds for. An over-broad rule that fires on legitimate patterns trains the reader to ignore the whole class.
 
 ## Abnormal Cases and Rationale
+- The severity rules beside the table, and the *Needs validation* section, adapt Cloudflare's `security-audit-skill`; `.agents/licenses/cloudflare-security-audit-skill-MIT.md` records the source and each difference.
 - The references reason over source (SAST). Runtime attack classes (cache-deception, live BOLA/OTP probing) are documented for recognition only. This skill does not drive a live target — a separate tool owns dynamic testing. Do not add active-probe procedures here.
 
 ## Out of Scope

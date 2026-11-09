@@ -51,6 +51,17 @@ Use these consistently in the report:
 | 🔵 LOW | Minor info leak, missing security header, UX-only issue |
 | ⚪ INFO | Best practice gap, not exploitable but worth fixing |
 
+Rate the control that failed, not the defect class:
+
+- **A missing second layer is not a vulnerability.** If Layer A prevents the
+  attack, the absence of Layer B is a hardening note, rated INFO at most.
+- **HIGH or MEDIUM?** Ask whether the demonstrated result fully defeats an
+  explicit control for an action with real consequences, or only weakens it.
+  Full defeat is HIGH or above; weakening is MEDIUM or below.
+- **Unprovable from source is not a severity.** A lead whose exploitability
+  depends on runtime state, configuration, or deployment you cannot read goes
+  under *Needs validation* with the exact blocker, unrated.
+
 ### Report format
 
 Keep `security-audit-report.md` updated continuously, in this structure:
@@ -80,9 +91,15 @@ Keep `security-audit-report.md` updated continuously, in this structure:
 ---
 [repeat for each finding]
 
+## Needs validation
+[One entry per unrated lead: the claim, file:line, and the exact runtime fact that would confirm or refute it]
+
 ## Coverage Log
 [List each feature/module audited and the date/time it was completed]
 ```
+
+An earlier Coverage Log entry contributes only the modules it records and
+their gaps, never an implied "the rest is fine".
 
 ## Standing invariant — never trust the client
 

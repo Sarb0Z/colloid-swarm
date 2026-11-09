@@ -453,7 +453,7 @@ Only the lead holds a gate; a subagent returns to the lead and never asks the op
 
 ## Delegation
 
-Delegation earns its handoff cost chiefly on large units — feature implementation, research, QA, planning — and wherever parallelism, context isolation, or independent verification does. Bounded, well-specified work (clear input, output, and acceptance) goes to the lowest capability tier that can solve and verify it: **light** for mechanical or bounded read-only work; **medium** for implementation, tests, scoped debugging, and QA; **heavy** for well-specified work too broad or subtle for medium, or that failed there. Complex or critical work — an architecture, a defect that survived two fixes — goes to **frontier** from the start, not after a cheaper tier fails. The lead keeps the plan, the integration of results, and every call that needs its conversation&#x27;s context. Choose the shape first, by the workloop skill&#x27;s guide: one writer by default, read-only cells around it. Writers working at once go through one `workloop` run: a worktree each, and the merged result is verified once. While implementation-ready work exists and two or more writers run at once, at least half of all active cells, rounded up, are writers: every cell counts toward the total, and only a cell that changes files the work ships, code, tests, or documentation, counts as a writer. Personas — `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher` — are hot paths, not a closed taxonomy; otherwise dispatch a generic cell with a task-specific role, capabilities, tier, and effort. Grant each cell only the context and capabilities it needs; a default-off capability requires a user request and a project-scoped enablement. A handoff states decisions, paths, and one next step; a result that changed state carries a runnable acceptance. Each host binds tiers to models in its adapter.
+Delegation earns its handoff cost chiefly on large units — feature implementation, research, QA, planning — and wherever parallelism, context isolation, or independent verification does. Bounded, well-specified work (clear input, output, and acceptance) goes to the lowest capability tier that can solve and verify it: **light** for mechanical or bounded read-only work; **medium** for implementation, tests, scoped debugging, and QA; **heavy** for well-specified work too broad or subtle for medium, or that failed there. Complex or critical work — an architecture, a defect that survived two fixes — goes to **frontier** from the start, not after a cheaper tier fails. The lead keeps the plan, the integration of results, and every call that needs its conversation&#x27;s context. Choose the shape first, by the workloop skill&#x27;s guide: one writer by default, read-only cells around it. A multi-cell delegation is one `workloop` run: writers working at once get a worktree each, and the merged result is verified once. While implementation-ready work exists and two or more writers run at once, at least half of all active cells, rounded up, are writers: every cell counts toward the total, and only a cell that changes files the work ships, code, tests, or documentation, counts as a writer. Personas — `implementer`, `mechanic`, `explorer`, `qa-verifier`, `reviewer`, `researcher` — are hot paths, not a closed taxonomy; otherwise dispatch a generic cell with a task-specific role, capabilities, tier, and effort. Grant each cell only the context and capabilities it needs; a default-off capability requires a user request and a project-scoped enablement. A handoff states decisions, paths, and one next step; a result that changed state carries a runnable acceptance. Each host binds tiers to models in its adapter.
 
 ## Conduct
 
@@ -594,7 +594,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 342 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 364 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -616,6 +616,9 @@ detect:
 #   - Registry MCP servers that are toggled off (name + description), with the
 #     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
+#   - On Claude Code only: each language with a tracked file whose
+#     code-intelligence server cannot start, with its install command
+#     (hooks/lib/lsp-missing.py).
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (AGENTS.md carries only a one-line copy) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
@@ -649,11 +652,12 @@ worklog_detail=&quot;$(printf &#x27;%s\n&#x27; &quot;$worklog&quot; | sed -n &#x
 worklog_grant=&quot;$(printf &#x27;%s\n&#x27; &quot;$worklog&quot; | sed -n &#x27;3p&#x27;)&quot;
 [[ &quot;$session_start_enabled&quot; == &quot;no&quot; &amp;&amp; &quot;$learning_enabled&quot; == &quot;no&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; ]] &amp;&amp; exit 0
 
-parsed=&quot;$(python3 &quot;$lib/payload.py&quot; project_dir source session_id transcript_path)&quot;
+parsed=&quot;$(python3 &quot;$lib/payload.py&quot; project_dir source session_id transcript_path host)&quot;
 proj=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;1p&#x27;)&quot;
 start_source=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;2p&#x27;)&quot;
 session_id=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x27;)&quot;
 transcript=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;4p&#x27;)&quot;
+host=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;5p&#x27;)&quot;
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
 
 # Seed session-wrap&#x27;s baseline with the commit this session STARTS from. Its own
@@ -697,7 +701,7 @@ if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; != &quot;c
   rm -rf &quot;$proj/.agents/.writers-live-$writers_session&quot; &quot;$proj/.agents/.writers-turn-$writers_session&quot; \
          &quot;$proj/.agents/.writers-kinds-$writers_session&quot; \
          &quot;$proj/.agents/.writers-lock-$writers_session&quot; &quot;$proj/.agents/.cells-$writers_session&quot; \
-         &quot;$proj/.agents/.cell-markers-$writers_session&quot; 2&gt;/dev/null || true
+         &quot;$proj/.agents/.cell-markers-$writers_session&quot; &quot;$proj/.agents/.outside-runs-$writers_session&quot; 2&gt;/dev/null || true
 fi
 
 # Worktrees end with the session that made them (worktree_sweep.py). Sessions
@@ -739,7 +743,16 @@ fi
 # Surface disabled registry servers so the model can request only what it needs.
 mcp_off=&quot;&quot;
 if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; ]]; then
-  mcp_off=&quot;$(python3 &quot;$lib/mcp-off.py&quot; &quot;$proj&quot;)&quot;
+  mcp_off=&quot;$(python3 &quot;$lib/mcp-off.py&quot; &quot;$proj&quot;)&quot; \
+    || { echo &quot;session-start: the MCP registry check failed; no switched-off servers are listed this session&quot; &gt;&amp;2; mcp_off=&quot;&quot;; }
+fi
+
+# Name the languages whose code-intelligence server cannot start here. The
+# servers are a Claude Code plugin, so other hosts are not told to install them.
+lsp_missing=&quot;&quot;
+if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; &quot;$host&quot; == &quot;claude&quot; ]]; then
+  lsp_missing=&quot;$(python3 &quot;$lib/lsp-missing.py&quot; &quot;$proj&quot;)&quot; \
+    || { echo &quot;session-start: the code-intelligence check failed; no language-server notice this session&quot; &gt;&amp;2; lsp_missing=&quot;&quot;; }
 fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as
@@ -766,10 +779,12 @@ if [[ &quot;$learning_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lear
 fi
 
 # A run mid-flight is the first thing a resumed lead needs to know about;
-# the digest is the same one workloop-inbox.sh gives at each prompt.
+# the digest is the same one workloop-inbox.sh gives at each prompt. The start
+# source, after the agent id, tells it whether this start ended the session&#x27;s
+# earlier cells (startup, resume) or not (clear, compact).
 workloop_digest=&quot;&quot;
 if [[ -f &quot;$proj/.agents/.workloop-state.json&quot; &amp;&amp; -f &quot;$lib/workloop-inbox.py&quot; ]]; then
-  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; 2&gt;/dev/null || true)&quot;
+  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; &quot;${start_source:-startup}&quot; 2&gt;/dev/null || true)&quot;
 fi
 
 # Installed copies of the output style that say something else. The carrier
@@ -792,7 +807,7 @@ if [[ &quot;$worklog_status&quot; == &quot;ok&quot; &amp;&amp; -f &quot;$worklog
 fi
 
 # Nothing to surface.
-[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
   # One blank line between sections, none before the first.
@@ -929,6 +944,13 @@ EOF
     echo &quot;Registry MCP servers switched off (not connected; the description says why):&quot;
     printf &#x27;%s\n&#x27; &quot;$mcp_off&quot;
     echo &#x27;If the task needs one: run `python3 .agents/mcp.py enable &lt;name&gt;`, then restart the session. Turn it off with `python3 .agents/mcp.py disable &lt;name&gt;`.&#x27;
+  fi
+
+  if [[ -n &quot;$lsp_missing&quot; ]]; then
+    section
+    echo &quot;Code intelligence is off (no LSP tool answers, and edits get no type errors) for:&quot;
+    printf &#x27;%s\n&#x27; &quot;$lsp_missing&quot;
+    echo &#x27;Tell the operator the install command; a restart loads the server. Until then, find definitions and references with Grep.&#x27;
   fi
 )&quot;
 
@@ -1246,11 +1268,12 @@ exec python3 &quot;$lib/worktree-sessions.py&quot; hook --default &quot;${WORKTR
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
               <p class="what">Carries a parallel run&#x27;s messages without polling. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; the lead hears at every prompt which lanes await review, carry a finding, have gone quiet, or are ready to integrate — and a lane whose worker stopped without submitting is reaped.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 196 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 300 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
-Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt;
+Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt;]
 
+The start source is session-start.sh&#x27;s (startup, resume, clear, compact).
 Prints the block, or nothing when there is nothing new. The state file is
 the controller&#x27;s own; this reads it and never writes it. Delivery is
 remembered per agent in &lt;seen-dir&gt;/.inbox-seen-&lt;session&gt;-&lt;agent&gt;, so a
@@ -1261,16 +1284,26 @@ A subagent hears: its host agent id at start, so it can claim its lane with
 that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
 awaiting review, lanes carrying attention, lanes whose heartbeat is stale.
+At a prompt it also hears, run or no run, when the turn that just ended
+dispatched two or more cells outside any run, read once from the
+parallel-writers gate&#x27;s ledger &lt;seen-dir&gt;/.outside-runs-&lt;session&gt; (ruling 36).
+
+The digest judges a composed result from state on every prompt, comparing the
+integration record to each lane&#x27;s accepted tip; `check` judges from Git, also
+comparing live branch tips and the base head. A stale integration can
+therefore read &quot;ready for QA&quot; here until `check` says otherwise. Lane-size
+notes live in workloop_size.py.
 &quot;&quot;&quot;
 
 from __future__ import annotations
 
-import calendar
 import json
 import re
 import sys
 import time
 from pathlib import Path
+
+import worktree_records as wr  # beside this script, so found before the path below is added
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
@@ -1278,12 +1311,13 @@ try:
 except ImportError:  # a trimmed export without the controller still gets the digest
     wd = None  # type: ignore[assignment]
 
+from workloop_size import GitBudget, size_notes, stamp  # noqa: E402
+
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
 # file is written before the host reads the block, so a delivery must never
 # be larger than what is sure to arrive; the rest stays unseen for next time.
 MAX_DELIVER = 8
-
 
 def load(path: Path) -&gt; dict:
     try:
@@ -1291,15 +1325,6 @@ def load(path: Path) -&gt; dict:
     except (OSError, ValueError):
         return {}
     return data.get(&quot;runs&quot;, {}) if isinstance(data, dict) else {}
-
-
-def stamp(value: str | None) -&gt; float | None:
-    if not value:
-        return None
-    try:
-        return float(calendar.timegm(time.strptime(value, &quot;%Y-%m-%dT%H:%M:%SZ&quot;)))
-    except ValueError:
-        return None
 
 
 def live_runs(runs: dict) -&gt; dict:
@@ -1368,8 +1393,81 @@ def dead_claimants(seen_dir: Path, session: str) -&gt; tuple[set[str], set[str]]
     return set(entries), {key for key, value in entries.items() if value == &quot;live&quot;}
 
 
-def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&quot;) -&gt; str:
+def composed_result(run: dict) -&gt; dict | None:
+    &quot;&quot;&quot;The run&#x27;s current composed-test record, or None when absent or stale.
+
+    A one-writer run records it as `verified`; a worktree run as
+    `integration`. Current means it covers each lane&#x27;s accepted tip.
+    &quot;&quot;&quot;
+    lanes = run[&quot;lanes&quot;]
+    tips = {name: lane.get(&quot;accepted_tip&quot;) for name, lane in lanes.items()}
+    if all(lane.get(&quot;place&quot;) == &quot;main&quot; for lane in lanes.values()):
+        record = run.get(&quot;verified&quot;)
+        return record if record and record.get(&quot;lane_tips&quot;) == tips and record.get(&quot;verify&quot;) == run.get(&quot;verify&quot;) else None
+    record = run.get(&quot;integration&quot;)
+    # Current also means the shared paths and rebuild commands it merged with
+    # are the run&#x27;s now (a record from before them reads as none).
+    same_rules = record and record.get(&quot;rebuilt&quot;, {}) == run.get(&quot;rebuild&quot;, {}) and record.get(&quot;shared&quot;, []) == run.get(&quot;shared&quot;, [])
+    return record if record and same_rules and record.get(&quot;lane_heads&quot;) == tips else None
+
+
+def closing_notes(run_name: str, run: dict) -&gt; list[str]:
+    &quot;&quot;&quot;The next closing step once every lane is reviewed, from state alone.&quot;&quot;&quot;
+    lanes = run[&quot;lanes&quot;]
+    if not lanes or not all(lane.get(&quot;state&quot;) == &quot;reviewed&quot; for lane in lanes.values()):
+        return []
+    current = composed_result(run)
+    if all(lane.get(&quot;place&quot;) == &quot;main&quot; for lane in lanes.values()):
+        if current is None or current.get(&quot;result&quot;) != &quot;pass&quot;:
+            return [f&quot;lane reviewed; check {run_name} runs the composed test&quot;]
+    elif current is None:
+        return [f&quot;all lanes reviewed; integrate {run_name}&quot;]
+    elif current.get(&quot;result&quot;) != &quot;pass&quot;:
+        return [&quot;the composed test failed at integrate; see status&quot;]
+    if not run.get(&quot;qa&quot;):
+        return [f&quot;ready for QA; record it with qa {run_name} --evidence &#x27;…&#x27;&quot;]
+    return [f&quot;check {run_name}, then teardown {run_name}&quot;]
+
+
+def cell_notes(run_name: str, run: dict, ended: bool) -&gt; list[str]:
+    &quot;&quot;&quot;Cells still out, with the remedy that fits the moment: while their session may
+    still run them the lead records each as it comes back; once that session&#x27;s process
+    has ended (`ended`), no cell outlives it, so each is failed or sent out again.&quot;&quot;&quot;
+    cells = run.get(&quot;cells&quot;) or {}
+    out = sorted(name for name, cell in cells.items() if cell.get(&quot;state&quot;) == &quot;out&quot;)
+    if not out:
+        # A run declared without --verify is finished once every cell is back (ruling 35).
+        # debt: fanout-rule-copies -- completion_problems and the lead-less close read this rule too.
+        return [f&quot;every cell is back; check {run_name}, then teardown {run_name}&quot;] if cells and not run.get(&quot;verify&quot;) else []
+    name = out[0] if len(out) == 1 else &quot;&lt;name&gt;&quot;
+    remedy = (f&quot;no cell outlives its session: returned {run_name} {name} --failed &#x27;&lt;why&gt;&#x27;, or brief {run_name} {name} --again&quot;
+              if ended else f&quot;returned {run_name} {name} when {&#x27;it&#x27; if len(out) == 1 else &#x27;each&#x27;} comes back&quot;)
+    return [f&quot;{len(out)} cell{&#x27;s&#x27; if len(out) &gt; 1 else &#x27;&#x27;} out ({&#x27;, &#x27;.join(out)}); {remedy}&quot;]
+
+
+def ended_runs(runs: dict, seen_dir: Path, session: str, source: str) -&gt; set[str]:
+    &quot;&quot;&quot;The runs whose cells out no process still runs, at a session start.
+
+    A startup or resume begins a new process, so this session&#x27;s earlier cells are
+    gone; a compaction or /clear ends none. A run another live session leads, by
+    the worktree records the session-start sweep reads, keeps its cells, unless
+    this session leads it too.&quot;&quot;&quot;
+    if source not in (&quot;startup&quot;, &quot;resume&quot;):
+        return set()
+    me, mine, theirs = wr.session_key(session), set(), set()
+    for path in wr.records_dir(seen_dir.parent).glob(&quot;*.jsonl&quot;):
+        entries = wr.load(path)
+        led = {entry[&quot;run&quot;] for entry in entries if entry.get(&quot;run&quot;)}
+        if path.stem == me:
+            mine |= led
+        elif wr.alive(wr.last_host(entries)):
+            theirs |= led
+    return {name for name in runs if name in mine or name not in theirs}
+
+
+def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&quot;, ended: frozenset = frozenset()) -&gt; str:
     now = time.time()
+    git = GitBudget()
     lines: list[str] = []
     ours, live = dead_claimants(seen_dir, session) if seen_dir else (set(), set())
     for run_name, run in sorted(runs.items()):
@@ -1407,8 +1505,7 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&q
         pending = [m[&quot;id&quot;] for m in run.get(&quot;messages&quot;, []) if m[&quot;requires_ack&quot;] and not m.get(&quot;acknowledged_at&quot;)]
         if pending:
             notes.append(f&quot;{len(pending)} message(s) await acknowledgement&quot;)
-        if run.get(&quot;integration&quot;) is None and len(run[&quot;lanes&quot;]) &gt; 1 and all(l.get(&quot;state&quot;) == &quot;reviewed&quot; for l in run[&quot;lanes&quot;].values()):
-            notes.append(f&quot;all lanes reviewed; integrate {run_name}&quot;)
+        notes += cell_notes(run_name, run, run_name in ended) + closing_notes(run_name, run) + size_notes(git, run, now)
         if notes:
             lines.append(f&quot;WORKLOOP {run_name}: &quot; + &quot;; &quot;.join(notes) + f&quot;. Status: .agents/workloop.py status {run_name}&quot;)
     orphans = wd.foreign_orphans() if (runs and wd is not None) else []
@@ -1417,15 +1514,39 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&q
     return &quot;\n&quot;.join(lines)
 
 
+OUTSIDE_RUNS_NOTE = (&quot;WORKLOOP: {count} cells last turn outside any run. A multi-cell delegation is one workloop run: &quot;
+                     &quot;.agents/workloop.py init &lt;run&gt; --objective &#x27;…&#x27; --acceptance &#x27;…&#x27; (with --verify &#x27;&lt;test&gt;&#x27; and --lane for a writer), &quot;
+                     &quot;then add-cell &lt;run&gt; &lt;name&gt; --role research|review|qa --model &lt;model&gt; and dispatch what it prints.&quot;)
+
+
+def outside_runs_note(seen_dir: Path, session: str) -&gt; str:
+    &quot;&quot;&quot;The turn that just ended, counted from the gate&#x27;s ledger of dispatches with no run
+    header (&quot;&lt;prompt id&gt;\\t&lt;tool use id&gt;&quot; per line) and consumed: the last prompt&#x27;s distinct
+    dispatches, named at two or more (ruling 36). Older lines were a turn already reported.&quot;&quot;&quot;
+    path = seen_dir / f&quot;.outside-runs-{session}&quot;
+    try:
+        lines = [line.split(&quot;\t&quot;, 1) for line in path.read_text().splitlines() if &quot;\t&quot; in line]
+    except OSError:
+        return &quot;&quot;
+    try:
+        path.unlink()
+    except OSError as error:
+        print(f&quot;workloop-inbox: could not remove {path}: {error}&quot;, file=sys.stderr)
+    if not lines:
+        return &quot;&quot;
+    count = len({tool_use for prompt, tool_use in lines if prompt == lines[-1][0]})
+    return OUTSIDE_RUNS_NOTE.format(count=count) if count &gt;= 2 else &quot;&quot;
+
+
 def main() -&gt; None:
     state_path, seen_dir, session, event, agent_id = (Path(sys.argv[1]), Path(sys.argv[2]), *sys.argv[3:6])
     if agent_id:
         record_cell(seen_dir, session, agent_id, event)
     runs = live_runs(load(state_path))
-    if not runs:
-        return
     safe = re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, session)
     if agent_id:
+        if not runs:
+            return
         seen_path = seen_dir / f&quot;.inbox-seen-{safe}-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, agent_id)}&quot;
         try:
             seen = set(seen_path.read_text().split())
@@ -1435,7 +1556,12 @@ def main() -&gt; None:
         if delivered:
             seen_path.write_text(&quot;\n&quot;.join(sorted(seen | delivered)) + &quot;\n&quot;)
     else:
-        block = main_block(runs, seen_dir, session)
+        # The count stands with no run and no state file: the note is for a
+        # lead who opened no run.
+        outside = outside_runs_note(seen_dir, safe) if event == &quot;UserPromptSubmit&quot; else &quot;&quot;
+        source = sys.argv[6] if len(sys.argv) &gt; 6 and event == &quot;SessionStart&quot; else &quot;&quot;
+        ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
+        block = &quot;\n&quot;.join(part for part in (outside, main_block(runs, seen_dir, session, ended) if runs else &quot;&quot;) if part)
     if block:
         print(block)
 
@@ -2658,37 +2784,36 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">wait-gate</span><span class="badge gate">gate</span></div>
               <p class="what">No blind waiting. Refuses a main-agent <code>sleep</code> over 5&nbsp;s, a sleep that polls a background task&rsquo;s output, and a process started with a bare <code>&amp;</code>; the denial names the wait that ends when the thing happens.</p>
               <div class="io"><b>in</b> {command, run_in_background} &nbsp;→&nbsp; <b>out</b> exit 2 + remedy | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 207 lines</span></summary><div class="srcpath">.agents/hooks/lib/wait-gate.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 262 lines</span></summary><div class="srcpath">.agents/hooks/lib/wait-gate.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command waits blind, and say what to do instead.
 
 Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;, &quot;run_in_background&quot;: bool,
-&quot;agent_id&quot;: &quot;&lt;id of the spawned cell, empty for the lead&gt;&quot;}
+&quot;timeout&quot;: &lt;Bash&#x27;s timeout parameter in ms, or null&gt;}
 Output: exit 2 and the remedy on stderr when a rule fires; exit 0 otherwise.
 
 A foreground `sleep` holds the session and learns nothing; a bare `&amp;` starts a
 process the host cannot see, so nothing reports when it ends and the agent
-falls back to sleeping and tailing its log. Three shapes are refused:
+falls back to sleeping and tailing its log. Every agent, lead or spawned cell,
+gets the same rules, checked in this order:
 
-* sleeps longer than SHORT seconds, summed over the top level, or any single
-  one inside a loop body or an `sh -c` payload;
 * any sleep in a command that reads a host task&#x27;s output file, which the host
   already reports on completion;
+* a sleep whose length cannot be read (`sleep $s`);
+* sleeps summed over the top level, or any one inside a loop (condition or body) or an
+  `sh -c` payload, longer than SHORT seconds;
+* a sleep inside a loop body or an `sh -c` payload when Bash&#x27;s timeout
+  parameter is above its 2-minute default, since the loop can then hold the
+  session for that long;
 * a segment backgrounded with `&amp;` in a command that never runs `wait`.
 
-The lead and a cell get different remedies, since only a cell cannot end its turn
-to wait. Bash&#x27;s own timeout ends a call after at most 10 minutes, so the second
-rule does not apply to a cell: a poll on a task&#x27;s output file passes while no
-sleep in it is longer than SHORT seconds. Nothing here checks that a loop carries
-its own cap; a loop of short sleeps, for lead or cell, is bounded only by that
-timeout.
-
 A short sleep passes: `kill 123; sleep 2` waits for a port to free, and
-`until curl -sf ...; do sleep 2; done` ends the moment the condition holds.
-Heredoc bodies are data, as in guard-destructive.
+`until curl -sf ...; do sleep 2; done` ends the moment the condition holds,
+under the default limit. Heredoc bodies are data, as in guard-destructive.
 &quot;&quot;&quot;
 
 import importlib.util
 import json
+import math
 import os
 import re
 import shlex
@@ -2699,22 +2824,18 @@ TASK_OUTPUT = re.compile(r&quot;/tasks/[A-Za-z0-9_-]+\.output\b&quot;)
 DURATION = re.compile(r&quot;^(\d+(?:\.\d*)?|\.\d+)([smhd]?)$&quot;)
 SCALE = {&quot;&quot;: 1, &quot;s&quot;: 1, &quot;m&quot;: 60, &quot;h&quot;: 3600, &quot;d&quot;: 86400}
 WRAPPERS = {&quot;timeout&quot;, &quot;gtimeout&quot;, &quot;nice&quot;, &quot;stdbuf&quot;}
-PREFIXES = {&quot;then&quot;, &quot;else&quot;, &quot;elif&quot;, &quot;{&quot;, &quot;}&quot;, &quot;!&quot;, &quot;time&quot;, &quot;nohup&quot;, &quot;command&quot;, &quot;builtin&quot;, &quot;exec&quot;}
+PREFIXES = {&quot;if&quot;, &quot;then&quot;, &quot;else&quot;, &quot;elif&quot;, &quot;{&quot;, &quot;}&quot;, &quot;!&quot;, &quot;time&quot;, &quot;nohup&quot;, &quot;command&quot;, &quot;builtin&quot;, &quot;exec&quot;}
 
-LEAD_WAIT = &quot;&quot;&quot;Pick the wait that ends with the event:
-- A background shell or cell you started: end your turn. The harness re-invokes you when it finishes; report then.
-- A process you are about to start (tests, a build, a server): run it as its own Bash call with run_in_background: true. You are notified when it exits, and TaskStop stops it.
-- A condition (a port answers, a file appears): poll briefly under a cap that reports how it ended, such as for i in $(seq 60); do curl -sf http://localhost:3000 &gt;/dev/null &amp;&amp; break; sleep 2; done; curl -sf http://localhost:3000 &gt;/dev/null &amp;&amp; echo up || echo down.
+DEFAULT_TIMEOUT_MS = 120000  # Claude Code&#x27;s Bash default when no timeout is given
+MAX_TIMEOUT_MS = 600000  # the host&#x27;s ceiling on Bash&#x27;s timeout parameter
+
+WAIT = &quot;&quot;&quot;Pick the wait that ends with the event:
+- A background shell or agent you started: end your turn. The harness wakes you with its result, a spawned agent included.
+- A command you are about to run: up to 10 minutes in the foreground, with Bash&#x27;s timeout parameter covering it. A longer one, or a server or watcher: its own Bash call with run_in_background: true, stopped with TaskStop when done.
+- A condition (a port answers, a file appears) that holds within 2 minutes: its own call under the default limit, with a cap that reports how it ended: for i in $(seq 30); do curl -sf -m 1 http://localhost:3000 &gt;/dev/null &amp;&amp; break; sleep 2; done; curl -sf -m 1 http://localhost:3000 &gt;/dev/null &amp;&amp; echo up || echo down. A condition that may take longer: that poll with run_in_background: true.
+- A short poll before long work (a build, a test run): split it, the poll in one call and the work in the next.
 - CI or a deploy: gh run watch &lt;id&gt; --exit-status with run_in_background: true.
-Sleeps of 5 s or less pass.&quot;&quot;&quot;
-
-CELL_WAIT = &quot;&quot;&quot;Pick the wait that ends with the event:
-- A command that ends within 10 minutes: run it in the foreground and set Bash&#x27;s timeout parameter to cover it (the default is 2 minutes; the ceiling is 600000).
-- A server, a watcher or a longer command: start it as its own Bash call with run_in_background: true, written as { &lt;cmd&gt;; } 2&gt;&amp;1; echo &quot;exit=$?&quot; (set -o pipefail first when &lt;cmd&gt; is a pipeline, whose status is otherwise its last stage&#x27;s). You are told when it ends with your next tool result, so keep working; a command that is killed writes no marker, and that notice is its end.
-- With nothing left to do, wait for its end marker: for i in $(seq 110); do grep -q &#x27;^exit=&#x27; &lt;output file&gt; &amp;&amp; break; sleep 5; done; grep &#x27;^exit=&#x27; &lt;output file&gt; || echo still-running, run with the timeout parameter at 600000, and repeat while it prints still-running.
-- A condition (a port answers): for i in $(seq 60); do curl -sf &lt;url&gt; &gt;/dev/null &amp;&amp; break; sleep 2; done; curl -sf &lt;url&gt; &gt;/dev/null &amp;&amp; echo up || echo down.
-- Stop what you started with TaskStop before you return.
-Sleeps of 5 s or less pass.&quot;&quot;&quot;
+A sleep of 5 s or less, written as a number, passes, except inside a loop under a raised time limit.&quot;&quot;&quot;
 
 
 def load(name, file):
@@ -2780,9 +2901,63 @@ def strip_comments(text):
     return &quot;&quot;.join(out)
 
 
-def scan(text, nested=False):
-    &quot;&quot;&quot;(top-level sleep seconds, longest sleep in a loop or payload, backgrounded, waits).&quot;&quot;&quot;
-    top, inner, background, waits, depth = 0.0, 0.0, [], False, 0
+def note_sleep(found, words, looped):
+    &quot;&quot;&quot;Record one `sleep` word list in `found`.&quot;&quot;&quot;
+    length = seconds(words)
+    found[&quot;slept&quot;] = True
+    if length is None:
+        found[&quot;unreadable&quot;] = True
+        return
+    if looped:
+        found[&quot;looped&quot;] = True
+        found[&quot;inner&quot;] = max(found[&quot;inner&quot;], length)
+    else:
+        found[&quot;top&quot;] += length
+
+
+def merge(found, payload):
+    &quot;&quot;&quot;Fold a `sh -c` payload&#x27;s findings into its parent&#x27;s.
+
+    The payload runs in sequence with its parent, so its top-level sleeps add.&quot;&quot;&quot;
+    found[&quot;top&quot;] += payload[&quot;top&quot;]
+    found[&quot;inner&quot;] = max(found[&quot;inner&quot;], payload[&quot;inner&quot;])
+    for key in (&quot;slept&quot;, &quot;unreadable&quot;, &quot;looped&quot;):
+        found[key] = found[key] or payload[key]
+
+
+def enter(stack, words):
+    &quot;&quot;&quot;Strip a segment&#x27;s leading loop and prefix words, tracking loop frames.
+
+    A frame is &quot;cond&quot; (a `while`/`until` condition, rerun every pass), &quot;head&quot; (a
+    `for`/`select` list, evaluated once) or &quot;body&quot;; `do` turns the open frame
+    into a body and `done` (handled by the caller) closes one.&quot;&quot;&quot;
+    while words:
+        word = words[0]
+        if word in (&quot;while&quot;, &quot;until&quot;):
+            stack.append(&quot;cond&quot;)
+        elif word in (&quot;for&quot;, &quot;select&quot;):
+            stack.append(&quot;head&quot;)
+            return []
+        elif word == &quot;do&quot;:
+            if stack and stack[-1] != &quot;body&quot;:
+                stack[-1] = &quot;body&quot;
+            else:
+                stack.append(&quot;body&quot;)
+        elif word not in PREFIXES:
+            break
+        words = words[1:]
+    return words
+
+
+def scan(text):
+    &quot;&quot;&quot;What a command&#x27;s sleeps and backgrounding look like, as a dict.
+
+    Keys: top (summed top-level sleep seconds), inner (longest sleep in a loop),
+    looped (any sleep there, at any length), slept (any sleep at all),
+    unreadable (a sleep length the gate cannot read), background, waits.&quot;&quot;&quot;
+    found = {&quot;top&quot;: 0.0, &quot;inner&quot;: 0.0, &quot;looped&quot;: False, &quot;slept&quot;: False,
+             &quot;unreadable&quot;: False, &quot;background&quot;: [], &quot;waits&quot;: False}
+    stack = []
     # Comment text is prose; an `&amp;` in it is not an operator.
     code = strip_comments(parser.strip_heredocs(text))
     for segment, operator in parser.split_operators(code):
@@ -2791,52 +2966,58 @@ def scan(text, nested=False):
         except ValueError:
             continue
         words, _ = parser.cut_redirects(words)
-        while words and words[0] in PREFIXES | {&quot;do&quot;}:
-            depth += words.pop(0) == &quot;do&quot;
+        words = enter(stack, words)
         if words and words[0] == &quot;done&quot;:
-            depth = max(0, depth - 1)
+            stack = stack[:-1]
             words = words[1:]
         # `( ... ) &amp;` leaves an empty segment between the `)` and the `&amp;`.
         if operator.startswith(&quot;&amp;&quot;) and not operator.startswith(&quot;&amp;&amp;&quot;):
-            background.append(segment or &quot;( ... )&quot;)
+            found[&quot;background&quot;].append(segment or &quot;( ... )&quot;)
         words = unwrap(parser.lead(words))
         if not words:
             continue
         name = os.path.basename(words[0])
-        if name == &quot;wait&quot;:
-            waits = True
+        found[&quot;waits&quot;] = found[&quot;waits&quot;] or name == &quot;wait&quot;
         if name == &quot;sleep&quot;:
-            length = seconds(words) or 0.0
-            if depth or nested:
-                inner = max(inner, length)
-            else:
-                top += length
-        if name in parser.SHELLS and &quot;-c&quot; in words and words.index(&quot;-c&quot;) + 1 &lt; len(words):
-            _, deeper, _, _ = scan(words[words.index(&quot;-c&quot;) + 1], nested=True)
-            inner = max(inner, deeper)
-    return top, inner, background, waits
+            note_sleep(found, words, any(frame != &quot;head&quot; for frame in stack))
+        body = parser.shell_body(words[1:]) if name in parser.SHELLS else None
+        if body is not None:
+            merge(found, scan(body))
+    return found
 
 
-def verdict(command, agent):
-    &quot;&quot;&quot;The reason to block, or None. `agent` is &quot;lead&quot; or &quot;cell&quot;.&quot;&quot;&quot;
+def limit_ms(timeout):
+    &quot;&quot;&quot;Bash&#x27;s time limit in ms, at most the host&#x27;s ceiling; no usable number is the default.&quot;&quot;&quot;
+    usable = (isinstance(timeout, (int, float)) and not isinstance(timeout, bool)
+              and math.isfinite(timeout) and timeout &gt; 0)
+    return min(timeout, MAX_TIMEOUT_MS) if usable else DEFAULT_TIMEOUT_MS
+
+
+def verdict(command, timeout):
+    &quot;&quot;&quot;The reason to block, or None. `timeout` is Bash&#x27;s parameter in ms.&quot;&quot;&quot;
     if &quot;sleep&quot; not in command and &quot;&amp;&quot; not in command:
         return None
-    cell = agent == &quot;cell&quot;
-    wait = CELL_WAIT if cell else LEAD_WAIT
-    top, inner, background, waits = scan(command)
-    if not cell and (top or inner) and TASK_OUTPUT.search(command):
+    found = scan(command)
+    if found[&quot;slept&quot;] and TASK_OUTPUT.search(command):
         return (&quot;Blocked: this sleeps and then reads a background task&#x27;s output file. &quot;
                 &quot;The harness notifies you when that task finishes; end your turn and read the file then.&quot;)
-    if top &gt; SHORT or inner &gt; SHORT:
-        length = top if top &gt; SHORT else inner
-        return f&quot;Blocked: sleeping {length:g} s holds the session and learns nothing. {wait}&quot;
-    if background and not waits:
-        shown = background[0] if len(background[0]) &lt;= 80 else background[0][:77] + &quot;...&quot;
-        reason = (&quot;Blocked: `&quot; + shown + &quot; &amp;` starts a process the harness cannot see: nothing &quot;
-                  &quot;reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash &quot;
-                  &quot;call with run_in_background: true; to run commands in parallel inside one call, end &quot;
-                  &quot;the command with `wait`.&quot;)
-        return f&quot;{reason} {wait}&quot; if cell else reason
+    if found[&quot;unreadable&quot;]:
+        return (&quot;Blocked: sleeping for a length the gate cannot read can hold the session for minutes. &quot;
+                &quot;Write the length as a number of 5 s or less. &quot; + WAIT)
+    if found[&quot;top&quot;] &gt; SHORT or found[&quot;inner&quot;] &gt; SHORT:
+        length = found[&quot;top&quot;] if found[&quot;top&quot;] &gt; SHORT else found[&quot;inner&quot;]
+        return f&quot;Blocked: sleeping {length:g} s holds the session and learns nothing. {WAIT}&quot;
+    limit = limit_ms(timeout)
+    if found[&quot;looped&quot;] and limit &gt; DEFAULT_TIMEOUT_MS:
+        return (f&quot;Blocked: this polls with a sleep in a loop under a {limit / 1000:g} s time limit, &quot;
+                f&quot;so it can hold the session that long. {WAIT}&quot;)
+    if found[&quot;background&quot;] and not found[&quot;waits&quot;]:
+        shown = found[&quot;background&quot;][0]
+        shown = shown if len(shown) &lt;= 80 else shown[:77] + &quot;...&quot;
+        return (&quot;Blocked: `&quot; + shown + &quot; &amp;` starts a process the harness cannot see: nothing &quot;
+                &quot;reports when it ends, and the teardown gate cannot stop it. Run it as its own Bash &quot;
+                &quot;call with run_in_background: true; to run commands in parallel inside one call, end &quot;
+                &quot;the command with `wait`.&quot;)
     return None
 
 
@@ -2856,7 +3037,7 @@ def main():
     command = payload.get(&quot;command&quot;)
     if not isinstance(command, str) or not command.strip():
         return 0
-    reason = verdict(command, &quot;cell&quot; if str(payload.get(&quot;agent_id&quot;) or &quot;&quot;).strip() else &quot;lead&quot;)
+    reason = verdict(command, payload.get(&quot;timeout&quot;))
     if not reason:
         return 0
     print(reason, file=sys.stderr)
@@ -2985,7 +3166,7 @@ PY
               <div class="top"><span class="id">parallel-writers-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Denies a second writing cell while one is already live, so two agents never edit one checkout at once. The way through is a coordinated run, where each writer gets its own provisioned worktree and the composed result is verified once, or a <code>WORKSPACE:</code> line placing the cell in a directory that is no copy of this repository; it may then write anywhere but the checkout. A cell that only reads says so by opening its prompt with <code>READ-ONLY</code>; the lead&#x27;s own edit is denied while a writer is live in the checkout.</p>
               <div class="io"><b>in</b> {subagent_type, prompt} &nbsp;→&nbsp; <b>out</b> deny + the workloop commands | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 502 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 530 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: two writers never edit one checkout at once.
 #
 # A single writer edits the main tree — that is the linear case and needs no
@@ -3011,7 +3192,15 @@ PY
 # lane all count as outside; a submodule stays the checkout&#x27;s.
 #
 # Seven events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
+#   PreToolUse Agent — a dispatch. One the gate lets through that carries no
+#                  WORKLOOP … BRIEF header is noted in
+#                  .agents/.outside-runs-&lt;session&gt; as &quot;&lt;prompt_id&gt;
+#                  &lt;tool_use_id&gt;&quot;, unless its type is one of the host&#x27;s own
+#                  helpers (HELPERS); a refused one is not. The lead&#x27;s digest
+#                  (hooks/lib/workloop-inbox.py) counts a turn&#x27;s lines at the
+#                  next prompt and names a turn with two or more, a multi-cell
+#                  delegation outside a run (ruling 36). Nothing is refused for
+#                  it. A read-only type passes. A prompt that
 #                  opens with READ-ONLY passes, as does one that opens with
 #                  NOTES-ONLY where the repository has a product folder
 #                  (hooks.product_folder.enabled; denied where it has none,
@@ -3111,6 +3300,8 @@ lib=&quot;$repo/.agents/hooks/lib&quot;
 cfg_path=&quot;$repo/.agents/config.json&quot;
 
 READERS=&quot;explore explorer plan researcher reviewer qa-verifier claude-code-guide statusline-setup&quot;
+# The host&#x27;s own helpers: no delegation of the lead&#x27;s, so never a cell outside a run.
+HELPERS=&quot;claude-code-guide statusline-setup&quot;
 
 payload=&quot;$(cat)&quot;
 # A malformed toggle keeps the gate on: a broken gate must never silently
@@ -3118,7 +3309,7 @@ payload=&quot;$(cat)&quot;
 enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; hooks.parallel_writers.enabled=true 2&gt;/dev/null || echo yes)&quot;
 [[ &quot;$enabled&quot; == &quot;no&quot; ]] &amp;&amp; exit 0
 
-{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; read -r task_id; } &lt; &lt;(
+{ read -r proj; read -r event; read -r session; read -r prompt_id; read -r agent_id; read -r agent_type; read -r tool_name; read -r tool_type; read -r kind; read -r outside; read -r tool_use_id; read -r transcript; read -r refusal; read -r task_id; read -r header; } &lt; &lt;(
   printf &#x27;%s&#x27; &quot;$payload&quot; | python3 &quot;$lib/writers-payload.py&quot;)
 
 [[ -n &quot;$session&quot; &amp;&amp; -n &quot;$proj&quot; ]] || exit 0
@@ -3127,12 +3318,14 @@ turn=&quot;$proj/.agents/.writers-turn-$session&quot;
 lock=&quot;$proj/.agents/.writers-lock-$session&quot;
 kinds=&quot;$proj/.agents/.writers-kinds-$session&quot;
 markers=&quot;$proj/.agents/.cell-markers-$session&quot;
+outside_runs=&quot;$proj/.agents/.outside-runs-$session&quot;
 
-is_reader() {
+named_in() {  # &lt;type&gt; &lt;list&gt; -&gt; 0 when the type, case aside, is in the list
   local t; t=&quot;$(printf &#x27;%s&#x27; &quot;$1&quot; | tr &#x27;[:upper:]&#x27; &#x27;[:lower:]&#x27;)&quot;
-  for r in $READERS; do [[ &quot;$t&quot; == &quot;$r&quot; ]] &amp;&amp; return 0; done
+  for r in $2; do [[ &quot;$t&quot; == &quot;$r&quot; ]] &amp;&amp; return 0; done
   return 1
 }
+is_reader() { named_in &quot;$1&quot; &quot;$READERS&quot;; }
 
 # mkdir is the atomic test-and-set stock macOS has. The hold is milliseconds,
 # so a lock untouched for two minutes (macOS find counts whole minutes, so
@@ -3393,6 +3586,15 @@ live_names() {
   printf &#x27;%s&#x27; &quot;$out&quot;
 }
 
+# Notes an admitted dispatch with no run header for the lead&#x27;s digest; called
+# at each exit that lets a dispatch through, never on a denial, so no refused
+# dispatch is counted. A failed append is reported and changes no decision.
+note_outside() {
+  [[ &quot;$header&quot; != yes ]] &amp;&amp; ! named_in &quot;$tool_type&quot; &quot;$HELPERS&quot; || return 0
+  printf &#x27;%s\t%s\n&#x27; &quot;$prompt_id&quot; &quot;$tool_use_id&quot; &gt;&gt;&quot;$outside_runs&quot; ||
+    echo &quot;parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it.&quot; &gt;&amp;2
+}
+
 SWEPT=&quot;The gate dropped every live writer that finished (SubagentStop), died of an API error or usage limit (StopFailure), was stopped (TaskStop, or an interruption closing its transcript), or whose metadata names a READ-ONLY, NOTES-ONLY or OUTSIDE dispatch, and brought back each that died or was swept and has written to its transcript since&quot;
 
 case &quot;$event&quot; in
@@ -3406,12 +3608,17 @@ case &quot;$event&quot; in
         fi
         exit 0
       fi
-      is_reader &quot;$tool_type&quot; &amp;&amp; exit 0
+      if is_reader &quot;$tool_type&quot;; then
+        note_outside
+        exit 0
+      fi
       take_lock
       if [[ &quot;$kind&quot; != &quot;plain&quot; ]]; then
         marker=&quot;$kind&quot;; [[ &quot;$kind&quot; == &quot;brief&quot; || &quot;$kind&quot; == &quot;workspace&quot; ]] &amp;&amp; marker=outside
         if ! note_turn &quot;$prompt_id&quot; || ! python3 &quot;$lib/cell_markers.py&quot; record &quot;$proj&quot; &quot;$session&quot; &quot;$tool_use_id&quot; &quot;$marker&quot;; then
           deny &quot;The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold.&quot;
+        else
+          note_outside
         fi
         exit 0
       fi
@@ -3430,6 +3637,8 @@ case &quot;$event&quot; in
       fi
       if ! count_turn &quot;$prompt_id&quot; dispatched || ! note_turn &quot;$prompt_id&quot; &quot;$tool_type&quot;; then
         deny &quot;The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory&#x27;s permissions and retry.&quot;
+      else
+        note_outside
       fi
     elif [[ -n &quot;$agent_id&quot; ]]; then
       # A cell&#x27;s own write: its dispatch marker decides, before any bookkeeping.
@@ -5428,7 +5637,7 @@ esac
               <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container or a booted emulator once the work is finished. The block names each open resource and the command that closes it.</p>
               <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 669 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 701 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
@@ -5735,6 +5944,13 @@ PROC_CLOSE = re.compile(
 
 BROWSER_OPEN = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__browser_(navigate|tabs)$&quot;)
 BROWSER_CLOSE = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__browser_close$&quot;)
+# Scrapling&#x27;s persistent stealth browser. No other server has a `browser_open`,
+# so the tool name alone identifies it; `browser_fetch_once` opens and closes
+# its own browser inside the call and is deliberately not an open. The server
+# segment is kept with the record because Scrapling ends the browser with
+# `close_session`, the name an Appium server uses for its device.
+STEALTH_OPEN = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__browser_open$&quot;)
+CLOSE_SESSION = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__close_session$&quot;)
 # The official appium-mcp server (appium/appium-mcp, npm `appium-mcp`) exposes
 # no close-shaped tool name at all: one `appium_session_management` tool carries
 # create, delete, list, select, attach, and detach in an `action` argument, so
@@ -5792,6 +6008,15 @@ elif BROWSER_OPEN.match(tool):
     if not tool.endswith(&quot;browser_tabs&quot;) or ti.get(&quot;action&quot;) == &quot;new&quot;:
         url = ti.get(&quot;url&quot;)
         verdicts.append(&quot;+browser\t&quot; + label(url if isinstance(url, str) and url else &quot;browser tab&quot;))
+elif STEALTH_OPEN.match(tool):
+    server = STEALTH_OPEN.match(tool).group(1)
+    sid = ti.get(&quot;session_id&quot;)
+    base = label(sid if isinstance(sid, str) and sid else &quot;stealth browser&quot;, 60)
+    verdicts.append(f&quot;+stealth\t{base} [{server}]&quot;)
+elif CLOSE_SESSION.match(tool):
+    # Whether this ends a stealth browser or an Appium device depends on what
+    # the same server opened, which only the pending file knows.
+    verdicts.append(&quot;?close\t&quot; + CLOSE_SESSION.match(tool).group(1))
 elif APPIUM_SESSION.match(tool):
     action = ti.get(&quot;action&quot;)
     # `attach` takes hold of a remote session as firmly as `create` opens a new
@@ -5926,6 +6151,7 @@ howto() {
                      printf &#x27;run `git worktree remove %s` after committing what it holds&#x27; &quot;${2:-&lt;path&gt;}&quot;
                    fi ;;
     browser)       printf &#x27;call browser_close&#x27; ;;
+    stealth)       printf &#x27;call close_session with the session_id browser_open returned (list_sessions lists it)&#x27; ;;
     device)        printf &#x27;call appium_session_management with action=delete&#x27; ;;
     docker)        printf &#x27;run `docker compose down` (or `docker stop &lt;id&gt;`)&#x27; ;;
     emulator)      printf &#x27;run `adb emu kill` (Android) or `xcrun simctl shutdown booted` (iOS)&#x27; ;;
@@ -5937,7 +6163,8 @@ howto() {
 # Tier prose, so the block reads as the heuristic it is rather than a rule.
 due_why() {
   case &quot;$1&quot; in
-    browser)  printf &#x27;a page holds a renderer process and buys nothing after the screenshot&#x27; ;;
+    browser|stealth)
+              printf &#x27;a page holds a renderer process and buys nothing after the screenshot&#x27; ;;
     device)   printf &#x27;a driver session holds the device and blocks the next run against it&#x27; ;;
     docker)   printf &#x27;the push made it due; it earned its keep while the work ran&#x27; ;;
     build)    printf &#x27;the push made it due; the warm cache earned its keep until then&#x27; ;;
@@ -5984,6 +6211,20 @@ PostToolUse|SubagentStart)
       -*) kind=&quot;${verdict#-}&quot;
           if [[ -f &quot;$pending&quot; ]]; then
             grep -v &quot;^$kind	&quot; &quot;$pending&quot; &gt; &quot;$tmp&quot; 2&gt;/dev/null || true
+            mv &quot;$tmp&quot; &quot;$pending&quot;
+          fi
+          grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
+      # close_session: a stealth browser this server opened, else an Appium
+      # device. Entries end in `[server]`, which is how the server is matched.
+      \?close*)
+          server=&quot;${verdict#*	}&quot;
+          if [[ -f &quot;$pending&quot; ]] &amp;&amp; awk -F&#x27;\t&#x27; -v tag=&quot;[$server]&quot; \
+               &#x27;$1==&quot;stealth&quot; &amp;&amp; substr($4, length($4)-length(tag)+1)==tag {found=1} END {exit !found}&#x27; &quot;$pending&quot;; then
+            awk -F&#x27;\t&#x27; -v tag=&quot;[$server]&quot; \
+              &#x27;!($1==&quot;stealth&quot; &amp;&amp; substr($4, length($4)-length(tag)+1)==tag)&#x27; &quot;$pending&quot; &gt; &quot;$tmp&quot; || true
+            mv &quot;$tmp&quot; &quot;$pending&quot;
+          elif [[ -f &quot;$pending&quot; ]]; then
+            grep -v &quot;^device	&quot; &quot;$pending&quot; &gt; &quot;$tmp&quot; 2&gt;/dev/null || true
             mv &quot;$tmp&quot; &quot;$pending&quot;
           fi
           grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
@@ -6267,7 +6508,7 @@ exit 0
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Research</div><h3>search-and-cite</h3><p>Draw the line between an inline lookup and a delegated researcher cell — and carry sources through to the answer.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 146 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 156 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
 name: search-and-cite
 description: Use when a turn rests on an external fact — a library API, a version, a &quot;current best practice&quot;, anything the agent would otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
 ---
@@ -6292,6 +6533,16 @@ not verify.
 `WebFetch`, cite the URL; no cell. When `WebFetch` returns navigation, a cookie
 wall, or boilerplate instead of the text, re-read the same URL with
 `research-mcp`&#x27;s `fetch_readable`, which also reads the PDFs `WebFetch` cannot.
+When `fetch_readable` reports `failure: &quot;blocked&quot;` with no capture, open the
+page in the `playwright` entry. If that stops at a challenge it cannot pass,
+such as an interactive checkbox, the operator can switch on the `scrapling`
+entry (`python3 .agents/mcp.py enable scrapling`, then restart; once,
+`uvx --from &#x27;scrapling[ai]==0.5.1&#x27; scrapling install`). Read the page with its
+`browser_fetch_once` and `solve_cloudflare: true`, one page at a time and never
+crawling, expecting 15-190 s a page; a multi-step flow uses `browser_open` ...
+`close_session`. The `researcher` persona has neither browser, so this route is
+for the lead and generic cells.
+
 Use the fast path for a **single, well-known, low-stakes fact**:
 - &quot;What&#x27;s the current Node LTS?&quot; · &quot;Does `Array.prototype.at` exist in Node 18?&quot;
 - &quot;What&#x27;s the latest stable Postgres major?&quot;
@@ -6381,7 +6632,7 @@ The researcher&#x27;s `SOURCES` become the answer&#x27;s sources. When writing i
 ## The evidence trail
 
 The `sources-capture` hook logs every observable `WebSearch` / `WebFetch` /
-Context7 / `browser_navigate` / `fetch_readable` / `resolve_open_access` call,
+Context7 / `browser_navigate` / `browser_fetch_once` / `browser_fetch` / `fetch_readable` / `resolve_open_access` call,
 the researcher cell&#x27;s included, to `.agents/.sources-ledger`
 (`ts · agent · kind · value`). Codex hosted web search bypasses local tool
 hooks; its MCP calls are captured. The ledger is the operator&#x27;s audit trail and
@@ -6416,7 +6667,7 @@ depend on the ledger.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 264 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 281 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
 name: security-audit
 description: &gt;
   Comprehensive source-only adversarial security review of a full-stack codebase. Use this skill
@@ -6469,6 +6720,17 @@ Use these consistently in the report:
 | 🔵 LOW | Minor info leak, missing security header, UX-only issue |
 | ⚪ INFO | Best practice gap, not exploitable but worth fixing |
 
+Rate the control that failed, not the defect class:
+
+- **A missing second layer is not a vulnerability.** If Layer A prevents the
+  attack, the absence of Layer B is a hardening note, rated INFO at most.
+- **HIGH or MEDIUM?** Ask whether the demonstrated result fully defeats an
+  explicit control for an action with real consequences, or only weakens it.
+  Full defeat is HIGH or above; weakening is MEDIUM or below.
+- **Unprovable from source is not a severity.** A lead whose exploitability
+  depends on runtime state, configuration, or deployment you cannot read goes
+  under *Needs validation* with the exact blocker, unrated.
+
 ### Report format
 
 Keep `security-audit-report.md` updated continuously, in this structure:
@@ -6498,9 +6760,15 @@ Keep `security-audit-report.md` updated continuously, in this structure:
 ---
 [repeat for each finding]
 
+## Needs validation
+[One entry per unrated lead: the claim, file:line, and the exact runtime fact that would confirm or refute it]
+
 ## Coverage Log
 [List each feature/module audited and the date/time it was completed]
 ```
+
+An earlier Coverage Log entry contributes only the modules it records and
+their gaps, never an implied &quot;the rest is fine&quot;.
 
 ## Standing invariant — never trust the client
 
@@ -7238,7 +7506,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Durable, bounded parallel implementation and review lanes. The controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 314 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 433 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Designs each delegation before dispatch, choosing among one writer, a read-only fan-out, parallel slices, a contract-first split and a bake-off, and coordinates writing lanes through a portable, evidence-backed controller.
 ---
@@ -7257,9 +7525,11 @@ and you may depart from them by stating why.
 1. **Does it change files?** No: a **read-only fan-out** — research, review or
    QA cells that return text. Three cells by default, up to about ten for broad
    research, each with one distinct question. Each prompt opens `READ-ONLY`.
+   The run is `init` without `--verify` and one `add-cell` per cell (below).
 2. **Can one writer do it in reasonable time?** Yes: **one writer**, with
    read-only cells around it. This is the default; most delegations are this.
-   The writer edits the main tree; no run is needed.
+   The writer edits the main tree as a one-writer run: one `init … --lane`
+   records the run and its lane and prints the dispatch line (below).
 3. **Do the parts touch disjoint files and merge in any order?** Yes:
    **parallel slices**, one lane each. At most about three writers on one
    codebase unless you state why more pay off; the controller&#x27;s ceiling of
@@ -7278,10 +7548,19 @@ and you may depart from them by stating why.
 6. **Which tier does each cell need?** The tier follows how hard the cell&#x27;s own
    task is, by the root contract&#x27;s tiers, not the stakes of the whole job.
 
+Each lane carries one behaviour, at most one migration, and merges within
+about a day. A part riskier than its neighbours is its own lane, built after
+the parts it rests on are reviewed. The lead&#x27;s digest names a lane past 800
+changed lines in its paths, one owning more than 15 paths, one widened a second
+time, and a run open over a day while its default branch moved; it refuses
+nothing, and its remedy is to split what remains into a new lane once this one
+is reviewed.
+
 Weigh each shape&#x27;s cost:
 
 - A read-only cell costs its tokens only.
-- The lone writer adds nothing to the checkout.
+- The lone writer adds nothing to the checkout while it works; its `check`
+  makes one short-lived worktree and install at the accepted commit.
 - Each extra writer adds a worktree, an install, a review and a merge:
   measured 2026-10-13 on real disk, about 6 s and 0.26 GB per lane on the
   scaffold, 7 s and 0.24 GB on `food-app-core`, 12 s and 0.9 GB on `claims-app`.
@@ -7302,9 +7581,12 @@ For a lane, `brief` writes the run&#x27;s objective and acceptance, the lane&#x2
 owned paths, and the working practice to `&lt;lane worktree&gt;/.workloop/BRIEF.md`
 (`BRIEF-reviewer.md` and `BRIEF-qa.md` for those roles; git ignores the folder,
 and every `brief` call rewrites the file, so a widened lane gets a current one).
-It prints a dispatch prompt: the header line, then one line naming that file for
-the cell to read first. `brief` writes into the lane&#x27;s worktree, so it needs
-one: it fails after `teardown` or a failed `add-lane`. Paste the prompt unchanged as the cell&#x27;s prompt, and
+A one-writer run&#x27;s lane has no worktree: its briefs go to
+`.agents/worktrees/&lt;run&gt;/.workloop/&lt;lane&gt;.md` (`-reviewer`, `-qa`). It prints a
+dispatch prompt: the header line, then one line naming that file for the cell
+to read first; a reviewer or QA prompt opens with a `READ-ONLY` line, so the
+writers gate does not count that cell. A worktree lane&#x27;s `brief` writes into its
+worktree, so it fails after `teardown` or a failed `add-lane`. Paste the prompt unchanged as the cell&#x27;s prompt, and
 append the lane&#x27;s own objective, its contract, what it returns and when it
 stops below it, leaving the header line first: the parallel-writers gate
 recognises a lane cell by that line. A cell outside a run gets a brief you write: paste
@@ -7328,8 +7610,77 @@ elsewhere the cells poll the durable inbox at each handoff.
 
 ## Start a run
 
-Create one run with a testable objective, the test command proving the composed
-result, and a base revision, which `init` pins to a commit. Add a lane
+A lone writer is a one-writer run: one command before the dispatch, five after
+the cell submits.
+
+```sh
+.agents/workloop.py init export --objective &#x27;Reports export their rows as CSV&#x27; \
+  --acceptance &#x27;the reports page test downloads the visible rows&#x27; \
+  --verify &#x27;pnpm vitest run apps/web&#x27; \
+  --lane csv --worker implementer --path apps/web/src/pages/reports
+# dispatch the printed prompt; the cell claims, commits on the current branch, submits
+.agents/workloop.py brief export csv --role reviewer   # dispatch; it accepts with --tip
+.agents/workloop.py check export      # runs --verify once, at the accepted commit
+.agents/workloop.py qa export --evidence &#x27;&lt;observed result&gt;&#x27;
+.agents/workloop.py check export &amp;&amp; .agents/workloop.py teardown export
+```
+
+The lane works in the main checkout on its current branch: no worktree, branch
+or install. Its cell stages by path (`git add -- &lt;path&gt;`), since others may
+hold uncommitted work in the checkout. Its work is the commits since its first
+claim that touch its paths; another writer&#x27;s commits there are listed, not
+refused, and so is a commit touching its paths and others (&quot;mixed&quot;), for the
+reviewer to judge. `add-lane` refuses a run holding such a lane: writers working
+at once start a run with worktree lanes. `check` tests the accepted commit in a
+short-lived worktree at `.agents/worktrees/&lt;run&gt;/verify`, removed after a pass
+and kept for inspection after a fail; a lane-path commit or uncommitted edit
+after the accept makes the run stale until the lane is re-submitted.
+
+## Read-only cells
+
+Every cell of a multi-cell delegation belongs to its run, the read-only ones
+too, so the run shows what was dispatched and what came back. A cell takes no
+worktree, branch or install:
+
+```sh
+.agents/workloop.py add-cell export trace --role research --model haiku
+# dispatch the printed prompt; when it comes back:
+.agents/workloop.py returned export trace --result reply
+```
+
+`add-cell &lt;run&gt; &lt;name&gt; --role research|review|qa --model &lt;model&gt;` records the
+cell as out and prints its dispatch prompt: a `READ-ONLY` line, the header
+`WORKLOOP CELL BRIEF — &lt;run&gt;/&lt;name&gt;`, then the brief to read, at
+`.agents/worktrees/&lt;run&gt;/.workloop/cells/&lt;name&gt;.md`. Append the cell&#x27;s question
+below the prompt, never above it: the gate reads `READ-ONLY` only as the first
+line, and the prompt tells the cell its question follows. The cell returns its result as its reply and writes no file;
+`returned --result &lt;path&gt;` names a file the lead wrote from it instead of
+`reply`; a relative path reads from the working directory and is stored
+absolute. `returned &lt;run&gt; &lt;name&gt; --failed &#x27;&lt;reason&gt;&#x27;` records a cell that died
+or was stopped, and `brief &lt;run&gt; &lt;name&gt; --again` sends a returned or failed
+cell out again. `status` and the lead&#x27;s digest list cells still out; `check`,
+`teardown` and the session end will not close the run while one is, though
+`check` still runs a one-writer run&#x27;s composed test and names `returned` for
+each, and `integrate` does not wait for them. A torn-down run takes no cell.
+No cell outlives its session, so a cell
+still out at a startup or resume is named with `--failed` or `--again`, unless
+another live session leads its run; a compaction or `/clear` ends no cell.
+
+A lane&#x27;s own review stays `brief &lt;run&gt; &lt;lane&gt; --role reviewer`, which names
+the commits and the `review --tip` handoff; a review cell is for what is not a
+lane, such as a plan. A run started without `--verify` is a read-only fan-out:
+it is finished once every cell is back, with no QA record and no composed test,
+so `qa` and `integrate` say there is nothing for them, and `add-lane` refuses it. When a writer will follow the cells, start with
+`init … --lane` instead and add the cells beside it. The lead&#x27;s digest names a
+turn that dispatched two or more cells with no run header (&quot;3 cells last turn
+outside any run&quot;); it refuses nothing.
+
+`--model &lt;model&gt;` on `add-lane` or `init --lane` records a lane&#x27;s model, shown
+in its brief and in `status`.
+
+For writers working at once, create one run with a testable objective, the test
+command proving the composed result, and a base revision, which `init` pins to
+a commit. Add a lane
 per writer: `add-lane` creates the worktree on branch `&lt;run&gt;/&lt;lane&gt;` when the
 path does not exist, installs its dependencies from the lockfiles, and records
 the lockfile hash. A writing lane owns exclusive paths.
@@ -7376,23 +7727,54 @@ a leading `./`; when a positive pattern matches no folder holding a
 to stage a file outside it, and any directory the tests import from. A directory
 absent at the base is created empty. The integration worktree is always full.
 
-Some files every lane appends to: service wiring, a generated API contract,
-a seed entry point, a doc index. Declare them with `init --shared &lt;path&gt;`
-(repeatable). A lane cannot own a shared path (`add-lane` refuses any path that
-overlaps one), and any lane may edit one: `submit` accepts changes to shared
-paths, and dirty shared work blocks `submit` and `integrate` like owned work.
-Lanes append to shared files and regenerate generated ones. A sparse lane
-receives a shared directory only through `--also`. A lane may rebase onto a
+Some files every lane changes: a manifest, service wiring, a doc index, a
+lockfile, generated code. Declare each as shared, with `init --shared &lt;path&gt;`
+(repeatable) at the start or `share &lt;run&gt; &lt;path&gt;` at any point. A lane cannot
+own a shared path (`add-lane` and `share` refuse any overlap), and any lane may
+edit one: `submit` accepts changes to shared paths, and dirty shared work
+blocks `submit` and `integrate` like owned work. Each shared path has one of
+two rules:
+
+- **Merged** (the default: manifests, indexes, READMEs). Git merges the lanes&#x27;
+  edits at `integrate`; lanes append and never reorder. A conflict stops
+  `integrate` naming the lanes, the paths, and the remedy: rebase the later
+  lane onto the earlier one&#x27;s branch, resolve it there, and re-submit. A lane
+  rebases onto one branch only, so one conflicting with several merged lanes
+  drops or defers the edits that overlap the others.
+- **Rebuilt** (`share &lt;run&gt; &lt;path&gt; --rebuild &#x27;&lt;command&gt;&#x27;`: lockfiles, generated
+  code). Lanes change and commit it to test in their worktrees; `integrate`
+  takes the base&#x27;s copy in every lane merge, so lockfiles never conflict, then
+  runs each rebuild command once over the merged tree, in the order the paths
+  were shared and before any install, and commits the result when it changed.
+  Rebuild commands run outside every hook, so prefer forms that re-lock
+  without installing or running package scripts (`uv lock`,
+  `pnpm install --lockfile-only`,
+  `npm install --package-lock-only --ignore-scripts`). A command that needs
+  installed packages installs them itself, scripts off
+  (`pnpm install --ignore-scripts &amp;&amp; pnpm gen`). A lane re-locks the same
+  way, then runs provision: a full install in a lane whose `node_modules` is
+  linked from the checkout writes into the checkout. A rebuild that fails,
+  times out, or changes a path outside the rebuilt ones stops `integrate`.
+  A rebuild path may sit inside a merged one (`share web`, then
+  `share web/package-lock.json --rebuild …`), never the reverse, since the
+  merged file would be reset with it. `--rebuild &#x27;&#x27;` clears the command; a
+  one-writer run takes none, since it merges nothing.
+
+A `share` after lanes start reaches them only through a fresh brief: it prints
+the `brief` command for each claimed lane not yet reviewed. A `share` after `integrate` makes the
+integration stale until it runs again. A sparse lane receives a shared
+directory only through `--also`. A lane may rebase onto a
 sibling in `review` or `reviewed`; `submit` measures its changes from where
 its own commits begin, so the sibling&#x27;s files do not count against it, but
 only while the sibling&#x27;s work stays inside its own paths. `integrate` measures
 each lane again against the siblings&#x27; current branches, and refuses one whose
 branch moved after its accepted review: `submit` it again. It
-merges in dependency order and still stops on a conflict.
+merges in dependency order.
 
 ```sh
 .agents/workloop.py init slice-3b --objective &#x27;...&#x27; --acceptance &#x27;...&#x27; \
-  --shared docs/index.md --shared apps/web/src/api/schema.ts
+  --verify &#x27;uv run pytest&#x27; --shared pyproject.toml --shared docs/index.md
+.agents/workloop.py share slice-3b uv.lock --rebuild &#x27;uv lock&#x27;
 ```
 
 `--verify` must be a test command. `init` refuses one the destructive or publish
@@ -7442,16 +7824,18 @@ containers behind. The controller answers with ownership, leases, and progress:
   lane, and the digest and `status` show it beside the lane&#x27;s age, so a slow
   lane reads as slow.
 - **Narrow acceptance.** A lane runs only the narrowest acceptance for its slice,
-  never the end-to-end or browser suite; `integrate` runs `--verify` once over
-  the merged tree. Every merge queue works this way. A one-lane run&#x27;s `check`
-  does not ask for `integrate`, so its lane runs `--verify` once before
-  `submit`.
+  never the end-to-end or browser suite; `--verify` runs once over the result:
+  at `integrate` for a run with worktree lanes, one or more, and at `check` for
+  a one-writer run. Every merge queue works this way.
 
 ## Feedback and recovery
 
 The reviewer records `accept` or `reopen` with a canonical report reference: a
 path in the repository, or the absolute path of any existing file, such as a
-report written in another project. For
+report written in another project. An accept names the commit it reviewed,
+`--tip &lt;sha&gt;`, which the reviewer brief prints; it is refused when the lane
+moved past that commit, so the lane re-submits and the new commits are
+reviewed. For
 a P0 or a path conflict, the lead runs `attention`, delivers the printed prompt,
 and records the cell&#x27;s acknowledgement before the correction cycle.
 
@@ -7496,7 +7880,8 @@ claimant acknowledges it, and the sender cannot acknowledge its own message.
 Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
 its host agent id at start and each unread message for its lane once between
 tool calls, and the lead hears at every prompt which lanes await review, carry
-attention, are stale or broken, and when a run is ready to integrate. A hook
+attention, are stale or broken or growing past their size, and each run&#x27;s next
+closing step: `integrate`, `check`, QA, or `teardown`. A hook
 cannot wake an idle lead, so for a run that outlives the lead&#x27;s turn, schedule
 the poll: `/loop 10m .agents/workloop.py watch &lt;run&gt;`. On Codex and Kimi the manual
 `inbox` stands.
@@ -7521,7 +7906,7 @@ worktree (`.agents/worktrees/&lt;run&gt;/integration` unless `--workspace` names
 one) to the base on branch `&lt;run&gt;/integration`, merges the lane branches in
 dependency order, provisions, and runs the `--verify` command once. A conflict
 aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
-On a run with more than one lane, `check` requires a passing integration whose
+On a run with worktree lanes, `check` requires a passing integration whose
 recorded lane tips still match; a lane commit after integration reports
 `integration:stale` until `integrate` reruns.
 
@@ -7547,8 +7932,10 @@ already contains and names the rest; `--discard-branches` deletes those too.
 
 Only the independent QA result advances the run. `check` is the completion
 gate: it fails when any lane is unresolved, lacks evidence, or has
-unacknowledged attention, when the run lacks QA evidence, or when a multi-lane
-run lacks a current passing integration.
+unacknowledged attention, when the run lacks QA evidence, or when its composed
+test has no current pass: an integration for worktree lanes, a verification at
+the accepted commit for a one-writer run. `check --recorded` judges from what is
+recorded and never runs the test; the session end uses it.
 
 The default ceiling is eight lanes; each further lane requires `--allow-more`
 when added, so the lead accepts the coordination cost deliberately.
@@ -7715,13 +8102,14 @@ surface cannot run, state the exact blocker and withhold &quot;verified&quot;.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>pentesting</h3><p>The adversarial complement to <code>security-audit</code>: assumes the codebase is hostile and asks what an attacker tries first. Fans out recon on distinct surfaces, hand-verifies the load-bearing finding, then chains them.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 214 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 230 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
 name: pentesting
 description: &gt;
   Adversarial red-team method. Open-ended attack-surface analysis that complements the
   rule-based `security-audit` skill — it assumes the codebase is hostile and asks &quot;what
   would an attacker try first?&quot;. Fans out parallel reconnaissance agents on distinct
-  surfaces, hand-verifies the load-bearing finding, synthesizes multi-step exploit chains,
+  surfaces, has a fresh cell try to refute every candidate, hand-verifies the load-bearing
+  finding, synthesizes multi-step exploit chains,
   and supports a regression mode that hunts for bugs in the last remediation&#x27;s own fixes.
   Use when the user types &quot;pentest&quot;, &quot;/pentest&quot;, &quot;/pentest &lt;surface&gt;&quot;, &quot;red team&quot;, &quot;attack
   my code&quot;, &quot;find breaches&quot;, &quot;hack my project&quot;, &quot;what could an attacker do&quot;, or after a
@@ -7760,15 +8148,20 @@ Pick one from what the user typed.
 
    Every recon prompt must require:
    - **file:line evidence** for every finding;
-   - a **confidence score ≥ 0.7** to emit — anything below that threshold is dropped silently;
+   - a **confidence score** on every candidate, low ones included: the verifier
+     filters, not the finder;
    - an explicit **&quot;VERIFIED CORRECT&quot;** (with file:line) for code that looks risky but is
      safe, which saves the fix pass from investigating it a second time.
 
-2. **Synthesis.** Aggregate, and drop everything below 0.7. **Hand-verify the
-   load-bearing finding&#x27;s file:line evidence before promoting it.** In practice
-   every adversarial pass turns up at least one cell over-rating severity by
-   misreading the code. Demote what is over-stated; promote what is
-   under-stated. This step is mandatory.
+2. **Independent verification.** Dispatch one fresh `READ-ONLY` cell that found
+   nothing, at the recon cells&#x27; tier or above, with every candidate&#x27;s claim and
+   file:line but not the finders&#x27; confidence or impact. Open its prompt with:
+   *&quot;You did not write these candidates. Try to refute each one from repository
+   source and bounded local evidence.&quot;* It returns one verdict per candidate:
+   `confirmed` with a severity, `refuted` with a one-line refutation, or
+   `needs_validation` with the exact blocker source alone cannot settle. Then
+   **hand-verify the load-bearing confirmed finding&#x27;s file:line evidence**
+   yourself: a single verifier still misreads code. This step is mandatory.
 
 3. **Chain analysis.** Combine findings into multi-step exploit chains. A lone
    MEDIUM is boring; the chain of that MEDIUM and two LOWs is sometimes a
@@ -7795,7 +8188,7 @@ Pick one from what the user typed.
 ### 2. Targeted surface — `/pentest auth`, `/pentest upload`, `/pentest admin`
 
 When the user names one surface, dispatch **one** Explore agent on it, with the
-same downstream pipeline: synthesis, report, fix gate, apply. Reach for it right
+same downstream pipeline: verification, report, fix gate, apply. Reach for it right
 after a feature ships, when prior rounds closed everything else, or after an
 incident on that surface.
 
@@ -7814,8 +8207,8 @@ output takes the same report shape; the title marks it a regression sweep.
 ### 4. Report only — `/pentest report`
 
 The findings already exist in the conversation (a recon cell ran earlier, for
-instance). Skip recon, synthesis, and chaining; write them up in the standard
-report shape.
+instance). Skip recon and chaining, run verification on every finding that has
+no verdict yet, and write them up in the standard report shape.
 
 ## Recon prompt template
 
@@ -7824,27 +8217,28 @@ to skip, or the cell reads every file in `node_modules/`.
 
 ```
 Red-team the &lt;project&gt; codebase at &lt;path&gt;.
-Read-only — no edits. Report under 700 words.
+Read-only — no edits. Keep each candidate under 80 words.
 
 ## Targets — [stack-specific list of files/dirs to attack]
 
 ## What I want
-For each breach you find:
+For each candidate breach you find:
 
   BREACH-N:
     surface: &lt;category&gt;
-    severity: CRITICAL / HIGH / MEDIUM
+    impact: what an attacker gains
     file:line — concrete reference
     attack: one-paragraph adversarial walkthrough
     why_it_works: the missing or wrong check
     one_line_fix: concrete patch
-    confidence: 0.7-1.0 (emit only if ≥ 0.7)
+    confidence: 0.0-1.0
 
 Then a 5-line coverage note (what you read, what you didn&#x27;t).
 
 If a check is correctly implemented, say &quot;VERIFIED CORRECT&quot;
-with file:line evidence. Don&#x27;t fabricate. False positives are worse than
-misses — I want real breaches an attacker would find, not noise.
+with file:line evidence. Report every candidate you suspect, low confidence
+included; a separate verifier tries to refute each one, so a miss here costs
+more than noise. Don&#x27;t fabricate: every candidate cites file:line.
 ```
 
 Orient the cells first: detect the backend and frontend layout and enumerate the
@@ -7859,7 +8253,8 @@ does this read-only and adapts to common layouts (`apps/*`,
 - **MEDIUM** — info disclosure, a defense-in-depth gap an attacker would chain. This-month fix.
 - **LOW** — hygiene; defense-in-depth that does not change exposure. This-quarter fix.
 
-If a cell claims CRITICAL but the code reads fine, **demote before publishing**.
+If the verifier rates a finding CRITICAL but your hand-check reads the code
+fine, **demote before publishing**.
 Conversely, a MEDIUM that participates in a chain may be promoted in the chain
 analysis even where its standalone rating holds.
 
@@ -7883,6 +8278,12 @@ analysis even where its standalone rating holds.
 ## Exploit chains
 (combinations that escalate impact; each gets a step-by-step walkthrough)
 
+## Needs validation (no severity)
+(candidates source alone cannot settle, each with its exact blocker)
+
+## Refuted
+(one line per refuted candidate: the claim and the verifier&#x27;s refutation)
+
 ## Verified correct — skip in fix work
 (things considered and confirmed safe — saves the fix pass from re-discovering)
 
@@ -7895,11 +8296,11 @@ analysis even where its standalone rating holds.
 
 ## Constraints
 
-- **Hand-verify each finding&#x27;s file:line before publishing.** Recon cells
-  over-rate severity in practice; the hand-check catches it, and skipping it
-  ships noise.
-- **Publish only verified findings.** False positives erode trust faster than
-  misses; if a cell said HIGH but the code is correct, demote or drop it.
+- **Only a `confirmed` finding carries severity.** The verifier&#x27;s verdict and
+  your hand-check of the load-bearing finding stand between a recon claim and
+  the report. False positives erode trust faster than misses, so the report
+  publishes only what survived refutation; a refuted candidate is listed with
+  its refutation, never dropped silently.
 - **Dependencies need the user&#x27;s explicit approval.** Confirm each new
   dependency before installing, even inside a batch-approved fix set. Prefer a
   zero-dependency fix.
@@ -7921,8 +8322,10 @@ payloads, fuzzing) is the next tier beyond static recon&#x27;s reach. Then stop.
 
 ## Why this workflow
 
-Each rule answers a failure. Hand-verify, because recon cells over-rate
-severity. Fan out one cell per surface: three focused cells beat one generalist
+Each rule answers a failure. Separate finding from verifying, because a finder
+told to be conservative reports less and a finder grading its own claims
+over-rates severity. Hand-verify the load-bearing finding, because one verifier
+still misreads code. Fan out one cell per surface: three focused cells beat one generalist
 spread thin. Prefer chains, because impact lives in the combination. Keep
 regression a first-class mode, because patch passes breed subtle defects the
 sweep finds before the next deploy. Gate fixes per batch — one informed decision
@@ -9187,7 +9590,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>check-layout.py</h3><p>Fail-closed layout validation for the canonical scaffold and its engine fan-out.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 115 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 123 lines</span></summary><div class="srcpath">.agents/check-layout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Verify committed host links without generating or pruning them.&quot;&quot;&quot;
 
 from pathlib import Path
@@ -9243,11 +9646,19 @@ def expected_links() -&gt; dict[Path, str]:
         links[Path(&quot;.github/instructions&quot;) / f&quot;01-{rule.stem}.instructions.md&quot;] = (
             f&quot;../../.agents/rules/{rule.name}&quot;
         )
-    # Claude Code loads a plugin folder found under the project&#x27;s .claude/skills.
-    mods = ROOT / &quot;.agents/claude/mods&quot;
-    if mods.is_dir():
-        for mod in sorted(path for path in mods.iterdir() if (path / &quot;.claude-plugin/plugin.json&quot;).is_file()):
-            links[Path(&quot;.claude/skills&quot;) / f&quot;colloid-{mod.name}&quot;] = f&quot;../../.agents/claude/mods/{mod.name}&quot;
+    # Claude Code loads a plugin folder found under the project&#x27;s .claude/skills:
+    # a mod, whose hooks are a module, or a plugin that only declares components.
+    # Both kinds link to the same colloid-&lt;name&gt;, so a shared name is refused.
+    plugin_kinds: dict[str, str] = {}
+    for kind in (&quot;mods&quot;, &quot;plugins&quot;):
+        base = ROOT / &quot;.agents/claude&quot; / kind
+        if not base.is_dir():
+            continue
+        for plugin in sorted(path for path in base.iterdir() if (path / &quot;.claude-plugin/plugin.json&quot;).is_file()):
+            if plugin.name in plugin_kinds:
+                raise SystemExit(f&quot;layout: mod/plugin name collision: {plugin.name}&quot;)
+            plugin_kinds[plugin.name] = kind
+            links[Path(&quot;.claude/skills&quot;) / f&quot;colloid-{plugin.name}&quot;] = f&quot;../../.agents/claude/{kind}/{plugin.name}&quot;
     if (ROOT / &quot;demo/AGENTS.md&quot;).is_file():
         links[Path(&quot;.github/instructions/demo.instructions.md&quot;)] = &quot;../../demo/AGENTS.md&quot;
     return links
@@ -9305,7 +9716,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 322 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 326 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Build native MCP configuration from the tracked registry.
 
 Usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...
@@ -9325,6 +9736,7 @@ from pathlib import Path
 from mcp_codex import META_FIELDS as CODEX_META_FIELDS
 from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
+import mcp_opencode
 import mcp_playwright as playwright
 
 ROOT_TOKEN = &quot;${REPO_ROOT}&quot;
@@ -9578,6 +9990,7 @@ def _build(repo, doc=None, settings_path=None, rotate=False):
         &quot;kimi&quot;: _kimi_config(repo, servers),
         &quot;settings&quot;: _claude_settings(repo, servers, enabled),
         &quot;codex&quot;: render_codex(repo, servers),
+        &quot;opencode&quot;: mcp_opencode.payload(repo, servers),
     }
 
 
@@ -9593,6 +10006,8 @@ def _commit(repo, outputs):
         _write_json(repo / &quot;.kimi-code/mcp.json&quot;, outputs[&quot;kimi&quot;], 0o600)
     _write_json(repo / &quot;.claude/settings.local.json&quot;, outputs[&quot;settings&quot;])
     _write_text(repo / &quot;.codex/config.toml&quot;, outputs[&quot;codex&quot;])
+    _write_json(repo / mcp_opencode.CONFIG, outputs[&quot;opencode&quot;][&quot;config&quot;])
+    _write_text(repo / mcp_opencode.INSTRUCTIONS, outputs[&quot;opencode&quot;][&quot;instructions&quot;] + &quot;\n&quot;)
 
 
 USAGE = &quot;usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...&quot;
@@ -9630,10 +10045,10 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>implementer.md</h3><p>The implementation cell: focused changes, executable checks, and a concrete handoff.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 44 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 48 lines</span></summary><div class="srcpath">.agents/personas/implementer.md</div><pre><code>---
 name: implementer
 description: Delegate one bounded implementation unit after the plan is settled. Make the change, run its narrow acceptance command, and return the result and remaining proof boundary.
-tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;TaskStop&quot;]
+tools: [&quot;Read&quot;, &quot;Write&quot;, &quot;Edit&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;LSP&quot;, &quot;Bash&quot;, &quot;TaskStop&quot;]
 model: &quot;sonnet&quot;
 effort: &quot;medium&quot;
 permissionMode: &quot;acceptEdits&quot;
@@ -9659,10 +10074,14 @@ workloop run of two or more lanes, never, since `integrate` runs the composed
 test. When one acceptance run costs over a minute, say so. A command that ends
 within 10 minutes runs in the foreground with Bash&#x27;s `timeout` set to cover it
 (the default is 2 minutes). Start a server, a watcher or a longer command with
-`run_in_background: true`, never in the foreground or behind a bare `&amp;`; you
-are told when it ends, with your next tool result. Wait with a capped loop
-(`for i in $(seq 60); do … &amp;&amp; break; sleep 2; done`): macOS has no `timeout`
-command. Stop what you started with `TaskStop` before returning. Edit with
+`run_in_background: true`, never in the foreground or behind a bare `&amp;`. A
+background call or an agent you started reports when it ends, with its exit
+code: keep working, and with nothing left, end your turn and you are woken. A
+condition such as a server coming up gets a capped poll in its own call within
+2 minutes
+(`for i in $(seq 30); do curl -sf -m 1 &lt;url&gt; &gt;/dev/null &amp;&amp; break; sleep 2; done`):
+macOS has no `timeout` command. Stop what you started with `TaskStop` before
+returning. Edit with
 Read, then Edit or Write: a shell script that rewrites a source file skips the
 post-edit hooks. Return only:
 
@@ -9680,7 +10099,7 @@ user must decide something new, state the two options and let them choose.
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/personas/reviewer.md</div><pre><code>---
 name: reviewer
 description: Independently review a plan or diff against repository rules and stated intent. Return conformance, concrete findings, and required handoffs.
-tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;]
+tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;LSP&quot;, &quot;Bash&quot;]
 effort: &quot;high&quot;
 ---
 
@@ -9694,7 +10113,7 @@ reproduction of the named claim. Return only the contract report.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>qa-verifier.md</h3><p>Verifies changed observable behavior with focused executable scenarios.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 81 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 82 lines</span></summary><div class="srcpath">.agents/personas/qa-verifier.md</div><pre><code>---
 name: qa-verifier
 description: Verify changed tests, APIs, and web behavior with focused executable scenarios. Report evidence, failures, and coverage gaps.
 tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;Bash&quot;, &quot;TaskStop&quot;, &quot;mcp__playwright__*&quot;]
@@ -9732,10 +10151,11 @@ scenario&#x27;s own command, not a broad suite the task does not name, and say s
 when one costs over a minute. A command that ends within 10 minutes runs in
 the foreground with Bash&#x27;s `timeout` set to cover it (the default is 2
 minutes). Start a server, a watcher or a longer command with
-`run_in_background: true`, never in the foreground or behind a bare `&amp;`; you
-are told when it ends, with your next tool result. Wait for readiness with a
-capped loop, such as
-`for i in $(seq 60); do curl -sf &lt;url&gt; &gt;/dev/null &amp;&amp; break; sleep 2; done`:
+`run_in_background: true`, never in the foreground or behind a bare `&amp;`. A
+background call or an agent you started reports when it ends, with its exit
+code: keep working, and with nothing left, end your turn and you are woken. A
+server coming up gets a capped poll in its own call within 2 minutes
+(`for i in $(seq 30); do curl -sf -m 1 &lt;url&gt; &gt;/dev/null &amp;&amp; break; sleep 2; done`):
 macOS has no `timeout` command. Stop it with `TaskStop`.
 
 Drive a browser check of more than a few steps with a Playwright script, not
@@ -9808,10 +10228,10 @@ defect; report the exact decision or defect to the lead.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Cell</div><h3>explorer.md</h3><p>Read-only reconnaissance that maps the relevant code and evidence.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 24 lines</span></summary><div class="srcpath">.agents/personas/explorer.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 26 lines</span></summary><div class="srcpath">.agents/personas/explorer.md</div><pre><code>---
 name: explorer
 description: Trace codebase structure, definitions, callers, data flow, and tests for one bounded question without editing.
-tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;]
+tools: [&quot;Read&quot;, &quot;Glob&quot;, &quot;Grep&quot;, &quot;LSP&quot;]
 model: &quot;haiku&quot;
 ---
 
@@ -9819,7 +10239,9 @@ model: &quot;haiku&quot;
 
 Map one codebase question, read-only. Read the applicable instructions, then
 trace definitions, callers, data flow, and tests no further than the question
-reaches.
+reaches. Where a language server answers for the file, trace symbols with the
+LSP tool; a text match also hits comments and unrelated names that share the
+spelling. Fall back to Grep where it reports no server.
 
 Return only:
 
@@ -10305,7 +10727,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 98 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -10403,6 +10825,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — an agent in acceptEdits or auto mode can write the ignored `.agents/config.json` and set `hooks.product_folder.enabled` itself, switching the product-folder grant on with no prompt. The file&#x27;s other toggles only switch off guards inside the checkout; this one widens access outside it. Acceptable: the grant keeps its boundary, so a self-granted switch opens notes and never a checkout, a hidden path, an instruction file or a risky part, and no agent has been observed setting it.
 - **Trigger** — an observed agent edit to that key.
 - **Rework** — a PreToolUse deny on agent file-tool writes to `.agents/config.json`; ~10 lines plus a test row.
+
+### fanout-rule-copies
+
+- **Condition** — the rule that a run declared without `--verify` is finished once it holds a cell and every cell is back lives in three places: the controller&#x27;s `completion_problems` (`workloop_main.py`), the digest&#x27;s cell notes (`hooks/lib/workloop-inbox.py`) and the session start&#x27;s lead-less close (`hooks/lib/worktree_runs.py`). The hooks import nothing from the controller, so a trimmed export without it still runs them. Acceptable: the copies disagree only on a run holding lanes and no `verify`, which only a run made before `--verify` was required can be.
+- **Trigger** — a change to the fan-out rule, or a fourth reader of it.
+- **Rework** — one pure `fanout_state(run)` in `hooks/lib`, which the controller loads as the hooks do; ~30 lines and the three callers&#x27; test rows.
 </code></pre></details>
             </article>
         <article class="card">
@@ -10454,7 +10882,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 128 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 131 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -10494,6 +10922,9 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
       &quot;enabled&quot;: true
     },
     &quot;denied_tool&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;keychain_notice&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;wait_gate&quot;: {
