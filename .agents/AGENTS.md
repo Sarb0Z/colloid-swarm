@@ -31,6 +31,24 @@ paths:
 - Commit repository-owned MCP bundles under `mcp-servers/*/dist/`, which clients launch before any install or build, and run each server's bundle check after source changes.
 - A stack pack declares `paths:` and `detect:`, and `detect-deps:` when its stack can show only as a dependency. This repository carries every pack; an export drops `stack_packs.carrier`, and each target deletes packs its codebase does not use.
 
+## Writing contract language
+
+A contract line is a program the model runs, and whether a session follows it on a given turn is the model's call, however strongly it is worded (Claude Code's best-practices guide, code.claude.com/docs/en/best-practices). Write each line so that it fires, and test it by running it.
+
+- Put the words where the agent already is. A line that only points at another file does not get the file opened: inline the text at the step that fires it, and keep the file for what each item catches.
+- Ask for an artifact the next step reads, such as a `Lenses:` block or a named report line, rather than a mental act. A required output gets written; "consider" and "apply" leave nothing to check.
+- Quote a phrase the model already knows word for word, such as "carve the problem at the joints". A paraphrase drops the method the phrase carries, and two wordings of one idea drift apart.
+- Tell a detector to report everything, and filter in a separate pass. "Skip", "only high-severity" and "be conservative" make a reviewer report less of everything (Anthropic's Opus 5 prompting guide, platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5), and a filter handed to the lead loses to any nearer reason to act.
+- Do not script order inside a turn, as in "before the first edit, write …": sessions do the work and report afterwards. Ask for the item in the report, or enforce the order with a hook.
+- Write plainly. Capitals and emphasis words make a rule over-apply; "keep going", "be thorough" and "verify again" cause over-work on current models. A vivid phrase earns its place only by carrying a method.
+- Leave out what the agent would find by reading the code and would actually go and look for.
+- A rule with zero exceptions is a hook or a deny rule, not a line.
+- Give every rule its exit. A line that assumes its precondition, such as "that run" when no run could be built, strands the agent when the precondition fails.
+- Test a rewrite before it lands, in fresh headless sessions on the model that will read it: `command claude -p "<prompt>" --model <model> --allowedTools=<tools> --output-format stream-json --verbose`, run from a fixture folder whose `CLAUDE.md` is the drafted contract. Write the pass condition first, run at least twice, and grade from the transcript's tool order and text, not from the session's own summary. After three wordings of one line fail, stop rewording: enforce it with a hook, or drop the requirement and record the ruling in `decisions.md`.
+<!-- colloid-only -->
+- `knowledge/research/2026-11-10-contract-wording-in-fresh-sessions.md` holds the runs and quotes behind each direction; `2026-11-09-expert-guideline-phrasing.md` beside it holds the outside phrasings still waiting for a rewrite.
+<!-- /colloid-only -->
+
 ## Hierarchical instructions
 
 Read the nearest `AGENTS.md` before editing a subtree. Canonical scoped files carry both `applyTo:` and `paths:` frontmatter, the keys Copilot and Claude consume; Codex and Kimi read the file as plain instructions.
