@@ -5,11 +5,13 @@
       "args": ["--stdio"],
       "fileExtensions": {
         ".ts": "typescript",
-        ".tsx": "typescript",
+        ".tsx": "typescriptreact",
         ".mts": "typescript",
         ".cts": "typescript",
         ".js": "javascript",
-        ".jsx": "javascript"
+        ".jsx": "javascriptreact",
+        ".mjs": "javascript",
+        ".cjs": "javascript"
       }
     },
     "python": {
