@@ -54,11 +54,19 @@ def expected_links() -> dict[Path, str]:
         links[Path(".github/instructions") / f"01-{rule.stem}.instructions.md"] = (
             f"../../.agents/rules/{rule.name}"
         )
-    # Claude Code loads a plugin folder found under the project's .claude/skills.
-    mods = ROOT / ".agents/claude/mods"
-    if mods.is_dir():
-        for mod in sorted(path for path in mods.iterdir() if (path / ".claude-plugin/plugin.json").is_file()):
-            links[Path(".claude/skills") / f"colloid-{mod.name}"] = f"../../.agents/claude/mods/{mod.name}"
+    # Claude Code loads a plugin folder found under the project's .claude/skills:
+    # a mod, whose hooks are a module, or a plugin that only declares components.
+    # Both kinds link to the same colloid-<name>, so a shared name is refused.
+    plugin_kinds: dict[str, str] = {}
+    for kind in ("mods", "plugins"):
+        base = ROOT / ".agents/claude" / kind
+        if not base.is_dir():
+            continue
+        for plugin in sorted(path for path in base.iterdir() if (path / ".claude-plugin/plugin.json").is_file()):
+            if plugin.name in plugin_kinds:
+                raise SystemExit(f"layout: mod/plugin name collision: {plugin.name}")
+            plugin_kinds[plugin.name] = kind
+            links[Path(".claude/skills") / f"colloid-{plugin.name}"] = f"../../.agents/claude/{kind}/{plugin.name}"
     if (ROOT / "demo/AGENTS.md").is_file():
         links[Path(".github/instructions/demo.instructions.md")] = "../../demo/AGENTS.md"
     return links

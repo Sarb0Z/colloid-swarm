@@ -66,7 +66,9 @@ retained=(
   .claude/agents/implementer.md .codex/agents/implementer.toml \
   .codex/hooks.json .github/lsp.json CLAUDE.md export/README.md export/drop-server.py \
   .worktreeinclude .claude/skills/colloid-publish-approval/hooks/register.ts \
-  .agents/check-clean-tree.sh
+  .claude/skills/colloid-code-intelligence/.claude-plugin/plugin.json \
+  .claude/skills/colloid-code-intelligence/scripts/typescript-server \
+  .agents/hooks/lib/lsp-missing.py .agents/check-clean-tree.sh
 )
 for path in "${retained[@]}"; do
   [[ -e "$kit/$path" ]] || fail "export omitted $path"

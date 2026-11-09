@@ -93,6 +93,7 @@ python3 .agents/test-hosted-scripts.py
 .agents/test-device-policy.sh
 .agents/test-mcp.sh
 .agents/test-opencode.sh
+python3 .agents/test-lsp.py
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-statusline.sh

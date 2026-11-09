@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Starts a TypeScript language server for Claude Code over stdio.
+#
+# A project with its own TypeScript 5 gets it through typescript-language-server,
+# so type errors follow the compiler the project builds with. Anywhere else (a
+# clone before its install, a monorepo whose root holds no TypeScript) a
+# TypeScript 7 compiler answers with its built-in server: it needs no install in
+# the project, but it judges an older tsconfig by its own rules, so it can report
+# a removed option the project's compiler accepts.
+#
+# `--probe` prints the command it would start and exits; the session-start check
+# runs it to tell whether TypeScript code intelligence can start here.
+set -euo pipefail
+
+project="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+# The first TypeScript 7 or later compiler: the project's own, then PATH's.
+native_compiler() {
+  local candidate version
+  while IFS= read -r candidate; do
+    [[ -x "$candidate" ]] || continue
+    version="$("$candidate" --version 2>/dev/null || true)"
+    if [[ "$version" =~ ^Version\ ([0-9]+)\. ]] && (( BASH_REMATCH[1] >= 7 )); then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(printf '%s\n' "$project/node_modules/.bin/tsc"; type -ap tsc || true)
+  return 1
+}
+
+if [[ -f "$project/node_modules/typescript/lib/tsserver.js" ]] && command -v typescript-language-server >/dev/null; then
+  server=(typescript-language-server --stdio)
+elif compiler="$(native_compiler)"; then
+  server=("$compiler" --lsp --stdio)
+else
+  echo "typescript-server: no TypeScript language server can start in $project." \
+    "Install one with \`brew install typescript-language-server\`, which also brings TypeScript 7's built-in server." >&2
+  exit 1
+fi
+
+if [[ "${1:-}" == "--probe" ]]; then
+  printf '%s\n' "${server[*]}"
+  exit 0
+fi
+exec "${server[@]}"

@@ -34,7 +34,8 @@ make_fixture() {
   cp "$repo/.agents/hooks/lib/config.py" \
      "$repo/.agents/hooks/lib/payload.py" \
      "$repo/.agents/hooks/lib/emit-context.py" \
-     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" \
+     "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/lsp-missing.py" \
+     "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" \
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
@@ -222,6 +223,29 @@ assert_contains "$kcap_context" '- 2026-01-14 · research · Subject 14'
 assert_contains "$kcap_context" '- 2026-01-03 · research · Subject 03'
 assert_not_contains "$kcap_context" 'Subject 02'
 assert_not_contains "$kcap_context" 'summary 14'
+
+# A tracked file whose language server is not on PATH names the language and
+# its install command; once the server is on PATH the section is gone.
+lsp="$(make_fixture lsp-missing)"
+write_config "$lsp" true true
+mkdir -p "$lsp/.agents/claude/plugins/code-intelligence/.claude-plugin" "$scratch/lsp-bin"
+python3 - "$repo/.agents/claude/plugins/code-intelligence/.claude-plugin/plugin.json" \
+  "$lsp/.agents/claude/plugins/code-intelligence/.claude-plugin/plugin.json" <<'PY'
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+python = dict(manifest["lspServers"]["python"], command="colloid-fixture-pyright")
+manifest["lspServers"] = {"python": python}
+json.dump(manifest, open(sys.argv[2], "w"))
+PY
+touch "$lsp/app.py"
+git -C "$lsp" add app.py
+lsp_context="$(context_of "$(run_policy "$lsp")")"
+assert_contains "$lsp_context" 'Code intelligence is off'
+assert_contains "$lsp_context" '- Python: no language server can start. Install it with `brew install pyright`.'
+printf '#!/bin/sh\n' > "$scratch/lsp-bin/colloid-fixture-pyright"
+chmod +x "$scratch/lsp-bin/colloid-fixture-pyright"
+assert_not_contains "$(PATH="$scratch/lsp-bin:$PATH" context_of "$(PATH="$scratch/lsp-bin:$PATH" run_policy "$lsp")")" 'Code intelligence is off'
+printf 'ok: session start names a language whose server cannot start, and drops it once the server is on PATH\n'
 
 # At the cap exactly, every item shows and no truncation notice appears.
 exact="$(make_fixture breadcrumb-exact)"

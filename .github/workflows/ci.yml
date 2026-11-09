@@ -124,6 +124,9 @@ jobs:
       - name: OpenCode adapter
         run: .agents/test-opencode.sh
 
+      - name: Code-intelligence plugin
+        run: python3 .agents/test-lsp.py
+
       - name: Browser sync
         run: python3 .agents/test-browser-sync.py
 

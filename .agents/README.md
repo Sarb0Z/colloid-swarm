@@ -14,10 +14,15 @@ second model registry.
 | `rules/*.md` | `.claude/rules/*` links | nearest `AGENTS.md` only | nearest `AGENTS.md` only |
 | `hooks/policy/*` | Claude adapter | Codex adapter | Kimi adapter |
 | `mcp.json` | `.mcp.json` | `.codex/config.toml` | `.kimi-code/mcp.json` |
-| `lsp.json` | Claude plugins | none | none |
+| `lsp.json` | `claude/plugins/code-intelligence` | none | none |
 
-`lsp.json` finds each language server on `PATH` only. A server that lives in a
-repository-local toolchain does not start unless it is on `PATH`.
+`lsp.json` is Copilot's language-server file, linked at `.github/lsp.json`.
+Claude Code reads language servers only from a plugin, so the
+`code-intelligence` plugin declares the same servers in Claude's format, and
+`test-lsp.py` fails when the two files map an extension differently. See
+"Language servers" in `claude/README.md`. Copilot finds each server on `PATH`
+only, so a server that lives in a repository-local toolchain does not start
+there unless it is on `PATH`.
 
 Run `python3 .agents/check-layout.py` after changing a persona, skill, rule, or
 host link. It validates scaffold-owned links and leaves operator files alone.
@@ -527,6 +532,7 @@ python3 .agents/test-wait-gate.py
 python3 .agents/test-guard-publish.py
 python3 .agents/test-hosted-scripts.py
 .agents/test-mcp.sh
+python3 .agents/test-lsp.py
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-statusline.sh

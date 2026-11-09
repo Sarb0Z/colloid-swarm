@@ -146,6 +146,12 @@ if [[ "$session_start_enabled" == "yes" ]]; then
   mcp_off="$(python3 "$lib/mcp-off.py" "$proj")"
 fi
 
+# Name the languages whose code-intelligence server cannot start here.
+lsp_missing=""
+if [[ "$session_start_enabled" == "yes" ]]; then
+  lsp_missing="$(python3 "$lib/lsp-missing.py" "$proj")"
+fi
+
 # source=compact is the trigger. Always consume the PreCompact marker as
 # cleanup, but only trust its trigger word on a genuine post-compaction start
 # — a marker left by an aborted compaction must not fire the policy on an
@@ -198,7 +204,7 @@ if [[ "$worklog_status" == "ok" && -f "$worklog_playbook" ]]; then
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -335,6 +341,13 @@ EOF
     echo "Registry MCP servers switched off (not connected; the description says why):"
     printf '%s\n' "$mcp_off"
     echo 'If the task needs one: run `python3 .agents/mcp.py enable <name>`, then restart the session. Turn it off with `python3 .agents/mcp.py disable <name>`.'
+  fi
+
+  if [[ -n "$lsp_missing" ]]; then
+    section
+    echo "Code intelligence is off (no LSP tool answers, and edits get no type errors) for:"
+    printf '%s\n' "$lsp_missing"
+    echo 'Tell the operator the install command; a restart loads the server. Until then, find definitions and references with Grep.'
   fi
 )"
 

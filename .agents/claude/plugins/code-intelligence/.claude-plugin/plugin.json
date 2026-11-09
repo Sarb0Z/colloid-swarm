@@ -1,0 +1,28 @@
+{
+  "name": "code-intelligence",
+  "version": "1.0.0",
+  "description": "TypeScript, JavaScript and Python language servers: definitions, references and type errors after each edit.",
+  "lspServers": {
+    "typescript": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/typescript-server",
+      "extensionToLanguage": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact",
+        ".mts": "typescript",
+        ".cts": "typescript",
+        ".js": "javascript",
+        ".jsx": "javascriptreact",
+        ".mjs": "javascript",
+        ".cjs": "javascript"
+      }
+    },
+    "python": {
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "extensionToLanguage": {
+        ".py": "python",
+        ".pyi": "python"
+      }
+    }
+  }
+}
