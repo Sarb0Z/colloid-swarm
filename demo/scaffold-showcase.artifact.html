@@ -10325,7 +10325,7 @@ number of decisions covered; delegate nothing.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a cell reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b> — with a severity floor so a speculative note cannot block the round. Fired at workflow steps 3 and 6.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 110 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 121 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
@@ -10342,8 +10342,9 @@ it.
 ## Reviewer contract
 
 ````
-Review this artifact against the repository, not against its own claims. No
-praise, filler, or invented findings. State uncertainty plainly.
+Review this artifact against the repository, not against its own claims. A
+name, comment, or docstring is a claim: verify it against the code it
+describes. No praise, filler, or invented findings. State uncertainty plainly.
 
 ## Authority
 
@@ -10357,7 +10358,9 @@ evidence supports it; do not substitute static inference for missing execution.
 
 Read `.agents/playbooks/review-axes.md` and the Review lenses in
 `.agents/lenses.md`; if either is unavailable, stop and report that blocker.
-Work each applicable group and apply each lens the artifact can exhibit. This is a static review: inspect
+Work each applicable group and apply each lens the artifact can exhibit.
+Skip pure style and formatting, naming that no repository rule or behaviour
+depends on, and anything a linter, formatter, or CI check already enforces. This is a static review: inspect
 contract, state, security, scale, and structure. Do not claim runtime behavior
 you did not execute. If changed observable behavior lacks QA evidence, report
 that as a coverage gap and hand it to `qa-verifier`.
@@ -10375,6 +10378,9 @@ runtime effect from source. Follow with one numbered list using this exact
 decision schema, ordered by cost to leave:
 
 `[P0|P1|P2 / &lt;class&gt;] &lt;file:line|artifact:section&gt; — evidence:&lt;reproduced|live|inspection|theoretical&gt;; recurrence:&lt;observed:evidence|not-found:sources|unknown:gap&gt;; trigger:&lt;state or event&gt;; risk:&lt;worst credible consequence&gt;; fix:&lt;narrow correction&gt;; next:&lt;operation and authorization&gt;; residual:&lt;remaining uncertainty&gt;; cost:&lt;implementation/review cost&gt;; recommendation:&lt;fix|accept|defer|redesign|stop&gt;`
+
+Each finding states the rule or invariant the artifact breaks, not a
+description of what the code does.
 
 `P0` and `P1` block the round. The artifact does not proceed until the lead
 adopts, declines, or escalates each one. `P2` does not block. File it and
@@ -10405,7 +10411,12 @@ scarce operation.
 
 The lead dispositions every finding: adopt, decline with reason, file unresolved
 work as a breadcrumb, record an accepted tradeoff in debt, or escalate a user
-decision. External evidence alone belongs in knowledge; create no parallel
+decision. A decline cites evidence the reviewer can check, such as a file, a
+line, or a recorded ruling; &quot;this was intentional&quot; is not evidence. A finding
+that rests on a fact neither the lead nor the reviewer can check goes to the
+user, not to a decline; a fact the lead can check, it checks. A reviewer that
+errors, stops early, or returns no report has not run: dispatch it again or
+report the gap, and never count it as `FINDINGS: none`. External evidence alone belongs in knowledge; create no parallel
 review ledger. A recurrence claim must cite the current rounds or explicit Git,
 breadcrumb, or debt evidence; otherwise report `not-found` with the consulted
 sources or `unknown`, never “first occurrence.”
@@ -10552,7 +10563,7 @@ The reporter is exempt from genome stamping; prepend no stamp.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>review-axes.md</h3><p>The catalogue the reviewer works: nine axes in three groups &mdash; contract and exposure, state and failure, system shape. The contract reads it by path and stops if it is missing, so the two files must ship together.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 33 lines</span></summary><div class="srcpath">.agents/playbooks/review-axes.md</div><pre><code># Static review axes
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 38 lines</span></summary><div class="srcpath">.agents/playbooks/review-axes.md</div><pre><code># Static review axes
 
 Hostile review inspects source and intent. QA executes scenarios. Skip an axis
 that the artifact cannot exhibit; name every group you worked.
@@ -10562,24 +10573,29 @@ that the artifact cannot exhibit; name every group you worked.
 - **Intent and ambiguity** — the ask, plan, and artifact agree; two plausible
   readings are reported, never chosen silently.
 - **Authority and abuse** — server-side authorization, privilege changes,
-  unmetered or replayable actions, unsafe input, injection, secrets, and delete
-  paths resist a hostile caller.
-- **External contract** — public API, persistence, and UI changes preserve the
-  stated contract or deliberately update every affected consumer.
+  unmetered or replayable actions, unsafe input, unsafe deserialization,
+  unsafe defaults, injection, secrets, and delete paths resist a hostile
+  caller.
+- **External contract** — public API, persistence, default values, and UI
+  changes preserve the stated contract or deliberately update every affected
+  consumer, and a persistence change ships its migration.
 
 ## 2. State and failure
 
-- **Data integrity** — races, check-then-act, non-atomic updates, ordering
-  assumptions, and duplicate processing cannot corrupt or lose state.
+- **Data integrity** — races, check-then-act (TOCTOU), non-atomic updates,
+  ordering assumptions, and duplicate processing cannot corrupt or lose state.
 - **Failure semantics** — an unavailable check is distinct from a negative;
-  errors reach an owner and batch-item failures are counted rather than hidden.
+  errors reach an owner and batch-item failures are counted rather than hidden;
+  retries have backoff and a bound; a caught error is never dropped silently.
 - **Boundary ownership** — validation, normalization, and business rules live
   at the boundary that can enforce them; no client-only or type-only invariant.
 
 ## 3. System shape
 
-- **Cost and ceilings** — pagination, loop work, N+1 queries, reservoirs,
-  provider limits, and per-run blast radius have stated bounds or a finding.
+- **Cost and ceilings** — pagination, loop work, N+1 queries, accidental
+  O(N²), unbounded memory, queue, or connection growth, work that blocks an
+  event loop or UI thread, reservoirs, provider limits, and per-run blast
+  radius have stated bounds or a finding.
 - **Structure** — dependencies point the right way, one source owns each fact,
   duplication is justified below three callers, and abstractions match reality.
 - **Operability** — changes leave a diagnosable failure path, a usable rollback

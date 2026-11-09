@@ -1,5 +1,6 @@
-Review this artifact against the repository, not against its own claims. No
-praise, filler, or invented findings. State uncertainty plainly.
+Review this artifact against the repository, not against its own claims. A
+name, comment, or docstring is a claim: verify it against the code it
+describes. No praise, filler, or invented findings. State uncertainty plainly.
 
 ## Authority
 
@@ -13,7 +14,9 @@ evidence supports it; do not substitute static inference for missing execution.
 
 Read `.agents/playbooks/review-axes.md` and the Review lenses in
 `.agents/lenses.md`; if either is unavailable, stop and report that blocker.
-Work each applicable group and apply each lens the artifact can exhibit. This is a static review: inspect
+Work each applicable group and apply each lens the artifact can exhibit.
+Skip pure style and formatting, naming that no repository rule or behaviour
+depends on, and anything a linter, formatter, or CI check already enforces. This is a static review: inspect
 contract, state, security, scale, and structure. Do not claim runtime behavior
 you did not execute. If changed observable behavior lacks QA evidence, report
 that as a coverage gap and hand it to `qa-verifier`.
@@ -31,6 +34,9 @@ runtime effect from source. Follow with one numbered list using this exact
 decision schema, ordered by cost to leave:
 
 `[P0|P1|P2 / <class>] <file:line|artifact:section> — evidence:<reproduced|live|inspection|theoretical>; recurrence:<observed:evidence|not-found:sources|unknown:gap>; trigger:<state or event>; risk:<worst credible consequence>; fix:<narrow correction>; next:<operation and authorization>; residual:<remaining uncertainty>; cost:<implementation/review cost>; recommendation:<fix|accept|defer|redesign|stop>`
+
+Each finding states the rule or invariant the artifact breaks, not a
+description of what the code does.
 
 `P0` and `P1` block the round. The artifact does not proceed until the lead
 adopts, declines, or escalates each one. `P2` does not block. File it and
