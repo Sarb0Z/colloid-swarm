@@ -284,13 +284,13 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, twenty-four enforcement hooks, twenty-one skills, and an evidence trail —
+      A hostile-review workflow, twenty-five enforcement hooks, twenty-one skills, and an evidence trail —
       wrapped around every model turn, running unmodified under Claude and Kimi.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">[Contract menu line — one line]</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">13 gates · 6 context injectors · 1 evidence trail · 5 checkpoints, on the session lifecycle.</span><span class="m-n">24 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">13 gates · 6 context injectors · 2 evidence trails · 5 checkpoints, on the session lifecycle.</span><span class="m-n">25 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
       <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">21 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">18 files</span></a>
@@ -3116,6 +3116,84 @@ else
   ask_failure &quot;evaluator exited $status; the guard cannot decide safely.&quot; \
     &quot;The publish guard evaluator failed.&quot;
 fi
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="trail">
+              <div class="top"><span class="id">keychain-notice</span><span class="badge trail">trail</span></div>
+              <p class="what">[keychain-notice card — what it does for the reader, one or two sentences]</p>
+              <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> notification + log line, exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 72 lines</span></summary><div class="srcpath">.agents/hooks/policy/keychain-notice.sh</div><pre><code>#!/usr/bin/env bash
+# Policy: before a shell command that reads the macOS login keychain runs, name
+# that command where the operator will see it.
+#
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;&lt;repo&gt;&quot;, &quot;cwd&quot;: &quot;&lt;shell dir&gt;&quot;, &quot;command&quot;: &quot;&lt;cmd&gt;&quot;}
+# Output: a macOS notification and, inside tmux, a status-line message, each
+#         naming the project folder, the reader and the command line that runs
+#         it; the whole command appended to .agents/.keychain-notices.log.
+#         Always exit 0: the notice never blocks.
+#
+# macOS&#x27;s keychain dialog names only the program that asks (&quot;supabase wants to
+# access key ...&quot;). With several sessions open, nothing else says which one ran
+# it or why. hooks/lib/keychain-readers.py decides what counts as a reader.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+lib=&quot;$repo/.agents/hooks/lib&quot;
+
+[[ &quot;$(uname -s)&quot; == Darwin ]] || exit 0
+[[ &quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.keychain_notice.enabled=true)&quot; == yes ]] || exit 0
+
+# payload.py keeps newlines only in its last field, so the command goes last.
+# An empty payload prints nothing, and the read&#x27;s end-of-file is not a failure.
+{ IFS= read -r cwd || true; command=&quot;$(cat)&quot;; } &lt; &lt;(python3 &quot;$lib/payload.py&quot; cwd= command=)
+[[ -n &quot;$command&quot; ]] || exit 0
+
+status=0
+found=&quot;$(printf &#x27;%s&#x27; &quot;$command&quot; | python3 &quot;$lib/keychain-readers.py&quot; &quot;$repo/.agents/config.json&quot;)&quot; || status=$?
+[[ $status -ne 3 ]] || exit 0
+if [[ $status -ne 0 ]]; then
+  echo &quot;keychain-notice: keychain-readers.py failed (exit $status), so this command gets no notice&quot; &gt;&amp;2
+  exit 0
+fi
+reader=&quot;${found%%$&#x27;\n&#x27;*}&quot;
+line=&quot;${found#*$&#x27;\n&#x27;}&quot;
+folder=&quot;${repo##*/}&quot;
+
+printf &#x27;%s  %s  reader: %s\n  %s\n&#x27; &quot;$(date &#x27;+%Y-%m-%d %H:%M:%S&#x27;)&quot; &quot;${cwd:-$repo}&quot; &quot;$reader&quot; &quot;$command&quot; \
+  &gt;&gt;&quot;$repo/.agents/.keychain-notices.log&quot; ||
+  echo &quot;keychain-notice: could not append to $repo/.agents/.keychain-notices.log&quot; &gt;&amp;2
+
+# A notifier that hangs, with no window server or a stuck notification daemon,
+# must not hold the agent&#x27;s command: each gets five seconds.
+bounded() {  # &lt;label&gt; &lt;command...&gt;
+  &quot;${@:2}&quot; &gt;/dev/null &amp;
+  local pid=$! tries=0
+  while kill -0 &quot;$pid&quot; 2&gt;/dev/null; do
+    if (( ++tries &gt; 50 )); then
+      kill &quot;$pid&quot; 2&gt;/dev/null || true
+      echo &quot;keychain-notice: $1 did not finish within 5 s and was stopped&quot; &gt;&amp;2
+      return 0
+    fi
+    sleep 0.1
+  done
+  wait &quot;$pid&quot; || echo &quot;keychain-notice: $1 failed&quot; &gt;&amp;2
+}
+
+bounded &quot;osascript&#x27;s notification&quot; osascript \
+  -e &#x27;on run argv&#x27; \
+  -e &#x27;display notification (item 3 of argv) with title &quot;Agent shell command: keychain read&quot; subtitle ((item 1 of argv) &amp; &quot; · &quot; &amp; (item 2 of argv))&#x27; \
+  -e &#x27;end run&#x27; \
+  &quot;$folder&quot; &quot;$reader&quot; &quot;${line:0:240}&quot;
+
+# A Focus mode, or notifications switched off for Script Editor, hides the
+# notification; inside tmux the status line carries the same notice. tmux reads
+# `#` as the start of a format or a style, so each is doubled to show as typed.
+if [[ -n &quot;${TMUX:-}&quot; ]]; then
+  message=&quot;Keychain read by an agent shell command ($folder, $reader): ${line:0:160}&quot;
+  bounded &quot;tmux&#x27;s status-line notice&quot; tmux display-message -d 15000 &quot;${message//\#/##}&quot;
+fi
+exit 0
 </code></pre></details>
             </article>
             <article class="hook" data-t="gate">
