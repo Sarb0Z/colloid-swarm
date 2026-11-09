@@ -65,8 +65,7 @@ MANIFEST = {
     "security-scan":                      ".agents/skills/security-scan/SKILL.md",
     "dynamic-security-scan":              ".agents/skills/dynamic-security-scan/SKILL.md",
     "perf-budget":                        ".agents/skills/perf-budget/SKILL.md",
-    "page-load-audit":                    ".agents/skills/page-load-audit/SKILL.md",
-    "market-researcher":                  ".agents/skills/market-researcher/SKILL.md",
+    "page-load-audit":                    ".agents/skills/page-load-audit/SKILL.md",    "market-researcher":                  ".agents/skills/market-researcher/SKILL.md",
     "grilling":                           ".agents/skills/grilling/SKILL.md",
     "grill-me":                           ".agents/skills/grill-me/SKILL.md",
     "domain-modeling":                    ".agents/skills/domain-modeling/SKILL.md",
@@ -147,8 +146,11 @@ def main():
     embedded = out.count('data-gen="1"')
     print(f"embedded {embedded} source panels across {count} cards -> {os.path.relpath(PAGE, REPO)}")
 
-    style = re.search(r"<style>.*?</style>", out, re.S).group(0)
-    body = re.search(r"<body>(.*)</body>", out, re.S).group(1).strip()
+    style = re.search(r"<style>.*?</style>", out, re.S)
+    body = re.search(r"<body>(.*)</body>", out, re.S)
+    if style is None or body is None:
+        sys.exit(f"embed-src: {PAGE} has no <style> or <body> block to build the publish variant from")
+    style, body = style.group(0), body.group(1).strip()
     with open(ARTIFACT, "w", encoding="utf-8") as f:
         f.write(style + "\n\n" + body + "\n")
     print(f"wrote publish variant -> {os.path.relpath(ARTIFACT, REPO)}")
