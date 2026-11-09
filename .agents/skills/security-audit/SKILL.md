@@ -51,7 +51,8 @@ Use these consistently in the report:
 | 🔵 LOW | Minor info leak, missing security header, UX-only issue |
 | ⚪ INFO | Best practice gap, not exploitable but worth fixing |
 
-Rate the control that failed, not the defect class:
+Rate the control that failed, not the defect class. Where these rules and the
+table's examples disagree, the rules win:
 
 - **A missing second layer is not a vulnerability.** If Layer A prevents the
   attack, the absence of Layer B is a hardening note, rated INFO at most.

@@ -17,6 +17,7 @@ Differences from the source:
   schema-validated `findings.json`. `pentesting` sends every candidate to one
   verifier cell and records verdicts in its Markdown report, because its
   reports are read by a person and no pipeline consumes them.
+- Upstream's third verdict is `rejected`; `pentesting` calls it `refuted`.
 - Upstream's prompt addresses one candidate ("You did not write this
   candidate"); the local prompt addresses the batch.
 - Upstream's coverage ledger, quick and scoped modes, and validators are not

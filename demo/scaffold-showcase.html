@@ -6667,7 +6667,7 @@ depend on the ledger.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 281 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 282 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
 name: security-audit
 description: &gt;
   Comprehensive source-only adversarial security review of a full-stack codebase. Use this skill
@@ -6720,7 +6720,8 @@ Use these consistently in the report:
 | 🔵 LOW | Minor info leak, missing security header, UX-only issue |
 | ⚪ INFO | Best practice gap, not exploitable but worth fixing |
 
-Rate the control that failed, not the defect class:
+Rate the control that failed, not the defect class. Where these rules and the
+table&#x27;s examples disagree, the rules win:
 
 - **A missing second layer is not a vulnerability.** If Layer A prevents the
   attack, the absence of Layer B is a hardening note, rated INFO at most.
@@ -8102,7 +8103,7 @@ surface cannot run, state the exact blocker and withhold &quot;verified&quot;.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Assurance</div><h3>pentesting</h3><p>The adversarial complement to <code>security-audit</code>: assumes the codebase is hostile and asks what an attacker tries first. Fans out recon on distinct surfaces, hand-verifies the load-bearing finding, then chains them.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 230 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 237 lines</span></summary><div class="srcpath">.agents/skills/pentesting/SKILL.md</div><pre><code>---
 name: pentesting
 description: &gt;
   Adversarial red-team method. Open-ended attack-surface analysis that complements the
@@ -8148,25 +8149,31 @@ Pick one from what the user typed.
 
    Every recon prompt must require:
    - **file:line evidence** for every finding;
-   - a **confidence score** on every candidate, low ones included: the verifier
+   - **every candidate the cell suspects**, however unsure: the verifier
      filters, not the finder;
    - an explicit **&quot;VERIFIED CORRECT&quot;** (with file:line) for code that looks risky but is
      safe, which saves the fix pass from investigating it a second time.
 
-2. **Independent verification.** Dispatch one fresh `READ-ONLY` cell that found
-   nothing, at the recon cells&#x27; tier or above, with every candidate&#x27;s claim and
-   file:line but not the finders&#x27; confidence or impact. Open its prompt with:
-   *&quot;You did not write these candidates. Try to refute each one from repository
-   source and bounded local evidence.&quot;* It returns one verdict per candidate:
+2. **Independent verification.** Dispatch one fresh cell that found nothing,
+   at the medium tier or above, because severity is judgement. Its prompt
+   opens with `READ-ONLY`, then: *&quot;You did not write these candidates. Try to
+   refute each one from repository source and bounded local evidence.&quot;* Give
+   it every candidate&#x27;s claim and file:line, not the finders&#x27; impact, and the
+   Severity definitions below. It returns one verdict per candidate:
    `confirmed` with a severity, `refuted` with a one-line refutation, or
-   `needs_validation` with the exact blocker source alone cannot settle. Then
-   **hand-verify the load-bearing confirmed finding&#x27;s file:line evidence**
-   yourself: a single verifier still misreads code. This step is mandatory.
+   `needs_validation` with the exact blocker source alone cannot settle.
+
+   Then review the confirmed table yourself: **hand-verify the load-bearing
+   finding&#x27;s file:line evidence**, demote what is over-stated, and promote
+   what is under-stated. A single verifier still misreads code, in either
+   direction. This step is mandatory.
 
 3. **Chain analysis.** Combine findings into multi-step exploit chains. A lone
    MEDIUM is boring; the chain of that MEDIUM and two LOWs is sometimes a
    CRITICAL takeover. Document chains separately from the individual findings:
-   the chain is the deliverable an attacker cares about.
+   the chain is the deliverable an attacker cares about. Every step of a chain
+   is a `confirmed` finding; a `needs_validation` lead may be named as the
+   step that would complete a chain, never counted as one.
 
 4. **Report.** Write the assessment in the structure below.
 
@@ -8183,7 +8190,8 @@ Pick one from what the user typed.
 7. **Stop signal.** If a round finds 0 HIGH or CRITICAL and ≤ 2 MEDIUM, declare
    diminishing returns: the branch is at its strongest defensible static state,
    and the next tier of assurance is dynamic testing (DAST, fuzzing,
-   browser-based payloads).
+   browser-based payloads). Name every open `needs_validation` lead in that
+   message: each is a question for the dynamic tier, not a closed one.
 
 ### 2. Targeted surface — `/pentest auth`, `/pentest upload`, `/pentest admin`
 
@@ -8201,8 +8209,9 @@ itself.&quot;*
 
 This is among the highest-yield modes: patch passes routinely introduce subtle
 defects — wrong handler ordering, missing null checks, async race windows, an
-auth check that now short-circuits. Run it after every multi-fix batch. The
-output takes the same report shape; the title marks it a regression sweep.
+auth check that now short-circuits. Run it after every multi-fix batch. Its
+candidates go through the same verification, report, fix gate and apply steps;
+the title marks the report a regression sweep.
 
 ### 4. Report only — `/pentest report`
 
@@ -8231,13 +8240,11 @@ For each candidate breach you find:
     attack: one-paragraph adversarial walkthrough
     why_it_works: the missing or wrong check
     one_line_fix: concrete patch
-    confidence: 0.0-1.0
 
 Then a 5-line coverage note (what you read, what you didn&#x27;t).
 
 If a check is correctly implemented, say &quot;VERIFIED CORRECT&quot;
-with file:line evidence. Report every candidate you suspect, low confidence
-included; a separate verifier tries to refute each one, so a miss here costs
+with file:line evidence. Report every candidate you suspect, however unsure; a separate verifier tries to refute each one, so a miss here costs
 more than noise. Don&#x27;t fabricate: every candidate cites file:line.
 ```
 
@@ -8318,7 +8325,8 @@ analysis even where its standalone rating holds.
 After two consecutive rounds yield zero HIGH or CRITICAL and ≤ 2 MEDIUM, recon
 has dropped below its cost. Tell the user the branch is at its strongest
 defensible code-side state, and that dynamic testing (DAST, browser-based
-payloads, fuzzing) is the next tier beyond static recon&#x27;s reach. Then stop.
+payloads, fuzzing) is the next tier beyond static recon&#x27;s reach, and hand
+every open `needs_validation` lead to that tier by name. Then stop.
 
 ## Why this workflow
 
