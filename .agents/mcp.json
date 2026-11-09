@@ -43,6 +43,20 @@
         "${REPO_ROOT}/.agents/.playwright-reader.json"
       ]
     },
+    "scrapling": {
+      "description": "Stealth browser for bot-walled pages, including Cloudflare's interactive checkbox. Install its browser once: uvx --from 'scrapling[ai]==0.5.1' scrapling install",
+      "sources": ["browser_fetch_once", "browser_fetch"],
+      "enabled": false,
+      "codex_enabled": false,
+      "kimi_enabled": false,
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "scrapling[ai]==0.5.1",
+        "scrapling-mcp"
+      ]
+    },
     "appium-mcp": {
       "description": "Mobile app automation.",
       "enabled": false,

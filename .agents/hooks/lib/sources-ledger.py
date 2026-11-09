@@ -39,7 +39,7 @@ def source_row(payload):
         return "search", text(tool_input.get("query"))
     if tool in {"WebFetch", "FetchURL"} or tool.endswith("__fetch_readable"):
         return "fetch", text(tool_input.get("url"))
-    if tool.endswith("__browser_navigate"):
+    if tool.endswith(("__browser_navigate", "__browser_fetch_once", "__browser_fetch")):
         return "browse", text(tool_input.get("url"))
     if tool.endswith("__resolve_open_access"):
         return "search", text(tool_input.get("query"))

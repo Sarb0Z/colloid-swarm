@@ -65,7 +65,7 @@
         ]
       },
       {
-        "matcher": "mcp__[A-Za-z0-9_-]+__(browser_navigate|fetch_readable|query-docs|resolve-library-id|resolve_open_access)|mcp__(exa|plugin_exa_exa)__.*|mcp__(greptile|plugin_greptile_greptile)__.*",
+        "matcher": "mcp__[A-Za-z0-9_-]+__(browser_fetch|browser_fetch_once|browser_navigate|fetch_readable|query-docs|resolve-library-id|resolve_open_access)|mcp__(exa|plugin_exa_exa)__.*|mcp__(greptile|plugin_greptile_greptile)__.*",
         "hooks": [
           {
             "type": "command",

@@ -23,6 +23,16 @@ not verify.
 `WebFetch`, cite the URL; no cell. When `WebFetch` returns navigation, a cookie
 wall, or boilerplate instead of the text, re-read the same URL with
 `research-mcp`'s `fetch_readable`, which also reads the PDFs `WebFetch` cannot.
+When `fetch_readable` reports `failure: "blocked"` with no capture, open the
+page in the `playwright` entry. If that stops at a challenge it cannot pass,
+such as an interactive checkbox, the operator can switch on the `scrapling`
+entry (`python3 .agents/mcp.py enable scrapling`, then restart; once,
+`uvx --from 'scrapling[ai]==0.5.1' scrapling install`). Read the page with its
+`browser_fetch_once` and `solve_cloudflare: true`, one page at a time and never
+crawling, expecting 15-190 s a page; a multi-step flow uses `browser_open` ...
+`close_session`. The `researcher` persona has neither browser, so this route is
+for the lead and generic cells.
+
 Use the fast path for a **single, well-known, low-stakes fact**:
 - "What's the current Node LTS?" · "Does `Array.prototype.at` exist in Node 18?"
 - "What's the latest stable Postgres major?"
@@ -112,7 +122,7 @@ The researcher's `SOURCES` become the answer's sources. When writing it:
 ## The evidence trail
 
 The `sources-capture` hook logs every observable `WebSearch` / `WebFetch` /
-Context7 / `browser_navigate` / `fetch_readable` / `resolve_open_access` call,
+Context7 / `browser_navigate` / `browser_fetch_once` / `browser_fetch` / `fetch_readable` / `resolve_open_access` call,
 the researcher cell's included, to `.agents/.sources-ledger`
 (`ts · agent · kind · value`). Codex hosted web search bypasses local tool
 hooks; its MCP calls are captured. The ledger is the operator's audit trail and
