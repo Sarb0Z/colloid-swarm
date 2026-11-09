@@ -20,6 +20,9 @@
 #   - Registry MCP servers that are toggled off (name + description), with the
 #     mcp.py enable/disable incantation — the model learns they exist and
 #     how to switch them on without paying their tool-schema cost upfront.
+#   - On Claude Code only: each language with a tracked file whose
+#     code-intelligence server cannot start, with its install command
+#     (hooks/lib/lsp-missing.py).
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (AGENTS.md carries only a one-line copy) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
@@ -53,11 +56,12 @@ worklog_detail="$(printf '%s\n' "$worklog" | sed -n '2p')"
 worklog_grant="$(printf '%s\n' "$worklog" | sed -n '3p')"
 [[ "$session_start_enabled" == "no" && "$learning_enabled" == "no" && "$worklog_status" == "off" ]] && exit 0
 
-parsed="$(python3 "$lib/payload.py" project_dir source session_id transcript_path)"
+parsed="$(python3 "$lib/payload.py" project_dir source session_id transcript_path host)"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
 start_source="$(printf '%s\n' "$parsed" | sed -n '2p')"
 session_id="$(printf '%s\n' "$parsed" | sed -n '3p')"
 transcript="$(printf '%s\n' "$parsed" | sed -n '4p')"
+host="$(printf '%s\n' "$parsed" | sed -n '5p')"
 [[ -z "$proj" ]] && proj="$PWD"
 
 # Seed session-wrap's baseline with the commit this session STARTS from. Its own
@@ -143,13 +147,16 @@ fi
 # Surface disabled registry servers so the model can request only what it needs.
 mcp_off=""
 if [[ "$session_start_enabled" == "yes" ]]; then
-  mcp_off="$(python3 "$lib/mcp-off.py" "$proj")"
+  mcp_off="$(python3 "$lib/mcp-off.py" "$proj")" \
+    || { echo "session-start: the MCP registry check failed; no switched-off servers are listed this session" >&2; mcp_off=""; }
 fi
 
-# Name the languages whose code-intelligence server cannot start here.
+# Name the languages whose code-intelligence server cannot start here. The
+# servers are a Claude Code plugin, so other hosts are not told to install them.
 lsp_missing=""
-if [[ "$session_start_enabled" == "yes" ]]; then
-  lsp_missing="$(python3 "$lib/lsp-missing.py" "$proj")"
+if [[ "$session_start_enabled" == "yes" && "$host" == "claude" ]]; then
+  lsp_missing="$(python3 "$lib/lsp-missing.py" "$proj")" \
+    || { echo "session-start: the code-intelligence check failed; no language-server notice this session" >&2; lsp_missing=""; }
 fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as

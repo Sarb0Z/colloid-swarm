@@ -151,6 +151,8 @@ def normalize(payload, policy, repo):
         # Identity, for seeding session-wrap's baseline before turn 1 runs.
         out["session_id"] = payload.get("session_id", "")
         out["transcript_path"] = payload.get("transcript_path", "")
+        # The code-intelligence notice concerns a Claude Code plugin only.
+        out["host"] = "claude"
     elif policy in ("research-prime.sh", "done-prime.sh"):
         out["prompt"] = payload.get("prompt", "")
     elif policy == "ui-gate.sh":

@@ -224,8 +224,10 @@ assert_contains "$kcap_context" '- 2026-01-03 · research · Subject 03'
 assert_not_contains "$kcap_context" 'Subject 02'
 assert_not_contains "$kcap_context" 'summary 14'
 
-# A tracked file whose language server is not on PATH names the language and
-# its install command; once the server is on PATH the section is gone.
+# In a Claude Code session, a tracked file whose language server is not on PATH
+# names the language and its install command; once the server is on PATH the
+# section is gone. A Codex session is never told, and a check that crashes
+# leaves the other sections in place.
 lsp="$(make_fixture lsp-missing)"
 write_config "$lsp" true true
 mkdir -p "$lsp/.agents/claude/plugins/code-intelligence/.claude-plugin" "$scratch/lsp-bin"
@@ -239,13 +241,18 @@ json.dump(manifest, open(sys.argv[2], "w"))
 PY
 touch "$lsp/app.py"
 git -C "$lsp" add app.py
-lsp_context="$(context_of "$(run_policy "$lsp")")"
+lsp_context="$(context_of "$(run_claude_adapter "$lsp")")"
 assert_contains "$lsp_context" 'Code intelligence is off'
 assert_contains "$lsp_context" '- Python: no language server can start. Install it with `brew install pyright`.'
+assert_not_contains "$(context_of "$(run_codex_adapter "$lsp")")" 'Code intelligence is off'
 printf '#!/bin/sh\n' > "$scratch/lsp-bin/colloid-fixture-pyright"
 chmod +x "$scratch/lsp-bin/colloid-fixture-pyright"
-assert_not_contains "$(PATH="$scratch/lsp-bin:$PATH" context_of "$(PATH="$scratch/lsp-bin:$PATH" run_policy "$lsp")")" 'Code intelligence is off'
-printf 'ok: session start names a language whose server cannot start, and drops it once the server is on PATH\n'
+assert_not_contains "$(PATH="$scratch/lsp-bin:$PATH" context_of "$(PATH="$scratch/lsp-bin:$PATH" run_claude_adapter "$lsp")")" 'Code intelligence is off'
+rm "$lsp/.agents/hooks/lib/lsp-missing.py"
+lsp_broken="$(run_claude_adapter "$lsp" 2>"$scratch/lsp-stderr")"
+assert_contains "$(context_of "$lsp_broken")" 'fixture-decision'
+assert_contains "$(cat "$scratch/lsp-stderr")" 'the code-intelligence check failed'
+printf 'ok: session start names a language whose server cannot start in Claude Code only, drops it once the server is on PATH, and survives the check crashing\n'
 
 # At the cap exactly, every item shows and no truncation notice appears.
 exact="$(make_fixture breadcrumb-exact)"

@@ -15,7 +15,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib" "$dir/.agents/claude" "$dir/.claude/hooks"
 cp "$repo/.agents/hooks/policy/style-inject.sh" "$repo/.agents/hooks/policy/session-start.sh" "$dir/.agents/hooks/policy/"
-cp "$repo"/.agents/hooks/lib/{config,payload,emit-context,mcp-off,worklog,write_targets,output_style}.py "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{config,payload,emit-context,mcp-off,lsp-missing,worklog,write_targets,output_style}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
 ln -s ../../.agents/claude/adapter.sh "$dir/.claude/hooks/adapter.sh"
 style="$dir/.agents/claude/output-style.md"

@@ -6,9 +6,10 @@ Usage: lsp-missing.py <project-dir>
 Reads the language servers the repository's `code-intelligence` plugin declares
 and prints one `- <language>: …` line per server that has work here (a tracked
 file with one of its extensions) but cannot start: its command is not on PATH,
-or its launcher's `--probe` fails. A project without the plugin prints nothing.
-A check that cannot run prints its reason as a line, so a broken check never
-reads as every server starting.
+or its launcher's `--probe` fails. A project without the plugin, or whose
+Claude Code settings switch it off, prints nothing. A check that cannot run
+prints its reason as a line, so a broken check never reads as every server
+starting.
 """
 
 import json
@@ -20,6 +21,7 @@ import sys
 
 MANIFEST = ".agents/claude/plugins/code-intelligence/.claude-plugin/plugin.json"
 PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}"
+PLUGIN_ID = "code-intelligence@skills-dir"
 
 # Server name -> (what the user calls the language, how to install its server).
 SERVERS = {
@@ -33,6 +35,22 @@ SERVERS = {
 
 class CheckFailed(Exception):
     """The check itself could not run, as opposed to a server that cannot start."""
+
+
+def switched_off(project):
+    """Whether Claude Code's settings disable the plugin; a later file overrides an earlier one."""
+    user = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    enabled = True
+    for settings in (user / "settings.json", project / ".claude/settings.json", project / ".claude/settings.local.json"):
+        if not settings.exists():
+            continue
+        try:
+            value = json.loads(settings.read_text(encoding="utf-8")).get("enabledPlugins", {}).get(PLUGIN_ID)
+        except (OSError, ValueError, AttributeError) as error:
+            raise CheckFailed(f"{settings} is unreadable ({error})") from error
+        if isinstance(value, bool):
+            enabled = value
+    return not enabled
 
 
 def has_files(project, extensions):
@@ -68,6 +86,12 @@ def main():
     project = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
     manifest = project / MANIFEST
     if not manifest.exists():
+        return 0
+    try:
+        if switched_off(project):
+            return 0
+    except CheckFailed as error:
+        print(f"- Code intelligence check failed: {error}")
         return 0
     try:
         servers = json.loads(manifest.read_text(encoding="utf-8"))["lspServers"]

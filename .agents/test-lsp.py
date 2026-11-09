@@ -120,7 +120,8 @@ def project_with(scratch, name, files):
 
 
 def missing(project, path):
-    env = {**os.environ, "PATH": path}
+    # User-level settings come from a scratch folder, never the operator's own.
+    env = {**os.environ, "PATH": path, "CLAUDE_CONFIG_DIR": str(project.parent / "user-config")}
     result = subprocess.run([sys.executable, str(MISSING), str(project)],
                             capture_output=True, text=True, env=env, timeout=60)
     return result.returncode, result.stdout.splitlines()
@@ -147,6 +148,39 @@ def missing_rows(scratch):
     plain = scratch / "plain"
     plain.mkdir()
     check(missing(plain, BASE_PATH) == (0, []), "a project without the plugin prints nothing")
+
+
+def settings_rows(scratch):
+    off = {"enabledPlugins": {"code-intelligence@skills-dir": False}}
+    on = {"enabledPlugins": {"code-intelligence@skills-dir": True}}
+    user = scratch / "user-config"
+    user.mkdir()
+
+    local_off = project_with(scratch, "local-off", ["app.py"])
+    (local_off / ".claude").mkdir()
+    (local_off / ".claude/settings.local.json").write_text(json.dumps(off))
+    check(missing(local_off, BASE_PATH) == (0, []), "the plugin switched off in settings.local.json prints nothing")
+
+    (user / "settings.json").write_text(json.dumps(off))
+    user_off = project_with(scratch, "user-off", ["app.py"])
+    check(missing(user_off, BASE_PATH) == (0, []), "the plugin switched off in the user's settings prints nothing")
+    (user_off / ".claude").mkdir()
+    (user_off / ".claude/settings.local.json").write_text(json.dumps(on))
+    _, lines = missing(user_off, BASE_PATH)
+    check(any(line.startswith("- Python:") for line in lines), "settings.local.json switching it back on overrides the user's")
+
+    (user / "settings.json").write_text("{not json")
+    code, lines = missing(user_off, BASE_PATH)
+    check(code == 0 and len(lines) == 1 and "Code intelligence check failed" in lines[0] and "settings.json" in lines[0],
+          "an unreadable settings file prints the failure instead of nothing")
+    (user / "settings.json").unlink()
+
+
+def failure_rows(scratch):
+    bins = scratch / "failure-bins"
+    stub(bins, "pyright-langserver", "exit 0")
+    compiler(bins, 7)
+    present = f"{bins}:{BASE_PATH}"
 
     broken = project_with(scratch, "broken", ["app.py"])
     (broken / ".agents/claude/plugins/code-intelligence/.claude-plugin/plugin.json").write_text("{not json")
@@ -176,6 +210,8 @@ def main():
         scratch = Path(directory).resolve()
         launcher_rows(scratch)
         missing_rows(scratch)
+        settings_rows(scratch)
+        failure_rows(scratch)
     if failures:
         print(f"test-lsp: {len(failures)} failed", file=sys.stderr)
         return 1
