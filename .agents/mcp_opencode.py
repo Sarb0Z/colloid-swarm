@@ -45,6 +45,7 @@ ACTIONS = {
     "Task": "subagent",
     "Agent": "subagent",
     "Skill": "skill",
+    "LSP": "lsp",
 }
 
 SHELL = re.compile(r"^Bash\((.+)\)$")
