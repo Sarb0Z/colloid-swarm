@@ -2,7 +2,7 @@
 
 Edits to the scaffold and transplants of it into satellites. Read
 `.agents/AGENTS.md` first. Guard and gate hooks and the contract files (the root
-`AGENTS.md`, `.agents/AGENTS.md`, the playbooks, the hostile-review contract)
+`AGENTS.md`, `.agents/AGENTS.md`, the playbooks, `.agents/lenses.md`, the hostile-review contract)
 are critical; every other scaffold change is standard.
 
 | Step | Standard | Critical |

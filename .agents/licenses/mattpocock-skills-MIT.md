@@ -62,8 +62,9 @@ source in these ways:
   later phase, and ends by sending the agent to the Stuck lens in
   `.agents/lenses.md` after two failed fixes.
 - Phase 6 deletes throwaway prototypes, with no option to keep them.
-- Its description adds a Fix that cannot build a failing command, whose first
-  run does not make the cause plain, or whose fix has failed as a trigger.
+- Its description adds three Fix triggers: no command that goes red on the
+  defect can be built, its first run does not make the cause plain, or a fix
+  has failed.
 
 ## Adapted text at a later commit
 
