@@ -50,15 +50,14 @@ These upstream files are not carried:
 `scripts/hitl-loop.template.sh` are not carried. `SKILL.md` differs from the
 source in these ways:
 
-- The Redact section is removed; the root contract keeps secret values out of
-  the repository, and the two places that show output say to remove secrets.
 - The tenth way to build a loop is human-run steps that print every value
   separating the hypotheses, in place of the HITL script, and the
   agent-runnable criterion points at those steps.
 - It checks `.agents/decisions.md` for the area, in place of ADRs.
 - Phase 3 ranks the most recent change first when something that worked has
-  stopped working, and states the ranked list in an update without waiting,
-  in place of showing it to the user before testing.
+  stopped working, and states the ranked list in an update and always
+  proceeds, in place of showing it to the user and proceeding without an
+  answer only when the user is away.
 - Phase 5 notes a missing seam in the report, in place of flagging it for a
   later phase, and ends by sending the agent to the Stuck lenses in
   `.agents/lenses.md` after two failed fixes.

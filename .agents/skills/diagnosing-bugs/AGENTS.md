@@ -13,8 +13,8 @@ paths:
 - The root `AGENTS.md` Fix workflow names this skill as its reproduction loop. A change that weakens Phase 1's completion criterion changes the Fix workflow too.
 
 ## Abnormal Cases and Rationale
-- Phase 3 states the ranked hypotheses in an update and does not wait, where upstream asks the user before testing. The root contract sends the user only blockers that are theirs, and a ranking the session can test is not one.
-- Upstream's Redact section and its human-in-the-loop script are not carried: the root contract keeps secret values out of the repository, and its Verify-with-user rule already shapes steps a human runs so one run settles it.
+- Phase 3 states the ranked hypotheses in an update and always proceeds, where upstream shows the list to the user and proceeds without an answer only when the user is away. The root contract sends the user only blockers that are theirs, and a ranking the session can test is not one.
+- Upstream's human-in-the-loop script is not carried: the root contract's Verify-with-user rule already shapes steps a human runs so one run settles it. Its Redact section is carried, because it governs what the agent shows in transcripts and reports, which the root rule on secrets in the repository does not reach.
 
 ## Out of Scope
 - Do not restate `SKILL.md` usage instructions. This file governs edits to the skill.

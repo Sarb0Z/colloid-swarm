@@ -3,10 +3,11 @@
 Two rules in `.agents/playbooks/hostile-review.md`, in the paragraph on how
 the lead dispositions findings, are adapted from
 https://github.com/google/elephant-goldfish-model (branch `main`, commit
-`5382b17619be07811a14b2146c7672620b34a791`), under the Apache License,
-Version 2.0. Its README states "This is not an officially supported Google
-product." No upstream file is carried whole, and upstream ships no NOTICE
-file and names no copyright holder in its files.
+`5382b17619be07811a14b2146c7672620b34a791`), Copyright 2026 Google LLC,
+under the Apache License, Version 2.0. Its README states "This is not an
+officially supported Google product." No upstream file is carried whole.
+Upstream ships no NOTICE file; its source files carry "Copyright 2026 Google
+LLC", and the two adapted files carry no header.
 
 | Adapted rule | Upstream text | Upstream path |
 | --- | --- | --- |
