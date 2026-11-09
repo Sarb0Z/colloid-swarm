@@ -91,6 +91,11 @@ axes="$here/../../playbooks/review-axes.md"
 [[ -s "$axes" ]] || { echo "missing axis catalogue: $axes" >&2; exit 1; }
 cp "$axes" "$tree/.agents/playbooks/review-axes.md"
 
+# The contract reads the Review lenses on the same terms as the catalogue.
+lenses="$here/../../lenses.md"
+[[ -s "$lenses" ]] || { echo "missing lens collection: $lenses" >&2; exit 1; }
+cp "$lenses" "$tree/.agents/lenses.md"
+
 # Every skill the contract names must exist in the tree, or the reviewer
 # follows a dead reference. It invokes one of these and flags the other.
 for name in thermo-nuclear-code-quality-review scalability-audit; do

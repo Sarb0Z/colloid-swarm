@@ -61,7 +61,7 @@ for path in \
 done
 
 retained=(
-  .agents/AGENTS.md .agents/check-layout.py .agents/mcp.py .agents/mcp_codex.py \
+  .agents/AGENTS.md .agents/check-layout.py .agents/lenses.md .agents/mcp.py .agents/mcp_codex.py \
   .agents/workloop.py .agents/skills/workloop/SKILL.md \
   .claude/agents/implementer.md .codex/agents/implementer.toml \
   .codex/hooks.json .github/lsp.json CLAUDE.md export/README.md export/drop-server.py \

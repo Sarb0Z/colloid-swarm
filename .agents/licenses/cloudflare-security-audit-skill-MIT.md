@@ -8,6 +8,7 @@ License below. No upstream file is carried whole.
 | Local file | Adapted text | Upstream path |
 | --- | --- | --- |
 | `skills/pentesting/SKILL.md` | The independent verification step: a fresh cell that found nothing tries to refute every candidate, opening "You did not write these candidates. Try to refute each one from repository source and bounded local evidence."; the `confirmed`, `refuted` and `needs_validation` verdicts; severity only on `confirmed` | `skills/security-audit/VALIDATION-AND-REPORTING.md`, `skills/security-audit/SKILL.md` |
+| `lenses.md` | The state-machine questions in the Review section's implicit-state-machine lens: skip a step, go backwards, reach an invalid state, replay a completed flow, roll back a partial failure | `skills/security-audit/ATTACK-CLASSES.md` |
 | `skills/security-audit/SKILL.md` | "If Layer A prevents the attack, the absence of Layer B is a hardening note"; the high/medium discriminator; the unrated *Needs validation* section; an earlier coverage record never implies the rest is fine | `README.md`, `skills/security-audit/SKILL.md` |
 
 Differences from the source:

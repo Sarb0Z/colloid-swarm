@@ -43,7 +43,7 @@ Read a playbook workflow's file before its first step.
 | Step | Disposable | Standard | Critical |
 |---|---|---|---|
 | Grill and model the domain (`grill-me`) | — | — | Yes |
-| Plan: affected modules, constraints, the one or two options worth weighing, and the claim QA must reproduce | — | Yes | Yes |
+| Plan: affected modules, constraints, the one or two options worth weighing, and the claim QA must reproduce, after asking what higher-level abstraction would make the problem disappear and applying the rest of the Plan lenses in `.agents/lenses.md` | — | Yes | Yes |
 | Hostile review of the plan; settle every `P0` and `P1` before code | — | Yes | Yes |
 | Stop and report: no code in the unit before the operator's OK on its plan | — | — | Yes |
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |
@@ -57,7 +57,7 @@ Read a playbook workflow's file before its first step.
 
 **Feedback checkpoint.** In user-visible work, once one vertical unit runs end to end on the real backend with its authentication, tenant, money, and destructive-operation safeguards, give the operator the command that runs it, numbered test steps, expected values, known gaps, and what the agent did not check itself. Breadth waits for that review — exhaustive edge-case QA, a second browser, release evidence; quality does not. Keep building independent units meanwhile; at critical stakes the checkpoint is a human gate.
 
-**Implement and test.** Tie every fix to observed evidence — a reproduced defect, or system, user, log, or test output. A theory read from the code suffices to act on; a hunch does not, so instrument. A fix that fails falsifies its theory: after two, stop changing code, instrument, and gather the missing evidence. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. A failure is diagnosed and fixed; a fix that forces a redesign returns to the plan.
+**Implement and test.** Tie every fix to observed evidence — a reproduced defect, or system, user, log, or test output. A theory read from the code suffices to act on; a hunch does not, so instrument. A fix that fails falsifies its theory: after two, stop changing code, ask whether you are duct-taping custom fixes where a native way exists (the Stuck lenses in `.agents/lenses.md`), instrument, and gather the missing evidence. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. A failure is diagnosed and fixed; a fix that forces a redesign returns to the plan.
 
 ### Fix
 

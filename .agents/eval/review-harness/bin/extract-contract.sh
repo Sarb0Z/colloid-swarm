@@ -38,9 +38,14 @@ for want in '## Authority' '## Static sweep' 'CONFORMANCE:' 'EFFECTS:' \
             'risk:' 'fix:' 'next:' 'residual:' 'cost:' 'recommendation:' \
             'AMBIGUITY:' 'HANDOFF: qa-verifier' 'HANDOFF: scalability-audit' \
             'FINDINGS: none' \
-            'review-axes.md'; do
+            'review-axes.md' 'lenses.md'; do
   grep -Fq -- "$want" "$fresh" || { echo "extract is missing: $want" >&2; exit 1; }
 done
+
+# The contract also reads the Review lenses by path and stops without them.
+lenses="$here/../../lenses.md"
+[[ -s "$lenses" ]] || { echo "contract references $lenses, which is missing" >&2; exit 1; }
+grep -q '^## Review$' "$lenses" || { echo "$lenses has no '## Review' section" >&2; exit 1; }
 
 # The contract points at the catalogue by path, so the two files must agree.
 axes="$here/../../playbooks/review-axes.md"

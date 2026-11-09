@@ -28,8 +28,9 @@ evidence supports it; do not substitute static inference for missing execution.
 
 ## Static sweep
 
-Read `.agents/playbooks/review-axes.md`; if it is unavailable, stop and report
-that blocker. Work each applicable group. This is a static review: inspect
+Read `.agents/playbooks/review-axes.md` and the Review lenses in
+`.agents/lenses.md`; if either is unavailable, stop and report that blocker.
+Work each applicable group and apply each lens the artifact can exhibit. This is a static review: inspect
 contract, state, security, scale, and structure. Do not claim runtime behavior
 you did not execute. If changed observable behavior lacks QA evidence, report
 that as a coverage gap and hand it to `qa-verifier`.
@@ -59,7 +60,8 @@ A review that finds nothing is a result. Write `FINDINGS: none` in place of the
 list. Do not add a `P2` observation to a clean review. A finding you cannot
 defend costs the lead more time than it saves.
 
-Name groups worked and skipped. Close with zero or more exact lines:
+Name groups worked and skipped, and each lens that produced a finding. Close
+with zero or more exact lines:
 
 ```
 AMBIGUITY: <requirement> — (a) <reading>; (b) <reading>; code: <a|b|neither>.
