@@ -96,3 +96,9 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — an agent in acceptEdits or auto mode can write the ignored `.agents/config.json` and set `hooks.product_folder.enabled` itself, switching the product-folder grant on with no prompt. The file's other toggles only switch off guards inside the checkout; this one widens access outside it. Acceptable: the grant keeps its boundary, so a self-granted switch opens notes and never a checkout, a hidden path, an instruction file or a risky part, and no agent has been observed setting it.
 - **Trigger** — an observed agent edit to that key.
 - **Rework** — a PreToolUse deny on agent file-tool writes to `.agents/config.json`; ~10 lines plus a test row.
+
+### fanout-rule-copies
+
+- **Condition** — the rule that a run declared without `--verify` is finished once it holds a cell and every cell is back lives in three places: the controller's `completion_problems` (`workloop_main.py`), the digest's cell notes (`hooks/lib/workloop-inbox.py`) and the session start's lead-less close (`hooks/lib/worktree_runs.py`). The hooks import nothing from the controller, so a trimmed export without it still runs them. Acceptable: the copies disagree only on a run holding lanes and no `verify`, which only a run made before `--verify` was required can be.
+- **Trigger** — a change to the fan-out rule, or a fourth reader of it.
+- **Rework** — one pure `fanout_state(run)` in `hooks/lib`, which the controller loads as the hooks do; ~30 lines and the three callers' test rows.
