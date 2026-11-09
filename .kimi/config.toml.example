@@ -133,7 +133,7 @@ timeout = 10
 # close command, so the lost reminder costs nothing.
 [[hooks]]
 event = "PostToolUse"
-matcher = "Bash|mcp__[A-Za-z0-9_-]+__(browser_(navigate|tabs|close)|appium_session_management|(start|create|end|close|delete|quit)_session|(appium_)?prepare_ios_(simulator|real_device))"
+matcher = "Bash|mcp__[A-Za-z0-9_-]+__(browser_(navigate|tabs|close|open)|appium_session_management|(start|create|end|close|delete|quit)_session|(appium_)?prepare_ios_(simulator|real_device))"
 command = ".kimi/hooks/adapter.sh teardown-gate.sh"
 timeout = 10
 

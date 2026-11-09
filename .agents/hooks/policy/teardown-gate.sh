@@ -305,6 +305,13 @@ PROC_CLOSE = re.compile(
 
 BROWSER_OPEN = re.compile(r"^mcp__[A-Za-z0-9_-]+__browser_(navigate|tabs)$")
 BROWSER_CLOSE = re.compile(r"^mcp__[A-Za-z0-9_-]+__browser_close$")
+# Scrapling's persistent stealth browser. No other server has a `browser_open`,
+# so the tool name alone identifies it; `browser_fetch_once` opens and closes
+# its own browser inside the call and is deliberately not an open. The server
+# segment is kept with the record because Scrapling ends the browser with
+# `close_session`, the name an Appium server uses for its device.
+STEALTH_OPEN = re.compile(r"^mcp__([A-Za-z0-9_-]+)__browser_open$")
+CLOSE_SESSION = re.compile(r"^mcp__([A-Za-z0-9_-]+)__close_session$")
 # The official appium-mcp server (appium/appium-mcp, npm `appium-mcp`) exposes
 # no close-shaped tool name at all: one `appium_session_management` tool carries
 # create, delete, list, select, attach, and detach in an `action` argument, so
@@ -362,6 +369,15 @@ elif BROWSER_OPEN.match(tool):
     if not tool.endswith("browser_tabs") or ti.get("action") == "new":
         url = ti.get("url")
         verdicts.append("+browser\t" + label(url if isinstance(url, str) and url else "browser tab"))
+elif STEALTH_OPEN.match(tool):
+    server = STEALTH_OPEN.match(tool).group(1)
+    sid = ti.get("session_id")
+    base = label(sid if isinstance(sid, str) and sid else "stealth browser", 60)
+    verdicts.append(f"+stealth\t{base} [{server}]")
+elif CLOSE_SESSION.match(tool):
+    # Whether this ends a stealth browser or an Appium device depends on what
+    # the same server opened, which only the pending file knows.
+    verdicts.append("?close\t" + CLOSE_SESSION.match(tool).group(1))
 elif APPIUM_SESSION.match(tool):
     action = ti.get("action")
     # `attach` takes hold of a remote session as firmly as `create` opens a new
@@ -496,6 +512,7 @@ howto() {
                      printf 'run `git worktree remove %s` after committing what it holds' "${2:-<path>}"
                    fi ;;
     browser)       printf 'call browser_close' ;;
+    stealth)       printf 'call close_session with the session_id browser_open returned (list_sessions lists it)' ;;
     device)        printf 'call appium_session_management with action=delete' ;;
     docker)        printf 'run `docker compose down` (or `docker stop <id>`)' ;;
     emulator)      printf 'run `adb emu kill` (Android) or `xcrun simctl shutdown booted` (iOS)' ;;
@@ -507,7 +524,8 @@ howto() {
 # Tier prose, so the block reads as the heuristic it is rather than a rule.
 due_why() {
   case "$1" in
-    browser)  printf 'a page holds a renderer process and buys nothing after the screenshot' ;;
+    browser|stealth)
+              printf 'a page holds a renderer process and buys nothing after the screenshot' ;;
     device)   printf 'a driver session holds the device and blocks the next run against it' ;;
     docker)   printf 'the push made it due; it earned its keep while the work ran' ;;
     build)    printf 'the push made it due; the warm cache earned its keep until then' ;;
@@ -554,6 +572,20 @@ PostToolUse|SubagentStart)
       -*) kind="${verdict#-}"
           if [[ -f "$pending" ]]; then
             grep -v "^$kind	" "$pending" > "$tmp" 2>/dev/null || true
+            mv "$tmp" "$pending"
+          fi
+          grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;
+      # close_session: a stealth browser this server opened, else an Appium
+      # device. Entries end in `[server]`, which is how the server is matched.
+      \?close*)
+          server="${verdict#*	}"
+          if [[ -f "$pending" ]] && awk -F'\t' -v tag="[$server]" \
+               '$1=="stealth" && substr($4, length($4)-length(tag)+1)==tag {found=1} END {exit !found}' "$pending"; then
+            awk -F'\t' -v tag="[$server]" \
+              '!($1=="stealth" && substr($4, length($4)-length(tag)+1)==tag)' "$pending" > "$tmp" || true
+            mv "$tmp" "$pending"
+          elif [[ -f "$pending" ]]; then
+            grep -v "^device	" "$pending" > "$tmp" 2>/dev/null || true
             mv "$tmp" "$pending"
           fi
           grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;

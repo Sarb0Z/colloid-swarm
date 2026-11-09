@@ -261,6 +261,69 @@ mcp mcp__appium__end_session
 [[ ! -e "$pending" ]] || fail "a fork's end_session must clear"
 ok "an appium session is read from the action, not the tool name"
 
+# ── stealth: Scrapling's persistent browser, closed by close_session ─────────
+out="$(mcp mcp__scrapling__browser_open '{"session_id":"cf-demo"}')"
+[[ "$out" == *"keeps running"* && "$out" == *"close_session"* ]] || fail "browser_open must remind and name close_session: $out"
+grep -q '^stealth	.*cf-demo' "$pending" || fail "browser_open must record: $(cat "$pending")"
+stop
+[[ $rc -eq 2 && "$err" == *"[stealth]"* && "$err" == *"close_session"* ]] \
+  || fail "a live stealth browser must block the stop naming close_session (rc=$rc): $err"
+mcp mcp__scrapling__close_session '{"session_id":"cf-demo"}' >/dev/null
+[[ ! -e "$pending" ]] || fail "close_session from the opening server must clear: $(cat "$pending")"
+mcp mcp__scrapling__browser_open >/dev/null
+grep -q 'stealth browser' "$pending" || fail "an open without a session_id needs a fallback label"
+rm -f "$pending"
+ok "browser_open records, blocks the stop, and its server's close_session clears it"
+
+mcp mcp__stealthy__browser_open '{"session_id":"a"}' >/dev/null
+mcp mcp__appium__start_session '{"deviceName":"iPhone 15"}' >/dev/null
+mcp mcp__appium__close_session >/dev/null
+grep -q '^stealth' "$pending" || fail "an Appium close_session must leave stealth: $(cat "$pending")"
+grep -q '^device' "$pending" && fail "an Appium close_session must clear device: $(cat "$pending")"
+mcp mcp__playwright__browser_close >/dev/null
+grep -q '^stealth' "$pending" || fail "a Playwright browser_close must leave stealth"
+mcp mcp__stealthy__close_session >/dev/null
+[[ ! -e "$pending" ]] || fail "the opening server's close_session must clear whatever its name: $(cat "$pending")"
+ok "close_session clears stealth only for its own server; Appium and Playwright closes do not"
+
+[[ -z "$(mcp mcp__scrapling__browser_fetch_once '{"url":"https://example.com"}')" && ! -e "$pending" ]] \
+  || fail "browser_fetch_once opens and closes inside the call and must record nothing"
+ok "browser_fetch_once is not an open"
+
+# The hosts call this hook only for tool names their hand-written matcher lets
+# through, so a class the gate knows but a matcher omits never fires.
+python3 - "$repo" <<'PY' || fail "a host trigger misses a tool name the gate classifies"
+import json, re, sys
+repo = sys.argv[1]
+claude = json.load(open(f"{repo}/.agents/claude/settings.json"))["hooks"]
+codex = json.load(open(f"{repo}/.agents/codex/hooks.json"))["hooks"]
+def gate_matchers(hooks):
+    return [g["matcher"] for event in ("PostToolUse",) for g in hooks[event]
+            if "teardown-gate" in json.dumps(g)]
+found = {"claude": gate_matchers(claude), "codex": gate_matchers(codex)}
+blocks = open(f"{repo}/.kimi/config.toml.example").read().split("[[hooks]]")
+found["kimi"] = [m for block in blocks if re.search(r'(?m)^command\s*=.*teardown-gate', block)
+                 for m in re.findall(r'(?m)^matcher\s*=\s*"([^"]+)"', block)]
+# The worktree snapshot hooks match Bash alone; the MCP trigger is the one naming tools.
+found = {host: [m for m in ms if "mcp__" in m] for host, ms in found.items()}
+tools = ["browser_navigate", "browser_tabs", "browser_close", "browser_open", "close_session",
+         "appium_session_management", "start_session", "create_session", "end_session",
+         "delete_session", "quit_session", "prepare_ios_simulator", "appium_prepare_ios_real_device"]
+bad = []
+for host, matchers in found.items():
+    if not matchers:
+        bad.append(f"{host}: no teardown-gate matcher found")
+    for m in matchers:
+        rx = re.compile(m)
+        for server in ("scrapling", "playwright"):
+            for t in tools:
+                if not rx.search(f"mcp__{server}__{t}"):
+                    bad.append(f"{host} misses mcp__{server}__{t}")
+if bad:
+    sys.exit("\n".join(bad))
+PY
+ok "every host trigger matches every tool name the gate classifies"
+
 sh 'emulator -avd Pixel_8_API_35 &' >/dev/null
 sh 'xcrun simctl boot "iPhone 15"' >/dev/null
 [[ "$(grep -c '^emulator' "$pending")" == 2 ]] || fail "emulator boots: $(cat "$pending")"
