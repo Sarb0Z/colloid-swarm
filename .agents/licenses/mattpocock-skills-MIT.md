@@ -42,6 +42,16 @@ These upstream files are not carried:
   in place of `docs/adr/`. In a repository with several contexts, one
   `.agents/decisions.md` holds the decisions for every context.
 
+## Adapted text at a later commit
+
+`.agents/rules/testing.md` adapts lines from
+`skills/engineering/tdd/SKILL.md` at commit
+`4ae2317ddb22b046e26455e4f9c9b3aaaf62212d`: the tautological and
+implementation-coupled anti-patterns, with the `add(a, b)` example and the
+refactor tell. The rule carries no other part of `tdd`. Its seam agreement and
+vertical slices are planning steps, which the rule leaves to the Build
+workflow, and its loop and its pointer to `codebase-design` are not carried.
+
 ## License
 
 ```text
