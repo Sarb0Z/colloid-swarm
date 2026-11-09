@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { FetchError, type Fetcher, isBinary } from '../../core/http-client.js';
 import { detectChallenge } from '../../core/challenge.js';
-import type { ArticleLink } from '../../core/readable.js';
-import { canonicalUrl, extractArticle, extractPdfText } from '../../core/readable.js';
+import type { ArticleLink, HiddenReport } from '../../core/readable.js';
+import { canonicalUrl, extractArticle, extractPageText, extractPdfText } from '../../core/readable.js';
 import { captureAge, findSnapshot } from '../../core/wayback.js';
 
 export const fetchReadableInputSchema = z.object({
@@ -286,7 +286,8 @@ export async function handleFetchReadable(
       return { ...base, ok: false, notes, failure: 'size',
         error: 'PDF exceeded the size cap; a partial PDF cannot be parsed' };
     }
-    const { text, pages } = await extractPdfText(new Uint8Array(response.bytes));
+    const { text, pages, suspiciousChars } = await extractPdfText(new Uint8Array(response.bytes));
+    notes.push(...invisibleCharNotes(suspiciousChars));
     return { ...base, pages, ...cap(text, input.maxChars), notes };
   }
 
@@ -303,16 +304,19 @@ export async function handleFetchReadable(
 
   const article = extractArticle(response.text, documentUrl);
   if (!article) {
+    const page = extractPageText(response.text, documentUrl);
     notes.push('Readability found no article body — this is probably an index or application page, not prose.');
+    notes.push(...hiddenNotes(page.hidden));
     return {
       ...base,
       canonicalUrl: canonicalUrl(response.text, documentUrl),
-      title: /<title[^>]*>([\s\S]*?)<\/title>/i.exec(response.text)?.[1]?.trim() ?? null,
-      ...cap(stripTags(response.text), input.maxChars),
+      title: page.title,
+      ...cap(page.text, input.maxChars),
       notes,
     };
   }
 
+  notes.push(...hiddenNotes(article.hidden));
   return {
     ...base,
     canonicalUrl: canonicalUrl(response.text, documentUrl),
@@ -338,11 +342,29 @@ function cap(text: string, maxChars: number): { text: string; chars: number; tru
   return { text: text.slice(0, maxChars), chars: maxChars, truncated: true };
 }
 
-function stripTags(html: string): string {
-  return html
-    .replace(/<(script|style|noscript|template)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+/**
+ * Says what was taken out before the caller reads the text. Content that
+ * inline style hides is the commonest way a page plants instructions for an
+ * agent, and a false removal can only be diagnosed if it is reported.
+ */
+function hiddenNotes(hidden: HiddenReport): string[] {
+  const notes = invisibleCharNotes(hidden.suspiciousChars);
+  const { removed, removedChars, kept, share } = hidden.elements;
+  if (removed > 0) {
+    notes.push(`Removed ${removed} element(s) holding ${removedChars} characters that inline style hides from a ` +
+      `reader (a clipped zero-size box or a zero font size).`);
+  }
+  if (kept > 0) {
+    notes.push(`Kept ${kept} element(s) that inline style hides from a reader: they hold ` +
+      `${Math.round(share * 100)}% of the page's text, which is how animate-on-load pages ship their content. ` +
+      `This text was invisible when the page loaded.`);
+  }
+  return notes;
+}
+
+function invisibleCharNotes(suspiciousChars: number): string[] {
+  if (suspiciousChars === 0) return [];
+  return [`Removed ${suspiciousChars} invisible Unicode character(s) a reader never sees (tag characters, ` +
+    `zero-width runs, or joiners and variation selectors with nothing to join); text hidden this way is a known ` +
+    `prompt-injection carrier.`];
 }

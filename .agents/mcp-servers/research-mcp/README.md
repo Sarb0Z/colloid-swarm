@@ -86,6 +86,58 @@ caller asked for that page.
 Requests identify themselves as `colloid-research-mcp/<version>`, with the
 contact address when one is configured.
 
+## Hidden content
+
+A page can address the agent that reads it in text that no visitor sees.
+`fetch_readable` removes that content before it returns text, on the article
+path and on the no-article fallback alike, and says in `notes` what it removed.
+
+Always removed:
+
+- `<template>` content, `aria-hidden="true"` elements, and elements with the
+  `hidden` attribute.
+- Elements whose inline style sets `display: none`, or `visibility: hidden` or
+  `collapse`.
+
+On the article path, Readability removes all of these except `<template>`
+itself, and the server leaves them to it: removing them first changes which part
+of the page Readability picks as the article. On the no-article fallback the
+server removes them, except `hidden="until-found"`, which find-in-page opens.
+
+Removed unless together they hold more than a quarter of the page's text:
+
+- A zero `height` or `max-height` with vertical overflow clipped, or a zero
+  `width` or `max-width` with horizontal overflow clipped. A zero-size box that
+  does not clip still shows its content, so it stays. So does one whose inline
+  style also sets `transform`, `translate`, `scale`, `rotate`, `filter`,
+  `transition`, `animation` or `will-change`: that is an accordion or a reveal
+  waiting for its script.
+- Text under an inline `font-size: 0` that no descendant gives a size again.
+
+Past a quarter, the content is the page's own, such as tab panels collapsed to
+zero height. The server keeps that content and adds a note that it was invisible
+when the page loaded.
+
+Every Unicode default-ignorable code point and every C0 control character except
+tab and line breaks is removed, except where it carries meaning: a joiner or
+non-joiner between letters of a joining script (Arabic, Persian, Urdu, Indic), a
+joiner inside an emoji sequence, a variation selector after the character it
+selects, and the tag characters of a subdivision flag. The note counts only the
+removed characters with no such use: tag characters, runs of invisible
+characters, and joiners or selectors with nothing to join.
+
+Not removed:
+
+- Inline `opacity: 0`. Animate-on-load pages render visible content at opacity 0
+  for a script to fade in, and nothing in the markup tells that content from
+  text planted for an agent.
+- Content that a stylesheet class hides, such as `.sr-only` or `.hidden`.
+  Reading it needs a CSS engine.
+- Off-screen positioning. Pages use it for screen-reader text.
+- Text in the background colour.
+- Metadata that the page does not display. `excerpt`, `byline` and `siteName`
+  can come from meta tags or JSON-LD. Their invisible characters are removed.
+
 ## Build
 
 ```sh

@@ -1,9 +1,25 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
+import { type HiddenElements, removeConcealedElements, removeHiddenElements, visibleText } from './hidden.js';
+import { stripInvisible } from './invisible-chars.js';
 
 export interface ArticleLink {
   text: string;
   url: string;
+}
+
+/** What was removed before the text was returned, so the caller can say so. */
+export interface HiddenReport {
+  readonly elements: HiddenElements;
+  /** Invisible characters removed that ordinary text has no use for. */
+  readonly suspiciousChars: number;
+}
+
+/** A page Readability found no article in: its title and all of its visible text. */
+export interface PageText {
+  title: string | null;
+  text: string;
+  hidden: HiddenReport;
 }
 
 export interface Article {
@@ -21,6 +37,7 @@ export interface Article {
   links: readonly ArticleLink[];
   /** Characters of extracted text. The caller budgets tokens against this. */
   length: number;
+  hidden: HiddenReport;
 }
 
 /** Links returned per article. Enough to carry a reference list, not a sitemap. */
@@ -44,23 +61,51 @@ function withBase(html: string, url: string): string {
 
 export function extractArticle(html: string, url: string): Article | null {
   const { document } = parseHTML(withBase(html, url));
+  const elements = removeConcealedElements(document);
   const parsed = new Readability(document).parse();
   if (!parsed) return null;
-  const text = (parsed.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
+  let suspiciousChars = 0;
+  // Every string the caller receives goes through here, the metadata included:
+  // a title or byline can carry an invisible payload as well as the body.
+  const clean = (value: string | null | undefined): string | null => {
+    if (!value) return null;
+    const result = stripInvisible(value);
+    suspiciousChars += result.suspicious;
+    return result.text || null;
+  };
+  const text = (clean(parsed.textContent) ?? '').replace(/\n{3,}/g, '\n\n').trim();
   return {
-    title: parsed.title || null,
-    byline: parsed.byline || null,
-    siteName: parsed.siteName || null,
-    publishedTime: parsed.publishedTime || null,
-    lang: parsed.lang || null,
-    excerpt: parsed.excerpt || null,
+    title: clean(parsed.title),
+    byline: clean(parsed.byline),
+    siteName: clean(parsed.siteName),
+    publishedTime: clean(parsed.publishedTime),
+    lang: clean(parsed.lang),
+    excerpt: clean(parsed.excerpt),
     text,
-    links: collectLinks(parsed.content ?? '', url),
+    links: collectLinks(parsed.content ?? '', url, (value) => clean(value) ?? ''),
     length: text.length,
+    hidden: { elements, suspiciousChars },
   };
 }
 
-function collectLinks(contentHtml: string, url: string): ArticleLink[] {
+/**
+ * Text for a page Readability rejects. Readability changes the document it is
+ * given, so this parses again rather than reusing that one.
+ */
+export function extractPageText(html: string, url: string): PageText {
+  const { document } = parseHTML(withBase(html, url));
+  const elements = removeHiddenElements(document);
+  const title = stripInvisible((document.title ?? '').trim());
+  const body = stripInvisible(visibleText(document.body ?? document.documentElement));
+  return {
+    title: title.text || null,
+    // The title leads the text, as it does in the page source.
+    text: [title.text, body.text].filter(Boolean).join(' '),
+    hidden: { elements, suspiciousChars: title.suspicious + body.suspicious },
+  };
+}
+
+function collectLinks(contentHtml: string, url: string, clean: (text: string) => string): ArticleLink[] {
   const { document } = parseHTML(`<html><body>${contentHtml}</body></html>`);
   const page = safeUrl(url);
   const seen = new Set<string>();
@@ -83,7 +128,7 @@ function collectLinks(contentHtml: string, url: string): ArticleLink[] {
     const absolute = resolved.toString();
     if (seen.has(absolute)) continue;
     seen.add(absolute);
-    links.push({ text: (anchor.textContent ?? '').replace(/\s+/g, ' ').trim(), url: absolute });
+    links.push({ text: clean((anchor.textContent ?? '').replace(/\s+/g, ' ').trim()), url: absolute });
     if (links.length >= MAX_LINKS) break;
   }
   return links;
@@ -116,9 +161,16 @@ function safeUrl(raw: string): string | null {
   }
 }
 
-export async function extractPdfText(bytes: Uint8Array): Promise<{ text: string; pages: number }> {
+export async function extractPdfText(
+  bytes: Uint8Array,
+): Promise<{ text: string; pages: number; suspiciousChars: number }> {
   const { extractText, getDocumentProxy } = await import('unpdf');
   const document = await getDocumentProxy(bytes);
   const { totalPages, text } = await extractText(document, { mergePages: true });
-  return { text: String(text).replace(/\n{3,}/g, '\n\n').trim(), pages: totalPages };
+  const cleaned = stripInvisible(String(text));
+  return {
+    text: cleaned.text.replace(/\n{3,}/g, '\n\n').trim(),
+    pages: totalPages,
+    suspiciousChars: cleaned.suspicious,
+  };
 }

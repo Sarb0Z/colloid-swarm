@@ -38113,15 +38113,15 @@ var init_pdfjs = __esm({
     Wo = class XfaText {
       static textContent(e2) {
         let t2 = [], n2 = { items: t2, styles: /* @__PURE__ */ Object.create(null) };
-        function walk(e3) {
+        function walk2(e3) {
           if (!e3) return;
           let n3 = null, r2 = e3.name;
           if (r2 === `#text`) n3 = e3.value;
           else if (XfaText.shouldBuildText(r2)) e3?.attributes?.textContent ? n3 = e3.attributes.textContent : e3.value && (n3 = e3.value);
           else return;
-          if (n3 !== null && t2.push({ str: n3 }), e3.children) for (let t3 of e3.children) walk(t3);
+          if (n3 !== null && t2.push({ str: n3 }), e3.children) for (let t3 of e3.children) walk2(t3);
         }
-        return walk(e2), n2;
+        return walk2(e2), n2;
       }
       static shouldBuildText(e2) {
         return e2 !== `textarea` && e2 !== `input` && e2 !== `option` && e2 !== `select`;
@@ -72606,6 +72606,277 @@ function Document4() {
 }
 setPrototypeOf(Document4, Document2).prototype = Document2.prototype;
 
+// src/core/inline-style.ts
+function declarations(style) {
+  const result = /* @__PURE__ */ new Map();
+  const important = /* @__PURE__ */ new Set();
+  for (const declaration of splitDeclarations(style)) {
+    const colon = declaration.indexOf(":");
+    if (colon < 0) continue;
+    const property = decodeEscapes(declaration.slice(0, colon)).trim().toLowerCase();
+    const raw = decodeEscapes(declaration.slice(colon + 1)).trim().toLowerCase().replace(/\s+/g, " ");
+    const isImportant = /!\s*important$/.test(raw);
+    if (!property || important.has(property) && !isImportant) continue;
+    if (isImportant) important.add(property);
+    result.set(property, raw.replace(/\s*!\s*important$/, ""));
+  }
+  return result;
+}
+function splitDeclarations(style) {
+  const parts = [];
+  let current = "";
+  let quote = "";
+  let depth = 0;
+  for (let i2 = 0; i2 < style.length; i2++) {
+    const char = style.charAt(i2);
+    if (char === "\\") {
+      current += style.slice(i2, i2 + 2);
+      i2++;
+    } else if (quote) {
+      if (char === quote || char === "\n") quote = "";
+      current += char;
+    } else if (char === "/" && style.charAt(i2 + 1) === "*") {
+      const end = style.indexOf("*/", i2 + 2);
+      i2 = end < 0 ? style.length : end + 1;
+      current += " ";
+    } else if (char === ";" && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else {
+      if (char === '"' || char === "'") quote = char;
+      else if (char === "(") depth++;
+      else if (char === ")") depth = Math.max(0, depth - 1);
+      current += char;
+    }
+  }
+  parts.push(current);
+  return parts;
+}
+function decodeEscapes(text) {
+  return text.replace(/\\(?:([0-9a-fA-F]{1,6})[ \t\n\r\f]?|([^]))/g, (_match, hex, literal2) => {
+    if (hex === void 0) return literal2 ?? "";
+    const code = parseInt(hex, 16);
+    const valid = code > 0 && code <= 1114111 && (code < 55296 || code > 57343);
+    return valid ? String.fromCodePoint(code) : "\uFFFD";
+  });
+}
+
+// src/core/hidden.ts
+var ELEMENT_NODE2 = 1;
+var TEXT_NODE2 = 3;
+var NON_CONTENT = /* @__PURE__ */ new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+var MAX_REMOVED_SHARE = 0.25;
+var ANIMATION_PROPERTIES = [
+  "transform",
+  "translate",
+  "scale",
+  "rotate",
+  "filter",
+  "transition",
+  "animation",
+  "will-change"
+];
+function removeHiddenElements(document2) {
+  return removeElements(document2, "all");
+}
+function removeConcealedElements(document2) {
+  return removeElements(document2, "concealed");
+}
+function removeElements(document2, scope) {
+  const candidates = Array.from(
+    document2.querySelectorAll("template, [hidden], [aria-hidden], [style]"),
+    (element) => ({ element, visibility: classify(element) })
+  );
+  const leftToReadability = /* @__PURE__ */ new Set();
+  for (const { element, visibility } of candidates) {
+    if (visibility !== "absent") continue;
+    if (scope === "all" || element.nodeName === "TEMPLATE") element.remove();
+    else leftToReadability.add(element);
+  }
+  const parts = invisibleParts(candidates.filter(({ element }) => !hasAncestorIn(element, leftToReadability)));
+  const worded = parts.filter((part) => part.chars > 0).length;
+  const total = visibleChars(document2.body ?? document2.documentElement);
+  const hidden = parts.reduce((sum, part) => sum + part.chars, 0);
+  const share = total === 0 ? 0 : hidden / total;
+  if (share > MAX_REMOVED_SHARE) return { removed: 0, removedChars: 0, kept: worded, share };
+  for (const part of parts) {
+    for (const node of part.nodes) node.remove();
+  }
+  return { removed: worded, removedChars: hidden, kept: 0, share };
+}
+function visibleText(root) {
+  const pieces = [];
+  walk(root, (node) => {
+    if (node.nodeType === TEXT_NODE2) pieces.push(node.textContent ?? "");
+    return true;
+  });
+  return pieces.join(" ").replace(/\s+/g, " ").trim();
+}
+function classify(element) {
+  if (element.nodeName === "TEMPLATE") return "absent";
+  const hidden = element.getAttribute("hidden");
+  if (hidden !== null && hidden.trim().toLowerCase() !== "until-found") return "absent";
+  if (element.getAttribute("aria-hidden")?.trim().toLowerCase() === "true") return "absent";
+  const style = element.getAttribute("style");
+  return style ? classifyStyle(declarations(style)) : "shown";
+}
+function classifyStyle(style) {
+  if (style.get("display") === "none") return "absent";
+  const visibility = style.get("visibility");
+  if (visibility === "hidden" || visibility === "collapse") return "absent";
+  if (isZero(style.get("font-size"))) return "fontless";
+  if (ANIMATION_PROPERTIES.some((property) => (style.get(property) ?? "none") !== "none")) return "shown";
+  const [overflowX, overflowY = overflowX] = (style.get("overflow") ?? "visible").split(" ");
+  const [top = "0", right = top, bottom = top, left = right] = (style.get("padding") ?? "0").split(" ");
+  const padded = (side, fallback) => !isZero(style.get(`padding-${side}`) ?? fallback);
+  const closedY = (style.get("overflow-y") ?? overflowY) !== "visible" && !padded("top", top) && !padded("bottom", bottom);
+  const closedX = (style.get("overflow-x") ?? overflowX) !== "visible" && !padded("left", left) && !padded("right", right);
+  if (closedY && (isZero(style.get("height")) || isZero(style.get("max-height")))) return "invisible";
+  if (closedX && (isZero(style.get("width")) || isZero(style.get("max-width")))) return "invisible";
+  return "shown";
+}
+function invisibleParts(candidates) {
+  const whole = new Set(candidates.filter((c2) => c2.visibility === "invisible").map((c2) => c2.element));
+  const marked = new Set(
+    candidates.filter((c2) => c2.visibility === "invisible" || c2.visibility === "fontless").map((c2) => c2.element)
+  );
+  const parts = [];
+  for (const { element, visibility } of candidates) {
+    if (!marked.has(element) || !element.isConnected || hasAncestorIn(element, whole)) continue;
+    const nodes = visibility === "fontless" ? fontlessText(element, marked) : [element];
+    parts.push({ nodes, chars: nodes.reduce((sum, node) => sum + visibleChars(node), 0) });
+  }
+  return parts;
+}
+function fontlessText(root, marked) {
+  const found = [];
+  walk(root, (node) => {
+    if (node.nodeType === TEXT_NODE2 && /\S/.test(node.textContent ?? "")) found.push(node);
+    if (node === root || !isElement(node)) return true;
+    if (marked.has(node)) return false;
+    const size = declarations(node.getAttribute("style") ?? "").get("font-size");
+    return size === void 0 || !resizes(size);
+  });
+  return found;
+}
+var RELATIVE_LENGTH = /(?:\d|\.)(?:%|em|ex|ch|cap|ic|lh)\b|%/;
+function resizes(size) {
+  if (isZero(size) || RELATIVE_LENGTH.test(size)) return false;
+  return !["inherit", "unset", "revert", "smaller", "larger"].includes(size);
+}
+function hasAncestorIn(node, set) {
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (set.has(parent)) return true;
+  }
+  return false;
+}
+function visibleChars(root) {
+  let chars = 0;
+  walk(root, (node) => {
+    if (node.nodeType === TEXT_NODE2) chars += (node.textContent ?? "").replace(/\s+/g, "").length;
+    return true;
+  });
+  return chars;
+}
+function walk(root, visit) {
+  const stack = [root];
+  for (let node = stack.pop(); node; node = stack.pop()) {
+    if (isElement(node) && NON_CONTENT.has(node.nodeName)) continue;
+    if (!visit(node)) continue;
+    const children = node.childNodes;
+    for (let i2 = children.length - 1; i2 >= 0; i2--) {
+      const child = children[i2];
+      if (child) stack.push(child);
+    }
+  }
+}
+function isElement(node) {
+  return node.nodeType === ELEMENT_NODE2;
+}
+var ZERO2 = /^[+-]?(?:0+(?:\.0*)?|\.0+)(?:e[+-]?\d+)?(?:[a-z]+|%)?$/;
+function isZero(value) {
+  return value !== void 0 && ZERO2.test(value);
+}
+
+// src/core/invisible-chars.ts
+var ZWJ = "\u200D";
+var ZWNJ = "\u200C";
+var VS16 = "\uFE0F";
+var BLACK_FLAG = "\u{1F3F4}";
+var CANCEL_TAG = "\u{E007F}";
+var IGNORABLE = new RegExp("\\p{Default_Ignorable_Code_Point}", "u");
+var ANY_INVISIBLE = /[\p{Default_Ignorable_Code_Point}\0-\x08\x0B\x0C\x0E-\x1F\x7F]/u;
+var PICTOGRAPHIC = /[\p{Extended_Pictographic}\p{Emoji_Modifier}]/u;
+var EMOJI = new RegExp("\\p{Emoji}", "u");
+var JOINING_LETTER = /[\p{L}\p{M}]/u;
+var SPACED_SCRIPT = /[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Common}]/u;
+var HAN = new RegExp("\\p{Script=Han}", "u");
+var MONGOLIAN = new RegExp("\\p{Script=Mongolian}", "u");
+var DRAWN_SUBDIVISIONS = /* @__PURE__ */ new Set(["gbeng", "gbsct", "gbwls"]);
+function stripInvisible(text) {
+  if (!ANY_INVISIBLE.test(text)) return { text, suspicious: 0 };
+  const points = Array.from(text);
+  const kept = points.map((point, i2) => !isInvisible(point) || justified(points, i2));
+  let suspicious = 0;
+  const out = [];
+  points.forEach((point, i2) => {
+    if (kept[i2]) out.push(point);
+    else if (isSuspicious(points, kept, i2)) suspicious++;
+  });
+  return { text: out.join(""), suspicious };
+}
+function isInvisible(point) {
+  const code = point.codePointAt(0) ?? 0;
+  if (code === 9 || code === 10 || code === 13) return false;
+  if (code < 32 || code === 127) return true;
+  return code >= 173 && IGNORABLE.test(point);
+}
+function justified(points, i2) {
+  const point = points[i2] ?? "";
+  const before2 = points[i2 - 1] ?? "";
+  const after2 = points[i2 + 1] ?? "";
+  if (point === ZWJ) return endsEmoji(points, i2 - 1) && PICTOGRAPHIC.test(after2) || joins(before2, after2);
+  if (point === ZWNJ) return joins(before2, after2);
+  const code = point.codePointAt(0) ?? 0;
+  if (code === 65038 || code === 65039) return EMOJI.test(before2) && !isInvisible(before2);
+  if (code >= 65024 && code <= 65037) return (before2.codePointAt(0) ?? 0) > 127 && !isInvisible(before2);
+  if (code >= 917760 && code <= 917999) return HAN.test(before2);
+  if (code >= 6155 && code <= 6159) return MONGOLIAN.test(before2);
+  if (code >= 917504 && code <= 917631) return inDrawnFlag(points, i2);
+  return false;
+}
+function endsEmoji(points, i2) {
+  const point = points[i2] ?? "";
+  if (point === VS16) return PICTOGRAPHIC.test(points[i2 - 1] ?? "");
+  return PICTOGRAPHIC.test(point);
+}
+function joins(before2, after2) {
+  const letter = (point) => !isInvisible(point) && JOINING_LETTER.test(point) && !SPACED_SCRIPT.test(point);
+  return letter(before2) && letter(after2);
+}
+function inDrawnFlag(points, i2) {
+  const tagLetter = (point) => {
+    const code = point?.codePointAt(0) ?? 0;
+    return code >= 917552 && code <= 917561 || code >= 917601 && code <= 917626;
+  };
+  if (!tagLetter(points[i2]) && points[i2] !== CANCEL_TAG) return false;
+  let start = i2;
+  while (tagLetter(points[start - 1])) start--;
+  let end = i2;
+  while (tagLetter(points[end])) end++;
+  const spelled = points.slice(start, end).map((point) => String.fromCodePoint((point.codePointAt(0) ?? 0) - 917504));
+  return points[start - 1] === BLACK_FLAG && points[end] === CANCEL_TAG && DRAWN_SUBDIVISIONS.has(spelled.join(""));
+}
+function isSuspicious(points, kept, i2) {
+  const point = points[i2] ?? "";
+  const code = point.codePointAt(0) ?? 0;
+  if (code >= 917504 && code <= 917631) return true;
+  if (point === ZWJ || point === ZWNJ) return true;
+  if (code >= 65024 && code <= 65039 || code >= 917760 && code <= 917999) return true;
+  const removedInvisible = (j2) => kept[j2] === false && isInvisible(points[j2] ?? "");
+  return removedInvisible(i2 - 1) || removedInvisible(i2 + 1);
+}
+
 // src/core/readable.ts
 var MAX_LINKS = 100;
 function withBase(html, url) {
@@ -72617,22 +72888,43 @@ function withBase(html, url) {
 }
 function extractArticle(html, url) {
   const { document: document2 } = parseHTML(withBase(html, url));
+  const elements = removeConcealedElements(document2);
   const parsed = new import_readability.Readability(document2).parse();
   if (!parsed) return null;
-  const text = (parsed.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
+  let suspiciousChars = 0;
+  const clean = (value) => {
+    if (!value) return null;
+    const result = stripInvisible(value);
+    suspiciousChars += result.suspicious;
+    return result.text || null;
+  };
+  const text = (clean(parsed.textContent) ?? "").replace(/\n{3,}/g, "\n\n").trim();
   return {
-    title: parsed.title || null,
-    byline: parsed.byline || null,
-    siteName: parsed.siteName || null,
-    publishedTime: parsed.publishedTime || null,
-    lang: parsed.lang || null,
-    excerpt: parsed.excerpt || null,
+    title: clean(parsed.title),
+    byline: clean(parsed.byline),
+    siteName: clean(parsed.siteName),
+    publishedTime: clean(parsed.publishedTime),
+    lang: clean(parsed.lang),
+    excerpt: clean(parsed.excerpt),
     text,
-    links: collectLinks(parsed.content ?? "", url),
-    length: text.length
+    links: collectLinks(parsed.content ?? "", url, (value) => clean(value) ?? ""),
+    length: text.length,
+    hidden: { elements, suspiciousChars }
   };
 }
-function collectLinks(contentHtml, url) {
+function extractPageText(html, url) {
+  const { document: document2 } = parseHTML(withBase(html, url));
+  const elements = removeHiddenElements(document2);
+  const title = stripInvisible((document2.title ?? "").trim());
+  const body = stripInvisible(visibleText(document2.body ?? document2.documentElement));
+  return {
+    title: title.text || null,
+    // The title leads the text, as it does in the page source.
+    text: [title.text, body.text].filter(Boolean).join(" "),
+    hidden: { elements, suspiciousChars: title.suspicious + body.suspicious }
+  };
+}
+function collectLinks(contentHtml, url, clean) {
   const { document: document2 } = parseHTML(`<html><body>${contentHtml}</body></html>`);
   const page = safeUrl(url);
   const seen = /* @__PURE__ */ new Set();
@@ -72650,7 +72942,7 @@ function collectLinks(contentHtml, url) {
     const absolute = resolved.toString();
     if (seen.has(absolute)) continue;
     seen.add(absolute);
-    links.push({ text: (anchor.textContent ?? "").replace(/\s+/g, " ").trim(), url: absolute });
+    links.push({ text: clean((anchor.textContent ?? "").replace(/\s+/g, " ").trim()), url: absolute });
     if (links.length >= MAX_LINKS) break;
   }
   return links;
@@ -72680,7 +72972,12 @@ async function extractPdfText(bytes) {
   const { extractText: extractText2, getDocumentProxy: getDocumentProxy2 } = await Promise.resolve().then(() => (init_dist(), dist_exports5));
   const document2 = await getDocumentProxy2(bytes);
   const { totalPages, text } = await extractText2(document2, { mergePages: true });
-  return { text: String(text).replace(/\n{3,}/g, "\n\n").trim(), pages: totalPages };
+  const cleaned = stripInvisible(String(text));
+  return {
+    text: cleaned.text.replace(/\n{3,}/g, "\n\n").trim(),
+    pages: totalPages,
+    suspiciousChars: cleaned.suspicious
+  };
 }
 
 // src/core/wayback.ts
@@ -72918,7 +73215,8 @@ async function handleFetchReadable(input, http) {
         error: "PDF exceeded the size cap; a partial PDF cannot be parsed"
       };
     }
-    const { text, pages } = await extractPdfText(new Uint8Array(response.bytes));
+    const { text, pages, suspiciousChars } = await extractPdfText(new Uint8Array(response.bytes));
+    notes.push(...invisibleCharNotes(suspiciousChars));
     return { ...base, pages, ...cap(text, input.maxChars), notes };
   }
   if (isBinary(response.contentType)) {
@@ -72936,15 +73234,18 @@ async function handleFetchReadable(input, http) {
   const documentUrl = archiveOriginal ?? response.url;
   const article = extractArticle(response.text, documentUrl);
   if (!article) {
+    const page = extractPageText(response.text, documentUrl);
     notes.push("Readability found no article body \u2014 this is probably an index or application page, not prose.");
+    notes.push(...hiddenNotes(page.hidden));
     return {
       ...base,
       canonicalUrl: canonicalUrl(response.text, documentUrl),
-      title: /<title[^>]*>([\s\S]*?)<\/title>/i.exec(response.text)?.[1]?.trim() ?? null,
-      ...cap(stripTags(response.text), input.maxChars),
+      title: page.title,
+      ...cap(page.text, input.maxChars),
       notes
     };
   }
+  notes.push(...hiddenNotes(article.hidden));
   return {
     ...base,
     canonicalUrl: canonicalUrl(response.text, documentUrl),
@@ -72967,8 +73268,20 @@ function cap(text, maxChars) {
   if (text.length <= maxChars) return { text, chars: text.length, truncated: false };
   return { text: text.slice(0, maxChars), chars: maxChars, truncated: true };
 }
-function stripTags(html) {
-  return html.replace(/<(script|style|noscript|template)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+function hiddenNotes(hidden) {
+  const notes = invisibleCharNotes(hidden.suspiciousChars);
+  const { removed, removedChars, kept, share } = hidden.elements;
+  if (removed > 0) {
+    notes.push(`Removed ${removed} element(s) holding ${removedChars} characters that inline style hides from a reader (a clipped zero-size box or a zero font size).`);
+  }
+  if (kept > 0) {
+    notes.push(`Kept ${kept} element(s) that inline style hides from a reader: they hold ${Math.round(share * 100)}% of the page's text, which is how animate-on-load pages ship their content. This text was invisible when the page loaded.`);
+  }
+  return notes;
+}
+function invisibleCharNotes(suspiciousChars) {
+  if (suspiciousChars === 0) return [];
+  return [`Removed ${suspiciousChars} invisible Unicode character(s) a reader never sees (tag characters, zero-width runs, or joiners and variation selectors with nothing to join); text hidden this way is a known prompt-injection carrier.`];
 }
 
 // src/core/open-access.ts
