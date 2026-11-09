@@ -42,6 +42,29 @@ These upstream files are not carried:
   in place of `docs/adr/`. In a repository with several contexts, one
   `.agents/decisions.md` holds the decisions for every context.
 
+## Carried at a later commit
+
+`.agents/skills/diagnosing-bugs/SKILL.md` comes from
+`skills/engineering/diagnosing-bugs/SKILL.md` at commit
+`4ae2317ddb22b046e26455e4f9c9b3aaaf62212d`. Its `agents/openai.yaml` and
+`scripts/hitl-loop.template.sh` are not carried. `SKILL.md` differs from the
+source in these ways:
+
+- The Redact section is removed; the root contract keeps secret values out of
+  the repository, and the two places that show output say to remove secrets.
+- The tenth way to build a loop is human-run steps that print every value
+  separating the hypotheses, in place of the HITL script, and the
+  agent-runnable criterion points at those steps.
+- It checks `.agents/decisions.md` for the area, in place of ADRs.
+- Phase 3 ranks the most recent change first when something that worked has
+  stopped working, and states the ranked list in an update without waiting,
+  in place of showing it to the user before testing.
+- Phase 5 notes a missing seam in the report, in place of flagging it for a
+  later phase, and ends by sending the agent to the Stuck lenses in
+  `.agents/lenses.md` after two failed fixes.
+- Phase 6 deletes throwaway prototypes, with no option to keep them.
+- Its description adds the Fix workflow as a trigger.
+
 ## Adapted text at a later commit
 
 `.agents/rules/testing.md` adapts lines from

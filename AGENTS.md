@@ -61,7 +61,7 @@ Read a playbook workflow's file before its first step.
 
 ### Fix
 
-Reproduce first, and report both the root and the proximate cause before changing code. When something that worked stops working, the most recent change is the first hypothesis: find it before offering a workaround, after any critical containment. A defect that returns every release is a missing invariant: encode it (Gates over prose). Then run Build from "Implement and test" onward at the same stakes. **Delegate** reproduction and instrumentation to a cell when the defect spans systems, and independent review to a reviewer cell. Critical adds containment before diagnosis, the operator's OK before the fix, and the critical Build reviews.
+Reproduce first, by the loop in the `diagnosing-bugs` skill, and report both the root and the proximate cause before changing code. When something that worked stops working, the most recent change is the first hypothesis: find it before offering a workaround, after any critical containment. A defect that returns every release is a missing invariant: encode it (Gates over prose). Then run Build from "Implement and test" onward at the same stakes. **Delegate** reproduction and instrumentation to a cell when the defect spans systems, and independent review to a reviewer cell. Critical adds containment before diagnosis, the operator's OK before the fix, and the critical Build reviews.
 
 ### Answer, Ship, Operate
 
