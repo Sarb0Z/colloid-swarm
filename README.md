@@ -130,5 +130,5 @@ keys, and links. Run `bash demo/demo.sh` for the offline scaffold demonstration.
 
 ## License
 
-No repository-wide license has been selected. The learning-output-style
-playbook has its own Apache-2.0 notice under `.agents/licenses/`.
+No repository-wide license has been selected. Third-party text carries its
+own notice under `.agents/licenses/`, one file for each source.
