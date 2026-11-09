@@ -238,8 +238,9 @@ mod. Both run with no login. CI runs them against the Claude Code version that
 
 With the servers installed, every session in the repository gets the LSP tool
 (go to definition, find references, symbol search, call hierarchy) for
-TypeScript, JavaScript and Python, and after each edit to such a file Claude
-sees the type errors the edit introduced. Nothing is installed per account:
+TypeScript, JavaScript and Python. After each edit Claude also sees the type
+errors the edit introduced, except under TypeScript 7's built-in server (below),
+which offers them only on request, and Claude Code asks for none. Nothing is installed per account:
 the `code-intelligence` plugin in `plugins/code-intelligence/` loads from the
 checkout through its `.claude/skills/colloid-code-intelligence` link, as a mod
 does, and `check-layout.py` derives that link from the folder. Claude Code
@@ -257,16 +258,18 @@ project root. Anywhere else, such as a clone before its install or a monorepo
 whose root holds no TypeScript, it runs a TypeScript 7 compiler's built-in
 server (`tsc --lsp --stdio`), the project's own `node_modules/.bin/tsc` before
 one on `PATH`. Homebrew's `typescript-language-server` brings that compiler as
-its `typescript` dependency. TypeScript 7 judges an older `tsconfig.json` by
-its own rules: measured on seven satellites, it matched the project's errors
-in three and added one or two in four, mostly `TS5102` for an option it
-removed. `--probe` prints the command it would run and starts nothing.
+its `typescript` dependency. That server navigates but sends no type errors
+after an edit; in a scaffold repository the post-edit `tsc --noEmit` check
+still reports them. Its errors, as `tsc` reports them, can differ from the
+project's: measured on seven satellites, they matched in three and gained one
+or two in four, mostly `TS5102` for an option TypeScript 7 removed. `--probe`
+prints the command it would run and starts nothing.
 
 Install with Homebrew, not `npm install -g`: fnm keeps one global package set
 per Node version, so a global npm install disappears in a project that pins
-another version. At session start, `hooks/lib/lsp-missing.py` names each
-language that has tracked files here but no server that can start, with its
-install command.
+another version. At a Claude Code session start, `hooks/lib/lsp-missing.py`
+names each language that has tracked files here but no server that can start,
+with its install command, unless the plugin is switched off as below.
 
 `settings.json` turns off Anthropic's `typescript-lsp` and `pyright-lsp`
 plugins, which run the same servers, so a user who enabled them does not run

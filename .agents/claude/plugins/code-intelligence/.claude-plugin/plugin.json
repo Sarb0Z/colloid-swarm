@@ -1,7 +1,7 @@
 {
   "name": "code-intelligence",
   "version": "1.0.0",
-  "description": "TypeScript, JavaScript and Python language servers: definitions, references and type errors after each edit.",
+  "description": "TypeScript, JavaScript and Python language servers: definitions, references, and type errors after each edit where the server sends them.",
   "lspServers": {
     "typescript": {
       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/typescript-server",

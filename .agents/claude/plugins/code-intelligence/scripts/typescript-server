@@ -2,11 +2,11 @@
 # Starts a TypeScript language server for Claude Code over stdio.
 #
 # A project with its own TypeScript 5 gets it through typescript-language-server,
-# so type errors follow the compiler the project builds with. Anywhere else (a
-# clone before its install, a monorepo whose root holds no TypeScript) a
-# TypeScript 7 compiler answers with its built-in server: it needs no install in
-# the project, but it judges an older tsconfig by its own rules, so it can report
-# a removed option the project's compiler accepts.
+# which sends Claude Code the type errors of each edit from the compiler the
+# project builds with. Anywhere else (a clone before its install, a monorepo
+# whose root holds no TypeScript) a TypeScript 7 compiler answers with its
+# built-in server: it needs no install in the project and answers navigation,
+# but it gives type errors only when asked, and Claude Code never asks.
 #
 # `--probe` prints the command it would start and exits; the session-start check
 # runs it to tell whether TypeScript code intelligence can start here.
