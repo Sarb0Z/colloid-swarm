@@ -518,6 +518,30 @@ fxrun check s1 '["src/a.js"]'
 [[ $rc -eq 0 && -z "$err" ]] || fail "an installed ESLint with no config in reach must not block the edit, got rc=$rc: $err"
 ok "STUB eslint: installed with no configuration in reach, it does not run and does not block"
 
+# --- a fixer that fails in write mode is an advisory --------------------------
+newfix fixerfails
+printf '[tool.ruff]\n' > "$fx/pyproject.toml"; printf 'x = 1\n' > "$fx/src/a.py"
+printf 'export default [];\n' > "$fx/eslint.config.mjs"; printf '{}\n' > "$fx/.prettierrc"; printf 'export const a = 1;\n' > "$fx/src/a.js"
+stub "$fx/.venv/bin/ruff" '[[ "$1" == check ]] && { echo "error: cannot parse pyproject" >&2; exit 2; }; exit 0'
+stub "$fx/node_modules/.bin/prettier" 'echo "[error] Invalid configuration" >&2; exit 2'
+stub "$fx/node_modules/.bin/eslint" 'echo "Oops! Something went wrong" >&2; exit 2'
+set +e
+out="$(printf '{"project_dir":"%s","files":["src/a.py","src/a.js"]}' "$fxproj" \
+  | PATH="$tools:/usr/bin:/bin" POST_EDIT_MODE=write /bin/bash "$fx/.agents/hooks/policy/post-edit-check.sh" 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 && "$out" == *"could not run to completion"* && "$out" == *"ruff check --fix src/a.py"* \
+   && "$out" == *"prettier --write] exited 2"* && "$out" == *"eslint --fix] exited 2"* ]] \
+  || fail "a fixer that exits with an error must be reported as an advisory that does not block, got rc=$rc: $out"
+stub "$fx/.venv/bin/ruff" '[[ "$1" == check ]] && exit 1; exit 0'
+stub "$fx/node_modules/.bin/prettier" 'exit 0'
+stub "$fx/node_modules/.bin/eslint" 'exit 1'
+set +e
+out="$(printf '{"project_dir":"%s","files":["src/a.py","src/a.js"]}' "$fxproj" \
+  | PATH="$tools:/usr/bin:/bin" POST_EDIT_MODE=write /bin/bash "$fx/.agents/hooks/policy/post-edit-check.sh" 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 && "$out" != *"could not run to completion"* ]] || fail "violations left after --fix (exit 1) are not a fixer failure, got rc=$rc: $out"
+ok "STUB ruff, prettier, eslint: a fixer that cannot run is an advisory in write mode; leftover violations (exit 1) are not"
+
 # --- install commands follow the repository's own lockfile -------------------
 python_fixture() {  # <name> <lockfile or empty> -> a ruff-configured fixture
   newfix "$1"

@@ -123,6 +123,19 @@ checkers_py() {  # <checkers.py arguments> (report text on stdin when it takes a
   fi
   return 0
 }
+# Write mode runs fixers whose own failure the agent never saw: a Prettier that
+# cannot load its configuration leaves the file unformatted without a word. A fixer
+# that exits at or above its floor is reported as an advisory in fixer_failures.
+fixer_failures=""
+fixer() {  # <lowest failing exit status> <label> <command...>
+  local floor="$1" label="$2" out rc=0
+  shift 2
+  out="$("$@" 2>&1)" || rc=$?
+  [[ $rc -ge $floor ]] && fixer_failures+="[$label] exited $rc: ${out%%$'\n'*}"$'\n'
+  return 0
+}
+eslint_fix() { (cd "$1" && "$2" --fix "${@:3}"); }
+
 checker_missing() {  # <checker> <paths>
   local paths=() p
   [[ "$mode" == "check" ]] || return 0
@@ -256,8 +269,10 @@ while IFS= read -r f; do
         ruff_found+=$'\n'"$f"
         ruff_bin="$PY_TOOL_BIN"
         if [[ "$mode" == "write" ]]; then
-          "$ruff_bin" check --fix --force-exclude --quiet "$f" >/dev/null 2>&1 || true
-          "$ruff_bin" format --force-exclude --quiet "$f" >/dev/null 2>&1 || true
+          # ruff check exits 1 when violations remain, which check mode reports;
+          # 2 and above is ruff failing to run.
+          fixer 2 "ruff check --fix $rel" "$ruff_bin" check --fix --force-exclude --quiet "$f"
+          fixer 1 "ruff format $rel" "$ruff_bin" format --force-exclude --quiet "$f"
         elif ! check_out="$("$ruff_bin" check --force-exclude --quiet --output-format=concise "$f" 2>&1)"; then
           issues+=$'\n'"[ruff] $rel"$'\n'"$check_out"$'\n'
         fi
@@ -385,14 +400,15 @@ if [[ -n "$js_ts_edited" ]]; then
       IFS=$'\t' read -r -a jsfiles <<< "$rest"
       # Stay in $proj: prettier finds its config from each file's own path, so
       # the workspace's .prettierrc applies either way.
-      "$prettier_bin" --write --log-level silent "${jsfiles[@]}" >/dev/null 2>&1 || true
+      fixer 1 "prettier --write" "$prettier_bin" --write --log-level silent "${jsfiles[@]}"
     done <<< "$(js_groups prettier)"
 
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       IFS=$'\t' read -r eslint_bin eslint_cwd rest <<< "$line"
       IFS=$'\t' read -r -a jsfiles <<< "$rest"
-      (cd "$eslint_cwd" && "$eslint_bin" --fix "${jsfiles[@]}") >/dev/null 2>&1 || true
+      # eslint exits 1 when lint errors remain; 2 is eslint failing to run.
+      fixer 2 "eslint --fix" eslint_fix "$eslint_cwd" "$eslint_bin" "${jsfiles[@]}"
     done <<< "$(js_groups eslint)"
   else
     # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for
@@ -607,6 +623,15 @@ cast silences it; parsed JSON is \`any\`). Prefer validating the shape or
 narrowing the type to asserting it. If a flagged line is a deliberate,
 proven-safe assertion, leave it and continue.
 $nullsafety
+"
+fi
+
+if [[ -n "$fixer_failures" ]]; then
+  advisories+="
+Advisory — a fixer could not run to completion, so these files may be left
+unfixed or unformatted. The post-edit check does not block on this; fix the
+tool or its configuration.
+$fixer_failures
 "
 fi
 
