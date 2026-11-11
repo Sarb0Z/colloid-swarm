@@ -132,7 +132,8 @@ python3 "$reader" write ctl --repo "$target" --strip $'one\ntwo\x1b[31mred'
 python3 "$reader" write ctl --repo "$target" --note "$(printf 'l%s\n' $(seq 15))"$'\x1b[31m'
 out="$(rd note "$target" s1)"
 [[ "$out" != *$'\x1b'* ]] || fail "an escape character reached the note"
-[[ "$(printf '%s\n' "$out" | grep -c '^ctl\|^l[0-9]')" == 12 && "$out" == *"… 3 more lines: readout.py show"* ]] || fail "note not cut at 12 lines: $out"
+[[ "$(printf '%s\n' "$out" | grep -c '^ctl\|^l[0-9]')" == 12 && "$out" == *"… 3 more lines: python3 .agents/hooks/lib/readout.py show --session s1"* ]] || fail "note not cut at 12 lines: $out"
+[[ "$(rd note "$target" "")" == *"… 3 more lines: python3 .agents/hooks/lib/readout.py show --all"* ]] || fail "a note with no session names the wrong command"
 [[ "$(rd show --repo "$target" --session s1)" == *"l15"* ]] || fail "show cut the note"
 rm "$dir/ctl.json"
 ok "control characters become spaces; a note keeps newlines and is cut at 12 lines"

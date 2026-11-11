@@ -32,7 +32,8 @@ one. A file that does not parse, or has no usable `written_at`, is reported as
 the exit status is non-zero only for bad arguments.
 
 Usage:
-  readout.py write <name> [--session ID] [--strip TEXT] [--note TEXT] [--repo DIR]
+  readout.py write <name> [--session ID] [--strip TEXT] [--note TEXT]
+                      [--stale-after SECONDS] [--repo DIR]
   readout.py strip <repo> <session>
   readout.py note  <repo> <session>
   readout.py show  [--repo DIR] [--session ID] [--all]
@@ -159,13 +160,21 @@ def cut(text):
     return text if len(text) <= SEGMENT_MAX else text[: SEGMENT_MAX - 1] + "…"
 
 
-def note_lines(note, limit):
+def show_command(session):
+    """The command, runnable from the repository root, that shows what a
+    session may see; without a session, every readout."""
+    session = clean_session(session)
+    flag = f"--session {session}" if session else "--all"
+    return f"python3 .agents/hooks/lib/readout.py show {flag}"
+
+
+def note_lines(note, limit, command):
     """The note with control characters (newlines kept) turned into spaces,
-    cut to `limit` lines when a limit is given."""
+    cut to `limit` lines, with `command` named, when a limit is given."""
     lines = CONTROL_KEEPING_NEWLINE.sub(" ", note).split("\n")
     if limit is not None and len(lines) > limit:
         hidden = len(lines) - limit
-        lines = lines[:limit] + [f"… {hidden} more lines: readout.py show"]
+        lines = lines[:limit] + [f"… {hidden} more lines: {command}"]
     return "\n".join(lines)
 
 
@@ -187,7 +196,7 @@ def note_text(repo, session):
         if not readout.readable:
             lines.append(f"{readout.name}: unreadable")
         elif readout.note:
-            lines.append(f"{readout.name}{readout.age(now)}: {note_lines(readout.note, NOTE_MAX_LINES)}")
+            lines.append(f"{readout.name}{readout.age(now)}: {note_lines(readout.note, NOTE_MAX_LINES, show_command(session))}")
     return "\n".join(lines)
 
 
@@ -204,7 +213,7 @@ def show_text(repo, session, include_all):
         if readout.strip:
             block.append(f"  strip: {CONTROL.sub(' ', readout.strip)}")
         if readout.note:
-            block.append("  note: " + note_lines(readout.note, None).replace("\n", "\n    "))
+            block.append("  note: " + note_lines(readout.note, None, None).replace("\n", "\n    "))
         blocks.append("\n".join(block))
     return "\n".join(blocks)
 
