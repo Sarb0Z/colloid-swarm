@@ -21,6 +21,7 @@
 .agents/.kimi-pending-findings-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
+.agents/.readout/
 .agents/.publish-approved-*
 .agents/.keychain-notices.log
 # Workloop lane and integration worktrees, nested in the checkout.
