@@ -85,12 +85,15 @@ It named one gap:
 ## Dispositions
 
 D1 and T1 block, so the lane is reopened; the adopted P2s are fixed in the
-same correction.
+same correction, `f7eeeab`, which trails `1a2591e` because later commits sit on
+it. That correction resolves P1s in the subsystem this round covered, so it
+does not re-enter review; the lead read its diff, and every row it adds goes
+red under the mutant its finding names.
 
 | # | Disposition |
 |---|---|
 | D1 | Adopted, settling the device ambiguity between (a) and (b): each device close drops one device entry of its own server, so N opens and M closes leave N−M entries and Stop blocks while any is held |
-| D3 | Adopted with D1: a close that matches no named entry, on a server whose entries are all unnamed, drops one of them, not all |
+| D3 | Adopted with D1: a close that matches no named entry, on a server whose entries are all unnamed, drops one of them, not all. A named open beside an ID-less one, closed by the generated ID, still blocks Stop: a false block, reachable only without the launcher, whose `browser_open` requires a `session_id` |
 | T1 | Adopted: a row with devices on two Appium servers, closed by `delete` and by `end_session`, each leaving the other server's device |
 | T2 | Adopted at P2: `s1` and `s10` on one server, close `s1`, `s10` stays |
 | T3 | Adopted at P2 with the review of the review's row: two servers both unnamed, close one, its own entry gone and the other's kept |
@@ -100,7 +103,7 @@ same correction.
 | D6 | Accepted, with a comment at `CLOSE_SESSION` saying why its close also clears that server's devices |
 | D7 | Adopted: the header says which classes clear whole and which by ID or by count, `close_session` leaves `APPIUM_CLOSE`, and the `teardown-tiered-by-restart-cost` decision says the same |
 | D8 | Deferred: the handoff's row M records both files over the mark before this work |
-| K1 | Closed: the suite passes under mawk and gawk |
+| K1 | Closed: the suite passes under mawk 1.3.4 and GNU Awk 5.2.1 at `1a2591e` and again at the correction `f7eeeab` |
 | K2 | Breadcrumb: a Codex and a Kimi adapter row for an Appium close |
 | T4 | Adopted: an unnamed and a named entry, a close with no ID, both stay |
 | T5 | Adopted: a 64-character ID recorded whole; a 65-character ID, and IDs with a space, `]` or a backslash, recorded as `(unnamed)` |
