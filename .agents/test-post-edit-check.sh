@@ -617,7 +617,7 @@ newfix ledgerbad
 printf '[tool.ruff]\n' > "$fx/pyproject.toml"
 printf 'x = 1\n' > "$fx/src/a.py"
 mkdir -p "$fx/.agents/.readout"
-printf 'ruff\tonly-two-fields\nruff\tgone\tpyproject.toml\tuv sync\n' > "$fx/.agents/.readout/checks-ledger"
+printf 'ruff\tsrc\nruff\tgone\tpyproject.toml\tuv sync\n' > "$fx/.agents/.readout/checks-ledger"
 fxrun check s1 '["src/a.py"]'
 [[ $rc -eq 2 && "$err" == *"[ruff] configured in pyproject.toml but not installed"* && "$err" != *"exited"* ]] \
   || fail "a ledger row of the wrong shape must not abort the checks, got rc=$rc: $err"
