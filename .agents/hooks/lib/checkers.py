@@ -166,21 +166,82 @@ def node_declares(directory, package):
         package in (data.get(section) or {}) for section in ("dependencies", "devDependencies"))
 
 
+def declares(text, package):
+    """True when `text` (a manifest or requirements file) lists the package as a
+    requirement: a quoted requirement ("ruff>=0.5"), a `ruff = "^0.5"` key, or a
+    requirements line. A `[tool.ruff]` table is configuration, not a requirement."""
+    name = re.escape(package)
+    return re.search(rf"[\"']{name}[\s<>=~!\[;\"']|^\s*{name}\s*(=|[<>~!]=?|\[|$)", text, flags=re.M) is not None
+
+
+def python_lock_dir(directory, project):
+    """The nearest folder at or above `directory` that says how Python packages
+    are installed here: (folder, manager, requirements file or None)."""
+    while True:
+        if os.path.isfile(os.path.join(directory, "uv.lock")):
+            return directory, "uv", None
+        if os.path.isfile(os.path.join(directory, "poetry.lock")):
+            return directory, "poetry", None
+        try:
+            names = sorted(n for n in os.listdir(directory) if re.fullmatch(r"requirements.*\.txt", n))
+        except OSError:
+            names = []
+        if names:
+            return directory, "pip", names
+        if directory == project or directory == os.path.dirname(directory):
+            return None, None, None
+        directory = os.path.dirname(directory)
+
+
+def python_install(package, directory, project):
+    folder, manager, requirements = python_lock_dir(directory, project)
+    pyproject = read_text(os.path.join(directory, "pyproject.toml"))
+    if manager == "pip":
+        for name in requirements:
+            if declares(read_text(os.path.join(folder, name)), package):
+                return f"pip install -r {name}"
+        return f"add {package} to {requirements[0]}, then run `pip install -r {requirements[0]}`"
+    if manager == "poetry":
+        return "poetry install" if declares(pyproject, package) else f"poetry add --group dev {package}"
+    if manager == "uv" or pyproject:
+        return "uv sync" if declares(pyproject, package) else f"uv add --dev {package}"
+    return f"uv tool install {package}"
+
+
+LOCKFILE_ONLY = {"pnpm": "--lockfile-only", "bun": "--lockfile-only",
+                 "npm": "--package-lock-only --ignore-scripts", "yarn": "--mode update-lockfile"}
+DEV_FLAG = {"pnpm": "-D", "bun": "--dev", "npm": "-D", "yarn": "-D"}
+
+
+def node_modules_is_link(directory, project):
+    while True:
+        if os.path.islink(os.path.join(directory, "node_modules")):
+            return True
+        if directory == project or directory == os.path.dirname(directory):
+            return False
+        directory = os.path.dirname(directory)
+
+
+def node_install(package, directory, project):
+    manager = node_manager(directory, project)
+    if node_declares(directory, package):
+        command = f"{manager} install"
+    else:
+        command = f"{manager} {'install' if manager == 'npm' else 'add'} {DEV_FLAG[manager]} {package}"
+    if node_modules_is_link(directory, project):
+        # An install would write through the link into another checkout's tree.
+        return f"{command} {LOCKFILE_ONLY[manager]}, then run `.agents/provision.sh {project}` " \
+               "(this tree's node_modules is a link to another checkout)"
+    return command
+
+
 def install_command(checker, directory, project):
     _, package, ecosystem = CHECKERS[checker]
     if ecosystem == "dart":
         return "install the Dart SDK, then run `dart pub get` (`flutter pub get` for a Flutter package)"
     if ecosystem == "python":
-        if not os.path.isfile(os.path.join(directory, "pyproject.toml")):
-            return f"uv tool install {package}"
-        # A quoted requirement ("ruff>=0.5"), not a `[tool.ruff]` table.
-        declared = re.search(rf"[\"']{re.escape(package)}[\s<>=~!\[;\"']",
-                             read_text(os.path.join(directory, "pyproject.toml")))
-        return "uv sync" if declared else f"uv add --dev {package}"
-    manager = node_manager(directory, project)
-    if node_declares(directory, package):
-        return f"{manager} install"
-    return f"{manager} {'install' if manager == 'npm' else 'add'} -D {package}"
+        return python_install(package, directory, project)
+    return node_install(package, directory, project)
 
 
 def state_folder(project):

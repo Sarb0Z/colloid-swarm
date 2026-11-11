@@ -518,6 +518,52 @@ fxrun check s1 '["src/a.js"]'
 [[ $rc -eq 0 && -z "$err" ]] || fail "an installed ESLint with no config in reach must not block the edit, got rc=$rc: $err"
 ok "STUB eslint: installed with no configuration in reach, it does not run and does not block"
 
+# --- install commands follow the repository's own lockfile -------------------
+python_fixture() {  # <name> <lockfile or empty> -> a ruff-configured fixture
+  newfix "$1"
+  printf '[tool.ruff]\n' > "$fx/pyproject.toml"
+  printf 'x = 1\n' > "$fx/src/a.py"
+  [[ -n "$2" ]] && printf '\n' > "$fx/$2"
+  return 0
+}
+python_fixture lockuv uv.lock
+fxrun check s1 '["src/a.py"]'
+[[ "$err" == *"not installed: uv add --dev ruff"* ]] || fail "uv.lock must give uv add --dev, got: $err"
+python_fixture lockpoetry poetry.lock
+fxrun check s1 '["src/a.py"]'
+[[ "$err" == *"not installed: poetry add --group dev ruff"* ]] || fail "poetry.lock must give poetry add --group dev, got: $err"
+python_fixture lockreq ""
+printf 'ruff==0.5.0\n' > "$fx/requirements-dev.txt"
+fxrun check s1 '["src/a.py"]'
+[[ "$err" == *"not installed: pip install -r requirements-dev.txt"* ]] || fail "a requirements file that lists ruff must be named, got: $err"
+python_fixture lockreqmissing ""
+printf 'flask\n' > "$fx/requirements.txt"
+fxrun check s1 '["src/a.py"]'
+[[ "$err" == *"not installed: add ruff to requirements.txt, then run \`pip install -r requirements.txt\`"* ]] \
+  || fail "a requirements file without ruff must be named with what to add, got: $err"
+ok "the Python install command follows uv.lock, poetry.lock or the requirements file, and names it"
+
+newfix linkednm
+mkdir -p "$scratch/emptynm"
+ln -s "$scratch/emptynm" "$fx/node_modules"
+printf 'export default [];\n' > "$fx/eslint.config.mjs"
+printf 'export const a = 1;\n' > "$fx/src/a.js"
+printf 'lockfileVersion: 9\n' > "$fx/pnpm-lock.yaml"
+fxrun check s1 '["src/a.js"]'
+[[ "$err" == *"pnpm add -D eslint --lockfile-only, then run \`.agents/provision.sh $fxproj\`"* ]] \
+  || fail "a linked node_modules must be told the lockfile-only form and provision.sh, got: $err"
+ok "in a tree whose node_modules is a link, the install command is the lockfile-only form plus provision.sh"
+
+newfix monorepo
+printf 'export default [];\n' > "$fx/eslint.config.mjs"
+mkdir -p "$fx/apps/web/src" "$fx/apps/other/node_modules/.bin"
+stub "$fx/apps/other/node_modules/.bin/eslint" 'exit 0'
+printf 'export const a = 1;\n' > "$fx/apps/web/src/a.js"
+fxrun check s1 '["apps/web/src/a.js"]'
+[[ $rc -eq 2 && "$err" == *"[eslint] configured in eslint.config.mjs but not installed"* ]] \
+  || fail "a root configuration covering a package beyond an installed linter's reach must be reported, got rc=$rc: $err"
+ok "a package that a root ESLint configuration covers but no installed ESLint reaches is reported"
+
 # --- the ledger and the readout --------------------------------------------
 newfix noconfig
 printf 'x = 1\n' > "$fx/src/a.py"; printf 'export const a = 1;\n' > "$fx/src/a.ts"; printf 'export const b = 1;\n' > "$fx/src/b.js"
