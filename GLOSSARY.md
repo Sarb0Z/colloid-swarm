@@ -49,3 +49,21 @@ _Avoid_: reader lane, observer
 **Shared file**:
 A file several lanes need to change and none owns: a manifest, a lockfile, generated code, an index. Lanes' edits to a manifest or an index are merged; a lockfile or a generated file is rebuilt after the merge, never merged.
 _Avoid_: common file, global file
+
+## Web access
+
+**Bot wall**:
+A check a site puts in front of content it sends to a reader with no login, to turn automated readers away: a challenge page, a headless-browser block, a CAPTCHA, a metered paywall, or a login overlay over text already in the page. An agent may pass one.
+_Avoid_: paywall (as a category), access control
+
+**Access restriction**:
+Content that needs a login or subscription the operator does not hold, or that is another person's account or data. An agent stops at one.
+_Avoid_: bot wall, hard wall
+
+**Browser session**:
+A browser a browsing server keeps open between calls, from the call that opens it to the call that closes it.
+_Avoid_: session (which means an agent session), stealth session
+
+**Bounded run**:
+The pages one task reads from one walled site, one after another, within the page limit the rules set. Anything larger is a crawl.
+_Avoid_: crawl, scrape, batch

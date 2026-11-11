@@ -3,9 +3,12 @@
 Workflow: Build · Stakes: Critical (the teardown gate, the MCP launch command,
 a deny surface, and the host renderers).
 
-**Gate: no code in this unit before the operator's OK on this plan.** Rulings R1
-and R2 are asked with it. The Critical Build's grilling step (`grill-me`) is
-offered with the OK; R1 and R2 are the domain questions it would raise.
+**Gate: passed.** The operator chose the grilling step (`grill-me`) over a
+plain OK, and confirmed the shared understanding after it on 2026-11-11. Its
+rulings are below and in `.agents/decisions.md` (`scrapling-stealth-tier`,
+`site-terms-on-operator-behalf`, `mcp-hosts-default-every-host`); its terms
+(bot wall, access restriction, browser session, bounded run) are in
+`GLOSSARY.md`.
 
 The `scrapling-entry` run landed `6711d93` and `d3f1a11` on 2026-11-09. Three
 Opus reviewers returned 14 findings that day; the lead session (`690d82d4`)
@@ -37,31 +40,41 @@ the `search-and-cite` skill tells a session to run.
 | T4 | P2 | The trigger test uses `rx.search`; every other matcher test uses `re.fullmatch` | Unit 3 |
 | S7 | P2 | The five Scrapling denies have no remedy in `denied-tools.json`, no `denied-tool.sh` matcher, and are absent from `test-permissions.sh`'s `REQUIRED_DENY` | Unit 4 |
 | S5 | P2 | `uvx --from scrapling[ai]==0.5.1` pins the top package only; dependencies re-resolve on a new machine | Unit 6 |
-| S3 | P2 | Navigation through `browser_actions` or `browser_evaluate` reaches no sources-ledger row | Waits on ruling R1 |
-| S6 | P2 | The `search-and-cite` route escalates to Scrapling on search results the agent picked, not only pages the user directed | Waits on ruling R2 |
+| S3 | P2 | Navigation through `browser_actions` or `browser_evaluate` reaches no sources-ledger row | Unit 7 (R1) |
+| S6 | P2 | The `search-and-cite` route escalates to Scrapling on search results the agent picked, not only pages the user directed | Ruled allowed (R2); the route and the output style carry the new rule, unit 8 |
 | S8 | P2 | `source_row` has no branch for `greptile` or registry-form `exa`, which the hook matcher fires for; capture "follows the registry" for the matcher only | Breadcrumb |
 | M | — | `teardown-gate.sh` is 701 lines and its test 558; `mcp.py` 326; `normalize()` in `normalize-hook.py` about 130 lines; all over their marks before this work | Not this unit |
 
-## Rulings needed from the operator
+## Rulings (2026-11-11)
 
-- **R1, Decision 1's tool surface.** The ruling named `browser_open`,
-  `browser_fetch`, `browser_actions` and `close_session` beside the one-shot
-  `browser_fetch_once`; the code leaves seven more callable (`list_sessions`,
-  `browser_evaluate`, `browser_extract`, `browser_screenshot`,
-  `browser_observe`, `browser_network_requests`, `browser_network_request`).
-  `browser_evaluate` gives page-context HTTP with the session's cookies, the
-  method `knowledge/research/2026-11-10-signed-in-app-api-harvesting.md`
-  relies on. Options: (a) keep all twelve and record `browser_actions` and
-  `browser_evaluate` calls in the ledger by session; (b) deny
-  `browser_evaluate` only; (c) deny everything outside the named tools,
-  `browser_fetch_once` and `list_sessions`.
-- **R2, Decision 2's "a public page the user directed".** (a) A URL the user
-  named or opened; (b) any page a user-directed research task reaches through
-  search. The code's route reads (b).
+- **R1, the tool surface:** all twelve tools left after the denies stay
+  callable, `browser_evaluate` included. The ledger records `browser_actions`
+  and `browser_evaluate` calls: the browser session, the page it was on, and
+  every web address found in the call, never the script body.
+- **R2, which pages:** any public page the work reaches, read one at a time. A
+  bounded run lets each agent read at most 25 pages of one walled site for one
+  task, its count named in the report; never a crawl. A bot wall is any check
+  in front of content the site sends to a reader with no login, a metered
+  paywall and a login overlay included: the agent passes it and names it in
+  one line. At an access restriction (a login or subscription the operator
+  does not hold, or another person's account or data) the agent asks the
+  operator how to go on: sign in with their own login, another source, or
+  stop; it never gets past one itself. Unattended runs pass bot walls and list
+  each in their report, and skip and report pages behind an access
+  restriction.
+- **Fetch addresses:** `http` and `https` only.
+- **Hosts:** the `hosts` list stays; an entry without one renders on every
+  host (not required), and Scrapling lists `claude` only.
+- **Other hosts:** Claude Code is the host in use. Each Claude-only part this
+  plan touches says so in one line where it is used; the full guide for
+  adapting the scaffold to another host is deferred, its layout to be chosen
+  after research.
+- **Term:** "browser session" for Scrapling's open browser; "session" keeps
+  meaning an agent session.
 
 ## Units
 
-One commit each, in this order. Units 1 to 6 do not depend on R1 or R2.
+One commit each, in this order.
 
 1. **The launcher narrows the server** — a new `.agents/scrapling-mcp.py`, the
    `scrapling` entry's `command` and `args` in `.agents/mcp.json`, regenerated
@@ -149,10 +162,10 @@ One commit each, in this order. Units 1 to 6 do not depend on R1 or R2.
    the `denied-tool.sh` matcher in `.agents/claude/settings.json`,
    `test-permissions.sh`'s `REQUIRED_DENY`.
 5. **Host lists, then Scrapling is Claude only** — two commits.
-   - Refactor first: one required `hosts` list per registry entry (`claude`,
-     `codex`, `kimi`, `opencode`) replaces `codex_enabled` and `kimi_enabled`.
-     Required, with no default, so a new entry cannot reach a host by omission,
-     the shape that let S2 through. The readers that change: `mcp.py:25`,
+   - Refactor first: one optional `hosts` list per registry entry (`claude`,
+     `codex`, `kimi`, `opencode`) replaces `codex_enabled` and `kimi_enabled`;
+     an entry without one renders on every host, as the operator ruled over a
+     required list. The readers that change: `mcp.py:25`,
      `:82` (`_validate_remote` excuses Codex's header limit when `codex` is
      not listed), `:97-98`, `:231` (Kimi), `:242-252` and `:268` (Claude's
      `.mcp.json` and `enabledMcpjsonServers`), `mcp_codex.py:7-12, 26`,
@@ -182,10 +195,39 @@ One commit each, in this order. Units 1 to 6 do not depend on R1 or R2.
    flags as unit 1's launch. A `debt-log.md` entry: frozen dependencies miss
    security releases; reopened by a security advisory against any dependency
    or the next Scrapling version bump.
-7. **After R1 and R2** — the ledger change, or the launcher removal, that R1
-   picks; one sentence in the `search-and-cite` route if R2 is (a).
-8. **Breadcrumbs** for S8, and for session starts on other hosts listing
-   Claude-only servers (`hooks/lib/mcp-off.py:25-29` filters by no host).
+7. **The ledger records page-context calls** — `.agents/hooks/lib/sources-ledger.py`,
+   the `scrapling` entry's `sources` in `.agents/mcp.json`, the matcher test.
+   `browser_actions` and `browser_evaluate` become registry `sources`; each
+   call writes a `browse` row naming the browser session, the page it was on
+   (the last address the ledger recorded for that browser session), and every
+   `http` or `https` address found in the call's input (a go-to action's
+   address, a `fetch("…")` literal). The script body is never written. Rows:
+   an evaluate with a fetch literal, an actions call with a go-to, a script
+   carrying a token-shaped string that must not appear in the ledger.
+8. **The wall rule lands** — `.agents/claude/output-style.md` line 11 (the
+   rule every session reads), the Scrapling step of the `search-and-cite`
+   route, and every other file that carries line 11's text, found with `rg`
+   (the showcase embeds the style, so the commit carries its regeneration).
+   - The line states R2 as ruled: any public page; one page at a time; the
+     bounded run of 25 pages a site per agent per task, counted in the report;
+     the sent-without-a-login test; the question at an access restriction and
+     its three answers; unattended runs. The route carries the bound and the
+     access-restriction question at the step where the agent picks Scrapling,
+     and says the stealth browser is Claude only.
+   - Tested before it lands, by `.agents/AGENTS.md`'s Writing contract
+     language: pass conditions written first; at least two fresh headless
+     runs on the model that reads it, from a fixture folder carrying the
+     drafted style, for each of three prompts (a walled page reached through
+     search proceeds and names the wall; a page behind someone else's login
+     asks; a task needing 30 pages of one walled site stops at 25 and says
+     so); graded from the transcripts' tool order and text.
+   - Then the operator reinstalls the device policy (admin rights), with the
+     command given in the report; until then session starts report the copy
+     as stale.
+9. **Breadcrumbs** for S8; for session starts on other hosts listing
+   Claude-only servers (`hooks/lib/mcp-off.py:25-29` filters by no host); and
+   for the guide to adapting the scaffold to another host, whose layout waits
+   on research into how other agent scaffolds document host support.
 
 ## Options weighed
 
