@@ -19,7 +19,7 @@ from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES
 from workloop_state import Store, fail, now, record, replayed, run_of, state_path, valid_name
 
 ROLES = {
-    "research": "find and ground the facts the objective needs as a findings table (.agents/playbooks/plan-research.md): each claim with its path:line, command output or dated URL, and its status, observed, inferred or not read, under the commit you read at",
+    "research": "find and ground the facts the objective needs; a claim about this repository or its systems goes in a findings table (.agents/playbooks/plan-research.md), each with its path:line or command output and its status, observed, inferred or not read, under the commit you read at; an external claim keeps its source and date",
     "review": "review the artefact the objective names against the repository's rules and the run's acceptance; each finding carries a severity and its evidence",
     "qa": "run each scenario the acceptance names, as the working practice below says, and report evidence, failures and coverage gaps",
 }

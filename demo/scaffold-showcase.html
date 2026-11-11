@@ -428,7 +428,7 @@ Read a playbook workflow&#x27;s file before its first step.
 
 **Feedback checkpoint.** In user-visible work, once one vertical unit runs end to end on the real backend with its authentication, tenant, money, and destructive-operation safeguards, give the operator the command that runs it, numbered test steps, expected values, known gaps, and what the agent did not check itself. Breadth waits for that review — exhaustive edge-case QA, a second browser, release evidence; quality does not. Keep building independent units meanwhile; at critical stakes the checkpoint is a human gate.
 
-**Implement and test.** Name the seams under test, each with one line on what it catches and what it misses, in the plan or the lane brief before writing tests, or as a line of the Fix report, and build in vertical slices: one test and its implementation at a time. Tie every fix to observed evidence — a reproduced defect, or system, user, log, or test output. A theory read from the code suffices to act on; a hunch does not, so instrument. A fix that fails falsifies its theory: after two, stop changing code, ask whether you are duct-taping custom fixes where a native way exists (the Stuck lens in `.agents/lenses.md`), instrument, and gather the missing evidence. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. A failure is diagnosed and fixed; a fix that forces a redesign returns to the plan.
+**Implement and test.** First re-open each findings row whose file changed since the table was read (`git diff --stat &lt;commit&gt; -- &lt;paths&gt;`). Name the seams under test, each with one line on what it catches and what it misses, in the plan or the lane brief before writing tests, or as a line of the Fix report, and build in vertical slices: one test and its implementation at a time. Tie every fix to observed evidence — a reproduced defect, or system, user, log, or test output. A theory read from the code suffices to act on; a hunch does not, so instrument. A fix that fails falsifies its theory: after two, stop changing code, ask whether you are duct-taping custom fixes where a native way exists (the Stuck lens in `.agents/lenses.md`), instrument, and gather the missing evidence. When orchestration becomes stateful, replace shell fragments with one cohesive controller. Run the relevant checks and, when safe, the real workflow in its real environment; simulate destructive or scarce operations and state what remains unverified. A failure is diagnosed and fixed; a fix that forces a redesign returns to the plan.
 
 ### Fix
 
@@ -597,11 +597,11 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 385 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 386 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
-# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;source&quot;: &quot;...&quot;}
+# Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;source&quot;: &quot;...&quot;, &quot;session_id&quot;: &quot;...&quot;}
 # Output (STDOUT): a single JSON object carrying
 #   hookSpecificOutput.additionalContext. SessionStart injects that field
 #   regardless of source; plain stdout is NOT injected for source=compact
@@ -640,7 +640,8 @@ detect:
 #     (hooks/lib/worktree_sweep.py).
 #   - Unit readouts: the note of each readout visible to this session, from
 #     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
-#     files here). Silent when no readout has a note.
+#     files here). Silent when .agents/.readout/ is missing or no readout
+#     has a note; an unreadable readout file is named there.
 
 set -euo pipefail
 
@@ -814,7 +815,7 @@ fi
 
 # Readouts the units wrote (hooks/lib/readout.py); old session-scoped ones go first.
 readout_note=&quot;&quot;
-if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lib/readout.py&quot; ]]; then
+if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lib/readout.py&quot; &amp;&amp; -d &quot;$proj/.agents/.readout&quot; ]]; then
   python3 &quot;$lib/readout.py&quot; prune &quot;$proj&quot; \
     || echo &quot;session-start: pruning old readouts failed; they stay until the next start&quot; &gt;&amp;2
   readout_note=&quot;$(python3 &quot;$lib/readout.py&quot; note &quot;$proj&quot; &quot;${session_id:-}&quot;)&quot; \
