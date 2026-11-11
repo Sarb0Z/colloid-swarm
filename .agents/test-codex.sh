@@ -331,9 +331,9 @@ PY
 }
 
 assert_json \
-  '{"cwd":"/repo","tool_input":{"command":"*** Add File: plain.py\n*** Update File: \"dir/file name.ts\"\n*** Delete File: old.py\n*** Move to: moved.py"}}' \
+  '{"cwd":"/repo","session_id":"s-1","tool_input":{"command":"*** Add File: plain.py\n*** Update File: \"dir/file name.ts\"\n*** Delete File: old.py\n*** Move to: moved.py"}}' \
   post-edit-check.sh \
-  '{"project_dir":"/repo","files":["plain.py","dir/file name.ts","old.py","moved.py"],"warnings":[]}'
+  '{"project_dir":"/repo","files":["plain.py","dir/file name.ts","old.py","moved.py"],"warnings":[],"session_id":"s-1"}'
 assert_json \
   '{"last_assistant_message":"I am unable to complete this.","stop_hook_active":false}' \
   stop-investigate.sh \
