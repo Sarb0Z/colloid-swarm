@@ -222,14 +222,16 @@ will keep it.
   product runs on that a command line can read — the host, the database, the
   error tracker, CI. Each entry has a `name`, a `probe` that exits 0 when the
   system answers with the operator's own login, `read`, a list of read-only
-  commands an agent may run, and `logs`, a log command per environment
-  (`local`, `staging`, `production`). Names and commands only: the credential
+  commands an agent may run, and optionally `logs`, a log command for each of
+  the three environments `local`, `staging` and `production`. A declared
+  command is literal, with no `$` or backtick, and `check` refuses one either
+  guard would ask about. Names and commands only: the credential
   route and the account snapshot stay in `CLAUDE.local.md`. A system reachable
   only through a signed-in browser is left out and filed as a breadcrumb.
   Then:
   - run `python3 .agents/access.py check`: it passes each declared command
-    through the publish guard and names any it would ask about, which is a
-    write declared as a read;
+    through the destructive and publish guards and names any they refuse, which
+    is a write declared as a read;
   - add a publish-guard row to `.agents/hooks/lib/guard-publish.py` and its
     test for each vendor command line the guard lacks, so `check` can see it
     (the carrier ships none beyond today's), then rerun `check`;

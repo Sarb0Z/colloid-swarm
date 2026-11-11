@@ -15,10 +15,12 @@ routes and account snapshots stay in the gitignored `CLAUDE.local.md`:
 environment name to its log command. Only `policy.json` is read: a system
 list is a repository decision, not one operator's setting.
 
-Every declared command goes through the publish guard
-(`hooks/lib/guard-publish.py`) the way a Bash call in default permission mode
-does. A command the guard would ask about or deny is never run here, and
-`check` names it, so a write declared as a read is caught before anyone runs it.
+Every declared command goes through both guards (`hooks/lib/guard_verdict.py`:
+the destructive guard and the publish guard, asked as the workloop controller
+asks them). A command a guard refuses is never run here, and `check` names it,
+so a write declared as a read is caught before anyone runs it. A guard cannot
+see through shell expansion, so a declared command is literal: no `$` and no
+backtick. `logs` environments are `local`, `staging` and `production`.
 
 Usage:
   access.py check [--repo DIR]
@@ -42,12 +44,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "hooks" / "lib"))
+import guard_verdict  # noqa: E402
 import readout  # noqa: E402
 
-GUARD = HERE / "hooks" / "lib" / "guard-publish.py"
 NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
-ENV_NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+LOG_ENVIRONMENTS = ("local", "staging", "production")
 KEYS = {"name", "probe", "read", "logs"}
+EXPANSION = re.compile(r"[$`]")
 PROBE_TIMEOUT = 10
 STALE_AFTER = 86400
 NONE_DECLARED = ("no systems declared in .agents/policy.json; add a top-level `systems` list "
@@ -96,10 +99,17 @@ def load_systems(repo):
             errors.append(f"{label}: logs must be an object of environment name to command")
         else:
             for env_name, command in logs.items():
-                if not ENV_NAME.fullmatch(env_name):
-                    errors.append(f"{label}: log environment {env_name!r} must be lower-case words joined by hyphens")
+                if env_name not in LOG_ENVIRONMENTS:
+                    errors.append(f"{label}: log environment {env_name!r} must be one of {', '.join(LOG_ENVIRONMENTS)}")
                 if not (isinstance(command, str) and command.strip()):
                     errors.append(f"{label}: log {env_name} must be a non-empty command string")
+    if errors:
+        return systems, errors
+    for entry in systems:
+        for role, command in commands(entry):
+            if EXPANSION.search(command):
+                errors.append(f"`{command}` in system {entry['name']}, {role}: "
+                              "declared commands are literal: no shell expansion ($ or backtick)")
     return systems, errors
 
 
@@ -113,19 +123,9 @@ def commands(system):
 
 
 def guard_reason(repo, command):
-    """The guard's reason when it would ask about or deny `command`, else None."""
-    payload = {"tool_name": "Bash", "tool_input": {"command": command},
-               "permission_mode": "default", "cwd": str(repo)}
-    result = subprocess.run([sys.executable, str(GUARD), str(repo), "--force"], input=json.dumps(payload),
-                            capture_output=True, text=True)
-    if result.returncode != 0:
-        return f"the publish guard failed (exit {result.returncode}): {result.stderr.strip()}"
-    if not result.stdout.strip():
-        return None
-    try:
-        return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
-    except (ValueError, KeyError, TypeError):
-        return f"the publish guard answered unreadably: {result.stdout.strip()[:200]}"
+    """"<guard>: <reason>" when a guard refuses `command`, else None."""
+    refused = guard_verdict.verdict(command, repo)
+    return f"{refused[0]}: {refused[1]}" if refused else None
 
 
 def refusals(repo, system):
@@ -144,12 +144,12 @@ def cmd_check(repo):
     if not errors:
         for system in systems or []:
             for role, command, reason in refusals(repo, system):
-                problems.append(f"`{command}` in system {system['name']}, {role}: the publish guard asks: {reason}")
+                problems.append(f"`{command}` in system {system['name']}, {role}: refused by {reason}")
     for problem in problems:
         print(f"FAIL: {problem}", file=sys.stderr)
     if problems:
         return 1
-    print(f"systems: {len(systems or [])} declared, every command passes the publish guard"
+    print(f"systems: {len(systems or [])} declared, every command passes the guards"
           if systems is not None else NONE_DECLARED)
     return 0
 
@@ -174,7 +174,7 @@ def cmd_list(repo):
 
 
 def run_probe(repo, command):
-    """(exit status or 'timeout', None) with the probe's output discarded."""
+    """The probe's exit status, or 'timeout'; its output is discarded."""
     process = subprocess.Popen(command, shell=True, cwd=repo, stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     try:
@@ -191,7 +191,9 @@ def cmd_probe(repo, name):
         for error in errors:
             print(f"FAIL: {error}", file=sys.stderr)
         return 1
-    if systems is None:
+    if not systems:
+        # A readout of systems that are no longer declared would mislead.
+        (readout.folder(repo) / "systems.json").unlink(missing_ok=True)
         print(NONE_DECLARED)
         return 0
     if name is not None:
@@ -199,28 +201,29 @@ def cmd_probe(repo, name):
         if not systems:
             print(f"FAIL: no system named {name} in .agents/policy.json", file=sys.stderr)
             return 1
-    refused, unreachable, lines = False, [], []
+    refused, problems, lines = False, [], []
     for system in systems:
         label = system["name"]
         reason = guard_reason(repo, system["probe"])
         if reason:
             refused = True
-            print(f"FAIL: probe `{system['probe']}` in system {label} not run: the publish guard asks: {reason}",
+            print(f"FAIL: probe `{system['probe']}` in system {label} not run: refused by {reason}",
                   file=sys.stderr)
-            lines.append(f"{label}: probe refused by the publish guard")
+            lines.append(f"{label}: probe refused by the guards")
+            problems.append(f"{label} refused")
             continue
         status = run_probe(repo, system["probe"])
         if status == 0:
             state = "reachable (exit 0)"
         else:
-            unreachable.append(label)
+            problems.append(f"{label} unreachable")
             state = f"unreachable ({'timeout' if status == 'timeout' else f'exit {status}'})"
         environments = ", ".join(system.get("logs", {})) or "none"
         lines.append(f"{label}: {state}, {len(system['read'])} reads, logs: {environments}")
     for line in lines:
         print(line)
     if name is None:
-        strip = f"systems: {', '.join(unreachable)} unreachable" if unreachable else ""
+        strip = f"systems: {', '.join(problems)}" if problems else ""
         readout.write(repo, "systems", strip=strip, note="\n".join(lines), stale_after=STALE_AFTER)
     return 1 if refused else 0
 
@@ -232,11 +235,13 @@ def main():
     parser.add_argument("--repo", default=str(HERE.parent), help="repository root (default: this one)")
     args = parser.parse_args()
     repo = Path(args.repo).resolve()
-    if args.command == "check":
-        return cmd_check(repo)
     if args.command == "list":
         return cmd_list(repo)
-    return cmd_probe(repo, args.name)
+    try:
+        return cmd_check(repo) if args.command == "check" else cmd_probe(repo, args.name)
+    except guard_verdict.GuardFailure as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

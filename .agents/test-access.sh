@@ -29,17 +29,17 @@ ok "the carrier's own policy passes check"
 bad="$(fixture '{"systems":[{"name":"Bad Name","probe":"","read":"x","extra":1,"logs":{"Prod":"ls"}},{"name":"a","probe":"true","read":[]},{"name":"a","probe":"true","read":[]}]}')"
 set +e; err="$(acc check --repo "$bad" 2>&1)"; rc=$?; set -e
 [[ $rc -eq 1 ]] || fail "schema errors must exit 1 (got $rc)"
-for want in "name must match" "unknown key 'extra'" "probe must be a non-empty" "read must be a list" "log environment 'Prod'" "name declared twice"; do
+for want in "name must match" "unknown key 'extra'" "probe must be a non-empty" "read must be a list" "log environment 'Prod' must be one of local, staging, production" "name declared twice"; do
   grep -qF "$want" <<<"$err" || fail "schema error missing: $want"
 done
 ok "schema errors are named"
 
 # A write declared as a read is refused by name, with the guard's reason.
-write="$(fixture '{"systems":[{"name":"github","probe":"true","read":["gh pr list","gh pr merge 1"],"logs":{"ci":"gh pr create --title x"}}]}')"
+write="$(fixture '{"systems":[{"name":"github","probe":"true","read":["gh pr list","gh pr merge 1"],"logs":{"staging":"gh pr create --title x"}}]}')"
 set +e; err="$(acc check --repo "$write" 2>&1)"; rc=$?; set -e
 [[ $rc -eq 1 ]] || fail "a guarded read must fail check (got $rc)"
-grep -qF '`gh pr merge 1` in system github, read: the publish guard asks:' <<<"$err" || fail "merge not named: $err"
-grep -qF '`gh pr create --title x` in system github, log ci:' <<<"$err" || fail "log write not named: $err"
+grep -qF '`gh pr merge 1` in system github, read: refused by guard-publish:' <<<"$err" || fail "merge not named: $err"
+grep -qF '`gh pr create --title x` in system github, log staging:' <<<"$err" || fail "log write not named: $err"
 grep -qF 'gh pr list`' <<<"$err" && fail "a plain read was flagged"
 ok "a declared read the guard asks about is refused by name"
 
@@ -55,7 +55,7 @@ ok "probes record reachable, unreachable (exit 1) and timeout, no output"
 
 # The readout carries the strip and one note line per system.
 strip="$(python3 "$repo/.agents/hooks/lib/readout.py" strip "$probes" s1)"
-[[ "$strip" == *"systems: down, slow unreachable"* ]] || fail "strip wrong: $strip"
+[[ "$strip" == *"systems: down unreachable, slow unreachable"* ]] || fail "strip wrong: $strip"
 python3 - "$probes/.agents/.readout/systems.json" <<'PY' || fail "readout record wrong"
 import json, sys
 r = json.load(open(sys.argv[1]))
@@ -83,8 +83,28 @@ guarded="$(fixture "{\"systems\":[{\"name\":\"gh\",\"probe\":\"touch $marker; gh
 set +e; err="$(acc probe --repo "$guarded" 2>&1 >/dev/null)"; rc=$?; set -e
 [[ $rc -eq 1 ]] || fail "a guarded probe must exit 1 (got $rc)"
 [[ ! -e "$marker" ]] || fail "a guarded probe ran"
-grep -qF 'in system gh not run: the publish guard asks' <<<"$err" || fail "refusal not named: $err"
-ok "a probe the guard asks about is refused and not run"
+grep -qF 'in system gh not run: refused by guard-publish' <<<"$err" || fail "refusal not named: $err"
+python3 "$repo/.agents/hooks/lib/readout.py" strip "$guarded" s1 | grep -qF 'systems: gh refused' || fail "a refused system must appear in the strip"
+ok "a probe the guard asks about is refused and not run, and shows in the strip"
+
+# The destructive guard screens probes too: git clean must not delete a file.
+victim="$scratch/victim"
+mkdir -p "$victim/.agents"
+git -C "$victim" init -q
+printf 'keep\n' > "$victim/untracked.txt"
+printf '%s\n' '{"systems":[{"name":"clean","probe":"git clean -fdx","read":[]}]}' > "$victim/.agents/policy.json"
+set +e; err="$(acc check --repo "$victim" 2>&1)"; rc=$?; set -e
+[[ $rc -eq 1 ]] && grep -qF 'refused by guard-destructive' <<<"$err" || fail "check must refuse git clean via guard-destructive: $err"
+set +e; acc probe --repo "$victim" >/dev/null 2>&1; rc=$?; set -e
+[[ $rc -eq 1 && -f "$victim/untracked.txt" ]] || fail "probe ran git clean (rc=$rc) or deleted the file"
+ok "a destructive probe is refused by check and not run, and the file survives"
+
+# A guard cannot see through expansion, so declared commands are literal.
+expand="$(fixture '{"systems":[{"name":"x","probe":"true","read":["G=gh; $G pr merge 1"]},{"name":"y","probe":"echo `id`","read":[]}]}')"
+set +e; err="$(acc check --repo "$expand" 2>&1)"; rc=$?; set -e
+[[ $rc -eq 1 ]] || fail "expansion must fail check"
+[[ "$(grep -cF 'declared commands are literal: no shell expansion' <<<"$err")" -eq 2 ]] || fail "both expansions must be named: $err"
+ok "a command with a dollar sign or a backtick is a schema error"
 
 # No systems key: one pointer line, exit 0.
 none="$(fixture '{"hooks":{}}')"
@@ -93,6 +113,14 @@ for verb in list probe; do
   [[ "$(wc -l <<<"$out")" -eq 1 ]] && grep -qF 'Systems step of .agents/export/README.md' <<<"$out" || fail "$verb pointer wrong: $out"
 done
 [[ ! -e "$none/.agents/.readout" ]] || fail "no systems must write no readout"
+# A readout left from an earlier declaration is removed.
+mkdir -p "$none/.agents/.readout"; printf '{}' > "$none/.agents/.readout/systems.json"
+acc probe --repo "$none" >/dev/null
+[[ ! -e "$none/.agents/.readout/systems.json" ]] || fail "a stale systems readout survived an undeclared policy"
+empty="$(fixture '{"systems":[]}')"
+mkdir -p "$empty/.agents/.readout"; printf '{}' > "$empty/.agents/.readout/systems.json"
+acc probe --repo "$empty" | grep -qF 'no systems declared' || fail "an empty list must print the pointer"
+[[ ! -e "$empty/.agents/.readout/systems.json" ]] || fail "an empty list must remove the readout"
 ok "no systems key prints the pointer and exits 0"
 
 # list shows every command.
