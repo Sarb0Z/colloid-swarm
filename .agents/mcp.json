@@ -44,7 +44,7 @@
       ]
     },
     "scrapling": {
-      "description": "Stealth browser for bot-walled pages, including Cloudflare's interactive checkbox. Install its browser once: uvx --from 'scrapling[ai]==0.5.1' scrapling install",
+      "description": "Stealth browser for bot-walled pages, including Cloudflare's interactive checkbox. Claude only. Install its browser once: uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from 'scrapling[ai]==0.5.1' scrapling install",
       "sources": ["browser_fetch_once", "browser_fetch"],
       "enabled": false,
       "codex_enabled": false,
@@ -52,9 +52,15 @@
       "type": "stdio",
       "command": "uvx",
       "args": [
+        "--python",
+        "3.12",
+        "--exclude-newer",
+        "2026-11-09T00:00:00Z",
         "--from",
         "scrapling[ai]==0.5.1",
-        "scrapling-mcp"
+        "python",
+        "-I",
+        "${REPO_ROOT}/.agents/scrapling-mcp.py"
       ]
     },
     "appium-mcp": {

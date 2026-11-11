@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      # The Scrapling launcher test resolves its pinned environment with uvx.
+      - uses: astral-sh/setup-uv@v10
 
       - name: Host layout
         run: python3 .agents/check-layout.py
@@ -142,6 +144,16 @@ jobs:
           .agents/test-codex.sh | tee "$RUNNER_TEMP/codex.log"
           if grep -q 'host loader: skipped' "$RUNNER_TEMP/codex.log"; then
             echo '::notice title=Codex loader check skipped::codex is not on PATH; static persona and project-config checks still ran.'
+          fi
+
+      # Self-skips where uvx is absent; the step above provides it here, so a
+      # skip means the setup step broke and surfaces as a notice.
+      - name: Scrapling launcher
+        shell: bash
+        run: |
+          .agents/test-scrapling-launcher.sh | tee "$RUNNER_TEMP/scrapling.log"
+          if grep -q '^SKIP scrapling launcher' "$RUNNER_TEMP/scrapling.log"; then
+            echo '::notice title=Scrapling launcher check skipped::uvx is not on PATH, so the launcher schema was not checked.'
           fi
 
       - name: Root contract size

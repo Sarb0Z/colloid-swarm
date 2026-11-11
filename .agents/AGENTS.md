@@ -119,6 +119,7 @@ python3 .agents/test-browser-sync.py
 .agents/test-product-folder.sh
 .agents/test-mods.sh
 .agents/test-codex.sh
+.agents/test-scrapling-launcher.sh
 # colloid-only
 python3 .agents/lint-contract.py
 python3 .agents/eval/test-cell-time.py
