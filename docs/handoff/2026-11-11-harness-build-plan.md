@@ -62,6 +62,12 @@ the probe was run) or `inferred`.
 | F28 | The adapter hands the inbox hook `project_dir`, `event`, `session_id` and `agent_id`, not `transcript_path`, which it passes to other hooks; a subagent's transcript is `agent-<agent_id>.jsonl` in the session's `subagents/` folder beside the `.meta.json` the writers gate reads; in four of this session's subagent transcripts the first record carries the brief header, on line 1 for a lane and on line 2 after `READ-ONLY` for a cell | `claude/normalize-hook.py:84-99`; `hooks/lib/cell_markers.py:13-18, 100, 196`; four transcripts read 2026-11-12 | observed |
 | F29 | The subagent's `.jsonl` exists, holding that first record, when the inbox hook first fires between its tool calls | `cell_markers.py` notes its metadata is written after `SubagentStart` | inferred |
 
+Re-opened for units 4 and 5 at `b882e9c` on 2026-11-12, by
+`git diff --stat c31b533 --` over their rows' files, with those files clean in
+the tree: F10, F11, F16 and F28 hold, now at `hostile-review.md:91-92`,
+`.agents/AGENTS.md:81-133` and `claude/normalize-hook.py:84-87`. F18 no longer
+holds: since unit 0 the status line also reads `.agents/.readout/`.
+
 ## One reader for four readouts
 
 Units 4, 5, 7 and 9 each replace a question or a silence with a readout
