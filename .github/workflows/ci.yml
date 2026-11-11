@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: '24'
       # The Scrapling launcher test resolves its pinned environment with uvx.
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3
 
       - name: Host layout
         run: python3 .agents/check-layout.py
@@ -147,13 +147,18 @@ jobs:
           fi
 
       # Self-skips where uvx is absent; the step above provides it here, so a
-      # skip means the setup step broke and surfaces as a notice.
+      # skip means the setup step broke and surfaces as a notice. The runner
+      # installs no Scrapling browser, so the live block row skips too and
+      # says so in a second notice.
       - name: Scrapling launcher
         shell: bash
         run: |
           .agents/test-scrapling-launcher.sh | tee "$RUNNER_TEMP/scrapling.log"
           if grep -q '^SKIP scrapling launcher' "$RUNNER_TEMP/scrapling.log"; then
-            echo '::notice title=Scrapling launcher check skipped::uvx is not on PATH, so the launcher schema was not checked.'
+            echo '::notice title=Scrapling launcher check skipped::The launcher schema was not checked; the SKIP line in the log says why.'
+          fi
+          if grep -q '^SKIP scrapling browser block' "$RUNNER_TEMP/scrapling.log"; then
+            echo '::notice title=Scrapling browser block not exercised::No live browser row ran; the SKIP line in the log says why.'
           fi
 
       - name: Root contract size
