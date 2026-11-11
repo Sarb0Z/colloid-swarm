@@ -366,7 +366,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract — everything above, verbatim. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 135 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 136 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change kept in a repository ships to production. It carries no placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks, and it meets that bar on the first pass rather than after review. Work that is neither kept nor shipped — a probe, a one-off analysis — is legitimately disposable.
 
@@ -411,7 +411,8 @@ Read a playbook workflow&#x27;s file before its first step.
 | Step | Disposable | Standard | Critical |
 |---|---|---|---|
 | Grill and model the domain (`grill-me`) | — | — | Yes |
-| Plan: affected modules, constraints, the one or two options worth weighing, the claim QA must reproduce, and a `Lenses:` block giving one line to each Plan lens below the plan can exhibit and `n/a` to the rest | — | Yes | Yes |
+| Research: a findings table (`.agents/playbooks/plan-research.md`) of each claim the plan will act on, with its `path:line` or command output and whether it was `observed` or `inferred` | — | Yes, by the lead | Yes, by a fresh read-only cell |
+| Plan from the findings, stating as fact only claims marked `observed` and turning the rest into a probe or a question: affected modules, constraints, the one or two options worth weighing, the claim QA must reproduce, and a `Lenses:` block giving one line to each Plan lens below the plan can exhibit and `n/a` to the rest | — | Yes | Yes |
 | Hostile review of the plan; settle every `P0` and `P1` before code | — | Yes | Yes |
 | Stop and report: no code in the unit before the operator&#x27;s OK on its plan | — | — | Yes |
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |
@@ -596,7 +597,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 364 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 385 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -637,6 +638,9 @@ detect:
 #     it removed or kept and what each kept one&#x27;s work is about, each `saved/`
 #     branch, and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
+#   - Unit readouts: the note of each readout visible to this session, from
+#     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
+#     files here). Silent when no readout has a note.
 
 set -euo pipefail
 
@@ -808,8 +812,17 @@ if [[ &quot;$worklog_status&quot; == &quot;ok&quot; &amp;&amp; -f &quot;$worklog
   worklog_body=&quot;$(cat &quot;$worklog_playbook&quot;)&quot;
 fi
 
+# Readouts the units wrote (hooks/lib/readout.py); old session-scoped ones go first.
+readout_note=&quot;&quot;
+if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lib/readout.py&quot; ]]; then
+  python3 &quot;$lib/readout.py&quot; prune &quot;$proj&quot; \
+    || echo &quot;session-start: pruning old readouts failed; they stay until the next start&quot; &gt;&amp;2
+  readout_note=&quot;$(python3 &quot;$lib/readout.py&quot; note &quot;$proj&quot; &quot;${session_id:-}&quot;)&quot; \
+    || { echo &quot;session-start: the readout reader failed; no readout note this session&quot; &gt;&amp;2; readout_note=&quot;&quot;; }
+fi
+
 # Nothing to surface.
-[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; &amp;&amp; -z &quot;$readout_note&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
   # One blank line between sections, none before the first.
@@ -896,6 +909,15 @@ EOF
     section
     echo &quot;Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock &lt;path&gt;\` keeps one):&quot;
     printf &#x27;%s\n&#x27; &quot;$worktree_digest&quot;
+  fi
+
+  if [[ -n &quot;$readout_note&quot; ]]; then
+    section
+    readout_session=&quot;$(printf &#x27;%s&#x27; &quot;${session_id:-}&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot;
+    readout_show=&quot;python3 .agents/hooks/lib/readout.py show&quot;
+    [[ -n &quot;$readout_session&quot; ]] &amp;&amp; readout_show+=&quot; --session $readout_session&quot;
+    echo &quot;Unit readouts (.agents/.readout/; the full view is \`$readout_show\`):&quot;
+    printf &#x27;%s\n&#x27; &quot;$readout_note&quot;
   fi
 
   if [[ -n &quot;$open&quot; ]]; then
