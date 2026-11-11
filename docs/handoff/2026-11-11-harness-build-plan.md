@@ -242,6 +242,10 @@ Flags inform; none of them blocks (ruling 3).
   `2026-11-12-session-wrap`). `readout.py strip` puts the owed flags first
   and the other readouts after them by name; a test row with five readouts
   asserts the order.
+- 4.5 `guard-publish` asks before `gh secret set`, `gh variable set`,
+  `gh run rerun`, `gh run cancel`, and a `gh` write behind `xargs`, which it
+  lets through today (review `2026-11-12-harness-w1`, unit 7 finding 8;
+  ruling 5). Its own commit, with a test row per command.
 
 Acceptance: (1) a session that commits code ends its turn with no question
 and with the flag in the status strip; (2) a critical-path file committed and
@@ -457,6 +461,8 @@ Ruled by the operator on 2026-11-11.
 4. This build's units get one cross-functional reviewer each, with QA, and
    the lead walks the operator through the session-end hook change (4.2) and
    the QA gate change (2.1).
+5. Ruled on 2026-11-12: the five GitHub writes the publish guard lets
+   through are fixed in unit 4, which already edits the guard (4.5).
 
 Decided by the lead, open to reversal: chunk 1.3 is dropped, since reviewers caught a planted false claim without its line, and unit 1's acceptance names its controls (2026-11-12); QA and review run side by side, with
 QA evidence bound to the tips it ran on (2.1); tsc errors outside the
