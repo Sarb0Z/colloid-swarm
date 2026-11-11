@@ -5709,7 +5709,7 @@ esac
               <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container or a booted emulator once the work is finished. The block names each open resource and the command that closes it.</p>
               <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 737 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 764 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
@@ -5787,12 +5787,20 @@ esac
 # gone. Foreground commands are never recorded: the tool call did not return
 # until they finished.
 #
-# CLEARING IS BY CLASS, not by process identity. One browser_close clears every
-# recorded browser; one `docker compose down` clears every recorded container.
-# No host reports which context or container a close reached, so the gate
-# guarantees that a teardown was performed, not that nothing survived it. That
-# is the same trade ui-gate.sh makes for screenshots, and for the same reason:
-# a gate that demands proof no host emits blocks forever and gets ignored.
+# CLEARING IS BY CLASS for most resources, not by process identity. One
+# browser_close clears every recorded browser; one `docker compose down` clears
+# every recorded container. No host reports which context or container a close
+# reached, so the gate guarantees that a teardown was performed, not that
+# nothing survived it. That is the same trade ui-gate.sh makes for screenshots,
+# and for the same reason: a gate that demands proof no host emits blocks
+# forever and gets ignored. Two classes clear finer, because their closes carry
+# what the gate needs:
+#   stealth  by session ID and server — a Scrapling `close_session` names its
+#            `session_id`. A close that matches no named entry, on a server whose
+#            entries are all unnamed, drops one unnamed entry.
+#   device   by count — each Appium delete, end_session or close_session drops
+#            one device entry of its own server, so N opens and M closes leave
+#            N-M and Stop blocks while any is held.
 #
 # The user&#x27;s own long-running process is not this gate&#x27;s business. It only ever
 # records what an agent tool call started inside the session.
@@ -6030,7 +6038,7 @@ CLOSE_SESSION = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__close_session$&quot;)
 # names do use `start_session`/`end_session`, and matching both costs nothing.
 APPIUM_SESSION = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__appium_session_management$&quot;)
 APPIUM_OPEN = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__(start_session|create_session)$&quot;)
-APPIUM_CLOSE = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__(end_session|close_session|delete_session|quit_session)$&quot;)
+APPIUM_CLOSE = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__(end_session|delete_session|quit_session)$&quot;)
 # Booting a simulator is the expensive half of preparing a device.
 APPIUM_BOOT = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(appium_)?prepare_ios_(simulator|real_device)$&quot;)
 STOP_TOOL = re.compile(r&quot;^(TaskStop|KillShell|KillBash)$&quot;)
@@ -6044,11 +6052,12 @@ def label(text, limit=72):
 SESSION_ID = re.compile(r&quot;[A-Za-z0-9_-]{1,64}&quot;)
 
 
-def session_name(fields, fallback=&quot;unnamed&quot;):
+def session_name(fields, fallback=&quot;(unnamed)&quot;):
     &quot;&quot;&quot;The session_id when it is a plain token, else the fallback.
 
     The pattern admits no tab, newline, space, backslash or bracket, so the ID
-    cannot forge a pending-file field or a `[server]` tag.
+    cannot forge a pending-file field or a `[server]` tag, and none can equal
+    the fallback, which holds parentheses.
     &quot;&quot;&quot;
     sid = fields.get(&quot;session_id&quot;)
     return sid if isinstance(sid, str) and SESSION_ID.fullmatch(sid) else fallback
@@ -6098,9 +6107,10 @@ elif STEALTH_OPEN.match(tool):
     verdicts.append(f&quot;+stealth\t{session_name(ti)} [{server}]&quot;)
 elif CLOSE_SESSION.match(tool):
     # `close_session` ends a Scrapling browser on one server and an Appium device
-    # on another. Entries carry their server, so each verdict clears only that
-    # server&#x27;s entries of its own kind: the stealth browser the close names, and
-    # the devices the same server holds (none, on a Scrapling server).
+    # on another, and no tool name says which. Entries carry their server, so
+    # each verdict clears only that server&#x27;s entries of its own kind: the
+    # stealth browser the close names, and one device the same server holds
+    # (none, on a Scrapling server).
     server = CLOSE_SESSION.match(tool).group(1)
     verdicts.append(f&quot;?close\t{server}\t{session_name(ti, &#x27;&#x27;)}&quot;)
     verdicts.append(f&quot;-device\t{server}&quot;)
@@ -6240,7 +6250,13 @@ howto() {
                    fi ;;
     browser)       printf &#x27;call browser_close&#x27; ;;
     stealth)       printf &#x27;call close_session with the session_id browser_open returned (list_sessions lists it)&#x27; ;;
-    device)        printf &#x27;call appium_session_management with action=delete&#x27; ;;
+    device)        server=&quot;${2:-}&quot;
+                   if [[ &quot;$server&quot; == *&quot; [&quot;*&quot;]&quot; ]]; then
+                     server=&quot;${server##* [}&quot;; server=&quot;mcp__${server%]}__&quot;
+                   else
+                     server=&quot;the opening server&#x27;s &quot;
+                   fi
+                   printf &#x27;call %sappium_session_management with action=delete (a fork server: %send_session)&#x27; &quot;$server&quot; &quot;$server&quot; ;;
     docker)        printf &#x27;run `docker compose down` (or `docker stop &lt;id&gt;`)&#x27; ;;
     emulator)      printf &#x27;run `adb emu kill` (Android) or `xcrun simctl shutdown booted` (iOS)&#x27; ;;
     server|watcher|build)
@@ -6260,6 +6276,18 @@ due_why() {
     worktree) printf &#x27;the push made it due; the session end removes it anyway, saving unsaved work to saved/&lt;name&gt;&#x27; ;;
     *)        printf &#x27;restarts in seconds, so it is not worth holding between turns&#x27; ;;
   esac
+}
+
+# Filter the pending file through an awk program whose values arrive in the
+# environment. A failed awk leaves the file as it was and says so: an emptied
+# file would let Stop pass with the resource still held.
+rewrite() {
+  if awk -F&#x27;\t&#x27; &quot;$1&quot; &quot;$pending&quot; &gt; &quot;$tmp&quot;; then
+    mv &quot;$tmp&quot; &quot;$pending&quot;
+  else
+    rm -f &quot;$tmp&quot;
+    printf &#x27;teardown-gate: awk failed; %s kept unchanged, so its entries still block Stop\n&#x27; &quot;$pending&quot; &gt;&amp;2
+  fi
 }
 
 case &quot;$event&quot; in
@@ -6296,15 +6324,14 @@ PostToolUse|SubagentStart)
   opened=&quot;&quot;
   while IFS= read -r verdict; do
     case &quot;$verdict&quot; in
-      # A device clear names its server: `-device\t&lt;server&gt;` drops that
-      # server&#x27;s device entries and no other.
+      # A device clear names its server: `-device\t&lt;server&gt;` drops the first
+      # device entry of that server, one per close.
       -device$&#x27;\t&#x27;*)
           if [[ -f &quot;$pending&quot; ]]; then
-            CLOSE_TAG=&quot; [${verdict#*	}]&quot; awk -F&#x27;\t&#x27; &#x27;
+            CLOSE_TAG=&quot; [${verdict#*	}]&quot; rewrite &#x27;
               BEGIN {tag = ENVIRON[&quot;CLOSE_TAG&quot;]}
-              !($1 == &quot;device&quot; &amp;&amp; length($4) &gt;= length(tag) &amp;&amp; substr($4, length($4) - length(tag) + 1) == tag)&#x27; \
-              &quot;$pending&quot; &gt; &quot;$tmp&quot; || true
-            mv &quot;$tmp&quot; &quot;$pending&quot;
+              !dropped &amp;&amp; $1 == &quot;device&quot; &amp;&amp; length($4) &gt;= length(tag) &amp;&amp; substr($4, length($4) - length(tag) + 1) == tag {dropped = 1; next}
+              {print}&#x27;
           fi
           grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
       -*) kind=&quot;${verdict#-}&quot;
@@ -6314,28 +6341,28 @@ PostToolUse|SubagentStart)
           fi
           grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
       # close_session: drop the stealth entry of that server with that ID. When
-      # none matches and every stealth entry of the server is `unnamed`, drop
-      # those. A named entry the close did not name stays, and so does any
+      # none matches and every stealth entry of the server is `(unnamed)`, drop
+      # one of those. A named entry the close did not name stays, and so does any
       # other server&#x27;s. Entries end in ` [server]`, which is how the server
       # is matched; values reach awk by ENVIRON, as -v interprets backslashes.
+      # The server&#x27;s devices go with the sibling `-device` verdict: a fork&#x27;s
+      # Appium close is also named close_session.
       \?close*)
           rest=&quot;${verdict#*	}&quot;
           if [[ -f &quot;$pending&quot; ]]; then
-            CLOSE_TAG=&quot; [${rest%%	*}]&quot; CLOSE_ID=&quot;${rest#*	}&quot; awk -F&#x27;\t&#x27; &#x27;
-              BEGIN {tag = ENVIRON[&quot;CLOSE_TAG&quot;]; want = ENVIRON[&quot;CLOSE_ID&quot;] tag; anon = &quot;unnamed&quot; tag}
+            CLOSE_TAG=&quot; [${rest%%	*}]&quot; CLOSE_ID=&quot;${rest#*	}&quot; rewrite &#x27;
+              BEGIN {tag = ENVIRON[&quot;CLOSE_TAG&quot;]; want = ENVIRON[&quot;CLOSE_ID&quot;] tag; anon = &quot;(unnamed)&quot; tag}
               function mine() {return $1 == &quot;stealth&quot; &amp;&amp; length($4) &gt;= length(tag) &amp;&amp; substr($4, length($4) - length(tag) + 1) == tag}
               {line[NR] = $0; if (mine()) {total++; if ($4 == want) named++; else if ($4 == anon) unnamed++}}
               END {
                 sweep = !named &amp;&amp; total &gt; 0 &amp;&amp; unnamed == total
                 for (i = 1; i &lt;= NR; i++) {
                   $0 = line[i]
-                  if (mine() &amp;&amp; (named ? $4 == want : sweep)) continue
+                  if (mine() &amp;&amp; (named ? $4 == want : (sweep &amp;&amp; !swept++))) continue
                   print line[i]
                 }
-              }&#x27; &quot;$pending&quot; &gt; &quot;$tmp&quot; || true
-            mv &quot;$tmp&quot; &quot;$pending&quot;
-          fi
-          grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
+              }&#x27;
+          fi ;;
       # kind, `waiting` until a push makes it due, then the label.
       # `opened` tracks the LAST open in the batch, so the reminder names an
       # entry the pending file actually holds rather than one a later clause in
@@ -6371,7 +6398,7 @@ PostToolUse|SubagentStart)
       | python3 &quot;$lib/emit-context.py&quot; PostToolUse
     exit 0
   fi
-  printf &#x27;%s&#x27; &quot;Started a resource that keeps running: ${opened#*	}. Tear it down before you report the work done — $(howto &quot;$kind&quot;). Leftover browsers, servers, and containers hold the machine&#x27;s memory until it is restarted.&quot; \
+  printf &#x27;%s&#x27; &quot;Started a resource that keeps running: ${opened#*	}. Tear it down before you report the work done — $(howto &quot;$kind&quot; &quot;${opened#*	}&quot;). Leftover browsers, servers, and containers hold the machine&#x27;s memory until it is restarted.&quot; \
     | python3 &quot;$lib/emit-context.py&quot; PostToolUse
   exit 0
   ;;

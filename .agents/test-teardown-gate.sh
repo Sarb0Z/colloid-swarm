@@ -271,7 +271,7 @@ stop
 mcp mcp__scrapling__close_session '{"session_id":"cf-demo"}' >/dev/null
 [[ ! -e "$pending" ]] || fail "close_session from the opening server must clear: $(cat "$pending")"
 mcp mcp__scrapling__browser_open >/dev/null
-grep -q '^stealth	waiting	-	unnamed \[scrapling\]$' "$pending" || fail "an open without a session_id records as unnamed: $(cat "$pending")"
+grep -q '^stealth	waiting	-	(unnamed) \[scrapling\]$' "$pending" || fail "an open without a session_id records as unnamed: $(cat "$pending")"
 rm -f "$pending"
 ok "browser_open records, blocks the stop, and its server's close_session clears it"
 
@@ -308,7 +308,7 @@ ok "a close clears the session it names, by ID and server, and nothing else"
 
 # A hostile ID is not a name: it records as unnamed and cannot forge a field.
 mcp mcp__scrapling__browser_open '{"session_id":"x\ty\nstealth\tz"}' >/dev/null
-[[ "$(grep -c "" "$pending")" == 1 ]] && grep -q '^stealth	waiting	-	unnamed \[scrapling\]$' "$pending" \
+[[ "$(grep -c "" "$pending")" == 1 ]] && grep -q '^stealth	waiting	-	(unnamed) \[scrapling\]$' "$pending" \
   || fail "an ID outside the token pattern must record as unnamed: $(cat "$pending")"
 mcp mcp__scrapling__browser_open '{"session_id":"named"}' >/dev/null
 mcp mcp__scrapling__close_session '{"session_id":"nothing"}' >/dev/null
@@ -329,6 +329,118 @@ grep -q '^device' "$pending" && fail "an Appium delete must clear its device: $(
 grep -q 'keep \[scrapling\]' "$pending" || fail "an Appium delete must leave stealth: $(cat "$pending" 2>/dev/null)"
 rm -f "$pending"
 ok "a Scrapling close leaves a device; an Appium close clears its device and leaves stealth"
+
+# Each device close drops one device entry of its own server (D1): N opens and
+# M closes leave N-M, and Stop blocks while any is held.
+dev() { mcp "mcp__$1__appium_session_management" "{\"action\":\"$2\",\"deviceName\":\"${3:-}\"}" >/dev/null; }
+dev appium-mcp create "Pixel A"; dev appium-mcp create "Pixel B"
+dev appium-mcp delete
+[[ "$(grep -c '^device' "$pending")" == 1 ]] || fail "two devices, one delete, must leave one entry: $(cat "$pending" 2>/dev/null)"
+stop; [[ $rc -eq 2 ]] || fail "a device still held must block the stop (rc=$rc): $err"
+dev appium-mcp delete
+[[ ! -e "$pending" ]] || fail "the second delete must clear the last device: $(cat "$pending")"
+ok "a device close drops one entry, so Stop blocks while any device is held"
+
+# T1: devices on two Appium servers; a close clears only its own server's.
+dev appium-mcp create "Pixel"; mcp mcp__appium__start_session '{"deviceName":"iPhone"}' >/dev/null
+dev appium-mcp delete
+grep -q 'iPhone \[appium\]$' "$pending" && ! grep -q 'Pixel' "$pending" \
+  || fail "a delete on one server must leave the other server's device: $(cat "$pending" 2>/dev/null)"
+dev appium-mcp create "Pixel"
+mcp mcp__appium__end_session >/dev/null
+grep -q 'Pixel \[appium-mcp\]$' "$pending" && ! grep -q 'iPhone' "$pending" \
+  || fail "an end_session on one server must leave the other server's device: $(cat "$pending" 2>/dev/null)"
+mcp mcp__appium__start_session '{"deviceName":"iPhone"}' >/dev/null
+mcp mcp__appium__close_session >/dev/null
+grep -q 'Pixel \[appium-mcp\]$' "$pending" && ! grep -q 'iPhone' "$pending" \
+  || fail "a close_session on a fork must clear one of its own devices only: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "a device close never touches another server's device"
+
+# T6: a tag in the middle of a label is not the entry's server.
+dev appium create "Pixel [other] phone"
+dev other delete
+grep -q 'Pixel \[other\] phone \[appium\]$' "$pending" || fail "a mid-label tag must not match: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "a device is matched by the server tag it ends with"
+
+# T2: one ID a prefix of another.
+mcp mcp__scrapling__browser_open '{"session_id":"s1"}' >/dev/null
+mcp mcp__scrapling__browser_open '{"session_id":"s10"}' >/dev/null
+mcp mcp__scrapling__close_session '{"session_id":"s1"}' >/dev/null
+grep -q 's10 \[scrapling\]$' "$pending" && ! grep -q 's1 \[scrapling\]$' "$pending" \
+  || fail "closing s1 must leave s10: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "a close names an ID exactly, never by prefix"
+
+# T3 and D3: ID-less closes sweep one unnamed entry of their own server.
+mcp mcp__scrapling__browser_open >/dev/null
+mcp mcp__other__browser_open >/dev/null
+mcp mcp__scrapling__close_session >/dev/null
+grep -q '(unnamed) \[other\]$' "$pending" && ! grep -q '\[scrapling\]' "$pending" \
+  || fail "an ID-less close must clear its own server's unnamed entry and keep the other's: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+mcp mcp__scrapling__browser_open >/dev/null
+mcp mcp__scrapling__browser_open >/dev/null
+mcp mcp__scrapling__close_session >/dev/null
+[[ "$(grep -c '^stealth' "$pending")" == 1 ]] || fail "one close must drop one unnamed entry: $(cat "$pending" 2>/dev/null)"
+mcp mcp__scrapling__close_session '{"session_id":"nothing"}' >/dev/null
+[[ ! -e "$pending" ]] || fail "a second close must drop the last unnamed entry: $(cat "$pending" 2>/dev/null)"
+ok "an unmatched close on an all-unnamed server drops one unnamed entry"
+
+# T4: a close with no ID names nothing, even beside an unnamed entry.
+mcp mcp__scrapling__browser_open >/dev/null
+mcp mcp__scrapling__browser_open '{"session_id":"named"}' >/dev/null
+mcp mcp__scrapling__close_session >/dev/null
+[[ "$(grep -c '^stealth' "$pending")" == 2 ]] || fail "a close with no ID must clear nothing here: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "a close with no ID is not a close naming the fallback"
+
+# D4: a session really named `unnamed` is not the fallback.
+mcp mcp__scrapling__browser_open '{"session_id":"unnamed"}' >/dev/null
+mcp mcp__scrapling__browser_open '{"session_id":"a b"}' >/dev/null
+mcp mcp__scrapling__close_session '{"session_id":"nothing"}' >/dev/null
+[[ "$(grep -c '^stealth' "$pending")" == 2 ]] || fail "a session named unnamed must not be swept as the fallback: $(cat "$pending" 2>/dev/null)"
+mcp mcp__scrapling__close_session '{"session_id":"unnamed"}' >/dev/null
+grep -q '^stealth	waiting	-	(unnamed) \[scrapling\]$' "$pending" && [[ "$(grep -c '^stealth' "$pending")" == 1 ]] \
+  || fail "closing unnamed must leave the malformed-ID entry: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "the fallback name cannot be a session ID"
+
+# T5: the ID pattern's edges.
+long64="$(printf 'a%.0s' $(seq 64))"
+mcp mcp__scrapling__browser_open "{\"session_id\":\"$long64\"}" >/dev/null
+grep -q "^stealth	waiting	-	$long64 \[scrapling\]\$" "$pending" || fail "a 64-character ID must be recorded whole: $(cat "$pending")"
+rm -f "$pending"
+for bad in "${long64}b" 'a b' 'a]b' 'a[b' 'a.b' 'a\\b'; do
+  mcp mcp__scrapling__browser_open "{\"session_id\":\"$bad\"}" >/dev/null
+  grep -q '^stealth	waiting	-	(unnamed) \[scrapling\]$' "$pending" && [[ "$(grep -c '' "$pending")" == 1 ]] \
+    || fail "ID '$bad' must record as (unnamed): $(cat "$pending" 2>/dev/null)"
+  rm -f "$pending"
+done
+ok "an ID is 1 to 64 of letters, digits, underscore and hyphen"
+
+# D5: when awk fails the entries stay and the gate says why.
+mkdir -p "$scratch/failbin"
+printf '#!/bin/sh\nexit 1\n' > "$scratch/failbin/awk"
+chmod +x "$scratch/failbin/awk"
+mcp mcp__scrapling__browser_open '{"session_id":"keep"}' >/dev/null
+dev appium-mcp create "Pixel"
+before="$(cat "$pending")"
+err="$(PATH="$scratch/failbin:$PATH" mcp mcp__scrapling__close_session '{"session_id":"keep"}' 2>&1 >/dev/null)"
+[[ "$(cat "$pending")" == "$before" && "$err" == *awk* ]] || fail "a failing awk must keep the pending file and say so: $err"
+err="$(PATH="$scratch/failbin:$PATH" mcp mcp__appium-mcp__appium_session_management '{"action":"delete"}' 2>&1 >/dev/null)"
+[[ "$(cat "$pending")" == "$before" && "$err" == *awk* ]] || fail "a failing awk on a device close must keep the file and say so: $err"
+rm -f "$pending"
+ok "a failing awk keeps the pending file and reports on stderr"
+
+# H1: Stop's advice for a device names its own server's calls.
+mcp mcp__appium__start_session '{"deviceName":"iPhone"}' >/dev/null
+stop
+[[ $rc -eq 2 && "$err" == *"mcp__appium__appium_session_management"* && "$err" == *"mcp__appium__end_session"* ]] \
+  || fail "device advice must name the server's own delete and end_session (rc=$rc): $err"
+rm -f "$pending"
+ok "a device's advice names the server that opened it"
 
 [[ -z "$(mcp mcp__scrapling__browser_fetch_once '{"url":"https://example.com"}')" && ! -e "$pending" ]] \
   || fail "browser_fetch_once opens and closes inside the call and must record nothing"
