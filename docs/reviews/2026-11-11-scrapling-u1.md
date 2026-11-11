@@ -262,3 +262,21 @@ reopened at P1.
 | D3 | Accepted and recorded in the decision: CI checks the rule's text, a machine with the browser installed checks Chromium's behaviour |
 | D4 | Adopted: a live row per browser maps each of the launcher's real entries to the local server and everything else to `~NOTFOUND`, first confirms that a `localhost` fetch fails to resolve, then sends the nine spellings and requires each to reach the server |
 | H2 | Adopted: the row asserting no rule under a proxy is inverted; fast and live rows cover C1's values and C2's spellings |
+
+### The correction, round 3
+
+`ebce5b9` lands the adopted rows; `e8e2786` regenerates the demo starters that
+other sessions' commits had left stale. The implementer ran its four mutants
+through the whole script under a sandbox profile that refuses every
+connection off loopback, checked against a control (curl to 127.0.0.1
+succeeded, to 1.1.1.1 failed). Each mutant went red: the proxy branch
+restored (7 rows), the shape refusal removed (12), an IPv6 entry in brackets
+(26), and the D4 interlock off with the switch dropped (20, every
+metadata-named request refused by the sandbox). The unchanged control was
+green with 172 rows. The lead reran the script as committed (exit 0, 172
+`ok`) and with the proxy branch restored (exit 1, the same 7 rows). A trailing
+commit narrows one docstring, which claimed Linux behaves as macOS does,
+untested. The correction settles `P1`s inside the subsystem this round
+reviewed, under the operator's ruling, so it does not re-enter review.
+Unverified: Windows and Linux; a live system or environment proxy; live rows
+for C2's other four spellings, which unit rows cover.
