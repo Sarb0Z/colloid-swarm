@@ -107,10 +107,11 @@ with redesign; separate deadline containment from the long-term architecture.
 After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
 
-A multi-lane wave gets one review round, over every lane's diff from the start
-point its reviewer brief names, and one report with a section per lane that
-each lane's `workloop review` cites; at critical stakes each axis reviewer reads
-every lane. The controller refuses to reopen a lane for a `P2`, and a lane's
+Code review runs at the boundary of a delivered scope, over all its chunks; a
+chunk gets no reviewer of its own. A multi-lane wave gets one review round,
+over every lane's diff from the start point its reviewer brief names, and one
+report with a section per lane that each lane's `workloop review` cites; every
+reviewer of the round, an axis reviewer included, reads every lane. The controller refuses to reopen a lane for a `P2`, and a lane's
 fourth submission without the operator's ruling.
 
 ## Review of the review
@@ -120,5 +121,5 @@ dispositions. A second cell, given the artifact and the findings but not the
 first reviewer's reasoning, labels each finding supported or unsupported, with
 a reason. It never removes a finding. Every `P0` or `P1` it labels unsupported
 goes to the operator's walk-through with that reason, so the operator sees every
-blocking finding. Several reviewers on separate axes, and this pass, count as
-one round.
+blocking finding. The code review, its axis reviewers where the work splits by
+axis, and this pass count as one round.

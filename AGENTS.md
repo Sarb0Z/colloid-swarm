@@ -49,7 +49,7 @@ Read a playbook workflow's file before its first step.
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |
 | Implement and test (below) | Run it once, for real | Yes | Yes |
 | QA the named claim | — | When behavior is observable | Yes |
-| Code review | — | One reviewer | Several reviewers, one axis each, then the review of the review, as one round |
+| Code review of each delivered scope, over all its chunks; a chunk gets no reviewer of its own | — | One reviewer | One reviewer reading the scope whole and its seams with the rest of the system, then the review of the review, as one round; several reviewers, one axis each, only for work designed from first principles |
 | Apply the safe changes; walk the operator through each one that needs them | — | Safe changes | Both |
 | Commit along seams as each chunk lands | — | Yes | Yes; walk-through fixes fold in before push |
 
