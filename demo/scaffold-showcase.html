@@ -417,7 +417,7 @@ Read a playbook workflow&#x27;s file before its first step.
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |
 | Implement and test (below) | Run it once, for real | Yes | Yes |
 | QA the named claim | — | When behavior is observable | Yes |
-| Code review | — | One reviewer | Several reviewers, one axis each, then the review of the review, as one round |
+| Code review of each delivered scope, over all its chunks; a chunk gets no reviewer of its own | — | One reviewer | One reviewer reading the scope whole and its seams with the rest of the system, then the review of the review, as one round; several reviewers, one axis each, only for work designed from first principles |
 | Apply the safe changes; walk the operator through each one that needs them | — | Safe changes | Both |
 | Commit along seams as each chunk lands | — | Yes | Yes; walk-through fixes fold in before push |
 
@@ -10630,7 +10630,7 @@ number of decisions covered; delegate nothing.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The attack dispatch: a cell reviews the diff against the surrounding architecture under one rule — <b>no justifying, find what's wrong</b> — with a severity floor so a speculative note cannot block the round. Fired at workflow steps 3 and 6.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 124 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 125 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
@@ -10739,10 +10739,11 @@ with redesign; separate deadline containment from the long-term architecture.
 After three rounds where the same shape returns, stop patching and bring that
 decision to the user.
 
-A multi-lane wave gets one review round, over every lane&#x27;s diff from the start
-point its reviewer brief names, and one report with a section per lane that
-each lane&#x27;s `workloop review` cites; at critical stakes each axis reviewer reads
-every lane. The controller refuses to reopen a lane for a `P2`, and a lane&#x27;s
+Code review runs at the boundary of a delivered scope, over all its chunks; a
+chunk gets no reviewer of its own. A multi-lane wave gets one review round,
+over every lane&#x27;s diff from the start point its reviewer brief names, and one
+report with a section per lane that each lane&#x27;s `workloop review` cites; every
+reviewer of the round, an axis reviewer included, reads every lane. The controller refuses to reopen a lane for a `P2`, and a lane&#x27;s
 fourth submission without the operator&#x27;s ruling.
 
 ## Review of the review
@@ -10752,8 +10753,8 @@ dispositions. A second cell, given the artifact and the findings but not the
 first reviewer&#x27;s reasoning, labels each finding supported or unsupported, with
 a reason. It never removes a finding. Every `P0` or `P1` it labels unsupported
 goes to the operator&#x27;s walk-through with that reason, so the operator sees every
-blocking finding. Several reviewers on separate axes, and this pass, count as
-one round.
+blocking finding. The code review, its axis reviewers where the work splits by
+axis, and this pass count as one round.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>diff-wrap.md</h3><p>Clean-up and behavior-impact review, scoped to the files the session actually touched — never a repo-wide sweep.</p>
