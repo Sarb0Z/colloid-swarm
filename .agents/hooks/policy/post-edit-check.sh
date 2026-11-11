@@ -64,11 +64,28 @@ proj="$(printf '%s' "$input" | python3 "$lib/payload.py" project_dir)"
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
 proj="$(pwd -P)"
-session="$(printf '%s' "$input" | python3 "$lib/payload.py" session_id)"
+session=""
+[[ "$mode" == "check" ]] && session="$(printf '%s' "$input" | python3 "$lib/payload.py" session_id)"
 
-# A lane worktree links its node_modules and virtualenv to the main checkout of
-# the same repository; a holder there counts as inside the repository.
-main_root="$(python3 "$lib/checkers.py" main-root "$proj")"
+# A lane worktree links its node_modules to the main worktree of the same
+# repository, and a binary found there counts as inside the repository. The main
+# worktree is the first entry of `git worktree list`; a bare repository's first
+# entry is the bare directory, which holds no checkout, so the project stands in.
+# Asked on first use only, since most edits never need it.
+main_root=""
+main_root_of() {
+  local line first="" bare=0
+  [[ -n "$main_root" ]] && return 0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && break
+    [[ "$line" == "worktree "* && -z "$first" ]] && first="${line#worktree }"
+    [[ "$line" == "bare" ]] && bare=1
+  done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX -u GIT_COMMON_DIR \
+             git -C "$proj" worktree list --porcelain 2>/dev/null)
+  main_root="$proj"
+  [[ $bare -eq 0 && -n "$first" ]] && main_root="$(cd "$first" 2>/dev/null && pwd -P || printf '%s' "$proj")"
+  return 0
+}
 
 # One place decides what counts as a file this hook checks, so the groupers
 # below never re-answer the question and never disagree about it. The rule and
@@ -86,20 +103,33 @@ files="$(printf '%s' "$input" | python3 "$lib/edited-files.py" "$proj")"
 in_repo() {
   local resolved
   resolved="$(cd "${1%/*}" 2>/dev/null && pwd -P)" || return 1
-  [[ "$resolved" == "$proj" || "$resolved" == "$proj"/* ||
-     "$resolved" == "$main_root" || "$resolved" == "$main_root"/* ]]
+  [[ "$resolved" == "$proj" || "$resolved" == "$proj"/* ]] && return 0
+  main_root_of
+  [[ "$resolved" == "$main_root" || "$resolved" == "$main_root"/* ]]
 }
 
 # A checker the repository configures but this run could not resolve is a
 # finding, and one that resolved leaves the missing list. Check mode only: the
 # write entry reports nothing. Paths arrive newline-delimited.
+#
+# checkers.py runs behind one wrapper so that a crash of its own is a finding too,
+# not a `set -e` abort that ends the hook without a word. Sets checkers_out.
+checkers_py() {  # <checkers.py arguments> (report text on stdin when it takes any)
+  local rc=0
+  checkers_out="$(python3 "$lib/checkers.py" "$@" 2>&1)" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    issues+=$'\n'"[post-edit-check] checkers.py $1 exited $rc, so that check did not run: $(printf '%s' "$checkers_out" | tail -n 3)"$'\n'
+    checkers_out=""
+  fi
+  return 0
+}
 checker_missing() {  # <checker> <paths>
-  local paths=() p out
+  local paths=() p
   [[ "$mode" == "check" ]] || return 0
   while IFS= read -r p; do [[ -n "$p" ]] && paths+=("$p"); done <<< "$2"
   [[ ${#paths[@]} -eq 0 ]] && return 0
-  out="$(python3 "$lib/checkers.py" missing "$1" "$proj" "$session" "${paths[@]}")"
-  [[ -n "$out" ]] && issues+=$'\n'"$out"$'\n'
+  checkers_py missing "$1" "$proj" "$session" "${paths[@]}"
+  [[ -n "$checkers_out" ]] && issues+=$'\n'"$checkers_out"$'\n'
   return 0
 }
 checker_ran() {  # <checker> <paths>
@@ -107,7 +137,8 @@ checker_ran() {  # <checker> <paths>
   [[ "$mode" == "check" ]] || return 0
   while IFS= read -r p; do [[ -n "$p" ]] && paths+=("$p"); done <<< "$2"
   [[ ${#paths[@]} -eq 0 ]] && return 0
-  python3 "$lib/checkers.py" ran "$1" "$proj" "${paths[@]}"
+  checkers_py ran "$1" "$proj" "${paths[@]}"
+  return 0
 }
 
 # A Python repository usually keeps its tools in a virtualenv rather than on
@@ -307,8 +338,8 @@ if [[ "$mode" == "check" && -n "$ts_edited" ]]; then
     # broken, a non-zero exit with nothing parsable, and errors that are new
     # outside the edited files that this session's earlier runs did not have.
     IFS=$'\t' read -r -a ts_rel_list <<< "$ws_rels"
-    tsc_out="$(printf '%s' "$tsc_raw" | python3 "$lib/checkers.py" tsc "$proj" "$session" "$ws" "$ws_config" "$tsc_rc" "${ts_rel_list[@]}")"
-    [[ -n "$tsc_out" ]] && issues+=$'\n'"$tsc_out"$'\n'
+    checkers_py tsc "$proj" "$session" "$ws" "$ws_config" "$tsc_rc" "${ts_rel_list[@]}" <<< "$tsc_raw"
+    [[ -n "$checkers_out" ]] && issues+=$'\n'"$checkers_out"$'\n'
   done <<< "$workspaces"
 fi
 
@@ -326,15 +357,16 @@ if [[ -n "$js_ts_edited" ]]; then
   # having run nothing. Group the edited files by the nearest
   # node_modules/.bin holding the tool, and run one pass per binary; a file
   # with no binary above it is skipped, as before.
+  main_root_of
   js_groups() {
-    printf '%s' "$js_ts_edited" | python3 "$lib/js-groups.py" "$proj" "$1"
+    printf '%s' "$js_ts_edited" | python3 "$lib/js-groups.py" "$proj" "$main_root" "$1"
   }
 
   # A file no group claims has no resolvable binary; a config that asks for the
   # tool turns that into a finding, and a resolved group leaves the missing list.
   js_report() {  # <tool>
     local row
-    checker_missing "$1" "$(printf '%s' "$js_ts_edited" | python3 "$lib/js-groups.py" "$proj" "$1" --missing)"
+    checker_missing "$1" "$(printf '%s' "$js_ts_edited" | python3 "$lib/js-groups.py" "$proj" "$main_root" "$1" --missing)"
     while IFS= read -r row; do
       [[ -z "$row" ]] && continue
       row="${row#*$'\t'}"
@@ -449,8 +481,8 @@ if [[ "$mode" == "check" && -n "$py_edited" ]]; then
     fi
     # A pyrightconfig.json pyright cannot parse exits 3 with an empty report and
     # the reason on stderr, which would otherwise read as a clean run.
-    unreadable="$(printf '%s' "$pyright_raw" | python3 "$lib/checkers.py" pyright "$proj" "$py_ws" "$pyright_rc" "$pyright_err" "$has_scoped")"
-    [[ -n "$unreadable" ]] && issues+=$'\n'"$unreadable"$'\n'
+    checkers_py pyright "$proj" "$py_ws" "$pyright_rc" "$pyright_err" "$has_scoped" <<< "$pyright_raw"
+    [[ -n "$checkers_out" ]] && issues+=$'\n'"$checkers_out"$'\n'
     rm -f "$pyright_err"
   done <<< "$(printf '%s' "$py_pairs" | cut -f1,2 | sort -u)"
   checker_ran pyright "$pyright_found"

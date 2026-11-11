@@ -221,7 +221,7 @@ cp "$repo/.agents/hooks/policy/post-edit-check.sh" "$lane/.agents/hooks/policy/"
 cp "$repo"/.agents/hooks/lib/*.py "$lane/.agents/hooks/lib/"
 printf '{"hooks":{"post_edit_check":{"enabled":true}}}\n' > "$lane/.agents/config.json"
 
-rows="$(printf '%s\n' "$lane/src/a.js" | python3 "$repo/.agents/hooks/lib/js-groups.py" "$lane" eslint)"
+rows="$(printf '%s\n' "$lane/src/a.js" | python3 "$repo/.agents/hooks/lib/js-groups.py" "$lane" "$main" eslint)"
 [[ "$(printf '%s' "$rows" | grep -c .)" == "1" ]] || fail "a node_modules linked to the main checkout must form one group, got: $rows"
 ok "js-groups accepts a node_modules linked to the main checkout of the same repository"
 
@@ -229,7 +229,7 @@ foreign="$scratch/foreign"; mkdir -p "$foreign/src"
 git -C "$foreign" init -q
 ln -s "$main/node_modules" "$foreign/node_modules"
 printf 'export const x = 1;\n' > "$foreign/src/a.js"
-rows="$(printf '%s\n' "$foreign/src/a.js" | python3 "$repo/.agents/hooks/lib/js-groups.py" "$(cd "$foreign" && pwd -P)" eslint)"
+rows="$(printf '%s\n' "$foreign/src/a.js" | python3 "$repo/.agents/hooks/lib/js-groups.py" "$(cd "$foreign" && pwd -P)" "$(cd "$foreign" && pwd -P)" eslint)"
 [[ -z "$rows" ]] || fail "a node_modules linked into another repository must be refused, got: $rows"
 ok "js-groups refuses a node_modules that resolves into a different repository"
 
@@ -239,6 +239,31 @@ err="$(printf '{"project_dir":"%s","session_id":"s","files":["src/a.js"]}' "$lan
 set -e
 [[ $rc -eq 2 && "$err" == *"probe/flat-config-found"* ]] || fail "a lane with a linked node_modules must report an ESLint error, got rc=$rc: $err"
 ok "STUB eslint: a lane worktree with a linked node_modules reports an ESLint error"
+
+# A worktree of a bare repository has no main checkout: the first entry of
+# `git worktree list` is the bare directory, so a node_modules linked into a
+# sibling repository must stay refused.
+repos="$scratch/repos"; mkdir -p "$repos/other/node_modules/.bin"
+cp "$dir/node_modules/.bin/eslint" "$repos/other/node_modules/.bin/eslint"
+git init -q --bare "$repos/proj.git"
+seed="$scratch/seed"; git init -q "$seed"
+git -C "$seed" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m base
+git -C "$seed" push -q "$repos/proj.git" HEAD:refs/heads/main
+git -C "$repos/proj.git" worktree add -q "$repos/proj-lane" main
+barelane="$(cd "$repos/proj-lane" && pwd -P)"
+ln -s "$repos/other/node_modules" "$barelane/node_modules"
+printf 'export default [];\n' > "$barelane/eslint.config.mjs"; mkdir -p "$barelane/src"; printf 'export const x = 1;\n' > "$barelane/src/a.js"
+mkdir -p "$barelane/.agents/hooks/policy" "$barelane/.agents/hooks/lib"
+cp "$repo/.agents/hooks/policy/post-edit-check.sh" "$barelane/.agents/hooks/policy/"
+cp "$repo"/.agents/hooks/lib/*.py "$barelane/.agents/hooks/lib/"
+printf '{"hooks":{"post_edit_check":{"enabled":true}}}\n' > "$barelane/.agents/config.json"
+set +e
+err="$(printf '{"project_dir":"%s","session_id":"s","files":["src/a.js"]}' "$barelane" \
+  | PATH="$tools:/usr/bin:/bin" POST_EDIT_MODE=check /bin/bash "$barelane/.agents/hooks/policy/post-edit-check.sh" 2>&1 >/dev/null)"; rc=$?
+set -e
+[[ "$err" != *"probe/flat-config-found"* && "$err" == *"[eslint] configured in eslint.config.mjs but not installed"* ]] \
+  || fail "a worktree of a bare repository must not trust a sibling repository's node_modules, got rc=$rc: $err"
+ok "a worktree of a bare repository refuses a node_modules linked into a sibling repository"
 
 # --- ESLint with no report (F23) and a configured checker with no binary ---
 newfix noreport
@@ -492,6 +517,72 @@ printf 'export const x = 1;\n' > "$fx/src/a.js"
 fxrun check s1 '["src/a.js"]'
 [[ $rc -eq 0 && -z "$err" ]] || fail "an installed ESLint with no config in reach must not block the edit, got rc=$rc: $err"
 ok "STUB eslint: installed with no configuration in reach, it does not run and does not block"
+
+# --- the ledger and the readout --------------------------------------------
+newfix noconfig
+printf 'x = 1\n' > "$fx/src/a.py"; printf 'export const a = 1;\n' > "$fx/src/a.ts"; printf 'export const b = 1;\n' > "$fx/src/b.js"
+mkdir -p "$fx/pkg/lib"; printf 'name: pkg\n' > "$fx/pkg/pubspec.yaml"; printf 'void main() {}\n' > "$fx/pkg/lib/a.dart"
+fxrun check s1 '["src/a.py","src/a.ts","src/b.js","pkg/lib/a.dart"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "a repository with no checker configured must stay silent, got rc=$rc: $err"
+[[ ! -e "$fx/.agents/.readout" ]] || fail "no configuration must leave no state files, got: $(ls -A "$fx/.agents/.readout")"
+ok "a repository that configures no checker gets no files in the readout folder"
+
+newfix ledgerprune
+printf '[tool.ruff]\n' > "$fx/pyproject.toml"
+printf 'x = 1\n' > "$fx/src/a.py"
+fxrun check s1 '["src/a.py"]'
+[[ "$(strip_of s1)" == "checks: ruff missing" ]] || fail "setup: the strip must name ruff"
+python3 -c 'import os,sys,time; t=time.time()-8*86400; os.utime(sys.argv[1], (t, t))' "$fx/.agents/.readout/checks-ledger"
+python3 "$fx/.agents/hooks/lib/readout.py" prune "$fxproj"
+[[ ! -e "$fx/.agents/.readout/checks-ledger" ]] || fail "setup: prune must have removed the week-old ledger"
+stub "$fx/.venv/bin/ruff" 'exit 0'
+fxrun check s1 '["src/a.py"]'
+[[ -z "$(strip_of s1)" ]] || fail "a strip must clear once ruff runs even after prune removed the ledger, got: $(strip_of s1)"
+ok "the checks strip clears once the checker runs, though prune removed the ledger"
+
+newfix ledgerbad
+printf '[tool.ruff]\n' > "$fx/pyproject.toml"
+printf 'x = 1\n' > "$fx/src/a.py"
+mkdir -p "$fx/.agents/.readout"
+printf 'ruff\tonly-two-fields\nruff\tgone\tpyproject.toml\tuv sync\n' > "$fx/.agents/.readout/checks-ledger"
+fxrun check s1 '["src/a.py"]'
+[[ $rc -eq 2 && "$err" == *"[ruff] configured in pyproject.toml but not installed"* && "$err" != *"exited"* ]] \
+  || fail "a ledger row of the wrong shape must not abort the checks, got rc=$rc: $err"
+[[ "$(grep -c . "$fx/.agents/.readout/checks-ledger")" == "1" ]] || fail "bad and orphaned rows must be dropped from the ledger, got: $(cat "$fx/.agents/.readout/checks-ledger")"
+ok "a malformed or orphaned ledger row is dropped and the checks still run"
+
+newfix ledgercrash
+printf '[tool.ruff]\n' > "$fx/pyproject.toml"
+printf 'x = 1\n' > "$fx/src/a.py"
+printf 'raise SystemExit("boom")\n' > "$fx/.agents/hooks/lib/checkers.py"
+fxrun check s1 '["src/a.py"]'
+[[ $rc -eq 2 && "$err" == *"checkers.py missing exited"* && "$err" == *"boom"* ]] \
+  || fail "a crash of checkers.py must be a finding, got rc=$rc: $err"
+ok "a failing checkers.py call is reported as a finding, not a silent abort"
+
+newfix lockheld
+tsc_stub "$fx"
+printf '{"include":["src"]}\n' > "$fx/tsconfig.json"
+printf 'export const a = 1;\n' > "$fx/src/a.ts"
+: > "$fx/tsc.out"
+mkdir -p "$fx/.agents/.readout"
+rm -f "$scratch/held"
+python3 -c '
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_RDONLY)
+fcntl.flock(fd, fcntl.LOCK_EX)
+open(sys.argv[2], "w").close()
+time.sleep(2)' "$fx/.agents/.readout" "$scratch/held" &
+holder=$!
+for _ in $(seq 50); do [[ -e "$scratch/held" ]] && break; sleep 0.1; done
+started="$(python3 -c 'import time; print(time.time())')"
+fxrun check s1 '["src/a.ts"]'
+elapsed="$(python3 -c 'import sys, time; print(time.time() - float(sys.argv[1]))' "$started")"
+wait "$holder"
+python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= 1.0 else 1)' "$elapsed" \
+  || fail "the tsc baseline must wait for the readout folder's lock, finished after ${elapsed}s"
+ls -A "$fx/.agents/.readout" | grep -q 'lock' && fail "the lock must not be a file prune can delete: $(ls -A "$fx/.agents/.readout")"
+ok "the tsc baseline is read and replaced under a lock on the readout folder, not on a prunable file"
 
 # --- the session id reaches the hook through the Claude normalizer ----------
 newfix sessionflow

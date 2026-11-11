@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Group edited JS/TS files by the nearest node_modules/.bin holding a tool.
 
-Usage: js-groups.py <project-dir> <tool> [--missing]   # file list on stdin, one per line
+Usage: js-groups.py <project-dir> <main-root> <tool> [--missing]   # file list on stdin, one per line
 
 Prints one tab-delimited row per group: `<binary>\t<cwd>\t<file>...`. With
 `--missing` it prints instead the files no group claims, one per line.
@@ -15,8 +15,8 @@ since a configured check that does not run is a finding. ESLint with no
 configuration in reach of the file does not run, so such a file is in neither
 list.
 
-The directory holding the binary must be inside the project, or inside the main
-checkout of the repository the project is a worktree of: a lane worktree links
+The directory holding the binary must be inside the project, or inside `main-root`,
+the main worktree of the repository the project is a worktree of: a lane worktree links
 its node_modules to the main tree rather than installing its own. A holder
 anywhere else is refused.
 
@@ -30,8 +30,6 @@ nearest folder above the file that holds an ESLint configuration.
 import json
 import os
 import sys
-
-import checkers
 
 ESLINT_CONFIGS = tuple(f"eslint.config.{ext}" for ext in ("js", "mjs", "cjs", "ts", "mts", "cts")) + (
     ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yaml", ".eslintrc.yml")
@@ -61,10 +59,10 @@ def flat_config_dir(path, stop):
 def main():
     args = [arg for arg in sys.argv[1:] if arg != "--missing"]
     list_missing = len(args) != len(sys.argv) - 1
-    if len(args) != 2:
-        raise SystemExit("js-groups.py: usage: js-groups.py <project-dir> <tool> [--missing]")
-    project, tool = args
-    roots = {os.path.realpath(project), checkers.main_checkout(project)}
+    if len(args) != 3:
+        raise SystemExit("js-groups.py: usage: js-groups.py <project-dir> <main-root> <tool> [--missing]")
+    project, main_root, tool = args
+    roots = {os.path.realpath(project), os.path.realpath(main_root)}
 
     groups = {}
     unclaimed = []

@@ -22,8 +22,6 @@ Usage:
   checkers.py pyright <project> <workspace> <exit-status> <stderr-file> <1 if a diagnostic was scoped, else 0>
       pyright's --outputjson on stdin. Prints a finding only when the run
       cannot be trusted; diagnostics are tool-errors.py's.
-  checkers.py main-root <project>
-      The main checkout of the repository the project belongs to.
 
 State lives in `.agents/.readout/` as non-JSON files, which readout.py prunes
 after a week: `checks-seen--<session>--<hash>` (created with O_EXCL, so of
@@ -37,7 +35,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
@@ -220,33 +217,45 @@ def first_time(directory, name):
 class Ledger:
     """The missing checkers as tab-separated rows, locked for the read-modify-write
     because background checks run concurrently. Writing it refreshes the `checks`
-    readout, so the two never disagree."""
+    readout, so the two never disagree.
+
+    A row that does not have four fields, or whose workspace no longer exists,
+    is dropped on load and the file rewritten on the next save."""
 
     def __init__(self, project):
         self.project = project
         self.directory = state_folder(project)
         self.path = self.directory / LEDGER
+        self.dirty = False
 
     def __enter__(self):
-        self.lock = open(self.directory / f"{LEDGER}.lock", "w")
-        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        self.lock = locked_folder(self.project)
         self.rows = {}
         for line in read_text(self.path).splitlines():
-            checker, workspace, config, command = line.split("\t")
+            fields = line.split("\t")
+            if len(fields) != 4 or not os.path.isdir(os.path.join(self.project, fields[1])):
+                self.dirty = True
+                continue
+            checker, workspace, config, command = fields
             self.rows[(checker, workspace)] = (config, command)
         return self
 
     def __exit__(self, *exc):
-        self.lock.close()
+        os.close(self.lock)
 
     def save(self):
         text = "".join(f"{c}\t{w}\t{cfg}\t{cmd}\n" for (c, w), (cfg, cmd) in sorted(self.rows.items()))
         replace_atomically(self.directory, self.path, text)
-        names = sorted({checker for checker, _ in self.rows})
-        note = "\n".join(f"{c}: configured in {cfg}, not installed: {cmd}"
-                         for (c, _), (cfg, cmd) in sorted(self.rows.items()))
-        readout.write(self.project, "checks", strip=f"checks: {', '.join(names)} missing" if names else "",
-                      note=note, stale_after=READOUT_STALE_AFTER)
+        write_readout(self.project, self.rows)
+        self.dirty = False
+
+
+def write_readout(project, rows):
+    names = sorted({checker for checker, _ in rows})
+    note = "\n".join(f"{c}: configured in {cfg}, not installed: {cmd}"
+                     for (c, _), (cfg, cmd) in sorted(rows.items()))
+    readout.write(project, "checks", strip=f"checks: {', '.join(names)} missing" if names else "",
+                  note=note, stale_after=READOUT_STALE_AFTER)
 
 
 def relative(path, project):
@@ -254,38 +263,49 @@ def relative(path, project):
 
 
 def missing(checker, project, session, paths):
+    # Look for a configuration before touching any state: a repository that never
+    # configured the checker gets no files in the readout folder.
+    found = [(path, *find_config(checker, path, project)) for path in paths]
+    found = [(path, config, workspace) for path, config, workspace in found if config]
+    if not found:
+        return ""
     reports = []
     with Ledger(project) as ledger:
-        changed = False
-        for path in paths:
-            config, workspace = find_config(checker, path, project)
-            if not config:
-                continue
+        for _, config, workspace in found:
             workspace_rel = relative(workspace, project)
             command = install_command(checker, workspace, project)
             row = (relative(config, project), command)
             if ledger.rows.get((checker, workspace_rel)) != row:
                 ledger.rows[(checker, workspace_rel)] = row
-                changed = True
+                ledger.dirty = True
             seen = f"checks-seen--{key(session, checker, workspace_rel)}"
             if first_time(ledger.directory, seen):
                 reports.append(f"[{checker}] configured in {row[0]} but not installed: {command}")
-        if changed:
+        if ledger.dirty:
             ledger.save()
     return "\n".join(dict.fromkeys(reports))
 
 
 def ran(checker, project, paths):
-    if not (readout.folder(project) / LEDGER).exists():
+    folder = readout.folder(project)
+    if not (folder / LEDGER).exists() and not (folder / "checks.json").exists():
         return                                # nothing was ever missing here
     with Ledger(project) as ledger:
-        dropped = False
         for path in paths:
             _, workspace = find_config(checker, path, project)
             if workspace and ledger.rows.pop((checker, relative(workspace, project)), None):
-                dropped = True
-        if dropped:
+                ledger.dirty = True
+        # The readout outlives the ledger, which prune removes after a week: a
+        # strip that names checkers while the ledger holds none is stale.
+        if ledger.dirty or (not ledger.rows and readout_names_checkers(folder)):
             ledger.save()
+
+
+def readout_names_checkers(folder):
+    try:
+        return bool(json.loads(read_text(folder / "checks.json") or "{}").get("strip"))
+    except (ValueError, AttributeError):
+        return True                           # unreadable: rewrite it from the ledger
 
 
 def locked_folder(project):
@@ -324,21 +344,6 @@ def pyright(project, workspace, status, stderr_path, scoped, raw):
     return check_reports.pyright(project, workspace, status, read_text(stderr_path), raw, scoped)
 
 
-def main_checkout(project):
-    """The main checkout of the repository `project` belongs to, which is the
-    project itself outside a linked worktree and outside Git."""
-    try:
-        done = subprocess.run(
-            ["git", "-C", project, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True, text=True)
-    except OSError:
-        return os.path.realpath(project)
-    common = done.stdout.strip()
-    if done.returncode != 0 or not common:
-        return os.path.realpath(project)
-    return os.path.dirname(os.path.realpath(common))
-
-
 def main(argv):
     command, args = (argv[0], argv[1:]) if argv else ("", [])
     if command == "missing" and len(args) >= 4 and args[0] in CHECKERS:
@@ -350,8 +355,6 @@ def main(argv):
         out = tsc(args[0], args[1], args[2], args[3], int(args[4]), args[5:], sys.stdin.read())
     elif command == "pyright" and len(args) == 5:
         out = pyright(args[0], args[1], int(args[2]), args[3], args[4] == "1", sys.stdin.read())
-    elif command == "main-root" and len(args) == 1:
-        out = main_checkout(args[0])
     else:
         raise SystemExit(__doc__)
     if out:
