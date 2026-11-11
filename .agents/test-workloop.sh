@@ -1763,6 +1763,19 @@ grep -qE $'^busy\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 1m\tEdit pars
 grep -qE $'^unstamped\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 40m$' <<<"$status_out" || fail "a cell never stamped did not read as silent since it went out: $status_out"
 ok "status shows each cell's time out, its silence and its last action, with no controller command run by the cell"
 
+expect $'quiet\tresearch\tout\t25m\tBash pytest -q' "${tool[@]}" digest act
+digest_out="$("${tool[@]}" digest act)"
+[[ "$(wc -l <<<"$digest_out" | tr -d ' ')" == 3 ]] || fail "digest did not print one line per agent: $digest_out"
+grep -qE $'^busy\tresearch\tout\t1m\tEdit parser.py$' <<<"$digest_out" || fail "digest did not show the busy cell's last action: $digest_out"
+grep -qE $'^unstamped\tresearch\tout\t40m\t-$' <<<"$digest_out" || fail "digest did not show a dash for a cell with no action: $digest_out"
+expect $'plain\timplementer\tactive\t' "${tool[@]}" digest res
+ok "digest prints one line per agent: name, role, state, silence, last action"
+watch_out="$("${tool[@]}" watch act --stale-seconds 900)"
+grep -q 'SILENT CELL — act/quiet: out 40m, silent 25m, last Bash pytest -q' <<<"$watch_out" || fail "watch did not name the silent cell: $watch_out"
+grep -q 'act/unstamped' <<<"$watch_out" || fail "watch did not name the cell that never stamped: $watch_out"
+! grep -q 'act/busy' <<<"$watch_out" || fail "watch named a cell stamped a minute ago: $watch_out"
+ok "watch runs on an ordinary run and judges silence by the latest stamp"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys
