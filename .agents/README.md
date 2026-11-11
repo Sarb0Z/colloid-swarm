@@ -216,7 +216,9 @@ hook defaults; a repository states its own policy in the tracked
 about under `hooks.guard_publish.outward_commands`, and under
 `dry_run_commands` the ones whose `--dry-run` really rehearses — and an
 operator's ignored `config.json` overrides either per machine, except that it
-can only extend the outward list and cannot declare a rehearsal.
+can only extend the outward list and cannot declare a rehearsal. The tracked
+file's top-level `systems` list, the systems the product runs on and their
+read-only commands, is read by `access.py` from `policy.json` alone.
 
 `wait-gate.sh` refuses a Bash call, under Claude only, that waits blind. Every
 agent, lead or spawned cell, gets the same rules, because a cell ends its turn
@@ -523,6 +525,7 @@ python3 .agents/check-layout.py
 .agents/test-workloop.sh
 .agents/test-post-edit-check.sh
 .agents/test-stop-investigate.sh
+.agents/test-access.sh
 .agents/test-provenance-gate.sh
 .agents/test-review-contract.sh
 python3 .agents/lint-breadcrumbs.py

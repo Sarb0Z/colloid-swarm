@@ -13,7 +13,7 @@ paths:
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
-- `config.json.example` defines hook defaults; `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` the ignored per-operator override layered on top, read alike by `hooks/lib/config.py`. While either fails to parse, the publish guard asks on every command that could run a listed script. It reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: exempting a script from an ask is a repository decision, beyond `config.json`'s reach. `hooks.product_folder.enabled` is the opposite, config-only key: opening a folder outside the repository is one operator's choice on one machine, so `product_folder.py` reads it from `config.json` alone and never from `policy.json`.
+- `config.json.example` defines hook defaults; `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` the ignored per-operator override layered on top, read alike by `hooks/lib/config.py`. While either fails to parse, the publish guard asks on every command that could run a listed script. It reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: exempting a script from an ask is a repository decision, beyond `config.json`'s reach. `access.py` reads `systems`, the systems the product runs on and their read-only commands, from `policy.json` only, for the same reason. `hooks.product_folder.enabled` is the opposite, config-only key: opening a folder outside the repository is one operator's choice on one machine, so `product_folder.py` reads it from `config.json` alone and never from `policy.json`.
 - `mcp.json` is the MCP registry and its project state. Toggle a server only through `python3 .agents/mcp.py enable|disable <name>`, which also rewrites every host's MCP configuration; commit intentional state changes.
 - `.opencode/opencode.json` and `.opencode/instructions/colloid.md` are generated connection files, like `.codex/config.toml`. `mcp_opencode.py` renders the permission rules and agent roles from `.agents/claude/settings.json` and `.agents/personas`, so edit those sources and never the generated file.
 - `personas/*.md`, linked from `.claude/agents/*.md`, are Claude-native definitions and `.codex/agents/*.toml` static Codex ones; model and effort are explicit in each, not generated from a tier registry.
@@ -99,6 +99,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-session-end.sh
 .agents/test-post-edit-check.sh
 .agents/test-stop-investigate.sh
+.agents/test-access.sh
 .agents/test-provenance-gate.sh
 .agents/test-review-contract.sh
 python3 .agents/test-sources-matcher.py

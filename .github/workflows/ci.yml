@@ -110,6 +110,9 @@ jobs:
       - name: Stop-investigate policy
         run: .agents/test-stop-investigate.sh
 
+      - name: Declared system access
+        run: .agents/test-access.sh
+
       - name: Provenance gate policy
         run: .agents/test-provenance-gate.sh
 
