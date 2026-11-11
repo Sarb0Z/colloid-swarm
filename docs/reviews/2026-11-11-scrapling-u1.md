@@ -280,3 +280,13 @@ untested. The correction settles `P1`s inside the subsystem this round
 reviewed, under the operator's ruling, so it does not re-enter review.
 Unverified: Windows and Linux; a live system or environment proxy; live rows
 for C2's other four spellings, which unit rows cover.
+
+QA (qa-verifier, sonnet) drove the launcher over stdio JSON-RPC, with every
+launcher in a sandbox refusing connections off loopback, checked against a
+control. A scratch copy stood in 127.0.0.1 and ::1 for the metadata
+addresses. Across 84 calls on both browsers, with proxy
+`http://ftp=localhost:1` or none, redirects and image requests to the
+stand-ins recorded no hit; a copy without the rule hit every one. The five C2
+spellings were refused by name through both tools. A socks5 session through
+a local socks server fetched a local page with the real rule on. The run
+`scrapling-u1-fix` passed `check` at `bc7b740` and is torn down.
