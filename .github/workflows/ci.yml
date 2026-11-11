@@ -45,6 +45,9 @@ jobs:
       - name: Status strip
         run: .agents/test-statusline.sh
 
+      - name: Readout reader
+        run: .agents/test-readout.sh
+
       - name: Hook script lookup
         run: .agents/test-hook-lookup.sh
 

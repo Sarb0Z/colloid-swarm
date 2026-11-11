@@ -39,6 +39,9 @@
 #     it removed or kept and what each kept one's work is about, each `saved/`
 #     branch, and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
+#   - Unit readouts: the note of each readout visible to this session, from
+#     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
+#     files here). Silent when no readout has a note.
 
 set -euo pipefail
 
@@ -210,8 +213,17 @@ if [[ "$worklog_status" == "ok" && -f "$worklog_playbook" ]]; then
   worklog_body="$(cat "$worklog_playbook")"
 fi
 
+# Readouts the units wrote (hooks/lib/readout.py); old session-scoped ones go first.
+readout_note=""
+if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" ]]; then
+  python3 "$lib/readout.py" prune "$proj" \
+    || echo "session-start: pruning old readouts failed; they stay until the next start" >&2
+  readout_note="$(python3 "$lib/readout.py" note "$proj" "${session_id:-}")" \
+    || { echo "session-start: the readout reader failed; no readout note this session" >&2; readout_note=""; }
+fi
+
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -298,6 +310,15 @@ EOF
     section
     echo "Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock <path>\` keeps one):"
     printf '%s\n' "$worktree_digest"
+  fi
+
+  if [[ -n "$readout_note" ]]; then
+    section
+    readout_session="$(printf '%s' "${session_id:-}" | tr -cd 'A-Za-z0-9_-')"
+    readout_show="python3 .agents/hooks/lib/readout.py show"
+    [[ -n "$readout_session" ]] && readout_show+=" --session $readout_session"
+    echo "Unit readouts (.agents/.readout/; the full view is \`$readout_show\`):"
+    printf '%s\n' "$readout_note"
   fi
 
   if [[ -n "$open" ]]; then
