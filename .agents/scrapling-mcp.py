@@ -187,8 +187,8 @@ def _session_resolving_none_of(session_class, addresses):
     tool exposes. It covers every address the browser itself resolves, its
     proxy's own address included, and not a request sent through a proxy,
     which the proxy resolves. Under socks5, patchright's driver passes its own
-    `--host-resolver-rules` first; on macOS and Linux the launcher's, passed
-    later, is the one in effect.
+    `--host-resolver-rules` first; on macOS the launcher's, passed later, is
+    the one in effect, and Linux and Windows are unverified.
     """
     switch = _host_resolver_switch(addresses)
 
