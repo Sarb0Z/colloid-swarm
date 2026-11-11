@@ -27,6 +27,8 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   Each extra writer costs a worktree, an install, a review and a merge. While
   implementation-ready work exists and two or more writers run, at least half
   of all active cells, rounded up, are writers (the root's Delegation section).
+- Background agents out past your turn are watched by the loop the workloop
+  skill's "Peer messages and supervision" section tells you to schedule.
 - A writing or QA cell works by `.agents/skills/workloop/working-practice.md`:
   how it tests, starts servers, waits and edits. `brief` writes it into a
   lane's `.workloop/BRIEF.md` and prints a dispatch prompt (the header line and
