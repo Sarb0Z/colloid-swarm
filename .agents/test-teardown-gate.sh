@@ -448,33 +448,70 @@ ok "browser_fetch_once is not an open"
 
 # The hosts call this hook only for tool names their hand-written matcher lets
 # through, so a class the gate knows but a matcher omits never fires.
+# Catches: a host matcher (every PreToolUse/PostToolUse group that runs the gate) that
+# drops a native tool name or a listed MCP name, a gate MCP regex no listed name
+# matches, and a gate regex the literal reader cannot see (count check).
+# Misses: tool names absent from the lists below, a host that renames a tool, a gate
+# regex built by implicit concatenation (only its first literal is read), and whether
+# the host really fires on a matching name.
 python3 - "$repo" <<'PY' || fail "a host trigger misses a tool name the gate classifies"
-import json, re, sys
+import json, os, re, sys, tomllib
 repo = sys.argv[1]
-claude = json.load(open(f"{repo}/.agents/claude/settings.json"))["hooks"]
-codex = json.load(open(f"{repo}/.agents/codex/hooks.json"))["hooks"]
-def gate_matchers(hooks):
-    return [g["matcher"] for event in ("PostToolUse",) for g in hooks[event]
-            if "teardown-gate" in json.dumps(g)]
-found = {"claude": gate_matchers(claude), "codex": gate_matchers(codex)}
-blocks = open(f"{repo}/.kimi/config.toml.example").read().split("[[hooks]]")
-found["kimi"] = [m for block in blocks if re.search(r'(?m)^command\s*=.*teardown-gate', block)
-                 for m in re.findall(r'(?m)^matcher\s*=\s*"([^"]+)"', block)]
-# The worktree snapshot hooks match Bash alone; the MCP trigger is the one naming tools.
-found = {host: [m for m in ms if "mcp__" in m] for host, ms in found.items()}
+
+def claude_like(path):
+    hooks = json.load(open(path))["hooks"]
+    return [(event, g["matcher"]) for event in ("PreToolUse", "PostToolUse")
+            for g in hooks.get(event, []) if "teardown-gate" in json.dumps(g) and "matcher" in g]
+
+found = {"claude": claude_like(f"{repo}/.agents/claude/settings.json"),
+         "codex": claude_like(f"{repo}/.agents/codex/hooks.json")}
+kimi_path = f"{repo}/.kimi/config.toml.example"
+if os.path.isfile(kimi_path):
+    with open(kimi_path, "rb") as stream:
+        kimi = tomllib.load(stream)
+    found["kimi"] = [(h["event"], h["matcher"]) for h in kimi["hooks"]
+                     if h["event"] in ("PreToolUse", "PostToolUse")
+                     and "teardown-gate" in h.get("command", "") and "matcher" in h]
+
+# Each host's native tool names, by event, as the host itself calls them.
+native = {
+    "claude": {"PostToolUse": ["Bash", "PowerShell", "Monitor", "TaskStop", "KillShell", "KillBash", "EnterWorktree"],
+               "PreToolUse": ["Bash", "EnterWorktree"]},
+    "codex": {"PostToolUse": ["Bash"], "PreToolUse": ["Bash"]},
+    "kimi": {"PostToolUse": ["Bash"], "PreToolUse": ["Bash"]},
+}
 tools = ["browser_navigate", "browser_tabs", "browser_close", "browser_open", "close_session",
          "appium_session_management", "start_session", "create_session", "end_session",
          "delete_session", "quit_session", "prepare_ios_simulator", "appium_prepare_ios_real_device"]
+mcp_names = [f"mcp__{server}__{t}" for server in ("scrapling", "playwright", "appium", "appium-mcp")
+             for t in tools]
+
 bad = []
-for host, matchers in found.items():
-    if not matchers:
-        bad.append(f"{host}: no teardown-gate matcher found")
-    for m in matchers:
-        rx = re.compile(m)
-        for server in ("scrapling", "playwright"):
-            for t in tools:
-                if not rx.search(f"mcp__{server}__{t}"):
-                    bad.append(f"{host} misses mcp__{server}__{t}")
+for host, groups in found.items():
+    for event, names in native[host].items():
+        matchers = [m for e, m in groups if e == event]
+        if not matchers:
+            bad.append(f"{host}: no {event} teardown-gate matcher found")
+        for name in names:
+            if not any(re.fullmatch(m, name) for m in matchers):
+                bad.append(f"{host} {event} matchers {matchers} miss {name}")
+    post = [m for e, m in groups if e == "PostToolUse"]
+    for name in mcp_names:
+        if not any(re.fullmatch(m, name) for m in post):
+            bad.append(f"{host} PostToolUse matchers miss {name}")
+
+gate = open(f"{repo}/.agents/hooks/policy/teardown-gate.sh").read()
+literal = re.compile(r're\.compile\(\s*(?:#[^\n]*\n\s*)*r("""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*")')
+literals = [m.group(1) for m in literal.finditer(gate)]
+if len(literals) != gate.count("re.compile("):
+    bad.append(f"the gate has {gate.count('re.compile(')} re.compile( calls but {len(literals)} readable "
+               "r-string literals: write each pattern as an r\"...\" or r\"\"\"...\"\"\" literal")
+mcp_regexes = [l[3:-3] if l.startswith('"""') else l[1:-1] for l in literals if "mcp__" in l]
+if not mcp_regexes:
+    bad.append("no MCP regex read from the gate")
+for rx in mcp_regexes:
+    if not any(re.fullmatch(rx, name) for name in mcp_names):
+        bad.append(f"gate regex {rx!r} fully matches no listed MCP name")
 if bad:
     sys.exit("\n".join(bad))
 PY
