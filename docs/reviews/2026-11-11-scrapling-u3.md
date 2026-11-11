@@ -96,3 +96,10 @@ controls stayed green: A5's comment, and `.kimi/` removed. The lead reran the
 script as committed (exit 0) and with Claude's Stop group removed (exit 1,
 `claude: no Stop group runs teardown-gate`). The fix settles a `P1` inside the
 subsystem this round reviewed, so it does not re-enter review.
+
+The run's composed test failed at the lane's tip on one step outside the lane:
+`port-public.py check` found the demo starters stale, from another session's
+`3b4392f` beneath the tip. Two commits regenerated the starters: `f085ef5` for
+`3b4392f`, and `f0da423` for `53ce23e`, which landed meanwhile. The composed
+test passed at `f0da423`, and the run was closed with `abandon`, since `check`
+verifies only at the tip.
