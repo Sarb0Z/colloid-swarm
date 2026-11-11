@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Group edited JS/TS files by the nearest node_modules/.bin holding a tool.
 
-Usage: js-groups.py <project-dir> <tool>    # file list on stdin, one per line
+Usage: js-groups.py <project-dir> <tool> [--missing]   # file list on stdin, one per line
 
-Prints one tab-delimited row per group: `<binary>\t<cwd>\t<file>...`.
+Prints one tab-delimited row per group: `<binary>\t<cwd>\t<file>...`. With
+`--missing` it prints instead the files no group claims, one per line.
 
 bun and npm both install a workspace's own devDependencies inside that
 workspace, so a monorepo holds one eslint per app and a root that holds none.
 Resolving from the root alone gives a gate that reports success having run
 nothing. A file with no binary above it is skipped.
+
+The directory holding the binary must be inside the project, or inside the main
+checkout of the repository the project is a worktree of: a lane worktree links
+its node_modules to the main tree rather than installing its own. A holder
+anywhere else is refused.
 
 The run directory is the binary's own workspace, except for eslint: ESLint 9
 looks for its flat config from the working directory, and a monorepo that
@@ -19,6 +25,8 @@ nearest folder above the file that holds a flat config.
 
 import os
 import sys
+
+import checkers
 
 FLAT_CONFIGS = tuple(f"eslint.config.{ext}" for ext in ("js", "mjs", "cjs", "ts", "mts", "cts"))
 
@@ -35,12 +43,15 @@ def flat_config_dir(path, stop):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("js-groups.py: usage: js-groups.py <project-dir> <tool>")
-    project, tool = sys.argv[1], sys.argv[2]
-    real_project = os.path.realpath(project)
+    args = [arg for arg in sys.argv[1:] if arg != "--missing"]
+    list_missing = len(args) != len(sys.argv) - 1
+    if len(args) != 2:
+        raise SystemExit("js-groups.py: usage: js-groups.py <project-dir> <tool> [--missing]")
+    project, tool = args
+    roots = {os.path.realpath(project), checkers.main_checkout(project)}
 
     groups = {}
+    unclaimed = []
     for path in sys.stdin.read().splitlines():
         if not path:
             continue                          # already absolute and already in scope
@@ -54,16 +65,20 @@ def main():
             # pnpm repository. What must stay inside the repository is the
             # directory, because that is what a symlinked workspace can move.
             holder = os.path.realpath(os.path.dirname(candidate))
-            if os.access(candidate, os.X_OK) and (
-                    holder == real_project or holder.startswith(real_project + os.sep)):
+            if os.access(candidate, os.X_OK) and any(
+                    holder == root or holder.startswith(root + os.sep) for root in roots):
                 workspace = os.path.dirname(os.path.dirname(os.path.dirname(candidate)))
                 cwd = (flat_config_dir(path, project) if tool == "eslint" else None) or workspace
                 groups.setdefault((candidate, cwd), []).append(path)
                 break
             if directory == project or directory == os.path.dirname(directory):
-                break                         # no install anywhere above: skip
+                unclaimed.append(path)        # no install anywhere above
+                break
             directory = os.path.dirname(directory)
 
+    if list_missing:
+        print("\n".join(unclaimed))
+        return 0
     for (binary, cwd), files in groups.items():
         print("\t".join([binary, cwd] + files))
     return 0
