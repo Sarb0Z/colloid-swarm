@@ -59,6 +59,9 @@ PRUNE_SESSION_AFTER = timedelta(days=7)
 PRUNE_FILE_AFTER = timedelta(days=7)
 PRUNE_TEMP_AFTER = timedelta(hours=1)
 SEPARATOR = "  ·  "
+# Readouts that lead the strip: the host cuts the row at the terminal width,
+# so what must stay visible comes first. Others follow in file-name order.
+STRIP_FIRST = ("owed",)
 DEFAULT_REPO = str(Path(__file__).resolve().parents[3])
 
 
@@ -181,7 +184,8 @@ def note_lines(note, limit, command):
 def strip_line(repo, session):
     now = datetime.now(timezone.utc)
     segments = []
-    for readout in visible(repo, session):
+    # sorted is stable, so file-name order holds within each group.
+    for readout in sorted(visible(repo, session), key=lambda r: r.name not in STRIP_FIRST):
         if not readout.readable:
             segments.append(f"{readout.name}: unreadable")
         elif readout.strip:
