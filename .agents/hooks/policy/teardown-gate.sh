@@ -317,9 +317,9 @@ CLOSE_SESSION = re.compile(r"^mcp__([A-Za-z0-9_-]+)__close_session$")
 # create, delete, list, select, attach, and detach in an `action` argument, so
 # the action decides the direction. Community forks that publish under other npm
 # names do use `start_session`/`end_session`, and matching both costs nothing.
-APPIUM_SESSION = re.compile(r"^mcp__[A-Za-z0-9_-]+__appium_session_management$")
-APPIUM_OPEN = re.compile(r"^mcp__[A-Za-z0-9_-]+__(start_session|create_session)$")
-APPIUM_CLOSE = re.compile(r"^mcp__[A-Za-z0-9_-]+__(end_session|close_session|delete_session|quit_session)$")
+APPIUM_SESSION = re.compile(r"^mcp__([A-Za-z0-9_-]+)__appium_session_management$")
+APPIUM_OPEN = re.compile(r"^mcp__([A-Za-z0-9_-]+)__(start_session|create_session)$")
+APPIUM_CLOSE = re.compile(r"^mcp__([A-Za-z0-9_-]+)__(end_session|close_session|delete_session|quit_session)$")
 # Booting a simulator is the expensive half of preparing a device.
 APPIUM_BOOT = re.compile(r"^mcp__[A-Za-z0-9_-]+__(appium_)?prepare_ios_(simulator|real_device)$")
 STOP_TOOL = re.compile(r"^(TaskStop|KillShell|KillBash)$")
@@ -328,6 +328,19 @@ STOP_TOOL = re.compile(r"^(TaskStop|KillShell|KillBash)$")
 def label(text, limit=72):
     text = " ".join(text.split())
     return text[: limit - 1] + "…" if len(text) > limit else text
+
+
+SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def session_name(fields, fallback="unnamed"):
+    """The session_id when it is a plain token, else the fallback.
+
+    The pattern admits no tab, newline, space, backslash or bracket, so the ID
+    cannot forge a pending-file field or a `[server]` tag.
+    """
+    sid = fields.get("session_id")
+    return sid if isinstance(sid, str) and SESSION_ID.fullmatch(sid) else fallback
 
 
 def appium_label(fields, fallback="appium session"):
@@ -371,13 +384,15 @@ elif BROWSER_OPEN.match(tool):
         verdicts.append("+browser\t" + label(url if isinstance(url, str) and url else "browser tab"))
 elif STEALTH_OPEN.match(tool):
     server = STEALTH_OPEN.match(tool).group(1)
-    sid = ti.get("session_id")
-    base = label(sid if isinstance(sid, str) and sid else "stealth browser", 60)
-    verdicts.append(f"+stealth\t{base} [{server}]")
+    verdicts.append(f"+stealth\t{session_name(ti)} [{server}]")
 elif CLOSE_SESSION.match(tool):
-    # Whether this ends a stealth browser or an Appium device depends on what
-    # the same server opened, which only the pending file knows.
-    verdicts.append("?close\t" + CLOSE_SESSION.match(tool).group(1))
+    # `close_session` ends a Scrapling browser on one server and an Appium device
+    # on another. Entries carry their server, so each verdict clears only that
+    # server's entries of its own kind: the stealth browser the close names, and
+    # the devices the same server holds (none, on a Scrapling server).
+    server = CLOSE_SESSION.match(tool).group(1)
+    verdicts.append(f"?close\t{server}\t{session_name(ti, '')}")
+    verdicts.append(f"-device\t{server}")
 elif APPIUM_SESSION.match(tool):
     action = ti.get("action")
     # `attach` takes hold of a remote session as firmly as `create` opens a new
@@ -385,14 +400,15 @@ elif APPIUM_SESSION.match(tool):
     # owns — an attached one survives it. Untracked here, nothing would contain
     # it at all. `detach` releases this end without ending that session, so it
     # is deliberately not a teardown; `list` and `select` do neither.
+    server = APPIUM_SESSION.match(tool).group(1)
     if action in ("create", "attach"):
-        verdicts.append("+device\t" + appium_label(ti))
+        verdicts.append(f"+device\t{appium_label(ti)} [{server}]")
     elif action == "delete":
-        verdicts.append("-device")
+        verdicts.append(f"-device\t{server}")
 elif APPIUM_CLOSE.match(tool):
-    verdicts.append("-device")
+    verdicts.append("-device\t" + APPIUM_CLOSE.match(tool).group(1))
 elif APPIUM_OPEN.match(tool):
-    verdicts.append("+device\t" + appium_label(ti))
+    verdicts.append(f"+device\t{appium_label(ti)} [{APPIUM_OPEN.match(tool).group(1)}]")
 elif APPIUM_BOOT.match(tool):
     verdicts.append("+emulator\t" + appium_label(ti, "iOS simulator"))
 elif STOP_TOOL.match(tool):
@@ -569,23 +585,43 @@ PostToolUse|SubagentStart)
   opened=""
   while IFS= read -r verdict; do
     case "$verdict" in
+      # A device clear names its server: `-device\t<server>` drops that
+      # server's device entries and no other.
+      -device$'\t'*)
+          if [[ -f "$pending" ]]; then
+            CLOSE_TAG=" [${verdict#*	}]" awk -F'\t' '
+              BEGIN {tag = ENVIRON["CLOSE_TAG"]}
+              !($1 == "device" && length($4) >= length(tag) && substr($4, length($4) - length(tag) + 1) == tag)' \
+              "$pending" > "$tmp" || true
+            mv "$tmp" "$pending"
+          fi
+          grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;
       -*) kind="${verdict#-}"
           if [[ -f "$pending" ]]; then
             grep -v "^$kind	" "$pending" > "$tmp" 2>/dev/null || true
             mv "$tmp" "$pending"
           fi
           grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;
-      # close_session: a stealth browser this server opened, else an Appium
-      # device. Entries end in `[server]`, which is how the server is matched.
+      # close_session: drop the stealth entry of that server with that ID. When
+      # none matches and every stealth entry of the server is `unnamed`, drop
+      # those. A named entry the close did not name stays, and so does any
+      # other server's. Entries end in ` [server]`, which is how the server
+      # is matched; values reach awk by ENVIRON, as -v interprets backslashes.
       \?close*)
-          server="${verdict#*	}"
-          if [[ -f "$pending" ]] && awk -F'\t' -v tag="[$server]" \
-               '$1=="stealth" && substr($4, length($4)-length(tag)+1)==tag {found=1} END {exit !found}' "$pending"; then
-            awk -F'\t' -v tag="[$server]" \
-              '!($1=="stealth" && substr($4, length($4)-length(tag)+1)==tag)' "$pending" > "$tmp" || true
-            mv "$tmp" "$pending"
-          elif [[ -f "$pending" ]]; then
-            grep -v "^device	" "$pending" > "$tmp" 2>/dev/null || true
+          rest="${verdict#*	}"
+          if [[ -f "$pending" ]]; then
+            CLOSE_TAG=" [${rest%%	*}]" CLOSE_ID="${rest#*	}" awk -F'\t' '
+              BEGIN {tag = ENVIRON["CLOSE_TAG"]; want = ENVIRON["CLOSE_ID"] tag; anon = "unnamed" tag}
+              function mine() {return $1 == "stealth" && length($4) >= length(tag) && substr($4, length($4) - length(tag) + 1) == tag}
+              {line[NR] = $0; if (mine()) {total++; if ($4 == want) named++; else if ($4 == anon) unnamed++}}
+              END {
+                sweep = !named && total > 0 && unnamed == total
+                for (i = 1; i <= NR; i++) {
+                  $0 = line[i]
+                  if (mine() && (named ? $4 == want : sweep)) continue
+                  print line[i]
+                }
+              }' "$pending" > "$tmp" || true
             mv "$tmp" "$pending"
           fi
           grep -qv '^#' "$pending" 2>/dev/null || rm -f "$pending" ;;

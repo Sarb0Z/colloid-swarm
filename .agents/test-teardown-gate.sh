@@ -271,20 +271,64 @@ stop
 mcp mcp__scrapling__close_session '{"session_id":"cf-demo"}' >/dev/null
 [[ ! -e "$pending" ]] || fail "close_session from the opening server must clear: $(cat "$pending")"
 mcp mcp__scrapling__browser_open >/dev/null
-grep -q 'stealth browser' "$pending" || fail "an open without a session_id needs a fallback label"
+grep -q '^stealth	waiting	-	unnamed \[scrapling\]$' "$pending" || fail "an open without a session_id records as unnamed: $(cat "$pending")"
 rm -f "$pending"
 ok "browser_open records, blocks the stop, and its server's close_session clears it"
 
 mcp mcp__stealthy__browser_open '{"session_id":"a"}' >/dev/null
 mcp mcp__appium__start_session '{"deviceName":"iPhone 15"}' >/dev/null
+grep -q '^device	.*iPhone 15 \[appium\]$' "$pending" || fail "a device entry carries its server tag: $(cat "$pending")"
+stop
+[[ $rc -eq 2 && "$err" == *"iPhone 15 [appium]"* && "$err" == *"a [stealthy]"* ]] || fail "the stop text names the server on device and stealth lines (rc=$rc): $err"
 mcp mcp__appium__close_session >/dev/null
 grep -q '^stealth' "$pending" || fail "an Appium close_session must leave stealth: $(cat "$pending")"
-grep -q '^device' "$pending" && fail "an Appium close_session must clear device: $(cat "$pending")"
+grep -q '^device' "$pending" && fail "an Appium close_session must clear its device: $(cat "$pending")"
 mcp mcp__playwright__browser_close >/dev/null
 grep -q '^stealth' "$pending" || fail "a Playwright browser_close must leave stealth"
 mcp mcp__stealthy__close_session >/dev/null
-[[ ! -e "$pending" ]] || fail "the opening server's close_session must clear whatever its name: $(cat "$pending")"
-ok "close_session clears stealth only for its own server; Appium and Playwright closes do not"
+grep -q '^stealth	.*a \[stealthy\]' "$pending" || fail "a close naming no session clears no named entry: $(cat "$pending")"
+mcp mcp__stealthy__close_session '{"session_id":"a"}' >/dev/null
+[[ ! -e "$pending" ]] || fail "a close naming the session must clear it: $(cat "$pending")"
+ok "close_session clears stealth only for its own server and only the session it names; Appium and Playwright closes do not"
+
+# Two named sessions on one server: a close clears the one it names.
+mcp mcp__scrapling__browser_open '{"session_id":"one"}' >/dev/null
+mcp mcp__scrapling__browser_open '{"session_id":"two"}' >/dev/null
+mcp mcp__scrapling__close_session '{"session_id":"one"}' >/dev/null
+stop
+[[ $rc -eq 2 && "$err" == *"two [scrapling]"* && "$err" != *"one [scrapling]"* ]] \
+  || fail "closing one of two sessions must leave the other blocking Stop (rc=$rc): $err"
+mcp mcp__scrapling__close_session '{"session_id":"nothing"}' >/dev/null
+grep -q 'two \[scrapling\]' "$pending" || fail "a close naming an ID that matches nothing must clear nothing: $(cat "$pending")"
+mcp mcp__other__close_session '{"session_id":"two"}' >/dev/null
+grep -q 'two \[scrapling\]' "$pending" || fail "another server's close must not clear it: $(cat "$pending")"
+mcp mcp__scrapling__close_session '{"session_id":"two"}' >/dev/null
+stop; [[ $rc -eq 0 && ! -e "$pending" ]] || fail "closing the last session must let Stop pass (rc=$rc): $err"
+ok "a close clears the session it names, by ID and server, and nothing else"
+
+# A hostile ID is not a name: it records as unnamed and cannot forge a field.
+mcp mcp__scrapling__browser_open '{"session_id":"x\ty\nstealth\tz"}' >/dev/null
+[[ "$(grep -c "" "$pending")" == 1 ]] && grep -q '^stealth	waiting	-	unnamed \[scrapling\]$' "$pending" \
+  || fail "an ID outside the token pattern must record as unnamed: $(cat "$pending")"
+mcp mcp__scrapling__browser_open '{"session_id":"named"}' >/dev/null
+mcp mcp__scrapling__close_session '{"session_id":"nothing"}' >/dev/null
+[[ "$(grep -c '^stealth' "$pending")" == 2 ]] || fail "unnamed entries sweep only when no named entry remains: $(cat "$pending")"
+mcp mcp__scrapling__close_session '{"session_id":"named"}' >/dev/null
+mcp mcp__scrapling__close_session >/dev/null
+[[ ! -e "$pending" ]] || fail "a close with no match sweeps a server whose entries are all unnamed: $(cat "$pending")"
+ok "unnamed sessions clear only when no named one matches"
+
+# A Scrapling close never touches an Appium device (G1, T3), and an Appium close
+# never touches stealth.
+mcp mcp__appium-mcp__appium_session_management '{"action":"create","deviceName":"Pixel 8"}' >/dev/null
+mcp mcp__scrapling__close_session '{"session_id":"cf-demo"}' >/dev/null
+grep -q '^device	.*Pixel 8 \[appium-mcp\]$' "$pending" || fail "a Scrapling close must leave an Appium device: $(cat "$pending" 2>/dev/null)"
+mcp mcp__scrapling__browser_open '{"session_id":"keep"}' >/dev/null
+mcp mcp__appium-mcp__appium_session_management '{"action":"delete"}' >/dev/null
+grep -q '^device' "$pending" && fail "an Appium delete must clear its device: $(cat "$pending")"
+grep -q 'keep \[scrapling\]' "$pending" || fail "an Appium delete must leave stealth: $(cat "$pending" 2>/dev/null)"
+rm -f "$pending"
+ok "a Scrapling close leaves a device; an Appium close clears its device and leaves stealth"
 
 [[ -z "$(mcp mcp__scrapling__browser_fetch_once '{"url":"https://example.com"}')" && ! -e "$pending" ]] \
   || fail "browser_fetch_once opens and closes inside the call and must record nothing"
@@ -547,6 +591,15 @@ rc=$?
 set -e
 [[ $rc -eq 2 && "$err" == *"[browser]"* ]] || fail "SubagentStop must block a cell holding a browser (rc=$rc): $err"
 ok "the Claude adapter carries PostToolUse and SubagentStop"
+
+rm -f "$dir/.agents/.teardown-pending-"*
+for call in 'browser_open","tool_input":{"session_id":"one"}' 'browser_open","tool_input":{"session_id":"two"}' \
+            'close_session","tool_input":{"session_id":"one"}'; do
+  printf '{"hook_event_name":"PostToolUse","cwd":"%s","session_id":"c9","tool_name":"mcp__scrapling__%s}' "$dir" "$call" | c >/dev/null
+done
+grep -q 'two \[scrapling\]' "$pending" && ! grep -q 'one \[scrapling\]' "$pending" \
+  || fail "a Claude-shaped close_session must clear only the session it names: $(cat "$pending" 2>/dev/null)"
+ok "the Claude adapter delivers session_id to the close"
 
 # ── Codex adapter end to end ─────────────────────────────────────────────────
 rm -f "$dir/.agents/.teardown-pending-"*

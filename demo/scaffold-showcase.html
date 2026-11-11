@@ -5717,7 +5717,7 @@ esac
               <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container or a booted emulator once the work is finished. The block names each open resource and the command that closes it.</p>
               <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 701 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 737 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
@@ -6036,9 +6036,9 @@ CLOSE_SESSION = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__close_session$&quot;)
 # create, delete, list, select, attach, and detach in an `action` argument, so
 # the action decides the direction. Community forks that publish under other npm
 # names do use `start_session`/`end_session`, and matching both costs nothing.
-APPIUM_SESSION = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__appium_session_management$&quot;)
-APPIUM_OPEN = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(start_session|create_session)$&quot;)
-APPIUM_CLOSE = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(end_session|close_session|delete_session|quit_session)$&quot;)
+APPIUM_SESSION = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__appium_session_management$&quot;)
+APPIUM_OPEN = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__(start_session|create_session)$&quot;)
+APPIUM_CLOSE = re.compile(r&quot;^mcp__([A-Za-z0-9_-]+)__(end_session|close_session|delete_session|quit_session)$&quot;)
 # Booting a simulator is the expensive half of preparing a device.
 APPIUM_BOOT = re.compile(r&quot;^mcp__[A-Za-z0-9_-]+__(appium_)?prepare_ios_(simulator|real_device)$&quot;)
 STOP_TOOL = re.compile(r&quot;^(TaskStop|KillShell|KillBash)$&quot;)
@@ -6047,6 +6047,19 @@ STOP_TOOL = re.compile(r&quot;^(TaskStop|KillShell|KillBash)$&quot;)
 def label(text, limit=72):
     text = &quot; &quot;.join(text.split())
     return text[: limit - 1] + &quot;…&quot; if len(text) &gt; limit else text
+
+
+SESSION_ID = re.compile(r&quot;[A-Za-z0-9_-]{1,64}&quot;)
+
+
+def session_name(fields, fallback=&quot;unnamed&quot;):
+    &quot;&quot;&quot;The session_id when it is a plain token, else the fallback.
+
+    The pattern admits no tab, newline, space, backslash or bracket, so the ID
+    cannot forge a pending-file field or a `[server]` tag.
+    &quot;&quot;&quot;
+    sid = fields.get(&quot;session_id&quot;)
+    return sid if isinstance(sid, str) and SESSION_ID.fullmatch(sid) else fallback
 
 
 def appium_label(fields, fallback=&quot;appium session&quot;):
@@ -6090,13 +6103,15 @@ elif BROWSER_OPEN.match(tool):
         verdicts.append(&quot;+browser\t&quot; + label(url if isinstance(url, str) and url else &quot;browser tab&quot;))
 elif STEALTH_OPEN.match(tool):
     server = STEALTH_OPEN.match(tool).group(1)
-    sid = ti.get(&quot;session_id&quot;)
-    base = label(sid if isinstance(sid, str) and sid else &quot;stealth browser&quot;, 60)
-    verdicts.append(f&quot;+stealth\t{base} [{server}]&quot;)
+    verdicts.append(f&quot;+stealth\t{session_name(ti)} [{server}]&quot;)
 elif CLOSE_SESSION.match(tool):
-    # Whether this ends a stealth browser or an Appium device depends on what
-    # the same server opened, which only the pending file knows.
-    verdicts.append(&quot;?close\t&quot; + CLOSE_SESSION.match(tool).group(1))
+    # `close_session` ends a Scrapling browser on one server and an Appium device
+    # on another. Entries carry their server, so each verdict clears only that
+    # server&#x27;s entries of its own kind: the stealth browser the close names, and
+    # the devices the same server holds (none, on a Scrapling server).
+    server = CLOSE_SESSION.match(tool).group(1)
+    verdicts.append(f&quot;?close\t{server}\t{session_name(ti, &#x27;&#x27;)}&quot;)
+    verdicts.append(f&quot;-device\t{server}&quot;)
 elif APPIUM_SESSION.match(tool):
     action = ti.get(&quot;action&quot;)
     # `attach` takes hold of a remote session as firmly as `create` opens a new
@@ -6104,14 +6119,15 @@ elif APPIUM_SESSION.match(tool):
     # owns — an attached one survives it. Untracked here, nothing would contain
     # it at all. `detach` releases this end without ending that session, so it
     # is deliberately not a teardown; `list` and `select` do neither.
+    server = APPIUM_SESSION.match(tool).group(1)
     if action in (&quot;create&quot;, &quot;attach&quot;):
-        verdicts.append(&quot;+device\t&quot; + appium_label(ti))
+        verdicts.append(f&quot;+device\t{appium_label(ti)} [{server}]&quot;)
     elif action == &quot;delete&quot;:
-        verdicts.append(&quot;-device&quot;)
+        verdicts.append(f&quot;-device\t{server}&quot;)
 elif APPIUM_CLOSE.match(tool):
-    verdicts.append(&quot;-device&quot;)
+    verdicts.append(&quot;-device\t&quot; + APPIUM_CLOSE.match(tool).group(1))
 elif APPIUM_OPEN.match(tool):
-    verdicts.append(&quot;+device\t&quot; + appium_label(ti))
+    verdicts.append(f&quot;+device\t{appium_label(ti)} [{APPIUM_OPEN.match(tool).group(1)}]&quot;)
 elif APPIUM_BOOT.match(tool):
     verdicts.append(&quot;+emulator\t&quot; + appium_label(ti, &quot;iOS simulator&quot;))
 elif STOP_TOOL.match(tool):
@@ -6288,23 +6304,43 @@ PostToolUse|SubagentStart)
   opened=&quot;&quot;
   while IFS= read -r verdict; do
     case &quot;$verdict&quot; in
+      # A device clear names its server: `-device\t&lt;server&gt;` drops that
+      # server&#x27;s device entries and no other.
+      -device$&#x27;\t&#x27;*)
+          if [[ -f &quot;$pending&quot; ]]; then
+            CLOSE_TAG=&quot; [${verdict#*	}]&quot; awk -F&#x27;\t&#x27; &#x27;
+              BEGIN {tag = ENVIRON[&quot;CLOSE_TAG&quot;]}
+              !($1 == &quot;device&quot; &amp;&amp; length($4) &gt;= length(tag) &amp;&amp; substr($4, length($4) - length(tag) + 1) == tag)&#x27; \
+              &quot;$pending&quot; &gt; &quot;$tmp&quot; || true
+            mv &quot;$tmp&quot; &quot;$pending&quot;
+          fi
+          grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
       -*) kind=&quot;${verdict#-}&quot;
           if [[ -f &quot;$pending&quot; ]]; then
             grep -v &quot;^$kind	&quot; &quot;$pending&quot; &gt; &quot;$tmp&quot; 2&gt;/dev/null || true
             mv &quot;$tmp&quot; &quot;$pending&quot;
           fi
           grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
-      # close_session: a stealth browser this server opened, else an Appium
-      # device. Entries end in `[server]`, which is how the server is matched.
+      # close_session: drop the stealth entry of that server with that ID. When
+      # none matches and every stealth entry of the server is `unnamed`, drop
+      # those. A named entry the close did not name stays, and so does any
+      # other server&#x27;s. Entries end in ` [server]`, which is how the server
+      # is matched; values reach awk by ENVIRON, as -v interprets backslashes.
       \?close*)
-          server=&quot;${verdict#*	}&quot;
-          if [[ -f &quot;$pending&quot; ]] &amp;&amp; awk -F&#x27;\t&#x27; -v tag=&quot;[$server]&quot; \
-               &#x27;$1==&quot;stealth&quot; &amp;&amp; substr($4, length($4)-length(tag)+1)==tag {found=1} END {exit !found}&#x27; &quot;$pending&quot;; then
-            awk -F&#x27;\t&#x27; -v tag=&quot;[$server]&quot; \
-              &#x27;!($1==&quot;stealth&quot; &amp;&amp; substr($4, length($4)-length(tag)+1)==tag)&#x27; &quot;$pending&quot; &gt; &quot;$tmp&quot; || true
-            mv &quot;$tmp&quot; &quot;$pending&quot;
-          elif [[ -f &quot;$pending&quot; ]]; then
-            grep -v &quot;^device	&quot; &quot;$pending&quot; &gt; &quot;$tmp&quot; 2&gt;/dev/null || true
+          rest=&quot;${verdict#*	}&quot;
+          if [[ -f &quot;$pending&quot; ]]; then
+            CLOSE_TAG=&quot; [${rest%%	*}]&quot; CLOSE_ID=&quot;${rest#*	}&quot; awk -F&#x27;\t&#x27; &#x27;
+              BEGIN {tag = ENVIRON[&quot;CLOSE_TAG&quot;]; want = ENVIRON[&quot;CLOSE_ID&quot;] tag; anon = &quot;unnamed&quot; tag}
+              function mine() {return $1 == &quot;stealth&quot; &amp;&amp; length($4) &gt;= length(tag) &amp;&amp; substr($4, length($4) - length(tag) + 1) == tag}
+              {line[NR] = $0; if (mine()) {total++; if ($4 == want) named++; else if ($4 == anon) unnamed++}}
+              END {
+                sweep = !named &amp;&amp; total &gt; 0 &amp;&amp; unnamed == total
+                for (i = 1; i &lt;= NR; i++) {
+                  $0 = line[i]
+                  if (mine() &amp;&amp; (named ? $4 == want : sweep)) continue
+                  print line[i]
+                }
+              }&#x27; &quot;$pending&quot; &gt; &quot;$tmp&quot; || true
             mv &quot;$tmp&quot; &quot;$pending&quot;
           fi
           grep -qv &#x27;^#&#x27; &quot;$pending&quot; 2&gt;/dev/null || rm -f &quot;$pending&quot; ;;
