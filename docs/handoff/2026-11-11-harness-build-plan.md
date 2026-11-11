@@ -209,7 +209,7 @@ implementation re-opens a row whose file changed since the table was read.
 
 Flags inform; none of them blocks (ruling 3).
 
-- 4.1 `hooks/lib/owed.py` computes four flags for a session from F9's
+- 4.1 `hooks/lib/owed.py` computes five flags for a session from F9's
   records, so history from before this unit and other sessions' commits
   never raise one.
   - Review. The unit of cover is a file's content, not a commit, because
@@ -453,6 +453,13 @@ the text the operator approved.
   and Prettier (same review, finding 14).
 - 4.4: added, since the live check showed the host hides readouts past the
   terminal's width (review `2026-11-12-session-wrap`, findings 7 and 9).
+- 4.1: the report flag clears by `owed.py clear report`, which the two report
+  playbooks gain as their last step, since a report lives in the reply and
+  leaves no file a flag could read; `owed.critical_paths` and `owed.suite`
+  are read from `policy.json` only. 4.2: `session-wrap.sh` learns the host
+  from a `host` field that the Claude normalizer adds to its branch; unit 5's
+  lane edits the same file in another run, so the second of the two merges
+  resolves it.
 
 ## Rulings
 
