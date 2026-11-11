@@ -150,9 +150,10 @@ One commit each, in this order.
      `mcp__stealthy__close_session` with no `session_id` and expects
      `a [stealthy]` cleared; under the rule above it clears nothing, and the
      row says so. The Stop text gains ` [server]` on device lines.
-   - Not migrated: device entries recorded before this change carry no tag,
-     and only a session that spans the upgrade holds one; it expires with its
-     pending file.
+   - Not migrated: entries recorded before this change (an untagged device,
+     an ID-less `stealth browser [x]`, a cut ID) never clear; only a session
+     that spans the upgrade holds one, it blocks Stop once per re-arm, and it
+     leaves with the pending file when that file is deleted.
    - `teardown-gate.sh` is embedded in the showcase: the commit carries the
      output of `python3 demo/embed-src.py` and `python3 .agents/port-public.py
      refresh`.
