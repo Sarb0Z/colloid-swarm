@@ -4027,12 +4027,14 @@ exit 0
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Lints, formats, and typechecks only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep. Also flags tombstone comments (see <a href="#tracking">Tracking</a>).</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> exit 2 + findings | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 522 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 654 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
-# Scoped strictly to the provided file list — never sweeps the repo. Every
-# external tool is optional: a missing binary is skipped silently. The hosts
+# Scoped strictly to the provided file list — never sweeps the repo. An
+# external tool is optional unless the repository configures it: a missing binary
+# is skipped silently when no config asks for it, and reported once per session
+# and workspace when one does (../lib/checkers.py). The hosts
 # wire this to their editor tools only, so a file written through a shell
 # redirect is not linted. debt: colloid-shell-writes-skip-post-edit
 #
@@ -4086,11 +4088,34 @@ nullsafety_check=&quot;$(printf &#x27;%s\n&#x27; &quot;$cfg&quot; | sed -n &#x27
 # turns the gate off on exactly the largest changes.
 input=&quot;$(cat)&quot;
 
-proj=&quot;$(printf &#x27;%s&#x27; &quot;$input&quot; | python3 &quot;$lib/payload.py&quot; project_dir)&quot;
+# The session id is read in check mode only: write mode keeps no per-session state.
+if [[ &quot;$mode&quot; == &quot;check&quot; ]]; then
+  { IFS= read -r proj || true; IFS= read -r session || true; } &lt; &lt;(printf &#x27;%s&#x27; &quot;$input&quot; | python3 &quot;$lib/payload.py&quot; project_dir session_id)
+else
+  proj=&quot;$(printf &#x27;%s&#x27; &quot;$input&quot; | python3 &quot;$lib/payload.py&quot; project_dir)&quot;
+  session=&quot;&quot;
+fi
 
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$PWD&quot;
 cd &quot;$proj&quot;
 proj=&quot;$(pwd -P)&quot;
+
+# A lane worktree links its node_modules to the main worktree of the same
+# repository, and a binary found there counts as inside the repository. The main
+# worktree is the first entry of `git worktree list`; outside a repository the
+# project stands in. For a bare repository the first entry is the bare directory,
+# which holds no checkout, so nothing beside it is trusted.
+# Asked on first use only, since most edits never need it.
+main_root=&quot;&quot;
+main_root_of() {
+  local first
+  [[ -n &quot;$main_root&quot; ]] &amp;&amp; return 0
+  first=&quot;$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX -u GIT_COMMON_DIR \
+             git -C &quot;$proj&quot; worktree list --porcelain 2&gt;/dev/null | sed -n &#x27;1s/^worktree //p&#x27; || true)&quot;
+  main_root=&quot;$proj&quot;
+  [[ -n &quot;$first&quot; ]] &amp;&amp; main_root=&quot;$(cd &quot;$first&quot; 2&gt;/dev/null &amp;&amp; pwd -P || printf &#x27;%s&#x27; &quot;$proj&quot;)&quot;
+  return 0
+}
 
 # One place decides what counts as a file this hook checks, so the groupers
 # below never re-answer the question and never disagree about it. The rule and
@@ -4108,7 +4133,57 @@ files=&quot;$(printf &#x27;%s&#x27; &quot;$input&quot; | python3 &quot;$lib/edit
 in_repo() {
   local resolved
   resolved=&quot;$(cd &quot;${1%/*}&quot; 2&gt;/dev/null &amp;&amp; pwd -P)&quot; || return 1
-  [[ &quot;$resolved&quot; == &quot;$proj&quot; || &quot;$resolved&quot; == &quot;$proj&quot;/* ]]
+  [[ &quot;$resolved&quot; == &quot;$proj&quot; || &quot;$resolved&quot; == &quot;$proj&quot;/* ]] &amp;&amp; return 0
+  main_root_of
+  [[ &quot;$resolved&quot; == &quot;$main_root&quot; || &quot;$resolved&quot; == &quot;$main_root&quot;/* ]]
+}
+
+# A checker the repository configures but this run could not resolve is a
+# finding, and one that resolved leaves the missing list. Check mode only: the
+# write entry reports nothing. Paths arrive newline-delimited.
+#
+# checkers.py runs behind one wrapper so that a crash of its own is a finding too,
+# not a `set -e` abort that ends the hook without a word. Sets checkers_out.
+checkers_py() {  # &lt;checkers.py arguments&gt; (report text on stdin when it takes any)
+  local rc=0
+  checkers_out=&quot;$(python3 &quot;$lib/checkers.py&quot; &quot;$@&quot; 2&gt;&amp;1)&quot; || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    issues+=$&#x27;\n&#x27;&quot;[post-edit-check] checkers.py $1 exited $rc, so that check did not run: $(printf &#x27;%s&#x27; &quot;$checkers_out&quot; | tail -n 3)&quot;$&#x27;\n&#x27;
+    checkers_out=&quot;&quot;
+  fi
+  return 0
+}
+# Write mode runs fixers whose own failure the agent never saw: a Prettier that
+# cannot load its configuration leaves the file unformatted without a word. A fixer
+# that exits at or above its floor is reported as an advisory in fixer_failures.
+fixer_failures=&quot;&quot;
+fixer() {  # &lt;lowest failing exit status&gt; &lt;label&gt; &lt;command...&gt;
+  local floor=&quot;$1&quot; label=&quot;$2&quot; out rc=0
+  shift 2
+  out=&quot;$(&quot;$@&quot; 2&gt;&amp;1)&quot; || rc=$?
+  [[ $rc -ge $floor ]] &amp;&amp; fixer_failures+=&quot;[$label] exited $rc: ${out%%$&#x27;\n&#x27;*}&quot;$&#x27;\n&#x27;
+  return 0
+}
+eslint_fix() { (cd &quot;$1&quot; &amp;&amp; &quot;$2&quot; --fix &quot;${@:3}&quot;); }
+
+# The missing and ran requests are collected and answered by one checkers.py
+# process at the end (checker_flush), since starting Python is most of their cost.
+checker_requests=&quot;&quot;
+checker_request() {  # &lt;missing|ran&gt; &lt;checker&gt; &lt;paths&gt;
+  local p
+  [[ &quot;$mode&quot; == &quot;check&quot; ]] || return 0
+  while IFS= read -r p; do
+    [[ -n &quot;$p&quot; ]] &amp;&amp; checker_requests+=&quot;$1&quot;$&#x27;\t&#x27;&quot;$2&quot;$&#x27;\t&#x27;&quot;$p&quot;$&#x27;\n&#x27;
+  done &lt;&lt;&lt; &quot;$3&quot;
+  return 0
+}
+checker_missing() { checker_request missing &quot;$1&quot; &quot;$2&quot;; }
+checker_ran() { checker_request ran &quot;$1&quot; &quot;$2&quot;; }
+checker_flush() {
+  [[ -n &quot;$checker_requests&quot; ]] || return 0
+  checkers_py batch &quot;$proj&quot; &quot;$session&quot; &lt;&lt;&lt; &quot;${checker_requests%$&#x27;\n&#x27;}&quot;
+  [[ -n &quot;$checkers_out&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;$checkers_out&quot;$&#x27;\n&#x27;
+  return 0
 }
 
 # A Python repository usually keeps its tools in a virtualenv rather than on
@@ -4176,6 +4251,8 @@ issues=&quot;&quot;
 ts_edited=&quot;&quot;      # .ts/.tsx — typechecked by tsc, per workspace
 js_ts_edited=&quot;&quot;   # all JS/TS — linted by eslint, formatted by prettier
 reformatted=&quot;&quot;    # files a fixer rewrote beyond the agent&#x27;s own edit
+ruff_found=&quot;&quot;     # .py files ruff resolved for / could not resolve for
+ruff_absent=&quot;&quot;
 py_edited=&quot;&quot;      # .py — type-checked by pyright (ruff runs inline below)
 dart_edited=&quot;&quot;    # .dart — formatted by dart format, analyzed per package
 skills_edited=&quot;&quot;  # skills/&lt;name&gt;/*.md — frontmatter and layout, per skill
@@ -4221,13 +4298,18 @@ while IFS= read -r f; do
   case &quot;$f&quot; in
     *.py)
       if resolve_py_tool ruff &quot;${f%/*}&quot;; then
+        ruff_found+=$&#x27;\n&#x27;&quot;$f&quot;
         ruff_bin=&quot;$PY_TOOL_BIN&quot;
         if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
-          &quot;$ruff_bin&quot; check --fix --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
-          &quot;$ruff_bin&quot; format --force-exclude --quiet &quot;$f&quot; &gt;/dev/null 2&gt;&amp;1 || true
+          # ruff check exits 1 when violations remain, which check mode reports;
+          # 2 and above is ruff failing to run.
+          fixer 2 &quot;ruff check --fix $rel&quot; &quot;$ruff_bin&quot; check --fix --force-exclude --quiet &quot;$f&quot;
+          fixer 1 &quot;ruff format $rel&quot; &quot;$ruff_bin&quot; format --force-exclude --quiet &quot;$f&quot;
         elif ! check_out=&quot;$(&quot;$ruff_bin&quot; check --force-exclude --quiet --output-format=concise &quot;$f&quot; 2&gt;&amp;1)&quot;; then
           issues+=$&#x27;\n&#x27;&quot;[ruff] $rel&quot;$&#x27;\n&#x27;&quot;$check_out&quot;$&#x27;\n&#x27;
         fi
+      else
+        ruff_absent+=$&#x27;\n&#x27;&quot;$f&quot;
       fi
       py_edited+=$&#x27;\n&#x27;&quot;$f&quot;
       ;;
@@ -4249,6 +4331,9 @@ while IFS= read -r f; do
   esac
 done &lt;&lt;&lt; &quot;$files&quot;
 
+checker_ran ruff &quot;$ruff_found&quot;
+checker_missing ruff &quot;$ruff_absent&quot;
+
 # Agent Skills format: frontmatter validation plus reference-layout rules.
 # Paths travel newline-delimited in the environment so spaces survive.
 # Unlike the external toolchain above, a missing linter is NOT skipped: it is
@@ -4266,7 +4351,8 @@ fi
 # TypeScript: each edited file is typechecked by its OWN workspace — the nearest
 # ancestor holding a tsconfig.json (apps/*, packages/*), never a single hardcoded
 # one. One tsc run per distinct workspace, errors scoped to the edited files.
-# A workspace without a resolvable tsc is skipped silently.
+# A workspace without a resolvable tsc is skipped silently unless a tsconfig
+# configures it, which checkers.py reports once per session.
 if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$ts_edited&quot; ]]; then
   workspaces=&quot;$(printf &#x27;%s&#x27; &quot;$ts_edited&quot; | python3 &quot;$lib/ts-workspaces.py&quot; &quot;$proj&quot;)&quot;
 
@@ -4282,30 +4368,25 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$ts_edited&quot
     elif [[ -x &quot;$proj/node_modules/.bin/tsc&quot; ]]; then
       tsc_bin=&quot;$proj/node_modules/.bin/tsc&quot;
     else
-      continue                         # no typechecker installed: silent skip
+      checker_missing tsc &quot;$ws&quot;
+      continue
     fi
+    checker_ran tsc &quot;$ws&quot;
 
     # No --incremental: two background checks from consecutive edits would
     # write one build-info file concurrently, and a torn one makes the next run
     # report errors that are not there. This entry is off the critical path, so
     # a cold typecheck costs the session nothing.
-    tsc_raw=&quot;$(cd &quot;$ws&quot; &amp;&amp; &quot;$tsc_bin&quot; --noEmit -p &quot;$ws_config&quot; 2&gt;&amp;1 || true)&quot;
-    [[ -z &quot;$tsc_raw&quot; ]] &amp;&amp; continue
+    tsc_rc=0
+    tsc_raw=&quot;$(cd &quot;$ws&quot; &amp;&amp; &quot;$tsc_bin&quot; --noEmit -p &quot;$ws_config&quot; 2&gt;&amp;1)&quot; || tsc_rc=$?
 
     # tsc reports paths relative to the tsconfig dir, which is also its cwd here.
-    ts_patterns=()
+    # checkers.py reads the run: edited-file errors, a tsconfig that is itself
+    # broken, a non-zero exit with nothing parsable, and errors that are new
+    # outside the edited files that this session&#x27;s earlier runs did not have.
     IFS=$&#x27;\t&#x27; read -r -a ts_rel_list &lt;&lt;&lt; &quot;$ws_rels&quot;
-    for ts_rel in &quot;${ts_rel_list[@]}&quot;; do
-      [[ -n &quot;$ts_rel&quot; ]] &amp;&amp; ts_patterns+=(-e &quot;$ts_rel&quot;)
-    done
-    scoped=&quot;&quot;
-    [[ ${#ts_patterns[@]} -gt 0 ]] &amp;&amp;
-      scoped=&quot;$(printf &#x27;%s\n&#x27; &quot;$tsc_raw&quot; | grep -F &quot;${ts_patterns[@]}&quot; || true)&quot;
-
-    if [[ -n &quot;$scoped&quot; ]]; then
-      ws_label=&quot;${ws#$proj/}/$ws_config&quot;
-      issues+=$&#x27;\n&#x27;&quot;[tsc --noEmit] $ws_label (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
-    fi
+    checkers_py tsc &quot;$proj&quot; &quot;$session&quot; &quot;$ws&quot; &quot;$ws_config&quot; &quot;$tsc_rc&quot; &quot;${ts_rel_list[@]}&quot; &lt;&lt;&lt; &quot;$tsc_raw&quot;
+    [[ -n &quot;$checkers_out&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;$checkers_out&quot;$&#x27;\n&#x27;
   done &lt;&lt;&lt; &quot;$workspaces&quot;
 fi
 
@@ -4323,9 +4404,26 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
   # having run nothing. Group the edited files by the nearest
   # node_modules/.bin holding the tool, and run one pass per binary; a file
   # with no binary above it is skipped, as before.
+  main_root_of
   js_groups() {
-    printf &#x27;%s&#x27; &quot;$js_ts_edited&quot; | python3 &quot;$lib/js-groups.py&quot; &quot;$proj&quot; &quot;$1&quot;
+    printf &#x27;%s&#x27; &quot;$js_ts_edited&quot; | python3 &quot;$lib/js-groups.py&quot; &quot;$proj&quot; &quot;$main_root&quot; &quot;$1&quot;
   }
+
+  # A file no group claims has no resolvable binary; a config that asks for the
+  # tool turns that into a finding, and a resolved group leaves the missing list.
+  js_report() {  # &lt;tool&gt;
+    local row
+    checker_missing &quot;$1&quot; &quot;$(printf &#x27;%s&#x27; &quot;$js_ts_edited&quot; | python3 &quot;$lib/js-groups.py&quot; &quot;$proj&quot; &quot;$main_root&quot; &quot;$1&quot; --missing)&quot;
+    while IFS= read -r row; do
+      [[ -z &quot;$row&quot; ]] &amp;&amp; continue
+      row=&quot;${row#*$&#x27;\t&#x27;}&quot;
+      checker_ran &quot;$1&quot; &quot;$(printf &#x27;%s&#x27; &quot;${row#*$&#x27;\t&#x27;}&quot; | tr &#x27;\t&#x27; &#x27;\n&#x27;)&quot;
+    done &lt;&lt;&lt; &quot;$(js_groups &quot;$1&quot;)&quot;
+  }
+  if [[ &quot;$mode&quot; == &quot;check&quot; ]]; then
+    js_report eslint
+    js_report prettier
+  fi
 
   if [[ &quot;$mode&quot; == &quot;write&quot; ]]; then
     while IFS= read -r line; do
@@ -4334,14 +4432,15 @@ if [[ -n &quot;$js_ts_edited&quot; ]]; then
       IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;$rest&quot;
       # Stay in $proj: prettier finds its config from each file&#x27;s own path, so
       # the workspace&#x27;s .prettierrc applies either way.
-      &quot;$prettier_bin&quot; --write --log-level silent &quot;${jsfiles[@]}&quot; &gt;/dev/null 2&gt;&amp;1 || true
+      fixer 1 &quot;prettier --write&quot; &quot;$prettier_bin&quot; --write --log-level silent &quot;${jsfiles[@]}&quot;
     done &lt;&lt;&lt; &quot;$(js_groups prettier)&quot;
 
     while IFS= read -r line; do
       [[ -z &quot;$line&quot; ]] &amp;&amp; continue
       IFS=$&#x27;\t&#x27; read -r eslint_bin eslint_cwd rest &lt;&lt;&lt; &quot;$line&quot;
       IFS=$&#x27;\t&#x27; read -r -a jsfiles &lt;&lt;&lt; &quot;$rest&quot;
-      (cd &quot;$eslint_cwd&quot; &amp;&amp; &quot;$eslint_bin&quot; --fix &quot;${jsfiles[@]}&quot;) &gt;/dev/null 2&gt;&amp;1 || true
+      # eslint exits 1 when lint errors remain; 2 is eslint failing to run.
+      fixer 2 &quot;eslint --fix&quot; eslint_fix &quot;$eslint_cwd&quot; &quot;$eslint_bin&quot; &quot;${jsfiles[@]}&quot;
     done &lt;&lt;&lt; &quot;$(js_groups eslint)&quot;
   else
     # --format json, not unix: ESLint 9 moved `unix` out of core, so asking for
@@ -4379,9 +4478,15 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot
   # files by resolved environment and run one pass per group, from that
   # environment&#x27;s own directory so its pyproject/pyrightconfig is the one read.
   py_pairs=&quot;&quot;
+  pyright_found=&quot;&quot;
+  pyright_absent=&quot;&quot;
   while IFS= read -r pf; do
     [[ -z &quot;$pf&quot; ]] &amp;&amp; continue
-    resolve_py_tool pyright &quot;${pf%/*}&quot; || continue
+    if ! resolve_py_tool pyright &quot;${pf%/*}&quot;; then
+      pyright_absent+=$&#x27;\n&#x27;&quot;$pf&quot;
+      continue
+    fi
+    pyright_found+=$&#x27;\n&#x27;&quot;$pf&quot;
     py_pairs+=&quot;$PY_TOOL_DIR&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_BIN&quot;$&#x27;\t&#x27;&quot;$pf&quot;$&#x27;\n&#x27;
   done &lt;&lt;&lt; &quot;$py_edited&quot;
 
@@ -4405,16 +4510,31 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot
       *)
         [[ -x &quot;$py_ws/.venv/bin/python&quot; ]] &amp;&amp; py_interp=&quot;$py_ws/.venv/bin/python&quot; ;;
     esac
+    # stderr is kept: a pyright that cannot start says why there and prints
+    # nothing on stdout. Exit 1 is the ordinary &quot;found errors&quot;; the JSON report
+    # is what says whether the run could be read.
+    pyright_err=&quot;$(mktemp)&quot;
+    pyright_rc=0
     if [[ -n &quot;$py_interp&quot; ]]; then
-      pyright_raw=&quot;$(cd &quot;$py_ws&quot; &amp;&amp; &quot;$pyright_bin&quot; --pythonpath &quot;$py_interp&quot; --outputjson &quot;${pyfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
+      pyright_raw=&quot;$(cd &quot;$py_ws&quot; &amp;&amp; &quot;$pyright_bin&quot; --pythonpath &quot;$py_interp&quot; --outputjson &quot;${pyfiles[@]}&quot; 2&gt;&quot;$pyright_err&quot;)&quot; || pyright_rc=$?
     else
-      pyright_raw=&quot;$(cd &quot;$py_ws&quot; &amp;&amp; &quot;$pyright_bin&quot; --outputjson &quot;${pyfiles[@]}&quot; 2&gt;/dev/null || true)&quot;
+      pyright_raw=&quot;$(cd &quot;$py_ws&quot; &amp;&amp; &quot;$pyright_bin&quot; --outputjson &quot;${pyfiles[@]}&quot; 2&gt;&quot;$pyright_err&quot;)&quot; || pyright_rc=$?
     fi
-    if [[ -n &quot;$pyright_raw&quot; ]]; then
-      scoped=&quot;$(printf &#x27;%s&#x27; &quot;$pyright_raw&quot; | python3 &quot;$lib/tool-errors.py&quot; pyright &quot;$proj&quot;)&quot;
-      [[ -n &quot;$scoped&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;[pyright] (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
+    scoped=&quot;&quot;
+    [[ -n &quot;$pyright_raw&quot; ]] &amp;&amp; scoped=&quot;$(printf &#x27;%s&#x27; &quot;$pyright_raw&quot; | python3 &quot;$lib/tool-errors.py&quot; pyright &quot;$proj&quot;)&quot;
+    has_scoped=0
+    if [[ -n &quot;$scoped&quot; ]]; then
+      has_scoped=1
+      issues+=$&#x27;\n&#x27;&quot;[pyright] (scoped to edited files)&quot;$&#x27;\n&#x27;&quot;$scoped&quot;$&#x27;\n&#x27;
     fi
+    # A pyrightconfig.json pyright cannot parse exits 3 with an empty report and
+    # the reason on stderr, which would otherwise read as a clean run.
+    checkers_py pyright &quot;$proj&quot; &quot;$py_ws&quot; &quot;$pyright_rc&quot; &quot;$pyright_err&quot; &quot;$has_scoped&quot; &lt;&lt;&lt; &quot;$pyright_raw&quot;
+    [[ -n &quot;$checkers_out&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;$checkers_out&quot;$&#x27;\n&#x27;
+    rm -f &quot;$pyright_err&quot;
   done &lt;&lt;&lt; &quot;$(printf &#x27;%s&#x27; &quot;$py_pairs&quot; | cut -f1,2 | sort -u)&quot;
+  checker_ran pyright &quot;$pyright_found&quot;
+  checker_missing pyright &quot;$pyright_absent&quot;
 fi
 
 # Dart: one format pass over every edited file, and one analyze run per package.
@@ -4449,8 +4569,10 @@ if [[ -n &quot;$dart_edited&quot; ]]; then
       elif command -v dart &gt;/dev/null 2&gt;&amp;1; then
         analyzer=dart
       else
+        checker_missing dart &quot;$pkg&quot;
         continue
       fi
+      checker_ran dart &quot;$pkg&quot;
       # Both analyzers need a resolved package. Resolving here would reach the
       # network and write pubspec.lock and .dart_tool/, which a report-only hook
       # must not do, so a package never fetched is skipped with a note instead.
@@ -4502,6 +4624,7 @@ if [[ &quot;$mode&quot; == &quot;write&quot; &amp;&amp; &quot;$nullsafety_check&
 fi
 
 if [[ &quot;$mode&quot; == &quot;check&quot; ]]; then
+  checker_flush
   [[ -z &quot;$issues&quot; ]] &amp;&amp; exit 0
   cat &gt;&amp;2 &lt;&lt;EOF
 Post-edit checks failed — fix them before moving on. Each is scoped to the
@@ -4533,6 +4656,15 @@ cast silences it; parsed JSON is \`any\`). Prefer validating the shape or
 narrowing the type to asserting it. If a flagged line is a deliberate,
 proven-safe assertion, leave it and continue.
 $nullsafety
+&quot;
+fi
+
+if [[ -n &quot;$fixer_failures&quot; ]]; then
+  advisories+=&quot;
+Advisory — a fixer could not run to completion, so these files may be left
+unfixed or unformatted. The post-edit check does not block on this; fix the
+tool or its configuration.
+$fixer_failures
 &quot;
 fi
 
@@ -4857,7 +4989,7 @@ esac
               <div class="top"><span class="id">stop-investigate</span><span class="badge gate">gate</span></div>
               <p class="what">Blocks the hand-back when the last message hedges ("I can't"), declares work out of scope, or disclaims ownership of code it touched.</p>
               <div class="io"><b>in</b> {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 111 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 122 lines</span></summary><div class="srcpath">.agents/hooks/policy/stop-investigate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: block end-of-turn when the last assistant
 # message hedges, declares the task out of scope, or disclaims ownership
 # of code it touched.
@@ -4945,6 +5077,17 @@ If this is that escalation, it lacks what makes it one: carry what you found,
 the options, and your recommendation with its trade-offs, so the user can
 decide in one reply instead of asking what you would do.
 EOF
+  # A repository that declares systems in policy.json has told the agent what
+  # it can read; &quot;I have no access&quot; is checked against that declaration.
+  if python3 -c &#x27;import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get(&quot;systems&quot;) else 1)&#x27; \
+       &quot;$repo/.agents/policy.json&quot; 2&gt;/dev/null; then
+    cat &gt;&amp;2 &lt;&lt;&#x27;EOF&#x27;
+
+This repository declares systems you can read. Before saying you lack access,
+run `python3 .agents/access.py list` to see each system&#x27;s read and log
+commands, and `python3 .agents/access.py probe` to see which answer now.
+EOF
+  fi
   exit 2
 fi
 
