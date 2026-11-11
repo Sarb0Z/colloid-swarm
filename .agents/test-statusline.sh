@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Firing tests for the status strip: rendering, the account badge, the toggle's
-# hand-over to the person's own status line, and a missing jq.
+# hand-over to the person's own status line, a missing jq, and the third row
+# of unit readouts: drawn, with its separator, from a reader that failed, with
+# no folder or an empty one, and for the payload's own session.
 set -euo pipefail
 # A caller such as `git rebase -x` exports these; the git calls below must
 # reach only their own temporary repositories.
@@ -53,16 +55,28 @@ out="$(run "$home/.claude/projects/s.jsonl" "$scratch/tree")"
 [[ "$out" == *"trunk"* && "$out" == *"●1"* ]] || fail "branch or dirty count missing: $out"
 ok "draws the branch and the dirty count"
 
-# A readout file draws a third row; an empty folder leaves two. A session-scoped
-# readout shows only for its own session.
+# A readout file draws a third row; no folder, or an empty one, leaves two. A
+# session-scoped readout shows only for its own session.
 [[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 ]] || fail "no readout, yet the strip is not two rows: $out"
+mkdir -p "$fixture/.agents/.readout"
+out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
+[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 ]] || fail "an empty readout folder drew a third row: $out"
 python3 "$fixture/.agents/hooks/lib/readout.py" write owed --repo "$fixture" --strip "2 replies owed"
 python3 "$fixture/.agents/hooks/lib/readout.py" write other --repo "$fixture" --session elsewhere --strip "hidden"
 out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
 [[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 3 && "$(printf '%s\n' "$out" | sed -n 3p)" == "2 replies owed" ]] \
   || fail "a readout did not draw the third row: $out"
 [[ "$out" != *hidden* ]] || fail "another session's readout drew: $out"
-ok "a readout file draws a third row"
+ok "a readout file draws a third row, and an empty folder leaves two"
+
+# A payload carrying session_id draws that session's own readout.
+python3 "$fixture/.agents/hooks/lib/readout.py" write mine --repo "$fixture" --session sess-1 --strip "my own readout"
+out="$(payload "$home/.claude/projects/s.jsonl" "$plain" | sed 's/^{/{"session_id":"sess-1",/' \
+  | env -u CLAUDE_PROFILE -u CLAUDE_CONFIG_DIR -u COLLOID_STATUS_DELEGATED HOME="$home" bash "$strip" | sed -E $'s/\x1b\\[[0-9;]*m//g')"
+[[ "$(printf '%s\n' "$out" | sed -n 3p)" == *"my own readout"* ]] || fail "the session's own readout did not draw: $out"
+[[ "$(run "$home/.claude/projects/s.jsonl" "$plain")" != *"my own readout"* ]] || fail "a session readout drew for a payload with no session"
+rm "$fixture/.agents/.readout/mine--sess-1.json"
+ok "a payload's session_id draws that session's own readout"
 
 # Two readouts: the separator is drawn, never printed as escape text.
 python3 "$fixture/.agents/hooks/lib/readout.py" write second --repo "$fixture" --strip 'back\slash'

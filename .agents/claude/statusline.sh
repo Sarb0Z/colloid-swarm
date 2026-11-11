@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code status line — two rows, TokyoNight colours, Nerd Font icons.
+# Claude Code status line — two rows (a third when a unit has a readout), TokyoNight colours, Nerd Font icons.
 #
 #   ● PERSONAL   claims-app   mvp/roadmap ●3 ↑2   +156 −23   #41 ✓   session name  󰔛 1h12m
 #   Fable 5.1 ⚡ high 󰧑  ━━━━┄┄┄┄┄┄ 367K/1M  5h 42% ↻2h10m  7d 18%  style:colloid
