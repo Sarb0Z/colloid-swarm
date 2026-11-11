@@ -39,7 +39,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
-     "$repo/.agents/hooks/lib/worktree_heal.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worktree_heal.py" "$repo/.agents/hooks/lib/readout.py" "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -168,6 +168,18 @@ assert_not_contains "$tt_context" 'fixture decision body'
 assert_contains "$tt_context" '- 2026-01-02 · research · Fixture subject'
 assert_not_contains "$tt_context" 'fixture summary'
 assert_wrap_state "$tt"
+
+# A readout's note reaches the context; another session's does not (the fixture
+# session is "fixture-session").
+python3 "$tt/.agents/hooks/lib/readout.py" write owed --repo "$tt" --strip "2 owed" --note "two replies owed"
+python3 "$tt/.agents/hooks/lib/readout.py" write build --repo "$tt" --session someone-else --note "foreign build note"
+ro_context="$(context_of "$(run_policy "$tt")")"
+assert_contains "$ro_context" 'readout.py show'
+assert_contains "$ro_context" 'owed: two replies owed'
+assert_not_contains "$ro_context" 'foreign build note'
+rm -r "$tt/.agents/.readout"
+assert_not_contains "$(context_of "$(run_policy "$tt")")" 'Unit readouts'
+printf 'ok: a readout note reaches the context and another session'"'"'s does not\n'
 
 write_crumbs() {
   local dir="$1"
