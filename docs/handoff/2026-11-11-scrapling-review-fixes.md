@@ -62,6 +62,15 @@ the `search-and-cite` skill tells a session to run.
   stop; it never gets past one itself. Unattended runs pass bot walls and list
   each in their report, and skip and report pages behind an access
   restriction.
+- **Saved read scripts** (ruled after the grilling, 2026-11-11): a session may
+  commit a script that reads pages and rerun it in place of the browser tools
+  on any site, walled public sites included, when each run stays within the
+  25-page bound and prints every address it read. Its reads reach neither the
+  sources ledger nor the launcher's limits; the operator accepted that.
+- **Cheapest source first:** the lookup route tries an open API or open
+  dataset before any browser (`knowledge/research/2026-09-30-bot-walls-on-property-sites.md`:
+  county assessor data served 99 addresses while Zillow denied the machine's
+  address).
 - **Fetch addresses:** `http` and `https` only.
 - **Hosts:** the `hosts` list stays; an entry without one renders on every
   host (not required), and Scrapling lists `claude` only.
@@ -211,9 +220,10 @@ One commit each, in this order.
    - The line states R2 as ruled: any public page; one page at a time; the
      bounded run of 25 pages a site per agent per task, counted in the report;
      the sent-without-a-login test; the question at an access restriction and
-     its three answers; unattended runs. The route carries the bound and the
-     access-restriction question at the step where the agent picks Scrapling,
-     and says the stealth browser is Claude only.
+     its three answers; unattended runs; saved read scripts within the bound.
+     The route carries the bound and the access-restriction question at the
+     step where the agent picks Scrapling, says the stealth browser is Claude
+     only, and puts an open API or open dataset before any browser.
    - Tested before it lands, by `.agents/AGENTS.md`'s Writing contract
      language: pass conditions written first; at least two fresh headless
      runs on the model that reads it, from a fixture folder carrying the
