@@ -43,7 +43,8 @@ Read a playbook workflow's file before its first step.
 | Step | Disposable | Standard | Critical |
 |---|---|---|---|
 | Grill and model the domain (`grill-me`) | — | — | Yes |
-| Plan: affected modules, constraints, the one or two options worth weighing, the claim QA must reproduce, and a `Lenses:` block giving one line to each Plan lens below the plan can exhibit and `n/a` to the rest | — | Yes | Yes |
+| Research: a findings table (`.agents/playbooks/plan-research.md`) of each claim the plan will act on, with its `path:line` or command output and whether it was `observed` or `inferred` | — | Yes, by the lead | Yes, by a fresh read-only cell |
+| Plan from the findings, stating as fact only claims marked `observed` and turning the rest into a probe or a question: affected modules, constraints, the one or two options worth weighing, the claim QA must reproduce, and a `Lenses:` block giving one line to each Plan lens below the plan can exhibit and `n/a` to the rest | — | Yes | Yes |
 | Hostile review of the plan; settle every `P0` and `P1` before code | — | Yes | Yes |
 | Stop and report: no code in the unit before the operator's OK on its plan | — | — | Yes |
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |

@@ -7,6 +7,7 @@ spec itself; Spec ends there unless the operator asks for the build.
 |---|---|---|---|
 | Grill and model the domain (`grill-me`) | — | — | Yes |
 | Ground every external claim: `search-and-cite` for a lookup, `market-researcher` for competitors, demand, and gaps | Yes | Yes | Yes |
+| Ground every claim about the existing code and systems in a findings table (`plan-research.md`), and state as fact only rows marked `observed` | — | Yes, by the lead | Yes, by a fresh read-only cell |
 | **Delegate** independent research questions to researcher cells in parallel; keep the synthesis | — | When there are two or more questions | Yes |
 | Write the spec: scope, the decisions with their alternatives, the open questions, the claim QA must reproduce when it is built; at Standard and Critical, a `Lenses:` block gives one line to each Plan lens in the root `AGENTS.md` Build workflow that the spec can exhibit and `n/a` to the rest, before the decisions settle | Yes | Yes | Yes |
 | AI hostile review of the spec (`hostile-review.md`) | — | Yes | Yes |

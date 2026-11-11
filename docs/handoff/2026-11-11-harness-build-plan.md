@@ -151,10 +151,12 @@ command lines and official connectors.
   it through the publish guard's classifier and refuses one the guard would
   ask about, so a write declared as a read does not run unasked.
 - 7.2 The probe runs when an agent or the operator runs it, never at session
-  start; the session-start note shows the cached table and its age, and says
-  to run the probe when the table is absent or older than a day.
-  `stop-investigate.sh`, which already stops a turn that claims it cannot do
-  something, names `access.py probe` in its message.
+  start; it writes a readout with `stale_after` of a day, so the session-start
+  note shows the last table with its age once it is older. A repository never
+  probed shows nothing: the transplant's Systems step (7.3) runs the first
+  probe, and `stop-investigate.sh`, which already stops a turn that claims it
+  cannot do something, names `access.py probe` in its message (review
+  `2026-11-11-harness-u0` finding 1).
 - 7.3 `export/README.md` gains a Systems step in the adaptation, modelled on
   F19: declare the systems, add a guard row for each vendor command line the
   guard lacks, verify and enable that product's connectors. The carrier
@@ -184,15 +186,13 @@ knows is refused by `access.py` by name.
   findings itself; at Critical a fresh read-only cell does. Pass condition,
   two fresh headless sessions: a Standard Build writes a findings table
   before its plan, and its plan states no claim the table marks inferred.
-- 1.3 The reviewer contract's static sweep gains, for a plan: open the cited
-  lines of the claims the riskiest step rests on, and report a claim that
-  does not hold. `extract-contract.sh` regenerates the graded copy (F2). The
-  test is a fixture plan with one planted false `observed` claim, caught in
-  both of two fresh runs.
+- 1.3 Dropped after its test. A fixture plan with one planted false
+  `observed` claim was reported false by reviewers under the committed
+  contract in two of two runs, as under the drafted line, so the line would
+  change nothing (`knowledge/research/2026-11-10-contract-wording-in-fresh-sessions.md`).
 
-Acceptance: (1) the planted false claim is reported in two of two runs;
-(2) a Standard Build in a fresh session writes a findings table before its
-plan.
+Acceptance: a Standard Build in a fresh session writes a findings table
+before its plan, and a session without the Research row does not.
 
 ### Unit 4 — owed-work flags
 
