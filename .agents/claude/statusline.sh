@@ -170,5 +170,13 @@ fi
 printf '\n'
 
 # ── row 3: unit readouts (hooks/lib/readout.py); drawn only when one speaks ──
-readouts=$(python3 "$repo/.agents/hooks/lib/readout.py" strip "$repo" "$session")
-if [ -n "$readouts" ]; then printf "${FG}%s${R}\n" "${readouts//  ·  /${SEP}}"; fi
+# The reader starts only when the readout folder exists, so a repository no
+# unit writes to pays nothing per refresh. $SEP holds a literal \033 sequence,
+# so the row goes through %b, with the readouts' own backslashes doubled first.
+if [ -d "$repo/.agents/.readout" ]; then
+  readouts=$(python3 "$repo/.agents/hooks/lib/readout.py" strip "$repo" "$session") || readouts="readouts: reader failed"
+  if [ -n "$readouts" ]; then
+    readouts=${readouts//\\/\\\\}
+    printf "${FG}%b${R}\n" "${readouts//  ·  /${SEP}}"
+  fi
+fi

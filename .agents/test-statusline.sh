@@ -62,8 +62,27 @@ out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
 [[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 3 && "$(printf '%s\n' "$out" | sed -n 3p)" == "2 replies owed" ]] \
   || fail "a readout did not draw the third row: $out"
 [[ "$out" != *hidden* ]] || fail "another session's readout drew: $out"
+ok "a readout file draws a third row"
+
+# Two readouts: the separator is drawn, never printed as escape text.
+python3 "$fixture/.agents/hooks/lib/readout.py" write second --repo "$fixture" --strip 'back\slash'
+out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
+row3="$(printf '%s\n' "$out" | sed -n 3p)"
+[[ "$row3" != *033* ]] || fail "the separator printed as literal text: $row3"
+[[ "$row3" == "2 replies owed"*'back\slash' ]] || fail "two readouts did not draw, or a backslash was altered: $row3"
+rm "$fixture/.agents/.readout/second.json"
+ok "two readouts draw with the real separator and keep their own backslashes"
+
+# The reader failing is said on the row; with no folder it is never started.
+cp "$fixture/.agents/hooks/lib/readout.py" "$scratch/readout.py.real"
+printf 'import sys\nsys.exit(3)\n' > "$fixture/.agents/hooks/lib/readout.py"
+out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
+[[ "$(printf '%s\n' "$out" | sed -n 3p)" == "readouts: reader failed" ]] || fail "a failing reader was not reported: $out"
 rm -r "$fixture/.agents/.readout"
-ok "a readout file draws a third row, and an empty folder draws two"
+out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
+[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 && "$out" != *"reader failed"* ]] || fail "no readout folder, yet the reader ran or a row drew: $out"
+cp "$scratch/readout.py.real" "$fixture/.agents/hooks/lib/readout.py"
+ok "a failing reader is named on the third row, and no folder means two rows and no reader run"
 
 # Switched off, the person's own status line draws instead.
 printf '%s\n' '{"hooks": {"status_strip": {"enabled": false}}}' > "$fixture/.agents/policy.json"
