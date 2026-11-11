@@ -554,6 +554,7 @@ python_fixture() {  # <name> <lockfile or empty> -> a ruff-configured fixture
   return 0
 }
 python_fixture lockuv uv.lock
+printf 'flask\n' > "$fx/requirements.txt"
 fxrun check s1 '["src/a.py"]'
 [[ "$err" == *"not installed: uv add --dev ruff"* ]] || fail "uv.lock must give uv add --dev, got: $err"
 python_fixture lockpoetry poetry.lock

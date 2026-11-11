@@ -73,21 +73,18 @@ proj="$(pwd -P)"
 
 # A lane worktree links its node_modules to the main worktree of the same
 # repository, and a binary found there counts as inside the repository. The main
-# worktree is the first entry of `git worktree list`; a bare repository's first
-# entry is the bare directory, which holds no checkout, so the project stands in.
+# worktree is the first entry of `git worktree list`; outside a repository the
+# project stands in. For a bare repository the first entry is the bare directory,
+# which holds no checkout, so nothing beside it is trusted.
 # Asked on first use only, since most edits never need it.
 main_root=""
 main_root_of() {
-  local line first="" bare=0
+  local first
   [[ -n "$main_root" ]] && return 0
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && break
-    [[ "$line" == "worktree "* && -z "$first" ]] && first="${line#worktree }"
-    [[ "$line" == "bare" ]] && bare=1
-  done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX -u GIT_COMMON_DIR \
-             git -C "$proj" worktree list --porcelain 2>/dev/null)
+  first="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX -u GIT_COMMON_DIR \
+             git -C "$proj" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)"
   main_root="$proj"
-  [[ $bare -eq 0 && -n "$first" ]] && main_root="$(cd "$first" 2>/dev/null && pwd -P || printf '%s' "$proj")"
+  [[ -n "$first" ]] && main_root="$(cd "$first" 2>/dev/null && pwd -P || printf '%s' "$proj")"
   return 0
 }
 
