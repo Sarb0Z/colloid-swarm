@@ -77,6 +77,7 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         files, warnings = patch_paths(tool_input.get("command"))
         out["files"] = files
         out["warnings"] = warnings
+        out["session_id"] = text(source, "session_id")
     elif policy == "edit-record.sh":
         tool = text(source, "tool_name")
         command = tool_input.get("command")

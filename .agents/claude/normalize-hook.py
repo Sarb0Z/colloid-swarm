@@ -122,6 +122,7 @@ def normalize(payload, policy, repo):
         out["tool_input"] = tool_input
     elif policy == "post-edit-check.sh":
         out["files"] = write_targets.named(tool_input)
+        out["session_id"] = payload.get("session_id", "")
     elif policy == "edit-record.sh":
         # Identity keys the record session-wrap.sh reads. The event and call id
         # pair a shell call's HEAD snapshot with its result; the tool output

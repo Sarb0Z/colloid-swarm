@@ -132,4 +132,21 @@ say_turn "Filed the four lint errors in .agents/breadcrumbs.md; the change itsel
 [[ $rc -eq 0 ]] || fail "a filing later in the turn must disarm: $(cat "$scratch/err")"
 ok    "a filing later in the turn disarms"
 
+# Declared systems add the access commands to the hedge message; a repository
+# with none keeps the message as it was. The sandbox has no policy.json until
+# a case writes one.
+say_turn "I am unable to read the staging logs."
+[[ $rc -eq 2 ]] || fail "the hedge must still block"
+grep -q "access.py" "$scratch/err" && fail "no systems declared: the message must not name access.py"
+printf '{"systems":[{"name":"github","probe":"true","read":[]}]}\n' > "$scratch/.agents/policy.json"
+say_turn "I am unable to read the staging logs."
+[[ $rc -eq 2 ]] || fail "the hedge must still block with systems declared"
+grep -q 'python3 .agents/access.py list' "$scratch/err" || fail "the message must name access.py list"
+grep -q 'python3 .agents/access.py probe' "$scratch/err" || fail "the message must name access.py probe"
+printf '{"systems":[]}\n' > "$scratch/.agents/policy.json"
+say_turn "I am unable to read the staging logs."
+grep -q "access.py" "$scratch/err" && fail "an empty systems list must not add the access lines"
+rm -f "$scratch/.agents/policy.json"
+ok    "declared systems add the access commands to the hedge message"
+
 printf '\nALL PASS\n'
