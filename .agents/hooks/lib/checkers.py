@@ -19,9 +19,9 @@ Usage:
       (`<rel>...`), errors in the tsconfig itself, a run that exited non-zero
       with no error line, and errors outside the edited files that are new
       since the session's last run in that workspace.
-  checkers.py pyright <project> <workspace> <exit-status> <stderr-file>
-      pyright's --outputjson on stdin. Prints a finding only when the run left
-      no JSON report to read; diagnostics are tool-errors.py's.
+  checkers.py pyright <project> <workspace> <exit-status> <stderr-file> <1 if a diagnostic was scoped, else 0>
+      pyright's --outputjson on stdin. Prints a finding only when the run
+      cannot be trusted; diagnostics are tool-errors.py's.
   checkers.py main-root <project>
       The main checkout of the repository the project belongs to.
 
@@ -42,12 +42,11 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check_reports  # noqa: E402
 import readout  # noqa: E402
 
 LEDGER = "checks-ledger"
 READOUT_STALE_AFTER = 604800
-TSC_FINDING = re.compile(r"error TS\d+")
-FIRST_LINES = 3
 
 ESLINT_FLAT = tuple(f"eslint.config.{ext}" for ext in ("js", "mjs", "cjs", "ts", "mts", "cts"))
 ESLINT_LEGACY = (".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json",
@@ -289,55 +288,40 @@ def ran(checker, project, paths):
             ledger.save()
 
 
-def first_lines(text):
-    lines = [line.strip() for line in text.splitlines() if line.strip()][:FIRST_LINES]
-    return " | ".join(lines) if lines else "(no output)"
+def locked_folder(project):
+    """The state folder, with an exclusive lock held on it until the handle closes.
+    The lock is on the folder itself: readout.py's prune deletes stale files in it
+    but never the folder."""
+    handle = os.open(state_folder(project), os.O_RDONLY)
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
 
 
-def new_outside(project, session, tool, workspace, lines):
-    """Lines not in the set stored at the session's last run here; the first run
-    only stores. The stored set is replaced, so errors that go away are not news."""
-    directory = state_folder(project)
-    target = directory / f"checks-outside--{key(session, tool, relative(workspace, project))}"
-    previous = read_text(target).splitlines() if target.exists() else None
-    replace_atomically(directory, target, "".join(f"{line}\n" for line in lines))
-    if previous is None:
-        return []
-    return [line for line in lines if line not in set(previous)]
+def baseline_swapper(project, session, workspace):
+    """The baseline of tsc errors for this session and workspace, as a function:
+    it stores the lines it is given and returns the previous ones (None before
+    the first run). Read and replace happen under the folder lock, because two
+    background checks can finish together."""
+    def swap(lines):
+        handle = locked_folder(project)
+        try:
+            directory = state_folder(project)
+            target = directory / f"checks-outside--{key(session, 'tsc', relative(workspace, project))}"
+            previous = read_text(target).splitlines() if target.exists() else None
+            replace_atomically(directory, target, "".join(f"{line}\n" for line in lines))
+            return previous
+        finally:
+            os.close(handle)
+    return swap
 
 
 def tsc(project, session, workspace, config, status, rels, raw):
-    label = config if workspace == project else f"{relative(workspace, project)}/{config}"
-    lines = raw.splitlines()
-    errors = [line for line in lines if TSC_FINDING.search(line)]
-    if status != 0 and not errors:
-        return f"[tsc] {label} exited {status} with no parsable output: {first_lines(raw)}"
-    config_line = re.compile(rf"^(error TS|{re.escape(config)}[(:])")
-    scoped = [line for line in lines if any(rel in line for rel in rels)]
-    broken = [line for line in lines if config_line.match(line)]
-    outside = [line for line in errors if line not in scoped and line not in broken]
-    blocks = []
-    if broken:
-        blocks.append(f"[tsc] {label} could not be read as a project:\n" + "\n".join(broken))
-    if scoped:
-        blocks.append(f"[tsc --noEmit] {label} (scoped to edited files)\n" + "\n".join(scoped))
-    fresh = new_outside(project, session, "tsc", workspace, outside)
-    if fresh:
-        blocks.append("[tsc] new errors outside the edited files (an edit may have broken a caller):\n"
-                      + "\n".join(fresh))
-    return "\n".join(blocks)
+    return check_reports.tsc(project, workspace, config, status, rels, raw,
+                             baseline_swapper(project, session, workspace))
 
 
-def pyright(project, workspace, status, stderr_path, raw):
-    try:
-        report = json.loads(raw or "null")
-    except ValueError:
-        report = None
-    if isinstance(report, dict) and "generalDiagnostics" in report:
-        return ""
-    label = relative(workspace, project)
-    detail = first_lines(read_text(stderr_path) or raw)
-    return f"[pyright] {label} exited {status} with no parsable output: {detail}"
+def pyright(project, workspace, status, stderr_path, scoped, raw):
+    return check_reports.pyright(project, workspace, status, read_text(stderr_path), raw, scoped)
 
 
 def main_checkout(project):
@@ -364,8 +348,8 @@ def main(argv):
         out = ""
     elif command == "tsc" and len(args) >= 6:
         out = tsc(args[0], args[1], args[2], args[3], int(args[4]), args[5:], sys.stdin.read())
-    elif command == "pyright" and len(args) == 4:
-        out = pyright(args[0], args[1], int(args[2]), args[3], sys.stdin.read())
+    elif command == "pyright" and len(args) == 5:
+        out = pyright(args[0], args[1], int(args[2]), args[3], args[4] == "1", sys.stdin.read())
     elif command == "main-root" and len(args) == 1:
         out = main_checkout(args[0])
     else:

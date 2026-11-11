@@ -400,6 +400,99 @@ fxrun check s1 '["src/a.py"]'
   || fail "STUB pyright: stderr of an unreadable run must be kept and reported, got rc=$rc: $err"
 ok "STUB pyright: an unreadable run is reported with its stderr"
 
+# --- tsc baseline and caller logic, on a stub that prints a file --------------
+# The stub prints $fx/tsc.out and exits 1 when it holds anything, so these rows
+# run where tsc is not installed.
+tsc_stub() {  # <fixture> -> installs the stub tsc
+  stub "$1/node_modules/.bin/tsc" 'out="$(cat "$(dirname "$0")/../../tsc.out")"
+[[ -z "$out" ]] && exit 0
+printf "%s\n" "$out"; exit 1'
+}
+newfix tscswitch
+tsc_stub "$fx"
+printf '{"include":["src"]}\n' > "$fx/tsconfig.json"
+printf 'export const a: number = "s";\n' > "$fx/src/a.ts"
+printf 'export const b = 1;\n' > "$fx/src/b.ts"
+printf "src/a.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'.\n" > "$fx/tsc.out"
+fxrun check s1 '["src/b.ts"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "the first run in a session sets the baseline silently, got rc=$rc: $err"
+fxrun check s1 '["src/a.ts"]'
+[[ $rc -eq 2 && "$err" == *"[tsc --noEmit]"* && "$err" != *"new errors outside"* ]] \
+  || fail "an error in the edited file is reported as scoped, never as new, got rc=$rc: $err"
+fxrun check s1 '["src/b.ts"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "switching to a file whose neighbour already had an error must stay quiet, got rc=$rc: $err"
+fxrun check s1 '["src/a.ts"]'
+[[ $rc -eq 2 && "$err" != *"new errors outside"* ]] || fail "switching back must report the edited file's own error only, got rc=$rc: $err"
+fxrun check s1 '["src/b.ts"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "switching again must stay quiet, got rc=$rc: $err"
+ok "STUB tsc: an error another file already had is not blamed on the edit that switches files"
+
+newfix tsccallerstub
+tsc_stub "$fx"
+printf '{"include":["src"]}\n' > "$fx/tsconfig.json"
+printf 'export const a = 1;\n' > "$fx/src/lib.ts"
+: > "$fx/tsc.out"
+fxrun check s1 '["src/lib.ts"]'
+[[ $rc -eq 0 ]] || fail "setup: a clean run must pass, got rc=$rc: $err"
+printf "src/caller.ts(2,18): error TS2554: Expected 2 arguments, but got 1.\n" > "$fx/tsc.out"
+fxrun check s1 '["src/lib.ts"]'
+[[ $rc -eq 2 && "$err" == *"new errors outside the edited files"* && "$err" == *"src/caller.ts"* ]] \
+  || fail "STUB tsc: an error that appears in an unedited file must be reported, got rc=$rc: $err"
+fxrun check s1 '["src/lib.ts"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "STUB tsc: the same caller error must be reported once, got rc=$rc: $err"
+: > "$fx/tsc.out"
+fxrun check s1 '["src/lib.ts"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "STUB tsc: an error that goes away is not news, got rc=$rc: $err"
+printf "src/caller.ts(2,18): error TS2554: Expected 2 arguments, but got 1.\n" > "$fx/tsc.out"
+fxrun check s2 '["src/lib.ts"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "STUB tsc: a new session sets its own baseline silently, got rc=$rc: $err"
+ok "STUB tsc: the caller rule reports a new outside error once, and a new session starts from its own baseline"
+
+newfix tscbase
+tsc_stub "$fx"
+mkdir -p "$fx/pkg/src"
+printf '{"extends":"../tsconfig.base.json","include":["src"]}\n' > "$fx/pkg/tsconfig.json"
+printf 'export const a = 1;\n' > "$fx/pkg/src/a.ts"
+printf "../tsconfig.base.json(1,21): error TS1005: '}' expected.\n" > "$fx/tsc.out"
+fxrun check s1 '["pkg/src/a.ts"]'
+[[ $rc -eq 2 && "$err" == *"pkg/tsconfig.json could not be read as a project"* && "$err" == *"tsconfig.base.json(1,21)"* ]] \
+  || fail "STUB tsc: an error in an extended base tsconfig must be reported on the first run, got rc=$rc: $err"
+ok "STUB tsc: a syntax error in a base tsconfig the leaf extends is a finding"
+
+if have_real tsc; then
+  newfix tscbasereal
+  mkdir -p "$fx/node_modules/.bin" "$fx/pkg/src"; ln -s "$tools/tsc" "$fx/node_modules/.bin/tsc"
+  printf '{ "compilerOptions": ' > "$fx/tsconfig.base.json"
+  printf '{"extends":"../tsconfig.base.json","include":["src"]}\n' > "$fx/pkg/tsconfig.json"
+  printf 'export const a = 1;\n' > "$fx/pkg/src/a.ts"
+  fxrun check s1 '["pkg/src/a.ts"]'
+  [[ $rc -eq 2 && "$err" == *"could not be read as a project"* ]] || fail "REAL tsc: a broken base tsconfig must be reported, got rc=$rc: $err"
+  ok "REAL tsc: a broken base tsconfig that the leaf extends is a finding"
+else
+  skip "tsc base-tsconfig row" tsc
+fi
+
+# --- pyright: a config pyright cannot parse exits 3 with an empty report -----
+if have_real pyright; then
+  newfix pybroken
+  printf '{ "typeCheckingMode": "strict", ' > "$fx/pyrightconfig.json"
+  printf 'x = 1\n' > "$fx/src/a.py"
+  fxrun check s1 '["src/a.py"]'
+  [[ $rc -eq 2 && "$err" == *"[pyright] . exited 3"* && "$err" == *"could not be parsed"* ]] \
+    || fail "REAL pyright: a pyrightconfig.json it cannot parse must be reported with stderr, got rc=$rc: $err"
+  ok "REAL pyright: an unparsable pyrightconfig.json is reported with pyright's stderr"
+else
+  skip "pyright broken-config row" pyright
+fi
+
+# --- ESLint installed with no configuration in reach does not run -------------
+newfix eslintnoconfig
+stub "$fx/node_modules/.bin/eslint" 'exit 2'
+printf 'export const x = 1;\n' > "$fx/src/a.js"
+fxrun check s1 '["src/a.js"]'
+[[ $rc -eq 0 && -z "$err" ]] || fail "an installed ESLint with no config in reach must not block the edit, got rc=$rc: $err"
+ok "STUB eslint: installed with no configuration in reach, it does not run and does not block"
+
 # --- the session id reaches the hook through the Claude normalizer ----------
 newfix sessionflow
 printf '[tool.ruff]\n' > "$fx/pyproject.toml"

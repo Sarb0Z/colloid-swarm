@@ -305,7 +305,7 @@ if [[ "$mode" == "check" && -n "$ts_edited" ]]; then
     # tsc reports paths relative to the tsconfig dir, which is also its cwd here.
     # checkers.py reads the run: edited-file errors, a tsconfig that is itself
     # broken, a non-zero exit with nothing parsable, and errors that are new
-    # outside the edited files since this session's last run.
+    # outside the edited files that this session's earlier runs did not have.
     IFS=$'\t' read -r -a ts_rel_list <<< "$ws_rels"
     tsc_out="$(printf '%s' "$tsc_raw" | python3 "$lib/checkers.py" tsc "$proj" "$session" "$ws" "$ws_config" "$tsc_rc" "${ts_rel_list[@]}")"
     [[ -n "$tsc_out" ]] && issues+=$'\n'"$tsc_out"$'\n'
@@ -442,12 +442,15 @@ if [[ "$mode" == "check" && -n "$py_edited" ]]; then
     fi
     scoped=""
     [[ -n "$pyright_raw" ]] && scoped="$(printf '%s' "$pyright_raw" | python3 "$lib/tool-errors.py" pyright "$proj")"
+    has_scoped=0
     if [[ -n "$scoped" ]]; then
+      has_scoped=1
       issues+=$'\n'"[pyright] (scoped to edited files)"$'\n'"$scoped"$'\n'
-    else
-      unreadable="$(printf '%s' "$pyright_raw" | python3 "$lib/checkers.py" pyright "$proj" "$py_ws" "$pyright_rc" "$pyright_err")"
-      [[ -n "$unreadable" ]] && issues+=$'\n'"$unreadable"$'\n'
     fi
+    # A pyrightconfig.json pyright cannot parse exits 3 with an empty report and
+    # the reason on stderr, which would otherwise read as a clean run.
+    unreadable="$(printf '%s' "$pyright_raw" | python3 "$lib/checkers.py" pyright "$proj" "$py_ws" "$pyright_rc" "$pyright_err" "$has_scoped")"
+    [[ -n "$unreadable" ]] && issues+=$'\n'"$unreadable"$'\n'
     rm -f "$pyright_err"
   done <<< "$(printf '%s' "$py_pairs" | cut -f1,2 | sort -u)"
   checker_ran pyright "$pyright_found"
