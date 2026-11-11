@@ -7,8 +7,7 @@ routes and account snapshots stay in the gitignored `CLAUDE.local.md`:
 
     {"systems": [{"name": "github",
                   "probe": "gh auth status --hostname github.com",
-                  "read": ["gh pr list --limit 20"],
-                  "logs": {"ci": "gh run view <run-id> --log-failed"}}]}
+                  "read": ["gh pr list --limit 20"]}]}
 
 `probe` exits 0 when the system is reachable with the operator's own login.
 `read` lists read-only commands an agent may run. `logs` (optional) maps an
