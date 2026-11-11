@@ -536,6 +536,7 @@ python3 .agents/test-lsp.py
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-statusline.sh
+.agents/test-readout.sh
 .agents/test-hook-lookup.sh
 .agents/test-product-folder.sh
 .agents/test-mods.sh
