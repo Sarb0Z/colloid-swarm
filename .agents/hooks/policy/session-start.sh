@@ -2,7 +2,7 @@
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
-# Input  (stdin JSON): {"project_dir": "...", "source": "..."}
+# Input  (stdin JSON): {"project_dir": "...", "source": "...", "session_id": "..."}
 # Output (STDOUT): a single JSON object carrying
 #   hookSpecificOutput.additionalContext. SessionStart injects that field
 #   regardless of source; plain stdout is NOT injected for source=compact
@@ -41,7 +41,8 @@
 #     (hooks/lib/worktree_sweep.py).
 #   - Unit readouts: the note of each readout visible to this session, from
 #     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
-#     files here). Silent when no readout has a note.
+#     files here). Silent when .agents/.readout/ is missing or no readout
+#     has a note; an unreadable readout file is named there.
 
 set -euo pipefail
 
@@ -215,7 +216,7 @@ fi
 
 # Readouts the units wrote (hooks/lib/readout.py); old session-scoped ones go first.
 readout_note=""
-if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" ]]; then
+if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" && -d "$proj/.agents/.readout" ]]; then
   python3 "$lib/readout.py" prune "$proj" \
     || echo "session-start: pruning old readouts failed; they stay until the next start" >&2
   readout_note="$(python3 "$lib/readout.py" note "$proj" "${session_id:-}")" \

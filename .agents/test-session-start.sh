@@ -173,10 +173,11 @@ assert_wrap_state "$tt"
 # session is "fixture-session").
 python3 "$tt/.agents/hooks/lib/readout.py" write owed --repo "$tt" --strip "2 owed" --note "two replies owed"
 python3 "$tt/.agents/hooks/lib/readout.py" write build --repo "$tt" --session someone-else --note "foreign build note"
+python3 "$tt/.agents/hooks/lib/readout.py" write mine --repo "$tt" --session fixture-session --strip "mine" --note "my own note"
 ro_context="$(context_of "$(run_policy "$tt")")"
 assert_contains "$ro_context" 'readout.py show --session fixture-session'
+assert_contains "$ro_context" 'mine: my own note'
 # The printed command runs from the repository root and shows this session's own readout.
-python3 "$tt/.agents/hooks/lib/readout.py" write mine --repo "$tt" --session fixture-session --strip "mine" --note "my own note"
 shown_cmd="$(printf '%s\n' "$ro_context" | sed -n 's/.*the full view is `\(.*\)`.*/\1/p')"
 shown="$(cd "$tt" && eval "$shown_cmd")" || fail "the printed show command failed: $shown_cmd"
 assert_contains "$shown" 'my own note'
@@ -187,6 +188,16 @@ assert_not_contains "$ro_context" 'foreign build note'
 rm -r "$tt/.agents/.readout"
 assert_not_contains "$(context_of "$(run_policy "$tt")")" 'Unit readouts'
 printf 'ok: a readout note reaches the context and another session'"'"'s does not\n'
+
+# No readout folder: neither reader call starts, so a reader that fails when
+# called produces no section and no error.
+printf 'import sys\nsys.exit(3)\n' > "$tt/.agents/hooks/lib/readout.py"
+ro_err="$scratch/ro-err"
+ro_none="$(context_of "$(run_policy "$tt" 2>"$ro_err")")"
+assert_not_contains "$ro_none" 'Unit readouts'
+[[ ! -s "$ro_err" ]] || fail "no readout folder, yet stderr said: $(cat "$ro_err")"
+cp "$repo/.agents/hooks/lib/readout.py" "$tt/.agents/hooks/lib/readout.py"
+printf 'ok: no readout folder starts no reader, and says nothing\n'
 
 write_crumbs() {
   local dir="$1"
