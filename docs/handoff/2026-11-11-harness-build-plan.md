@@ -59,7 +59,8 @@ the probe was run) or `inferred`.
 | F25 | A Stop hook's input lists `background_tasks` and `session_crons`, so a hook can tell a session that is done from one waiting on background work; both were empty arrays in the probe | code.claude.com/docs/en/hooks, Stop input, read 2026-11-11; the F13 probe's captured input | observed |
 | F26 | The root contract, the Merge playbook and the review playbook still require several axis reviewers at Critical; the decision `review-at-delivery-boundaries` is recorded and not yet landed in them | `AGENTS.md:52`; `playbooks/workflow-merge.md:11`; `hostile-review.md:110-113` | observed |
 | F27 | A run's folder is gitignored and its briefs are deleted at teardown; `provision.sh` installs a worktree's dependencies and the provisioning hook runs it only when a subagent starts | `.gitignore:27`; `workloop_finish.py:246-252`; `worktree-provision.sh:43-57` | observed |
-| F28 | The adapter hands the inbox hook `project_dir`, `event`, `session_id` and `agent_id` and not `transcript_path`, which it already passes to other hooks; a subagent's own transcript is `<dirname(transcript_path)>/<session>/subagents/agent-<agent_id>.jsonl`, the path the writers gate reads, so one added field binds an agent to its cell by the brief header in its first prompt | `claude/normalize-hook.py:84-99`; `hooks/lib/cell_markers.py:13-18` | observed |
+| F28 | The adapter hands the inbox hook `project_dir`, `event`, `session_id` and `agent_id`, not `transcript_path`, which it passes to other hooks; a subagent's transcript is `agent-<agent_id>.jsonl` in the session's `subagents/` folder beside the `.meta.json` the writers gate reads; in four of this session's subagent transcripts the first record carries the brief header, on line 1 for a lane and on line 2 after `READ-ONLY` for a cell | `claude/normalize-hook.py:84-99`; `hooks/lib/cell_markers.py:13-18, 100, 196`; four transcripts read 2026-11-12 | observed |
+| F29 | The subagent's `.jsonl` exists, holding that first record, when the inbox hook first fires between its tool calls | `cell_markers.py` notes its metadata is written after `SubagentStart` | inferred |
 
 ## One reader for four readouts
 
@@ -158,8 +159,10 @@ command lines and official connectors.
   cannot do something, names `access.py probe` in its message (review
   `2026-11-11-harness-u0` finding 1).
 - 7.3 `export/README.md` gains a Systems step in the adaptation, modelled on
-  F19: declare the systems, add a guard row for each vendor command line the
-  guard lacks, verify and enable that product's connectors. The carrier
+  F19: declare the systems, run `access.py check` and the first
+  `access.py probe`, add a guard row for each vendor command line the guard
+  lacks, verify and enable that product's connectors. In the carrier, the
+  operator or an agent runs the probe on request. The carrier
   declares GitHub as its one system and ships no vendor rows or connectors
   of its own.
 
@@ -192,7 +195,9 @@ knows is refused by `access.py` by name.
   change nothing (`knowledge/research/2026-11-10-contract-wording-in-fresh-sessions.md`).
 
 Acceptance: a Standard Build in a fresh session writes a findings table
-before its plan, and a session without the Research row does not.
+before its plan, and a session with neither the Research row nor the playbook
+does not; a Critical Build dispatches a fresh read-only cell for the table;
+implementation re-opens a row whose file changed since the table was read.
 
 ### Unit 4 — owed-work flags
 
@@ -251,7 +256,9 @@ nothing.
   action, at most once a minute per agent. A lane is bound by its claim
   (F16). The adapter passes the inbox hook `transcript_path` as it does for other
   hooks (F28), and the hook binds the agent to its cell by either brief
-  header in its own transcript's first prompt.
+  header in its own transcript's first prompt. The first step proves F29 on
+  a real cell; if no binding is possible, a cell shows only its time out, and
+  the plan returns to the lead.
 - 5.2 `status` and `watch` print, per lane and cell, time out and time since
   last activity, and `watch` reads the stamp for its stale rule (F15).
   `digest <run>` prints one line per agent: name, role, state, age, last
@@ -324,7 +331,7 @@ a wave integrates only after its units' reviews and QA.
 
 Shared files set the order. The status strip and the session-start script
 are written once, in 0.2. The root contract is written in waves 0, 1 and 3
-(0.1, 1.2, 2.1 and 2.2); the review playbook in every wave (0.1, 1.3, 4.1,
+(0.1, 1.2, 2.1 and 2.2); the review playbook in waves 0, 2 and 3 (0.1, 4.1,
 2.2); `policy.json` in waves 1 and 2 (7.1, 4.1); the controller and its test
 in waves 1, 2 and 3 (1.1, unit 5, unit 2), so the two units that both edit
 the brief builders never run together. Unit 2 consumes unit 7's log command.
@@ -343,7 +350,7 @@ Lenses:
   place of commit hashes that every fold and merge rewrites.
 - Reduce this problem to its irreducible constraints and rebuild it from
   zero. — a hook cannot see an answer or wake an idle lead (F8, F17); the
-  inbox hook is handed four fields (F16); the guard already asks on every
+  inbox hook sees an agent only through its own transcript (F16, F28); the guard already asks on every
   push, so a push can carry a readout and gains no gate short of a refusal
   (F14); the reviewer contract is graded (F2); history is rewritten between
   review and push.
@@ -386,7 +393,7 @@ findings 1, 3, 6, 8, 9, 17 and 19, and each held.
 | 6 `P1` | QA recorded before a lane moves passes `check` on old code | Adopted. The record stores tips; `qa:stale` (2.1) |
 | 7 `P1` | A test run at the parent commit passes on a missing file or dependency | Adopted. Replaced by the revert check (2.3) |
 | 8 `P1` | tsc scoping and pyright's discarded output are silent paths too | Adopted. 9.2; the rising-count rule for unedited files is the lead's call |
-| 9 `P1` | F16 partly false; the controller has no way to find a transcript | Adopted. F16 corrected; the hook stamps state (5.1); the cell binding is F28, probed first |
+| 9 `P1` | F16 partly false; the controller has no way to find a transcript | Adopted. F16 corrected; the hook stamps state (5.1); the cell binding is F28 and F29, F29 probed first |
 | 10 | The `systems` shape cannot hold a browser-only system or a test identity | Deferred with a breadcrumb; scope stated in unit 7 |
 | 11 | Probe output and misdeclared commands; who owns which file; who runs the probe | Adopted. 7.1 and 7.2 |
 | 12 | Stripe and Sentry rows built ahead of need | Adopted. Dropped; rows are added at a satellite's adaptation (7.3) |
@@ -405,6 +412,22 @@ findings 1, 3, 6, 8, 9, 17 and 19, and each held.
 | 25 | Critical research on the lightest tier with no shell | Adopted. 1.1 |
 | 26 | Four lens answers rest on settled or wrong ground | Adopted. Rewritten above |
 
+## Changed after the operator's OK
+
+Each is the lead's, reversible, and named here so the plan does not read as
+the text the operator approved.
+
+- 7.2: a repository never probed shows no systems line, where the approved
+  text had the session-start note say to run the probe (review
+  `2026-11-11-harness-u0` finding 1).
+- 1.3: dropped, since reviewers caught a planted false claim without its
+  line; unit 1's acceptance names its controls (review
+  `2026-11-12-harness-u1`).
+- 4.2: the attended-terminal fallback is gone, since F13 was observed in an
+  interactive terminal.
+- F28 and F29: the inbox hook's binding to a cell is half observed; 5.1
+  keeps its fallback.
+
 ## Rulings
 
 Ruled by the operator on 2026-11-11.
@@ -419,7 +442,7 @@ Ruled by the operator on 2026-11-11.
    the lead walks the operator through the session-end hook change (4.2) and
    the QA gate change (2.1).
 
-Decided by the lead, open to reversal: QA and review run side by side, with
+Decided by the lead, open to reversal: chunk 1.3 is dropped, since reviewers caught a planted false claim without its line, and unit 1's acceptance names its controls (2026-11-12); QA and review run side by side, with
 QA evidence bound to the tips it ran on (2.1); type errors outside the
 edited files are reported only when their count rises within a session
 (9.2); Codex and Kimi keep today's session-end question (4.2); a probe runs
