@@ -183,3 +183,82 @@ open, as for Playwright" is withdrawn: a native block exists.
 | B8 | Accepted: the rows B7 removes shrink the test; `_narrowed`'s fifth parameter is `doc`, a keyword with a default |
 | G2 | Ruled by the operator: any proxy is kept and the gap is stated. The route and the two replaced upstream methods are removed; the launcher's docstring says that under a proxy the proxy resolves every address, so a redirect reaches the metadata service of the proxy's network. Recorded in the `scrapling-stealth-tier` decision |
 | G3 | Adopted with B1: the rule is left out when a proxy is set, where it does not apply and the driver sets its own |
+
+## Round 3: the resolver rule
+
+The correction `7035000` replaced the route with the resolver rule on every
+browser started without a proxy. Two reviewers, one axis each, since the
+round opened before `review-at-delivery-boundaries` landed: the block (opus),
+probing bundled Chromium, Chrome for Testing and real Chrome against servers
+on 127.0.0.1 and ::1 and a local catch proxy; and the tests (sonnet), by 15
+mutants through the whole script.
+
+| # | Sev | Finding | Evidence |
+|---|---|---|---|
+| C1 | P1 | A `proxy` that proxies nothing, `{"server": "ftp=localhost:1"}` or `"http://ftp=localhost:1"`, passes `_refuse_proxy` and Scrapling's validation, so the launcher leaves the rule out; Chromium reads `--proxy-server=http://ftp=localhost:1` as a per-scheme list with no http entry and connects directly, and a redirect from a page reaches the stand-in address | reproduced on both browsers, with a dead real proxy as control |
+| C2 | P1 | `_refuse_proxy` reads a dictionary `server` with `urlsplit`, patchright with the WHATWG URL parser: `http:H:P`, `http:/H:P`, `http:///H:P`, `//H:P` and `HTTP:H` pass the refusal, and the browser uses H as its HTTP proxy | reproduced with a catch proxy at 127.0.0.1 |
+| C3 | P2 | The premise of G3's disposition is false: the rule applies to a proxy's own address, patchright writes its socks5 switch with literal double quotes so it maps nothing on macOS, the launcher's flags come later and the later switch is in effect, and a socks5 session launches with the rule | reproduced |
+| C4 | P2 | "Without a proxy" ignores a system or environment proxy, which Chromium uses when no `--proxy-server` is given; `fd00:ec2::254` is not link-local, so it goes to that proxy | mechanism reproduced through a catch proxy; no system proxy on this machine |
+| C5 | P2 | The test grew from 483 to 584 lines, against B8's premise | measured |
+| D1 | P2 | The stdio refusal rows send a real request toward `169.254.169.254` when `METADATA_HOSTS` loses that address, since the refusal and the rule read one list, or when the proxy check regresses | reproduced by mutant |
+| D2 | P2 | No fast row covers `proxy=""` or `{}`; `is None` in place of `not` stays green | reproduced by mutant |
+| D3 | P2 | In CI, with no browser installed, the block is gated by the rule's exact text and the seam, not by Chromium's behaviour | inspection |
+| D4 | P2 | No live row exercises a middle-compressed IPv6 address such as `fd00:ec2::254`; the real list's text is pinned by the literal row alone | inspection |
+| D5 | P2 | The same measurement as C5 | measured |
+
+The block reviewer named C2 the third round in which a Python check reads an
+address differently from the browser, after round 1's S1 and round 2's B4.
+
+### Review of the review, round 3
+
+A third cell (opus), given the artifact and the findings, reproduced C1 to C4
+and D4 under `sandbox-exec` with a profile that refuses every connection off
+loopback, checked against a control.
+
+- **C1, C2, C3, C4, C5, D1, D3, D4 and D5 are supported.** C3 holds with one
+  nuance: a request sent through a proxy is still resolved by the proxy, not
+  by the rule. D1's trigger is narrower than stated: a regression of the url
+  check alone is still stopped by the rule.
+- **D2 is unsupported**: the mutant is green but behaves the same, because
+  `proxy=""` and `{}` fail at launch ("proxy: expected object, got string";
+  "proxy.server: expected string, got undefined"), so no browser runs without
+  the rule.
+- **The three-round claim holds**: S1, B4 and C2 are one shape, and C1, where
+  the launcher's "a proxy is set" disagrees with Chromium's "this proxy covers
+  http", is a fourth case of it.
+- With the rule passed on every launch, the cell found no new defect: a socks5
+  session through a local socks server fetched a name and an address, a named
+  proxy off the list worked, and a proxy at a listed address in any C2 spelling
+  failed with `ERR_PROXY_CONNECTION_FAILED`. Mapping each real entry to
+  127.0.0.1 and everything else to `~NOTFOUND`, nine spellings of the real
+  addresses, `[fd00:ec2::254]` middle-compressed and in full among them,
+  reached the local server. Windows is unverified: there patchright's own
+  socks5 switch takes effect, and the launcher's, passed later, replaces it.
+
+It named two gaps:
+
+| # | Sev | Finding |
+|---|---|---|
+| H1 | P2 | `exercise()` in the live layer is 66 lines with 6 parameters, past the contract's 40-line and 4-parameter limits |
+| H2 | P2 | The test encodes C1 and C2 as correct: a row asserts that any proxy launches with no rule, and `REFUSED_PROXIES` holds none of C2's spellings |
+
+### Dispositions, round 3
+
+C1 and C2 block, and the same shape has returned three rounds running, so the
+choice went to the operator, who ruled on 2026-11-12 for the rule on every
+launch, proxy or not, with the Python checks kept only as early, readable
+refusals; recorded in the `scrapling-stealth-tier` decision. Lane `fix` is
+reopened at P1.
+
+| # | Disposition |
+|---|---|
+| C1 | Adopted, by the ruling: the launcher passes the rule whatever the proxy, so a proxy that proxies nothing leaves the rule in place |
+| C2 | Adopted: the rule closes it, since the browser resolves its proxy through the rule. A dictionary `server` also gets the string form's early refusal: it must read as `<scheme>://<host>` with a scheme Scrapling accepts, so each C2 spelling is refused by name |
+| C3 | Adopted with C1: the proxy branch is removed and the docstrings say what the rule covers. G3's disposition is withdrawn. Windows stays a reopen condition of the decision |
+| C4 | Adopted: the launcher's docstring and the decision count a system or environment proxy as a proxy |
+| C5, D5, H1 | Breadcrumb: B8's acceptance is withdrawn; the live and unit layers move into files the shell runs, and `exercise()` is split, as their own unit |
+| D1 | Adopted: the metadata-address refusals move to the unit layer, which calls `_refuse_address` and `_refuse_proxy` directly and launches nothing; the stdio rows keep the refusals that send nothing when they fail (`file:///`, a backslash, `ftp:`) |
+| D2 | Moot: unsupported, and with the rule on every launch a fast row asserts it for every proxy value, `""`, `{}` and C1's included |
+| D3 | Accepted and recorded in the decision: CI checks the rule's text, a machine with the browser installed checks Chromium's behaviour |
+| D4 | Adopted: a live row per browser maps each of the launcher's real entries to the local server and everything else to `~NOTFOUND`, first confirms that a `localhost` fetch fails to resolve, then sends the nine spellings and requires each to reach the server |
+| H2 | Adopted: the row asserting no rule under a proxy is inverted; fast and live rows cover C1's values and C2's spellings |
