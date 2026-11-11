@@ -181,6 +181,8 @@ def normalize(payload, policy, repo):
         out["session_id"] = payload.get("session_id", "")
         out["reason"] = payload.get("reason", "")
         out["cwd"] = payload.get("cwd") or ""
+    elif policy == "untrusted-content.sh":
+        out["event"] = payload.get("hook_event_name", "")
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "")
     return out

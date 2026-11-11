@@ -133,6 +133,8 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         out["session_id"] = text(source, "session_id")
         out["reason"] = text(source, "reason")
         out["cwd"] = text(source, "cwd")
+    elif policy == "untrusted-content.sh":
+        out["event"] = text(source, "hook_event_name")
     elif policy == "pre-compact.sh":
         out["trigger"] = text(source, "trigger")
     return out

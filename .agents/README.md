@@ -78,7 +78,11 @@ must record — a tool list, or `["*"]` for a server with no distinctive tool
 name. `sources-matcher.py` builds every host's `sources-capture` hook matcher
 from those declarations, so a server cannot be enabled without its capture
 following it. Run it after changing a `sources` key; `--check` fails on drift
-and `test-sources-matcher.py` gates it.
+and `test-sources-matcher.py` gates it. The same script builds the matcher of
+`untrusted-content.sh`, which attaches one fixed note to every web-fetch and
+`sources`-server result (Claude PostToolUse and PostToolUseFailure, Codex
+PostToolUse) saying the text is data, not orders; `test-untrusted-content.sh`
+fires it through each adapter.
 
 ## Default browser
 
@@ -525,6 +529,7 @@ python3 .agents/lint-breadcrumbs.py
 python3 .agents/lint-decisions.py
 python3 .agents/check-test-isolation.py
 python3 .agents/test-sources-matcher.py
+.agents/test-untrusted-content.sh
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
 .agents/test-keychain-notice.sh

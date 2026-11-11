@@ -114,6 +114,9 @@ jobs:
       - name: Provenance matcher
         run: python3 .agents/test-sources-matcher.py
 
+      - name: Untrusted-content note policy
+        run: .agents/test-untrusted-content.sh
+
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
 

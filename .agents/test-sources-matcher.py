@@ -11,8 +11,10 @@ that did no research. These cases fail if the two forms can disagree.
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 repo = Path(__file__).resolve().parent.parent
@@ -86,6 +88,42 @@ check("Claude's native web tools are in its matcher", re.fullmatch(built, "WebFe
 check("Kimi's native fetch is in Kimi's matcher",
       re.fullmatch(sm.matcher(registry, ("WebSearch", "FetchURL")), "FetchURL") is not None)
 check("Kimi's fetch is not in Claude's matcher", re.fullmatch(built, "FetchURL") is None)
+
+# The untrusted-content matcher names every `sources` server whole, in both forms.
+untrusted = sm.untrusted_matcher(registry, ("WebFetch", "WebSearch"))
+for call in ("mcp__playwright__browser_click",
+             "mcp__plugin_playwright_playwright__browser_snapshot",
+             "mcp__scrapling__browser_open",
+             "mcp__research-mcp__fetch_readable",
+             "WebFetch"):
+    check(f"{call} gets the untrusted note", re.fullmatch(untrusted, call) is not None, untrusted)
+for call in ("mcp__linear__list_issues", "mcp__appium-mcp__appium_tap", "Bash"):
+    check(f"{call} gets no untrusted note", re.fullmatch(untrusted, call) is None, untrusted)
+check("a new sources server appears in the untrusted matcher",
+      re.fullmatch(sm.untrusted_matcher(grown, ()), "mcp__newsearch__anything") is not None)
+check("the same server without sources does not",
+      re.fullmatch(sm.untrusted_matcher({"newsearch": {"description": "x"}}, ()),
+                   "mcp__newsearch__anything") is None)
+
+# --check fails when a host file's untrusted matcher is hand-edited. The fixture
+# is a copy of the repository files the checker reads, so no tracked file changes.
+with tempfile.TemporaryDirectory() as scratch:
+    fixture = Path(scratch)
+    (fixture / ".agents/claude").mkdir(parents=True)
+    (fixture / ".agents/codex").mkdir(parents=True)
+    shutil.copy(repo / ".agents/sources-matcher.py", fixture / ".agents")
+    shutil.copy(repo / ".agents/mcp.json", fixture / ".agents")
+    shutil.copy(repo / ".agents/claude/settings.json", fixture / ".agents/claude")
+    shutil.copy(repo / ".agents/codex/hooks.json", fixture / ".agents/codex")
+    settings = fixture / ".agents/claude/settings.json"
+    edited = json.loads(settings.read_text())
+    for group in edited["hooks"]["PostToolUseFailure"]:
+        group["matcher"] = "WebFetch"
+    settings.write_text(json.dumps(edited, indent=2))
+    drift = subprocess.run([sys.executable, str(fixture / ".agents/sources-matcher.py"), "--check"],
+                           capture_output=True, text=True)
+    check("a hand-edited untrusted matcher fails --check",
+          drift.returncode != 0 and "untrusted-content.sh is stale" in drift.stderr, drift.stderr)
 
 print("\n" + ("ALL PASS" if fails == 0 else f"{fails} FAILED"))
 sys.exit(1 if fails else 0)

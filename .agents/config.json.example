@@ -78,6 +78,9 @@
     "ui_gate": {
       "enabled": true
     },
+    "untrusted_content": {
+      "enabled": true
+    },
     "teardown_gate": {
       "enabled": true
     },

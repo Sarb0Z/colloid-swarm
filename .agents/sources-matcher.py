@@ -16,6 +16,13 @@ Two rules make that disagreement impossible:
   - A server declaring `"sources": ["*"]` exposes no distinctive tool name, so
     it is named directly, in both its registry and plugin forms.
 
+The `untrusted-content.sh` hook, which adds a note beside web-page and outside
+service results, has a second matcher kind. It names every server with a
+non-empty `sources`, whole-server in both forms, because any tool of such a
+server can return page text. Host-native web tools are added in front. Claude
+registers it for PostToolUse and PostToolUseFailure, Codex for PostToolUse, and
+Kimi not at all: it has no post-tool context channel.
+
 Host-native web tools are not in the registry and differ per host, so they are
 listed here against the file that consumes them.
 
@@ -36,12 +43,16 @@ from pathlib import Path
 # its own `matcher` key, land on the previous group's and silently rewrite it.
 TOML_MATCHER = re.compile(r'(matcher = ")([^"]*)("\ncommand = "[^"]*sources-capture\.sh")')
 
-# Each host file, its native web tools, and how its matcher is located.
-HOSTS = {
-    ".agents/claude/settings.json": (("WebSearch", "WebFetch"), "json"),
-    ".agents/codex/hooks.json": ((), "json"),
-    ".kimi/config.toml.example": (("WebSearch", "FetchURL"), "toml"),
-}
+# Each host file, the policy whose groups carry the matcher, the host's native
+# web tools, how the file is parsed, and which matcher kind it takes.
+CAPTURE, UNTRUSTED = "sources-capture.sh", "untrusted-content.sh"
+HOSTS = (
+    (".agents/claude/settings.json", CAPTURE, ("WebSearch", "WebFetch"), "json"),
+    (".agents/codex/hooks.json", CAPTURE, (), "json"),
+    (".kimi/config.toml.example", CAPTURE, ("WebSearch", "FetchURL"), "toml"),
+    (".agents/claude/settings.json", UNTRUSTED, ("WebFetch", "WebSearch"), "json"),
+    (".agents/codex/hooks.json", UNTRUSTED, (), "json"),
+)
 
 SERVER = "[A-Za-z0-9_-]+"
 
@@ -51,29 +62,34 @@ def render(kind, value):
     return f'matcher = "{value}"' if kind == "toml" else f'"matcher": {json.dumps(value)}'
 
 
-def locate(text, kind):
-    """The sources-capture group's own matcher value, or None if it states none."""
+def locate(text, kind, policy):
+    """The matcher of every group running `policy`; None stands for a group stating none."""
     if kind == "toml":
         found = TOML_MATCHER.search(text)
-        return found.group(2) if found else None
+        return [found.group(2)] if found else []
+    found = []
     for groups in (json.loads(text).get("hooks") or {}).values():
         for group in groups:
             commands = " ".join(hook.get("command", "") for hook in group.get("hooks") or [])
-            if "sources-capture.sh" in commands:
-                return group.get("matcher")     # None when the group states none
-    return None
+            if policy in commands:
+                found.append(group.get("matcher"))
+    return found
+
+
+def whole_server(name):
+    alias = name.replace("-", "_")
+    return f"mcp__({name}|plugin_{alias}_{alias})__.*"
 
 
 def matcher(registry, native):
-    """The full alternation for one host, in a stable order."""
+    """The sources-capture alternation for one host, in a stable order."""
     tools, whole = set(), []
     for name, server in registry.items():
         declared = server.get("sources")
         if not declared:
             continue
         if declared == ["*"]:
-            alias = name.replace("-", "_")
-            whole.append(f"mcp__({name}|plugin_{alias}_{alias})__.*")
+            whole.append(whole_server(name))
         else:
             tools.update(declared)
     parts = list(native)
@@ -81,6 +97,15 @@ def matcher(registry, native):
         parts.append(f"mcp__{SERVER}__({'|'.join(sorted(tools))})")
     parts.extend(sorted(whole))
     return "|".join(parts)
+
+
+def untrusted_matcher(registry, native):
+    """The untrusted-content alternation: every `sources` server, whole."""
+    names = sorted(name for name, server in registry.items() if server.get("sources"))
+    return "|".join([*native, *(whole_server(name) for name in names)])
+
+
+BUILDERS = {CAPTURE: matcher, UNTRUSTED: untrusted_matcher}
 
 
 def main():
@@ -97,45 +122,46 @@ def main():
         return 1
 
     stale = 0
-    for rel, (native, kind) in HOSTS.items():
+    for rel, policy, native, kind in HOSTS:
         path = repo / rel
         if not path.exists():
             continue                     # a satellite may not carry every host
         text = path.read_text()
         try:
-            current = locate(text, kind)
+            found = locate(text, kind, policy)
         except ValueError as error:
             print(f"sources-matcher: {rel} does not parse: {error}", file=sys.stderr)
             stale += 1
             continue
-        if current is None:
+        if not found or None in found:
             # Keep going: one host losing its matcher must not hide the state of
-            # the others, which is the whole point of checking all three.
-            print(f"sources-matcher: no sources-capture matcher in {rel}", file=sys.stderr)
+            # the others, which is the whole point of checking all of them.
+            print(f"sources-matcher: no {policy} matcher in {rel}", file=sys.stderr)
             stale += 1
             continue
-        want = matcher(registry, native)
-        if current == want:
+        want = BUILDERS[policy](registry, native)
+        if all(current == want for current in found):
             continue
+        current = found[0]
         if check:
             stale += 1
-            print(f"sources-matcher: {rel} is stale\n  have: {current}\n  want: {want}",
+            print(f"sources-matcher: {rel} {policy} is stale\n  have: {' ; '.join(found)}\n  want: {want}",
                   file=sys.stderr)
             continue
         quoted = render(kind, current)
-        if text.count(quoted) != 1:
-            print(f"sources-matcher: {rel} states that matcher {text.count(quoted)} times; "
-                  "refusing to guess which one belongs to sources-capture", file=sys.stderr)
+        if len(set(found)) != 1 or text.count(quoted) != len(found):
+            print(f"sources-matcher: {rel} states the {policy} matchers unevenly; "
+                  "refusing to guess which one belongs to it", file=sys.stderr)
             stale += 1
             continue
-        path.write_text(text.replace(quoted, render(kind, want), 1))
-        print(f"{rel}: matcher updated")
+        path.write_text(text.replace(quoted, render(kind, want)))
+        print(f"{rel}: {policy} matcher updated")
 
     if stale:
         print("Run: python3 .agents/sources-matcher.py", file=sys.stderr)
         return 1
     if check:
-        print(f"sources matcher: in sync across {len(HOSTS)} host files")
+        print(f"sources matcher: in sync across {len(HOSTS)} host matchers")
     return 0
 
 

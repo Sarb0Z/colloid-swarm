@@ -342,6 +342,15 @@
         ]
       },
       {
+        "matcher": "WebFetch|WebSearch|mcp__(context7|plugin_context7_context7)__.*|mcp__(exa|plugin_exa_exa)__.*|mcp__(greptile|plugin_greptile_greptile)__.*|mcp__(playwright|plugin_playwright_playwright)__.*|mcp__(playwright-reader|plugin_playwright_reader_playwright_reader)__.*|mcp__(research-mcp|plugin_research_mcp_research_mcp)__.*|mcp__(scrapling|plugin_scrapling_scrapling)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};; */.agents/worktrees/*) [ -f \"${d%%/.agents/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.agents/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" untrusted-content.sh"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__playwright-reader__browser_take_screenshot|mcp__claude-in-chrome__.*screenshot.*",
         "hooks": [
           {
@@ -455,6 +464,17 @@
           {
             "type": "command",
             "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};; */.agents/worktrees/*) [ -f \"${d%%/.agents/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.agents/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" --agent main workloop-inbox.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "WebFetch|WebSearch|mcp__(context7|plugin_context7_context7)__.*|mcp__(exa|plugin_exa_exa)__.*|mcp__(greptile|plugin_greptile_greptile)__.*|mcp__(playwright|plugin_playwright_playwright)__.*|mcp__(playwright-reader|plugin_playwright_reader_playwright_reader)__.*|mcp__(research-mcp|plugin_research_mcp_research_mcp)__.*|mcp__(scrapling|plugin_scrapling_scrapling)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=$CLAUDE_PROJECT_DIR;[ -f \"$d/.claude/hooks/adapter.sh\" ]||{ d=$PWD;until [ -f \"$d/.claude/hooks/adapter.sh\" ];do [ \"$d\" ]||{ echo \"guards unavailable: no .claude/hooks/adapter.sh in the launch folder ($CLAUDE_PROJECT_DIR) or at or above $PWD; relaunch Claude Code from inside the repository\" >&2;exit 1;};d=${d%/*};done;case $d in */.claude/worktrees/*) [ -f \"${d%%/.claude/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.claude/worktrees/*};; */.agents/worktrees/*) [ -f \"${d%%/.agents/worktrees/*}/.claude/hooks/adapter.sh\" ]&&d=${d%%/.agents/worktrees/*};;esac;};export CLAUDE_PROJECT_DIR=\"$d\";exec bash \"$d/.claude/hooks/adapter.sh\" untrusted-content.sh"
           }
         ]
       }

@@ -102,6 +102,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-provenance-gate.sh
 .agents/test-review-contract.sh
 python3 .agents/test-sources-matcher.py
+.agents/test-untrusted-content.sh
 python3 .agents/test-guard-destructive.py
 python3 .agents/test-wait-gate.py
 .agents/test-keychain-notice.sh
