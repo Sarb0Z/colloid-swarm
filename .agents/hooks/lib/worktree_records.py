@@ -67,6 +67,14 @@ def main_checkout(path) -> Path | None:
     return common_path.parent if common_path and common_path.name == ".git" else None
 
 
+def run_checkout(path) -> Path | None:
+    """The main checkout of a run's recorded checkout `path`, only when `path` is itself a
+    checkout's top level: an empty mount point that an unmounted disk leaves inside another
+    repository would otherwise read as that repository, which lists none of the run's worktrees."""
+    top = out(path, "rev-parse", "--show-toplevel") if Path(path).is_dir() else ""
+    return main_checkout(path) if top and Path(top).resolve() == Path(path).resolve() else None
+
+
 def worktrees(main: Path) -> list[dict]:
     """`git worktree list --porcelain` entries, main checkout first; `locked` is the reason."""
     entries = []

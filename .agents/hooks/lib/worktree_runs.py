@@ -86,7 +86,7 @@ def close_run(remover, entry: dict, workloop: Path) -> bool:
         return True
     spaces = [Path(s).resolve() for s in workspaces(run)]
     present = [path for path in spaces if path.is_dir()]
-    repo = wr.main_checkout(run.get("repo") or "/nonexistent")
+    repo = wr.run_checkout(run.get("repo") or "/nonexistent")
     # Git still lists a workspace that is not on disk (an unmounted volume):
     # abandon's prune would drop it, so the run stays.
     away = next((f"git lists {e['path']} but it is not on disk" for e in (wr.worktrees(repo) if repo else [])
@@ -186,7 +186,7 @@ def unowned_runs(main: Path, leads: set) -> list[str]:
     for name, run in sorted(wr.runs_in(str(state)).items()):
         if name in leads:
             continue
-        repo = wr.main_checkout(run.get("repo") or "/nonexistent")
+        repo = wr.run_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
         spaces = workspaces(run)
         if run.get("lanes") and repo and spaces and not any(str(Path(s).resolve()) in listed for s in spaces):

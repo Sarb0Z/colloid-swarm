@@ -365,6 +365,22 @@ age 90000; sweep
 $wl status tg >/dev/null 2>&1 || fail "the sweep dropped a run whose checkout is not on disk: $sweep_out"
 $wl abandon tg --checkout-gone >/dev/null
 ok "a run whose checkout is not on disk outlives the sweep, which names --checkout-gone"
+# An empty mount point inside another repository is not that repository: git
+# listing none of the run's worktrees there says nothing about the run.
+mkdir -p "$scratch/home-repo/mnt"; printf 'dotfiles\n' > "$scratch/home-repo/f"
+git -C "$scratch/home-repo" init -q && git -C "$scratch/home-repo" add -A && git -C "$scratch/home-repo" -c user.email=t@e.com -c user.name=t commit -qm home
+git clone -q "$R" "$scratch/home-repo/mnt/disk"
+$wl init um --objective o --acceptance a --repo "$scratch/home-repo/mnt/disk" --verify true >/dev/null
+$wl add-lane um ul --worker w --workspace "$scratch/um-lane" --path src >/dev/null
+mv "$scratch/home-repo/mnt/disk" "$scratch/disk-away"; mkdir "$scratch/home-repo/mnt/disk"
+sweep
+[[ "$sweep_out" != *"closed workloop run um"* && "$sweep_out" == *"left alone with their worktrees: "*"um"* ]] \
+  || fail "the sweep dropped a run whose checkout is an empty mount point inside another repository: $sweep_out"
+$wl status um >/dev/null 2>&1 || fail "the sweep dropped the mount point's run from state: $sweep_out"
+rmdir "$scratch/home-repo/mnt/disk"; mv "$scratch/disk-away" "$scratch/home-repo/mnt/disk"
+$wl abandon um >/dev/null
+rm -rf "$scratch/home-repo"
+ok "an unled run whose checkout is an empty mount point inside another repository is kept and named"
 # A one-writer run no session leads has no worktree for git to list; it stays and is named,
 # before and after its composed test passed (whose verify worktree is gone again).
 $wl init ow --objective o --acceptance a --repo "$R" --verify true --lane solo --worker w --path src >/dev/null
