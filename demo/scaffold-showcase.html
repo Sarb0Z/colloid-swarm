@@ -7587,7 +7587,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Durable, bounded parallel implementation and review lanes. The controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 433 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 444 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Designs each delegation before dispatch, choosing among one writer, a read-only fan-out, parallel slices, a contract-first split and a bake-off, and coordinates writing lanes through a portable, evidence-backed controller.
 ---
@@ -8008,6 +8008,17 @@ past the base, for instance, so that `integrate` and `teardown` refuse. It reaps
 the run&#x27;s labelled containers, removes the lane and integration worktrees, and
 deletes the run from state. It deletes only branches the repository&#x27;s HEAD
 already contains and names the rest; `--discard-branches` deletes those too.
+When the run&#x27;s checkout is not on disk, git cannot read it, or git reads it as
+part of an enclosing repository (an empty mount point), `abandon` refuses with
+git&#x27;s reason, because a disk that is not mounted looks the same as a deleted
+checkout, and the session-end sweep runs `abandon` unattended. Mount or repair
+the checkout and rerun. If it was deleted, remove any folder left at its path
+and rerun with `--checkout-gone`. A main checkout that still holds the run&#x27;s
+branches or worktrees, as a deleted linked worktree&#x27;s does, is found through
+the state file or a surviving lane folder, and the release goes through it.
+Otherwise only the run&#x27;s containers are reaped, and every lane and integration
+folder recorded outside the checkout is named: one on disk holds the only copy
+left of its work.
 
 ## Complete the cycle
 

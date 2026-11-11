@@ -111,6 +111,45 @@ def head_of(path: Path | str) -> str:
     return git(path, "rev-parse", "HEAD")
 
 
+def checkout_reading(path: Path) -> tuple[str | None, str]:
+    """(HEAD's commit, "") when `path` is itself a checkout git can read; (None, why) otherwise.
+
+    `path` must be its repository's top level: an empty mount point that an
+    unmounted disk leaves inside another repository reads as that repository.
+    """
+    if not path.exists():
+        return None, "is not on disk"
+    result = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"], text=True, capture_output=True)
+    if result.returncode:
+        reason = (result.stderr.strip().splitlines() or ["git exited " + str(result.returncode)])[0]
+        return None, f"is not a checkout git can read: {reason}"
+    top = Path(result.stdout.strip()).resolve()
+    if top != path.resolve():
+        return None, f"is not a checkout of its own: git reads it as part of {top}"
+    sha = git(path, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False)
+    return (sha, "") if SHA.fullmatch(sha) else (None, "has no commit at HEAD")
+
+
+def checkout_holding(starts: list[Path], branches: list[str], folders: list[Path]) -> Path | None:
+    """The main checkout, reached from any folder in `starts`, that still has one of
+    `branches` or lists one of `folders` as a worktree; None when no such checkout survives."""
+    wanted = {folder.resolve() for folder in folders}
+    for start in starts:
+        if not start.is_dir():
+            continue
+        common = git(start, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+        common_path = Path(common).resolve() if common else None
+        if not common_path or common_path.name != ".git":
+            continue
+        main = common_path.parent
+        listed = {Path(line.removeprefix("worktree ")).resolve()
+                  for line in git(main, "worktree", "list", "--porcelain", check=False).splitlines()
+                  if line.startswith("worktree ")}
+        if listed & wanted or any(branch_tip(main, branch) for branch in branches):
+            return main
+    return None
+
+
 def worktree_root(workspace: Path) -> Path:
     if not workspace.is_dir():
         fail(f"lane workspace is missing: {workspace}")

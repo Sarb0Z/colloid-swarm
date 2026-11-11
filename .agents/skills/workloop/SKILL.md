@@ -419,6 +419,17 @@ past the base, for instance, so that `integrate` and `teardown` refuse. It reaps
 the run's labelled containers, removes the lane and integration worktrees, and
 deletes the run from state. It deletes only branches the repository's HEAD
 already contains and names the rest; `--discard-branches` deletes those too.
+When the run's checkout is not on disk, git cannot read it, or git reads it as
+part of an enclosing repository (an empty mount point), `abandon` refuses with
+git's reason, because a disk that is not mounted looks the same as a deleted
+checkout, and the session-end sweep runs `abandon` unattended. Mount or repair
+the checkout and rerun. If it was deleted, remove any folder left at its path
+and rerun with `--checkout-gone`. A main checkout that still holds the run's
+branches or worktrees, as a deleted linked worktree's does, is found through
+the state file or a surviving lane folder, and the release goes through it.
+Otherwise only the run's containers are reaped, and every lane and integration
+folder recorded outside the checkout is named: one on disk holds the only copy
+left of its work.
 
 ## Complete the cycle
 

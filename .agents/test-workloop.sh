@@ -37,6 +37,10 @@ case "$*" in
   "ps -aq --filter label=com.docker.compose.project=res-x") printf 'stranger\n' ;;
   "volume ls -q --filter label=colloid.run=res --filter label=colloid.lane=plain") printf 'v1\n' ;;
   "volume rm -f v1") echo "volume is in use" >&2; exit 1 ;;
+  "ps -aq --filter label=colloid.run=abgone") printf 'cg1\n' ;;
+  "ps -aq --filter label=com.docker.compose.project=abgone-one") printf 'cg2\n' ;;
+  "volume ls -q --filter label=colloid.run=abfail") printf 'v9\n' ;;
+  "volume rm -f v9") [[ -z "${DOCKER_V9_BUSY:-}" ]] || { echo "volume is in use" >&2; exit 1; } ;;
   *) : ;;
 esac
 exit 0
@@ -428,6 +432,102 @@ printf 'more\n' >> "$scratch/lane-ab3/src/app.txt"; commit "$scratch/lane-ab3" a
 expect 'abandoned' "${tool[@]}" abandon aband3 --discard-branches
 ! git -C "$work" rev-parse --verify -q aband3/one >/dev/null || fail '--discard-branches kept the branch'
 ok "abandon --discard-branches deletes an unmerged lane branch"
+
+
+# ── a checkout that is not readable: abandon waits for the operator's word ───
+# A missing folder may be a deleted checkout or an unmounted disk, and the
+# session-end sweep runs abandon unattended, so only --checkout-gone drops it,
+# once the folder is gone and no surviving checkout still holds the run.
+git clone -q "$work" "$scratch/gone-repo"
+"${tool[@]}" init abgone --objective x --acceptance y --repo "$scratch/gone-repo" --verify true
+"${tool[@]}" add-lane abgone one --worker implementer --workspace "$scratch/lane-gone" --path src --path docs
+"${tool[@]}" claim abgone one --agent abg1
+printf 'gone change\n' >> "$scratch/lane-gone/src/app.txt"; commit "$scratch/lane-gone" 'gone change'
+mkdir -p "$scratch/lane-gone/docs/reviews"; printf 'ok\n' > "$scratch/lane-gone/docs/reviews/gone.md"; commit "$scratch/lane-gone" review
+"${tool[@]}" submit abgone one --evidence 'unit test passed'
+accept abgone one docs/reviews/gone.md#accepted
+"${tool[@]}" qa abgone --evidence 'scenario passed'
+expect 'PASS: integrated one' "${tool[@]}" integrate abgone --workspace "$scratch/int-gone"
+rm -rf "$scratch/gone-repo"
+: > "$DOCKER_LOG"
+out="$("${tool[@]}" abandon abgone 2>&1)" && fail "abandon dropped a run whose checkout is not on disk, unasked: $out"
+grep -q "gone-repo is not on disk.*mount or repair it and rerun.*rerun with --checkout-gone" <<<"$out" || fail "the refusal did not say how to go on: $out"
+"${tool[@]}" status abgone >/dev/null 2>&1 || fail 'a refused abandon removed the run from state'
+mkdir "$scratch/gone-repo"
+out="$("${tool[@]}" abandon abgone 2>&1)" && fail "abandon dropped a run whose checkout git cannot read, unasked: $out"
+grep -q "gone-repo is not a checkout git can read: fatal: not a git repository" <<<"$out" || fail "the refusal did not quote git's reason: $out"
+expect "gone-repo is still there (is not a checkout git can read.*move it away and rerun with --checkout-gone" "${tool[@]}" abandon abgone --checkout-gone
+"${tool[@]}" status abgone >/dev/null 2>&1 || fail 'abandon --checkout-gone dropped a run whose checkout folder is still there'
+[[ ! -s "$DOCKER_LOG" ]] || fail "a refused abandon touched docker: $(cat "$DOCKER_LOG")"
+rmdir "$scratch/gone-repo"
+out="$("${tool[@]}" abandon abgone --checkout-gone --discard-branches 2>&1)" || fail "abandon --checkout-gone refused: $out"
+grep -q "abandoned 'abgone': its checkout .*gone-repo is gone, so no worktree or branch was touched" <<<"$out" || fail "abandon did not report closing the run: $out"
+grep -q "no branch was deleted: the run's branches went with its checkout" <<<"$out" || fail "abandon did not say --discard-branches reached nothing: $out"
+grep -q "left folder .*/lane-gone: it holds the only copy left of its work; copy out what you need" <<<"$out" || fail "abandon did not name the lane folder it left: $out"
+grep -q "left folder .*/int-gone: it holds" <<<"$out" || fail "abandon did not name the integration folder it left: $out"
+! grep -q "folder .*gone-repo" <<<"$out" || fail "abandon named a folder that went with the checkout: $out"
+[[ -d "$scratch/lane-gone/src" && -d "$scratch/int-gone/src" ]] || fail 'abandon deleted a folder whose checkout is gone'
+if "${tool[@]}" status abgone 2>/dev/null; then fail 'abandon --checkout-gone left the run in state'; fi
+grep -qx 'rm -f cg1 cg2' "$DOCKER_LOG" || fail "abandon did not remove a gone checkout's labelled and compose containers: $(cat "$DOCKER_LOG")"
+rm -rf "$scratch/lane-gone" "$scratch/int-gone"
+ok "abandon refuses a missing or unreadable checkout without --checkout-gone and a folder still there with it, touching nothing; then reaps, and names every folder it leaves"
+
+# An empty mount point left by an unmounted disk inside another repository is
+# not that repository: reading it as one would release through the wrong checkout.
+mkdir -p "$scratch/home-repo/mnt"; printf 'dotfiles\n' > "$scratch/home-repo/f"; git -C "$scratch/home-repo" init -q; commit "$scratch/home-repo" home
+git clone -q "$work" "$scratch/home-repo/mnt/disk"
+"${tool[@]}" init abmount --objective x --acceptance y --repo "$scratch/home-repo/mnt/disk" --verify true
+mv "$scratch/home-repo/mnt/disk" "$scratch/disk-away"; mkdir "$scratch/home-repo/mnt/disk"
+: > "$DOCKER_LOG"
+out="$("${tool[@]}" abandon abmount 2>&1)" && fail "abandon released an empty mount point through the repository around it: $out"
+grep -q "disk is not a checkout of its own: git reads it as part of .*home-repo" <<<"$out" || fail "the refusal did not name the enclosing repository: $out"
+expect "disk is still there" "${tool[@]}" abandon abmount --checkout-gone
+"${tool[@]}" status abmount >/dev/null 2>&1 || fail 'abandon dropped a run whose checkout is an empty mount point'
+[[ ! -s "$DOCKER_LOG" ]] || fail "a refused abandon touched docker: $(cat "$DOCKER_LOG")"
+rmdir "$scratch/home-repo/mnt/disk"; mv "$scratch/disk-away" "$scratch/home-repo/mnt/disk"
+expect "abandoned 'abmount': removed 0 worktree(s)" "${tool[@]}" abandon abmount
+rm -rf "$scratch/home-repo"
+ok "an empty mount point inside another repository is refused, with or without --checkout-gone"
+
+# A checkout git refuses (here its owner differs) is named with git's reason.
+"${tool[@]}" init abreadable --objective x --acceptance y --repo "$work" --verify true
+expect "checkout .* is readable.*abandon it without --checkout-gone" "${tool[@]}" abandon abreadable --checkout-gone
+"${tool[@]}" status abreadable >/dev/null 2>&1 || fail 'abandon --checkout-gone dropped a run whose checkout is readable'
+out="$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "${tool[@]}" abandon abreadable 2>&1)" && fail "abandon dropped a run whose checkout git refuses: $out"
+grep -q "is not a checkout git can read: fatal: detected dubious ownership" <<<"$out" || fail "the refusal did not quote git's reason: $out"
+"${tool[@]}" abandon abreadable >/dev/null
+ok "--checkout-gone is refused on a readable checkout, and a checkout git refuses is named with git's reason"
+
+# A deleted linked worktree leaves its branches in the main checkout, which
+# a surviving lane folder leads back to; the release goes through it.
+git clone -q "$work" "$scratch/main-lw"
+git -C "$scratch/main-lw" worktree add -q "$scratch/wt-lw" -b lw-base
+"${tool[@]}" init ablw --objective x --acceptance y --repo "$scratch/wt-lw" --verify true
+"${tool[@]}" add-lane ablw one --worker implementer --workspace "$scratch/lane-lw" --path src
+"${tool[@]}" claim ablw one --agent lw1
+printf 'lw change\n' >> "$scratch/lane-lw/src/app.txt"; commit "$scratch/lane-lw" 'lw change'
+rm -rf "$scratch/wt-lw"
+expect "wt-lw is not on disk" "${tool[@]}" abandon ablw
+out="$("${tool[@]}" abandon ablw --checkout-gone 2>&1)" || fail "abandon --checkout-gone refused a deleted linked worktree: $out"
+grep -q "abandoned 'ablw': its checkout .*wt-lw is gone; released its worktrees and branches through .*main-lw: removed 1 worktree(s)" <<<"$out" || fail "abandon did not release through the main checkout: $out"
+grep -q "kept branch ablw/one" <<<"$out" || fail "abandon did not name the branch it kept: $out"
+git -C "$scratch/main-lw" rev-parse --verify -q ablw/one >/dev/null || fail 'abandon deleted a branch HEAD does not contain'
+[[ ! -e "$scratch/lane-lw" ]] || fail 'abandon left the lane worktree the main checkout could remove'
+if "${tool[@]}" status ablw 2>/dev/null; then fail 'abandon left the run in state'; fi
+rm -rf "$scratch/main-lw"
+ok "a deleted linked worktree's run is released through the main checkout that still holds its branches"
+
+git clone -q "$work" "$scratch/fail-repo"
+"${tool[@]}" init abfail --objective x --acceptance y --repo "$scratch/fail-repo" --verify true
+"${tool[@]}" add-lane abfail one --worker implementer --workspace "$scratch/lane-fail" --path src
+rm -rf "$scratch/fail-repo" "$scratch/lane-fail"
+out="$(DOCKER_V9_BUSY=1 "${tool[@]}" abandon abfail --checkout-gone 2>&1)" && fail "abandon dropped a run whose reap failed: $out"
+grep -q 'volumes v9: volume is in use' <<<"$out" && grep -q "run 'abfail' is still in state" <<<"$out" || fail "a failed reap was not reported: $out"
+"${tool[@]}" status abfail >/dev/null 2>&1 || fail 'a failed reap removed the run from state'
+out="$("${tool[@]}" abandon abfail --checkout-gone 2>&1)" || fail "the retried abandon failed: $out"
+grep -q "folder .*/lane-fail is not on disk: if it is on a disk that is not mounted, its files are still there" <<<"$out" || fail "abandon did not name a lane folder that is not on disk: $out"
+if "${tool[@]}" status abfail 2>/dev/null; then fail 'the retried abandon left the run in state'; fi
+ok "a failed reap keeps the run, the retry closes it, and a lane folder not on disk is named"
 
 
 # ── a review report kept in the main checkout is a valid reference ───────────

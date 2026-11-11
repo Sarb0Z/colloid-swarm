@@ -354,6 +354,17 @@ age 90000; sweep
 [[ ! -e "$l2" && "$sweep_out" == *"closed workloop run t2"* && "$(git -C "$R" show saved/l2:src/cell.txt)" == "cell work" ]] \
   || fail "past 24 hours with no resume, the sweep must save and close the run: $sweep_out"
 ok "past the 24 hours the next start saves and closes the run, unless an ignored file would be lost"
+# A checkout that is not on disk may be on an unmounted disk, so the sweep never drops its run.
+git clone -q "$R" "$scratch/gone-clone"
+bash_call "$R" "$wl init tg --objective o --acceptance a --repo $scratch/gone-clone --verify true"
+bash_call "$R" "$wl add-lane tg lg --worker w --path src"
+rm -rf "$scratch/gone-clone"
+age 90000; sweep
+[[ "$sweep_out" == *"kept workloop run tg: abandon failed: "*"gone-clone is not on disk"*"rerun with --checkout-gone"* ]] \
+  || fail "the sweep must keep a run whose checkout is not on disk, naming --checkout-gone: $sweep_out"
+$wl status tg >/dev/null 2>&1 || fail "the sweep dropped a run whose checkout is not on disk: $sweep_out"
+$wl abandon tg --checkout-gone >/dev/null
+ok "a run whose checkout is not on disk outlives the sweep, which names --checkout-gone"
 # A one-writer run no session leads has no worktree for git to list; it stays and is named,
 # before and after its composed test passed (whose verify worktree is gone again).
 $wl init ow --objective o --acceptance a --repo "$R" --verify true --lane solo --worker w --path src >/dev/null

@@ -254,6 +254,55 @@ def release_run(repo: Path, run_name: str, lane_names: list[str], worktrees: dic
     return removed, kept, errors, wd.removed_count(docker_result)
 
 
+def release_without_checkout(run_name: str, lane_names: list[str], repo: Path,
+                             folders: list[str]) -> tuple[list[str], list[str], int]:
+    """Release a run whose checkout was deleted and whose branches no surviving checkout holds.
+
+    Only its labelled containers can still be reaped. Every lane and
+    integration folder recorded outside the checkout is named: one on disk
+    holds the only copy left of its work, and one not on disk may be on a disk
+    that is not mounted.
+    Returns (lines naming those folders, errors, docker resources removed).
+    """
+    docker_result = wd.reap(run_name, sorted(lane_names))
+    lines = []
+    for folder in sorted({folder for folder in folders if folder and not Path(folder).resolve().is_relative_to(repo)}):
+        if Path(folder).exists():
+            lines.append(f"left folder {folder}: it holds the only copy left of its work; copy out what you need, then delete it")
+        else:
+            lines.append(f"folder {folder} is not on disk: if it is on a disk that is not mounted, its files are still there")
+    return lines, docker_result["failed"], wd.removed_count(docker_result)
+
+
+def checkout_for_release(args: argparse.Namespace, repo: Path, state: Path, lanes: dict[str, tuple[str, str | None]],
+                         integration: dict) -> tuple[Path | None, str | None]:
+    """The checkout to release the run through and its HEAD; (None, None) when none survives.
+
+    A checkout git cannot read may be deleted, or on a disk that is not
+    mounted, and the session-end sweep runs abandon unattended: only the
+    operator's --checkout-gone, once the folder itself is gone, lets the run go.
+    A deleted linked worktree leaves its branches and worktree registrations in
+    its main checkout, which a surviving folder leads back to.
+    """
+    head, why = wg.checkout_reading(repo)
+    if head is not None:
+        if args.checkout_gone:
+            fail(f"the run's checkout {repo} is readable; abandon it without --checkout-gone, "
+                 "which would leave its worktrees and branches behind")
+        return repo, head
+    if not args.checkout_gone:
+        fail(f"the run's checkout {repo} {why}, so its worktrees and branches cannot be released: "
+             "mount or repair it and rerun; if it was deleted, rerun with --checkout-gone")
+    if repo.exists():
+        fail(f"--checkout-gone needs the checkout gone, and {repo} is still there ({why}): repair it and rerun, "
+             "or, if it is no longer the run's checkout, move it away and rerun with --checkout-gone")
+    folders = [repo] + [Path(workspace) for workspace, _ in lanes.values() if workspace]
+    folders += [Path(integration["workspace"])] if integration.get("workspace") else []
+    branches = [branch for _, branch in lanes.values() if branch] + [f"{args.run}/integration"]
+    holder = wg.checkout_holding([state.parent, *folders], branches, folders)
+    return holder, (wg.head_of(holder) if holder else None)
+
+
 def cmd_teardown(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
         run = run_of(data, args.run)
@@ -288,24 +337,34 @@ def cmd_teardown(args: argparse.Namespace) -> None:
 
 def cmd_abandon(args: argparse.Namespace) -> None:
     """Close a run whose work landed outside integrate, e.g. after main moved on."""
-    with ReadStore(state_path(args.state)) as data:
+    state = state_path(args.state)
+    with ReadStore(state) as data:
         run = run_of(data, args.run)
         repo = Path(run["repo"])
-        head = wg.head_of(repo)
         names = sorted(run["lanes"])
         lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in wm.worktree_lanes(run).items()}
         integration = run.get("integration") or {}
-    removed, kept, errors, docker_removed = release_run(repo, args.run, names, lanes, integration, head, args.discard_branches)
+    holder, head = checkout_for_release(args, repo, state, lanes, integration)
+    if holder is not None and head is not None:
+        removed, kept, errors, docker_removed = release_run(holder, args.run, names, lanes, integration, head, args.discard_branches)
+        through = "" if holder == repo else f"its checkout {repo} is gone; released its worktrees and branches through {holder}: "
+        lines = [f"abandoned {args.run!r}: {through}removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)"]
+        lines += [f"kept branch {line}; delete it yourself or rerun with --discard-branches" for line in kept]
+    else:
+        folders = [workspace for workspace, _ in lanes.values()] + [integration.get("workspace")]
+        named, errors, docker_removed = release_without_checkout(args.run, names, repo, folders)
+        lines = [f"abandoned {args.run!r}: its checkout {repo} is gone, so no worktree or branch was touched; "
+                 f"removed {docker_removed} docker resource(s)"]
+        lines += ["no branch was deleted: the run's branches went with its checkout"] if args.discard_branches else []
+        lines += named
     # A failure leaves the run in state: rerunning abandon retries what is left.
     if errors:
         for line in errors:
             print(line, file=sys.stderr)
         fail(f"abandon finished with errors; run {args.run!r} is still in state, rerun after resolving them")
-    with Store(state_path(args.state)) as data:
+    with Store(state) as data:
         del data["runs"][args.run]
-    print(f"abandoned {args.run!r}: removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)")
-    for line in kept:
-        print(f"kept branch {line}; delete it yourself or rerun with --discard-branches")
+    print("\n".join(lines))
 
 
 def cmd_reap(args: argparse.Namespace) -> None:
