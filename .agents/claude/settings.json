@@ -198,7 +198,7 @@
         ]
       },
       {
-        "matcher": "mcp__playwright__browser_run_code_unsafe",
+        "matcher": "mcp__playwright__browser_run_code_unsafe|mcp__scrapling__make_request|mcp__scrapling__open_request_session|mcp__scrapling__session_make_request|mcp__scrapling__browser_save_state|mcp__scrapling__browser_load_state",
         "hooks": [
           {
             "type": "command",

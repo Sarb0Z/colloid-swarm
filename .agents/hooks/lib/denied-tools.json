@@ -2,5 +2,25 @@
   "mcp__playwright__browser_run_code_unsafe": {
     "why": "it runs arbitrary JavaScript in the Playwright server process (Playwright calls it RCE-equivalent), outside every shell guard, in a browser that can carry the operator's synced session cookies",
     "instead": "use the other browser tools: browser_evaluate for JavaScript inside the page, browser_snapshot, browser_click, browser_fill_form, browser_wait_for, browser_network_requests and the rest. For a multi-step flow, write a Playwright test in the repository and run it with Bash, where the shell guards apply. Carry on with the task; do not stop on this denial"
+  },
+  "mcp__scrapling__make_request": {
+    "why": "it is a raw HTTP client that reaches no address guard and no source ledger, so it can fetch any address unrecorded",
+    "instead": "use browser_fetch_once for one page, or browser_open then browser_fetch for several pages from one site, ending with close_session. Carry on with the task; do not stop on this denial"
+  },
+  "mcp__scrapling__open_request_session": {
+    "why": "it opens a raw HTTP session that reaches no address guard and no source ledger, so it can fetch any address unrecorded",
+    "instead": "use browser_fetch_once for one page, or browser_open then browser_fetch for several pages from one site, ending with close_session. Carry on with the task; do not stop on this denial"
+  },
+  "mcp__scrapling__session_make_request": {
+    "why": "it sends raw HTTP requests through a request session that reaches no address guard and no source ledger, so it can fetch any address unrecorded",
+    "instead": "use browser_fetch_once for one page, or browser_open then browser_fetch for several pages from one site, ending with close_session. Carry on with the task; do not stop on this denial"
+  },
+  "mcp__scrapling__browser_save_state": {
+    "why": "it writes a browser's cookies and storage to a state file on disk, where the session's credentials outlive the session",
+    "instead": "a browser session opened with browser_open keeps its cookies until close_session, so nothing needs saving: keep the session open across the fetches, then close it. For one page use browser_fetch_once. Carry on with the task; do not stop on this denial"
+  },
+  "mcp__scrapling__browser_load_state": {
+    "why": "it loads a browser's cookies and storage from a state file on disk, which brings credentials from outside the session into the browser",
+    "instead": "a browser session opened with browser_open keeps its cookies until close_session, so nothing needs loading: open one session with browser_open and fetch with browser_fetch, then close it. For one page use browser_fetch_once. Carry on with the task; do not stop on this denial"
   }
 }

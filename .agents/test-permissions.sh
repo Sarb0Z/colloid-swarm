@@ -46,8 +46,17 @@ SAFE_TOOLS = (
 )
 
 # The default browser can carry the operator's synced session cookies, and
-# this tool runs arbitrary code in its server process with them.
-REQUIRED_DENY = ("mcp__playwright__browser_run_code_unsafe",)
+# this tool runs arbitrary code in its server process with them. Scrapling's
+# raw-HTTP tools reach no address guard or ledger, and its state files carry a
+# browser's cookies to and from disk.
+REQUIRED_DENY = (
+    "mcp__playwright__browser_run_code_unsafe",
+    "mcp__scrapling__make_request",
+    "mcp__scrapling__open_request_session",
+    "mcp__scrapling__session_make_request",
+    "mcp__scrapling__browser_save_state",
+    "mcp__scrapling__browser_load_state",
+)
 
 ask_rules = permissions.get("ask")
 if not isinstance(ask_rules, list):
@@ -147,7 +156,7 @@ for persona in sorted((source / ".agents/personas").glob("*.md")):
 # Fire the hook the way the host does: a listed tool is refused with its remedy,
 # any other tool passes.
 adapter = source / ".claude/hooks/adapter.sh"
-for tool, expect in [(next(iter(remedies)), 2), ("mcp__playwright__browser_click", 0)]:
+for tool, expect in [*((name, 2) for name in remedies), ("mcp__playwright__browser_click", 0)]:
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": {}})
     ran = subprocess.run(
         [str(adapter), "denied-tool.sh"], input=event, capture_output=True, text=True,
