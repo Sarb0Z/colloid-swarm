@@ -16,7 +16,7 @@ import argparse
 from pathlib import Path
 
 from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES
-from workloop_state import Store, fail, now, record, replayed, run_of, state_path, valid_name
+from workloop_state import Store, activity_columns, fail, now, record, replayed, run_of, state_path, valid_name
 
 ROLES = {
     "research": "find and ground the facts the objective needs; a claim about this repository or its systems goes in a findings table (.agents/playbooks/plan-research.md), each with its path:line or command output and its status, observed, inferred or not read, under the commit you read at; an external claim keeps its source and date",
@@ -55,7 +55,8 @@ def status_lines(run: dict) -> list[str]:
     lines = []
     for name, cell in sorted(cells_of(run).items()):
         where = f"\tresult={cell['result']}" if cell.get("result") else f"\treason={cell['reason']}" if cell.get("reason") else ""
-        lines.append(f"{name}\tcell {cell['state']}\t{cell['role']}\tmodel={cell['model']}{where}")
+        away = activity_columns(cell, "out_since") if cell["state"] == "out" else ""
+        lines.append(f"{name}\tcell {cell['state']}\t{cell['role']}\tmodel={cell['model']}{where}{away}")
     return lines
 
 

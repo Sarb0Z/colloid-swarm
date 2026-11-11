@@ -162,3 +162,28 @@ def rebuild_steps(run: dict) -> list[tuple[str, str]]:
 
 def pending_messages(run: dict, lane: str) -> list[dict]:
     return [message for message in run["messages"] if message["to"] == lane and message["requires_ack"] and not message.get("acknowledged_at")]
+
+
+def age_text(seconds: float) -> str:
+    """A span in the coarsest unit that keeps it exact enough to read: 45s, 12m, 3h05m."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+
+
+def silence(agent: dict, since_key: str, at: float | None = None) -> tuple[float, float]:
+    """Seconds out and seconds since the last sign of life, for a lane (`since_key` claimed_at)
+    or a cell (out_since). A sign of life is the hook's stamp, a lane's own heartbeat, or going out."""
+    at = time.time() if at is None else at
+    out = parse_stamp(agent[since_key])
+    last = max(parse_stamp(agent[key]) for key in ("activity_at", "heartbeat_at", since_key) if agent.get(key))
+    return at - out, at - last
+
+
+def activity_columns(agent: dict, since_key: str) -> str:
+    """The tab-separated tail `status` prints for an agent that is out: time out, silence, last action."""
+    out, quiet = silence(agent, since_key)
+    return f"\tout {age_text(out)}\tsilent {age_text(quiet)}" + (f"\t{agent['activity']}" if agent.get("activity") else "")

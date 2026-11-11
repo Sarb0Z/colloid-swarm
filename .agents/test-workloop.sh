@@ -1745,6 +1745,24 @@ assert paths == ["docs/c.txt", "gen/s.txt"], paths
 EOF
 ok "a staged copy under status.renames=copies lists its source once"
 
+# ── background agents' time out and silence, as the inbox hook stamps them ───
+"${tool[@]}" init act --objective 'three cells out' --acceptance 'each answers' --repo "$work" >/dev/null
+for cell_name in busy quiet unstamped; do "${tool[@]}" add-cell act "$cell_name" --role research --model haiku >/dev/null; done
+python3 - "$state" <<'EOF'
+import json, sys, time
+p = sys.argv[1]; s = json.load(open(p)); cells = s["runs"]["act"]["cells"]
+def at(minutes): return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - minutes * 60))
+for cell in cells.values(): cell["out_since"] = at(40)
+cells["busy"].update(activity_at=at(1), activity="Edit parser.py")
+cells["quiet"].update(activity_at=at(25), activity="Bash pytest -q")
+json.dump(s, open(p, "w"))
+EOF
+status_out="$("${tool[@]}" status act)"
+grep -qE $'^quiet\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 25m\tBash pytest -q$' <<<"$status_out" || fail "status did not name the silent cell, its time out and its age: $status_out"
+grep -qE $'^busy\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 1m\tEdit parser.py$' <<<"$status_out" || fail "status did not show the busy cell's last action: $status_out"
+grep -qE $'^unstamped\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 40m$' <<<"$status_out" || fail "a cell never stamped did not read as silent since it went out: $status_out"
+ok "status shows each cell's time out, its silence and its last action, with no controller command run by the cell"
+
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'
 import json, sys
