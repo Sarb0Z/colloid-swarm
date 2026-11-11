@@ -629,7 +629,7 @@ printf '[tool.ruff]\n' > "$fx/pyproject.toml"
 printf 'x = 1\n' > "$fx/src/a.py"
 printf 'raise SystemExit("boom")\n' > "$fx/.agents/hooks/lib/checkers.py"
 fxrun check s1 '["src/a.py"]'
-[[ $rc -eq 2 && "$err" == *"checkers.py missing exited"* && "$err" == *"boom"* ]] \
+[[ $rc -eq 2 && "$err" == *"checkers.py batch exited"* && "$err" == *"boom"* ]] \
   || fail "a crash of checkers.py must be a finding, got rc=$rc: $err"
 ok "a failing checkers.py call is reported as a finding, not a silent abort"
 

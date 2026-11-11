@@ -59,13 +59,17 @@ nullsafety_check="$(printf '%s\n' "$cfg" | sed -n '3p')"
 # turns the gate off on exactly the largest changes.
 input="$(cat)"
 
-proj="$(printf '%s' "$input" | python3 "$lib/payload.py" project_dir)"
+# The session id is read in check mode only: write mode keeps no per-session state.
+if [[ "$mode" == "check" ]]; then
+  { IFS= read -r proj || true; IFS= read -r session || true; } < <(printf '%s' "$input" | python3 "$lib/payload.py" project_dir session_id)
+else
+  proj="$(printf '%s' "$input" | python3 "$lib/payload.py" project_dir)"
+  session=""
+fi
 
 [[ -z "$proj" ]] && proj="$PWD"
 cd "$proj"
 proj="$(pwd -P)"
-session=""
-[[ "$mode" == "check" ]] && session="$(printf '%s' "$input" | python3 "$lib/payload.py" session_id)"
 
 # A lane worktree links its node_modules to the main worktree of the same
 # repository, and a binary found there counts as inside the repository. The main
@@ -136,21 +140,23 @@ fixer() {  # <lowest failing exit status> <label> <command...>
 }
 eslint_fix() { (cd "$1" && "$2" --fix "${@:3}"); }
 
-checker_missing() {  # <checker> <paths>
-  local paths=() p
+# The missing and ran requests are collected and answered by one checkers.py
+# process at the end (checker_flush), since starting Python is most of their cost.
+checker_requests=""
+checker_request() {  # <missing|ran> <checker> <paths>
+  local p
   [[ "$mode" == "check" ]] || return 0
-  while IFS= read -r p; do [[ -n "$p" ]] && paths+=("$p"); done <<< "$2"
-  [[ ${#paths[@]} -eq 0 ]] && return 0
-  checkers_py missing "$1" "$proj" "$session" "${paths[@]}"
-  [[ -n "$checkers_out" ]] && issues+=$'\n'"$checkers_out"$'\n'
+  while IFS= read -r p; do
+    [[ -n "$p" ]] && checker_requests+="$1"$'\t'"$2"$'\t'"$p"$'\n'
+  done <<< "$3"
   return 0
 }
-checker_ran() {  # <checker> <paths>
-  local paths=() p
-  [[ "$mode" == "check" ]] || return 0
-  while IFS= read -r p; do [[ -n "$p" ]] && paths+=("$p"); done <<< "$2"
-  [[ ${#paths[@]} -eq 0 ]] && return 0
-  checkers_py ran "$1" "$proj" "${paths[@]}"
+checker_missing() { checker_request missing "$1" "$2"; }
+checker_ran() { checker_request ran "$1" "$2"; }
+checker_flush() {
+  [[ -n "$checker_requests" ]] || return 0
+  checkers_py batch "$proj" "$session" <<< "${checker_requests%$'\n'}"
+  [[ -n "$checkers_out" ]] && issues+=$'\n'"$checkers_out"$'\n'
   return 0
 }
 
@@ -592,6 +598,7 @@ if [[ "$mode" == "write" && "$nullsafety_check" == "yes" && -n "$js_ts_edited" ]
 fi
 
 if [[ "$mode" == "check" ]]; then
+  checker_flush
   [[ -z "$issues" ]] && exit 0
   cat >&2 <<EOF
 Post-edit checks failed — fix them before moving on. Each is scoped to the

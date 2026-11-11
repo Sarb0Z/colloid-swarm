@@ -12,6 +12,9 @@ Usage:
       the first time a session meets that checker in that workspace, nothing
       after, and nothing at all when no config is found. Always records the
       checker as missing in the checks ledger and refreshes the `checks` readout.
+  checkers.py batch <project> <session>
+      Lines `<missing|ran>\t<checker>\t<path>` on stdin, answered as the two
+      commands above in one process; prints the missing-checker reports.
   checkers.py ran <checker> <project> <path>...
       The binary resolved for these paths: the workspace leaves the ledger.
   checkers.py tsc <project> <session> <workspace> <config> <exit-status> <rel>...
@@ -405,6 +408,23 @@ def pyright(project, workspace, status, stderr_path, scoped, raw):
     return check_reports.pyright(project, workspace, status, read_text(stderr_path), raw, scoped)
 
 
+def batch(project, session, requests):
+    """Answer many `missing` and `ran` requests in one process. Each request is
+    `<missing|ran>\t<checker>\t<path>`; the hook asks once per run because a
+    Python start costs more than the work."""
+    wanted = {}
+    for line in requests.splitlines():
+        kind, checker, path = line.split("\t", 2)
+        wanted.setdefault((kind, checker), []).append(path)
+    reports = []
+    for (kind, checker), paths in wanted.items():
+        if kind == "ran":
+            ran(checker, project, paths)
+        else:
+            reports.append(missing(checker, project, session, paths))
+    return "\n".join(report for report in reports if report)
+
+
 def main(argv):
     command, args = (argv[0], argv[1:]) if argv else ("", [])
     if command == "missing" and len(args) >= 4 and args[0] in CHECKERS:
@@ -412,6 +432,8 @@ def main(argv):
     elif command == "ran" and len(args) >= 3 and args[0] in CHECKERS:
         ran(args[0], args[1], args[2:])
         out = ""
+    elif command == "batch" and len(args) == 2:
+        out = batch(args[0], args[1], sys.stdin.read())
     elif command == "tsc" and len(args) >= 6:
         out = tsc(args[0], args[1], args[2], args[3], int(args[4]), args[5:], sys.stdin.read())
     elif command == "pyright" and len(args) == 5:
