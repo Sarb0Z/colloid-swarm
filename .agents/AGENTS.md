@@ -9,7 +9,7 @@ paths:
 ## Ownership
 
 - `.agents/` is canonical; host paths are static adapters or symlinks. Never edit through a symlink.
-- Runtime ledgers (`.sources-ledger`, `.wrap-state-*`, `.wrap-edits-*`, `.wrap-commits-*`, `.compaction-pending`, `.workloop-state.json`) and the in-tree `worklog/` are gitignored state.
+- Runtime ledgers (`.sources-ledger`, `.wrap-state-*`, `.wrap-edits-*`, `.wrap-commits-*`, `.compaction-pending`, `.workloop-state.json`, `.readout/`) and the in-tree `worklog/` are gitignored state.
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
@@ -115,6 +115,7 @@ python3 .agents/test-lsp.py
 python3 .agents/test-browser-sync.py
 .agents/test-permissions.sh
 .agents/test-statusline.sh
+.agents/test-readout.sh
 .agents/test-hook-lookup.sh
 .agents/test-product-folder.sh
 .agents/test-mods.sh

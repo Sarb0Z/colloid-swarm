@@ -27,6 +27,7 @@
 .agents/.outside-runs-*
 .agents/.workloop-state.json
 .agents/.workloop-state.json.lock
+.agents/.readout/
 .agents/.publish-approved-*
 .agents/.keychain-notices.log
 .agents/worktrees/
