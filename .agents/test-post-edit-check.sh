@@ -4,6 +4,7 @@
 # tab-delimited downstream, so neither character can appear in a path. Both must
 # be refused out loud. A silent skip is a gate reporting a pass it never ran.
 set -euo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
