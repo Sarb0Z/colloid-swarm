@@ -179,7 +179,10 @@ for real in tsc pyright node; do
   [[ -n "$found" ]] && ln -s "$found" "$tools/$real"
 done
 have_real() { [[ -e "$tools/$1" ]]; }
-skip() { printf 'SKIP  %s (needs a real %s)\n' "$1" "$2"; }
+skip() {
+  [[ -z "${CI:-}" ]] || fail "$1 needs a real $2, and CI is set: install it rather than skip the row"
+  printf 'SKIP  %s (needs a real %s)\n' "$1" "$2"
+}
 
 newfix() {  # <name> -> sets fx, fxproj: a fixture repository with its own copy of the policy
   fx="$scratch/$1"

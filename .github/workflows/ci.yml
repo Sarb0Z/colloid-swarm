@@ -99,6 +99,11 @@ jobs:
       - name: Output style reach
         run: .agents/test-style-inject.sh
 
+      # The post-edit rows run the real TypeScript compiler and pyright; with CI
+      # set, a row that cannot find one fails rather than skipping.
+      - name: Typecheckers for the post-edit policy
+        run: npm install -g --no-fund --no-audit typescript@7.0.2 pyright@1.1.414
+
       - name: Post-edit policy
         run: .agents/test-post-edit-check.sh
 
