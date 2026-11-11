@@ -59,7 +59,7 @@ the probe was run) or `inferred`.
 | F25 | A Stop hook's input lists `background_tasks` and `session_crons`, so a hook can tell a session that is done from one waiting on background work; both were empty arrays in the probe | code.claude.com/docs/en/hooks, Stop input, read 2026-11-11; the F13 probe's captured input | observed |
 | F26 | The root contract, the Merge playbook and the review playbook still require several axis reviewers at Critical; the decision `review-at-delivery-boundaries` is recorded and not yet landed in them | `AGENTS.md:52`; `playbooks/workflow-merge.md:11`; `hostile-review.md:110-113` | observed |
 | F27 | A run's folder is gitignored and its briefs are deleted at teardown; `provision.sh` installs a worktree's dependencies and the provisioning hook runs it only when a subagent starts | `.gitignore:27`; `workloop_finish.py:246-252`; `worktree-provision.sh:43-57` | observed |
-| F28 | Whether the adapter can hand the inbox hook a subagent's transcript path or the tool call it just made | not read | inferred |
+| F28 | The adapter hands the inbox hook `project_dir`, `event`, `session_id` and `agent_id` and not `transcript_path`, which it already passes to other hooks; a subagent's own transcript is `<dirname(transcript_path)>/<session>/subagents/agent-<agent_id>.jsonl`, the path the writers gate reads, so one added field binds an agent to its cell by the brief header in its first prompt | `claude/normalize-hook.py:84-99`; `hooks/lib/cell_markers.py:13-18` | observed |
 
 ## One reader for four readouts
 
@@ -252,10 +252,9 @@ nothing.
 - 5.1 The inbox hook, which already runs between a subagent's tool calls,
   stamps the run state with the time and a few words of the agent's last
   action, at most once a minute per agent. A lane is bound by its claim
-  (F16). The first step is a probe of what the adapter can pass for a cell
-  (F28): its transcript path, read as the gate reads it, binds the agent to
-  its cell by either brief header. If no binding is possible, a cell shows
-  only time out, and the plan returns to the lead.
+  (F16). The adapter passes the inbox hook `transcript_path` as it does for other
+  hooks (F28), and the hook binds the agent to its cell by either brief
+  header in its own transcript's first prompt.
 - 5.2 `status` and `watch` print, per lane and cell, time out and time since
   last activity, and `watch` reads the stamp for its stale rule (F15).
   `digest <run>` prints one line per agent: name, role, state, age, last
