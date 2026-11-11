@@ -1,0 +1,10 @@
+{
+  "systems": [
+    {
+      "name": "github",
+      "probe": "gh auth status --hostname github.com",
+      "read": ["gh pr list --limit 20", "gh run list --limit 10"],
+      "logs": {"ci": "gh run view <run-id> --log-failed"}
+    }
+  ]
+}
