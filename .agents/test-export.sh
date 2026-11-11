@@ -26,6 +26,10 @@ if grep -rq 'DIRTY_EXPORT_CANARY' "$kit"; then
   fail "export mixed live debt text into the committed snapshot"
 fi
 
+# Each satellite writes its own policy.json; the carrier's would conflict with
+# it or silently add the carrier's systems.
+[[ ! -e "$kit/.agents/policy.json" ]] || fail "the kit carries the carrier's policy.json"
+
 # A seeded entry that cites another entry by id carries that entry too, or the
 # target's debt log holds a dangling reference.
 python3 - "$work/source/.agents/debt-log.md" "$kit/export/debt-log-entry.md" <<'PY' || fail "seeded debt entries cite an entry the export omits"
