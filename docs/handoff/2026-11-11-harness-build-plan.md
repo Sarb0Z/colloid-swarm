@@ -53,7 +53,7 @@ the probe was run) or `inferred`.
 | F19 | The transplant procedure already has a per-repository adaptation step that records "access snapshot, credential path" by hand in the gitignored `CLAUDE.local.md`; the tax-appeals-app repositories hold a hand-written list of probes such as `vercel whoami` | `export/README.md:215-220`; `tax-appeals-web/CLAUDE.local.md:10-20` | observed |
 | F20 | `guard-publish` has write-verb rows for vercel, netlify, wrangler, firebase, fly, railway, supabase, terraform, gcloud, aws and gh, and none for the Stripe or Sentry command lines; no satellite is shown to use either | `hooks/lib/guard-publish.py:57-90, 163-226`; grep | observed |
 | F21 | `post-edit-check.sh` skips a checker whose binary it cannot find and prints nothing, for ruff, eslint, prettier, tsc, pyright and the Dart analyzer. It keeps tsc output only on lines that name an edited file, and it discards pyright's stderr and reads an empty result as clean | `post-edit-check.sh:194-203, 241-281, 345-443`; `hooks/lib/js-groups.py:46-65` | observed |
-| F22 | In a tree whose `node_modules` is a symlink to another tree, `js-groups.py` returns no group, so ESLint and Prettier never run there; `worktree-provision` shares `node_modules` by symlink by default | probe run twice 2026-11-11, by the lead and by the reviewer (0 groups linked, 1 group copied); `worktree-provision.sh:32, 65-73` | observed |
+| F22 | In a tree whose `node_modules` is a symlink to another tree, `js-groups.py` given that tree as the project returns no group, so ESLint and Prettier never run in a Codex or Kimi lane, whose payload names the worktree; Claude's adapter names the main checkout, where the link already resolved (unit 9 review, finding 14); `worktree-provision` shares `node_modules` by symlink by default | probe run twice 2026-11-11, by the lead and by the reviewer (0 groups linked, 1 group copied); `worktree-provision.sh:32, 65-73` | observed |
 | F23 | The "eslint … Nothing was linted" message does block (exit 2); its 1,056 logged lines are 1,052 from claims-app in 2026-09 and 4 from delivery-web, and ESLint runs clean in both today | `post-edit-check.sh:331-333, 475-483`; log count and two runs, 2026-11-11 | observed |
 | F24 | `test-post-edit-check.sh` pins the Dart paths, one ESLint working-directory case and the path guards; nothing pins ruff, tsc, pyright or a checker that cannot run | `test-post-edit-check.sh:49-166` | observed |
 | F25 | A Stop hook's input lists `background_tasks` and `session_crons`, so a hook can tell a session that is done from one waiting on background work; both were empty arrays in the probe | code.claude.com/docs/en/hooks, Stop input, read 2026-11-11; the F13 probe's captured input | observed |
@@ -117,13 +117,13 @@ and "not configured" as silence.
 - 9.2 The unreadable run (F21): pyright's stderr is kept, and a tsc or
   pyright run that exits non-zero with no line the hook can parse is
   reported with its first line. Errors outside the edited files stay out of
-  the per-edit report, with one exception: the hook keeps, per session and
-  workspace, the count of such errors, and an edit after which the count
-  rises is reported with the new lines, since that edit broke a caller. The
-  first run in a session sets the baseline silently.
+  the per-edit report, with one exception for tsc: the hook keeps, per
+  session and workspace, every error line it has seen, and a line outside the
+  edited files that is not among them is reported, since that edit broke a
+  caller. The first run in a session sets the baseline silently.
 - 9.3 Firing tests for ruff in both modes, tsc, pyright, the ESLint
   no-report path and each case above (F24). The unit writes a readout naming
-  the checkers active and missing in the repository.
+  the checkers missing in the repository.
 
 Acceptance: (1) in a lane worktree with linked `node_modules`, an edit that
 introduces an ESLint error is reported; (2) in a repository with a ruff
@@ -427,6 +427,15 @@ the text the operator approved.
   interactive terminal.
 - F28 and F29: the inbox hook's binding to a cell is half observed; 5.1
   keeps its fallback.
+- 9.2: a broken caller is a tsc error line the session has not seen, where
+  the approved text compared counts, which miss a break made while another
+  error is fixed; pyright, which reads only the edited files, has no such
+  rule (review `2026-11-12-harness-w1`, unit 9 finding 1).
+- 9.3: the readout names missing checkers only, where the approved text
+  also named active ones, since writing it on every run adds to each edit's
+  cost (same review, findings 6 and 12).
+- F22: true only for Codex and Kimi lanes; Claude lanes already ran ESLint
+  and Prettier (same review, finding 14).
 
 ## Rulings
 
@@ -443,8 +452,8 @@ Ruled by the operator on 2026-11-11.
    the QA gate change (2.1).
 
 Decided by the lead, open to reversal: chunk 1.3 is dropped, since reviewers caught a planted false claim without its line, and unit 1's acceptance names its controls (2026-11-12); QA and review run side by side, with
-QA evidence bound to the tips it ran on (2.1); type errors outside the
-edited files are reported only when their count rises within a session
+QA evidence bound to the tips it ran on (2.1); tsc errors outside the
+edited files are reported only when a line the session has not seen appears
 (9.2); Codex and Kimi keep today's session-end question (4.2); a probe runs
 on request, never at session start (7.2); the carrier ships no vendor rows
 or connectors (7.3); `ci.yml` keeps its steps, held to the suite script by a
