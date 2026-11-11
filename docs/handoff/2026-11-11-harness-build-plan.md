@@ -118,9 +118,9 @@ and "not configured" as silence.
   pyright run that exits non-zero with no line the hook can parse is
   reported with its first line. Errors outside the edited files stay out of
   the per-edit report, with one exception for tsc: the hook keeps, per
-  session and workspace, every error line it has seen, and a line outside the
-  edited files that is not among them is reported, since that edit broke a
-  caller. The first run in a session sets the baseline silently.
+  session and workspace, the error lines of its last run, and a line outside
+  the edited files that the last run lacked is reported, since that edit
+  broke a caller. The first run in a session sets the baseline silently.
 - 9.3 Firing tests for ruff in both modes, tsc, pyright, the ESLint
   no-report path and each case above (F24). The unit writes a readout naming
   the checkers missing in the repository.
@@ -436,8 +436,8 @@ the text the operator approved.
   interactive terminal.
 - F28 and F29: the inbox hook's binding to a cell is half observed; 5.1
   keeps its fallback.
-- 9.2: a broken caller is a tsc error line the session has not seen, where
-  the approved text compared counts, which miss a break made while another
+- 9.2: a broken caller is a tsc error line the session's last run lacked,
+  where the approved text compared counts, which miss a break made while another
   error is fixed; pyright, which reads only the edited files, has no such
   rule (review `2026-11-12-harness-w1`, unit 9 finding 1).
 - 9.3: the readout names missing checkers only, where the approved text
@@ -466,8 +466,8 @@ Ruled by the operator on 2026-11-11.
 
 Decided by the lead, open to reversal: chunk 1.3 is dropped, since reviewers caught a planted false claim without its line, and unit 1's acceptance names its controls (2026-11-12); QA and review run side by side, with
 QA evidence bound to the tips it ran on (2.1); tsc errors outside the
-edited files are reported only when a line the session has not seen appears
-(9.2); Codex and Kimi keep today's session-end question (4.2); a probe runs
+edited files are reported only when a line the session's last run lacked
+appears (9.2); Codex and Kimi keep today's session-end question (4.2); a probe runs
 on request, never at session start (7.2); the carrier ships no vendor rows
 or connectors (7.3); `ci.yml` keeps its steps, held to the suite script by a
 lint row (4.1); the ESLint message of F23 gets a test and no redesign.
