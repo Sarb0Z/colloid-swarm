@@ -85,6 +85,9 @@ def normalize(payload, policy, repo):
         out["event"] = payload.get("hook_event_name", "")
         out["session_id"] = payload.get("session_id", "")
         out["agent_id"] = payload.get("agent_id", "")
+        # The session's main transcript: a subagent's own is beside it, under
+        # <session>/subagents/, and names the cell's brief and its last tool call.
+        out["transcript_path"] = payload.get("transcript_path") or ""
     elif policy == "parallel-writers-gate.sh":
         out["event"] = payload.get("hook_event_name", "")
         out["tool_name"] = payload.get("tool_name") or ""

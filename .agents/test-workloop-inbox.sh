@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
 mkdir -p "$scratch/bin"
 cat > "$scratch/bin/docker" <<'EOF'
@@ -494,6 +494,55 @@ EOF
 PATH="$scratch/gitbin:$PATH" WRAP_LOG="$git_log" digest >/dev/null
 ! grep -q 'for-each-ref' "$git_log" || fail "the default branch was read for a run with no unreviewed worktree lane: $(cat "$git_log")"
 ok "an old run with no unreviewed worktree lane does not read the default branch"
+
+# a subagent's tool batch stamps its lane (bound by claim) or its cell (bound by the brief
+# header in its own transcript) with the time and its last tool call, once a minute
+tdir="$scratch/transcripts"; mkdir -p "$tdir/s1/subagents"
+call() {  # <name> <input json> -> one assistant record holding a tool call
+  printf '{"type":"assistant","message":{"content":[{"type":"text","text":"x"},{"type":"tool_use","name":"%s","input":%s}]}}\n' "$1" "$2"
+}
+{ printf '{"type":"user","message":{"role":"user","content":"READ-ONLY — this cell reads.\\nWORKLOOP CELL BRIEF — r1/scout\\nRead the brief."}}\n'
+  call Read '{"file_path":"/x/y/plan.md"}'; } > "$tdir/s1/subagents/agent-c1.jsonl"
+{ printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"WORKLOOP WORKER BRIEF — r1/api\\nRead."}]}}\n'
+  call Bash '{"command":"pytest -q tests/test_api.py","description":"Run the api tests"}'; } > "$tdir/s1/subagents/agent-a1.jsonl"
+put_cells() {
+  python3 - "$state" "$1" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["runs"]["r1"]["cells"] = {"scout": {"role": "research", "model": "haiku", "state": sys.argv[2], "out_since": "2026-01-01T00:00:00Z"}}
+json.dump(s, open(p, "w"))
+PY
+}
+field() {  # <kind> <name> <key>
+  python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["r1"]; print(r[sys.argv[2]][sys.argv[3]].get(sys.argv[4],""))' "$state" "$@"
+}
+fire_t() {  # <event> <agent_id>, with a transcript
+  printf '{"project_dir":"%s","event":"%s","session_id":"s1","agent_id":"%s","transcript_path":"%s"}' "$dir" "$1" "$2" "$tdir/main.jsonl" | bash "$policy" >/dev/null
+}
+cat > "$state" <<EOF
+{"version":1,"runs":{"r1":{"objective":"o","supervised":false,"messages":[],"lanes":{
+  "api":{"state":"active","claimed_by":"a1","claimed_at":"$now","attention":null,"env":"ready"}}}}}
+EOF
+rm -f "$dir"/.agents/.activity-s1-*
+put_cells out
+fire_t PostToolBatch c1
+[[ "$(field cells scout activity)" == "Read plan.md" && -n "$(field cells scout activity_at)" ]] || fail "a cell was not stamped from its transcript: $(field cells scout activity)"
+ok "a cell is bound by the brief header in its transcript and stamped with its last tool call"
+fire_t PostToolBatch a1
+[[ "$(field lanes api activity)" == "Bash Run the api tests" && -n "$(field lanes api activity_at)" ]] || fail "a lane was not stamped by its claim: $(field lanes api activity)"
+ok "a lane is bound by its claim and stamped with its last tool call"
+call Edit '{"file_path":"/x/z.py"}' >> "$tdir/s1/subagents/agent-c1.jsonl"
+fire_t PostToolBatch c1
+[[ "$(field cells scout activity)" == "Read plan.md" ]] || fail "a second stamp inside a minute was written"
+rm -f "$dir/.agents/.activity-s1-c1"
+fire_t PostToolBatch c1
+[[ "$(field cells scout activity)" == "Edit z.py" ]] || fail "the stamp did not follow once the minute passed: $(field cells scout activity)"
+ok "an agent is stamped at most once a minute"
+put_cells returned; rm -f "$dir/.agents/.activity-s1-c1"
+fire_t PostToolBatch c1
+[[ -z "$(field cells scout activity)" ]] || fail "a cell already back was stamped"
+fire_t PostToolBatch stranger
+ok "a cell that is back, and an agent bound to nothing, are not stamped"
 
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"
