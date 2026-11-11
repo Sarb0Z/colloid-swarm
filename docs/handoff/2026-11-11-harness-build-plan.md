@@ -4,10 +4,10 @@ Workflow: Scaffold · Stakes: Critical (the root contract, the playbooks, the
 reviewer contract, and the `session-wrap`, `post-edit-check` and
 `guard-publish` hooks).
 
-**Gate: open.** No code in any unit before the operator's OK on this plan.
-The grilling step is folded into "Open rulings" below, because the operator
-ruled on the design across the session that produced this plan
-(`.agents/decisions.md`: `review-at-delivery-boundaries`,
+**Gate: passed.** The operator OK'd this plan on 2026-11-11, all four waves,
+with the four rulings below. The grilling step was folded into those rulings,
+because the operator ruled on the design across the session that produced
+this plan (`.agents/decisions.md`: `review-at-delivery-boundaries`,
 `chunks-sized-to-one-agent-run`, `delegation-strategy-changeable-midway`,
 `outward-approvals-not-batched`).
 
@@ -196,8 +196,7 @@ plan.
 
 ### Unit 4 — owed-work flags
 
-Flags inform; none of them blocks. Whether a push with review owed is
-refused instead is open ruling 3.
+Flags inform; none of them blocks (ruling 3).
 
 - 4.1 `hooks/lib/owed.py` computes four flags for a session from F9's
   records, so history from before this unit and other sessions' commits
@@ -383,9 +382,9 @@ findings 1, 3, 6, 8, 9, 17 and 19, and each held.
 
 | # | Finding | Disposition |
 |---|---|---|
-| 1 `P1` | The push refusal adds no gate: the guard already asks on every push | Adopted. 4.3 is a line in the existing prompt and claims no refusal; a refusal is ruling 3 |
+| 1 `P1` | The push refusal adds no gate: the guard already asks on every push | Adopted. 4.3 is a line in the existing prompt and claims no refusal; ruling 3 declined a refusal |
 | 2 `P1` | Cover by commit range breaks on folds, later fixes, merges, old history and a missing record | Adopted. Cover is by file content, scoped to the session's commits, with a named transition and a contract line for the record (4.1) |
-| 3 `P1` | One reviewer per unit contradicts the contract as committed | Adopted. Chunk 0.1 lands the rule first; which regime this build runs under is ruling 4 |
+| 3 `P1` | One reviewer per unit contradicts the contract as committed | Adopted. Chunk 0.1 lands the rule first; ruling 4 sets this build's regime |
 | 4 `P1` | Units split across waves integrate unreviewed | Adopted. Each unit sits in one wave |
 | 5 `P1` | Units 2 and 5 both edit the brief builders in one wave | Adopted. Unit 5 in wave 2, unit 2 in wave 3 |
 | 6 `P1` | QA recorded before a lane moves passes `check` on old code | Adopted. The record stores tips; `qa:stale` (2.1) |
@@ -410,18 +409,19 @@ findings 1, 3, 6, 8, 9, 17 and 19, and each held.
 | 25 | Critical research on the lightest tier with no shell | Adopted. 1.1 |
 | 26 | Four lens answers rest on settled or wrong ground | Adopted. Rewritten above |
 
-## Open rulings
+## Rulings
 
-1. Where the commits land: `main` through lanes, as this repository does, or
-   one branch for the build.
-2. Whether the research step applies at Standard stakes, written by the lead,
-   or at Critical only.
-3. A push that carries a critical-path file with review owed: the push
-   prompt names it and the operator decides, or the push is refused until a
-   review record covers it.
-4. The review of this build's units: one cross-functional reviewer per unit,
-   or reviewers split by axis, which the contract as committed still asks
-   for at Critical until 0.1 lands.
+Ruled by the operator on 2026-11-11.
+
+1. The commits land on `main` through lanes, as this repository does; no
+   build branch.
+2. The research step applies at Standard stakes, written by the lead, and at
+   Critical, written by a fresh read-only cell.
+3. A push that carries a critical-path file with review owed is named in the
+   push prompt and the operator decides; no refusal is built.
+4. This build's units get one cross-functional reviewer each, with QA, and
+   the lead walks the operator through the session-end hook change (4.2) and
+   the QA gate change (2.1).
 
 Decided by the lead, open to reversal: QA and review run side by side, with
 QA evidence bound to the tips it ran on (2.1); type errors outside the
