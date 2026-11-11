@@ -325,7 +325,17 @@ belong to the work-loop redesign the operator approved outside this batch.
 - 2.4 The QA skill notes the time each scenario starts and afterwards reads
   the log of the environment it ran against, by the log command unit 7
   declares for that environment; an error logged in that window during a
-  passing scenario is a failure.
+  passing scenario is a failure. A declared log command carries one window
+  placeholder, which `access.py` fills before it runs the command: `{since}`
+  is the scenario's start as ISO 8601 UTC ending in `Z`, and `{minutes}` the
+  whole minutes since it, rounded up, for a tool that takes only a relative
+  window (`--since=-{minutes}min` for journalctl). `check` refuses a log
+  command with no placeholder, and runs both guards on it with each
+  placeholder filled. A platform whose log read takes no window or never
+  exits (Cloudflare's tail, Firebase's `functions:log`, EAS) declares no log
+  command: Firebase reads through `gcloud logging read`, and the others are
+  filed like a system reached only through a browser (knowledge
+  `2026-11-12-hosted-log-time-windows`).
 
 Acceptance: (1) a QA brief holds acceptance lines and no diff; (2) QA
 evidence taken before a lane moved makes `check` fail; (3) a planted false
@@ -460,6 +470,9 @@ the text the operator approved.
   from a `host` field that the Claude normalizer adds to its branch; unit 5's
   lane edits the same file in another run, so the second of the two merges
   resolves it.
+- 2.4: the window placeholders `{since}` and `{minutes}`, from the log
+  research of 2026-11-12, settle the convention unit 7's review left to this
+  unit (review `2026-11-12-harness-w1`, unit 7 finding 6).
 
 ## Rulings
 
