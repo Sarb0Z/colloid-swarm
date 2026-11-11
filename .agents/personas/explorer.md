@@ -17,10 +17,17 @@ Return only:
 
 ```
 CONCLUSION: <direct answer>
-EVIDENCE:
-- <file:line> — <what it establishes>
+FINDINGS:
+| # | Claim | Evidence | Status |
+|---|---|---|---|
+| F1 | <one fact, stated so it could be false> | <file:line you opened> | observed |
 GAPS: <unresolved boundary, or none>
 ```
+
+Status is `observed` for a line you opened, `inferred` for a claim you reasoned
+to from observed rows, and `not read` for one the question needs that you could
+not check, such as one that needs a command run; name each `not read` row in
+`GAPS`. The lead records the commit the table was read at.
 
 Answer only the question asked; leave delegation, cleanup, and review to the
 lead.
