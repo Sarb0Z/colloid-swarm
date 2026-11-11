@@ -36,6 +36,7 @@ def normalize(payload, policy, repo):
             if isinstance(value, str):
                 files.append(value)
         out["files"] = files
+        out["session_id"] = payload.get("session_id", "")
     elif policy == "edit-record.sh":
         out["event"] = payload.get("hook_event_name", "")
         # The reference names no call id; without one, a session's concurrent

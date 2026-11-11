@@ -400,4 +400,17 @@ fxrun check s1 '["src/a.py"]'
   || fail "STUB pyright: stderr of an unreadable run must be kept and reported, got rc=$rc: $err"
 ok "STUB pyright: an unreadable run is reported with its stderr"
 
+# --- the session id reaches the hook through the Claude normalizer ----------
+newfix sessionflow
+printf '[tool.ruff]\n' > "$fx/pyproject.toml"
+printf 'x = 1\n' > "$fx/src/a.py"
+set +e
+printf '{"cwd":"%s","session_id":"sess-abc","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%s/src/a.py"}}' "$fxproj" "$fxproj" \
+  | python3 "$repo/.agents/claude/normalize-hook.py" post-edit-check.sh "$fxproj" \
+  | PATH="$tools:/usr/bin:/bin" POST_EDIT_MODE=check /bin/bash "$fx/.agents/hooks/policy/post-edit-check.sh" >/dev/null 2>&1
+set -e
+ls "$fx/.agents/.readout/" | grep -q '^checks-seen--sess-abc--' \
+  || fail "the session id must travel from a Claude payload through the normalizer into the hook, got: $(ls "$fx/.agents/.readout/" 2>&1)"
+ok "a Claude-shaped payload carries its session id through the normalizer into the hook"
+
 printf '\nALL PASS\n'
