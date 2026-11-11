@@ -448,20 +448,29 @@ ok "browser_fetch_once is not an open"
 
 # The hosts call this hook only for tool names their hand-written matcher lets
 # through, so a class the gate knows but a matcher omits never fires.
-# Catches: a host matcher (every PreToolUse/PostToolUse group that runs the gate) that
-# drops a native tool name or a listed MCP name, a gate MCP regex no listed name
-# matches, and a gate regex the literal reader cannot see (count check).
-# Misses: tool names absent from the lists below, a host that renames a tool, a gate
-# regex built by implicit concatenation (only its first literal is read), and whether
-# the host really fires on a matching name.
+# Catches: a host (Claude, Codex, and Kimi where its example file exists) that stops
+# running the gate on Stop, or on SubagentStop for Claude; a PreToolUse/PostToolUse
+# matcher that drops a native tool name listed below; a PostToolUse matcher that
+# rejects any name a gate regex accepts (each regex is enumerated, the server segment
+# standing in as a name with an underscore, hyphen, digit and both cases); a gate
+# expression that reads `tool` as a literal, regex, equality or membership test and
+# names a tool no host table lists; a form of reading `tool` the reader cannot parse
+# (alias, concatenated pattern, startswith/endswith) that is not allowlisted below.
+# Misses: a host that renames a tool, a gate regex outside the grammar the expander
+# reads (it raises, so that is loud), a gate pattern looser than its `$` anchor,
+# tool names reaching the gate through a variable other than `tool`, and whether the
+# host really fires on a matching name. Kimi's missing TaskStop is a known gap kept
+# in breadcrumbs.md.
 python3 - "$repo" <<'PY' || fail "a host trigger misses a tool name the gate classifies"
-import json, os, re, sys, tomllib
+import ast, json, os, re, sys, tomllib
 repo = sys.argv[1]
+bad = []
 
+# ── host registrations ───────────────────────────────────────────────────────
 def claude_like(path):
     hooks = json.load(open(path))["hooks"]
-    return [(event, g["matcher"]) for event in ("PreToolUse", "PostToolUse")
-            for g in hooks.get(event, []) if "teardown-gate" in json.dumps(g) and "matcher" in g]
+    return [(event, g.get("matcher")) for event, groups in hooks.items()
+            for g in groups if "teardown-gate" in json.dumps(g)]
 
 found = {"claude": claude_like(f"{repo}/.agents/claude/settings.json"),
          "codex": claude_like(f"{repo}/.agents/codex/hooks.json")}
@@ -469,9 +478,18 @@ kimi_path = f"{repo}/.kimi/config.toml.example"
 if os.path.isfile(kimi_path):
     with open(kimi_path, "rb") as stream:
         kimi = tomllib.load(stream)
-    found["kimi"] = [(h["event"], h["matcher"]) for h in kimi["hooks"]
-                     if h["event"] in ("PreToolUse", "PostToolUse")
-                     and "teardown-gate" in h.get("command", "") and "matcher" in h]
+    found["kimi"] = [(h["event"], h.get("matcher")) for h in kimi["hooks"]
+                     if "teardown-gate" in h.get("command", "")]
+
+# The gate must run when a turn ends, or it records and never blocks.
+stop_events = {"claude": {"Stop", "SubagentStop"}, "codex": {"Stop"}, "kimi": {"Stop"}}
+for host, groups in found.items():
+    for event in sorted(stop_events[host] - {e for e, _ in groups}):
+        bad.append(f"{host}: no {event} group runs teardown-gate")
+
+def accepts(matcher, name):
+    """A missing, empty or `*` matcher matches every tool name."""
+    return matcher in (None, "", "*") or re.fullmatch(matcher, name) is not None
 
 # Each host's native tool names, by event, as the host itself calls them.
 native = {
@@ -480,42 +498,188 @@ native = {
     "codex": {"PostToolUse": ["Bash"], "PreToolUse": ["Bash"]},
     "kimi": {"PostToolUse": ["Bash"], "PreToolUse": ["Bash"]},
 }
-tools = ["browser_navigate", "browser_tabs", "browser_close", "browser_open", "close_session",
-         "appium_session_management", "start_session", "create_session", "end_session",
-         "delete_session", "quit_session", "prepare_ios_simulator", "appium_prepare_ios_real_device"]
-mcp_names = [f"mcp__{server}__{t}" for server in ("scrapling", "playwright", "appium", "appium-mcp")
-             for t in tools]
+known_native = {name for events in native.values() for names in events.values() for name in names}
 
-bad = []
 for host, groups in found.items():
     for event, names in native[host].items():
         matchers = [m for e, m in groups if e == event]
         if not matchers:
             bad.append(f"{host}: no {event} teardown-gate matcher found")
         for name in names:
-            if not any(re.fullmatch(m, name) for m in matchers):
+            if not any(accepts(m, name) for m in matchers):
                 bad.append(f"{host} {event} matchers {matchers} miss {name}")
-    post = [m for e, m in groups if e == "PostToolUse"]
-    for name in mcp_names:
-        if not any(re.fullmatch(m, name) for m in post):
-            bad.append(f"{host} PostToolUse matchers miss {name}")
 
-gate = open(f"{repo}/.agents/hooks/policy/teardown-gate.sh").read()
-literal = re.compile(r're\.compile\(\s*(?:#[^\n]*\n\s*)*r("""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*")')
-literals = [m.group(1) for m in literal.finditer(gate)]
-if len(literals) != gate.count("re.compile("):
-    bad.append(f"the gate has {gate.count('re.compile(')} re.compile( calls but {len(literals)} readable "
-               "r-string literals: write each pattern as an r\"...\" or r\"\"\"...\"\"\" literal")
-mcp_regexes = [l[3:-3] if l.startswith('"""') else l[1:-1] for l in literals if "mcp__" in l]
-if not mcp_regexes:
-    bad.append("no MCP regex read from the gate")
-for rx in mcp_regexes:
-    if not any(re.fullmatch(rx, name) for name in mcp_names):
-        bad.append(f"gate regex {rx!r} fully matches no listed MCP name")
+# ── the grammar the gate's tool-name regexes use ─────────────────────────────
+SERVER_CLASS = "[A-Za-z0-9_-]+"
+SERVER_SAMPLE = "plugin_vercel-Vercel2"
+
+def expand(pattern):
+    """Every string the pattern fully matches. Reads literal characters, a leading ^
+    and trailing $, (...) and (?:...) groups with |, ? on a group, and the server
+    class; raises on anything else."""
+    text = pattern.replace(SERVER_CLASS, SERVER_SAMPLE)
+    text = text[1:] if text.startswith("^") else text
+    text = text[:-1] if text.endswith("$") else text
+
+    def alternatives(pos):
+        out, pos = sequence(pos)
+        while pos < len(text) and text[pos] == "|":
+            more, pos = sequence(pos + 1)
+            out += more
+        return out, pos
+
+    def sequence(pos):
+        parts = [""]
+        while pos < len(text) and text[pos] not in "|)":
+            ch = text[pos]
+            if ch == "(":
+                pos += 1
+                if text.startswith("?:", pos):
+                    pos += 2
+                elif text.startswith("?", pos):
+                    raise ValueError(f"unsupported group in {pattern!r}")
+                inner, pos = alternatives(pos)
+                if pos >= len(text) or text[pos] != ")":
+                    raise ValueError(f"unclosed group in {pattern!r}")
+                pos += 1
+                if pos < len(text) and text[pos] == "?":
+                    inner, pos = inner + [""], pos + 1
+                parts = [p + i for p in parts for i in inner]
+            elif ch in "^$.*+?[]{}\\":
+                raise ValueError(f"unsupported {ch!r} in {pattern!r}")
+            else:
+                parts, pos = [p + ch for p in parts], pos + 1
+        return parts, pos
+
+    names, pos = alternatives(0)
+    if pos != len(text):
+        raise ValueError(f"unbalanced ) in {pattern!r}")
+    return set(names)
+
+# ── every expression of the gate that reads `tool` ───────────────────────────
+gate_text = open(f"{repo}/.agents/hooks/policy/teardown-gate.sh").read()
+heredocs = re.findall(r"read -r -d '' parse <<'PY' \|\| true\n(.*?)\nPY\n", gate_text, re.S)
+if len(heredocs) != 1:
+    sys.exit("the gate's classification heredoc was not found exactly once")
+tree = ast.parse(heredocs[0])
+for parent in ast.walk(tree):
+    for child in ast.iter_child_nodes(parent):
+        child.parent = parent
+
+MATCHERS = ("match", "search", "fullmatch")
+# Uses of `tool` that hand it on or measure it without classifying it.
+NOT_CLASSIFICATION = {
+    "records.snapshot": "stores the tool name with the worktree snapshot",
+    "records.made": "passes the tool name to the worktree record reader",
+    "tool.endswith('browser_tabs')": "narrows BROWSER_OPEN's action check inside a branch BROWSER_OPEN already chose",
+}
+
+def is_re_call(node, *attrs):
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "re"
+            and node.func.attr in attrs)
+
+def string(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise ValueError("the pattern is not one string literal")
+
+def flags(node):
+    if node is None:
+        return 0
+    if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "re"
+            and isinstance(getattr(re, node.attr, None), re.RegexFlag)):
+        return int(getattr(re, node.attr))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return flags(node.left) | flags(node.right)
+    raise ValueError("the flags are not re.<FLAG> names")
+
+def pattern_of(call, position):
+    keywords = {k.arg: k.value for k in call.keywords}
+    extra = call.args[position] if len(call.args) > position else keywords.get("flags")
+    return string(call.args[0]), flags(extra)
+
+bound = {}  # variable -> (pattern, flags), or the reason it cannot be read
+for node in ast.walk(tree):
+    if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+            and is_re_call(node.value, "compile")):
+        try:
+            bound[node.targets[0].id] = pattern_of(node.value, 1)
+        except ValueError as error:
+            bound[node.targets[0].id] = str(error)
+
+read = []        # (expression, pattern, flags) for each regex that classifies `tool`
+gate_native = set()
+for node in ast.walk(tree):
+    if not (isinstance(node, ast.Name) and node.id == "tool" and isinstance(node.ctx, ast.Load)):
+        continue
+    up = node.parent
+    expression = f"line {node.lineno}: {ast.unparse(up)}"
+    try:
+        if (isinstance(up, ast.Call) and isinstance(up.func, ast.Attribute) and up.func.attr in MATCHERS
+                and isinstance(up.func.value, ast.Name) and up.func.value.id in bound and up.args[0] is node):
+            spec = bound[up.func.value.id]
+            if isinstance(spec, str):
+                raise ValueError(spec)
+            read.append((expression, *spec))
+        elif is_re_call(up, *MATCHERS) and len(up.args) > 1 and up.args[1] is node:
+            read.append((expression, *pattern_of(up, 2)))
+        elif (isinstance(up, ast.Compare) and up.left is node and len(up.ops) == 1
+              and isinstance(up.ops[0], ast.Eq)):
+            gate_native.add(string(up.comparators[0]))
+        elif (isinstance(up, ast.Compare) and up.left is node and len(up.ops) == 1
+              and isinstance(up.ops[0], ast.In) and isinstance(up.comparators[0], (ast.Tuple, ast.List, ast.Set))):
+            gate_native.update(string(item) for item in up.comparators[0].elts)
+        else:
+            if isinstance(up, ast.Attribute) and isinstance(up.parent, ast.Call):
+                key = ast.unparse(up.parent)
+            elif isinstance(up, ast.Call):
+                key = ast.unparse(up.func)
+            else:
+                key = None
+            if key not in NOT_CLASSIFICATION:
+                raise ValueError("a form this reader cannot read; read it with a literal, or allowlist it with its reason")
+    except (ValueError, IndexError) as error:
+        bad.append(f"{expression}: {error}")
+
+if not read:
+    bad.append("no regex that reads `tool` was found in the gate")
+mcp_names = set()
+for expression, pattern, flag_bits in read:
+    try:
+        if flag_bits:
+            raise ValueError("the expander reads no regex flags")
+        names = expand(pattern)
+    except ValueError as error:
+        bad.append(f"{expression}: {error}")
+        continue
+    compiled = re.compile(pattern, flag_bits)
+    for name in sorted(names):
+        if not compiled.fullmatch(name):
+            bad.append(f"{expression}: the expander produced {name}, which the regex rejects")
+    mcp_names |= {n for n in names if n.startswith("mcp__")}
+    gate_native |= {n for n in names if not n.startswith("mcp__")}
+
+boot = bound.get("APPIUM_BOOT")
+expected_boot = {f"mcp__{SERVER_SAMPLE}__{stem}" for stem in (
+    "prepare_ios_simulator", "prepare_ios_real_device",
+    "appium_prepare_ios_simulator", "appium_prepare_ios_real_device")}
+if not isinstance(boot, tuple):
+    bad.append("APPIUM_BOOT is not bound to a readable re.compile literal")
+elif expand(boot[0]) != expected_boot:
+    bad.append(f"APPIUM_BOOT must expand to exactly {sorted(expected_boot)}")
+
+for name in sorted(gate_native - known_native):
+    bad.append(f"the gate classifies tool {name!r}, which no host table above lists")
+for host, groups in found.items():
+    post = [m for e, m in groups if e == "PostToolUse"]
+    for name in sorted(mcp_names):
+        if not any(accepts(m, name) for m in post):
+            bad.append(f"{host} PostToolUse matchers {post} reject {name}")
 if bad:
     sys.exit("\n".join(bad))
 PY
-ok "every host trigger matches every tool name the gate classifies"
+ok "each host runs the gate on Stop; each host matcher accepts every name the gate's regexes enumerate and every native name listed; every tool the gate reads is a listed one"
 
 sh 'emulator -avd Pixel_8_API_35 &' >/dev/null
 sh 'xcrun simctl boot "iPhone 15"' >/dev/null
