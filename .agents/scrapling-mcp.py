@@ -14,15 +14,20 @@ What the narrowed server cannot do, whatever a call or the environment says:
   (`additional_args`), or preload a library (`DYLD_`, `LD_`);
 - attach to a running browser and its cookies (`cdp_url`, `new_context`);
 - run an HTTP-only, state-file or session-less request tool;
-- fetch a `file://` or other non-web address through `url`, or use a
-  cloud-metadata host as its `proxy`;
-- without a proxy, reach a cloud-metadata address at all: every browser the
-  server opens without one resolves no such address, so a navigation, a
-  redirect, an in-page or worker `fetch` and a WebSocket to it each fail with
-  `net::ERR_NAME_NOT_RESOLVED`.
-Under a proxy the proxy resolves every address, so a redirect from a public
-page reaches the metadata service of the proxy's network. A DNS name that
-resolves to a metadata address is not covered, with a proxy or without.
+- fetch a `file://` or other non-web address through `url`;
+- resolve a cloud-metadata address in the browser itself: every browser the
+  server opens, with a proxy or without, carries a resolver rule under which
+  no such address resolves, so a navigation, a redirect, an in-page or worker
+  `fetch` and a WebSocket sent directly to it fail with
+  `net::ERR_NAME_NOT_RESOLVED`, and a proxy at such an address fails with
+  `net::ERR_PROXY_CONNECTION_FAILED`.
+The `url` and `proxy` checks only give an early, readable refusal; the rule is
+the enforcement. A request sent through a proxy is resolved by the proxy, not
+by the rule, so a redirect from a public page reaches the metadata service of
+the proxy's network; a system or environment proxy, which Chromium uses when
+no proxy is given, counts as a proxy. A DNS name that resolves to a metadata
+address is not covered. Windows is unverified: there patchright's own socks5
+resolver switch takes effect, and the launcher's, passed later, replaces it.
 """
 
 import inspect
@@ -57,6 +62,9 @@ SCRUBBED_ENV_PREFIXES = ("NODE_", "PLAYWRIGHT_", "PATCHRIGHT_", "SCRAPLING_", "D
 
 # The cloud-metadata hosts .agents/mcp_playwright.py blocks for Playwright.
 METADATA_HOSTS = frozenset(ipaddress.ip_address(host) for host in ("169.254.169.254", "fd00:ec2::254"))
+
+# The schemes Scrapling's `construct_proxy_dict` accepts in a proxy string.
+PROXY_SCHEMES = ("http", "https", "socks4", "socks5")
 
 # Upstream's instructions minus the advice to start with HTTP and use
 # `make_request`, which this server does not offer.
@@ -134,13 +142,23 @@ def _refuse_address(url):
 
 
 def _refuse_proxy(proxy):
-    """Raise when `proxy`, a URL or a dictionary with `server`, names a cloud-metadata host."""
+    """Raise unless `proxy`, a URL or a dictionary with `server`, reads as `<scheme>://<host>` off the metadata hosts.
+
+    Patchright reads a dictionary `server` with the WHATWG URL parser, which
+    finds a host in spellings such as `http:H` where urlsplit finds none, so
+    a `server` of any other shape is refused rather than read.
+    """
     server = proxy.get("server") if isinstance(proxy, dict) else proxy
     if not isinstance(server, str):
         return
     _refuse_backslash(server)
-    # Playwright reads a server without a scheme as http.
-    parts = urlsplit(server if "://" in server else f"http://{server}")
+    scheme, separator, _ = server.partition("://")
+    parts = urlsplit(server)
+    if not separator or scheme.lower() not in PROXY_SCHEMES or not parts.hostname:
+        raise ValueError(
+            f"Refused {server!r}: a proxy server is written as <scheme>://<host>[:port], "
+            f"with {', '.join(PROXY_SCHEMES)} as its scheme."
+        )
     _refuse_metadata(server, parts.hostname)
 
 
@@ -163,12 +181,14 @@ def _host_resolver_switch(addresses):
 
 
 def _session_resolving_none_of(session_class, addresses):
-    """A subclass of `session_class` whose browser, launched without a proxy, resolves none of `addresses`.
+    """A subclass of `session_class` whose browser resolves none of `addresses`, whatever its proxy.
 
     The switch travels in Scrapling's `extra_flags` session option, which no
-    tool exposes. Under a proxy it is left out: the proxy resolves every host,
-    so it would not apply, and under socks5 patchright's driver passes its own
-    `--host-resolver-rules`, which a second switch would collide with.
+    tool exposes. It covers every address the browser itself resolves, its
+    proxy's own address included, and not a request sent through a proxy,
+    which the proxy resolves. Under socks5, patchright's driver passes its own
+    `--host-resolver-rules` first; on macOS and Linux the launcher's, passed
+    later, is the one in effect.
     """
     switch = _host_resolver_switch(addresses)
 
@@ -176,8 +196,7 @@ def _session_resolving_none_of(session_class, addresses):
         __slots__ = ()
 
         def __init__(self, **kwargs):
-            if not kwargs.get("proxy"):
-                kwargs["extra_flags"] = [switch]
+            kwargs["extra_flags"] = [switch]
             super().__init__(**kwargs)
 
     return SessionResolvingNoneOf

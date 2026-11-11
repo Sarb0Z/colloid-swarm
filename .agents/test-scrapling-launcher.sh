@@ -5,15 +5,18 @@
 # .agents/mcp.json resolves (uvx, `python -I`):
 # - the launcher imported by path: the address and proxy readings, the
 #   environment scrub, the executable override, and the resolver rule a
-#   session the server builds launches with, with a proxy and without;
+#   session the server builds launches with, whatever its proxy;
 # - the launcher over stdio: the instructions, the twelve tools and their
-#   schemas against upstream's after exactly the narrowing, and the refusals
-#   that need no browser;
+#   schemas against upstream's after exactly the narrowing, and the wiring of
+#   each tool to its refusals, with no metadata address named;
 # - live sessions through the launcher's server, per installed browser: with
 #   the rule built for loopback stand-ins, every request kind fails to resolve
-#   and the local server records nothing; without it, each reaches the
-#   server. Where the browser is not installed it prints a SKIP line and the
-#   other layers still gate.
+#   and the local server records nothing, under a proxy that proxies nothing
+#   too, and a proxy at a stand-in fails to connect; without it, each reaches
+#   the server. The launcher's real entries, mapped to the local server with
+#   every other host unresolvable, match every spelling of the metadata
+#   addresses. Where the browser is not installed it prints a SKIP line and
+#   the other layers still gate.
 #
 # Needs uvx to resolve the pinned Scrapling environment (network on first
 # run). Where uvx is absent, or the registry has no `scrapling` entry, it
@@ -118,14 +121,24 @@ for url in PASSED_URLS:
     message = refusal(launcher._refuse_address, url)
     check(message is None, f"the url check passes {url!r}: {message!r}")
 
-REFUSED_PROXIES = ["http://169.254.169.254:3128", "socks5://[::ffff:a9fe:a9fe]:1080", "http://0xA9FEA9FE:80",
-                   {"server": "169.254.169.254:80"}, {"server": "http://2852039166", "username": "u"},
-                   "http://proxy.example.com\\@169.254.169.254:80"]
-PASSED_PROXIES = [None, "http://proxy.example.com:3128", "socks5://127.0.0.1:1080",
-                  {"server": "proxy.example.com:3128", "username": "u", "password": "p"}]
-for proxy in REFUSED_PROXIES:
+SHAPE = "is written as <scheme>://<host>[:port], with http, https, socks4, socks5 as its scheme"
+REFUSED_PROXIES = [
+    ("http://169.254.169.254:3128", METADATA), ("socks5://[::ffff:a9fe:a9fe]:1080", METADATA),
+    ("http://0xA9FEA9FE:80", METADATA), ("http://169.254.169.254:80", METADATA),
+    ({"server": "http://2852039166", "username": "u"}, METADATA), ({"server": "https://[fd00:ec2::254]:443"}, METADATA),
+    ("http://proxy.example.com\\@169.254.169.254:80", BACKSLASH),
+    ({"server": "169.254.169.254:80"}, SHAPE), ({"server": "2852039166:80"}, SHAPE),
+    ({"server": "http:169.254.169.254:80"}, SHAPE), ({"server": "http:/169.254.169.254:80"}, SHAPE),
+    ({"server": "http:///169.254.169.254:80"}, SHAPE), ({"server": "//169.254.169.254:80"}, SHAPE),
+    ({"server": "HTTP:169.254.169.254"}, SHAPE), ({"server": "ftp=localhost:1"}, SHAPE),
+    ({"server": "ftp://proxy.example.com:21"}, SHAPE), ("http:proxy.example.com:3128", SHAPE),
+]
+PASSED_PROXIES = [None, "http://proxy.example.com:3128", "socks5://127.0.0.1:1080", "HTTP://proxy.example.com:3128",
+                  "http://ftp=localhost:1", {"server": "http://proxy.example.com:3128", "username": "u", "password": "p"}]
+for proxy, reason in REFUSED_PROXIES:
     message = refusal(launcher._refuse_proxy, proxy)
-    check(message is not None and message.startswith("Refused"), f"the proxy check refuses {proxy!r}: {message!r}")
+    check(message is not None and message.startswith("Refused") and reason in message,
+          f"the proxy check refuses {proxy!r} saying {reason!r}: {message!r}")
 for proxy in PASSED_PROXIES:
     message = refusal(launcher._refuse_proxy, proxy)
     check(message is None, f"the proxy check passes {proxy!r}: {message!r}")
@@ -142,12 +155,10 @@ def resolver_switches(**options):
 
 RULE = ("--host-resolver-rules=MAP 169.254.169.254 ~NOTFOUND, MAP ::ffff:a9fe:a9fe ~NOTFOUND, "
         "MAP fd00:ec2::254 ~NOTFOUND")
-found = resolver_switches(proxy=None)
-check(found == [RULE], f"a session without a proxy launches with exactly the metadata resolver rule: {found}")
-for proxy in ["http://proxy.example.com:3128", "socks5://proxy.example.com:1080",
-              {"server": "proxy.example.com:3128", "username": "u", "password": "p"}]:
+for proxy in [None, "", {}, {"server": "ftp=localhost:1"}, "http://ftp=localhost:1", "http://proxy.example.com:3128",
+              "socks5://proxy.example.com:1080", {"server": "http://proxy.example.com:3128", "username": "u", "password": "p"}]:
     found = resolver_switches(proxy=proxy)
-    check(found == [], f"a session with the proxy {proxy!r} launches with no resolver rule of the launcher's: {found}")
+    check(found == [RULE], f"a session with the proxy {proxy!r} launches with exactly the metadata resolver rule: {found}")
 
 environment = {"NODE_OPTIONS": "--require /tmp/x.js", "NODE_PATH": "/tmp", "PLAYWRIGHT_BROWSERS_PATH": "/tmp",
                "PLAYWRIGHT_NODEJS_PATH": "/tmp/node", "PATCHRIGHT_DRIVER": "/tmp", "SCRAPLING_EXECUTABLE_PATH": "/bin/sh",
@@ -193,22 +204,25 @@ print(json.dumps({"rows": rows, "instructions": instructions, "tools": tools}))
 # Runs in the pinned environment: browser sessions through the launcher's
 # server against local servers on port 0. The resolver rule is built by the
 # launcher's own function from loopback stand-ins, so no request is ever sent
-# to a real metadata address; the fast rows above pin the list the launcher
-# passes. Each request kind must fail with net::ERR_NAME_NOT_RESOLVED while
+# to a real metadata address except under the switch `metadata_rows` checks
+# first, which sends them to the local server; the fast rows above pin the
+# list the launcher passes. Each request kind must fail with net::ERR_NAME_NOT_RESOLVED while
 # the local server records nothing, and the same kind without the rule must
 # reach the server, so a row cannot pass because its target was unreachable.
 LIVE = r'''
-import asyncio, http.server, importlib.util, ipaddress, json, os, socket, sys, threading
+import asyncio, contextlib, http.server, importlib.util, ipaddress, json, os, socket, sys, threading
 from urllib.parse import urlsplit
 
 spec = importlib.util.spec_from_file_location("scrapling_launcher", sys.argv[1])
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
 from patchright.async_api import async_playwright
+from scrapling.core.ai import ScraplingMCPServer
 from scrapling.core.ai import server as server_module
 from scrapling.fetchers import AsyncStealthySession
 
 NOT_RESOLVED = "net::ERR_NAME_NOT_RESOLVED"
+PROXY_FAILED = "net::ERR_PROXY_CONNECTION_FAILED"
 STAND_INS = (ipaddress.ip_address("127.0.0.1"), ipaddress.ip_address("::1"))
 RULED = launcher._session_resolving_none_of(AsyncStealthySession, STAND_INS)
 FETCH = """async (a) => { try { await fetch(a.url, {mode: 'no-cors', signal: AbortSignal.timeout(5000)}); return 'reached'; }
@@ -362,6 +376,104 @@ async def exercise(server, browser, real_chrome, ruled, source, targets):
         await server.close_session(session_id)
 
 
+def flagged(switch):
+    """A session class that launches with exactly the resolver `switch`, built past the launcher's checks."""
+    class Flagged(AsyncStealthySession):
+        __slots__ = ()
+
+        def __init__(self, **kwargs):
+            kwargs["extra_flags"] = [switch] if switch else []
+            super().__init__(**kwargs)
+
+    return Flagged
+
+
+@contextlib.asynccontextmanager
+async def opened(server, session_class, session_id, real_chrome, proxy=None):
+    """A session opened through upstream's browser_open, which skips the launcher's proxy check."""
+    server_module.AsyncStealthySession = session_class
+    await ScraplingMCPServer.browser_open(server, session_id=session_id, real_chrome=real_chrome, proxy=proxy)
+    try:
+        yield session_id
+    finally:
+        await server.close_session(session_id)
+
+
+async def fetch_error(server, session_id, url):
+    """The error of upstream's browser_fetch of `url`, which skips the launcher's url check, or None."""
+    try:
+        await ScraplingMCPServer.browser_fetch(server, url=url, session_id=session_id)
+    except Exception as error:
+        return str(error)
+    return None
+
+
+async def proxy_rows(server, browser, real_chrome, v4):
+    """C1: a proxy that proxies nothing keeps the rule. C2: the rule refuses a proxy at a listed address."""
+    slug = browser.replace(" ", "-")
+    for ruled in (True, False):
+        async with opened(server, RULED if ruled else AsyncStealthySession, f"{slug}-ftp-{ruled}", real_chrome,
+                          "http://ftp=localhost:1") as session_id:
+            path = f"/{session_id}"
+            error = await fetch_error(server, session_id, f"http://127.0.0.1:{v4}{path}")
+        if ruled:
+            check(error is not None and NOT_RESOLVED in error and path not in hits,
+                  f"{browser}, rule for 127.0.0.1 under the proxy http://ftp=localhost:1: a browser_fetch to it fails with "
+                  f"{NOT_RESOLVED} and the server records nothing: error {(error or '')[:160]!r}, recorded {path in hits}")
+        else:
+            check(path in hits, f"{browser}, no rule, proxy http://ftp=localhost:1: a browser_fetch to 127.0.0.1 "
+                                f"reaches the local server: error {(error or '')[:160]!r}")
+    # `.test` names never resolve here, so a browser that ignored the proxy
+    # would fail on the name and send nothing off the machine.
+    names = "MAP *.test ~NOTFOUND"
+    proxy = {"server": f"http:127.0.0.1:{v4}"}
+    for ruled in (True, False):
+        switch = f"{launcher._host_resolver_switch(STAND_INS)}, {names}" if ruled else f"--host-resolver-rules={names}"
+        async with opened(server, flagged(switch), f"{slug}-proxy-{ruled}", real_chrome, proxy) as session_id:
+            error = await fetch_error(server, session_id, f"http://proxied.test/{session_id}")
+        recorded = any(session_id in hit for hit in hits)
+        if ruled:
+            check(error is not None and PROXY_FAILED in error and not recorded,
+                  f"{browser}, rule for 127.0.0.1: the proxy {proxy} fails with {PROXY_FAILED} and the server records "
+                  f"nothing: error {(error or '')[:160]!r}, recorded {recorded}")
+        else:
+            check(recorded, f"{browser}, no rule: the proxy {proxy} carries a browser_fetch to the local server: "
+                            f"error {(error or '')[:160]!r}")
+
+
+METADATA_SPELLINGS = [("dotted", "169.254.169.254"), ("decimal", "2852039166"), ("hex", "0xA9FEA9FE"),
+                      ("IPv4-mapped dotted", "[::ffff:169.254.169.254]"), ("IPv4-mapped hex", "[::ffff:a9fe:a9fe]"),
+                      ("compressed IPv6", "[fd00:ec2::254]"), ("full IPv6", "[FD00:EC2:0:0:0:0:0:254]"),
+                      ("zero-padded IPv6", "[fd00:0ec2:0000::0254]")]
+
+
+async def metadata_rows(server, browser, real_chrome, v4):
+    """D4: the launcher's real entries match every spelling of the metadata addresses.
+
+    Each entry the launcher writes is mapped to the local server and every
+    other host to ~NOTFOUND, so a spelling the rule misses fails to resolve
+    and no request leaves loopback. Nothing names a metadata address until a
+    `localhost` fetch has shown that the switch is in effect.
+    """
+    switch = launcher._host_resolver_switch(launcher.METADATA_HOSTS).replace(" ~NOTFOUND", " 127.0.0.1") + ", MAP * ~NOTFOUND"
+    async with opened(server, flagged(switch), f"{browser.replace(' ', '-')}-metadata", real_chrome) as session_id:
+        path = f"/{session_id}-interlock"
+        error = await fetch_error(server, session_id, f"http://localhost:{v4}{path}")
+        in_effect = error is not None and NOT_RESOLVED in error and path not in hits
+        check(in_effect, f"{browser}, real entries mapped to the local server: the switch is in effect, since a localhost "
+                         f"fetch fails to resolve; otherwise no metadata spelling is sent: error {(error or '')[:160]!r}")
+        if not in_effect:
+            return
+        fetches = [(kind, f"http://{host}:{v4}/{session_id}-{index}") for index, (kind, host) in enumerate(METADATA_SPELLINGS)]
+        fetches.append(("redirected compressed IPv6",
+                        f"http://169.254.169.254:{v4}/redirect?to=http://[fd00:ec2::254]:{v4}/{session_id}-redirected"))
+        for kind, url in fetches:
+            error = await fetch_error(server, session_id, url)
+            path = urlsplit(url.rpartition("=")[2] if "redirect" in url else url).path
+            check(path in hits, f"{browser}, real entries mapped to the local server: the {kind} spelling reaches it: "
+                                f"error {(error or '')[:160]!r}")
+
+
 async def main():
     async with async_playwright() as playwright:
         bundled = playwright.chromium.executable_path
@@ -385,6 +497,8 @@ async def main():
         for browser, real_chrome in browsers:
             for ruled in (True, False):
                 await exercise(server, browser, real_chrome, ruled, source, targets)
+            await proxy_rows(server, browser, real_chrome, v4)
+            await metadata_rows(server, browser, real_chrome, v4)
     finally:
         for local in servers:
             local.shutdown()
@@ -554,15 +668,16 @@ try:
             want = dict(expected_tools[name], inputSchema=narrowed_schema(name, expected_tools[name]["inputSchema"]))
             check(tools[name] == want, f"{name} equals upstream's tool after exactly the narrowing")
 
+        # The wiring from each tool to its checks. A metadata address is never
+        # named here: these rows go through the real server, so a refusal that
+        # regressed would send the request. The unit rows above cover the
+        # metadata readings without launching anything.
         for name, arguments, reason in [
             ("browser_fetch_once", {"url": "file:///etc/hosts"}, "pass its http(s) address"),
-            ("browser_fetch_once", {"url": "http://0xA9FEA9FE/"}, "cloud-metadata hosts"),
-            ("browser_fetch_once", {"url": "http://169.254.169.254\\@example.invalid/"}, "forward slashes"),
-            ("browser_fetch_once", {"url": "http:169.254.169.254/"}, "names no host"),
-            ("browser_fetch_once", {"url": "https://example.com/", "proxy": "http://169.254.169.254:80"}, "cloud-metadata hosts"),
-            ("browser_fetch", {"url": "http://[::ffff:a9fe:a9fe]/", "session_id": "absent"}, "cloud-metadata hosts"),
+            ("browser_fetch_once", {"url": "http://127.0.0.1:9/", "proxy": "http:127.0.0.1:9"}, "<scheme>://<host>"),
+            ("browser_fetch", {"url": "http://127.0.0.1:9\\@example.invalid/", "session_id": "absent"}, "forward slashes"),
             ("browser_fetch", {"url": "ftp://example.com/", "session_id": "absent"}, "pass its http(s) address"),
-            ("browser_open", {"session_id": "proxied", "proxy": {"server": "2852039166:80"}}, "cloud-metadata hosts"),
+            ("browser_open", {"session_id": "proxied", "proxy": {"server": "//127.0.0.1:9"}}, "<scheme>://<host>"),
         ]:
             is_error, text = tool_error(client, name, arguments)
             check(is_error and f"{name}: Refused" in text and reason in text, f"{name} refuses {arguments}: {text[:120]!r}")
