@@ -12,15 +12,19 @@ record of its transcript, `<dirname(transcript-path)>/<session>/subagents/agent-
 `WORKLOOP CELL BRIEF — <run>/<name>` on its first line, or on its second after
 `READ-ONLY`. The stamp lands on `activity_at` and `activity` of the lane or
 cell, at most once a minute per agent (<seen-dir>/.activity-<session>-<agent>),
-under the state file's lock and in the layout `workloop_state.Store` writes.
+under the state file's lock and in the layout `workloop_state.Store` writes. It then
+refreshes the repository-wide `workloop` readout (`readout.py`): agents out and the
+oldest silence, empty when none is out; the lead's prompt refreshes it too.
 """
 
 from __future__ import annotations
 
+import calendar
 import fcntl
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -28,6 +32,7 @@ from pathlib import Path
 
 INTERVAL_SECONDS = 60
 ACTION_MAX = 70
+READOUT_STALE_SECONDS = 600
 TAIL_BYTES = 65536
 CELL_HEADER = re.compile(r"WORKLOOP CELL BRIEF — (\S+)/(\S+)")
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -136,9 +141,44 @@ def stamp_state(state: Path, agent_id: str, cell: tuple[str, str] | None, action
     return True
 
 
+def stamp_seconds(value: str) -> float:
+    return float(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")))
+
+
+def agents_out(data: dict, at: float) -> list[tuple[str, str, int, str]]:
+    """Each active lane and cell out in a live run: name, role, seconds silent, last action.
+    Silence is measured as `workloop_state.silence` does: from the newest of the stamp, a heartbeat and going out."""
+    found = []
+    for run_name, run in data.get("runs", {}).items():
+        if run.get("torn_down"):
+            continue
+        for name, lane in run.get("lanes", {}).items():
+            if lane.get("state") == "active":
+                found.append((f"{run_name}/{name}", lane.get("worker", "worker"), lane, "claimed_at"))
+        for name, cell in (run.get("cells") or {}).items():
+            if cell.get("state") == "out":
+                found.append((f"{run_name}/{name}", cell.get("role", "cell"), cell, "out_since"))
+    return [(label, role, int(at - max(stamp_seconds(agent[key]) for key in ("activity_at", "heartbeat_at", since) if agent.get(key))),
+             agent.get("activity") or "-") for label, role, agent, since in found if agent.get(since)]
+
+
+def write_readout(state: Path, repo: Path, at: float) -> None:
+    """The repository-wide `workloop` readout: agents out and the oldest silence; empty when none is out."""
+    out = agents_out(json.loads(state.read_text()), at)
+    strip = f"{len(out)} agent{'s' if len(out) != 1 else ''} out, oldest silent {max(quiet for _, _, quiet, _ in out) // 60}m" if out else ""
+    note = "\n".join(f"{label} ({role}) silent {quiet // 60}m: {action}" for label, role, quiet, action in sorted(out, key=lambda item: -item[2])) if out else ""
+    subprocess.run([sys.executable, str(Path(__file__).with_name("readout.py")), "write", "workloop", "--strip", strip, "--note", note,
+                    "--stale-after", str(READOUT_STALE_SECONDS), "--repo", str(repo)], check=True)
+
+
 def main() -> None:
     state, seen_dir, session, event, agent_id, transcript_path = sys.argv[1:7]
-    if not agent_id or event not in ("SubagentStart", "PostToolBatch"):
+    if not agent_id:
+        # The lead's prompt refreshes the readout, so it clears once the last agent is back.
+        if event == "UserPromptSubmit":
+            write_readout(Path(state), Path(seen_dir).parent, time.time())
+        return
+    if event not in ("SubagentStart", "PostToolBatch"):
         return
     ledger = Path(seen_dir) / f".activity-{clean(session)}-{clean(agent_id)}"
     now = time.time()
@@ -155,6 +195,7 @@ def main() -> None:
                 print(f"agent_activity: {path} cannot be read ({error}); {agent_id} is stamped with its time only", file=sys.stderr)
     if stamp_state(Path(state), agent_id, cell, action):
         ledger.write_text(f"{now}\n")
+        write_readout(Path(state), Path(seen_dir).parent, now)
 
 
 if __name__ == "__main__":

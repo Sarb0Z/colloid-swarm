@@ -64,8 +64,9 @@ enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=tru
 [[ "$enabled" == "no" ]] && exit 0
 
 # A subagent's tool batch stamps its lane or cell with the time and its last
-# tool call, which is how a silent agent shows an age (agent_activity.py).
-if [[ -n "$agent_id" && -f "$state" ]]; then
+# tool call, which is how a silent agent shows an age; the lead's prompt
+# refreshes the readout of agents out (agent_activity.py).
+if [[ ( -n "$agent_id" || "$event" == "UserPromptSubmit" ) && -f "$state" ]]; then
   python3 "$lib/agent_activity.py" "$state" "$proj/.agents" "$session" "$event" "$agent_id" "$transcript" \
     || echo "workloop-inbox: stamping $agent_id's activity failed" >&2
 fi

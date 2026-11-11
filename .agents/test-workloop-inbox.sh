@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
 mkdir -p "$scratch/bin"
 cat > "$scratch/bin/docker" <<'EOF'
@@ -543,6 +543,28 @@ fire_t PostToolBatch c1
 [[ -z "$(field cells scout activity)" ]] || fail "a cell already back was stamped"
 fire_t PostToolBatch stranger
 ok "a cell that is back, and an agent bound to nothing, are not stamped"
+
+# the readout names the agents out and the oldest silence, and is empty when none is out
+readout() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$dir/.agents/.readout/workloop.json" "$1"; }
+put_cells out
+rm -f "$dir"/.agents/.activity-s1-*
+fire_t PostToolBatch c1
+python3 - "$state" <<'PY'
+import json, sys, time
+p = sys.argv[1]; s = json.load(open(p))
+s["runs"]["r1"]["cells"]["scout"]["activity_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1200))
+json.dump(s, open(p, "w"))
+PY
+fire UserPromptSubmit '' >/dev/null
+[[ "$(readout strip)" == "2 agents out, oldest silent 20m" && "$(readout note)" == *"r1/scout (research) silent 20m: Edit z.py"* ]] || fail "the readout did not name the agents out: $(readout strip) / $(readout note)"
+put_cells returned
+python3 - "$state" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["lanes"]["api"]["state"] = "reviewed"; json.dump(s, open(p, "w"))
+PY
+fire UserPromptSubmit '' >/dev/null
+[[ -z "$(readout strip)" && -z "$(readout note)" ]] || fail "the readout stayed after every agent was back: $(readout strip)"
+ok "the readout names the agents out and the oldest silence, and is empty once none is out"
 
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"
