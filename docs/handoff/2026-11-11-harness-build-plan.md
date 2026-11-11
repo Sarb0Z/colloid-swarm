@@ -44,7 +44,7 @@ the probe was run) or `inferred`.
 | F10 | A review is recorded as prose in `docs/reviews/*.md` with no machine-readable commit range, and as `accepted_tip` in the gitignored run state, which is absent outside a run. No contract line requires the file; the playbook says "create no parallel review ledger" | `docs/reviews/2026-11-11-scrapling-u2.md:1-20`; `workloop_lanes.py:137-166`; `hostile-review.md:91-92` | observed |
 | F11 | Nothing records that the full suite ran on a commit; the carrier has no single suite command, only the list in `.agents/AGENTS.md` and `ci.yml` | `rg` of hooks and tests; `.agents/AGENTS.md:73-122`; `.github/workflows/ci.yml:36-91` | observed |
 | F12 | A hook's JSON output may carry `systemMessage`, "Warning message shown to the user" | code.claude.com/docs/en/hooks, read 2026-11-11 | observed |
-| F13 | A Stop hook that exits 0 with `systemMessage` shows the line without continuing the turn: a headless session emitted one `system` event, level `notice`, reading "Stop says: <line>", the hook ran once and the turn ended with `end_turn`. The interactive terminal's rendering of that notice was not watched | probe run 2026-11-11 on 2.1.322 (`claude -p … --output-format stream-json --verbose` in a scratch folder with one Stop hook) | observed, headless |
+| F13 | A Stop hook that exits 0 with `systemMessage` shows the line without continuing the turn: headless, one `system` event of level `notice` reading "Stop says: <line>" and the turn ended with `end_turn`; in an interactive terminal, the line drew under the reply as `⎿  Stop says: <line>` and the prompt returned with no further turn | probes run 2026-11-11 and 2026-11-12 on 2.1.322: `claude -p … --output-format stream-json --verbose`, and an interactive session in a detached tmux pane read with `capture-pane`, each in a scratch folder with one Stop hook | observed |
 | F14 | `guard-publish` already answers every `git push`: `ask` in default mode and `deny` in auto mode. It receives the command, `cwd` and `permission_mode`, and does not resolve which commits a push carries | `hooks/lib/guard-publish.py:502-510, 941-964`; both modes fed on stdin 2026-11-11 | observed |
 | F15 | A lane stores `heartbeat_at` and a `progress` string, with no stated cadence; a cell stores only `out_since` and `returned_at`; `status` prints no ages. `watch` already lists lanes whose heartbeat is older than a threshold | `workloop_lanes.py:248-259`; `workloop_cells.py:71-119, 54-59`; `workloop_messages.py:83-87` | observed |
 | F16 | A lane's brief opens `WORKLOOP <ROLE> BRIEF — <run>/<lane>`; a cell's prompt carries `WORKLOOP CELL BRIEF — <run>/<name>` on its second line, after `READ-ONLY`. The controller reads no transcript. The inbox hook runs between a subagent's tool calls and is handed four fields only: `project_dir`, `event`, `session_id`, `agent_id`; it binds an agent to a lane by the lane's claim and has no binding for a cell | `workloop_lanes.py:316`; `workloop_cells.py:152`; `workloop-inbox.sh:9-26, 37-64`; `rg 'transcript' .agents/workloop*.py` (no match) | observed |
@@ -224,10 +224,7 @@ Flags inform; none of them blocks (ruling 3).
     worktrees, its untracked files.
 - 4.2 `session-wrap.sh` keeps its measures and attribution and loses its
   questions on Claude Code: it writes the flags to its readout and, when a
-  flag changes, shows one line through `systemMessage` (F12, F13). The first
-  step watches that line in an attended terminal; if it does not render
-  there, the line moves to the next prompt's context and the status strip
-  alone. On Codex and Kimi the hook keeps today's question, because no
+  flag changes, shows one line through `systemMessage` (F12, F13). On Codex and Kimi the hook keeps today's question, because no
   non-blocking carrier is known there (F8, decision
   `mods-where-value-exceeds-portability`). `test-session-wrap.sh` keeps its
   attribution cases and replaces its message cases.
