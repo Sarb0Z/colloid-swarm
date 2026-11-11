@@ -165,7 +165,7 @@ ok "show and write default to the repository that holds the script"
 
 empty="$scratch/empty"
 mkdir -p "$empty"
-[[ -z "$(rd strip "$empty" s1)$(rd note "$empty" s1)$(rd show "$empty" s1)" ]] || fail "a missing folder printed something"
+[[ -z "$(rd strip "$empty" s1)$(rd note "$empty" s1)$(rd show --repo "$empty" --session s1)" ]] || fail "a missing folder printed something"
 ok "a repository with no readout folder prints nothing"
 
 printf 'PASS: readout reader\n'
