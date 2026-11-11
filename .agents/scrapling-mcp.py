@@ -16,25 +16,25 @@ What the narrowed server cannot do, whatever a call or the environment says:
 - run an HTTP-only, state-file or session-less request tool;
 - fetch a `file://` or other non-web address through `url`, or use a
   cloud-metadata host as its `proxy`;
-- send a request a page makes, navigation, `fetch` or a new tab alike, to a
-  cloud-metadata host by its address: a route on every browser context and
-  page aborts it.
-The block reads the URL the browser asks for, so a redirect from a public page
-to a metadata host is not covered, as for Playwright's blocked origins
-(`mcp_playwright.py`), and neither is a name that resolves to one.
+- without a proxy, reach a cloud-metadata address at all: every browser the
+  server opens without one resolves no such address, so a navigation, a
+  redirect, an in-page or worker `fetch` and a WebSocket to it each fail with
+  `net::ERR_NAME_NOT_RESOLVED`.
+Under a proxy the proxy resolves every address, so a redirect from a public
+page reaches the metadata service of the proxy's network. A DNS name that
+resolves to a metadata address is not covered, with a proxy or without.
 """
 
 import inspect
 import ipaddress
 import os
-import re
 import socket
 from typing import Annotated
 from urllib.parse import unquote, urlsplit
 
 from pydantic import Field
 from scrapling.core.ai import ScraplingMCPServer
-from scrapling.engines._browsers._base import AsyncSession
+from scrapling.core.ai import server as server_module
 
 SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
@@ -57,15 +57,6 @@ SCRUBBED_ENV_PREFIXES = ("NODE_", "PLAYWRIGHT_", "PATCHRIGHT_", "SCRAPLING_", "D
 
 # The cloud-metadata hosts .agents/mcp_playwright.py blocks for Playwright.
 METADATA_HOSTS = frozenset(ipaddress.ip_address(host) for host in ("169.254.169.254", "fd00:ec2::254"))
-
-# The same hosts as Chromium writes them in a canonical URL, the form a route
-# sees: dotted decimal IPv4, compressed lowercase IPv6 in brackets, and the
-# IPv4-mapped form in hex. A regex rather than a callable, so the driver
-# intercepts only the requests it matches and every other request goes straight
-# to Scrapling's own route.
-METADATA_REQUEST = re.compile(
-    r"^[a-z][a-z0-9+.-]*://(?:[^/?#]*@)?(?:169\.254\.169\.254|\[fd00:ec2::254\]|\[::ffff:a9fe:a9fe\])(?::[0-9]*)?(?:[/?#]|$)"
-)
 
 # Upstream's instructions minus the advice to start with HTTP and use
 # `make_request`, which this server does not offer.
@@ -135,6 +126,10 @@ def _refuse_address(url):
             f"Refused {url!r}: only http and https addresses are fetched. "
             "To read a local file, use the Read tool; to read a web page, pass its http(s) address."
         )
+    # Chromium reads `http:169.254.169.254/` and its one- and three-slash forms
+    # as that host, where urlsplit sees no host at all.
+    if not parts.hostname:
+        raise ValueError(f"Refused {url!r}: the address names no host. Write it as http(s)://host/path.")
     _refuse_metadata(url, parts.hostname)
 
 
@@ -149,48 +144,56 @@ def _refuse_proxy(proxy):
     _refuse_metadata(server, parts.hostname)
 
 
-def _is_metadata_request(url):
-    """Whether a canonical request URL, as the browser hands it to a route, names a metadata host."""
-    return METADATA_REQUEST.search(url) is not None
+def _host_resolver_switch(addresses):
+    """Chromium's `--host-resolver-rules` switch under which none of `addresses` resolves.
 
-
-async def _abort_metadata(route):
-    await route.abort("blockedbyclient")
-
-
-_upstream_initialize_context = AsyncSession._initialize_context
-_upstream_get_page = AsyncSession._get_page
-
-
-async def _initialize_context_blocked(self, config, ctx):
-    """Upstream's context setup, then the metadata route on the context.
-
-    Scrapling runs this on every context it creates, stealth and real Chrome
-    alike, and never unroutes a context, so pages it did not set up, such as a
-    tab the page opens, are covered.
+    Chromium matches a rule against the host of the canonical URL: IPv6
+    without brackets (a bracketed entry matches nothing), and an IPv4 address
+    spelled as IPv4-mapped IPv6 as its own hex form, so each IPv4 address
+    gets a second entry. Numeric spellings of IPv4 canonicalize to dotted
+    decimal before the match. Python's `compressed` writes the mapped form
+    dotted, which Chromium does not match, so the hex is spelled out.
     """
-    ctx = await _upstream_initialize_context(self, config, ctx)
-    await ctx.route(METADATA_REQUEST, _abort_metadata)
-    return ctx
+    hosts = []
+    for address in sorted(addresses, key=lambda address: (address.version, int(address))):
+        hosts.append(address.compressed)
+        if address.version == 4:
+            hosts.append(f"::ffff:{int(address) >> 16:x}:{int(address) & 0xFFFF:x}")
+    return "--host-resolver-rules=" + ", ".join(f"MAP {host} ~NOTFOUND" for host in hosts)
 
 
-async def _get_page_blocked(self, *args, **kwargs):
-    """Upstream's page setup, then the metadata route on the page.
+def _session_resolving_none_of(session_class, addresses):
+    """A subclass of `session_class` whose browser, launched without a proxy, resolves none of `addresses`.
 
-    Scrapling resets a page's routes on every fetch and, when the fetch blocks
-    domains or resources, installs its own `**/*` route, which continues every
-    other request to the network. A page route outranks the context's, so the
-    block is added after it on every fetch.
+    The switch travels in Scrapling's `extra_flags` session option, which no
+    tool exposes. Under a proxy it is left out: the proxy resolves every host,
+    so it would not apply, and under socks5 patchright's driver passes its own
+    `--host-resolver-rules`, which a second switch would collide with.
     """
-    page_info = await _upstream_get_page(self, *args, **kwargs)
-    await page_info.page.route(METADATA_REQUEST, _abort_metadata)
-    return page_info
+    switch = _host_resolver_switch(addresses)
+
+    class SessionResolvingNoneOf(session_class):
+        __slots__ = ()
+
+        def __init__(self, **kwargs):
+            if not kwargs.get("proxy"):
+                kwargs["extra_flags"] = [switch]
+            super().__init__(**kwargs)
+
+    return SessionResolvingNoneOf
 
 
-# On the base class, so every browser session the server constructs carries
-# the block, however a tool's arguments set it up.
-AsyncSession._initialize_context = _initialize_context_blocked
-AsyncSession._get_page = _get_page_blocked
+# The one seam into upstream for the rule: `browser_open` and
+# `browser_fetch_once` look this module global up on every call to build their
+# browser session. Fail at import when either stops doing so, rather than
+# serve browsers without the rule.
+for _tool in (ScraplingMCPServer.browser_open, ScraplingMCPServer.browser_fetch_once):
+    if "AsyncStealthySession" not in _tool.__code__.co_names:
+        raise RuntimeError(
+            f"Scrapling's {_tool.__name__} no longer builds its session from AsyncStealthySession; "
+            "recheck the launcher's resolver rule seam"
+        )
+server_module.AsyncStealthySession = _session_resolving_none_of(server_module.AsyncStealthySession, METADATA_HOSTS)
 
 
 def _narrowed(parent, dropped=(), replace=None, check_url=False, doc=None):
