@@ -176,10 +176,10 @@ open, as for Playwright" is withdrawn: a native block exists.
 | # | Disposition |
 |---|---|
 | B1 | Adopted: the launcher starts every browser it opens without a proxy with `--host-resolver-rules` mapping each metadata address, written without brackets, to `~NOTFOUND`, through Scrapling's `extra_flags`, which no tool exposes. What a session with a proxy gets is the operator's ruling (G2) |
-| B2, B3, B6 | Follow the G2 ruling: they are defects of the route, and fall away with it if the rule replaces it |
+| B2, B3, B6 | Moot with G2's ruling: they are defects of the route, which is removed |
 | B4 | Adopted: an http(s) URL with an empty host is refused, with a row for each of the four spellings |
 | B5 | Breadcrumb, with S5: the NAT64 and IPv4-compatible forms join the other providers' addresses |
 | B7, G1 | Adopted: behavioural rows replace the method-identity rows. The rule-building function takes its address list, so a live row can pass loopback stand-ins and see each request kind fail while the server sees nothing, and a fast row asserts the list `main()` passes |
 | B8 | Accepted: the rows B7 removes shrink the test; `_narrowed`'s fifth parameter is `doc`, a keyword with a default |
-| G2 | To the operator |
+| G2 | Ruled by the operator: any proxy is kept and the gap is stated. The route and the two replaced upstream methods are removed; the launcher's docstring says that under a proxy the proxy resolves every address, so a redirect reaches the metadata service of the proxy's network. Recorded in the `scrapling-stealth-tier` decision |
 | G3 | Adopted with B1: the rule is left out when a proxy is set, where it does not apply and the driver sets its own |
