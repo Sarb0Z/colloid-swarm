@@ -314,7 +314,10 @@ EOF
 
   if [[ -n "$readout_note" ]]; then
     section
-    echo "Unit readouts (.agents/.readout/; the full view is \`python3 .agents/hooks/lib/readout.py show\`):"
+    readout_session="$(printf '%s' "${session_id:-}" | tr -cd 'A-Za-z0-9_-')"
+    readout_show="python3 .agents/hooks/lib/readout.py show"
+    [[ -n "$readout_session" ]] && readout_show+=" --session $readout_session"
+    echo "Unit readouts (.agents/.readout/; the full view is \`$readout_show\`):"
     printf '%s\n' "$readout_note"
   fi
 

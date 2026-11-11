@@ -174,7 +174,14 @@ assert_wrap_state "$tt"
 python3 "$tt/.agents/hooks/lib/readout.py" write owed --repo "$tt" --strip "2 owed" --note "two replies owed"
 python3 "$tt/.agents/hooks/lib/readout.py" write build --repo "$tt" --session someone-else --note "foreign build note"
 ro_context="$(context_of "$(run_policy "$tt")")"
-assert_contains "$ro_context" 'readout.py show'
+assert_contains "$ro_context" 'readout.py show --session fixture-session'
+# The printed command runs from the repository root and shows this session's own readout.
+python3 "$tt/.agents/hooks/lib/readout.py" write mine --repo "$tt" --session fixture-session --strip "mine" --note "my own note"
+shown_cmd="$(printf '%s\n' "$ro_context" | sed -n 's/.*the full view is `\(.*\)`.*/\1/p')"
+shown="$(cd "$tt" && eval "$shown_cmd")" || fail "the printed show command failed: $shown_cmd"
+assert_contains "$shown" 'my own note'
+assert_contains "$shown" 'two replies owed'
+assert_not_contains "$shown" 'foreign build note'
 assert_contains "$ro_context" 'owed: two replies owed'
 assert_not_contains "$ro_context" 'foreign build note'
 rm -r "$tt/.agents/.readout"
