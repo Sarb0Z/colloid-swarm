@@ -15,7 +15,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 fixture="$scratch/repo"
 mkdir -p "$fixture/.agents/claude" "$fixture/.agents/hooks/lib"
 cp "$repo/.agents/claude/statusline.sh" "$fixture/.agents/claude/"
-cp "$repo/.agents/hooks/lib/config.py" "$fixture/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/readout.py" "$fixture/.agents/hooks/lib/"
 strip="$fixture/.agents/claude/statusline.sh"
 home="$scratch/home"
 plain="$scratch/plain"
@@ -52,6 +52,18 @@ printf 'x\n' > "$scratch/tree/new.txt"
 out="$(run "$home/.claude/projects/s.jsonl" "$scratch/tree")"
 [[ "$out" == *"trunk"* && "$out" == *"●1"* ]] || fail "branch or dirty count missing: $out"
 ok "draws the branch and the dirty count"
+
+# A readout file draws a third row; an empty folder leaves two. A session-scoped
+# readout shows only for its own session.
+[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 ]] || fail "no readout, yet the strip is not two rows: $out"
+python3 "$fixture/.agents/hooks/lib/readout.py" write owed --repo "$fixture" --strip "2 replies owed"
+python3 "$fixture/.agents/hooks/lib/readout.py" write other --repo "$fixture" --session elsewhere --strip "hidden"
+out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
+[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 3 && "$(printf '%s\n' "$out" | sed -n 3p)" == "2 replies owed" ]] \
+  || fail "a readout did not draw the third row: $out"
+[[ "$out" != *hidden* ]] || fail "another session's readout drew: $out"
+rm -r "$fixture/.agents/.readout"
+ok "a readout file draws a third row, and an empty folder draws two"
 
 # Switched off, the person's own status line draws instead.
 printf '%s\n' '{"hooks": {"status_strip": {"enabled": false}}}' > "$fixture/.agents/policy.json"

@@ -4,6 +4,9 @@
 #   ● PERSONAL   claims-app   mvp/roadmap ●3 ↑2   +156 −23   #41 ✓   session name  󰔛 1h12m
 #   Fable 5.1 ⚡ high 󰧑  ━━━━┄┄┄┄┄┄ 367K/1M  5h 42% ↻2h10m  7d 18%  style:colloid
 #
+# A third row appears only while a unit has written a readout
+# (.agents/hooks/lib/readout.py).
+#
 # Wired as the project statusLine in .agents/claude/settings.json, so it
 # replaces each person's own status line in every scaffold repository. The
 # toggle is hooks.status_strip.enabled; switched off, the person's own user
@@ -43,6 +46,7 @@ fi
 # ── one jq pass for everything ─────────────────────────────────────────────
 eval "$(echo "$input" | jq -r '
   def s(v): (v // "" | tostring);
+  "session=\(s(.session_id)|@sh)",
   "transcript=\(s(.transcript_path)|@sh)",
   "cwd=\(s(.workspace.current_dir)|@sh)",
   "model=\(s(.model.display_name)|@sh)",
@@ -164,3 +168,7 @@ fi
 
 [ -n "$style" ] && [ "$style" != default ] && printf "${SEP}${DIM}style:%s${R}" "$style"
 printf '\n'
+
+# ── row 3: unit readouts (hooks/lib/readout.py); drawn only when one speaks ──
+readouts=$(python3 "$repo/.agents/hooks/lib/readout.py" strip "$repo" "$session")
+if [ -n "$readouts" ]; then printf "${FG}%s${R}\n" "${readouts//  ·  /${SEP}}"; fi
