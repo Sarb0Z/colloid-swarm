@@ -237,6 +237,11 @@ Flags inform; none of them blocks (ruling 3).
   reason gains the owed line for the commits the push carries, read from
   `owed.py`. The test asserts the line's presence for an unreviewed
   critical-path file and its absence once a record covers it.
+- 4.4 Claude Code cuts the readout row at the terminal's width and does not
+  wrap it, so the readouts after the cut do not show (live check, review
+  `2026-11-12-session-wrap`). `readout.py strip` puts the owed flags first
+  and the other readouts after them by name; a test row with five readouts
+  asserts the order.
 
 Acceptance: (1) a session that commits code ends its turn with no question
 and with the flag in the status strip; (2) a critical-path file committed and
@@ -436,6 +441,8 @@ the text the operator approved.
   cost (same review, findings 6 and 12).
 - F22: true only for Codex and Kimi lanes; Claude lanes already ran ESLint
   and Prettier (same review, finding 14).
+- 4.4: added, since the live check showed the host hides readouts past the
+  terminal's width (review `2026-11-12-session-wrap`, findings 7 and 9).
 
 ## Rulings
 

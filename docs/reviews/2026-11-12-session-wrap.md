@@ -20,3 +20,20 @@ told their findings and asked for what both missed.
 | 9 | P2 | Many readouts draw a third row wider than the terminal | reproduced (314 columns) | Deferred to unit 4, which adds the next readouts; the live check in finding 7 shows how the host draws it |
 | 10 | P2 | Four headers describe the old behaviour | inspection | Adopted. Run `harness-u0-wrap` |
 | 11 | P2 | Two concurrent prunes can race on a deleted file | theoretical | Accepted: nothing is lost and the next prune finishes |
+
+Findings 4, 5, 8 and 10 were fixed in `3e26340`, `6b2cabe` and `dba2fdc`; the
+lead read the diff and reran the four tests at `dba2fdc`.
+
+The live check (finding 7) ran on 2026-11-12 in an interactive Claude Code
+2.1.322 session (Sonnet) in tmux at 80 columns, started in a scratch clone at
+`7f0c33b` holding four repository readouts (`checks`, `review`, `systems`,
+`workloop`). The third row drew under the two usual rows as
+`checks: ruff missing  review owed: 3 critical-path files  systems: github u…`:
+the host cuts the row at the terminal's width with an ellipsis and does not
+wrap it, so the `workloop` readout, last by name, did not show at all. That
+settles finding 9's open point: a long row hides whole readouts, and the
+order is alphabetical, not by urgency; unit 4 orders them when it adds the
+next readouts. The session's transcript holds the session-start context with
+all four notes and the `show --session <id>` pointer; asked to quote that
+section, the session gave two of the four, so a note in the context is there
+but not reliably recalled word for word.
