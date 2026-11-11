@@ -86,6 +86,17 @@ If this is that escalation, it lacks what makes it one: carry what you found,
 the options, and your recommendation with its trade-offs, so the user can
 decide in one reply instead of asking what you would do.
 EOF
+  # A repository that declares systems in policy.json has told the agent what
+  # it can read; "I have no access" is checked against that declaration.
+  if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("systems") else 1)' \
+       "$repo/.agents/policy.json" 2>/dev/null; then
+    cat >&2 <<'EOF'
+
+This repository declares systems you can read. Before saying you lack access,
+run `python3 .agents/access.py list` to see each system's read and log
+commands, and `python3 .agents/access.py probe` to see which answer now.
+EOF
+  fi
   exit 2
 fi
 

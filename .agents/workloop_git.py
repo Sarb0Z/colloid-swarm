@@ -20,6 +20,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "hooks" / "lib"))
+import guard_verdict  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 SHA = re.compile(r"[0-9a-f]{40}")
 TAIL_LINES = 40
@@ -698,28 +701,12 @@ def guard_command(command: str, repo: Path, what: str) -> None:
     worktree has no such escape. The run's repository is passed so the
     guards read that repository's policy, not the one this file lives in.
     """
-    lib = ROOT / ".agents/hooks/lib"
-    destructive = subprocess.run(
-        [sys.executable, str(lib / "guard-destructive.py"), str(repo), "--force"],
-        input=json.dumps({"command": command}), text=True, capture_output=True,
-    )
-    if destructive.returncode == 2:
-        fail(f"{what} command refused by guard-destructive: {destructive.stderr.strip()}")
-    if destructive.returncode != 0:
-        fail(f"guard-destructive could not evaluate the {what} command (exit {destructive.returncode}): {destructive.stderr.strip()}")
-    publish = subprocess.run(
-        [sys.executable, str(lib / "guard-publish.py"), str(repo), "--force"],
-        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "permission_mode": "default"}),
-        text=True, capture_output=True,
-    )
-    if publish.returncode != 0:
-        fail(f"guard-publish could not evaluate the {what} command (exit {publish.returncode}): {publish.stderr.strip()}")
-    if publish.stdout.strip():
-        try:
-            reason = json.loads(publish.stdout)["hookSpecificOutput"].get("permissionDecisionReason", "")
-        except (ValueError, KeyError, TypeError):
-            reason = publish.stdout.strip()
-        fail(f"{what} command refused by guard-publish: {reason}")
+    try:
+        refused = guard_verdict.verdict(command, repo)
+    except guard_verdict.GuardFailure as error:
+        fail(f"{error.guard} could not evaluate the {what} command (exit {error.status}): {error.stderr}")
+    if refused:
+        fail(f"{what} command refused by {refused[0]}: {refused[1]}")
 
 
 def run_verify(command: str, cwd: Path, what: str, timeout: int, budget: int | None = None) -> tuple[bool, str]:
