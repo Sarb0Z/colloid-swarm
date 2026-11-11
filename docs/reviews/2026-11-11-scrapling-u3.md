@@ -84,3 +84,15 @@ correction, which trails `5c073f2`.
 | A6, B4 | Adopted: a missing, empty or `*` matcher counts as matching every name |
 | A1 | Breadcrumb, sharpened: the existing line now carries the evidence that Kimi documents `TaskStop`; the fix edits `.kimi/config.toml.example`, outside this test-only unit |
 | A4 | Breadcrumb: `PowerShell` in Claude's PreToolUse teardown matcher, a settings change outside this unit |
+
+## The correction
+
+`a0076bb` lands the adopted rows in the test alone. Its implementer ran ten
+mutants through the whole script, and each went red on its own line. They
+covered: Stop and SubagentStop removed, B1's open-side and stop mutants, the
+narrowed boot alternative, the narrowed server segment, a concatenated
+pattern, a `re.compile` alias, and `tool in ("Monitor", "Watch")`. The two
+controls stayed green: A5's comment, and `.kimi/` removed. The lead reran the
+script as committed (exit 0) and with Claude's Stop group removed (exit 1,
+`claude: no Stop group runs teardown-gate`). The fix settles a `P1` inside the
+subsystem this round reviewed, so it does not re-enter review.
