@@ -45,7 +45,13 @@ if [[ ! -x "$policy_path" ]]; then
   if grep -Eq '"hook_event_name" *: *"PreToolUse"' <<<"$raw"; then
     decision="deny"
     grep -Eq '"permission_mode" *: *"(default|acceptEdits|plan)"' <<<"$raw" && decision="ask"
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"The %s policy is missing from this checkout, so its gate cannot run."}}\n' "$decision" "$(basename "$policy")"
+    name="$(basename "$policy")"
+    if [[ -e "$policy_path" ]]; then
+      reason="The $name policy is present but not executable, so its gate cannot run. Run: chmod +x .agents/hooks/policy/$name"
+    else
+      reason="The $name policy is missing from this checkout, so its gate cannot run."
+    fi
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$decision" "$reason"
     exit 0
   fi
   exit 1

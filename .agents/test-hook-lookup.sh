@@ -186,4 +186,48 @@ else
 fi
 [[ "$fails" -eq "$before" ]] && ok "end to end: the real guard-destructive denies a hard reset launched from a product folder"
 
+# The Claude adapter's denial tells a present policy without its executable bit
+# apart from an absent one: the first names the chmod, the second says missing.
+# Seam: the adapter run from a scratch repository; it catches a swapped or merged
+# message and misses the wording a live session shows.
+before=$fails
+adapter_repo="$scratch/adapter-repo"
+mkdir -p "$adapter_repo/.agents/claude" "$adapter_repo/.agents/hooks/policy"
+cp "$repo/.agents/claude/adapter.sh" "$adapter_repo/.agents/claude/"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$adapter_repo/.agents/hooks/policy/plain.sh"
+chmod 644 "$adapter_repo/.agents/hooks/policy/plain.sh"
+pretool='{"hook_event_name":"PreToolUse","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"true"}}'
+reason_of() { bash "$adapter_repo/.agents/claude/adapter.sh" "$1" <<<"$pretool" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason'; }
+reason="$(reason_of plain.sh)"
+[[ "$reason" == *"present but not executable"* && "$reason" == *"chmod +x .agents/hooks/policy/plain.sh"* && "$reason" != *"missing"* ]] \
+  || fail "adapter: a policy without its executable bit was not reported as present but not executable: $reason"
+reason="$(reason_of absent.sh)"
+[[ "$reason" == *"absent.sh policy is missing from this checkout"* && "$reason" != *"chmod"* ]] \
+  || fail "adapter: an absent policy was not reported as missing: $reason"
+[[ "$fails" -eq "$before" ]] && ok "adapter: a non-executable policy and an absent one get different denials"
+
+# Every policy a host configuration names exists and is executable: a
+# registration goes live the moment it is saved, and the adapter denies every
+# call a gate it cannot run covers. HOOK_LOOKUP_POLICY_DIR names another policy
+# folder to test (default: the committed one).
+# Seam: the three host files and the policy folder; it catches a registered name
+# with no file or no executable bit and misses a policy that is executable and wrong.
+before=$fails
+policy_dir="${HOOK_LOOKUP_POLICY_DIR:-$repo/.agents/hooks/policy}"
+named_count=0
+for host_file in "$repo/.agents/claude/settings.json" "$repo/.agents/codex/hooks.json" "$repo/.kimi/config.toml.example"; do
+  names="$(grep -v '^ *#' "$host_file" | grep -oE '[A-Za-z0-9_-]+\.sh' | sort -u | grep -vxE 'adapter\.sh|statusline\.sh' || true)"
+  [[ -n "$names" ]] || fail "policy names: found none in $host_file"
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    named_count=$((named_count + 1))
+    if [[ ! -e "$policy_dir/$name" ]]; then
+      fail "policy names: $host_file names $name, which is absent from $policy_dir"
+    elif [[ ! -x "$policy_dir/$name" ]]; then
+      fail "policy names: $host_file names $name, which lacks its executable bit in $policy_dir"
+    fi
+  done <<<"$names"
+done
+[[ "$fails" -eq "$before" ]] && ok "policy names: all $named_count registrations name an executable policy"
+
 [[ "$fails" -eq 0 ]] || { printf '%s hook-lookup rows failed\n' "$fails" >&2; exit 1; }
