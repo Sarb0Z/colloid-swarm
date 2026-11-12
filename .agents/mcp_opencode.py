@@ -13,6 +13,8 @@ the configs it already emits for Claude, Kimi, and Codex.
 import json
 import re
 
+import mcp_hosts
+
 SETTINGS = ".agents/claude/settings.json"
 PERSONAS = ".agents/personas"
 STYLE = ".agents/claude/output-style.md"
@@ -255,7 +257,7 @@ def payload(repo, servers):
         _fail(f"cannot read {SETTINGS}: {error}")
     rendered = {}
     for name, server in servers.items():
-        if server["enabled"]:
+        if server["enabled"] and mcp_hosts.renders(server, "opencode"):
             record = server_config(name, server)
             if record is not None:
                 rendered[name] = record

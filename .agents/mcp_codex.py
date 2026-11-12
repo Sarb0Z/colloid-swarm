@@ -3,13 +3,13 @@
 import json
 import re
 
+import mcp_hosts
 
-META_FIELDS = {"codex_enabled", "codex_startup_timeout_sec"}
+
+META_FIELDS = {"codex_startup_timeout_sec"}
 
 
 def validate_metadata(name, server, fail):
-    if "codex_enabled" in server and not isinstance(server["codex_enabled"], bool):
-        fail(f"{name}.codex_enabled must be boolean")
     timeout = server.get("codex_startup_timeout_sec")
     invalid = not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0
     if timeout is not None and invalid:
@@ -23,7 +23,7 @@ def render(repo, servers):
         raise SystemExit(f"mcp: cannot read .agents/codex/config.toml: {error}")
     rows = [base.rstrip(), ""]
     for name, server in servers.items():
-        if server.get("type") == "sse" or server.get("codex_enabled") is False:
+        if server.get("type") == "sse" or not mcp_hosts.renders(server, "codex"):
             continue
         enabled = server["enabled"] and "${" not in str(server.get("url", ""))
         # Project and user TOML merge per key; a same-name different transport

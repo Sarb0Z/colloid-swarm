@@ -10328,7 +10328,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>mcp.py</h3><p>Repository-owned MCP registry and launcher, kept explicit and inspectable.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 326 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 329 lines</span></summary><div class="srcpath">.agents/mcp.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Build native MCP configuration from the tracked registry.
 
 Usage: mcp.py [sync] [--settings FILE] [--new-proxy-session] | enable NAME... | disable NAME...
@@ -10348,11 +10348,12 @@ from pathlib import Path
 from mcp_codex import META_FIELDS as CODEX_META_FIELDS
 from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
+import mcp_hosts
 import mcp_opencode
 import mcp_playwright as playwright
 
 ROOT_TOKEN = &quot;${REPO_ROOT}&quot;
-META = {&quot;description&quot;, &quot;enabled&quot;, &quot;kimi_enabled&quot;, &quot;outward&quot;, &quot;sources&quot;} | CODEX_META_FIELDS
+META = {&quot;description&quot;, &quot;enabled&quot;, &quot;hosts&quot;, &quot;outward&quot;, &quot;sources&quot;} | CODEX_META_FIELDS
 FIELDS = META | {&quot;type&quot;, &quot;command&quot;, &quot;args&quot;, &quot;cwd&quot;, &quot;env&quot;, &quot;url&quot;, &quot;headers&quot;}
 ENV = re.compile(r&quot;\$\{([A-Za-z_][A-Za-z0-9_]*)\}&quot;)
 
@@ -10409,7 +10410,7 @@ def _validate_remote(name, server):
     if not isinstance(headers, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in headers.items()):
         _fail(f&quot;{name}.headers must be a string map&quot;)
     bearer = headers.get(&quot;Authorization&quot;, &quot;&quot;)
-    if server_type == &quot;http&quot; and server.get(&quot;codex_enabled&quot;) is not False and headers and (
+    if server_type == &quot;http&quot; and mcp_hosts.renders(server, &quot;codex&quot;) and headers and (
         set(headers) != {&quot;Authorization&quot;}
         or re.fullmatch(r&quot;Bearer \$\{[A-Za-z_][A-Za-z0-9_]*\}&quot;, bearer) is None
     ):
@@ -10421,11 +10422,10 @@ def _validate_server(name, server):
         _fail(f&quot;{name} must have a description&quot;)
     if not isinstance(server.get(&quot;enabled&quot;), bool):
         _fail(f&quot;{name} must have boolean enabled&quot;)
+    mcp_hosts.validate(name, server, _fail)
     unknown = sorted(set(server) - FIELDS)
     if unknown:
         _fail(f&quot;{name} has unsupported field(s): {&#x27;, &#x27;.join(unknown)}&quot;)
-    if &quot;kimi_enabled&quot; in server and not isinstance(server[&quot;kimi_enabled&quot;], bool):
-        _fail(f&quot;{name}.kimi_enabled must be boolean&quot;)
     if &quot;outward&quot; in server and not isinstance(server[&quot;outward&quot;], bool):
         _fail(f&quot;{name}.outward must be boolean&quot;)
     # Tools whose calls produce a source the provenance ledger must record.
@@ -10558,7 +10558,7 @@ def _kimi_config(repo, servers):
     records = {}
     for name, server in servers.items():
         item = _kimi_record(server)
-        if server[&quot;enabled&quot;] and server.get(&quot;kimi_enabled&quot;) is not False:
+        if server[&quot;enabled&quot;] and mcp_hosts.renders(server, &quot;kimi&quot;):
             missing = set()
             item = _expand_env(item, missing)
             if missing:
@@ -10595,7 +10595,10 @@ def _build(repo, doc=None, settings_path=None, rotate=False):
     }
     source = settings_path or repo / &quot;.agents/config.json&quot;
     _overlay_env(servers, playwright.read_config(source).get(&quot;mcp_env&quot;, {}), source)
-    enabled = {name: _public(server) for name, server in servers.items() if server[&quot;enabled&quot;]}
+    enabled = {
+        name: _public(server) for name, server in servers.items()
+        if server[&quot;enabled&quot;] and mcp_hosts.renders(server, &quot;claude&quot;)
+    }
     return doc, {
         &quot;browser&quot;: browser, &quot;token&quot;: token, &quot;rotate&quot;: rotate,
         &quot;reader&quot;: reader, &quot;claude_mcp&quot;: {&quot;mcpServers&quot;: enabled},

@@ -86,7 +86,7 @@ expected_states = {
     name: server["enabled"] and "${" not in server.get("url", "")
     for name, server in registry.items()
     if server.get("type") in {"stdio", "http"}
-    and server.get("codex_enabled") is not False
+    and "codex" in server.get("hosts", ["codex"])
 }
 states = {name: body.get("enabled", True) for name, body in codex.items()}
 if states != expected_states:

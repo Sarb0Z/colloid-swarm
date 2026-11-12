@@ -47,8 +47,7 @@
       "description": "Stealth browser for bot-walled pages, including Cloudflare's interactive checkbox. Claude only. Install its browser once: uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from 'scrapling[ai]==0.5.1' scrapling install",
       "sources": ["browser_fetch_once", "browser_fetch"],
       "enabled": false,
-      "codex_enabled": false,
-      "kimi_enabled": false,
+      "hosts": ["claude", "opencode"],
       "type": "stdio",
       "command": "uvx",
       "args": [
@@ -104,7 +103,7 @@
     "atlassian": {
       "description": "Jira, Confluence, and Bitbucket via Atlassian Rovo.",
       "enabled": false,
-      "codex_enabled": false,
+      "hosts": ["claude", "kimi"],
       "type": "sse",
       "url": "https://mcp.atlassian.com/v1/sse",
       "outward": true
@@ -123,7 +122,7 @@
       "description": "Web search and fetch.",
       "sources": ["*"],
       "enabled": false,
-      "codex_enabled": false,
+      "hosts": ["claude", "kimi", "opencode"],
       "type": "http",
       "url": "https://mcp.exa.ai/mcp?exaApiKey=${EXA_API_KEY}"
     }

@@ -63,8 +63,13 @@ the session after a state change because MCP clients connect at startup.
 
 Disabled Codex records remain present to mask same-name user records. Unknown
 user or plugin server names still merge normally; project config is not a
-machine-wide allowlist. `codex_enabled: false` omits a provider-incompatible
-record.
+machine-wide allowlist.
+
+An entry's optional `hosts` list (`claude`, `codex`, `kimi`, `opencode`) names
+the hosts that render it; an entry without one renders on every host. Off its
+list Claude, Codex and OpenCode omit the server and Kimi writes a disabled
+record. A server type a host cannot run, such as SSE on Codex and OpenCode, is
+left out whether or not `hosts` lists it.
 
 A server that needs an operator-specific value, such as `research-mcp`'s
 `RESEARCH_MCP_CONTACT_EMAIL`, gets it from the `mcp_env` section of the ignored

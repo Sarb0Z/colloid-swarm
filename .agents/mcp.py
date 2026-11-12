@@ -18,11 +18,12 @@ from pathlib import Path
 from mcp_codex import META_FIELDS as CODEX_META_FIELDS
 from mcp_codex import render as render_codex
 from mcp_codex import validate_metadata as validate_codex_metadata
+import mcp_hosts
 import mcp_opencode
 import mcp_playwright as playwright
 
 ROOT_TOKEN = "${REPO_ROOT}"
-META = {"description", "enabled", "kimi_enabled", "outward", "sources"} | CODEX_META_FIELDS
+META = {"description", "enabled", "hosts", "outward", "sources"} | CODEX_META_FIELDS
 FIELDS = META | {"type", "command", "args", "cwd", "env", "url", "headers"}
 ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -79,7 +80,7 @@ def _validate_remote(name, server):
     if not isinstance(headers, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in headers.items()):
         _fail(f"{name}.headers must be a string map")
     bearer = headers.get("Authorization", "")
-    if server_type == "http" and server.get("codex_enabled") is not False and headers and (
+    if server_type == "http" and mcp_hosts.renders(server, "codex") and headers and (
         set(headers) != {"Authorization"}
         or re.fullmatch(r"Bearer \$\{[A-Za-z_][A-Za-z0-9_]*\}", bearer) is None
     ):
@@ -91,11 +92,10 @@ def _validate_server(name, server):
         _fail(f"{name} must have a description")
     if not isinstance(server.get("enabled"), bool):
         _fail(f"{name} must have boolean enabled")
+    mcp_hosts.validate(name, server, _fail)
     unknown = sorted(set(server) - FIELDS)
     if unknown:
         _fail(f"{name} has unsupported field(s): {', '.join(unknown)}")
-    if "kimi_enabled" in server and not isinstance(server["kimi_enabled"], bool):
-        _fail(f"{name}.kimi_enabled must be boolean")
     if "outward" in server and not isinstance(server["outward"], bool):
         _fail(f"{name}.outward must be boolean")
     # Tools whose calls produce a source the provenance ledger must record.
@@ -228,7 +228,7 @@ def _kimi_config(repo, servers):
     records = {}
     for name, server in servers.items():
         item = _kimi_record(server)
-        if server["enabled"] and server.get("kimi_enabled") is not False:
+        if server["enabled"] and mcp_hosts.renders(server, "kimi"):
             missing = set()
             item = _expand_env(item, missing)
             if missing:
@@ -265,7 +265,10 @@ def _build(repo, doc=None, settings_path=None, rotate=False):
     }
     source = settings_path or repo / ".agents/config.json"
     _overlay_env(servers, playwright.read_config(source).get("mcp_env", {}), source)
-    enabled = {name: _public(server) for name, server in servers.items() if server["enabled"]}
+    enabled = {
+        name: _public(server) for name, server in servers.items()
+        if server["enabled"] and mcp_hosts.renders(server, "claude")
+    }
     return doc, {
         "browser": browser, "token": token, "rotate": rotate,
         "reader": reader, "claude_mcp": {"mcpServers": enabled},
