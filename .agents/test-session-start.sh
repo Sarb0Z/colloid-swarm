@@ -410,9 +410,13 @@ write_config "$broken_inbox" true false
 cp "$inflight/.agents/.workloop-state.json" "$broken_inbox/.agents/"
 rm "$broken_inbox/.agents/hooks/lib/agent_silence.py"
 broken_out="$(run_policy "$broken_inbox" startup 2>"$scratch/broken-inbox.err")" || fail "a failing inbox must not fail session start"
-[[ "$(context_of "$broken_out")" != *"WORKLOOP r1"* ]] || fail "a failing inbox listed a run"
+broken_context="$(context_of "$broken_out")"
+[[ "$broken_context" != *"WORKLOOP r1"* ]] || fail "a failing inbox listed a run"
+[[ "$broken_context" == *"Workloop runs unknown: workloop-inbox.py failed"*"agent_silence"* ]] || fail "a failing inbox must be named in the context: $broken_context"
 grep -q "workloop-inbox.py failed.*agent_silence" "$scratch/broken-inbox.err" || fail "a failing inbox must be named on stderr: $(cat "$scratch/broken-inbox.err")"
-printf 'ok: a failing inbox is named on stderr and session start goes on\n'
+run_policy "$inflight" startup >/dev/null 2>"$scratch/inflight.err"
+[[ ! -s "$scratch/inflight.err" ]] || fail "a working inbox must leave session start's stderr empty: $(cat "$scratch/inflight.err")"
+printf 'ok: a failing inbox is named in the context and on stderr, and session start goes on\n'
 # The start source reaches the digest: a startup ended the session's cells, a compaction did not.
 python3 - "$inflight/.agents/.workloop-state.json" <<'PY'
 import json, sys

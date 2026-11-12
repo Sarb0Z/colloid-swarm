@@ -191,15 +191,19 @@ fi
 # source, after the agent id, tells it whether this start ended the session's
 # earlier cells (startup, resume) or not (clear, compact).
 # The inbox prints its digest on stderr too, for a prompt's terminal, so its
-# stderr is shown here only when it fails.
+# stderr is read here only when it fails; the failure then reaches the lead's
+# context as well, since a start hook's stderr at exit 0 may reach no one.
 workloop_digest=""
+workloop_failure=""
 if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]]; then
-  inbox_err="$(mktemp)"
+  inbox_err="$(mktemp)" || inbox_err=/dev/null
   workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" "${start_source:-startup}" 2>"$inbox_err")" || {
-    printf 'session-start: workloop-inbox.py failed, so no workloop run is listed: %s\n' "$(tail -n 1 "$inbox_err")" >&2
+    reason="$(tail -n 1 "$inbox_err")"
+    workloop_failure="workloop-inbox.py failed, so no workloop run in this checkout is listed${reason:+: $reason}"
+    printf 'session-start: %s\n' "$workloop_failure" >&2
     workloop_digest=""
   }
-  rm -f "$inbox_err"
+  [[ "$inbox_err" == /dev/null ]] || rm -f "$inbox_err"
 fi
 
 # Installed copies of the output style that say something else. The carrier
@@ -231,7 +235,7 @@ if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" && -d "$proj/.ag
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -312,6 +316,11 @@ EOF
     section
     echo "Workloop runs in flight (.agents/.workloop-state.json — lanes, messages, and gates a lead owns):"
     printf '%s\n' "$workloop_digest"
+  fi
+
+  if [[ -n "$workloop_failure" ]]; then
+    section
+    echo "Workloop runs unknown: $workloop_failure."
   fi
 
   if [[ -n "$worktree_digest" ]]; then
