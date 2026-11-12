@@ -123,10 +123,12 @@ class Parents:
     def told(self, agent_id: str, info: dict) -> tuple | None:
         """(time, status, summary, after a resume) of the newest verdict on the agent, or None."""
         if info["meta"]["background"]:
-            notes = sorted(note for note in self.data(parent(info), "notes").get(agent_id) or []
-                           if note[1] and not (note[1] == "completed" and WAITING in note[2]))
+            notes = sorted(self.data(parent(info), "notes").get(agent_id) or [])
+            # A newest notice that the agent is restarted, or waits on its own work, sets aside every older verdict.
+            if not notes or not notes[-1][1] or (notes[-1][1] == "completed" and WAITING in notes[-1][2]):
+                return None
             again = any(status in ("failed", "stopped") for _, status, _ in notes[:-1])
-            return (*notes[-1], again) if notes else None
+            return (*notes[-1], again)
         result = self.data(parent(info), "results").get(info["meta"]["tool_use_id"])
         return (*result, "", False) if result else None
 

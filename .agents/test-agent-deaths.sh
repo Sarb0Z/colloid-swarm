@@ -66,6 +66,11 @@ def edit(at, path, use):
     return call(at, "Edit", {"file_path": str(path), "old_string": "a", "new_string": "b"}, use)
 
 
+def background_result(at, use, task):
+    """The result of a Bash call run in the background, as Claude Code 2.1.322 records it."""
+    return dict(result(at, use), toolUseResult={"interrupted": False, "backgroundTaskId": task})
+
+
 def git(cwd, *args):
     subprocess.run(["git", "-C", str(cwd), "-c", "user.name=f", "-c", "user.email=f@x", *args], check=True, capture_output=True)
 
@@ -132,6 +137,20 @@ class Store:
                    f"<summary>{summary}</summary>\n</task-notification>")
         self.append(self.parent(sid), {"type": "queue-operation", "operation": "enqueue", "timestamp": iso(at),
                                        "sessionId": sid, "content": content})
+
+    def restarted(self, sid, aid, at):
+        """A background session's notice that it restarted the agent: no status."""
+        content = (f"<task-notification>\n<task-id>{aid}</task-id>\n<summary>Background agent \"x\" was restarted "
+                   "after the previous session ended</summary>\n</task-notification>")
+        self.append(self.parent(sid), {"type": "queue-operation", "operation": "enqueue", "timestamp": iso(at),
+                                       "sessionId": sid, "content": content})
+
+    def job(self, job, sid, state):
+        """A background session's supervisor record, `<config>/jobs/<job>/state.json`."""
+        folder = self.home / ".claude" / "jobs" / job
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "state.json").write_text(compact({"state": state, "sessionId": sid, "resumeSessionId": sid,
+                                                    "respawnFlags": [], "lastTerminalAt": iso(NOW - 600)}))
 
     def foreground_result(self, sid, aid, status, at):
         self.append(self.parent(sid), {"type": "user", "timestamp": iso(at), "toolUseResult": {"status": status, "agentId": aid},
@@ -241,6 +260,60 @@ r = store.read(repo)
 expect(r.verdicts["afore"].state == "completed", "a foreground agent's Agent result did not decide its verdict", r)
 expect(r.verdicts["aagain"].cause == "failed again after a resume (stalled)", "a failure after a resume did not say so", r)
 print("ok    a foreground agent takes its Agent call's result, and a failure after an earlier one reads failed again after a resume")
+PY
+
+# Spike S6 (Claude Code 2.1.322): an agent that ended its turn to wait on its
+# own background command is not completed, whatever its meta.json and its
+# session's "completed ... waiting" notification say (E6); a notification
+# with no status is no verdict; an agent of a background session its
+# supervisor holds stopped is parked, with `claude respawn <job>`.
+d="$(case_dir background)"
+python3 - "$d" <<'PY' || exit 1
+import sys
+from pathlib import Path
+from fx import *
+d = Path(sys.argv[1]); store = Store(d / "home"); repo = checkout(d / "repo")
+store.session(OWN, repo); store.register(OWN, NOW - 7200)
+# Its session was killed: the registry entry it left fails ps.
+store.session("s-waited", repo); store.register("s-waited", NOW - 7200, live=False)
+waiting = [prompt(NOW - 3000), edit(NOW - 2950, repo / "a.txt", "u1"), result(NOW - 2940, "u1"),
+           call(NOW - 2930, "Bash", {"command": "suite.sh", "run_in_background": True}, "u2"),
+           background_result(NOW - 2920, "u2", "b4uadlnvw"), answer(NOW - 2910, "waiting on the suite")]
+store.agent("s-waited", "awaits", waiting, repo, description="writer waiting on its suite")
+(repo / "a.txt").write_text("changed\n")
+r = store.read(repo)
+expect(r.verdicts["awaits"].state == "lost" and r.verdicts["awaits"].cause == "session ended",
+       "an agent whose final turn waits on its own background command read completed from its own files", r)
+store.note("s-waited", "awaits", "completed", 'Agent "writer waiting on its suite" is waiting on its own background work', NOW - 2900)
+store.age("s-waited", "awaits", 1200)
+r = store.read(repo)
+expect(r.verdicts["awaits"].state == "lost" and "awaits" in r.shown, "a 'waiting on its own background work' notification read as completed", r)
+print("ok    an agent waiting on its own background command is not completed by its meta.json, its answer, or a 'waiting' notification")
+# An answer after the background command reported back, in a later turn, is a completion.
+store.extend("s-waited", "awaits", [prompt(NOW - 2800, "<task-notification>the suite passed</task-notification>"), answer(NOW - 2790)], repo)
+expect(store.read(repo).verdicts["awaits"].state == "completed", "an answer in a turn after the background command finished was not completed")
+print("ok    an answer in a later turn, after the background command reported, is a completion")
+store.session("s-restart", repo); store.register("s-restart", NOW - 600)
+store.agent("s-restart", "aback", [prompt(NOW - 3000), edit(NOW - 2950, repo / "b.txt", "u3"), result(NOW - 2940, "u3")], repo, finished=False)
+store.note("s-restart", "aback", "stopped", "Background agent \"x\" didn't finish before the previous session ended", NOW - 590)
+store.restarted("s-restart", "aback", NOW - 580)
+r = store.read(repo)
+expect(r.verdicts["aback"].state == "running" and not r.problems, "an agent its background session just restarted did not read running", r)
+store.extend("s-restart", "aback", [call(NOW - 60, "Bash", {"command": "make"}, "u4")], repo, quiet=30)
+r = store.read(repo)
+expect(r.verdicts["aback"].state == "running", "an agent its background session restarted, working again, did not read running", r)
+print("ok    a notification with no status, from a background session restarting the agent, is no verdict")
+store.session("s-parked", repo); store.job("7837ab94", "s-parked", "stopped")
+store.agent("s-parked", "apark", [prompt(NOW - 3000), edit(NOW - 2950, repo / "c.txt", "u5"), result(NOW - 2940, "u5")], repo, finished=False)
+(repo / "c.txt").write_text("changed\n")
+r = store.read(repo)
+line = r.lines[r.shown.index("apark")] if "apark" in r.shown else ""
+expect(r.verdicts["apark"].state == "parked" and line.startswith('AGENT PARKED: "fixture task" (implementer, apark) background session stopped at')
+       and "restart its background session and agents: `claude respawn 7837ab94`" in line,
+       "an agent of a stopped background session did not read parked with its respawn", r)
+store.job("7837ab94", "s-parked", "running")
+expect(store.read(repo).verdicts["apark"].state == "lost", "an agent of a running job's session read parked")
+print("ok    an agent of a background session its supervisor holds stopped reads parked, with claude respawn <job>")
 PY
 
 # Acceptance 5 and 6: scope and leftovers.
