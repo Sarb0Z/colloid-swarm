@@ -560,6 +560,21 @@ with tempfile.TemporaryDirectory() as project:
 launcher = re.search(r'^SESSION_ID_PATTERN = r"(.*)"$', (repo / ".agents/scrapling-mcp.py").read_text(), re.M)
 must_equal("session ID pattern", sources.SESSION_ID.pattern, launcher and launcher.group(1))
 
+# A payload the ledger cannot read, or a trail it cannot write, says why on
+# stderr and still exits 0: the ledger is a trail, never a gate.
+for given, needle in (("not json", "not JSON"), ("[1]", "not a JSON object")):
+    result = subprocess.run([sys.executable, str(source_path)], input=given, text=True, capture_output=True)
+    if result.returncode or needle not in result.stderr:
+        raise SystemExit(f"ledger on {given!r}: exit {result.returncode}, stderr {result.stderr!r}")
+with tempfile.TemporaryDirectory() as project:
+    # A directory where the trail belongs makes the append fail.
+    (Path(project) / ".agents/.sources-ledger").mkdir(parents=True)
+    result = subprocess.run(
+        [sys.executable, str(source_path)], text=True, capture_output=True,
+        input=json.dumps({"project_dir": project, "tool_name": "WebSearch", "tool_input": {"query": "q"}}))
+    if result.returncode or "could not record a search row" not in result.stderr:
+        raise SystemExit(f"ledger on an unwritable trail: exit {result.returncode}, stderr {result.stderr!r}")
+
 adapter = repo / ".codex/hooks/adapter.sh"
 
 def run(policy, payload):

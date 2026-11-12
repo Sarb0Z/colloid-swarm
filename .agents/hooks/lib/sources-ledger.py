@@ -22,7 +22,8 @@ The trail is capped rather than unbounded. Rolling at the append is the only
 place that knows a row was added; the check is one stat call, so the rewrite
 happens on roughly one lookup in a thousand and never on a small ledger.
 
-A trail, never a gate: every failure path exits 0 and records nothing.
+A trail, never a gate: every failure path says why on stderr, records nothing
+and exits 0.
 """
 
 import json
@@ -148,9 +149,11 @@ def source_row(payload, last_page):
 def main():
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
+    except ValueError as error:
+        print(f"sources-ledger: the payload is not JSON, so nothing was recorded: {error}", file=sys.stderr)
         return 0
     if not isinstance(payload, dict):
+        print("sources-ledger: the payload is not a JSON object, so nothing was recorded", file=sys.stderr)
         return 0
 
     project = text(payload.get("project_dir")) or os.environ.get("CLAUDE_PROJECT_DIR") or "."
@@ -169,10 +172,10 @@ def main():
 
     try:
         with open(ledger, "a", encoding="utf-8") as trail:
-            trail.write("%s\t%s\t%s\t%s\n" % (stamp, agent, kind, value))
+            trail.write(f"{stamp}\t{agent}\t{kind}\t{value}\n")
         roll(ledger)
-    except OSError:
-        pass
+    except OSError as error:
+        print(f"sources-ledger: could not record a {kind} row in {ledger}: {error}", file=sys.stderr)
     return 0
 
 
@@ -191,7 +194,7 @@ def roll(ledger):
     # Write beside it and rename, so a crash mid-roll cannot leave a torn trail.
     # The name carries the pid: parallel researcher cells capture concurrently,
     # and a fixed name lets two rolls interleave into one corrupt file.
-    temporary = "%s.roll.%d" % (ledger, os.getpid())
+    temporary = f"{ledger}.roll.{os.getpid()}"
     with open(temporary, "w", encoding="utf-8") as rolled:
         rolled.writelines(rows[-KEEP_ROWS:])
     os.replace(temporary, ledger)
