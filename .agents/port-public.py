@@ -30,6 +30,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
@@ -48,9 +49,34 @@ def fail(message):
     raise SystemExit(f"port-public: {message}")
 
 
+def run_group(command, cwd=None, data=None, text=False):
+    """subprocess.run, with the command in its own process group, which any exit kills whole.
+
+    Killing only the command would leave what it started (git's index-pack and
+    fast-import, a check's own children) writing into the scratch copy while
+    `build` removes it.
+    """
+    process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text,
+                               start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(data)
+    except BaseException:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        for _ in range(50):   # the group's orphans die after the leader is reaped
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def run(command, cwd=None, data=None):
     """Run a command; a failure stops the port with the command and its stderr."""
-    result = subprocess.run(command, cwd=cwd, input=data, capture_output=True)
+    result = run_group(command, cwd=cwd, data=data)
     if result.returncode:
         fail(f"`{' '.join(map(str, command))}` exited {result.returncode}:\n"
              + result.stderr.decode(errors="replace").strip())
@@ -330,7 +356,7 @@ def verify(out):
         steps.append(".agents/check-clean-tree.sh")   # last, as in CI: no check may dirty the tree
     failed = []
     for step in steps:
-        result = subprocess.run(["bash", "-c", step], cwd=out, capture_output=True, text=True)
+        result = run_group(["bash", "-c", step], cwd=out, text=True)
         print(f"  {'ok  ' if result.returncode == 0 else 'FAIL'} {step}", flush=True)
         if result.returncode:
             failed.append(step)
@@ -401,8 +427,10 @@ def main():
     build_parser.add_argument("out", type=Path)
     build_parser.add_argument("--against", help="the published repository to compare with")
     args = parser.parse_args()
-    # SIGTERM becomes an exit, so `build` still removes its scratch copy of the private history.
-    signal.signal(signal.SIGTERM, lambda *_: fail("terminated"))
+    # SIGTERM and SIGHUP become an exit, so `build` still stops its commands' process
+    # groups, which sit outside the terminal's reach, and removes its scratch copy.
+    for stop in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(stop, lambda *_: fail("terminated"))
     repo = args.repo.resolve()
     if args.command == "check":
         check(repo)

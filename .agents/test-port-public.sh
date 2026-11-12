@@ -191,6 +191,27 @@ status=0; wait $! || status=$?
 compgen -G "$work/.out-terminated.partial-*" >/dev/null && fail "terminated: the scratch copy survived SIGTERM"
 pass=$((pass + 1))
 
+# A terminated build also stops what its commands started, as git's own
+# children are: here a check whose child would write into the scratch copy
+# long after the build's own five-second wait for its commands to end.
+repo="$(fixture terminated-checks)"
+printf '#!/usr/bin/env bash\n( sleep 30; mkdir -p "$PWD/late" ) &\necho $! > "$CHILD_PID"\nwait\n' \
+  > "$repo/.agents/check-all.sh"
+git -C "$repo" add -A && commit "$repo" "Work <work@acme.example>" "test: a check with a late child"
+export CHILD_PID="$work/checks-child.pid"
+python3 "$tool" --repo "$repo" build "$work/out-terminated-checks" >/dev/null 2>&1 &
+build=$!
+until [[ -s "$CHILD_PID" ]] || ! kill -0 "$build" 2>/dev/null; do sleep 0.05; done
+[[ -s "$CHILD_PID" ]] || fail "terminated-checks: the build ended before its check list started"
+kill -TERM "$build"
+wait "$build" || true
+child="$(cat "$CHILD_PID")"
+for _ in $(seq 60); do kill -0 "$child" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$child" 2>/dev/null && { pkill -KILL -P "$child"; kill -KILL "$child"; fail "terminated-checks: a check's child outlived the build"; }
+compgen -G "$work/.out-terminated-checks.partial-*" >/dev/null \
+  && fail "terminated-checks: a check's child wrote into the scratch copy after the build ended"
+pass=$((pass + 1))
+
 # Uncommitted work never reaches a port.
 repo="$(fixture dirty)"
 printf 'draft\n' >> "$repo/README.md"
