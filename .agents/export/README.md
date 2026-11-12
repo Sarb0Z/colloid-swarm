@@ -45,7 +45,8 @@ backwards is worse than none, and the hostile review of the plan will look.
 
 Then hostile-review the plan (`.agents/playbooks/hostile-review.md`) before
 touching the target. The transplant itself is not high-stakes; gating a
-production deploy is, so name the claim QA must reproduce from a fresh clone.
+production deploy is, so write the acceptance QA must reproduce from a fresh
+clone as numbered observable behaviours with expected values.
 
 ## Sync
 

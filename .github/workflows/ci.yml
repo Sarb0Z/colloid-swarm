@@ -122,6 +122,9 @@ jobs:
       - name: Declared system access
         run: .agents/test-access.sh
 
+      - name: Revert check
+        run: .agents/test-revert-check.sh
+
       - name: Provenance gate policy
         run: .agents/test-provenance-gate.sh
 

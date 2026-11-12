@@ -228,6 +228,19 @@ read-only commands, is read by `access.py` from `policy.json` alone, as are
 (the command that runs the repository's checks), which `hooks/lib/owed.py`
 reads: which paths need review and what the suite is are repository decisions.
 
+A system's `logs` maps an environment (`local`, `staging`, `production`) to the
+command that reads its log. Each log command carries exactly one window
+placeholder, which `access.py` fills before running it: `{since}` is the
+scenario's start as ISO 8601 UTC ending in `Z`, and `{minutes}` the whole
+minutes since it, rounded up, for a tool that takes only a relative window
+(`journalctl --since=-{minutes}min`). `access.py check` refuses a log command
+with no placeholder or with two, and runs both guards on it with a sample window
+filled in, so a write hidden behind a placeholder is still refused. QA reads a
+scenario's log with `access.py logs --name NAME --env ENV --since ISO8601Z`,
+which fills the placeholder, runs both guards on the result, and runs it in the
+repository root with a 60-second timeout. A platform whose log read takes no
+window or never exits declares no log command.
+
 `wait-gate.sh` refuses a Bash call, under Claude only, that waits blind. Every
 agent, lead or spawned cell, gets the same rules, because a cell ends its turn
 and is woken by its own background call or child agent as the lead is. The gate
@@ -532,6 +545,16 @@ copying its line out of the script.
 <!-- colloid-only -->
 `lint-suite.py` fails when `ci.yml` and the script run different checks.
 <!-- /colloid-only -->
+
+`revert-check.sh <base> --tests <paths> -- <command>` proves a fix's test
+catches the defect. In one provisioned scratch worktree at the fix it runs the
+command, which must pass; it then restores every file changed since `<base>`,
+except the named test paths, to its `<base>` content and runs the command again,
+which must fail. A command that fails at the fix exits 1 naming the environment,
+since a missing dependency or test file cannot count as the failure; a command
+that still passes reverted exits 1 saying the test does not catch the defect.
+The scratch worktree is removed on every path, interrupts included.
+`test-revert-check.sh` fires it on fixture repositories.
 
 `test-review-contract.sh` runs `review-harness/bin/extract-contract.sh --check`,
 which fails when `contract.md` differs from a fresh extraction of

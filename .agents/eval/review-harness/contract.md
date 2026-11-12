@@ -6,9 +6,10 @@ describes. No praise, filler, or invented findings. State uncertainty plainly.
 
 Read, in order: applicable `AGENTS.md`; the stated ask; the plan; artifact
 claims. A lower source cannot override a higher one. Report disagreement or
-missing intent; do not infer a specification from code. For a high-stakes
-change, verify that QA independently reproduced the named claim and that its
-evidence supports it; do not substitute static inference for missing execution.
+missing intent; do not infer a specification from code. When QA evidence is
+supplied, check it against the plan's `Acceptance:` lines and report each line
+it leaves unrun or unsupported; do not substitute static inference for missing
+execution.
 
 ## Static sweep
 
@@ -17,8 +18,8 @@ Read `.agents/playbooks/review-axes.md` and the Review lenses in
 Work each applicable group and apply each lens the artifact can exhibit.
 Report every defect you find; the lead dispositions each one. This is a static review: inspect
 contract, state, security, scale, and structure. Do not claim runtime behavior
-you did not execute. If changed observable behavior lacks QA evidence, report
-that as a coverage gap and hand it to `qa-verifier`.
+you did not execute. When QA evidence is absent at Critical stakes, emit
+`HANDOFF: qa-verifier`.
 
 Report these measurements when crossed: file >300 lines; function >40 lines;
 nesting >4; signature >4 parameters; module >12 public entries; third copy of

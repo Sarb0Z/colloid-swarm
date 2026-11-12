@@ -54,9 +54,9 @@ prompt, with the question above appended below it, is what the lead dispatches:
 .agents/workloop.py returned export trace --result reply   # when it comes back
 ```
 
-After the writer submits: `brief export csv --role reviewer` for the reviewer,
-then `check` (it runs `--verify` once at the accepted commit), `qa`, `check`,
-`teardown`.
+After the writer submits: `brief export csv --role reviewer` for the reviewer
+and `brief export csv --role qa` for QA, dispatched together, then `qa` once QA
+is back, `check` (it runs `--verify` once at the accepted commit), `teardown`.
 
 ## Read-only fan-out
 
@@ -109,8 +109,8 @@ in any order (3), two writers:
 .agents/workloop.py brief audit accounts --role worker
 ```
 
-Dispatch each printed prompt as its cell's prompt, then review both lanes in one round,
-`integrate`, `qa`, `check`, `teardown`.
+Dispatch each printed prompt as its cell's prompt, then review both lanes in one round
+with the QA cell dispatched beside the reviewer, `qa`, `integrate`, `check`, `teardown`.
 
 ## Contract-first split
 

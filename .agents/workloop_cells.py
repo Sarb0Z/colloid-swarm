@@ -145,6 +145,7 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
         header,
         f"Objective: {run['objective']}",
         f"Acceptance: {run['acceptance']}",
+        *([f"Test suite: {run['verify']}"] if cell["role"] == "qa" and run.get("verify") else []),
         f"Role: {cell['role']} — {ROLES[cell['role']]}.",
         f"Model: {cell['model']}",
         "Question: the lead wrote it below the three lines of your dispatch prompt.",
