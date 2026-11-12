@@ -483,6 +483,19 @@ def unwrap(words, shell, stripped, place):
         return words, None
 
 
+def review_state(here):
+    """The push prompt's line on critical-path files the push carries without a
+    covering review record, empty when none. It informs only: a failure to
+    compute it is named in the line and never changes the guard's decision."""
+    try:
+        spec = importlib.util.spec_from_file_location("owed", os.path.join(HERE, "owed.py"))
+        owed = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(owed)
+        return owed.push_line(here or os.getcwd())
+    except Exception as error:
+        return f"The review state of the pushed commits could not be computed ({type(error).__name__}: {error})."
+
+
 def rule_bash(command, shell, place=None):
     """The reason to ask for one command. `place` locates it for the rules
     that read files: {"here", "repo", "remote", "earlier", "lost"}, where
@@ -522,7 +535,8 @@ def rule_bash(command, shell, place=None):
             letters, longs, _ = shell.parts(after)
             if "n" in letters or "--dry-run" in longs:
                 return None
-            return "git push publishes commits to the remote."
+            line = review_state(place["here"])
+            return "git push publishes commits to the remote." + (f" {line}" if line else "")
     if name == "gh":
         # `-R/--repo <owner/repo>` may come before the area: `gh -R o/r pr merge 1`.
         area = rest

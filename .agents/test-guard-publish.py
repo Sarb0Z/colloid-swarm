@@ -1364,6 +1364,87 @@ with database_repo({".env": f"DATABASE_URL={LOCAL}\n"}) as repo, \
     check("a dotenv -e file outside the repository is not read, and asks",
           decision == "ask" and "inside the repository" in reason, reason or "silence")
 
+# The push prompt names a critical-path file the push carries without a review
+# record covering its content. A scratch repository with a bare remote; the git
+# environment is cleared of GIT_DIR and its siblings so only the scratch is touched.
+git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+git_env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+
+def scratch_git(cwd, *args):
+    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, env=git_env)
+    if done.returncode:
+        raise RuntimeError(f"git {' '.join(args)}: {done.stderr}")
+    return done.stdout.strip()
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = pathlib.Path(tmp)
+    remote, work = tmp / "remote.git", tmp / "work"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True, env=git_env)
+    work.mkdir()
+    scratch_git(work, "init", "-q", "-b", "main")
+    (work / ".agents").mkdir()
+    (work / ".agents" / "policy.json").write_text('{"owed": {"critical_paths": ["AGENTS.md"]}}\n')
+    (work / "AGENTS.md").write_text("contract\n")
+    scratch_git(work, "add", "-A")
+    scratch_git(work, "commit", "-q", "-m", "base")
+    scratch_git(work, "remote", "add", "origin", str(remote))
+    scratch_git(work, "push", "-q", "-u", "origin", "main")
+    base = scratch_git(work, "rev-parse", "HEAD")
+
+    def push_reason():
+        return guard.verdict("Bash", {"command": "git push"}, cwd=str(work), repo=str(work))
+
+    check("a push carrying no critical-path file names none",
+          "AGENTS.md" not in (push_reason() or "") and push_reason() is not None, push_reason())
+
+    (work / "AGENTS.md").write_text("contract\nnew rule\n")
+    scratch_git(work, "commit", "-q", "-am", "critical change")
+    tip = scratch_git(work, "rev-parse", "HEAD")
+    reason = push_reason()
+    check("the push prompt names an unreviewed critical-path file",
+          reason and "unreviewed: AGENTS.md" in reason, reason)
+
+    (work / "docs" / "reviews").mkdir(parents=True)
+    record = work / "docs" / "reviews" / "2026-11-12-round.md"
+    record.write_text(f"Covers: {base}..{tip}\n")
+    scratch_git(work, "add", "-A")
+    scratch_git(work, "commit", "-q", "-m", "review record")
+    reason = push_reason()
+    check("a Covers record over the file's content clears the push line",
+          reason and "AGENTS.md" not in reason and "could not be computed" not in reason, reason)
+
+    (work / "AGENTS.md").write_text("contract\nnew rule\nfold-in\n")
+    scratch_git(work, "commit", "-q", "-am", "fixup after review")
+    reason = push_reason()
+    check("a fix-up after the record shows changed since review",
+          reason and "changed since review: AGENTS.md" in reason, reason)
+
+    record.write_text(f"Covers: {base}..{scratch_git(work, 'rev-parse', 'HEAD')}\n")
+    reason = push_reason()
+    check("moving the record's tip clears it", reason and "AGENTS.md" not in reason, reason)
+
+    record.write_text(f"Covers: {base}..{tip}\n")
+    scratch_git(work, "branch", "--unset-upstream")
+    reason = push_reason()
+    check("with no upstream the line reads the commits on no remote branch",
+          reason and "changed since review: AGENTS.md" in reason, reason)
+
+    # A failure in owed.py leaves the ask in place and says the line could not be computed.
+    broken = tmp / "broken"
+    shutil.copytree(here / "hooks" / "lib", broken / ".agents" / "hooks" / "lib")
+    (broken / ".agents" / "hooks" / "lib" / "owed.py").write_text('raise RuntimeError("boom")\n')
+    result = subprocess.run(
+        [sys.executable, str(broken / ".agents" / "hooks" / "lib" / "guard-publish.py")],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                          "cwd": str(work), "permission_mode": "default"}),
+        capture_output=True, text=True, env=env)
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    check("a failing owed.py keeps the ask and names the error",
+          out["permissionDecision"] == "ask" and "could not be computed" in out["permissionDecisionReason"]
+          and "boom" in out["permissionDecisionReason"], result.stdout + result.stderr)
+
 print()
 print("ALL PASS" if fails == 0 else f"{fails} FAILURE(S)")
 sys.exit(1 if fails else 0)
