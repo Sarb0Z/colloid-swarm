@@ -553,7 +553,8 @@ put_cells out
 # the cell's transcript ends on a Read of plan.md; the action shown is the payload's call, not the transcript's
 fire_t PostToolBatch c1 Grep '{"pattern":"TODO","path":"/x"}'
 [[ "$(field cells scout activity)" == "Grep TODO" && -n "$(field cells scout activity_at)" ]] || fail "a cell was not stamped from its payload: $(field cells scout activity)"
-ok "a cell is bound by the brief header in its transcript and stamped with the batch's last tool call from the payload"
+[[ "$(field cells scout agent_id)" == "c1" ]] || fail "the bound cell did not take its agent's id: $(field cells scout agent_id)"
+ok "a cell is bound by the brief header in its transcript, takes its agent's id, and is stamped with the batch's last tool call from the payload"
 fire_t PostToolBatch a1 Bash '{"command":"pytest -q tests/test_api.py","description":"Run the api tests"}'
 [[ "$(field lanes api activity)" == "Bash Run the api tests" && -n "$(field lanes api activity_at)" ]] || fail "a lane was not stamped by its claim: $(field lanes api activity)"
 ok "a lane is bound by its claim and stamped with its last tool call"
@@ -665,6 +666,19 @@ import json, sys
 p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["lanes"]["api"]["state"] = "reviewed"; json.dump(s, open(p, "w"))
 PY
 ok "the readout counts an unstamped agent apart from the oldest silence"
+
+# the header may follow any first line the delegation guide sanctions, and no other
+for first in 'NOTES-ONLY — this cell writes notes.' 'WORKSPACE: /tmp/elsewhere' 'Please read this first.'; do
+  printf '{"type":"user","message":{"role":"user","content":"%s\\nWORKLOOP CELL BRIEF — r1/scout\\nRead the brief."}}\n' "$first" > "$tdir/s1/subagents/agent-c2.jsonl"
+  put_cells out; rm -f "$ledgers/.activity-s1-c2"
+  fire_t PostToolBatch c2 Grep '{"pattern":"x"}'
+  if [[ "$first" == Please* ]]; then
+    [[ -z "$(field cells scout agent_id)" ]] || fail "a header after an unsanctioned first line bound the cell"
+  else
+    [[ "$(field cells scout agent_id)" == "c2" ]] || fail "a header after '$first' did not bind the cell"
+  fi
+done
+ok "a header after a NOTES-ONLY or WORKSPACE line binds the cell, as one after READ-ONLY does; one after any other line does not"
 
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"
