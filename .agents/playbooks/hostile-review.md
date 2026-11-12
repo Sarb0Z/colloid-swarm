@@ -122,12 +122,20 @@ report with a section per lane that each lane's `workloop review` cites; every
 reviewer of the round, an axis reviewer included, reads every lane. The controller refuses to reopen a lane for a `P2`, and a lane's
 fourth submission without the operator's ruling.
 
-## Review of the review
+## Disprove pass
 
-Critical stakes add one pass after the code review and before the lead's
-dispositions. A second cell, given the artifact and the findings but not the
-first reviewer's reasoning, labels each finding supported or unsupported, with
-a reason. It never removes a finding. Every `P0` or `P1` it labels unsupported
-goes to the operator's walk-through with that reason, so the operator sees every
-blocking finding. The code review, its axis reviewers where the work splits by
-axis, and this pass count as one round.
+A code review at Critical stakes adds one pass after the reviewers return and
+before the lead's dispositions. Send each `P0` or `P1` whose evidence is
+`inspection` to a QA cell, a generic one when the probe must write files, with
+the finding line, the artifact's commit and the run commands, not the
+reviewer's reasoning. The cell tries to reproduce or refute the finding by
+running something — a test, a script, a request — in a scratch folder outside
+the checkout, such as a `git worktree add` of that commit under `$TMPDIR`, and
+returns per finding `confirmed`, `refuted` or `unverified`, with the command
+and its output. The pass never removes a finding: its label, command and output
+go beside the finding into the dispositions, and `unverified` stays blocking
+as `confirmed` does. A `refuted` finding is declined only by citing that
+command and output, after the lead reruns it. Every `refuted` or `unverified`
+`P0` or `P1` goes to the operator's walk-through with its command, so the
+operator sees every blocking finding. The code review, its axis reviewers
+where the work splits by axis, and this pass count as one round.

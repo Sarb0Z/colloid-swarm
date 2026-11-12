@@ -23,6 +23,11 @@ surface below; one global edge case is insufficient:
 - UI: empty/loading/error, keyboard/focus/labels, navigation/back/refresh;
 - integration: unavailable, timeout, rate limit, malformed response.
 
+Given review findings to disprove instead, each finding is one scenario: try to
+reproduce or refute it by running something in a scratch folder outside the
+checkout, and label it `confirmed`, `refuted` or `unverified` under EXECUTED
+with the command and its output.
+
 Prove each scenario with the cheapest command or interaction that exercises it;
 never infer runtime success from code or a passing unrelated suite. Before each
 scenario, note its start as ISO 8601 UTC ending in `Z`
