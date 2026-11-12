@@ -92,3 +92,29 @@ tracked files.
 
 Every finding is a P2, so both lanes are accepted at their tips and
 integrated, and the lead applies R1, R2, R3 and R5 on `main`.
+
+## The lead's fixes and their QA
+
+R1 and R3 are `c0f391b`: each check in beats 6, 8, 9 and 10 also matches the
+reason its outcome must print, read from the tools' own output (`access.py`
+names the refused command, `revert-check.sh` says the test "does not catch the
+defect", research-mcp marks a refusal `"failure": "policy"`), and `MISMATCH`
+lines go to stderr. R2 is `9904307` with the beat 3 comment in `c0f391b`, R5
+is `c3da32d`. `demo.sh` is 393 lines after R1. No reviewer read these three
+commits.
+
+A second QA cell (sonnet) ran at `f8c0aa2` and passed every item. The demo
+exits 0 with no `MISMATCH` and leaves the checkout as it found it. Five
+regressions, each made alone in a scratch clone and run with stdout
+discarded, exit 1 with a `MISMATCH` line on stderr: a policy that does not
+parse (beat 8), a `revert-check.sh` usage error (beat 9), a final check
+blocked without `qa:stale` (beat 10), an MCP tool that does not exist (beat
+6), and a flipped beat 3 expectation. The guard exits 2 on a typed recursive
+delete and 0 on `bash <file>` holding it and on the same text as quoted data.
+The lead rendered the merged page at 390 and 1280 px: the scroll width equals
+the viewport, and the console holds no message.
+
+Covers: fed7d0a..a78fb81
+Covers: fed7d0a..e9f3f2e
+Covers: f187496..14367ef
+Covers: f187496..be1ec59
