@@ -22,7 +22,11 @@ trap 'rm -rf "$scratch"' EXIT
 # A viewer's git identity or signing setup must not stop a scratch commit.
 g() { git -c user.name=demo -c user.email=demo@example.invalid -c commit.gpgsign=false "$@"; }
 
-bold=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; red=$'\033[31m'; rst=$'\033[0m'
+# Colour only on a terminal, and never when NO_COLOR is set non-empty (no-color.org).
+bold=''; dim=''; grn=''; red=''; rst=''
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  bold=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; red=$'\033[31m'; rst=$'\033[0m'
+fi
 rule() { printf '%s\n' "${dim}────────────────────────────────────────────────────────────${rst}"; }
 sec()  { printf '\n%s▸ %s%s\n' "$bold" "$1" "$rst"; }
 
