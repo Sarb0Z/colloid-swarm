@@ -57,7 +57,7 @@ A check a site puts in front of content it sends to a reader with no login, to t
 _Avoid_: paywall (as a category), access control
 
 **Access restriction**:
-Content that needs a login or subscription the operator does not hold, or that is another person's account or data. An agent stops at one.
+Content that needs a login or subscription the operator does not hold, or that is another person's account or data. An agent never passes one: it asks the operator how to go on, or in an unattended run skips the page and reports it.
 _Avoid_: bot wall, hard wall
 
 **Browser session**:

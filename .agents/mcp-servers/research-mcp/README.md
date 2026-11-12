@@ -74,8 +74,8 @@ redirects, so the address guard runs on **every hop**, not once at entry:
 The server does not read `robots.txt`. It fetches a page only because the
 caller asked for that page.
 
-- A single read that a user directed is exempt from `robots.txt`. The server
-  acts for the user, like a browser does.
+- A read of a public page the work reaches, one page at a time, is exempt from
+  `robots.txt`. The server acts for the user, like a browser does.
 - The server does not support enumeration or crawling. It has no tool that
   follows links on its own, lists a site, or reads many pages from one request.
   Do not use it to do these things.

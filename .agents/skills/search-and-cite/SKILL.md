@@ -27,19 +27,21 @@ When `fetch_readable` reports `failure: "blocked"` with no capture, look for the
 same data in an open API or open dataset before any browser: a county
 assessor's records served 99 addresses where Zillow refused this machine
 (`knowledge/research/2026-09-30-bot-walls-on-property-sites.md`). Then open the
-page in the `playwright` entry. If that stops at a challenge it cannot pass,
-such as an interactive checkbox, the operator can switch on the `scrapling`
+page in the `playwright` entry. A page that asks for a login or subscription the
+user does not hold, or that is another person's account or data, is an access
+restriction, which is never passed: ask the user how to go on, offering all
+three ways, sign in with a login of their own that has access, use another
+source, or stop. If the page instead stops at a challenge `playwright` cannot
+pass, such as an interactive checkbox, the user can switch on the `scrapling`
 entry, a stealth browser on Claude only (`python3 .agents/mcp.py enable
 scrapling`, then restart; once, `uvx --python 3.12 --exclude-newer
 2026-11-09T00:00:00Z --from 'scrapling[ai]==0.5.1' scrapling install`). Read the
 page with its `browser_fetch_once` and `solve_cloudflare: true`, one page at a
 time and never crawling: at most 25 pages of one walled site for one task, with
-that count in the report, expecting 15-190 s a page; a multi-step flow uses
-`browser_open` ... `close_session`. A login or subscription the user does not
-hold, or another person's account or data, is an access restriction, which no
-browser passes: ask the user whether to sign in with their own login, use
-another source, or stop. The `researcher` persona has neither browser, so this
-route is for the lead and generic cells.
+that count in the report, and past 25 a list of the pages left unread,
+expecting 15-190 s a page; a multi-step flow uses `browser_open` ...
+`close_session`. The `researcher` persona has neither browser, so this route is
+for the lead and generic cells.
 
 Use the fast path for a **single, well-known, low-stakes fact**:
 - "What's the current Node LTS?" · "Does `Array.prototype.at` exist in Node 18?"
