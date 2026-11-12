@@ -173,6 +173,35 @@ out="$(cd "$fx" && GIT_CONFIG_SYSTEM="$scratch/system.gitconfig" GIT_CONFIG_GLOB
   GH_TOKEN=leak GITHUB_TOKEN=leak GIT_TERMINAL_PROMPT=1 .agents/suite.sh 2>&1)" || fail "suite.sh with the identity probe: $out"
 [[ "$(cat "$scratch/identity")" == $'suite@colloid.invalid\nhelper=\nGH_TOKEN=unset GITHUB_TOKEN=unset GIT_TERMINAL_PROMPT=0' ]] || fail "a check's git identity, credential helper, tokens and prompt: $(cat "$scratch/identity")"
 ok "a check sees the suite identity, no credential helper, no GitHub token, and git never prompts"
+
+probe_suite <<SH
+#!/usr/bin/env bash
+python3 -c 'import signal; print(signal.getsignal(signal.SIGINT) is signal.SIG_IGN)' > "$scratch/sigint"
+SH
+out="$(suite)" || fail "suite.sh with the interrupt probe: $out"
+[[ "$(cat "$scratch/sigint")" == False ]] || fail "a check must start with interrupts at their default, not ignored"
+ok "a check starts with interrupts at their default, so a nested run can be interrupted"
+
+# Playwright's browsers sit where a server that drops PLAYWRIGHT_ variables
+# looks, under the temporary home, and a write there stays there.
+case "$(uname -s)" in
+  Darwin) browsers_default="Library/Caches/ms-playwright" ;;
+  *) browsers_default=".cache/ms-playwright" ;;
+esac
+mkdir -p "$scratch/browsers/chromium-1"
+printf 'bin\n' > "$scratch/browsers/chromium-1/chrome"
+probe_suite <<SH
+#!/usr/bin/env bash
+{
+  [[ -f "\$HOME/$browsers_default/chromium-1/chrome" ]] && echo "found at the default"
+  [[ "\$PLAYWRIGHT_BROWSERS_PATH" == "\$HOME/$browsers_default" ]] && echo "variable at the default"
+} > "$scratch/browsers-seen"
+printf 'x\n' > "\$HOME/$browsers_default/written"
+SH
+out="$(cd "$fx" && PLAYWRIGHT_BROWSERS_PATH="$scratch/browsers" .agents/suite.sh 2>&1)" || fail "suite.sh with the browsers probe: $out"
+[[ "$(cat "$scratch/browsers-seen")" == $'found at the default\nvariable at the default' ]] || fail "a check's browsers: $(cat "$scratch/browsers-seen")"
+[[ ! -e "$scratch/browsers/written" ]] || fail "a write to the temporary home's browsers reached the real folder"
+ok "Playwright's browsers are copied to their default place in the temporary home, and a write there stays there"
 passing_suite
 
 # ── the checkout's git settings ─────────────────────────────────────────────

@@ -93,9 +93,9 @@ if [[ -f "$exclude" ]]; then
   mkdir -p "$copy/.git/info" && cp "$exclude" "$copy/.git/info/exclude" || exit 1
 fi
 
-# Tool caches, uv's Python installs and Playwright's browsers keep their real
-# folders, read before HOME changes, so nothing downloads and no browser layer
-# skips. Each tool honours its own variable when one is inherited.
+# Tool caches and uv's Python installs keep their real folders, read before
+# HOME changes, so nothing downloads. Each tool honours its own variable when
+# one is inherited.
 if command -v uv >/dev/null; then
   UV_CACHE_DIR="$(uv cache dir)" || { echo "suite.sh: uv cache dir failed" >&2; exit 1; }
   UV_PYTHON_INSTALL_DIR="$(uv python dir)" || { echo "suite.sh: uv python dir failed" >&2; exit 1; }
@@ -105,13 +105,22 @@ if command -v npm >/dev/null; then
   npm_config_cache="$(npm config get cache)" || { echo "suite.sh: npm config get cache failed" >&2; exit 1; }
   export npm_config_cache
 fi
-if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then
-  case "$(uname -s)" in
-    Darwin) PLAYWRIGHT_BROWSERS_PATH="$HOME/Library/Caches/ms-playwright" ;;
-    *) PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright" ;;
-  esac
+# Playwright's browsers are cloned to their default place in the temporary
+# home, because the Scrapling server drops every PLAYWRIGHT_ variable and finds
+# them under HOME; on APFS the clone shares the files' blocks and costs no copy.
+case "$(uname -s)" in
+  Darwin) browsers_default="Library/Caches/ms-playwright"; real_default="$HOME/$browsers_default"; clone=(cp -cR) ;;
+  *) browsers_default=".cache/ms-playwright"; real_default="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
+     clone=(cp -R --reflink=auto) ;;
+esac
+browsers="${PLAYWRIGHT_BROWSERS_PATH:-$real_default}"
+if [[ "$browsers" != 0 && -d "$browsers" ]]; then
+  if ! { mkdir -p "$(dirname "$home/$browsers_default")" && "${clone[@]}" "$browsers" "$home/$browsers_default"; }; then
+    echo "suite.sh: cannot copy Playwright's browsers from $browsers" >&2
+    exit 1
+  fi
+  export PLAYWRIGHT_BROWSERS_PATH="$home/$browsers_default"
 fi
-export PLAYWRIGHT_BROWSERS_PATH
 
 # The temporary home holds only a git identity. No system, global or inherited
 # git setting reaches a check, so no credential helper does; git never prompts,
@@ -160,7 +169,13 @@ SH
     XDG_CONFIG_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_STATE_HOME CLAUDE_PROJECT_DIR
   export HOME="$home" CLAUDE_CONFIG_DIR="$home/.claude" CODEX_HOME="$home/.codex" \
     GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
-  exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+  # bash starts a background command with interrupts ignored, and a check
+  # inherits that through exec; the leader restores the default first.
+  exec python3 -c 'import os, signal, sys
+for name in ("SIGINT", "SIGQUIT"):
+    signal.signal(getattr(signal, name), signal.SIG_DFL)
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])' \
     bash -c "$leader" watchdog "$$" "$command"
 ) </dev/null &
 group=$!
