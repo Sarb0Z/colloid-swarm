@@ -265,6 +265,12 @@ python3 .agents/check-layout.py
 python3 .agents/mcp.py
 ```
 
+`mcp.py` refuses a registry entry that still carries `codex_enabled` or
+`kimi_enabled`, which a satellite synced before 2026-11-12 holds. Replace each
+with a `hosts` list of every other host: `codex_enabled: false` becomes
+`"hosts": ["claude", "kimi", "opencode"]`, `kimi_enabled: false` becomes
+`["claude", "codex", "opencode"]`, and both together `["claude", "opencode"]`.
+
 Inspect `.agents/codex/hooks.json`, then establish project and hook trust:
 
 ```sh
