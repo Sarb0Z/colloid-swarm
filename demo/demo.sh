@@ -9,9 +9,10 @@
 # checks declared read access, proves a fix's test catches its bug, and walks
 # a workloop run to its completion gate. No mocks — every line is the real thing.
 #
-# Every beat that prints a verdict compares it with the one it expects; the
-# script exits 1 after the last beat when any differed, so a regression cannot
-# hide behind a printed line.
+# Every beat that prints a verdict compares it, and where an error could print
+# the same verdict the reason it prints, with the ones it expects; the script
+# exits 1 after the last beat when any differed, so a regression cannot hide
+# behind a printed line.
 #
 # Runs offline. Every beat but 6 needs bash, python3 and git; beat 6 also needs
 # node, and announces a skip without it. Every scratch path lives under one
@@ -43,8 +44,12 @@ sec()  { printf '\n%s▸ %s%s\n' "$bold" "$1" "$rst"; }
 mismatch=0
 expect() {  # <beat> <expected> <got> <what>: flag a result that is not the expected one
   [[ "$2" == "$3" ]] && return 0
-  printf '  %sMISMATCH%s  beat %s expected %s, got %s: %s\n' "$red" "$rst" "$1" "$2" "$3" "$4"
+  # On stderr: a caller that discards stdout, as the run's composed test does, still sees which beat.
+  printf '  MISMATCH  beat %s expected %s, got %s: %s\n' "$1" "$2" "$3" "$4" >&2
   mismatch=1
+}
+saying() {  # <got> <output> <text>: <got>, marked when the output lacks the text the outcome must print
+  if [[ "$2" == *"$3"* ]]; then printf '%s' "$1"; else printf '%s without "%s"' "$1" "$3"; fi
 }
 verdict() {  # <PASS|FAIL> <text>
   local colour="$grn"; [[ "$1" == FAIL ]] && colour="$red"
@@ -68,9 +73,10 @@ python3 .agents/check-layout.py
 sec "3. The membrane — guard-destructive.sh (blocks irreversible commands)"
 rule
 guard=.agents/hooks/policy/guard-destructive.sh
-# The patterns sit on the command line literally. The guard matches the tokens
-# of a command, not the text of one, so quoting a pattern is not running it and
-# the live session's own guard lets this script through.
+# Each pattern reaches the guard as quoted data and is never run. The guard reads
+# a command's tokens, not its text, so the quoted pattern inside the probe line
+# is not a command to it; and the live session's guard sees only
+# `bash demo/demo.sh`, never the contents of this file.
 probe() {  # <label> <payload> <BLOCK|PASS>
   local label="$1" payload="$2" want="$3" out rc got
   out="$(printf '{"command":%s}' "$payload" | "$guard" 2>&1)" && rc=0 || rc=$?
@@ -221,13 +227,26 @@ done
 mcp_probe() {  # <label> <server> <tool> <args> <ALLOWED|REFUSED>
   local label="$1" server="$2" tool="$3" args="$4" want="$5" out got
   out="$(demo/mcp-probe.py ".agents/mcp-servers/$server" call "$tool" "$args")"
-  got=REFUSED
-  if python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if (d.get("allowed") or d.get("ok")) else 1)' <<<"$out"; then
-    got=ALLOWED
-  fi
+  # REFUSED only from an explicit refusal: security-mcp's allowed:false, or
+  # research-mcp's ok:false with a policy failure. A failed fetch or a reply that
+  # is not a JSON object is an ERROR, never a refusal.
+  IFS='|' read -r got reason <<<"$(python3 -c 'import json,sys
+try:
+    d = json.loads(sys.stdin.read())
+except ValueError:
+    d = None
+if not isinstance(d, dict):
+    print("ERROR|the reply is not a JSON object")
+else:
+    if d.get("allowed") is True or d.get("ok") is True:
+        got = "ALLOWED"
+    elif d.get("allowed") is False or (d.get("ok") is False and d.get("failure") == "policy"):
+        got = "REFUSED"
+    else:
+        got = "ERROR"
+    print(got + "|" + str(d.get("reason") or d.get("error") or ""))' <<<"$out")"
   local colour="$red"; [[ "$got" == ALLOWED ]] && colour="$grn"
-  printf '  %s%s%s  %-30s %s%s%s\n' "$colour" "$got" "$rst" "$label" "$dim" \
-    "$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d.get("reason") or d.get("error",""))' <<<"$out")" "$rst"
+  printf '  %s%s%s  %-30s %s%s%s\n' "$colour" "$got" "$rst" "$label" "$dim" "$reason" "$rst"
   expect 6 "$want" "$got" "$server $label"
 }
 printf '\n%ssecurity-mcp validate_target — operator target policy:%s\n' "$dim" "$rst"
@@ -285,14 +304,21 @@ policy_repo() {  # <name> <policy json>: a scratch folder holding only a policy
 policy_repo acc-merge '{"systems":[{"name":"github","probe":"true","read":["gh pr list","gh pr merge 1"]}]}'
 policy_repo acc-list '{"systems":[{"name":"github","probe":"true","read":["gh pr list"]}]}'
 # check prints its summary only when nothing fails, so each outcome is one call.
+# Each outcome must also say why: a policy that fails to load fails too, but
+# names no refused command.
 for name in acc-merge acc-list; do
-  want=PASS; [[ "$name" == acc-merge ]] && want=FAIL
+  if [[ "$name" == acc-merge ]]; then
+    want=FAIL; why='`gh pr merge 1` in system github, read: refused'
+  else
+    want=PASS; why='every command passes the guards'
+  fi
   printf '%s$ access.py check  %s(%s)%s\n' "$dim" "$dim" "$(python3 -c 'import json,sys; print(", ".join(json.load(open(sys.argv[1]))["systems"][0]["read"]))' "$scratch/$name/.agents/policy.json")" "$rst"
   if out="$(python3 .agents/access.py check --repo "$scratch/$name" 2>&1)"; then
-    verdict PASS "$out"; expect 8 "$want" PASS "$name"
+    got=PASS; verdict PASS "$out"
   else
-    verdict FAIL "${out#FAIL: }"; expect 8 "$want" FAIL "$name"
+    got=FAIL; verdict FAIL "${out#FAIL: }"
   fi
+  expect 8 "$want" "$(saying "$got" "$out" "$why")" "$name"
 done
 
 # ── 9. A test that catches its bug ──────────────────────────────────────────
@@ -306,17 +332,20 @@ printf '%s\n' '[[ "$(cat lib.txt)" == good ]] || { echo "assertion failed: lib.t
 printf '%s\n' 'test -f lib.txt' > "$rcrepo/imports.sh"
 g -C "$rcrepo" add -A
 g -C "$rcrepo" commit -qm 'the fix and its tests'
+# revert-check also exits 1 when it cannot build its scratch worktree, so the
+# weak test's verdict must carry its reason.
 for t in asserts.sh imports.sh; do
-  want=FAIL; [[ "$t" == asserts.sh ]] && want=PASS
+  if [[ "$t" == asserts.sh ]]; then
+    want="exit 0"; why='revert-check: pass:'
+  else
+    want="exit 1"; why='the test does not catch the defect'
+  fi
   printf '%s$ revert-check.sh <bug commit> --tests %s -- bash %s%s\n' "$dim" "$t" "$t" "$rst"
   rc=0
   out="$(cd "$rcrepo" && "$repo/.agents/revert-check.sh" "$base" --tests "$t" -- bash "$t" 2>&1)" || rc=$?
-  if [[ $rc -eq 0 ]]; then
-    verdict PASS "exit 0"; expect 9 "$want" PASS "$t"
-  else
-    verdict FAIL "exit $rc"; expect 9 "$want" FAIL "$t"
-  fi
+  if [[ $rc -eq 0 ]]; then verdict PASS "exit 0"; else verdict FAIL "exit $rc"; fi
   sed 's/^/    /' <<<"$out"
+  expect 9 "$want" "$(saying "exit $rc" "$out" "$why")" "$t"
 done
 
 # ── 10. The completion gate ─────────────────────────────────────────────────
@@ -327,13 +356,13 @@ mkrepo "$wlrepo" src/app.txt a base
 # --state and --repo keep the run out of this checkout's own worktrees and readouts.
 wl() { python3 .agents/workloop.py --state "$scratch/workloop-state.json" "$@"; }
 step() { printf '%s$ workloop.py %s%s\n' "$dim" "$*" "$rst"; }
-gate() {  # <expected exit code> <args...>: print check's verdict, which exits 1 while blocked
-  local want="$1" out rc=0
-  shift
+gate() {  # <expected exit code> <text the verdict must print> <args...>: check exits 1 while blocked
+  local want="$1" why="$2" out rc=0
+  shift 2
   step "$@"
   out="$(wl "$@" 2>&1)" || rc=$?
   sed 's/^/  /' <<<"$out"
-  expect 10 "$want" "$rc" "workloop.py $* exit code"
+  expect 10 "exit $want" "$(saying "exit $rc" "$out" "$why")" "workloop.py $*"
 }
 wl init demo --objective 'ship one change' --acceptance 'reviewed, QA observed' \
   --repo "$wlrepo" --verify 'test -f src/app.txt' --lane solo --worker implementer \
@@ -342,7 +371,7 @@ wl claim demo solo --agent demo-writer | sed 's/^/  /'
 printf 'b\n' >> "$wlrepo/src/app.txt"
 g -C "$wlrepo" commit -qam change
 wl submit demo solo --evidence 'ran the change' | sed 's/^/  /'
-gate 1 check --recorded demo
+gate 1 qa:missing check --recorded demo
 mkdir "$wlrepo/docs"
 printf 'accepted\n' > "$wlrepo/docs/review.md"
 g -C "$wlrepo" add docs/review.md
@@ -350,15 +379,15 @@ g -C "$wlrepo" commit -qm 'review record'
 tip="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["demo"]["lanes"]["solo"]["tip"])' "$scratch/workloop-state.json")"
 wl review demo solo --reference docs/review.md --result accept --tip "$tip" | sed 's/^/  /'
 wl qa demo --evidence 'scenario observed' | sed 's/^/  /'
-gate 0 check demo
+gate 0 PASS check demo
 printf 'c\n' >> "$wlrepo/src/app.txt"
 g -C "$wlrepo" commit -qam 'a later change'
 wl submit demo solo --evidence 'ran the later change' | sed 's/^/  /'
 printf '%sthe tip moved, so the review and the QA record no longer cover it:%s\n' "$dim" "$rst"
-gate 1 check --recorded demo
+gate 1 qa:stale check --recorded demo
 
 printf '\n%s⊱ every line above is live output — no mocks, no slides ⊰%s\n' "$bold" "$rst"
 if [[ $mismatch -ne 0 ]]; then
-  printf '%sone or more beats printed a result other than the expected one%s\n' "$red" "$rst" >&2
+  printf 'one or more beats printed a result other than the expected one; each MISMATCH line above names it\n' >&2
   exit 1
 fi
