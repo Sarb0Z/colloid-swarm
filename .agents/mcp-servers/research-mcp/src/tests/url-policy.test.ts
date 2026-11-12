@@ -54,6 +54,30 @@ describe('authorizeUrl', () => {
     expect(decision.allowed).toBe(false);
   });
 
+  // Seams: these catch a wrong DNS-filter classification; they miss what a real
+  // DNS filter returns.
+  describe('a DNS filter answer', () => {
+    const filterReason = (host: string) =>
+      `${host} resolves only to 0.0.0.0 or ::, the answer a DNS filter gives for a blocked name`;
+
+    it.each([
+      ['::, 0.0.0.0', ['::', '0.0.0.0']],
+      ['0.0.0.0 alone', ['0.0.0.0']],
+    ])('names the filter when a name resolves to %s', async (_label, addresses) => {
+      const decision = await authorizeUrl('https://blocked.example/x', resolvesTo(...addresses));
+      expect(decision).toEqual({ allowed: false, reason: filterReason('blocked.example') });
+    });
+
+    it.each([
+      ['a private address', '10.0.0.1'],
+      ['a public address', '93.184.216.34'],
+    ])('keeps the non-public reason for 0.0.0.0 with %s', async (_label, other) => {
+      const decision = await authorizeUrl('https://mixed.example/x', resolvesTo('0.0.0.0', other));
+      expect(decision.allowed).toBe(false);
+      if (!decision.allowed) expect(decision.reason).toContain('resolves to non-public address');
+    });
+  });
+
   it('rejects a literal private address without consulting DNS', async () => {
     const decision = await authorizeUrl('http://169.254.169.254/latest/meta-data/', async () => {
       throw new Error('resolver must not be called for a literal');

@@ -108,6 +108,12 @@ export async function authorizeUrl(
   }
   const rejected = addresses.find((entry) => !isPublicAddress(entry));
   if (rejected) {
+    if (!literal && addresses.every((entry) => entry.address === '0.0.0.0' || entry.address === '::')) {
+      return {
+        allowed: false,
+        reason: `${hostname} resolves only to 0.0.0.0 or ::, the answer a DNS filter gives for a blocked name`,
+      };
+    }
     return {
       allowed: false,
       reason: `${hostname} resolves to non-public address ${rejected.address}`,
