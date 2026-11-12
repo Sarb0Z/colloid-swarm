@@ -35,16 +35,16 @@ done
 ok "schema errors are named"
 
 # A write declared as a read is refused by name, with the guard's reason.
-write="$(fixture '{"systems":[{"name":"github","probe":"true","read":["gh pr list","gh pr merge 1"],"logs":{"staging":"gh pr create --title x"}}]}')"
+write="$(fixture '{"systems":[{"name":"github","probe":"true","read":["gh pr list","gh pr merge 1"],"logs":{"staging":"gh pr create --title {since}"}}]}')"
 set +e; err="$(acc check --repo "$write" 2>&1)"; rc=$?; set -e
 [[ $rc -eq 1 ]] || fail "a guarded read must fail check (got $rc)"
 grep -qF '`gh pr merge 1` in system github, read: refused by guard-publish:' <<<"$err" || fail "merge not named: $err"
-grep -qF '`gh pr create --title x` in system github, log staging:' <<<"$err" || fail "log write not named: $err"
+grep -qF '`gh pr create --title {since}` in system github, log staging:' <<<"$err" || fail "log write not named: $err"
 grep -qF 'gh pr list`' <<<"$err" && fail "a plain read was flagged"
 ok "a declared read the guard asks about is refused by name"
 
 # Probes record reachable, unreachable and timeout; output never lands in a file.
-probes="$(fixture '{"systems":[{"name":"up","probe":"echo SECRETUP; true","read":["ls"]},{"name":"down","probe":"echo SECRETDOWN; false","read":[],"logs":{"local":"ls","production":"ls"}},{"name":"slow","probe":"sleep 20","read":[]}]}')"
+probes="$(fixture '{"systems":[{"name":"up","probe":"echo SECRETUP; true","read":["ls"]},{"name":"down","probe":"echo SECRETDOWN; false","read":[],"logs":{"local":"ls {since}","production":"ls {since}"}},{"name":"slow","probe":"sleep 20","read":[]}]}')"
 out="$(acc probe --repo "$probes")" || fail "probe with unreachable systems must exit 0"
 grep -qF 'up: reachable (exit 0), 1 reads, logs: none' <<<"$out" || fail "reachable line wrong: $out"
 grep -qF 'down: unreachable (exit 1), 0 reads, logs: local, production' <<<"$out" || fail "unreachable line wrong: $out"
@@ -125,5 +125,66 @@ ok "no systems key prints the pointer and exits 0"
 
 # list shows every command.
 out="$(acc list --repo "$probes")"
-grep -qF 'log production: ls' <<<"$out" && grep -qF 'probe: sleep 20' <<<"$out" || fail "list incomplete: $out"
+grep -qF 'log production: ls {since}' <<<"$out" && grep -qF 'probe: sleep 20' <<<"$out" || fail "list incomplete: $out"
 ok "list shows probes, reads and logs"
+
+# A log command carries exactly one window placeholder.
+for logs in '"ls"' '"ls {since} {minutes}"' '"ls {since} {since}"'; do
+  window="$(fixture "{\"systems\":[{\"name\":\"w\",\"probe\":\"true\",\"read\":[],\"logs\":{\"staging\":$logs}}]}")"
+  set +e; err="$(acc check --repo "$window" 2>&1)"; rc=$?; set -e
+  [[ $rc -eq 1 ]] || fail "log command $logs must fail check (got $rc)"
+  grep -qF 'log staging must carry exactly one window placeholder, {since} or {minutes}' <<<"$err" || fail "placeholder error missing for $logs: $err"
+done
+ok "a log command with no placeholder or with two is refused"
+
+# A write hidden behind a placeholder is still refused, by both guards.
+hidden="$(fixture '{"systems":[{"name":"h","probe":"true","read":[],"logs":{"local":"gh pr merge {minutes}","staging":"git clean -fdx {since}"}}]}')"
+set +e; err="$(acc check --repo "$hidden" 2>&1)"; rc=$?; set -e
+[[ $rc -eq 1 ]] || fail "a guarded log command must fail check (got $rc)"
+grep -qF '`gh pr merge {minutes}` in system h, log local: refused by guard-publish' <<<"$err" || fail "publish refusal not named: $err"
+grep -qF '`git clean -fdx {since}` in system h, log staging: refused by guard-destructive' <<<"$err" || fail "destructive refusal not named: $err"
+ok "a guard-refused write behind a placeholder is refused"
+
+# The placeholders fill from the scenario's start and an injected clock.
+python3 - "$repo/.agents" <<'PY' || fail "window fill wrong"
+import sys
+from datetime import datetime, timezone
+sys.path.insert(0, sys.argv[1])
+import access
+now = datetime(2026, 11, 12, 10, 0, 0, tzinfo=timezone.utc)
+fill = access.fill_window
+assert fill("v --since {since}", "2026-11-12T09:30:00Z", now) == "v --since 2026-11-12T09:30:00Z"
+assert fill("j --since=-{minutes}min", "2026-11-12T09:30:00Z", now) == "j --since=-30min"
+assert fill("j -{minutes}", "2026-11-12T09:29:59Z", now) == "j -31", "partial minutes round up"
+assert fill("j -{minutes}", "2026-11-12T10:00:00Z", now) == "j -1", "a zero window is one minute"
+for bad in ("2026-11-12 09:30:00", "2026-11-12T09:30:00+00:00", "2026-11-12T10:00:01Z", "$(id)"):
+    try:
+        fill("x {since}", bad, now)
+    except ValueError:
+        continue
+    raise SystemExit(f"accepted {bad!r}")
+PY
+ok "{since} and {minutes} fill for a fixed clock, and a bad start is refused"
+
+# logs fills the placeholder, runs the declared command in the repo root, prints it.
+runs="$(fixture '{"systems":[{"name":"svc","probe":"true","read":[],"logs":{"staging":"echo since {since}","production":"pwd; echo minutes {minutes}"}}]}')"
+out="$(acc logs --name svc --env staging --since 2026-11-12T09:30:00Z --repo "$runs")" || fail "logs on a harmless command failed"
+[[ "$out" == "since 2026-11-12T09:30:00Z" ]] || fail "logs output wrong: $out"
+out="$(acc logs --name svc --env production --since 2000-01-01T00:00:00Z --repo "$runs")" || fail "logs production failed"
+[[ "$(head -n1 <<<"$out")" == "$(cd "$runs" && pwd -P)" ]] || fail "logs must run in the repository root: $out"
+grep -qE '^minutes [0-9]{7,}$' <<<"$out" || fail "{minutes} not filled from the real clock: $out"
+ok "logs runs the declared command in the repository root with the window filled"
+
+# logs refuses what the guards refuse, an unknown system or environment, and a bad start.
+marker2="$scratch/ran-log"
+guarded="$(fixture "{\"systems\":[{\"name\":\"svc\",\"probe\":\"true\",\"read\":[],\"logs\":{\"staging\":\"touch $marker2; gh pr merge {minutes}\"}}]}")"
+set +e; err="$(acc logs --name svc --env staging --since 2026-11-12T09:30:00Z --repo "$guarded" 2>&1)"; rc=$?; set -e
+[[ $rc -eq 1 && ! -e "$marker2" ]] || fail "a guarded log command ran or exited $rc"
+grep -qF 'refused by guard-publish' <<<"$err" || fail "logs refusal not named: $err"
+for args in "--name nope --env staging" "--name svc --env local" "--name svc --env staging --since yesterday"; do
+  since_arg="--since 2026-11-12T09:30:00Z"
+  [[ "$args" == *--since* ]] && since_arg=""
+  set +e; acc logs $args $since_arg --repo "$runs" >/dev/null 2>&1; rc=$?; set -e
+  [[ $rc -eq 1 ]] || fail "logs $args must exit 1 (got $rc)"
+done
+ok "logs refuses a guarded command, an unknown system, an undeclared environment and a bad start"
