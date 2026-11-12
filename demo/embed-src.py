@@ -37,7 +37,7 @@ MANIFEST = {
     "session-wrap":      ".agents/hooks/policy/session-wrap.sh",
     "pre-compact":       ".agents/hooks/policy/pre-compact.sh",
     "done-prime":        ".agents/hooks/policy/done-prime.sh",
-    "guard-publish":     ".agents/hooks/policy/guard-publish.sh",
+    "guard-publish":     ".agents/hooks/lib/guard-publish.py",
     "denied-tool":       ".agents/hooks/policy/denied-tool.sh",
     "keychain-notice":   ".agents/hooks/policy/keychain-notice.sh",
     "edit-record":       ".agents/hooks/policy/edit-record.sh",
