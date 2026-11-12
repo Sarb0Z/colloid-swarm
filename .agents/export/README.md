@@ -53,8 +53,15 @@ A target that already carries the scaffold has edited its copy. Copying the
 new kit over it erases those edits, so a re-sync is a three-way merge against
 the kit it was last synced from:
 
+Every kit carries `export/base`, one line: the full carrier commit it was
+exported from. Copy it into the target as `.agents/scaffold-base` and commit it
+with the sync; at each later sync, replace it with the new kit's `export/base`.
+The merge never touches that file, and `--find-base` prints it as the base.
+
 ```sh
-# in the carrier: the commit whose scaffold the target holds most of, byte for byte
+# in the carrier: the commit in the target's .agents/scaffold-base; without that
+# file, the commit whose scaffold the target holds most of, byte for byte
+# (the oldest among equal counts)
 python3 .agents/export/merge-kit.py --find-base <target>
 git worktree add --detach /tmp/carrier-base <base-commit>
 /tmp/carrier-base/.agents/export-scaffold.py /tmp/kit-base

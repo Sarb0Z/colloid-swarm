@@ -22,6 +22,12 @@ path.write_text(text.replace(needle, needle + "\nDIRTY_EXPORT_CANARY\n", 1))
 PY
 "$work/source/.agents/export-scaffold.py" "$work/kit" >/dev/null
 kit="$work/kit"
+# The kit names the carrier commit it was exported from, so a later sync finds
+# its base without ranking.
+[[ -f "$kit/export/base" ]] || fail "the kit carries no export/base stamp"
+[[ "$(cat "$kit/export/base")" == "$(git -C "$work/source" rev-parse HEAD)" ]] \
+  || fail "export/base is not the full commit the kit was exported from"
+[[ "$(wc -l <"$kit/export/base" | tr -d ' ')" == 1 ]] || fail "export/base is not one line"
 if grep -rq 'DIRTY_EXPORT_CANARY' "$kit"; then
   fail "export mixed live debt text into the committed snapshot"
 fi

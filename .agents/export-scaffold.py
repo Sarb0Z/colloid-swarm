@@ -93,6 +93,13 @@ def tracked_export(destination):
             tar.extractall(destination, filter="data")
 
 
+def write_base_stamp(target):
+    """Record the commit `git archive HEAD` read, so a later sync names its base."""
+    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    (target / "export/base").write_text(head + "\n", encoding="utf-8")
+
+
 def strip_markers(text, path):
     """Remove every marked region. An unbalanced marker is a source defect."""
     lines = text.splitlines(keepends=True)
@@ -300,6 +307,7 @@ def main():
     rewrite_documents(target)
     stripped = strip_tree(target)
     entries = finalize(target, sections)
+    write_base_stamp(target)
 
     print(f"exported to {target}")
     print(f"  dropped {len(DROPPED_PATHS)} paths, stripped markers from {stripped} files")
