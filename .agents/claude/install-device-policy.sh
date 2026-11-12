@@ -36,8 +36,14 @@ print("verified: helper emits a valid policy envelope")
 # the project tier links and the device payload reads, so no tier can drift.
 style="$HOME/.claude/output-styles/colloid.md"
 mkdir -p "$(dirname "$style")"
-cp "$here/output-style.md" "$style"
-echo "wrote $style"
+# A machine that links this path to the repository's file already has it; cp
+# onto that link exits 1 ("identical (not copied)"), which would stop the install.
+if [ "$style" -ef "$here/output-style.md" ]; then
+  echo "kept $style, which links to $here/output-style.md"
+else
+  cp "$here/output-style.md" "$style"
+  echo "wrote $style"
+fi
 echo "Select it with \"outputStyle\": \"colloid\" in ~/.claude/settings.json."
 echo
 
