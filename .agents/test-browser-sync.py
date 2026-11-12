@@ -91,8 +91,8 @@ def fixture(root):
     (agents / "codex").mkdir(parents=True)
     (agents / "lib").mkdir()
     shutil.copy2(here / "lib/proxy.py", agents / "lib/proxy.py")
-    for name in ("mcp.py", "mcp_codex.py", "mcp_opencode.py", "mcp_playwright.py", "browser-sync.py",
-                 "playwright-session.py"):
+    for name in ("mcp.py", "mcp_codex.py", "mcp_hosts.py", "mcp_opencode.py", "mcp_playwright.py",
+                 "browser-sync.py", "playwright-session.py"):
         shutil.copy2(here / name, agents / name)
     (agents / "codex/config.toml").write_text('model = "fixture"\n')
     (agents / "mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {
