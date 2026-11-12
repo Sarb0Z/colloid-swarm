@@ -229,6 +229,9 @@ jobs:
       - name: Export kit
         run: .agents/test-export.sh
 
+      - name: Exported MCP servers
+        run: .agents/test-export-servers.sh
+
       - name: Stack packs
         run: .agents/test-stack-packs.sh
 
