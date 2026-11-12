@@ -22,7 +22,9 @@ jobs:
   scaffold:
     name: Scaffold suites
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # No green run of this job's current steps exists yet; one local suite run
+    # took 23 minutes on 2026-11-12. Reset to about 3 times its first green run.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
