@@ -1,7 +1,8 @@
 """The workloop state file and the reads every command makes of it.
 
 `Store` and `ReadStore` hold the state file's lock. `.agents/hooks/lib/worktree_runs.py`
-writes the same file under the same `<state>.lock` file and `flock` protocol, so
+and `.agents/hooks/lib/agent_activity.py` write the same file under the same
+`<state>.lock` file and `flock` protocol, so
 the lock's name and the file's JSON layout (version 1, indented, sorted keys)
 stay as they are here.
 """
@@ -14,6 +15,8 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -21,6 +24,10 @@ from pathlib import Path
 import workloop_git as wg
 
 ROOT = Path(__file__).resolve().parent.parent
+# The hooks and the controller measure an agent's silence by the same function.
+sys.path.insert(0, str(ROOT / ".agents/hooks/lib"))
+import agent_activity  # noqa: E402
+import agent_silence  # noqa: E402
 DEFAULT_STATE = ROOT / ".agents/.workloop-state.json"
 NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -174,16 +181,36 @@ def age_text(seconds: float) -> str:
     return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
 
 
-def silence(agent: dict, since_key: str, at: float | None = None) -> tuple[float, float]:
+def silence(agent: dict, since_key: str, at: float | None = None) -> tuple[float, float | None]:
     """Seconds out and seconds since the last sign of life, for a lane (`since_key` claimed_at)
-    or a cell (out_since). A sign of life is the hook's stamp, a lane's own heartbeat, or going out."""
+    or a cell (out_since). A sign of life is the hook's stamp or a lane's own heartbeat; the
+    silence is None for an agent that shows neither, which `unstamped` names."""
     at = time.time() if at is None else at
-    out = parse_stamp(agent[since_key])
-    last = max(parse_stamp(agent[key]) for key in ("activity_at", "heartbeat_at", since_key) if agent.get(key))
-    return at - out, at - last
+    quiet = agent_silence.silence(agent, since_key, at)
+    if quiet is None:
+        fail(f"agent has no usable {since_key}")
+    return at - parse_stamp(agent[since_key]), quiet if agent_silence.stamped(agent) else None
+
+
+last_sign = agent_silence.last_sign
+
+
+def clock_text(value: float) -> str:
+    """A time of day in UTC, `13:05Z`."""
+    return time.strftime("%H:%MZ", time.gmtime(value))
 
 
 def activity_columns(agent: dict, since_key: str) -> str:
-    """The tab-separated tail `status` prints for an agent that is out: time out, silence, last action."""
+    """The tab-separated tail `status` prints for an agent that is out: time out, silence in whole
+    minutes, last action; `unstamped` in place of the silence for an agent with no stamp and no heartbeat."""
     out, quiet = silence(agent, since_key)
-    return f"\tout {age_text(out)}\tsilent {age_text(quiet)}" + (f"\t{agent['activity']}" if agent.get("activity") else "")
+    heard = "unstamped" if quiet is None else f"silent {int(quiet) // 60}m"
+    return f"\tout {age_text(out)}\t{heard}" + (f"\t{agent['activity']}" if agent.get("activity") else "")
+
+
+def refresh_readout(state: Path, repo: str) -> None:
+    """Rewrite the repository's `workloop` readout from the state, so it is true the moment a run's agents change."""
+    try:
+        agent_activity.write_readout(state, Path(repo), time.time())
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"workloop: the workloop readout was not refreshed: {error}", file=sys.stderr)

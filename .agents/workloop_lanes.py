@@ -90,6 +90,9 @@ def cmd_claim(args: argparse.Namespace) -> None:
         lane["claimed_by"] = args.agent
         lane["claimed_at"] = now()
         lane["heartbeat_at"] = now()
+        # The new claimant has not acted yet: the last claimant's stamp and action are not its own.
+        lane.pop("activity", None)
+        lane.pop("activity_at", None)
         record(args.run, run, "claim", args.lane, args.agent, args.event_id)
     print(f"claimed lane {args.lane!r} for {args.agent}")
 

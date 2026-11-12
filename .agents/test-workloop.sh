@@ -1747,34 +1747,73 @@ ok "a staged copy under status.renames=copies lists its source once"
 
 # ── background agents' time out and silence, as the inbox hook stamps them ───
 "${tool[@]}" init act --objective 'three cells out' --acceptance 'each answers' --repo "$work" >/dev/null
-for cell_name in busy quiet unstamped; do "${tool[@]}" add-cell act "$cell_name" --role research --model haiku >/dev/null; done
+for cell_name in busy quiet unstamped fresh; do "${tool[@]}" add-cell act "$cell_name" --role research --model haiku >/dev/null; done
 python3 - "$state" <<'EOF'
 import json, sys, time
 p = sys.argv[1]; s = json.load(open(p)); cells = s["runs"]["act"]["cells"]
-def at(minutes): return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - minutes * 60))
+moment = time.time()
+def at(minutes): return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(moment - minutes * 60))
+def clock(minutes): return time.strftime("%H:%MZ", time.gmtime(moment - minutes * 60))
 for cell in cells.values(): cell["out_since"] = at(40)
 cells["busy"].update(activity_at=at(1), activity="Edit parser.py")
 cells["quiet"].update(activity_at=at(25), activity="Bash pytest -q")
+cells["fresh"].update(activity_at=at(0.5), activity="Read notes.md")
 json.dump(s, open(p, "w"))
+# the expected times of day, from the same instant the state was written at
+open(sys.argv[1] + ".clock", "w").write(f"out={clock(40)}\nbusy={clock(1)}\nquiet={clock(25)}\n")
 EOF
+source "$state.clock"
 status_out="$("${tool[@]}" status act)"
 grep -qE $'^quiet\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 25m\tBash pytest -q$' <<<"$status_out" || fail "status did not name the silent cell, its time out and its age: $status_out"
 grep -qE $'^busy\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 1m\tEdit parser.py$' <<<"$status_out" || fail "status did not show the busy cell's last action: $status_out"
-grep -qE $'^unstamped\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 40m$' <<<"$status_out" || fail "a cell never stamped did not read as silent since it went out: $status_out"
-ok "status shows each cell's time out, its silence and its last action, with no controller command run by the cell"
+grep -qE $'^unstamped\tcell out\tresearch\tmodel=haiku\tout 40m\tunstamped$' <<<"$status_out" || fail "a cell with no stamp did not read as unstamped, with no silence figure: $status_out"
+grep -qE $'^fresh\tcell out\tresearch\tmodel=haiku\tout 40m\tsilent 0m\tRead notes.md$' <<<"$status_out" || fail "status did not print the silence of a cell stamped half a minute ago in whole minutes: $status_out"
+ok "status shows each cell's time out, its silence in whole minutes and its last action, and unstamped for a cell with no stamp, with no controller command run by the cell"
 
-expect $'quiet\tresearch\tout\t25m\tBash pytest -q' "${tool[@]}" digest act
 digest_out="$("${tool[@]}" digest act)"
-[[ "$(wc -l <<<"$digest_out" | tr -d ' ')" == 3 ]] || fail "digest did not print one line per agent: $digest_out"
-grep -qE $'^busy\tresearch\tout\t1m\tEdit parser.py$' <<<"$digest_out" || fail "digest did not show the busy cell's last action: $digest_out"
-grep -qE $'^unstamped\tresearch\tout\t40m\t-$' <<<"$digest_out" || fail "digest did not show a dash for a cell with no action: $digest_out"
+[[ "$(wc -l <<<"$digest_out" | tr -d ' ')" == 4 ]] || fail "digest did not print one line per agent: $digest_out"
+grep -qE $'^quiet\tresearch\tout\tout '"$out"$'\tstamp '"$quiet"$'\tBash pytest -q$' <<<"$digest_out" || fail "digest did not show the silent cell's times of day and action: $digest_out"
+grep -qE $'^busy\tresearch\tout\tout '"$out"$'\tstamp '"$busy"$'\tEdit parser.py$' <<<"$digest_out" || fail "digest did not show the busy cell's last action: $digest_out"
+grep -qE $'^unstamped\tresearch\tout\tout '"$out"$'\tunstamped\t-$' <<<"$digest_out" || fail "digest did not print unstamped for a cell with no stamp: $digest_out"
+sleep 1
+[[ "$("${tool[@]}" digest act)" == "$digest_out" ]] || fail "the same agents in the same state printed different digests on two passes"
 expect $'plain\timplementer\tactive\t' "${tool[@]}" digest res
-ok "digest prints one line per agent: name, role, state, silence, last action"
+ok "digest prints one line per agent with UTC times of day, not ages, so two passes agree"
 watch_out="$("${tool[@]}" watch act --stale-seconds 900)"
 grep -q 'SILENT CELL — act/quiet: out 40m, silent 25m, last Bash pytest -q' <<<"$watch_out" || fail "watch did not name the silent cell: $watch_out"
-grep -q 'act/unstamped' <<<"$watch_out" || fail "watch did not name the cell that never stamped: $watch_out"
+grep -q 'UNSTAMPED CELL — act/unstamped: out 40m and carries no stamp' <<<"$watch_out" || fail "watch did not name the cell that never stamped on its own line: $watch_out"
+! grep 'act/unstamped' <<<"$watch_out" | grep -q -- '--failed' || fail "watch offered returned --failed for a cell that carries no stamp: $watch_out"
 ! grep -q 'act/busy' <<<"$watch_out" || fail "watch named a cell stamped a minute ago: $watch_out"
-ok "watch runs on an ordinary run and judges silence by the latest stamp"
+ok "watch runs on an ordinary run, judges silence by the latest stamp, and names an unstamped cell apart with no --failed remedy"
+
+# returned and teardown rewrite the workloop readout; a cell sent out again starts with no stamp
+readout_note() { python3 "$repo/.agents/hooks/lib/readout.py" show --repo "$work"; }
+"${tool[@]}" returned act busy --result reply >/dev/null
+readout_out="$(readout_note)"
+[[ "$readout_out" == *"act/quiet"* && "$readout_out" == *"act/unstamped"* && "$readout_out" != *"act/busy"* ]] || fail "returned did not rewrite the readout: $readout_out"
+"${tool[@]}" brief act busy --again >/dev/null
+python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["runs"]["act"]["cells"]["busy"]; assert "activity" not in c and "activity_at" not in c, c' "$state" || fail "brief --again kept the last agent's stamp and action"
+"${tool[@]}" returned act busy --result reply >/dev/null
+"${tool[@]}" returned act fresh --result reply >/dev/null
+"${tool[@]}" returned act quiet --failed 'gone' >/dev/null
+"${tool[@]}" returned act unstamped --failed 'gone' >/dev/null
+python3 "$repo/.agents/hooks/lib/readout.py" write workloop --strip 'ghost' --note 'act/ghost silent 9m: -' --repo "$work"
+"${tool[@]}" teardown act >/dev/null
+[[ "$(readout_note)" != *"act/"* ]] || fail "teardown did not rewrite the readout: $(readout_note)"
+ok "returned and teardown rewrite the workloop readout, and brief --again clears the stamp and action"
+
+# a new claimant starts with no stamp and no action of its own
+"${tool[@]}" init reclaim --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-lane reclaim one --worker implementer --workspace "$scratch/lane-reclaim" --path src >/dev/null
+"${tool[@]}" claim reclaim one --agent first >/dev/null
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["reclaim"]["lanes"]["one"].update(activity_at="2026-01-01T00:00:00Z", activity="Bash old"); json.dump(s, open(p, "w"))
+EOF
+"${tool[@]}" release-stale reclaim one --reason 'gone' >/dev/null
+"${tool[@]}" claim reclaim one --agent second >/dev/null
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["reclaim"]["lanes"]["one"]; assert l["claimed_by"] == "second" and "activity" not in l and "activity_at" not in l, l' "$state" || fail "claim kept the last claimant's stamp and action"
+ok "a lane claimed again starts with no stamp and no action"
 
 # ── a state file from before pinned bases is refused ─────────────────────────
 python3 - "$state" <<'EOF'

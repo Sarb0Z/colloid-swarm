@@ -16,7 +16,7 @@ import argparse
 from pathlib import Path
 
 from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES
-from workloop_state import Store, activity_columns, fail, now, record, replayed, run_of, state_path, valid_name
+from workloop_state import Store, activity_columns, fail, now, record, refresh_readout, replayed, run_of, state_path, valid_name
 
 ROLES = {
     "research": "find and ground the facts the objective needs; a claim about this repository or its systems goes in a findings table (.agents/playbooks/plan-research.md), each with its path:line or command output and its status, observed, inferred or not read, under the commit you read at; an external claim keeps its source and date",
@@ -97,6 +97,8 @@ def cmd_returned(args: argparse.Namespace) -> None:
             cell.pop("reason", None)
         cell["returned_at"] = now()
         record(args.run, run, "returned", args.name, f"failed: {args.failed}" if args.failed else cell["result"], args.event_id)
+        repo = run["repo"]
+    refresh_readout(state_path(args.state), repo)
     print(f"cell {args.name!r} {cell['state']}" + (f"; still out: {', '.join(sorted(n for n, c in cells_of(run).items() if c['state'] == 'out'))}" if cell_problems(run) else ""))
 
 
@@ -118,7 +120,8 @@ def cell_brief(args: argparse.Namespace, run: dict) -> None:
         if cell["state"] == "out":
             fail(f"cell {args.lane!r} is out already; brief without --again reprints its prompt")
         cell["state"], cell["out_since"] = "out", now()
-        for key in ("result", "reason", "returned_at"):
+        # The new dispatch starts with no stamp: the last agent's time and action are not its own.
+        for key in ("result", "reason", "returned_at", "activity", "activity_at"):
             cell.pop(key, None)
         record(args.run, run, "brief-again", args.lane, cell["role"], args.event_id)
     print(cell_prompt(state_path(args.state), args.run, run, args.lane))
