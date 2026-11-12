@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Claude Code's own records of its agents and sessions, read from disk.
+"""Claude Code's own records of its agents, read from disk.
 
 Claude Code 2.1.322 keeps, in each config folder (`$CLAUDE_CONFIG_DIR`, `~/.claude*`):
 
     projects/<project>/<session>.jsonl                        the session's transcript
     projects/<project>/<session>/subagents/agent-<id>.jsonl   an agent's transcript
     projects/<project>/<session>/subagents/agent-<id>.meta.json
-    sessions/<pid>.json                                       one per running session
 
-Config folders may share one `projects/` by symlink, and a project folder may
+and the records of which sessions run, which agent_sessions.py reads. Config folders may share one `projects/` by symlink, and a project folder may
 be a symlink to another, so each folder is read once by its real path. None of
 these formats is documented (issues #94872, #100824): a field this module needs
 and does not find raises RecordError naming the file and the field.
@@ -68,41 +67,6 @@ def real_folders(paths) -> list[Path]:
         if real not in seen and real.is_dir():
             seen.append(real)
     return seen
-
-
-def registry(dirs: list[Path]) -> tuple[list[dict], list[str]]:
-    """Every session registry entry, and a problem line for each unreadable one."""
-    entries, problems = [], []
-    for folder in real_folders(d / "sessions" for d in dirs):
-        for path in sorted(folder.glob("*.json")):
-            try:
-                data = json.loads(path.read_text())
-                entries.append({"pid": int(need(data, "pid", path)), "session": need(data, "sessionId", path),
-                                "proc_start": need(data, "procStart", path),
-                                "started_at": float(need(data, "startedAt", path)) / 1000, "file": str(path)})
-            except FileNotFoundError:
-                continue  # its session exited while this read the folder
-            except (ValueError, TypeError) as error:
-                problems.append(f"agent deaths: {path} could not be read: {error}")
-    return entries, problems
-
-
-def stopped_jobs(dirs: list[Path]) -> tuple[dict[str, str], list[str]]:
-    """The background sessions their supervisor holds stopped, {session id: job id}, from
-    `<config>/jobs/<job id>/state.json`, whose `state` is `stopped` and which names the
-    session as `sessionId` or `resumeSessionId`; and a problem line for each unreadable one."""
-    found, problems = {}, []
-    for folder in real_folders(d / "jobs" for d in dirs):
-        for path in sorted(folder.glob("*/state.json")):
-            try:
-                data = json.loads(path.read_text())
-                if need(data, "state", path) == "stopped":
-                    found.update({data[key]: path.parent.name for key in ("sessionId", "resumeSessionId") if data.get(key)})
-            except FileNotFoundError:
-                continue
-            except (ValueError, TypeError) as error:
-                problems.append(f"agent deaths: {path} could not be read: {error}")
-    return found, problems
 
 
 def projects(stores: list[Path]) -> list[Path]:

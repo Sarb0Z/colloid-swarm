@@ -37,7 +37,7 @@ REMOVE_SECONDS = 20.0
 ANYWHERE = frozenset({".DS_Store", "next-env.d.ts"})
 # Caches a tool rebuilds the next time it runs, holding no work (ruling 29).
 CACHE_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
-LEDGERS = (".wrap-*", ".teardown-pending-*", ".ui-pending-*", ".provenance-*", ".writers-*", ".cells-*",
+LEDGERS = (".wrap-*", ".teardown-pending-*", ".ui-pending-*", ".provenance-*", ".writers-*",
            ".cell-markers-*", ".outside-runs-*", ".inbox-seen-*", ".publish-approved-*", ".compaction-pending",
            ".kimi-pending-findings-*", ".workloop-state.json.lock")
 # colloid-only

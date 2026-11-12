@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """What a workloop participant needs to hear right now, as one block of text.
 
-Usage: workloop-inbox.py <state-path> <seen-dir> <session> <event> <agent-id> [<start-source>]
+Usage: workloop-inbox.py <state-path> <seen-dir> <session> <event> <agent-id> [<start-source> <host>]
 
-The start source is session-start.sh's (startup, resume, clear, compact).
-Prints the block, or nothing when there is nothing new. The state file is
-the controller's own; this reads it and never writes it. Delivery is
-remembered per agent in <seen-dir>/.inbox-seen-<session>-<agent>, so a
-message is injected once and its acknowledgement still goes through
-`ack-message`.
+The start source and host are session-start.sh's (startup, resume, clear,
+compact; `claude` on Claude Code). Prints the block, or nothing when there is
+nothing new. The state file is the controller's own; this reads it and never
+writes it. Delivery is remembered per agent in
+<seen-dir>/.inbox-seen-<session>-<agent>, so a message is injected once and
+its acknowledgement still goes through `ack-message`.
 
 A subagent hears: its host agent id at start, so it can claim its lane with
 that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
-awaiting review, lanes carrying attention, lanes whose heartbeat is stale.
-At a prompt it also hears, run or no run, when the turn that just ended
-dispatched two or more cells outside any run, read once from the
-parallel-writers gate's ledger <seen-dir>/.outside-runs-<session> (ruling 36).
+awaiting review, lanes carrying attention, lanes whose heartbeat is stale,
+lanes and cells whose agent died. Run or no run, at every Claude Code start
+and prompt it hears the dead agents of this checkout (agent_deaths.py), and
+at a prompt, when the turn that just ended dispatched two or more cells
+outside any run, read once from the parallel-writers gate's ledger
+<seen-dir>/.outside-runs-<session> (ruling 36).
 
 The digest judges a composed result from state on every prompt, comparing the
 integration record to each lane's accepted tip; `check` judges from Git, also
@@ -33,8 +35,11 @@ import sys
 import time
 from pathlib import Path
 
-import worktree_records as wr  # beside this script, so found before the path below is added
-from agent_silence import silence
+# Imported before the controller's folder joins the path below, so each resolves beside this script.
+import agent_deaths
+import agent_verdicts as av
+import worktree_records as wr
+from agent_silence import parse, silence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
@@ -87,43 +92,6 @@ def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -> tup
     return "\n".join(lines), delivered
 
 
-def cells_path(seen_dir: Path, session: str) -> Path:
-    return seen_dir / f".cells-{re.sub(r'[^A-Za-z0-9_-]', '', session)}"
-
-
-def record_cell(seen_dir: Path, session: str, agent_id: str, event: str) -> None:
-    """Keep the session's own record of which subagents are running.
-
-    Every subagent, reader or writer, is listed from its start to its stop —
-    the parallel-writers gate tracks writers only and tells an operator to
-    delete its file, so it is not a liveness source. `started` survives a
-    stop, so a claimant that came and went is still known to be ours.
-    """
-    path = cells_path(seen_dir, session)
-    try:
-        lines = [line for line in path.read_text().splitlines() if line]
-    except OSError:
-        lines = []
-    entries = dict(line.split("\t", 1) for line in lines if "\t" in line)
-    if event == "SubagentStart":
-        entries[agent_id] = "live"
-    elif event == "SubagentStop" and agent_id in entries:
-        entries[agent_id] = "stopped"
-    else:
-        return
-    path.write_text("".join(f"{key}\t{value}\n" for key, value in sorted(entries.items())))
-
-
-def dead_claimants(seen_dir: Path, session: str) -> tuple[set[str], set[str]]:
-    """Agent ids this session started, and the subset still live."""
-    try:
-        lines = [line for line in cells_path(seen_dir, session).read_text().splitlines() if "\t" in line]
-    except OSError:
-        return set(), set()
-    entries = dict(line.split("\t", 1) for line in lines)
-    return set(entries), {key for key, value in entries.items() if value == "live"}
-
-
 def composed_result(run: dict) -> dict | None:
     """The run's current composed-test record, or None when absent or stale.
 
@@ -160,20 +128,26 @@ def closing_notes(run_name: str, run: dict) -> list[str]:
     return [f"check {run_name}, then teardown {run_name}"]
 
 
-def cell_notes(run_name: str, run: dict, ended: bool) -> list[str]:
-    """Cells still out, with the remedy that fits the moment: while their session may
-    still run them the lead records each as it comes back; once that session's process
-    has ended (`ended`), no cell outlives it, so each is failed or sent out again."""
+def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -> list[str]:
+    """Cells still out, with the remedy that fits the moment: a cell whose agent died is
+    resumed or sent out again; while their session may still run them the lead records
+    each as it comes back; once that session's process has ended (`ended`), no cell
+    outlives it, so each is failed or sent out again."""
     cells = run.get("cells") or {}
-    out = sorted(name for name, cell in cells.items() if cell.get("state") == "out")
+    dead = {name: av.dead_since(verdicts, cell.get("agent_id"), parse(cell.get("out_since")))
+            for name, cell in sorted(cells.items()) if cell.get("state") == "out"}
+    notes = [f"cell {name}'s agent {how}: {remedy}, or brief {run_name} {name} --again"
+             for name, verdict in dead.items() if verdict for how, remedy in [av.fate(verdict)]]
+    out = [name for name, verdict in dead.items() if not verdict]
     if not out:
         # A run declared without --verify is finished once every cell is back (ruling 35).
         # debt: fanout-rule-copies -- completion_problems and the lead-less close read this rule too.
-        return [f"every cell is back; check {run_name}, then teardown {run_name}"] if cells and not run.get("verify") else []
+        back = cells and not run.get("verify") and not notes
+        return notes + ([f"every cell is back; check {run_name}, then teardown {run_name}"] if back else [])
     name = out[0] if len(out) == 1 else "<name>"
     remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"
               if ended else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")
-    return [f"{len(out)} cell{'s' if len(out) > 1 else ''} out ({', '.join(out)}); {remedy}"]
+    return notes + [f"{len(out)} cell{'s' if len(out) > 1 else ''} out ({', '.join(out)}); {remedy}"]
 
 
 def ended_runs(runs: dict, seen_dir: Path, session: str, source: str) -> set[str]:
@@ -196,48 +170,57 @@ def ended_runs(runs: dict, seen_dir: Path, session: str, source: str) -> set[str
     return {name for name in runs if name in mine or name not in theirs}
 
 
-def main_block(runs: dict, seen_dir: Path | None = None, session: str = "", ended: frozenset = frozenset()) -> str:
+def active_note(run_name: str, run: dict, lane_name: str, lane: dict, verdicts: dict, now: float) -> str:
+    """What an active lane's worker is doing, or how it ended without handing the lane back."""
+    claimant = lane.get("claimed_by") or ""
+    verdict = verdicts.get(claimant)
+    if dead := av.dead_since(verdicts, claimant, None):
+        # Its lane's containers stay for the resume.
+        how, remedy = av.fate(dead)
+        return f"{lane_name}'s worker {claimant} {how} without submitting: {remedy}, or release-stale {run_name} {lane_name}"
+    if wd is not None and verdict and verdict.state in ("completed", "stopped"):
+        # The worker finished without handing the lane back. What it started in
+        # Docker is owned by the lane, so it goes now; the lane itself waits for
+        # the lead's release-stale.
+        result = wd.reap(run_name, sorted(run["lanes"]), lane_name)
+        tail = f"; {wd.summary(result)}" if (wd.removed_count(result) or result["failed"]) else ""
+        return f"{lane_name}'s worker {claimant} has stopped without submitting{tail} — release-stale {run_name} {lane_name} to reopen it"
+    # A heartbeat is a contract only under --supervised; an ordinary lane that has
+    # simply been working for a while is not stale. The hook's stamp counts as a
+    # sign of life beside the heartbeat.
+    quiet = silence(lane, "claimed_at", now)
+    progress = f" — {lane['progress']}" if lane.get("progress") else ""
+    if quiet is not None and quiet > STALE_SECONDS:
+        minutes = int(quiet // 60)
+        if run.get("supervised"):
+            return f"{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)"
+        return f"{lane_name} active {minutes}m{progress}"
+    return f"{lane_name}{progress}" if progress else ""
+
+
+def lane_notes(run_name: str, run: dict, verdicts: dict, now: float) -> list[str]:
+    notes: list[str] = []
+    for lane_name, lane in sorted(run["lanes"].items()):
+        if lane.get("state") == "review":
+            notes.append(f"{lane_name} awaits review")
+        if lane.get("attention"):
+            notes.append(f"{lane_name} carries {lane['attention'].get('severity', 'attention')}")
+        if lane.get("state") == "active" and (note := active_note(run_name, run, lane_name, lane, verdicts, now)):
+            notes.append(note)
+        if lane.get("env") == "broken":
+            notes.append(f"{lane_name} environment broken (provision {run_name} {lane_name})")
+    return notes
+
+
+def main_block(runs: dict, verdicts: dict, ended: frozenset, git: GitBudget) -> str:
     now = time.time()
-    git = GitBudget()
     lines: list[str] = []
-    ours, live = dead_claimants(seen_dir, session) if seen_dir else (set(), set())
     for run_name, run in sorted(runs.items()):
-        notes: list[str] = []
-        for lane_name, lane in sorted(run["lanes"].items()):
-            state = lane.get("state")
-            if state == "review":
-                notes.append(f"{lane_name} awaits review")
-            if lane.get("attention"):
-                notes.append(f"{lane_name} carries {lane['attention'].get('severity', 'attention')}")
-            if state == "active":
-                claimant = lane.get("claimed_by") or ""
-                if wd is not None and claimant in ours and claimant not in live:
-                    # The worker stopped without handing the lane back. What it
-                    # started in Docker is owned by the lane, so it goes now;
-                    # the lane itself waits for the lead's release-stale.
-                    result = wd.reap(run_name, sorted(run["lanes"]), lane_name)
-                    tail = f"; {wd.summary(result)}" if (wd.removed_count(result) or result["failed"]) else ""
-                    notes.append(f"{lane_name}'s worker {claimant} has stopped without submitting{tail} — release-stale {run_name} {lane_name} to reopen it")
-                    continue
-                # A heartbeat is a contract only under --supervised; an ordinary
-                # lane that has simply been working for a while is not stale.
-                # The hook's stamp counts as a sign of life beside the heartbeat.
-                quiet = silence(lane, "claimed_at", now)
-                progress = f" — {lane['progress']}" if lane.get("progress") else ""
-                if quiet is not None and quiet > STALE_SECONDS:
-                    minutes = int(quiet // 60)
-                    if run.get("supervised"):
-                        notes.append(f"{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)")
-                    else:
-                        notes.append(f"{lane_name} active {minutes}m{progress}")
-                elif progress:
-                    notes.append(f"{lane_name}{progress}")
-            if lane.get("env") == "broken":
-                notes.append(f"{lane_name} environment broken (provision {run_name} {lane_name})")
+        notes = lane_notes(run_name, run, verdicts, now)
         pending = [m["id"] for m in run.get("messages", []) if m["requires_ack"] and not m.get("acknowledged_at")]
         if pending:
             notes.append(f"{len(pending)} message(s) await acknowledgement")
-        notes += cell_notes(run_name, run, run_name in ended) + closing_notes(run_name, run) + size_notes(git, run, now)
+        notes += cell_notes(run_name, run, run_name in ended, verdicts) + closing_notes(run_name, run) + size_notes(git, run, now)
         if notes:
             lines.append(f"WORKLOOP {run_name}: " + "; ".join(notes) + f". Status: .agents/workloop.py status {run_name}")
     orphans = wd.foreign_orphans() if (runs and wd is not None) else []
@@ -270,30 +253,40 @@ def outside_runs_note(seen_dir: Path, session: str) -> str:
     return OUTSIDE_RUNS_NOTE.format(count=count) if count >= 2 else ""
 
 
+def deliver(runs: dict, seen_dir: Path, safe: str, agent_id: str, event: str) -> str:
+    """A subagent's block; what it delivers is remembered so it is delivered once."""
+    seen_path = seen_dir / f".inbox-seen-{safe}-{re.sub(r'[^A-Za-z0-9_-]', '', agent_id)}"
+    try:
+        seen = set(seen_path.read_text().split())
+    except OSError:
+        seen = set()
+    block, delivered = subagent_block(runs, agent_id, event, seen)
+    if delivered:
+        seen_path.write_text("\n".join(sorted(seen | delivered)) + "\n")
+    return block
+
+
+def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str, host: str) -> str:
+    # The count stands with no run and no state file: the note is for a lead who opened no run.
+    outside = outside_runs_note(seen_dir, re.sub(r"[^A-Za-z0-9_-]", "", session)) if event == "UserPromptSubmit" else ""
+    git = GitBudget()
+    # Claude Code's records are read at a prompt (a Claude Code hook) and at a Claude Code start.
+    claude = event == "UserPromptSubmit" or host == "claude"
+    report = agent_deaths.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
+    digest = main_block(runs, report.verdicts, ended, git) if runs else ""
+    return "\n".join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")) if part)
+
+
 def main() -> None:
     state_path, seen_dir, session, event, agent_id = (Path(sys.argv[1]), Path(sys.argv[2]), *sys.argv[3:6])
-    if agent_id:
-        record_cell(seen_dir, session, agent_id, event)
     runs = live_runs(load(state_path))
-    safe = re.sub(r"[^A-Za-z0-9_-]", "", session)
+    start = sys.argv[6:8] if event == "SessionStart" else []
+    source, host = (start + ["", ""])[:2]
     if agent_id:
-        if not runs:
-            return
-        seen_path = seen_dir / f".inbox-seen-{safe}-{re.sub(r'[^A-Za-z0-9_-]', '', agent_id)}"
-        try:
-            seen = set(seen_path.read_text().split())
-        except OSError:
-            seen = set()
-        block, delivered = subagent_block(runs, agent_id, event, seen)
-        if delivered:
-            seen_path.write_text("\n".join(sorted(seen | delivered)) + "\n")
+        block = deliver(runs, seen_dir, re.sub(r"[^A-Za-z0-9_-]", "", session), agent_id, event) if runs else ""
     else:
-        # The count stands with no run and no state file: the note is for a
-        # lead who opened no run.
-        outside = outside_runs_note(seen_dir, safe) if event == "UserPromptSubmit" else ""
-        source = sys.argv[6] if len(sys.argv) > 6 and event == "SessionStart" else ""
-        ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
-        block = "\n".join(part for part in (outside, main_block(runs, seen_dir, session, ended) if runs else "") if part)
+        block = lead_block(runs, seen_dir, session, event, source, host)
     if block:
         print(block)
 

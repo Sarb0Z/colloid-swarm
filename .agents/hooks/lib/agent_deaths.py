@@ -15,8 +15,8 @@ What it read is cached in `.agents/.readout/.agent-deaths-cache`, replaced
 atomically: an agent whose transcript is unchanged costs a stat, a completed
 one nothing more, a session's transcript is read on from where the last read
 stopped, and an agent whose edits were all committed asks Git nothing until
-it works again. The cache is this reader's alone; `cached_dead` gives the
-statusline readout the last read's dead agents without reading again.
+it works again. `cached_dead` gives the last read's dead agents without
+reading again.
 """
 
 from __future__ import annotations
@@ -34,10 +34,9 @@ from typing import Callable
 import agent_dismissals
 import agent_leftovers as al
 import agent_records as ar
+import agent_sessions as sessions
 import agent_verdicts as av
-import readout
 
-READOUT = "agent-deaths"
 # The cached state of an agent of another checkout, which is given no verdict here.
 ELSEWHERE = "elsewhere"
 SHOWN_MAX = 5
@@ -113,7 +112,7 @@ class Reading:
     held: dict
     places: al.Places
     parents: av.Parents
-    hosts: av.Hosts
+    hosts: sessions.Hosts
     now: float
     jobs: dict
 
@@ -182,9 +181,9 @@ def report(repo: Path, session: str, runs: dict, effects: Effects) -> Report:
         return result
     cache = load(repo / ".agents" / CACHE)
     dirs = ar.config_dirs(effects.home, effects.config_dir)
-    entries, problems = ar.registry(dirs)
-    jobs, unreadable = ar.stopped_jobs(dirs)
-    hosts = av.Hosts(entries, session, effects.proc_start)
+    entries, problems = sessions.registry(dirs)
+    jobs, unreadable = sessions.stopped_jobs(dirs)
+    hosts = sessions.Hosts(entries, session, effects.proc_start)
     hosts.trusted()
     found = candidates(cache, dirs, {entry["session"] for entry in entries}, effects.now)
     at = Reading(al.run_agents(runs), al.Places(repo, effects.git, cache["places"]), av.Parents(cache["parents"]),
@@ -226,12 +225,14 @@ def save(path: Path, cache: dict) -> None:
             os.unlink(temporary)
 
 
-def publish(repo: Path, result: Report) -> None:
-    """The status strip's `agent-deaths` readout: how many dead agents are shown, and the newest's cause."""
-    count = len(result.lines)
-    strip = f"{count} agent{'s' if count != 1 else ''} died ({result.dead[result.shown[0]]})" if count else ""
-    if strip or (repo / ".agents" / ".readout" / f"{READOUT}.json").exists():
-        readout.write(repo, READOUT, strip=strip)
+def read_in_hook(repo: Path, session: str, runs: dict, git) -> Report:
+    """`report` with the real effects, for a hook that must not block: a reader that fails says
+    so on stderr and in the block, and the hook goes on."""
+    try:
+        return report(repo, session, runs, real_effects(git))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"agent deaths: the reader failed: {error}", file=sys.stderr)
+        return Report(problems=[f"agent deaths: the reader failed ({error}), so no dead agent is listed"])
 
 
 def cached_dead(agents_dir: Path) -> dict:

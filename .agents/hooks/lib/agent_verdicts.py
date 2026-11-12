@@ -19,9 +19,7 @@ The first rule that applies decides:
   3. Liveness, for the rest: `running` while its session is live and its
      newest record is later than that process's start; `lost` once either
      fails and both transcripts have been quiet for 10 minutes, `running`
-     within them. A session is live when a registry entry names it and
-     `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>`, trimmed, equals its
-     `procStart`, which rejects an entry a killed process left. That test is
+     within them. Whether a session is live is agent_sessions.Hosts's test,
      trusted only once it passes for the reader's own session; until then no
      agent is judged by it (`unknown`). An agent that would read lost whose
      session is a background session its supervisor holds stopped is
@@ -37,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import agent_records as ar
+from agent_sessions import Hosts
 
 DEAD = ("failed", "lost")
 SHOWN = (*DEAD, "parked")
@@ -54,40 +53,6 @@ class Verdict:
     cause: str = ""
     at: float = 0.0
     job: str = ""  # a parked agent's background session job, which `claude respawn` takes
-
-
-class Hosts:
-    """Which sessions run now, trusted once the reader's own session passes the same test."""
-
-    def __init__(self, entries: list[dict], own: str, proc_start) -> None:
-        self.entries, self.own, self.proc_start, self.seen = entries, own, proc_start, {}
-        self.why: str | None = None
-        self.checked = False
-
-    def started(self, entry: dict) -> str | None:
-        if entry["pid"] not in self.seen:
-            self.seen[entry["pid"]] = self.proc_start(entry["pid"])
-        return self.seen[entry["pid"]]
-
-    def live(self, session: str) -> dict | None:
-        return next((e for e in self.entries if e["session"] == session and self.started(e) == e["proc_start"]), None)
-
-    def trusted(self) -> bool:
-        """Whether the liveness test held for the reader's own session; `why` says why not,
-        and is empty for a reader that runs in no session."""
-        if not self.checked:
-            self.checked = True
-            mine = [e for e in self.entries if e["session"] == self.own]
-            if not self.own:
-                self.why = ""
-            elif not mine:
-                self.why = f"no session registry entry names this session, {self.own}"
-            elif not self.live(self.own):
-                self.why = f"ps gives {self.started(mine[0])!r} for pid {mine[0]['pid']}, its registry entry {mine[0]['proc_start']!r}"
-        return self.why is None
-
-    def state(self, session: str) -> str:
-        return ("live" if self.live(session) else "ended") if self.trusted() else "unknown"
 
 
 class Parents:
@@ -143,6 +108,23 @@ class Parents:
                 kept[path]["notes"] = {aid: notes for aid, notes in data.get("notes", {}).items() if aid in mine}
                 kept[path]["results"] = {use: result for use, result in data.get("results", {}).items() if use in uses}
         return kept
+
+
+def dead_since(verdicts: dict, agent_id: str | None, since: float | None) -> Verdict | None:
+    """The verdict on an agent judged failed, lost or parked, no earlier than `since`; else None.
+    A cell sent out again keeps its last agent's id until the new one binds, and that agent's
+    death predates the new dispatch."""
+    verdict = verdicts.get(agent_id or "")
+    if verdict is None or verdict.state not in SHOWN:
+        return None
+    return verdict if since is None or verdict.at >= since else None
+
+
+def fate(verdict: Verdict) -> tuple[str, str]:
+    """How a lane's or cell's agent ended, and the remedy that restarts it."""
+    if verdict.state == "parked":
+        return "is parked in a stopped background session", f"claude respawn {verdict.job}"
+    return f"died ({verdict.cause})", "resume it"
 
 
 def parent(info: dict) -> str:

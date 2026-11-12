@@ -39,6 +39,9 @@
 #     it removed or kept and what each kept one's work is about, each `saved/`
 #     branch, and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
+#   - Workloop runs in flight, and on Claude Code each dead agent of this
+#     checkout read from Claude Code's own records, run or no run
+#     (hooks/lib/workloop-inbox.py, hooks/lib/agent_deaths.py).
 #   - Unit readouts: the note of each readout visible to this session, from
 #     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
 #     files here). Silent when .agents/.readout/ is missing or no readout
@@ -108,7 +111,7 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
   writers_session="$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')"
   rm -rf "$proj/.agents/.writers-live-$writers_session" "$proj/.agents/.writers-turn-$writers_session" \
          "$proj/.agents/.writers-kinds-$writers_session" \
-         "$proj/.agents/.writers-lock-$writers_session" "$proj/.agents/.cells-$writers_session" \
+         "$proj/.agents/.writers-lock-$writers_session" \
          "$proj/.agents/.cell-markers-$writers_session" "$proj/.agents/.outside-runs-$writers_session" 2>/dev/null || true
 fi
 
@@ -186,20 +189,22 @@ if [[ "$learning_enabled" == "yes" && -f "$learning_playbook" ]]; then
   learning_body="$(cat "$learning_playbook")"
 fi
 
-# A run mid-flight is the first thing a resumed lead needs to know about;
-# the digest is the same one workloop-inbox.sh gives at each prompt. The start
-# source, after the agent id, tells it whether this start ended the session's
-# earlier cells (startup, resume) or not (clear, compact).
+# A run mid-flight, and an agent that died mid-work, are the first things a
+# resumed lead needs to know about; the digest is the same one workloop-inbox.sh
+# gives at each prompt. The start source, after the agent id, tells it whether
+# this start ended the session's earlier cells (startup, resume) or not (clear,
+# compact); the host tells it to read Claude Code's records of dead agents, which
+# a Claude Code start reads run or no run.
 # The inbox prints its digest on stderr too, for a prompt's terminal, so its
 # stderr is read here only when it fails; the failure then reaches the lead's
 # context as well, since a start hook's stderr at exit 0 may reach no one.
 workloop_digest=""
 workloop_failure=""
-if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]]; then
+if [[ -f "$lib/workloop-inbox.py" ]] && [[ -f "$proj/.agents/.workloop-state.json" || "$host" == "claude" ]]; then
   inbox_err="$(mktemp)" || inbox_err=/dev/null
-  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" "${start_source:-startup}" 2>"$inbox_err")" || {
+  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" "${start_source:-startup}" "$host" 2>"$inbox_err")" || {
     reason="$(tail -n 1 "$inbox_err")"
-    workloop_failure="workloop-inbox.py failed, so no workloop run in this checkout is listed${reason:+: $reason}"
+    workloop_failure="workloop-inbox.py failed, so no workloop run or dead agent in this checkout is listed${reason:+: $reason}"
     printf 'session-start: %s\n' "$workloop_failure" >&2
     workloop_digest=""
   }
@@ -314,13 +319,13 @@ EOF
 
   if [[ -n "$workloop_digest" ]]; then
     section
-    echo "Workloop runs in flight (.agents/.workloop-state.json — lanes, messages, and gates a lead owns):"
+    echo "Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; AGENT DIED lines from Claude Code's own records, hooks/lib/agent_deaths.py):"
     printf '%s\n' "$workloop_digest"
   fi
 
   if [[ -n "$workloop_failure" ]]; then
     section
-    echo "Workloop runs unknown: $workloop_failure."
+    echo "Workloop runs and dead agents unknown: $workloop_failure."
   fi
 
   if [[ -n "$worktree_digest" ]]; then
