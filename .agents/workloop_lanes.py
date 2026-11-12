@@ -334,6 +334,7 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         *([WORKING_PRACTICE.read_text().strip()] if role in {"worker", "qa"} else []),
         f"Progress: {command} heartbeat {run_name} {lane_name} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
         "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
+        wc.OPEN_GATES,
         "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",
         supervised,
         f"State: {command} status {run_name}",

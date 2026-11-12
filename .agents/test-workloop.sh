@@ -1250,6 +1250,15 @@ expect "'solo' is a lane, whose brief prints without it" "${tool[@]}" brief oc s
 oc_status="$("${tool[@]}" status oc)"
 [[ "$oc_status" == *$'scout\tcell out\tresearch\tmodel=opus'* && "$oc_status" == *$'critic\tcell out\tqa\tmodel=sonnet'* ]] || fail "status does not list the cells with role, model and state: $oc_status"
 ok "add-cell records a read-only cell beside a one-writer run's lane, one namespace with it, and prints a READ-ONLY dispatch to its cells/<name>.md brief"
+# ── the open-gates line: root contract and every brief template share one format ──
+open_gates="$(cd "$repo/.agents" && python3 -c 'import workloop_cells as wc; print(wc.OPEN_GATES)')"
+gate_format='needs_confirmation: <gate> — <what waits> — <how to resume>'
+grep -qF -- "$gate_format" <<<"$open_gates" || fail "the shared open-gates line lacks the format: $open_gates"
+grep -qF -- "$gate_format" "$repo/AGENTS.md" || fail "the root AGENTS.md lacks the format: $gate_format"
+grep -qxF -- "$open_gates" <<<"$(full_brief oc solo)" || fail "the worker brief lacks the open-gates line"
+grep -qxF -- "$open_gates" <<<"$(full_brief oc solo --role reviewer)" || fail "the reviewer brief lacks the open-gates line"
+grep -qxF -- "$open_gates" "$cell_file" || fail "the cell brief lacks the open-gates line"
+ok "the root contract and the worker, reviewer and cell briefs carry the same needs_confirmation format"
 # a cell's brief never lands on a main lane's: lane cell-a's brief and cell a's are two files
 "${tool[@]}" init sc --objective x --acceptance y --repo "$work" --verify true --lane cell-a --worker implementer --path src >/dev/null
 "${tool[@]}" add-cell sc a --role research --model haiku >/dev/null

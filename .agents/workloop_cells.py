@@ -24,6 +24,8 @@ ROLES = {
     "qa": "run each scenario the acceptance names, as the working practice below says, and report evidence, failures and coverage gaps",
 }
 READ_ONLY = "READ-ONLY — this cell reads the checkout and writes nothing; its result is its reply."
+# The line both brief templates carry; the root contract's Human gates paragraph names the same format.
+OPEN_GATES = "Open gates: finish the work no gate holds, then end your final message with one line per open gate or open ruling, `needs_confirmation: <gate> — <what waits> — <how to resume>`; never skip one."
 # The cells' briefs, under the run's .workloop folder.
 CELL_BRIEFS = "cells"
 
@@ -148,6 +150,7 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
         "Question: the lead wrote it below the three lines of your dispatch prompt.",
         f"Workspace: the checkout {run['repo']}, read only — no worktree, no branch, no claim; another cell may be writing in it, so read committed state where it matters.",
         f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish.",
+        OPEN_GATES,
         *([WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
         f"State: {command} status {run_name}",
     )) + "\n")
