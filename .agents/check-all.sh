@@ -33,6 +33,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-post-edit-check.sh
 .agents/test-stop-investigate.sh
 .agents/test-access.sh
+.agents/test-revert-check.sh
 .agents/test-provenance-gate.sh
 .agents/test-review-contract.sh
 python3 .agents/test-sources-matcher.py
