@@ -547,8 +547,13 @@ python3 .agents/check-stack-packs.py
 
 `.agents/check-all.sh` lists every check, one command per line, and runs them
 all; `.agents/suite.sh` runs it and records the tree it passed on, which
-`hooks/lib/owed.py` compares with the session's edits. Run one surface by
-copying its line out of the script.
+`hooks/lib/owed.py` compares with the session's edits. `suite.sh` runs the
+command from a copy of the tracked and unignored files under a temporary home,
+so the checks see no gitignored file (`node_modules`, `.venv`, `.env`) and none
+of the real home's settings; a check that changes the checkout's core or
+extensions git settings, or writes a file of the copy, fails the run. Run one
+surface by copying its line out of the script; that line runs in the checkout
+itself.
 <!-- colloid-only -->
 `lint-suite.py` fails when `ci.yml` and the script run different checks.
 <!-- /colloid-only -->

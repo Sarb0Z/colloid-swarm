@@ -262,7 +262,11 @@ will keep it.
   declares its own `critical_paths`, the globs whose files need a review record
   (its contract, its playbooks, its hooks), and its own `suite`, the one
   command that runs its checks; `.agents/suite.sh` runs that command and
-  records the tree it passed on. The export drops the carrier's `policy.json`
+  records the tree it passed on. It runs the command from a copy of the
+  tracked and unignored files under a temporary home, without the gitignored
+  files (`node_modules`, `.venv`, `.env`) or the real home's settings: a suite
+  that needs its dependencies installs them as one of its commands. The
+  export drops the carrier's `policy.json`
   and with it the carrier's values. A satellite that declares neither gets no
   `review` or `suite` flag.
 
