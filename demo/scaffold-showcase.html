@@ -160,7 +160,8 @@
   }
   .ev-name{font-family:var(--mono); font-size:.94rem; font-weight:700; color:var(--strong)}
   .ev-when{color:var(--muted); font-size:.88rem; margin:.1rem 0 .85rem}
-  .hooks{display:grid; gap:.75rem}
+  .hooks{display:grid; gap:.75rem; grid-template-columns:minmax(0,1fr)}
+  .hook,.card{min-width:0}
 
   .hook{
     background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:1rem 1.1rem;
@@ -285,12 +286,12 @@
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
       A hostile-review workflow, twenty-seven enforcement hooks, twenty-one skills, and an evidence trail —
-      wrapped around every model turn, carried by Claude Code, Codex, Kimi, OpenCode and GitHub Copilot.
+      wrapped around every model turn, enforced on Claude Code, Codex and Kimi, and read as instructions on OpenCode and GitHub Copilot.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">[Contract menu line — one line]</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">14 gates · 7 context injectors · 2 evidence trails · 5 checkpoints, on the session lifecycle.</span><span class="m-n">27 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">14 gates · 7 context injectors · 2 evidence trails · 4 checkpoints, on the session lifecycle.</span><span class="m-n">27 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
       <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">21 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">27 files</span></a>
@@ -602,7 +603,7 @@ detect:
           <div class="hooks">
             <article class="hook" data-t="context">
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
-              <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, and what the worktree sweep removed or kept. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
+              <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, what the worktree sweep removed or kept, and workloop runs with no recorded lead. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 402 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
@@ -1633,7 +1634,7 @@ if __name__ == &quot;__main__&quot;:
           <div class="hooks">
             <article class="hook" data-t="gate">
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
-              <p class="what">The floor under destructive shell commands. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>git&nbsp;clean&nbsp;-f</code>, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, <code>rsync</code> or <code>scp</code> to a remote, <code>terraform destroy</code>, recursive <code>aws s3 rm</code>, <code>kubectl delete</code> of a namespace or <code>--all</code>, and destructive SQL via <code>psql</code>, <code>mysql</code> or <code>mariadb</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE). It fails open: a missing library or a payload that does not parse exits 0. It also guards <code>browser-sync.py</code>, which copies cookies out of the user&#x27;s Chrome, so only the user runs it.</p>
+              <p class="what">The floor under destructive shell commands. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>git&nbsp;clean&nbsp;-f</code>, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, <code>rsync</code> or <code>scp</code> to a remote, <code>terraform destroy</code>, recursive <code>aws s3 rm</code>, <code>aws s3 rb --force</code>, <code>kubectl delete</code> of a namespace or <code>--all</code>, and destructive SQL via <code>psql</code>, <code>mysql</code> or <code>mariadb</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE). It fails open: a missing library or a payload that does not parse exits 0. It also guards <code>browser-sync.py</code>, which copies cookies out of the user&#x27;s Chrome, so only the user runs it.</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 1198 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
@@ -3107,70 +3108,1159 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-publish</span><span class="badge gate">gate</span></div>
               <p class="what">Forces the permission prompt on an outward mutation &mdash; publish, deploy, push, package release, a hosted migration, an Artifact action, many <code>gh</code> writes. It asks in the modes that prompt (default, acceptEdits, plan) and denies in the rest, since a prompt nobody saw is no approval; the push prompt names critical-path files the push carries without a review record. Wired for Claude only. Two pieces beside it: the publish-approval mod asks in Claude&#x27;s own question dialog in every mode, and its &ldquo;Run it&rdquo; leaves a token that turns the ask or deny into allow for that one call; the device policy (<code>.agents/claude/device/</code>) installs the same outward-mutation rules for every session on the machine, and the operator runs it once with <code>sudo</code>.</p>
               <div class="io"><b>in</b> {tool_name, tool_input, permission_mode} &nbsp;→&nbsp; <b>out</b> permissionDecision "ask" | "deny" | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 64 lines</span></summary><div class="srcpath">.agents/hooks/policy/guard-publish.sh</div><pre><code>#!/usr/bin/env bash
-# Claude-scoped policy: force the permission prompt on outward mutations.
-#
-# Input  (stdin JSON): {&quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...}}
-# Output: exit 0 always. Stdout carries Claude&#x27;s PreToolUse envelope with
-# permissionDecision &quot;ask&quot; on a publish-shaped call, and also whenever the
-# evaluator cannot run or decide (fail closed); silence otherwise.
-#
-# This enforces `AGENTS.md` §External actions. It asks rather than denies:
-# a publish is legitimate exactly when the user approves it in this session,
-# so the correct enforcement is the dialog, not exit 2. guard-destructive
-# stays the deny path for irreversible commands.
-#
-# Scope: wired for Claude Code only. Kimi and Codex do not register this
-# policy; their sessions rely on the instruction until either host exposes an
-# ask-equivalent decision.
-#
-# The decision lives in ../lib/guard-publish.py. This half owns the engine
-# contract: locate the repository, hand the payload over on stdin, and emit a
-# static ask decision if the evaluator cannot complete.
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1153 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-publish.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Decide whether a tool call is an outward mutation that needs user approval.
 
-set -euo pipefail
+Input  (stdin JSON): {&quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...},
+                      &quot;permission_mode&quot;: &quot;default&quot; | &quot;auto&quot; | ...}
+Output: exit 0 always. Stdout carries the Claude Code PreToolUse envelope
+{&quot;hookSpecificOutput&quot;: {&quot;permissionDecision&quot;: &quot;ask&quot; | &quot;deny&quot;, ...}} in two
+cases: a rule fired, or the guard could not evaluate a call (unreadable
+payload, evaluator error) — it fails closed. Silence otherwise.
 
-repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
-decide=&quot;$repo/.agents/hooks/lib/guard-publish.py&quot;
-payload=&quot;&quot;
+This is the enforcement half of `AGENTS.md` §External actions: an outward
+mutation requires user approval in the current session. &quot;Ask&quot; is the whole
+point — a publish is legitimate exactly when the user says yes, so the guard
+forces the dialog rather than denying. Contrast guard-destructive, which
+denies, because no mid-session answer legitimizes `rm -rf /`.
 
-# An &quot;ask&quot; only fails closed where a human answers it. Only the modes the
-# evaluator lists as prompting get one (its docstring records the evidence);
-# a guard that cannot run denies everywhere else instead of letting the call
-# through.
-ask_failure() {
-  local diagnostic=&quot;$1&quot;
-  local reason=&quot;$2&quot;
-  local decision=&quot;ask&quot;
-  if ! grep -Eq &#x27;&quot;permission_mode&quot;: *&quot;(default|acceptEdits|plan)&quot;&#x27; &lt;&lt;&lt;&quot;$payload&quot;; then
-    decision=&quot;deny&quot;
-    reason=&quot;$reason This session&#x27;s permission mode shows no approval prompt, so the call is denied; the user runs it themselves, or switches to default mode and answers the prompt.&quot;
-  fi
-  echo &quot;guard-publish: $diagnostic&quot; &gt;&amp;2
-  printf &#x27;{&quot;hookSpecificOutput&quot;:{&quot;hookEventName&quot;:&quot;PreToolUse&quot;,&quot;permissionDecision&quot;:&quot;%s&quot;,&quot;permissionDecisionReason&quot;:&quot;%s AGENTS.md §External actions: outward mutations need in-session user approval.&quot;}}\n&#x27; &quot;$decision&quot; &quot;$reason&quot;
-  exit 0
+The dialog only counts when a human answers it. In auto mode the host is
+documented to floor a hook&#x27;s &quot;ask&quot; at a prompt, and on Claude Code 2.1.258 it
+did not: ten `git push` calls in one session each drew an &quot;ask&quot; from this guard
+and ran unanswered seconds later, and a probe in a foreground auto-mode session
+did the same. In bypassPermissions mode nothing prompts by design, and dontAsk
+turns a prompt into a denial anyway. So the guard asks only in the modes known
+to prompt, denies in every other and says how the user approves — switch the
+mode and answer the prompt, or run the command themselves — because a call the
+user never saw is not approved. The publish-approval mod adds a third way: an
+approval in its dialog, which reaches the user in every mode, leaves a token
+that turns this guard&#x27;s ask or deny into allow for that one call.
+
+Scope: Bash publish/push/deploy commands; migration, seed and schema-push
+commands whose database is hosted (database-target.py resolves the target);
+and every Artifact action that reaches claude.ai — publishing a page, adding or
+deleting one of its files, and posting or resolving a comment thread.
+Other outward channels (remote MCP writes, cross-session messages)
+keep their own native prompts. The threat model is an honest mistake by the
+model — a harness bias toward publishing — not an adversary with a shell.
+&quot;&quot;&quot;
+
+import importlib.util
+import json
+import os
+import re
+import shlex
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_shell_parser():
+    spec = importlib.util.spec_from_file_location(
+        &quot;guard_destructive&quot;, os.path.join(HERE, &quot;guard-destructive.py&quot;))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+GH_MUTATING_VERBS = {&quot;create&quot;, &quot;merge&quot;, &quot;close&quot;, &quot;reopen&quot;, &quot;comment&quot;, &quot;edit&quot;,
+                     &quot;delete&quot;, &quot;review&quot;, &quot;ready&quot;, &quot;lock&quot;, &quot;unlock&quot;, &quot;transfer&quot;,
+                     &quot;run&quot;, &quot;upload&quot;}
+GH_MUTATING_AREAS = {&quot;pr&quot;, &quot;issue&quot;, &quot;release&quot;, &quot;repo&quot;, &quot;gist&quot;, &quot;label&quot;, &quot;workflow&quot;}
+# Further writes, as the leading words of the command: `gh secret set` writes a
+# repository secret, `gh run rerun` starts a workflow run again. The other
+# verbs of these areas read.
+GH_WRITE_PHRASES = (
+    (&quot;secret&quot;, &quot;set&quot;), (&quot;secret&quot;, &quot;delete&quot;), (&quot;variable&quot;, &quot;set&quot;), (&quot;variable&quot;, &quot;delete&quot;),
+    (&quot;run&quot;, &quot;rerun&quot;), (&quot;run&quot;, &quot;cancel&quot;), (&quot;run&quot;, &quot;delete&quot;),
+    (&quot;ssh-key&quot;, &quot;add&quot;), (&quot;repo&quot;, &quot;deploy-key&quot;, &quot;add&quot;),
+    (&quot;repo&quot;, &quot;archive&quot;), (&quot;repo&quot;, &quot;rename&quot;), (&quot;repo&quot;, &quot;sync&quot;), (&quot;repo&quot;, &quot;fork&quot;),
+    (&quot;cache&quot;, &quot;delete&quot;), (&quot;codespace&quot;, &quot;delete&quot;), (&quot;label&quot;, &quot;clone&quot;), (&quot;project&quot;, &quot;item-add&quot;),
+)
+NPM_PUBLISHERS = {&quot;npm&quot;, &quot;pnpm&quot;, &quot;yarn&quot;, &quot;bun&quot;}
+READ_FLAGS_GH_API = {&quot;GET&quot;, &quot;HEAD&quot;}
+# One deploy vendor per row; the verb set is that CLI&#x27;s outward-mutating verbs.
+# A verb may be two words, matched against the leading positional arguments and
+# longest-first, because some CLIs group their verbs under a noun.
+# `vercel` is special-cased below because its bare invocation deploys.
+DEPLOY_VERBS = {
+    &quot;vercel&quot;: {&quot;deploy&quot;, &quot;promote&quot;, &quot;rollback&quot;, &quot;alias&quot;, &quot;rm&quot;, &quot;remove&quot;, &quot;redeploy&quot;},
+    &quot;netlify&quot;: {&quot;deploy&quot;},
+    &quot;wrangler&quot;: {&quot;deploy&quot;, &quot;publish&quot;},
+    &quot;firebase&quot;: {&quot;deploy&quot;},
+    &quot;fly&quot;: {&quot;deploy&quot;},
+    &quot;flyctl&quot;: {&quot;deploy&quot;},
+    &quot;railway&quot;: {&quot;up&quot;, &quot;deploy&quot;},
+    &quot;supabase&quot;: {&quot;db push&quot;, &quot;functions deploy&quot;, &quot;secrets set&quot;, &quot;secrets unset&quot;,
+                 &quot;projects create&quot;, &quot;projects delete&quot;,
+                 &quot;branches create&quot;, &quot;branches delete&quot;, &quot;branches update&quot;,
+                 &quot;branches pause&quot;, &quot;branches unpause&quot;,
+                 &quot;config push&quot;, &quot;functions delete&quot;, &quot;sso add&quot;, &quot;sso remove&quot;, &quot;sso update&quot;,
+                 &quot;domains create&quot;, &quot;domains reverify&quot;, &quot;domains activate&quot;, &quot;domains delete&quot;,
+                 &quot;postgres-config update&quot;, &quot;postgres-config delete&quot;,
+                 &quot;network-restrictions update&quot;, &quot;vanity-subdomains activate&quot;,
+                 &quot;vanity-subdomains delete&quot;, &quot;ssl-enforcement update&quot;, &quot;network-bans remove&quot;,
+                 &quot;backups restore&quot;, &quot;encryption update-root-key&quot;, &quot;orgs create&quot;,
+                 &quot;notebooks push&quot;},
+    &quot;terraform&quot;: {&quot;apply&quot;, &quot;destroy&quot;, &quot;import&quot;, &quot;refresh&quot;, &quot;taint&quot;, &quot;untaint&quot;, &quot;force-unlock&quot;,
+                  &quot;state rm&quot;, &quot;state mv&quot;, &quot;state push&quot;, &quot;state replace-provider&quot;,
+                  &quot;workspace delete&quot;},
+}
+DEPLOY_VERBS[&quot;tofu&quot;] = DEPLOY_VERBS[&quot;terraform&quot;]
+# `supabase storage` reaches the linked project unless `--local` says
+# otherwise, and `cp` writes there only when its destination is an `ss://` path.
+SUPABASE_STORAGE_VALUED = {&quot;--cache-control&quot;, &quot;--content-type&quot;, &quot;-j&quot;, &quot;--jobs&quot;, &quot;--project-ref&quot;}
+# Verbs that are local by default and reach the hosted project only when a flag
+# says so. Gating them unconditionally would ask on every `supabase db reset`,
+# which is how a developer rebuilds the Docker stack several times an hour; an
+# ask that fires on routine local work is one people learn to dismiss.
+REMOTE_FLAG_VERBS = {
+    &quot;supabase&quot;: ({&quot;db reset&quot;, &quot;migration up&quot;, &quot;migration repair&quot;, &quot;db dump&quot;, &quot;seed buckets&quot;},
+                 {&quot;--linked&quot;, &quot;--db-url&quot;}),
+}
+# The read set is the allowlist, so an action this guard does not recognize asks:
+# a new Artifact action is likelier to mutate than to read. Nothing here keys on
+# the payload shape — a comment reply and an asset delete reach the published
+# page carrying a url and a thread or asset id, never a file_path.
+ARTIFACT_READ_ACTIONS = {&quot;list&quot;, &quot;comments&quot;, &quot;list_assets&quot;, &quot;read_asset&quot;}
+ARTIFACT_REASONS = {
+    &quot;reply&quot;: &quot;Artifact reply posts a comment every viewer of that page can see.&quot;,
+    &quot;resolve&quot;: &quot;Artifact resolve changes a comment thread on the published page.&quot;,
+    &quot;upload_asset&quot;: &quot;Artifact upload_asset adds a file to the published page.&quot;,
+    &quot;delete_asset&quot;: &quot;Artifact delete_asset permanently removes a file from the published page.&quot;,
+}
+RUNNERS = {&quot;npx&quot;, &quot;pnpx&quot;, &quot;bunx&quot;}
+RUNNER_CALL_FLAGS = {&quot;-c&quot;, &quot;--call&quot;}      # npx -c &quot;&lt;shell&gt;&quot; runs its value
+# `pnpm &lt;word&gt;` and `yarn &lt;word&gt;` run a package binary when the word is not one
+# of the manager&#x27;s own commands (a script of that name runs first, and is
+# judged separately through package.json). From `pnpm --help` (10) and
+# `yarn --help` (4, plus classic&#x27;s commands).
+PNPM_COMMANDS = {&quot;add&quot;, &quot;i&quot;, &quot;install&quot;, &quot;it&quot;, &quot;install-test&quot;, &quot;up&quot;, &quot;update&quot;, &quot;upgrade&quot;, &quot;remove&quot;,
+                 &quot;rm&quot;, &quot;un&quot;, &quot;uninstall&quot;, &quot;link&quot;, &quot;ln&quot;, &quot;unlink&quot;, &quot;import&quot;, &quot;rebuild&quot;, &quot;rb&quot;,
+                 &quot;prune&quot;, &quot;fetch&quot;, &quot;patch&quot;, &quot;patch-commit&quot;, &quot;patch-remove&quot;, &quot;audit&quot;, &quot;list&quot;, &quot;ls&quot;,
+                 &quot;ll&quot;, &quot;la&quot;, &quot;outdated&quot;, &quot;why&quot;, &quot;licenses&quot;, &quot;run&quot;, &quot;run-script&quot;, &quot;exec&quot;, &quot;test&quot;,
+                 &quot;t&quot;, &quot;tst&quot;, &quot;start&quot;, &quot;stop&quot;, &quot;restart&quot;, &quot;create&quot;, &quot;dlx&quot;, &quot;init&quot;, &quot;publish&quot;,
+                 &quot;pack&quot;, &quot;deploy&quot;, &quot;store&quot;, &quot;env&quot;, &quot;setup&quot;, &quot;config&quot;, &quot;c&quot;, &quot;get&quot;, &quot;set&quot;, &quot;root&quot;,
+                 &quot;bin&quot;, &quot;server&quot;, &quot;recursive&quot;, &quot;multi&quot;, &quot;m&quot;, &quot;help&quot;, &quot;cat-file&quot;, &quot;cat-index&quot;,
+                 &quot;find-hash&quot;, &quot;doctor&quot;, &quot;self-update&quot;, &quot;approve-builds&quot;, &quot;ignored-builds&quot;, &quot;sbom&quot;,
+                 &quot;version&quot;, &quot;login&quot;, &quot;logout&quot;, &quot;whoami&quot;, &quot;dedupe&quot;, &quot;docs&quot;, &quot;home&quot;, &quot;owner&quot;,
+                 &quot;search&quot;, &quot;view&quot;, &quot;info&quot;, &quot;show&quot;, &quot;unpublish&quot;, &quot;dist-tag&quot;, &quot;ping&quot;, &quot;cache&quot;}
+YARN_COMMANDS = {&quot;add&quot;, &quot;bin&quot;, &quot;cache&quot;, &quot;config&quot;, &quot;constraints&quot;, &quot;dedupe&quot;, &quot;dlx&quot;, &quot;exec&quot;,
+                 &quot;explain&quot;, &quot;info&quot;, &quot;init&quot;, &quot;install&quot;, &quot;link&quot;, &quot;node&quot;, &quot;npm&quot;, &quot;pack&quot;, &quot;patch&quot;,
+                 &quot;patch-commit&quot;, &quot;plugin&quot;, &quot;rebuild&quot;, &quot;remove&quot;, &quot;run&quot;, &quot;search&quot;, &quot;set&quot;, &quot;stage&quot;,
+                 &quot;unlink&quot;, &quot;unplug&quot;, &quot;up&quot;, &quot;upgrade&quot;, &quot;upgrade-interactive&quot;, &quot;version&quot;, &quot;why&quot;,
+                 &quot;workspace&quot;, &quot;workspaces&quot;, &quot;publish&quot;, &quot;login&quot;, &quot;logout&quot;, &quot;test&quot;, &quot;start&quot;,
+                 &quot;global&quot;, &quot;list&quot;, &quot;outdated&quot;, &quot;audit&quot;, &quot;autoclean&quot;, &quot;check&quot;, &quot;create&quot;,
+                 &quot;generate-lock-entry&quot;, &quot;import&quot;, &quot;licenses&quot;, &quot;owner&quot;, &quot;policies&quot;, &quot;tag&quot;,
+                 &quot;team&quot;, &quot;help&quot;, &quot;sdks&quot;, &quot;unpublish&quot;}
+# Options the managers read before their command, with a separate value:
+# `pnpm --filter api exec ...`, `yarn --cwd api ...`.
+MANAGER_VALUED = {&quot;pnpm&quot;: {&quot;--filter&quot;, &quot;-F&quot;, &quot;--filter-prod&quot;, &quot;-C&quot;, &quot;--dir&quot;, &quot;--workspace-dir&quot;,
+                           &quot;--reporter&quot;, &quot;--loglevel&quot;, &quot;--test-pattern&quot;,
+                           &quot;--changed-files-ignore-pattern&quot;},
+                  &quot;yarn&quot;: {&quot;--cwd&quot;},
+                  &quot;bun&quot;: {&quot;--cwd&quot;, &quot;-r&quot;, &quot;--preload&quot;, &quot;-c&quot;, &quot;--config&quot;, &quot;--env-file&quot;,
+                          &quot;--tsconfig-override&quot;, &quot;--main-fields&quot;, &quot;--conditions&quot;}}
+# `bun &lt;word&gt;` runs a binary or file when the word is not one of bun&#x27;s own
+# commands (`bun --help`, 1.2).
+BUN_COMMANDS = {&quot;run&quot;, &quot;test&quot;, &quot;x&quot;, &quot;repl&quot;, &quot;exec&quot;, &quot;install&quot;, &quot;i&quot;, &quot;add&quot;, &quot;a&quot;, &quot;remove&quot;, &quot;rm&quot;,
+                &quot;update&quot;, &quot;outdated&quot;, &quot;link&quot;, &quot;unlink&quot;, &quot;publish&quot;, &quot;patch&quot;, &quot;patch-commit&quot;, &quot;pm&quot;,
+                &quot;info&quot;, &quot;init&quot;, &quot;create&quot;, &quot;c&quot;, &quot;upgrade&quot;, &quot;build&quot;, &quot;audit&quot;, &quot;why&quot;, &quot;help&quot;,
+                &quot;completions&quot;, &quot;discord&quot;, &quot;feedback&quot;, &quot;unpublish&quot;}
+MANAGER_COMMANDS = {&quot;pnpm&quot;: PNPM_COMMANDS, &quot;yarn&quot;: YARN_COMMANDS, &quot;bun&quot;: BUN_COMMANDS}
+# Commands that name the binary to run as their next word.
+MANAGER_RUNS = {&quot;pnpm&quot;: {&quot;dlx&quot;, &quot;exec&quot;}, &quot;yarn&quot;: {&quot;dlx&quot;, &quot;exec&quot;}, &quot;bun&quot;: {&quot;x&quot;, &quot;run&quot;}}
+# Node options that take a separate value; `--env-file` also names a file the
+# process loads, which the database rule reads.
+NODE_VALUED = {&quot;-r&quot;, &quot;--require&quot;, &quot;--import&quot;, &quot;--env-file&quot;, &quot;--env-file-if-exists&quot;, &quot;--loader&quot;,
+               &quot;--experimental-loader&quot;, &quot;-C&quot;, &quot;--conditions&quot;, &quot;--input-type&quot;, &quot;--title&quot;}
+ENV_FILE_FLAGS = {&quot;--env-file&quot;, &quot;--env-file-if-exists&quot;}
+# Interpreters whose `-m &lt;module&gt;` runs a tool by its module name.
+MODULE_RUNNERS = re.compile(r&quot;python(?:3(?:\.\d+)?)?&quot;)
+# Names a command must mention before the shell parser is worth loading.
+# gcloud ends a group path of any depth with its verb (`gcloud services
+# api-keys delete`), and firebase namespaces verbs with colons
+# (`firestore:delete`), so neither fits a prefix table or a host prefix rule.
+# The verb decides; the groups below only configure the local CLI.
+GCLOUD_LOCAL_GROUPS = {&quot;config&quot;, &quot;auth&quot;, &quot;components&quot;, &quot;info&quot;, &quot;help&quot;, &quot;version&quot;,
+                       &quot;topic&quot;, &quot;cheat-sheet&quot;, &quot;feedback&quot;, &quot;init&quot;, &quot;emulators&quot;}
+GCLOUD_TRACKS = {&quot;alpha&quot;, &quot;beta&quot;, &quot;preview&quot;}
+GCLOUD_WRITES = {&quot;create&quot;, &quot;delete&quot;, &quot;update&quot;, &quot;deploy&quot;, &quot;set&quot;, &quot;unset&quot;, &quot;patch&quot;,
+                 &quot;import&quot;, &quot;enable&quot;, &quot;disable&quot;, &quot;undelete&quot;, &quot;restore&quot;, &quot;replace&quot;,
+                 &quot;rollback&quot;, &quot;submit&quot;, &quot;execute&quot;, &quot;add&quot;, &quot;remove&quot;, &quot;cancel&quot;,
+                 &quot;resize&quot;, &quot;start&quot;, &quot;stop&quot;, &quot;reset&quot;, &quot;promote&quot;, &quot;rm&quot;, &quot;mv&quot;,
+                 &quot;publish&quot;, &quot;migrate&quot;, &quot;export&quot;, &quot;run&quot;, &quot;call&quot;, &quot;apply&quot;}
+# A verb family: `set-traffic`, `add-iam-policy-binding`, `enable-oslogin`.
+GCLOUD_WRITE_PREFIXES = (&quot;add-&quot;, &quot;remove-&quot;, &quot;set-&quot;, &quot;update-&quot;, &quot;create-&quot;, &quot;delete-&quot;,
+                         &quot;enable-&quot;, &quot;disable-&quot;)
+GCLOUD_READS = {&quot;describe&quot;, &quot;list&quot;, &quot;get&quot;, &quot;read&quot;, &quot;tail&quot;, &quot;ls&quot;, &quot;cat&quot;, &quot;du&quot;}
+FIREBASE_WRITES = {&quot;delete&quot;, &quot;set&quot;, &quot;unset&quot;, &quot;remove&quot;, &quot;update&quot;, &quot;push&quot;, &quot;import&quot;,
+                   &quot;disable&quot;, &quot;enable&quot;, &quot;clone&quot;, &quot;create&quot;, &quot;install&quot;, &quot;uninstall&quot;,
+                   &quot;destroy&quot;, &quot;rollback&quot;}
+# Global options whose value is the next word, so that value is not read as
+# the verb. firebase-tools declares its globals in src/index.ts: `-P, --project
+# &lt;alias_or_project_id&gt;`, `--account &lt;email&gt;`, `--token &lt;token&gt;` and `-c,
+# --config &lt;path&gt;` take a value; `--json`, `--debug` and the interactivity
+# switches do not. `--flag=value` carries its own value and needs no entry.
+#
+# wrangler&#x27;s yargs globals (workers-sdk packages/wrangler/src/index.ts). flyctl
+# and the Supabase CLI are cobra programs, which find the verb past any flag
+# and its value and let the verb parse it, so a verb&#x27;s own value flags count
+# too: flyctl&#x27;s from internal/flag/flag.go, Supabase&#x27;s globals from
+# `supabase --help` (2.119) plus `--project-ref` and `--db-url`. railway (clap)
+# and netlify (commander) reject an option before the verb, so neither has a row.
+VALUE_FLAGS = {
+    &quot;firebase&quot;: {&quot;-P&quot;, &quot;--project&quot;, &quot;--account&quot;, &quot;--token&quot;, &quot;-c&quot;, &quot;--config&quot;},
+    &quot;gcloud&quot;: {&quot;--project&quot;, &quot;--account&quot;, &quot;--configuration&quot;, &quot;--impersonate-service-account&quot;,
+               &quot;--region&quot;, &quot;--zone&quot;, &quot;--format&quot;, &quot;--verbosity&quot;},
+    &quot;wrangler&quot;: {&quot;--cwd&quot;, &quot;-c&quot;, &quot;--config&quot;, &quot;-e&quot;, &quot;--env&quot;, &quot;--env-file&quot;, &quot;--profile&quot;},
+    &quot;fly&quot;: {&quot;-t&quot;, &quot;--access-token&quot;, &quot;-a&quot;, &quot;--app&quot;, &quot;-c&quot;, &quot;--config&quot;, &quot;-e&quot;, &quot;--env&quot;, &quot;-i&quot;, &quot;--image&quot;,
+            &quot;-s&quot;, &quot;--signal&quot;, &quot;-o&quot;, &quot;--org&quot;, &quot;-r&quot;, &quot;--region&quot;, &quot;-g&quot;, &quot;--process-group&quot;},
+    &quot;supabase&quot;: {&quot;--workdir&quot;, &quot;--profile&quot;, &quot;-o&quot;, &quot;--output&quot;, &quot;--output-format&quot;, &quot;--network-id&quot;,
+                 &quot;--dns-resolver&quot;, &quot;--agent&quot;, &quot;--log-level&quot;, &quot;--completions&quot;,
+                 &quot;--project-ref&quot;, &quot;--db-url&quot;},
+}
+VALUE_FLAGS[&quot;flyctl&quot;] = VALUE_FLAGS[&quot;fly&quot;]
+# AWS CLI v2 global options that take a value (docs.aws.amazon.com/cli/latest/
+# reference/index.html); the CLI accepts them before the service too.
+AWS_VALUE_FLAGS = {&quot;--region&quot;, &quot;--profile&quot;, &quot;--output&quot;, &quot;--query&quot;, &quot;--endpoint-url&quot;, &quot;--ca-bundle&quot;,
+                   &quot;--cli-read-timeout&quot;, &quot;--cli-connect-timeout&quot;, &quot;--color&quot;, &quot;--cli-binary-format&quot;,
+                   &quot;--cli-error-format&quot;}
+# The read operations are the allowlist, so an operation this guard does not
+# recognize asks: AWS adds services faster than any write list could follow.
+AWS_READ_PREFIXES = (&quot;get-&quot;, &quot;list-&quot;, &quot;describe-&quot;, &quot;head-&quot;, &quot;batch-get-&quot;, &quot;lookup-&quot;, &quot;filter-&quot;,
+                     &quot;search-&quot;, &quot;select-&quot;, &quot;simulate-&quot;, &quot;validate-&quot;, &quot;estimate-&quot;)
+AWS_READS = {&quot;scan&quot;, &quot;query&quot;, &quot;wait&quot;, &quot;tail&quot;, &quot;help&quot;}
+# Operations that only read, query, or write local credentials and config:
+# Logs Insights queries and live tails, a role session, a kubeconfig entry, a
+# login token.
+AWS_QUIET = {(&quot;logs&quot;, &quot;start-query&quot;), (&quot;logs&quot;, &quot;stop-query&quot;), (&quot;logs&quot;, &quot;start-live-tail&quot;),
+             (&quot;eks&quot;, &quot;update-kubeconfig&quot;), (&quot;sso&quot;, &quot;login&quot;), (&quot;codeartifact&quot;, &quot;login&quot;)}
+# Tools that apply migrations, seeds or schema pushes. Their verbs and the
+# database each reaches are database-target.py&#x27;s; the names live here because
+# the gate below must not load that module for every command. A test holds the
+# two lists equal.
+DATABASE_NAMES = {&quot;prisma&quot;, &quot;alembic&quot;, &quot;rails&quot;, &quot;rake&quot;, &quot;typeorm&quot;, &quot;typeorm-ts-node-commonjs&quot;,
+                  &quot;typeorm-ts-node-esm&quot;, &quot;drizzle-kit&quot;, &quot;knex&quot;, &quot;sequelize&quot;, &quot;sequelize-cli&quot;,
+                  &quot;manage.py&quot;, &quot;django-admin&quot;, &quot;django&quot;, &quot;flask&quot;, &quot;mongosh&quot;, &quot;mongo&quot;,
+                  &quot;mongorestore&quot;, &quot;mongoimport&quot;}
+GATED_NAMES = ({&quot;git&quot;, &quot;gh&quot;, &quot;docker&quot;, &quot;gcloud&quot;, &quot;aws&quot;} | NPM_PUBLISHERS | set(DEPLOY_VERBS)
+               | set(REMOTE_FLAG_VERBS) | RUNNERS | DATABASE_NAMES)
+# Vercel global options that take a value, and ones that only read.
+VERCEL_VALUE_FLAGS = {&quot;--cwd&quot;, &quot;-Q&quot;, &quot;--global-config&quot;, &quot;-A&quot;, &quot;--local-config&quot;,
+                      &quot;-S&quot;, &quot;--scope&quot;, &quot;-t&quot;, &quot;--token&quot;}
+VERCEL_BOOL_FLAGS = {&quot;-d&quot;, &quot;--debug&quot;, &quot;--no-color&quot;}
+VERCEL_READ_FLAGS = {&quot;-h&quot;, &quot;--help&quot;, &quot;-v&quot;, &quot;--version&quot;}
+
+
+def vercel_reason(words):
+    &quot;&quot;&quot;Classify Vercel&#x27;s flag-before-verb and option-only deploy forms.
+
+    A bare `vercel` deploys, so any flag before the first verb that is not a
+    known global option is treated as a deploy flag (`--prod`, `--target`,
+    `--yes`): the guard asks rather than guessing what an unknown flag does.
+    &quot;&quot;&quot;
+    positionals = []
+    index = 0
+    while index &lt; len(words):
+        word = words[index]
+        flag, _, inline_value = word.partition(&quot;=&quot;)
+        if flag in VERCEL_READ_FLAGS:
+            return None
+        if flag in VERCEL_VALUE_FLAGS:
+            index += 1 if inline_value else 2
+            continue
+        if flag in VERCEL_BOOL_FLAGS or (word.startswith(&quot;-&quot;) and positionals):
+            index += 1            # a flag after the verb: the verb decides
+            continue
+        if word.startswith(&quot;-&quot;):
+            return f&quot;vercel {flag} before any verb deploys or mutates the hosted project.&quot;
+        positionals.append(word)
+        index += 1
+    if not positionals or positionals[0] in DEPLOY_VERBS[&quot;vercel&quot;]:
+        return &quot;vercel deploys or mutates the hosted project.&quot;
+    return None
+
+
+def positionals(words, value_flags=frozenset()):
+    &quot;&quot;&quot;The words that are not options or the separate value of one.&quot;&quot;&quot;
+    found, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+        elif word.startswith(&quot;-&quot;):
+            skip = word in value_flags
+        else:
+            found.append(word)
+    return found
+
+
+def gcloud_reason(rest):
+    &quot;&quot;&quot;gcloud&#x27;s verb is the last word of its group path; a flag value
+    (`--project p`) is not part of the path.
+
+    The word after the release track is always a group, never a verb, so
+    `run` there is Cloud Run and `emulators` there is the local emulator; the
+    same words further down are a verb (`scheduler jobs run`) or an operand
+    (`run deploy emulators`). The first word that reads or writes is the verb:
+    the operands after a read (`describe update-checker`) are names.
+    &quot;&quot;&quot;
+    path = positionals(rest, VALUE_FLAGS[&quot;gcloud&quot;])
+    start = 1 if path[:1] and path[0] in GCLOUD_TRACKS else 0
+    if len(path) &lt;= start or path[start] in GCLOUD_LOCAL_GROUPS:
+        return None
+    for index in range(start + 1, len(path)):
+        word = path[index]
+        if word in GCLOUD_READS or word.startswith((&quot;get-&quot;, &quot;list-&quot;, &quot;describe-&quot;)):
+            return None
+        if word in GCLOUD_WRITES or word.startswith(GCLOUD_WRITE_PREFIXES):
+            return f&quot;gcloud {&#x27; &#x27;.join(path[:index + 1])} mutates the hosted project.&quot;
+        # A copy or sync writes only when a bucket is the destination.
+        if word in (&quot;cp&quot;, &quot;rsync&quot;) and path[-1].startswith(&quot;gs://&quot;):
+            return f&quot;gcloud storage {word} uploads to a hosted bucket.&quot;
+    return None
+
+
+def runner_width(words, shell):
+    &quot;&quot;&quot;How many words name a package runner at the start: `npx` is one;
+    `npm exec`, `bun x` and `python -m` are two; `pnpm` and `yarn` count their
+    own options too, then `dlx`, `exec` or a binary that is not one of their
+    commands (`pnpm --filter api exec`, `yarn workspace api prisma`); anything
+    else none.&quot;&quot;&quot;
+    name = shell.base(words[0]) if words else &quot;&quot;
+    following = words[1] if len(words) &gt; 1 else &quot;&quot;
+    if name in RUNNERS:
+        return 1
+    if (name == &quot;npm&quot; and following in (&quot;exec&quot;, &quot;x&quot;)) or (MODULE_RUNNERS.fullmatch(name) and following == &quot;-m&quot;):
+        return 2
+    if name not in MANAGER_COMMANDS:
+        return 0
+    index = 1
+    while index &lt; len(words) and words[index].startswith(&quot;-&quot;):
+        index += 2 if words[index] in MANAGER_VALUED[name] else 1
+    # `yarn workspace &lt;name&gt; &lt;command&gt;` runs the command in that workspace.
+    if name == &quot;yarn&quot; and words[index:index + 1] == [&quot;workspace&quot;] and index + 2 &lt; len(words):
+        index += 2
+    command = words[index] if index &lt; len(words) else &quot;&quot;
+    if command in MANAGER_RUNS[name]:
+        return index + 1
+    return index if command and command not in MANAGER_COMMANDS[name] else 0
+
+
+def env_files(words, stripped):
+    &quot;&quot;&quot;Record each `--env-file` a runner or node is given, as a file the
+    command loads.&quot;&quot;&quot;
+    for index, word in enumerate(words):
+        flag, _, value = word.partition(&quot;=&quot;)
+        if flag in ENV_FILE_FLAGS:
+            value = value or (words[index + 1] if index + 1 &lt; len(words) else &quot;&quot;)
+            if value:
+                stripped.append((&quot;env-file&quot;, [value]))
+
+
+def node_tool(words, shell, stripped):
+    &quot;&quot;&quot;`node [options] node_modules/.bin/&lt;tool&gt; ...` runs that tool, and so does
+    Prisma&#x27;s own entry point; the words as the tool&#x27;s, else None.&quot;&quot;&quot;
+    if not words or shell.base(words[0]) != &quot;node&quot;:
+        return None
+    index = 1
+    while index &lt; len(words) and words[index].startswith(&quot;-&quot;):
+        index += 2 if words[index] in NODE_VALUED else 1
+    if index &gt;= len(words):
+        return None
+    path = words[index]
+    if &quot;/.bin/&quot; in path:
+        tool = os.path.basename(path)
+    elif path.endswith(&quot;prisma/build/index.js&quot;):
+        tool = &quot;prisma&quot;
+    else:
+        return None
+    env_files(words[1:index], stripped)
+    return [tool] + words[index + 1:]
+
+
+def unversioned(spec):
+    &quot;&quot;&quot;A package spec without its version: `eas-cli@16` is `eas-cli`, and
+    `@scope/pkg@1` is `@scope/pkg`; the scope&#x27;s own `@` is not a version.&quot;&quot;&quot;
+    at = spec.find(&quot;@&quot;, 1)
+    return spec[:at] if at &gt; 0 else spec
+
+
+def supabase_storage_reason(rest):
+    path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS[&quot;supabase&quot;])
+    if path[:1] != [&quot;storage&quot;] or &quot;--local&quot; in rest:
+        return None
+    verb = path[1] if len(path) &gt; 1 else None
+    if verb in (&quot;rm&quot;, &quot;mv&quot;) or (verb == &quot;cp&quot; and path[-1].startswith(&quot;ss:&quot;)):
+        return f&quot;supabase storage {verb} writes to the linked project&#x27;s storage.&quot;
+    return None
+
+
+def aws_reason(rest):
+    path = positionals(rest, AWS_VALUE_FLAGS)
+    if len(path) &lt; 2 or path[0] in (&quot;configure&quot;, &quot;help&quot;):
+        return None
+    service, operation = path[0], path[1]
+    if service == &quot;s3&quot;:
+        buckets = [word for word in path[2:] if word.startswith(&quot;s3://&quot;)]
+        # cp and sync write only toward a bucket; a bucket as the sole source is a download.
+        toward = bool(buckets) and not (operation in (&quot;cp&quot;, &quot;sync&quot;) and buckets == path[2:3])
+        if operation in (&quot;rm&quot;, &quot;rb&quot;, &quot;mb&quot;, &quot;website&quot;) or (operation in (&quot;cp&quot;, &quot;sync&quot;, &quot;mv&quot;) and toward):
+            return f&quot;aws s3 {operation} writes to a hosted bucket.&quot;
+        return None
+    if (operation in AWS_READS or operation.startswith(AWS_READ_PREFIXES)
+            or (service, operation) in AWS_QUIET
+            or (service == &quot;sts&quot; and operation.startswith(&quot;assume-role&quot;))):
+        return None
+    return f&quot;aws {service} {operation} mutates the hosted account.&quot;
+
+
+# Runners that start a command inside a hosting platform&#x27;s environment, or
+# with secrets a manager injects: its database is the platform&#x27;s, whatever
+# this checkout&#x27;s env files say. `fly ssh console` takes its command as the
+# value of `-C`; the others take it as their trailing words.
+PLATFORM_RUNNERS = {&quot;heroku&quot;: &quot;run&quot;, &quot;railway&quot;: &quot;run&quot;, &quot;doppler&quot;: &quot;run&quot;, &quot;infisical&quot;: &quot;run&quot;,
+                    &quot;op&quot;: &quot;run&quot;, &quot;aws-vault&quot;: &quot;exec&quot;, &quot;kubectl&quot;: &quot;exec&quot;, &quot;fly&quot;: &quot;ssh&quot;, &quot;flyctl&quot;: &quot;ssh&quot;}
+PLATFORM_KEYS = {(name, (verb,)) for name, verb in PLATFORM_RUNNERS.items()}
+
+
+def platform_reason(name, rest, shell, place):
+    &quot;&quot;&quot;The ask for a migration a platform runner starts, or None when what it
+    runs is not one. The runner&#x27;s own options are not modelled: every suffix
+    of its words is tried as the command, and only a migration verb counts.&quot;&quot;&quot;
+    label = f&quot;{name} {rest[0]}&quot;
+    if name in (&quot;fly&quot;, &quot;flyctl&quot;):
+        bodies = [value for value in (positional_value(rest, (&quot;-C&quot;, &quot;--command&quot;)),) if value]
+        commands = [command.words for body in bodies for command in shell.normalize(body)]
+        label += &quot; console -C&quot;
+    else:
+        after = rest[1:]
+        commands = [after[after.index(&quot;--&quot;) + 1:]] if &quot;--&quot; in after else \
+            [after[index:] for index in range(len(after))]
+    target = None
+    for words in commands:
+        stripped = []
+        inner, _ = unwrap(words, shell, stripped, place)
+        if not inner:
+            continue
+        target = target or database_target()
+        reason = target.verdict(shell.base(inner[0]), inner[1:], stripped, [], &quot;&quot;, &quot;&quot;, &quot;&quot;,
+                                shell.base, platform=label)
+        if reason:
+            return reason
+    return None
+
+
+def positional_value(words, flags):
+    &quot;&quot;&quot;The value of the first of `flags`, given apart or after `=`.&quot;&quot;&quot;
+    for index, word in enumerate(words):
+        if word in flags and index + 1 &lt; len(words):
+            return words[index + 1]
+        flag, _, value = word.partition(&quot;=&quot;)
+        if flag in flags and value:
+            return value
+    return None
+
+
+def unwrap(words, shell, stripped, place):
+    &quot;&quot;&quot;(the words of the tool that runs, a reason) past every wrapper and
+    runner, recording the stripped prefix in `stripped`.
+
+    `npx &lt;tool&gt; ...` runs the tool; drop the runner and its own options so the
+    tool&#x27;s rule sees the tool&#x27;s arguments untouched, then any wrapper the
+    runner itself runs (`npx dotenv -e f -- prisma`). `npx -c &quot;&lt;shell&gt;&quot;` runs
+    its value as a command, so that string is judged on its own.&quot;&quot;&quot;
+    words = shell.lead(words, stripped)
+    while True:
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:], stripped)
+        width = runner_width(words, shell)
+        if width:
+            env_files(words[1:width], stripped)
+            words = words[width:]
+            while words and words[0].startswith(&quot;-&quot;):
+                if words[0] in RUNNER_CALL_FLAGS:
+                    for inner in shell.normalize(words[1] if len(words) &gt; 1 else &quot;&quot;):
+                        reason = rule_bash(inner, shell, place)
+                        if reason:
+                            return [], reason
+                    words = words[2:]
+                else:
+                    env_files(words[:2], stripped)
+                    words = words[2:] if words[0] in shell.RUNNER_VALUED else words[1:]
+            words = [unversioned(words[0])] + words[1:] if words else words
+            words = shell.lead(words, stripped)
+            continue
+        tool = node_tool(words, shell, stripped)
+        if tool:
+            words = shell.lead(tool, stripped)
+            continue
+        return words, None
+
+
+def review_state(here):
+    &quot;&quot;&quot;The push prompt&#x27;s line on critical-path files the push carries without a
+    covering review record, empty when none. It informs only: a failure to
+    compute it is named in the line and never changes the guard&#x27;s decision.&quot;&quot;&quot;
+    try:
+        spec = importlib.util.spec_from_file_location(&quot;owed&quot;, os.path.join(HERE, &quot;owed.py&quot;))
+        owed = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(owed)
+        return owed.push_line(here or os.getcwd())
+    except Exception as error:
+        return f&quot;The review state of the pushed commits could not be computed ({type(error).__name__}: {error}).&quot;
+
+
+def rule_bash(command, shell, place=None):
+    &quot;&quot;&quot;The reason to ask for one command. `place` locates it for the rules
+    that read files: {&quot;here&quot;, &quot;repo&quot;, &quot;remote&quot;, &quot;earlier&quot;, &quot;lost&quot;}, where
+    `earlier` holds the word lists of the command line&#x27;s segments before this
+    one and `lost` marks a `cd` the guard could not follow.&quot;&quot;&quot;
+    place = place or {&quot;here&quot;: &quot;&quot;, &quot;repo&quot;: &quot;&quot;, &quot;remote&quot;: &quot;&quot;, &quot;earlier&quot;: [], &quot;lost&quot;: False}
+    stripped = []
+    words, reason = unwrap(command.words, shell, stripped, place)
+    if reason or not words:
+        return reason
+    name, rest = shell.base(words[0]), words[1:]
+    # `eval &#x27;&lt;literal&gt;&#x27;` runs its literal as a command line; an eval of a
+    # computed string is the database rule&#x27;s concern for what follows it.
+    if name == &quot;eval&quot; and rest and not any(&quot;$&quot; in word or &quot;`&quot; in word for word in rest):
+        for inner in shell.normalize(&quot; &quot;.join(rest)):
+            reason = rule_bash(inner, shell, place)
+            if reason:
+                return reason
+        return None
+
+    if name == &quot;xargs&quot;:
+        # `xargs` runs its command with the piped words appended, so the command
+        # is judged as written: `echo 1 | xargs gh pr merge`.
+        index = 0
+        while index &lt; len(rest) and rest[index].startswith(&quot;-&quot;):
+            index += 2 if rest[index] in shell.XARGS_VALUED else 1
+        for inner in shell.normalize(&quot; &quot;.join(shlex.quote(word) for word in rest[index:])):
+            reason = rule_bash(inner, shell, place)
+            if reason:
+                return reason
+        return None
+    if name == &quot;git&quot;:
+        # git accepts global options (-C, -c, --git-dir) before the verb;
+        # git_verb in guard-destructive.py already knows how to skip them.
+        verb, after = shell.git_verb(words)
+        if verb == &quot;push&quot;:
+            letters, longs, _ = shell.parts(after)
+            if &quot;n&quot; in letters or &quot;--dry-run&quot; in longs:
+                return None
+            line = review_state(place[&quot;here&quot;])
+            return &quot;git push publishes commits to the remote.&quot; + (f&quot; {line}&quot; if line else &quot;&quot;)
+    if name == &quot;gh&quot;:
+        # `-R/--repo &lt;owner/repo&gt;` may come before the area: `gh -R o/r pr merge 1`.
+        area = rest
+        while area and area[0].startswith((&quot;-R&quot;, &quot;--repo&quot;)):
+            area = area[1:] if area[0] not in (&quot;-R&quot;, &quot;--repo&quot;) else area[2:]
+        if len(area) &gt;= 2 and area[0] in GH_MUTATING_AREAS and area[1] in GH_MUTATING_VERBS:
+            return f&quot;gh {area[0]} {area[1]} mutates GitHub state.&quot;
+        for phrase in GH_WRITE_PHRASES:
+            if tuple(area[:len(phrase)]) == phrase:
+                return f&quot;gh {&#x27; &#x27;.join(phrase)} mutates GitHub state.&quot;
+        if area and area[0] == &quot;api&quot;:
+            method = None
+            for index, word in enumerate(rest):
+                if word in (&quot;-X&quot;, &quot;--method&quot;) and index + 1 &lt; len(rest):
+                    method = rest[index + 1].upper()
+            writes = any(word in (&quot;-f&quot;, &quot;-F&quot;, &quot;--field&quot;, &quot;--raw-field&quot;, &quot;--input&quot;)
+                         for word in rest)
+            if (method and method not in READ_FLAGS_GH_API) or (method is None and writes):
+                return &quot;gh api with a write method mutates GitHub state.&quot;
+    if name in NPM_PUBLISHERS and rest and rest[0] in (&quot;publish&quot;, &quot;unpublish&quot;):
+        return f&quot;{name} {rest[0]} pushes to the package registry.&quot;
+    if name == &quot;yarn&quot; and rest[:1] == [&quot;npm&quot;] and rest[1:2] and rest[1] in (&quot;publish&quot;, &quot;unpublish&quot;):
+        return &quot;yarn npm publish pushes to the package registry.&quot;
+    if name == &quot;docker&quot; and rest and rest[0] == &quot;push&quot;:
+        return &quot;docker push publishes the image to the registry.&quot;
+    if name == &quot;vercel&quot;:
+        return vercel_reason(rest)
+    if name == &quot;gcloud&quot;:
+        return gcloud_reason(rest)
+    if name == &quot;aws&quot;:
+        return aws_reason(rest)
+    if name == &quot;firebase&quot;:
+        positional = positionals(rest, VALUE_FLAGS[&quot;firebase&quot;])
+        if positional and positional[0].split(&quot;:&quot;)[-1] in FIREBASE_WRITES:
+            return f&quot;firebase {positional[0]} writes to the hosted project.&quot;
+    if name == &quot;supabase&quot; and (reason := supabase_storage_reason(rest)):
+        return reason
+    if name in DATABASE_NAMES or (name.startswith(&quot;python&quot;) and rest[:1]
+                                  and shell.base(rest[0]) == &quot;manage.py&quot;):
+        reason = database_target().verdict(name, rest, stripped, place[&quot;earlier&quot;], place[&quot;here&quot;],
+                                           place[&quot;repo&quot;], place[&quot;remote&quot;], shell.base,
+                                           lost=place.get(&quot;lost&quot;, False))
+        if reason:
+            return reason
+    if (name, tuple(rest[:1])) in PLATFORM_KEYS and (reason := platform_reason(name, rest, shell, place)):
+        return reason
+    if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
+        # Longest phrase first, so a two-word verb is not shadowed by its noun.
+        positional = positionals(rest, VALUE_FLAGS.get(name, ()))
+        phrases = [&quot; &quot;.join(positional[:width]) for width in (2, 1) if positional[:width]]
+        for phrase in phrases:
+            if phrase in DEPLOY_VERBS.get(name, set()):
+                return f&quot;{name} {phrase} deploys or mutates the hosted project.&quot;
+        verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
+        for phrase in phrases:
+            if phrase in verbs and any(word.split(&quot;=&quot;)[0] in flags for word in rest):
+                return f&quot;{name} {phrase} against the linked project mutates the hosted database.&quot;
+    return None
+
+
+def verdict(tool_name, tool_input, outward=(), rehearsals=(), cwd=None, repo=&quot;&quot;):
+    &quot;&quot;&quot;The reason to ask, or None. `outward` is the repository&#x27;s script list;
+    `rehearsals` names the entries whose --dry-run really rehearses; `cwd` is
+    the directory the command starts in, when the host names it; `repo` the
+    repository root, outside which no env file is read.&quot;&quot;&quot;
+    if tool_name in (&quot;Bash&quot;, &quot;PowerShell&quot;, &quot;Monitor&quot;):
+        text = tool_input.get(&quot;command&quot;)
+        if not isinstance(text, str) or not text.strip():
+            return None
+        # Only a command naming a gated tool is worth the parser; a parser
+        # fault must not turn every `ls` into a permission prompt.
+        gated = GATED_NAMES | {os.path.basename(entry) for entry in outward}
+        if gated.isdisjoint(re.findall(r&quot;[A-Za-z0-9_.-]+&quot;, text)):
+            return None
+        return judge(text, outward, load_shell_parser(), rehearsals, cwd or &quot;&quot;, repo=repo or &quot;&quot;)
+    if tool_name == &quot;Artifact&quot;:
+        action = tool_input.get(&quot;action&quot;)
+        if action in ARTIFACT_READ_ACTIONS:
+            return None
+        if action in ARTIFACT_REASONS:
+            return ARTIFACT_REASONS[action]
+        if action is None or action == &quot;publish&quot;:
+            return &quot;Artifact publish puts this page on a claude.ai URL.&quot;
+        # The prompt is the whole decision surface, so an unrecognized action
+        # must name itself rather than borrow the publish wording.
+        return (f&quot;Artifact {action} is not a known read-only action and may &quot;
+                &quot;change the published page.&quot;)
+    return None
+
+
+SHELLS = {&quot;sh&quot;, &quot;bash&quot;, &quot;zsh&quot;, &quot;dash&quot;, &quot;ksh&quot;}
+
+
+def judge(text, outward, shell, rehearsals, here, depth=0, remote=False, repo=&quot;&quot;, earlier=()):
+    &quot;&quot;&quot;The reason to ask for a command line run from directory `here` (empty
+    when unknown), following its `cd`s, the package.json scripts it runs, and
+    the command it runs over ssh. `remote` marks a line the far host runs,
+    whose package.json scripts and env files are that host&#x27;s and unreadable
+    from here. `earlier` carries the segments that ran before this line, as a
+    package.json script inherits what its caller exported.&quot;&quot;&quot;
+    earlier, lost = list(earlier), False
+    commands = shell.normalize(text)
+    # A `cd` inside `( … )` or a nested `sh -c` body ends with it, but the
+    # segments arrive flat, so on such a line no `cd` can be followed.
+    scoped = &quot;(&quot; in text or any(len(c.words) &gt; 1 and os.path.basename(c.words[0]) in SHELLS
+                                and c.words[1].startswith(&quot;-&quot;) and &quot;c&quot; in c.words[1] for c in commands)
+    for command in commands:
+        place = {&quot;here&quot;: here, &quot;repo&quot;: repo, &quot;remote&quot;: remote, &quot;earlier&quot;: earlier, &quot;lost&quot;: lost}
+        reason = rule_bash(command, shell, place)
+        if reason:
+            return reason
+        words = shell.lead(command.words)
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:])
+        if not remote and os.path.isabs(here) and depth &lt; 3:
+            reason = rule_script(words, outward, shell, rehearsals, here, depth, repo, earlier)
+            if reason:
+                return reason
+        earlier.append(command.words)
+        far = shell.ssh_remote(command.words)
+        if far and depth &lt; 2:
+            # The far host&#x27;s working directory is its own; nothing here locates it.
+            host = shell.ssh_target(command.words) or &quot;the remote host&quot;
+            reason = judge(far, outward, shell, rehearsals, &quot;&quot;, depth + 1, remote=host, repo=repo)
+        elif words[:1] in ([&quot;cd&quot;], [&quot;pushd&quot;]) and len(words) &gt; 1 and not scoped \
+                and not words[1].startswith(&quot;-&quot;) and not any(c in words[1] for c in &quot;$`*?[&quot;):
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
+        elif words[:1] in ([&quot;cd&quot;], [&quot;pushd&quot;], [&quot;popd&quot;]):
+            # `cd $DIR`, `cd -`, `cd -P x`, a glob, a bare `cd`, `popd` and a
+            # `cd` in a subshell go where the guard cannot follow, so no env
+            # file it would read there is known.
+            lost = True
+        elif outward:
+            reason = rule_outward(words, outward, shell, rehearsals, place)
+        if reason:
+            return reason
+    return None
+
+
+SCRIPT_RUN_VERBS = {&quot;run&quot;, &quot;run-script&quot;, &quot;rum&quot;, &quot;urn&quot;}
+# npm runs these scripts by their own name; the other managers run any script
+# named in place of a subcommand.
+NPM_SCRIPT_VERBS = {&quot;start&quot;, &quot;test&quot;, &quot;stop&quot;, &quot;restart&quot;}
+
+
+def script_call(words, shell):
+    &quot;&quot;&quot;(manager, script name, arguments) when the words run a package.json
+    script, else None. The arguments are what the manager appends to it.&quot;&quot;&quot;
+    manager = shell.base(words[0]) if words else &quot;&quot;
+    if manager not in NPM_PUBLISHERS:
+        return None
+    rest = words[1:]
+    while rest and rest[0].startswith(&quot;-&quot;):
+        rest = rest[1:]
+    if rest[:1] and rest[0] in SCRIPT_RUN_VERBS:
+        rest = rest[1:]
+    elif not rest or (manager == &quot;npm&quot; and rest[0] not in NPM_SCRIPT_VERBS):
+        return None
+    if not rest:
+        return None
+    args = rest[1:]
+    return manager, rest[0], args[1:] if args[:1] == [&quot;--&quot;] else args
+
+
+def package_scripts(here):
+    &quot;&quot;&quot;(directory, scripts) of the nearest package.json at or above `here`,
+    the one a package manager reads; (None, {}) when there is none.&quot;&quot;&quot;
+    directory = here
+    while True:
+        path = os.path.join(directory, &quot;package.json&quot;)
+        if os.path.isfile(path):
+            with open(path, encoding=&quot;utf-8-sig&quot;) as handle:
+                document = json.load(handle)
+            scripts = document.get(&quot;scripts&quot;) if isinstance(document, dict) else None
+            return directory, scripts if isinstance(scripts, dict) else {}
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return None, {}
+        directory = parent
+
+
+def rule_script(words, outward, shell, rehearsals, here, depth, repo=&quot;&quot;, earlier=()):
+    &quot;&quot;&quot;Judge the command a package.json script runs, with the arguments typed
+    after its name appended as the manager appends them, and its pre- and
+    post- hooks. Whether a manager runs those depends on its version and
+    settings, which this guard cannot see, so they are read for every one.&quot;&quot;&quot;
+    call = script_call(words, shell)
+    if not call:
+        return None
+    manager, name, args = call
+    # The repository&#x27;s declaration that this alias rehearses covers its body.
+    if name in rehearsals and rehearsal(args):
+        return None
+    root, scripts = package_scripts(here)
+    for script in (name, f&quot;pre{name}&quot;, f&quot;post{name}&quot;):
+        body = scripts.get(script)
+        if not isinstance(body, str):
+            continue
+        line = body + &quot;&quot;.join(&quot; &quot; + shlex.quote(arg) for arg in args) if script == name else body
+        reason = judge(line, outward, shell, rehearsals, root, depth + 1, repo=repo, earlier=earlier)
+        if reason:
+            return f&quot;The package.json script {script} runs `{body}`: {reason}&quot;
+    return None
+
+
+_config = []
+
+
+def config_module():
+    &quot;&quot;&quot;config.py, loaded once per process so each file it reads is parsed and
+    reported once; None when it is not beside this file — the toggle and the
+    script list must never be the reason the guard cannot answer.&quot;&quot;&quot;
+    if not _config:
+        path = os.path.join(HERE, &quot;config.py&quot;)
+        module = None
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location(&quot;colloid_config&quot;, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        _config.append(module)
+    return _config[0]
+
+
+def read_setting(repo, key, default):
+    &quot;&quot;&quot;A layered policy.json/config.json value, or the default without config.py.&quot;&quot;&quot;
+    module = config_module()
+    if module is None:
+        return default
+    return module.read(module.load(os.path.join(repo, &quot;.agents&quot;, &quot;config.json&quot;)), key, default)
+
+
+def unparsed(repo):
+    &quot;&quot;&quot;The repository-relative policy and config files that do not parse.&quot;&quot;&quot;
+    module = config_module()
+    if module is None:
+        return []
+    return [os.path.relpath(path, repo)
+            for path in module.unparsed(os.path.join(repo, &quot;.agents&quot;, &quot;config.json&quot;))]
+
+
+def enabled(repo):
+    return read_setting(repo, &quot;hooks.guard_publish.enabled&quot;, True)
+
+
+def outward_commands(repo):
+    &quot;&quot;&quot;Scripts this repository names as writing to a hosted system.
+
+    `hooks.guard_publish.outward_commands` in the tracked `.agents/policy.json`
+    (or the operator&#x27;s `config.json`): repository-relative paths such as
+    `scripts/deploy.sh`. A deploy that goes through a script never shows the
+    guard a `vercel` or `gh` word, so the repository has to say which scripts
+    those are. Matched by path suffix, so `./scripts/deploy.sh`,
+    `bash scripts/deploy.sh`, and an absolute path all count.
+    &quot;&quot;&quot;
+    # The two files are read separately and joined: the tracked list is a
+    # floor an operator&#x27;s config.json may extend and never shrink. Through the
+    # ordinary layering a config.json naming one local script would replace
+    # the repository&#x27;s whole list, and every deploy it named would run silent.
+    agents = os.path.join(repo, &quot;.agents&quot;)
+    module = config_module()
+    if module is None:
+        return []
+    listed = []
+    for name in (&quot;policy.json&quot;, &quot;config.json&quot;):
+        document = module.read_json(os.path.join(agents, name))
+        entries = module.read(document, &quot;hooks.guard_publish.outward_commands&quot;, [])
+        if isinstance(entries, list):
+            listed.extend(entries)
+    return cleaned_entries(listed)
+
+
+def dry_run_commands(repo):
+    &quot;&quot;&quot;Listed scripts whose `--dry-run` rehearses instead of writing.
+
+    `hooks.guard_publish.dry_run_commands`, read from the tracked
+    `.agents/policy.json` alone: a script that ignores its arguments deploys
+    with the flag appended, so the exemption is a claim about the script that
+    the repository makes once, in review. An operator&#x27;s config.json may add
+    gates, never this exemption.
+    &quot;&quot;&quot;
+    module = config_module()
+    if module is None:
+        return []
+    document = module.read_json(os.path.join(repo, &quot;.agents&quot;, &quot;policy.json&quot;))
+    entries = module.read(document, &quot;hooks.guard_publish.dry_run_commands&quot;, [])
+    return cleaned_entries(entries if isinstance(entries, list) else [])
+
+
+def cleaned_entries(listed):
+    seen = []
+    for entry in listed:
+        if isinstance(entry, str) and entry.strip():
+            cleaned = entry.strip().lstrip(&quot;./&quot;)
+            if cleaned not in seen:
+                seen.append(cleaned)
+    return seen
+
+
+# A script run through one of these is named by the first operand, not the
+# command word. Interpreters with major-version suffixes (python3.12) match by
+# prefix below.
+#
+# The JavaScript package managers belong here for two distinct reasons, and a
+# list carrying only `node` misses both: they run a file directly
+# (`bun x.mjs`), and they run it behind a manifest alias (`npm run deploy`).
+# The alias never resolves to a path, so a repository whose scripts are the
+# documented way in must also list the alias itself in `outward_commands`.
+INTERPRETERS = {
+    &quot;bash&quot;, &quot;sh&quot;, &quot;zsh&quot;, &quot;dash&quot;, &quot;source&quot;, &quot;.&quot;, &quot;python&quot;, &quot;python3&quot;, &quot;node&quot;, &quot;uv&quot;,
+    &quot;bun&quot;, &quot;bunx&quot;, &quot;npm&quot;, &quot;npx&quot;, &quot;pnpm&quot;, &quot;pnpx&quot;, &quot;yarn&quot;, &quot;deno&quot;,
+    &quot;tsx&quot;, &quot;ts-node&quot;, &quot;ts-node-transpile-only&quot;,
 }
 
-if ! payload=&quot;$(cat)&quot;; then
-  ask_failure &quot;input read failed; the guard cannot decide safely.&quot; \
-    &quot;The publish guard could not read the hook payload.&quot;
-fi
 
-if [[ ! -f &quot;$decide&quot; ]]; then
-  ask_failure &quot;$decide is missing; the guard cannot run.&quot; \
-    &quot;The publish guard decision library is missing.&quot;
-fi
+def outward_targets(words, shell):
+    &quot;&quot;&quot;Everything a command might be running: its command word, or an
+    interpreter&#x27;s operands.
 
-if output=&quot;$(python3 &quot;$decide&quot; &quot;$repo&quot; &lt;&lt;&lt;&quot;$payload&quot;)&quot;; then
-  if [[ -n &quot;$output&quot; ]]; then
-    printf &#x27;%s\n&#x27; &quot;$output&quot;
-  fi
-  exit 0
-else
-  status=$?
-  ask_failure &quot;evaluator exited $status; the guard cannot decide safely.&quot; \
-    &quot;The publish guard evaluator failed.&quot;
-fi
+    A runner does not hold the script in a fixed position -- `bun x.mjs` puts it
+    first, `npx tsx x.mjs` puts a tool there instead, and `npm run deploy` names
+    a manifest alias that is not a path at all. Returning every operand lets the
+    caller match against the listed entries rather than guess the position;
+    naming each intermediate tool instead would need a list that grows forever.
+
+    A non-runner yields only its command word, which is what keeps `cat` and
+    `grep` quiet: their operands are never inspected.
+    &quot;&quot;&quot;
+    if not words:
+        return []
+    name = shell.base(words[0])
+    if words[0] in INTERPRETERS or name in INTERPRETERS or name.startswith(&quot;python3.&quot;):
+        targets = [w for w in words[1:] if not w.startswith(&quot;-&quot;) and w != &quot;run&quot;]
+        if runner_width(words, shell):
+            targets += [unversioned(t) for t in targets if unversioned(t) != t]
+        return targets
+    return [words[0]]
+
+
+SCRIPT_FILE = re.compile(r&quot;\.(?:py|mjs|cjs|js|mts|cts|ts|sh|bash|zsh|rb)$&quot;)
+
+
+def repository_script(word, repo):
+    &quot;&quot;&quot;True when a word names a script file in the repository: a relative path
+    or a script file name, or an absolute path inside the repository.&quot;&quot;&quot;
+    path = os.path.expanduser(word)
+    if os.path.isabs(path):
+        return path.startswith(repo.rstrip(&quot;/&quot;) + &quot;/&quot;)
+    return &quot;/&quot; in path or bool(SCRIPT_FILE.search(path))
+
+
+def could_run_outward(text, shell, repo):
+    &quot;&quot;&quot;True when a command line could run a script the repository lists as
+    outward, with no list to check it against: a package-manager script run, an
+    interpreter running a repository script, or a repository script run by path.&quot;&quot;&quot;
+    for command in shell.normalize(text):
+        words = shell.lead(command.words)
+        while words and words[0] in shell.CONTROL_KEYWORDS:
+            words = shell.lead(words[1:])
+        if not words:
+            continue
+        if script_call(words, shell):
+            return True
+        name = shell.base(words[0])
+        if words[0] in INTERPRETERS or name in INTERPRETERS or name.startswith(&quot;python3.&quot;):
+            if any(repository_script(target, repo) for target in outward_targets(words, shell)):
+                return True
+        elif &quot;/&quot; in words[0] and repository_script(words[0], repo):
+            return True
+    return False
+
+
+# The boolean vocabulary a dry-run flag&#x27;s value is read in. A value outside
+# both sets after `=` may mean off to the script, so it is a live run.
+SWITCHED_ON = {&quot;true&quot;, &quot;t&quot;, &quot;1&quot;, &quot;yes&quot;, &quot;y&quot;, &quot;on&quot;}
+SWITCHED_OFF = {&quot;false&quot;, &quot;f&quot;, &quot;0&quot;, &quot;no&quot;, &quot;n&quot;, &quot;off&quot;, &quot;&quot;, &quot;disabled&quot;}
+
+
+def rehearsal(args):
+    &quot;&quot;&quot;True when the arguments ask for a dry run and every occurrence is on.
+
+    A script reads the last occurrence, so any one that is not on may win.
+    `--dry-run=&lt;v&gt;` is on only for a value in SWITCHED_ON. A separate word
+    after a bare `--dry-run` is its value only when it is in the boolean
+    vocabulary; any other word (`--dry-run production`) is an operand, so the
+    flag was bare and on. A script that takes such a word as the flag&#x27;s value
+    is one the repository must not declare in dry_run_commands.
+    &quot;&quot;&quot;
+    values = []
+    for index, word in enumerate(args):
+        if word == &quot;--dry-run&quot;:
+            following = args[index + 1].strip().lower() if index + 1 &lt; len(args) else None
+            values.append(following not in SWITCHED_OFF)
+        elif word.startswith(&quot;--dry-run=&quot;):
+            values.append(word.split(&quot;=&quot;, 1)[1].strip().lower() in SWITCHED_ON)
+    return bool(values) and all(values)
+
+
+def rule_outward(words, outward, shell, rehearsals, place):
+    &quot;&quot;&quot;`place[&quot;here&quot;]` is the directory the command runs in, as far as the
+    command&#x27;s own `cd`s and the session&#x27;s working directory say; empty when
+    unknown. `place[&quot;lost&quot;]` marks a `cd` the guard could not follow, after
+    which `here` is stale.&quot;&quot;&quot;
+    here, lost = place[&quot;here&quot;], place[&quot;lost&quot;]
+    for target in outward_targets(words, shell):
+        normalized = target.lstrip(&quot;./&quot;)
+        located = os.path.normpath(os.path.join(here, target)) if here else &quot;&quot;
+        # A relative path typed after a lost `cd` may sit under any folder, so
+        # it matches a listed path ending in it; leading `.` and `..` parts say
+        # nothing about which. An absolute path needs no folder.
+        tail = &quot;&quot; if not lost or os.path.isabs(target) else \
+            &quot;/&quot;.join(part for part in target.split(&quot;/&quot;) if part not in (&quot;.&quot;, &quot;..&quot;))
+        # The listed path, or any path ending in it, as typed or as located
+        # from `here`: a script that writes to production is worth an ask
+        # under whatever path it was reached by. A bare file name alone
+        # proves nothing — `.agents/provision.sh` is not `deploy/provision.sh`.
+        # Reads never get here — the command word is `cat` or `grep`.
+        matched = [entry for entry in outward
+                   if any(path == entry or path.endswith(&quot;/&quot; + entry) for path in (normalized, located))
+                   or (tail and (entry == tail or entry.endswith(&quot;/&quot; + tail)))]
+        if not matched:
+            continue
+        # Only --dry-run on a script declared to honour it rehearses, and only
+        # when every listed script the target could be is declared.
+        # `-n` is git&#x27;s convention, not these scripts&#x27;.
+        live = [entry for entry in matched if entry not in rehearsals]
+        if not live and rehearsal(words[1:]):
+            continue
+        return f&quot;{(live or matched)[0]} is listed by this repository as writing to a hosted system.&quot;
+    return None
+
+
+# Modes in which the host shows a permission prompt to a human. Anything else
+# denies: a mode this guard does not know, or a payload without one, fails loud
+# rather than running a push nobody saw.
+PROMPTING_MODES = {&quot;default&quot;, &quot;acceptEdits&quot;, &quot;plan&quot;}
+
+APPROVAL = (&quot; AGENTS.md §External actions: outward mutations need in-session &quot;
+            &quot;user approval.&quot;)
+UNPROMPTED = (
+    &quot; This session&#x27;s permission mode ({mode}) shows the user no approval &quot;
+    &quot;prompt, so the call is denied instead of asked. Do not retry &quot;
+    &quot;or work around it. Report what you want to run and why, then stop: the &quot;
+    &quot;user approves either by switching to default mode (Shift+Tab) and &quot;
+    &quot;answering the prompt when you rerun the command, or by running it &quot;
+    &quot;themselves with the ! prefix.&quot;)
+
+
+def emit(reason, mode):
+    if mode in PROMPTING_MODES:
+        decision, tail = &quot;ask&quot;, APPROVAL
+    else:
+        decision, tail = &quot;deny&quot;, APPROVAL + UNPROMPTED.format(mode=mode or &quot;unnamed&quot;)
+    print(json.dumps({&quot;hookSpecificOutput&quot;: {
+        &quot;hookEventName&quot;: &quot;PreToolUse&quot;,
+        &quot;permissionDecision&quot;: decision,
+        &quot;permissionDecisionReason&quot;: reason + tail,
+    }}))
+
+
+# The publish-approval mod (.agents/claude/mods/publish-approval) asks the user
+# in a dialog that reaches them in every mode, then writes this token for the
+# one call they approved. The window bounds a token whose call some other hook
+# denied before this guard read it. The token is a plain file: a process the
+# model started earlier can read a pending call&#x27;s id from the transcript and
+# write one, which is within this guard&#x27;s threat model (an honest mistake, not
+# an adversary with a shell) and recorded as debt `publish-token-forgeable`.
+APPROVAL_TOKEN = &quot;.publish-approved-&quot;
+APPROVAL_WINDOW_SECONDS = 120
+TOOL_USE_ID = re.compile(r&quot;[A-Za-z0-9_-]{1,128}&quot;)
+
+
+def approved_in_dialog(repo, tool_use_id, now):
+    &quot;&quot;&quot;Consume the dialog&#x27;s token for this call: true once, while it is fresh.
+    Expired tokens of other calls are removed on the way.&quot;&quot;&quot;
+    directory = os.path.join(repo, &quot;.agents&quot;)
+    try:
+        names = [name for name in os.listdir(directory) if name.startswith(APPROVAL_TOKEN)]
+    except FileNotFoundError:
+        return False
+    wanted = (APPROVAL_TOKEN + tool_use_id
+              if isinstance(tool_use_id, str) and TOOL_USE_ID.fullmatch(tool_use_id) else None)
+    approved = False
+    for name in names:
+        path = os.path.join(directory, name)
+        try:
+            fresh = now - os.path.getmtime(path) &lt;= APPROVAL_WINDOW_SECONDS
+            if name != wanted and fresh:
+                continue
+            os.remove(path)
+        except FileNotFoundError:
+            continue                   # another hook consumed or pruned it first
+        except OSError as error:
+            print(f&quot;guard-publish: cannot read or remove {path} ({error}); it approves nothing&quot;,
+                  file=sys.stderr)
+            continue
+        approved = approved or (name == wanted and fresh)
+    return approved
+
+
+def allow(reason):
+    print(json.dumps({&quot;hookSpecificOutput&quot;: {
+        &quot;hookEventName&quot;: &quot;PreToolUse&quot;,
+        &quot;permissionDecision&quot;: &quot;allow&quot;,
+        &quot;permissionDecisionReason&quot;: reason,
+    }}))
+
+
+def refuse(reason):
+    &quot;&quot;&quot;Deny whatever the mode: the remedy is the agent&#x27;s, not the user&#x27;s.&quot;&quot;&quot;
+    print(json.dumps({&quot;hookSpecificOutput&quot;: {
+        &quot;hookEventName&quot;: &quot;PreToolUse&quot;,
+        &quot;permissionDecision&quot;: &quot;deny&quot;,
+        &quot;permissionDecisionReason&quot;: reason,
+    }}))
+
+
+def database_target():
+    &quot;&quot;&quot;database-target.py, loaded only for a command naming a migration tool.&quot;&quot;&quot;
+    spec = importlib.util.spec_from_file_location(&quot;database_target&quot;, os.path.join(HERE, &quot;database-target.py&quot;))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def hosted_script(tool_name, tool_input, project, cwd, repo, rehearsals=()):
+    &quot;&quot;&quot;hosted-scripts.py&#x27;s verdict for a shell command, or None. A committed
+    script rehearses on the same terms as a listed one: declared in
+    `rehearsals`, relative to `repo`, and run with a dry run switched on.&quot;&quot;&quot;
+    command = tool_input.get(&quot;command&quot;)
+    if tool_name not in (&quot;Bash&quot;, &quot;PowerShell&quot;, &quot;Monitor&quot;) or not isinstance(command, str):
+        return None
+    # Only a command naming a script file or an API host needs the parser.
+    if not re.search(r&quot;\.(?:py|mjs|cjs|js|mts|ts|sh|bash|zsh|rb)\b|\bapi\.|/auth/v1/adm[i]n&quot;, command):
+        return None
+    spec = importlib.util.spec_from_file_location(&quot;hosted_scripts&quot;, os.path.join(HERE, &quot;hosted-scripts.py&quot;))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    declared = {os.path.realpath(os.path.join(repo, entry)) for entry in rehearsals}
+    return module.verdict(command, project, load_shell_parser(), cwd,
+                          lambda path, args: path in declared and rehearsal(args))
+
+
+def main():
+    # --force asks for the verdict whatever the toggle says, for a caller that
+    # runs the command with no hook in front of it: the workloop controller
+    # screening a --verify command it will later execute unattended. See the
+    # same flag on guard-destructive.py.
+    argv = [arg for arg in sys.argv[1:] if arg != &quot;--force&quot;]
+    force = len(argv) != len(sys.argv) - 1
+    repo = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+    if not force and not enabled(repo):
+        return 0
+    # A payload the guard cannot read carries no mode, and the visible signal
+    # for a broken guard is the prompt, so these two paths ask.
+    try:
+        payload = json.loads(sys.stdin.read() or &quot;{}&quot;)
+    except json.JSONDecodeError:
+        emit(&quot;The publish guard could not parse the hook payload.&quot;, &quot;default&quot;)
+        return 0
+    if not isinstance(payload, dict):
+        emit(&quot;The publish guard received an invalid hook payload.&quot;, &quot;default&quot;)
+        return 0
+    mode = payload.get(&quot;permission_mode&quot;)
+    mode = mode if isinstance(mode, str) else &quot;&quot;
+    tool_input = payload.get(&quot;tool_input&quot;)
+    tool_name = payload.get(&quot;tool_name&quot;)
+    if not isinstance(tool_name, str) or not tool_name or not isinstance(tool_input, dict):
+        emit(&quot;The publish guard received an incomplete hook payload.&quot;, mode)
+        return 0
+    try:
+        project = payload.get(&quot;project_dir&quot;)
+        cwd = payload.get(&quot;cwd&quot;)
+        rehearsals = dry_run_commands(repo)
+        hosted = hosted_script(tool_name, tool_input, project if isinstance(project, str) and project else repo,
+                               cwd if isinstance(cwd, str) and cwd else None, repo, rehearsals)
+        if hosted and hosted[0] == &quot;deny&quot;:
+            refuse(hosted[1])
+            return 0
+        start = cwd if isinstance(cwd, str) and cwd else project if isinstance(project, str) and project else repo
+        reason = hosted[1] if hosted else verdict(tool_name, tool_input, outward_commands(repo), rehearsals, start, repo)
+        broken = unparsed(repo)
+        command = tool_input.get(&quot;command&quot;)
+        if broken and tool_name in (&quot;Bash&quot;, &quot;PowerShell&quot;, &quot;Monitor&quot;) and isinstance(command, str):
+            if not reason and could_run_outward(command, load_shell_parser(), repo):
+                reason = &quot;This command could run a script the repository lists as outward.&quot;
+            if reason:
+                names = &quot; and &quot;.join(broken)
+                reason += (f&quot; {names} does not parse, so the guard cannot read which scripts &quot;
+                           f&quot;are outward and asks on every command that could run one. &quot;
+                           f&quot;Fix the JSON in {names} to restore the list.&quot;)
+    except Exception:
+        emit(&quot;The publish guard could not evaluate this tool call.&quot;, mode)
+        return 0
+    if not reason:
+        return 0
+    # Only a rule&#x27;s ask is answerable in the dialog. The hosted-write refusal
+    # above and the could-not-evaluate paths never read a token.
+    # debt: publish-token-forgeable -- with the mod switched off, no token is read.
+    if (read_setting(repo, &quot;hooks.publish_approval.enabled&quot;, True)
+            and approved_in_dialog(repo, payload.get(&quot;tool_use_id&quot;), time.time())):
+        allow(reason + &quot; The user approved this call in the publish-approval dialog.&quot;)
+        return 0
+    emit(reason, mode)
+    return 0
+
+
+if __name__ == &quot;__main__&quot;:
+    sys.exit(main())
 </code></pre></details>
             </article>
             <article class="hook" data-t="trail">
@@ -6980,7 +8070,7 @@ exit 0
         </article>
         <article class="card idea">
           <h3>Triggers, not checklists</h3>
-          <p>On Codex and Kimi the wrap gate asks <b>one question naming the checklist files</b>; the model reads them only if the user opts in. A skipped wrap costs nothing — an inline checklist would cost the full wall of text every turn, used or not. On Claude there is no question: the gate writes the owed flags and one status line.</p>
+          <p>On Codex and Kimi the wrap gate asks <b>one question naming the checklist files</b>; the model reads them only if the user opts in. A skipped wrap costs nothing — an inline checklist would cost the full wall of text every turn, used or not. On Claude there is no question: the gate sends the owed flags to the status strip and one message line, only when the flags changed.</p>
           <div class="which">session-wrap → diff-wrap.md · report-*.md</div>
         </article>
         <article class="card idea">
@@ -10311,7 +11401,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
           Cell / Protocol / Wrap labels below are grouping, not fields from the files.</p>
       </div>
       <div class="grid">
-        <article class="card"><div class="kicker">Mechanical</div><h3>workloop.py</h3><p>The controller behind the workloop skill: one command line over durable run state. <code>init</code> a run, <code>add-lane</code> for each writer, then <code>claim</code>, <code>submit</code>, <code>review</code>, <code>qa</code>, <code>check</code>, <code>integrate</code> and <code>teardown</code>. QA is recorded against the lane tip it ran on, so a later commit makes <code>check</code> report <code>qa:stale</code>; <code>check</code> runs the run&#x27;s composed test once.</p>
+        <article class="card"><div class="kicker">Mechanical</div><h3>workloop.py</h3><p>The controller behind the workloop skill: one command line over durable run state. <code>init</code> a run, <code>add-lane</code> for each writer, then <code>claim</code>, <code>submit</code>, <code>review</code>, <code>qa</code>, <code>check</code>, <code>integrate</code> and <code>teardown</code>. QA is recorded against the lane tips it ran on; a lane&#x27;s tip moves only on <code>submit</code>, so a later commit and resubmit makes <code>check</code> report <code>qa:stale</code>. For a one-writer run <code>check</code> runs the composed test; for parallel lanes <code>integrate</code> does.</p>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Durable, provider-neutral coordination for bounded parallel agent work.
 
@@ -10900,7 +11990,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 103 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -10920,6 +12010,7 @@ python3 .agents/lint-breadcrumbs.py
 python3 .agents/lint-decisions.py
 python3 .agents/check-test-isolation.py
 .agents/test-owed.sh
+.agents/test-suite-runner.sh
 .agents/test-session-start.sh
 .agents/test-done-prime.sh
 .agents/test-workloop.sh
@@ -13461,7 +14552,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 128 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 134 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -13589,6 +14680,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — the ledger&#x27;s Scrapling session rows (`page_of` in `hooks/lib/sources-ledger.py`) accept four limits. The page is the address of the session&#x27;s last `browser_fetch`, so a click or an evaluate that navigates leaves it stale. An address keeps its query string, credentials in it included (userinfo is dropped). A call that fails (PostToolUseFailure) leaves no row, so a `browser_actions` that fails part-way with its effects kept is unrecorded. The matcher also runs the hook on every server&#x27;s `browser_evaluate`, Playwright&#x27;s included, which costs about 70 ms a call and writes nothing. Acceptable: the row&#x27;s job is a trail of addresses read, the transcript holds the full call, and none of the four writes a wrong address.
 - **Trigger** — an audit that needs the page after a navigating click, a credential seen in a ledger query string, a failed action sequence that must be traced, or Scrapling gaining a navigating action.
 - **Rework** — record the page from the call&#x27;s result in `source_row`, strip known credential parameters in `clean_url`, add a PostToolUseFailure trigger to the three hosts&#x27; hook files and the matcher, and key the matcher on the Scrapling server alone; about 40 lines and a test row each.
+
+### showcase-prose-unchecked
+
+- **Condition** — `demo/check-inventory.py` keeps a card for every hook and skill and the lede&#x27;s counts true, and `demo/embed-src.py` keeps each source panel current; nothing compares a card&#x27;s hand-written sentence with the code it describes. The 2026-11-13 audit found 40 false statements accumulated since August, and its review five more. Acceptable: a reader can open each card&#x27;s source panel beside its sentence.
+- **Trigger** — an audit that again finds a card contradicting its source, or an operator acting on a claim the code does not make.
+- **Rework** — generate each card&#x27;s description from a summary line its source carries (a docstring&#x27;s first sentence), or give each card a checked quote; about 80 lines in `check-inventory.py` and a convention for the sources.
 </code></pre></details>
             </article>
         <article class="card">
@@ -13734,7 +14831,7 @@ task in `breadcrumbs.md`.
     <div class="wrap">
       <div class="sec-head">
         <div class="eyebrow"><span class="n">07</span>Wiring &amp; config</div>
-        <h2>One set of scripts. Five hosts. Every behavior a switch.</h2>
+        <h2>One set of scripts. Three hosts run the hooks. Every behavior a switch.</h2>
         <p>The adapter is the only per-engine piece — it normalizes each host's hook I/O into the shared policy
           scripts. Everything they enforce is tunable from committed defaults and one ignored per-operator file.</p>
       </div>
@@ -14581,7 +15678,7 @@ if __name__ == &quot;__main__&quot;:
         <h2>There's a whole layer we're keeping off this page.</h2>
         <p>The <strong>genome</strong> and <strong>mutagen</strong> layer — sortition personalities, the conserved
           strand, and the framing mutagen that mutates a task before a blind fan-out — is the creative half of
-          Colloid Swarm, excluded here on purpose. It has its own runnable demo: <code>bash demo/demo.sh</code>.
+          Colloid Swarm, excluded here on purpose.
           One <code>SubagentStart</code> hook, <code>genome-inject</code>, belongs to that layer; its card above shows the hook alone, not the genomes it stamps.</p>
       </div>
     </div>
