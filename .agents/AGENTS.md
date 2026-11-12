@@ -125,6 +125,7 @@ python3 .agents/test-browser-sync.py
 .agents/test-scrapling-launcher.sh
 python3 .agents/test-proxy-names.py
 .agents/test-scrapling-proxy.sh
+.agents/test-proxy-file-guard.sh
 # colloid-only
 python3 .agents/lint-contract.py
 python3 .agents/eval/test-cell-time.py

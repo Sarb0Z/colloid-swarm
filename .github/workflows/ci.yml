@@ -188,6 +188,9 @@ jobs:
             echo '::notice title=Scrapling proxy check skipped::The named-proxy rows did not run; the SKIP line in the log says why.'
           fi
 
+      - name: Proxy env-file guard
+        run: .agents/test-proxy-file-guard.sh
+
       - name: Root contract size
         run: python3 .agents/lint-contract.py
 
