@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """Fail when `check-all.sh` and `.github/workflows/ci.yml` run different checks.
 
-Usage: lint-suite.py [--script PATH] [--ci PATH]
+Usage: python3 .agents/lint-suite.py [--script PATH] [--ci PATH] [--root DIR]
 
 The suite script is the list a session runs (`suite.sh` runs it as
 `owed.suite`); CI is the list that gates a merge. A check in one and not the
@@ -20,15 +19,18 @@ An entry that no longer describes a difference is itself a failure.
 The same list must also reach every test file. Every `test-*` file under
 `.agents/` that git tracks or could track (ignored files, and folders named
 node_modules, worktrees and mcp-servers, are not walked) must be a listed check
-or be named on a non-comment line of a file that is reached, however deep. A
-test nobody runs passes nothing. UNLISTED_TESTS holds the tests that are meant
+or be called by a file that is reached, however deep. A test nobody runs passes
+nothing. A call is any non-comment line of a reached file that names the test's
+file name: a string, an echo, or a call behind a condition counts, since the
+match is on text and nothing runs. A call built from a variable is not seen.
+The lint's own file is never read as a caller, since its UNLISTED_TESTS line
+names tests. Two test files sharing a name are both reached when either is
+named; none share a name today. UNLISTED_TESTS holds the tests that are meant
 to be unreached, each with its reason; an entry whose test is reached or gone
-fails. A name match is by file name, so two test files sharing a name are both
-reached when either is named; none share a name today. A call built from a
-variable is not seen, and neither is a call behind a condition.
+fails.
 
-The tree check runs on the real tree when no `--script` is given, and on the
-tree named by `--root` otherwise.
+The tree check runs on the real tree when `--script` is the default
+`check-all.sh`, and otherwise only on the tree named by `--root`.
 """
 import argparse
 import os
@@ -76,7 +78,7 @@ def script_checks(path):
 
 
 def ci_checks(path):
-    found, block = [], False
+    found, block, indent = [], False, 0
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if block:
@@ -126,10 +128,12 @@ def test_files(root):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     listing = subprocess.run(
         ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".agents"],
-        env=env, capture_output=True, text=True, check=True,
-    ).stdout
+        env=env, capture_output=True, text=True, check=False,
+    )
+    if listing.returncode != 0:
+        raise SystemExit(f"lint-suite: {root}: {listing.stderr.strip()}")
     found = set()
-    for rel in filter(None, listing.split("\0")):
+    for rel in filter(None, listing.stdout.split("\0")):
         parts = Path(rel).parts
         if (
             parts[-1].startswith("test-")
@@ -159,6 +163,8 @@ def reached_tests(root, listed, tests):
         if rel in seen or not (Path(root) / rel).is_file():
             continue
         seen.add(rel)
+        if Path(rel).name == Path(__file__).name:
+            continue
         text = "\n".join(active_lines(Path(root) / rel))
         for name, pattern in patterns.items():
             if pattern.search(text):
@@ -181,13 +187,15 @@ def test_problems(root, script):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--script", default=None)
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    default_script = ROOT / ".agents" / "check-all.sh"
+    parser.add_argument("--script", default=str(default_script))
     parser.add_argument("--ci", default=str(ROOT / ".github" / "workflows" / "ci.yml"))
-    parser.add_argument("--root", default=None, help="tree whose test files must be reached (default: this one, when no --script)")
+    parser.add_argument("--root", default=None, help="tree whose test files must be reached (default: this one, when --script is the default)")
     args = parser.parse_args(argv)
-    root = args.root or (str(ROOT) if args.script is None else None)
-    script = args.script or str(ROOT / ".agents" / "check-all.sh")
+    script = args.script
+    uses_default = Path(script).resolve() == default_script.resolve()
+    root = args.root or (str(ROOT) if uses_default else None)
     errors, count = problems(script, args.ci)
     tests_reached = None
     if root:

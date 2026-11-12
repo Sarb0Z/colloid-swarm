@@ -11,6 +11,10 @@
 #     suite that passes vacuously.
 #   lint-suite.py against a fixture ci.yml and the real one: catches a check
 #     in one list and not the other; misses a CI step whose failure is ignored.
+#   lint-suite.py's test walk and reach over a fixture git repository: catches
+#     a test file no listed check names on a non-comment line, at any depth,
+#     and a stale allowlist entry; misses a test whose name appears in a
+#     reached file but is never run (a string, an echo, a branch not taken).
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
@@ -358,15 +362,49 @@ out="$(treelint)" || fail "a test called on a non-comment line must pass: $out"
 ok "lint-suite counts only non-comment lines as calls"
 
 # the allowlist: a reason lets an unlisted test pass; a stale entry fails
-alt="$scratch/lint-allow.py"
-sed 's/^UNLISTED_TESTS = {}/UNLISTED_TESTS = {".agents\/test-x.sh": "r", ".agents\/test-leaf.py": "r", ".agents\/test-gone.sh": "r"}/' "$repo/.agents/lint-suite.py" > "$alt"
-sed -i.bak 's#^ROOT = .*#ROOT = Path("'"$repo"'")#' "$alt"
+allowlint() {  # <allowlist json> <lint args...>: the real module with UNLISTED_TESTS set, no source rewritten
+  ALLOW="$1" python3 - "${@:2}" 2>&1 <<'PY'
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("lint_suite", os.environ["LINT"])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+mod.UNLISTED_TESTS.update(json.loads(os.environ["ALLOW"]))
+sys.exit(mod.main(sys.argv[1:]))
+PY
+}
+export LINT="$repo/.agents/lint-suite.py"
+treeargs=(--script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt")
 printf '#!/usr/bin/env bash\n# nothing\n' > "$tt/.agents/sub/test-mid.sh"
-out="$(python3 "$alt" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt" 2>&1)" && fail "stale allowlist entries must fail"
+out="$(allowlint '{".agents/test-x.sh": "r", ".agents/test-leaf.py": "r"}' "${treeargs[@]}")" || fail "allowlisted unlisted tests must pass: $out"
+[[ "$out" == *"2 test files reached"* ]] || fail "the count is the reached tests, not every walked one: $out"
+out="$(allowlint '{".agents/test-x.sh": "r", ".agents/test-gone.sh": "r"}' "${treeargs[@]}")" && fail "an entry for a missing test must fail"
 [[ "$out" == *"UNLISTED_TESTS entry .agents/test-gone.sh no longer describes an unlisted test"* ]] || fail "gone entry unreported: $out"
-[[ "$out" != *"test-x.sh: test file is neither"* ]] || fail "an allowlisted test must pass: $out"
 printf '#!/usr/bin/env bash\n.agents/test-leaf.py\n' > "$tt/.agents/sub/test-mid.sh"
-out="$(python3 "$alt" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt" 2>&1)" && fail "an entry for a reached test must fail"
+out="$(allowlint '{".agents/test-x.sh": "r", ".agents/test-leaf.py": "r"}' "${treeargs[@]}")" && fail "an entry for a reached test must fail"
 [[ "$out" == *"UNLISTED_TESTS entry .agents/test-leaf.py no longer describes an unlisted test"* ]] || fail "reached entry unreported: $out"
-ok "lint-suite lets an allowlisted test pass and fails an entry that no longer describes an unlisted test"
+[[ "$out" != *"test-x.sh"* ]] || fail "a valid entry must not be reported: $out"
+ok "lint-suite lets an allowlisted test pass, counts only reached tests, and fails an entry that no longer describes an unlisted test"
+
+# the lint is a listed check and its own allowlist names tests: that text is not a call
+ttl="$scratch/ttl"
+cp -R "$tt" "$ttl"
+printf '"""the lint"""\nUNLISTED_TESTS = {".agents/test-x.sh": "r"}\n' > "$ttl/.agents/lint-suite.py"
+printf 'checks() {\n  cat <<'"'"'LIST'"'"'\n.agents/test-b.sh\npython3 .agents/lint-suite.py\nLIST\n}\n' > "$ttl/.agents/check-all.sh"
+printf '#!/usr/bin/env bash\n.agents/test-leaf.py\n' > "$ttl/.agents/sub/test-mid.sh"
+git -C "$ttl" add -A
+printf 'jobs:\n  x:\n    steps:\n      - run: .agents/test-b.sh\n      - run: python3 .agents/lint-suite.py\n      - run: .agents/check-clean-tree.sh\n      - run: python3 demo/embed-src.py\n' > "$scratch/ci-lint.yml"
+out="$(allowlint '{".agents/test-x.sh": "r"}' --script "$ttl/.agents/check-all.sh" --ci "$scratch/ci-lint.yml" --root "$ttl")" || fail "the lint's own allowlist line must not read as a call to the test it names: $out"
+ok "lint-suite does not read its own file as a caller"
+
+# a root git cannot read fails with git's own message, not a traceback
+mkdir "$scratch/nogit"
+out="$(python3 "$repo/.agents/lint-suite.py" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$scratch/nogit" 2>&1)" && fail "a root that is no git repository must fail"
+[[ "$out" == "lint-suite: $scratch/nogit: "* && "$out" != *Traceback* ]] || fail "wrong message: $out"
+ok "lint-suite reports a root git cannot read in one line"
+
+# naming the default script explicitly keeps the tree check on the real tree
+out="$(python3 "$repo/.agents/lint-suite.py" --script "$repo/.agents/check-all.sh" 2>&1)" || fail "the real tree must pass: $out"
+[[ "$out" == *"test files reached"* ]] || fail "naming the default script must keep the tree check on: $out"
+ok "lint-suite checks the real tree when the default script is named explicitly"
+
 # /colloid-only
