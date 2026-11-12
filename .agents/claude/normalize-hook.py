@@ -195,7 +195,7 @@ def normalize(payload, policy, repo):
         out["event"] = payload.get("hook_event_name", "")
     elif policy == "proxy-file-guard.sh":
         out["tool_name"] = payload.get("tool_name") or ""
-        for key in ("file_path", "path", "command"):
+        for key in ("file_path", "path", "command", "output_mode"):
             out[key] = tool_input.get(key) if isinstance(tool_input.get(key), str) else ""
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "")

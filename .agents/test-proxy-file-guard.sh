@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Seams under test, each fired through the host's real adapter and normalizer:
-# - Claude Read file_path, Grep path and Bash command -> catches each spelling of a configured env_file (absolute, ~/, $HOME/, ${HOME}/); misses a path built any other way.
+# - Claude Read file_path, Grep path and the Bash, Monitor and PowerShell command -> catches each spelling of a configured env_file (absolute, ~/, $HOME/, ${HOME}/, quoted, doubled slash, dot segment, a symlink to it) and a content Grep or an rg over its folder; misses a path built any other way and a search of $HOME itself.
 # - Codex shell command -> catches the same four spellings in command text; misses Read-like tools, which Codex lacks.
 # - Kimi Read, Grep and Bash -> catches the same through its normalizer; misses the real Kimi tool names, which the fixture assumes from its session logs.
-# - Allowed calls (unrelated file, the folder holding the file, no names, a config without "proxies") -> catches over-denial; misses a name that merely contains the file name.
+# - Allowed calls (unrelated file, a listing of the folder holding the file, no names, a config without "proxies") -> catches over-denial; misses a name that merely contains the file name.
 # - Broken config and refused scrapling.proxies -> catches a hook that blocks on its own failure; misses a config that loads but is wrong.
 # - The sentinel in the env file -> catches any output that quotes or opens the file; misses a leak through a channel this test does not capture.
 set -euo pipefail
@@ -83,11 +83,39 @@ denied "Claude Grep path" claude "$(claude_tool Grep "{\"pattern\":\"PROXY\",\"p
 denied "Claude Grep path in ~ form" claude "$(claude_tool Grep '{"pattern":"PROXY","path":"~/.config/colloid/proxies.env"}')"
 denied "Kimi Read" kimi "$(claude_tool Read "{\"file_path\":\"$env_file\"}")"
 denied "Kimi Grep" kimi "$(claude_tool Grep "{\"pattern\":\"PROXY\",\"path\":\"$env_file\"}")"
+
+# Spellings of the path that the four fixed forms do not match.
+bash_denied() {  # <label> <host> <command text>
+  denied "$1" "$2" "$(claude_tool Bash "$(jq -nc --arg c "$3" '{command:$c}')")"
+}
+bash_denied 'Claude Bash cat with a quoted "$HOME"' claude 'cat "$HOME"/.config/colloid/proxies.env'
+bash_denied 'Claude Bash cat with ${HOME} and a pipe' claude 'cat ${HOME}/.config/colloid/proxies.env|head'
+bash_denied "Claude Bash cat with a doubled slash" claude 'cat ~/.config/colloid//proxies.env'
+bash_denied "Claude Bash cat with a dot segment" claude 'cat ~/.config/colloid/./proxies.env'
+bash_denied "Claude Bash cat after a semicolon, quoted" claude 'true; cat "$HOME/.config/colloid//proxies.env"'
+bash_denied "Claude Bash with an option value" claude 'tool --file=$HOME/.config/colloid/proxies.env'
+bash_denied "Claude Bash rg over the folder in ~ form" claude 'rg PROXY ~/.config/colloid'
+bash_denied 'Claude Bash grep -r over an ancestor of the folder' claude 'grep -r PROXY "$HOME"/.config'
+bash_denied "Claude Bash rg after an assignment" claude 'X=1 rg PROXY ~/.config/colloid'
+denied "Claude Monitor cat" claude "$(claude_tool Monitor '{"command":"cat ~/.config/colloid//proxies.env"}')"
+denied "Claude PowerShell cat" claude "$(claude_tool PowerShell '{"command":"cat $HOME/.config/colloid//proxies.env"}')"
+denied "Kimi Bash cat with a doubled slash" kimi "$(claude_tool Bash '{"command":"cat ~/.config/colloid//proxies.env"}')"
+denied "Codex shell rg over the folder" codex "$(codex_bash "rg PROXY ~/.config/colloid")"
+denied "Claude Grep content over the folder" claude "$(claude_tool Grep "{\"pattern\":\"x\",\"path\":\"$home/.config/colloid\",\"output_mode\":\"content\"}")"
+denied "Claude Grep content over an ancestor of the folder" claude "$(claude_tool Grep "{\"pattern\":\"x\",\"path\":\"$home/.config\",\"output_mode\":\"content\"}")"
+denied "Kimi Grep content over the folder" kimi "$(claude_tool Grep '{"pattern":"x","path":"~/.config/colloid","output_mode":"content"}')"
+# A link to the env file names it as surely as its path does.
+ln -s "$env_file" "$home/link.env"
+denied "Claude Read through a symlink" claude "$(claude_tool Read "{\"file_path\":\"$home/link.env\"}")"
+denied "Claude Grep path through a symlink" claude "$(claude_tool Grep "{\"pattern\":\"x\",\"path\":\"$home/link.env\"}")"
+bash_denied "Claude Bash cat through a symlink" claude 'cat ~/link.env'
 denied "Claude Read through a dot-dot path" claude "$(claude_tool Read "{\"file_path\":\"$home/.config/../.config/colloid/proxies.env\"}")"
 
 allowed "Claude Read of an unrelated file" claude "$(claude_tool Read "{\"file_path\":\"$home/notes.txt\"}")"
 allowed "Claude Read of the folder holding the file" claude "$(claude_tool Read "{\"file_path\":\"$home/.config/colloid\"}")"
-allowed "Claude Grep over the folder holding the file" claude "$(claude_tool Grep "{\"pattern\":\"x\",\"path\":\"$home/.config/colloid\"}")"
+allowed "Claude Grep listing files over the folder holding the file" claude "$(claude_tool Grep "{\"pattern\":\"x\",\"path\":\"$home/.config/colloid\",\"output_mode\":\"files_with_matches\"}")"
+allowed "Claude Bash ls of the folder in ~ form" claude "$(claude_tool Bash '{"command":"ls ~/.config/colloid"}')"
+allowed "Claude Bash rg in a sibling of the folder" claude "$(claude_tool Bash "{\"command\":\"rg PROXY $home/.config/other\"}")"
 allowed "Claude Bash listing the folder" claude "$(claude_tool Bash "{\"command\":\"ls $home/.config/colloid\"}")"
 allowed "Codex shell listing the folder" codex "$(codex_bash "ls ~/.config/colloid")"
 allowed "Kimi Read of an unrelated file" kimi "$(claude_tool Read "{\"file_path\":\"$home/notes.txt\"}")"
