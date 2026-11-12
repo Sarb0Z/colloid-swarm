@@ -4,8 +4,10 @@ Workflow: Build · Stakes: Critical (what decides whether a dead agent's unsaved
 work is seen; a change to the lead's cell lifecycle wording and to the commit
 line injected into every cell).
 
-**Gate: open.** No code before the operator's OK on this plan and its
-decisions, which stand in for the `grill-me` interview.
+**Gate: closed for U1 to U3**, ruled by the operator on 2026-11-13: Decision
+1 (b), 2 (a), 3 (a), 4 (a); the decisions stood in for the `grill-me`
+interview. **Open for U4**: no U4 code before its spike returns, its plan is
+reviewed, and the operator approves it.
 
 The ask, verbatim (2026-11-13), after background agent U3 in the tax-appeals-app
 console died when the Mac's lid closed and no one noticed for two days: "Just
@@ -151,9 +153,9 @@ Decisions in force: `worktrees-end-with-their-session`,
 - **D, prevention beside A: long unattended work runs as a background
   session** (B1, B2). It would absorb most sleep and session-ended deaths, but
   it pushes and opens a draft PR on finish (B3), which this repository's
-  approval rule forbids without the operator's OK. So it is a follow-up unit
-  that probes and configures that first (Decision 1); A is needed either way,
-  for deaths D does not prevent (shutdown, usage limit, network).
+  approval rule forbids without the operator's OK. The operator ruled it in
+  as U4 (Decision 1 (b)), which probes and configures that first; A is needed
+  either way, for deaths D does not prevent (shutdown, usage limit, network).
 
 ## Units
 
@@ -286,8 +288,27 @@ Built in order; each works end to end before the next starts.
   in until it does.
 - **Real deaths on this Mac**, run by the agent: Acceptance 1, 3 and 15.
 - **Real sleep**, run by the operator: Acceptance 10.
-- **A real Linux session**: per Decision 4, which also runs P10's `procStart`
-  rule on Linux.
+- **No real Linux session** (Decision 4 (a)): Acceptance 14 runs P10's
+  `procStart` rule on Linux `ps` in the container, and the reader's self-check
+  guards a real server.
+
+### U4: long unattended work runs as a background session
+
+- **Spike first, no code.** In a scratch repository whose only remote is a
+  local bare repository, so no push or pull request can leave the machine:
+  start a background session with a background writer and read whether its
+  finish commits, pushes and opens a draft PR, and which setting turns each
+  off (B3); stop it with a subagent running and read what `claude agents
+  --json --all`, the registry, `meta.json` and the parent transcript then say
+  (spike S6, which U1's `parked` verdict reads); restart it and read whether
+  the subagent resumes; close its launching terminal and read whether it
+  survives.
+- **Then a U4 plan section** with its own Acceptance and Lenses, reviewed, and
+  brought to the operator before any U4 code: when the workloop guide has a
+  lead dispatch long unattended work as a background session, and the
+  settings that keep it from pushing.
+- **Stop condition.** If the automatic push or draft PR cannot be turned off,
+  U4 stops and returns to the operator.
 
 ### Test seams
 
@@ -298,7 +319,7 @@ Built in order; each works end to end before the next starts.
 - **Headless and tmux-driven real sessions** (Acceptance 1, 3, 9, 15). They
   catch the real records and order; they miss a real sleep.
 - **The Ubuntu container.** It catches GNU, procps and bash 5 differences; it
-  misses a real Linux Claude Code session unless Decision 4 adds one.
+  misses a real Linux Claude Code session (Decision 4 (a)).
 - **The operator's lid test.** It catches a real sleep end to end.
 
 ## Acceptance
@@ -354,9 +375,10 @@ Built in order; each works end to end before the next starts.
     store, and at most 50 ms warm.
 13. `.agents/suite.sh` passes on the landed tree, `port-public.py check`
     included.
-14. Under Decision 4 (b) or (c): on Ubuntu, a real session with a background
-    writer is ended by SIGHUP, another by SIGKILL, and the next session there
-    shows both as Acceptance 3 does, with no `cannot tell live sessions` line.
+14. In the `ubuntu:24.04` container, the reader's self-check passes against a
+    registry entry whose `procStart` was taken from that container's
+    `LC_ALL=C TZ=UTC ps -o lstart=` for a live process, and prints the
+    `cannot tell` line against a mismatched one.
 15. On the Mac, an interactive session in a tmux pane dispatches a background
     writer and is ended, in three runs, by `/exit`, by Ctrl-C twice and by
     killing its pane (SIGHUP). Each time the next session shows the agent
@@ -405,6 +427,8 @@ Built in order; each works end to end before the next starts.
   harness repository unseen.
 
 ## Decisions for the operator
+
+Ruled on 2026-11-13: 1 (b), 2 (a), 3 (a), 4 (a).
 
 1. **Approval of the plan, and whether background sessions join it.**
    - (a) Recommended: approve U1 to U3; background sessions for long
@@ -478,7 +502,7 @@ before adopting them (P6-P9, P11).
    newest record with `startedAt` (P9); Acceptance 3 and 16.
 2. `P1`, a session quit is filed as a deliberate stop. Adopted: Claude Code's
    verdict decides, `killed` alone is `stopped`, and `stoppedByUser` decides
-   nothing (P8); Acceptance 15 and 14's SIGHUP.
+   nothing (P8); Acceptance 15.
 3. `P1`, a stall reads `completed`. Adopted: rule 1 (P6, P7); Acceptance 16.
 4. `P1`, the commit rule contradicts the injected line. Adopted: the injected
    line changes to match `decisions.md:186` (H18); Acceptance 9 (b) and (c).
