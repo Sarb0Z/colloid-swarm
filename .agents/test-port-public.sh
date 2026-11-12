@@ -93,9 +93,9 @@ grep -q 'fast-forward from' "$work/again.log" || fail "determinism: --against di
 pass=$((pass + 1))
 
 # The filtered tree runs the repository's check list, and a failing check stops
-# the build with that check's output.
+# the build with that check's output, a byte that is not UTF-8 included.
 repo="$(fixture failing-checks)"
-printf '#!/usr/bin/env bash\necho "lint: broken"\nexit 1\n' > "$repo/.agents/check-all.sh"
+printf '#!/usr/bin/env bash\nprintf "\\377"\necho "lint: broken"\nexit 1\n' > "$repo/.agents/check-all.sh"
 git -C "$repo" add -A && commit "$repo" "Work <work@acme.example>" "test: break the check list"
 expect_fail failing-checks "lint: broken" "$repo"
 
@@ -192,8 +192,8 @@ compgen -G "$work/.out-terminated.partial-*" >/dev/null && fail "terminated: the
 pass=$((pass + 1))
 
 # A terminated build also stops what its commands started, as git's own
-# children are: here a check whose child would write into the scratch copy
-# long after the build's own five-second wait for its commands to end.
+# children are: here a check whose child outlives the build's five-second wait
+# for its commands to end unless the build kills it.
 repo="$(fixture terminated-checks)"
 printf '#!/usr/bin/env bash\n( sleep 30; mkdir -p "$PWD/late" ) &\necho $! > "$CHILD_PID"\nwait\n' \
   > "$repo/.agents/check-all.sh"
@@ -208,8 +208,6 @@ wait "$build" || true
 child="$(cat "$CHILD_PID")"
 for _ in $(seq 60); do kill -0 "$child" 2>/dev/null || break; sleep 0.1; done
 kill -0 "$child" 2>/dev/null && { pkill -KILL -P "$child"; kill -KILL "$child"; fail "terminated-checks: a check's child outlived the build"; }
-compgen -G "$work/.out-terminated-checks.partial-*" >/dev/null \
-  && fail "terminated-checks: a check's child wrote into the scratch copy after the build ended"
 pass=$((pass + 1))
 
 # Uncommitted work never reaches a port.

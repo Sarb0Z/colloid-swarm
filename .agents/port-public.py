@@ -54,24 +54,31 @@ def run_group(command, cwd=None, data=None, text=False):
 
     Killing only the command would leave what it started (git's index-pack and
     fast-import, a check's own children) writing into the scratch copy while
-    `build` removes it.
+    `build` removes it. A descendant that starts its own session or group is
+    outside the kill.
     """
     process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text,
-                               start_new_session=True)
+                               errors="replace" if text else None, start_new_session=True)
     try:
         stdout, stderr = process.communicate(data)
     except BaseException:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        for _ in range(50):   # the group's orphans die after the leader is reaped
-            try:
-                os.killpg(process.pid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.1)
+        stop_group(process)
         raise
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def stop_group(process):
+    """SIGKILL `process`'s group until no member is left, reaping the leader, for at most five seconds."""
+    for _ in range(50):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:   # every member has exited, the leader reaped
+            return
+        process.poll()
+        time.sleep(0.1)
+    print(f"port-public: `{process.args[0]}`'s process group {process.pid} outlived SIGKILL for five seconds; "
+          "a member may still write into the scratch copy as it is removed", file=sys.stderr)
 
 
 def run(command, cwd=None, data=None):
@@ -356,6 +363,7 @@ def verify(out):
         steps.append(".agents/check-clean-tree.sh")   # last, as in CI: no check may dirty the tree
     failed = []
     for step in steps:
+        print(f"  run  {step}", flush=True)   # check-all.sh alone takes many minutes and prints at its end
         result = run_group(["bash", "-c", step], cwd=out, text=True)
         print(f"  {'ok  ' if result.returncode == 0 else 'FAIL'} {step}", flush=True)
         if result.returncode:
