@@ -1286,7 +1286,7 @@ exec python3 &quot;$lib/worktree-sessions.py&quot; hook --default &quot;${WORKTR
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
               <p class="what">Carries a parallel run&#x27;s messages without polling. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; the lead hears at every prompt which lanes await review, carry a finding, have gone quiet, or are ready to integrate — and a lane whose worker stopped without submitting is reaped.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 300 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 302 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
 Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt;]
@@ -1322,6 +1322,7 @@ import time
 from pathlib import Path
 
 import worktree_records as wr  # beside this script, so found before the path below is added
+from agent_silence import silence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
@@ -1329,7 +1330,7 @@ try:
 except ImportError:  # a trimmed export without the controller still gets the digest
     wd = None  # type: ignore[assignment]
 
-from workloop_size import GitBudget, size_notes, stamp  # noqa: E402
+from workloop_size import GitBudget, size_notes  # noqa: E402
 
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
@@ -1508,10 +1509,11 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&q
                     continue
                 # A heartbeat is a contract only under --supervised; an ordinary
                 # lane that has simply been working for a while is not stale.
-                beat = stamp(lane.get(&quot;heartbeat_at&quot;) or lane.get(&quot;claimed_at&quot;))
+                # The hook&#x27;s stamp counts as a sign of life beside the heartbeat.
+                quiet = silence(lane, &quot;claimed_at&quot;, now)
                 progress = f&quot; — {lane[&#x27;progress&#x27;]}&quot; if lane.get(&quot;progress&quot;) else &quot;&quot;
-                if beat is not None and now - beat &gt; STALE_SECONDS:
-                    minutes = int((now - beat) // 60)
+                if quiet is not None and quiet &gt; STALE_SECONDS:
+                    minutes = int(quiet // 60)
                     if run.get(&quot;supervised&quot;):
                         notes.append(f&quot;{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)&quot;)
                     else:
@@ -7809,7 +7811,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Durable, bounded parallel implementation and review lanes. The controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 444 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 450 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Designs each delegation before dispatch, choosing among one writer, a read-only fan-out, parallel slices, a contract-first split and a bake-off, and coordinates writing lanes through a portable, evidence-backed controller.
 ---
@@ -8184,12 +8186,18 @@ Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
 its host agent id at start and each unread message for its lane once between
 tool calls, and the lead hears at every prompt which lanes await review, carry
 attention, are stale or broken or growing past their size, and each run&#x27;s next
-closing step: `integrate`, `check`, QA, or `teardown`. A hook
-cannot wake an idle lead, so for a run that outlives the lead&#x27;s turn, schedule
-the poll: `/loop 10m .agents/workloop.py watch &lt;run&gt;`. On Codex and Kimi the manual
-`inbox` stands.
+closing step: `integrate`, `check`, QA, or `teardown`. The same hook stamps each
+background lane and cell with the time and its last tool call, at most once a
+minute, so `status` shows every agent&#x27;s time out, its silence and its last action
+without the agent reporting anything. A hook cannot wake an idle lead, so when
+agents are still out as your turn ends, schedule the loop:
+`/loop 10m .agents/workloop.py watch &lt;run&gt;`. Each pass, post
+`.agents/workloop.py digest &lt;run&gt;` when it differs from the last one you
+posted, and end the loop when `.agents/workloop.py check &lt;run&gt; --recorded` passes. On Codex and
+Kimi the manual `inbox` stands.
 
-`watch` is read-only and reports O(lanes + messages) work. Its restart request
+`watch` is read-only and reports O(lanes + cells + messages) work. It and the
+loop serve any run, supervised or not. Its restart request
 must be delivered by a native host adapter or a lead; it never claims to restart or
 interrupt an agent itself. A run retains at most 128 messages by default.
 Archive acknowledgement-free status and evidence-ready chatter before that
@@ -11375,7 +11383,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>Every toggle and threshold above, in one committed file. Environment variables still override — tune a session without touching the repo.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 137 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 140 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -11508,6 +11516,9 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
       &quot;enabled&quot;: true
     },
     &quot;publish_approval&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;proxy_file_guard&quot;: {
       &quot;enabled&quot;: true
     }
   }
