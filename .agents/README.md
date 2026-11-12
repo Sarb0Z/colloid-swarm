@@ -218,7 +218,10 @@ about under `hooks.guard_publish.outward_commands`, and under
 operator's ignored `config.json` overrides either per machine, except that it
 can only extend the outward list and cannot declare a rehearsal. The tracked
 file's top-level `systems` list, the systems the product runs on and their
-read-only commands, is read by `access.py` from `policy.json` alone.
+read-only commands, is read by `access.py` from `policy.json` alone, as are
+`owed.critical_paths` (globs whose files need a review record) and `owed.suite`
+(the command that runs the repository's checks), which `hooks/lib/owed.py`
+reads: which paths need review and what the suite is are repository decisions.
 
 `wait-gate.sh` refuses a Bash call, under Claude only, that waits blind. Every
 agent, lead or spawned cell, gets the same rules, because a cell ends its turn
@@ -517,43 +520,11 @@ python3 .agents/check-stack-packs.py
 
 ## Verification
 
-```sh
-python3 .agents/check-layout.py
-.agents/lint-skills.sh
-.agents/test-lint-skills.sh
-.agents/test-session-start.sh
-.agents/test-workloop.sh
-.agents/test-post-edit-check.sh
-.agents/test-stop-investigate.sh
-.agents/test-access.sh
-.agents/test-provenance-gate.sh
-.agents/test-review-contract.sh
-python3 .agents/lint-breadcrumbs.py
-python3 .agents/lint-decisions.py
-python3 .agents/check-test-isolation.py
-python3 .agents/test-sources-matcher.py
-.agents/test-untrusted-content.sh
-python3 .agents/test-guard-destructive.py
-python3 .agents/test-wait-gate.py
-.agents/test-keychain-notice.sh
-.agents/test-session-wrap.sh
-python3 .agents/test-guard-publish.py
-python3 .agents/test-hosted-scripts.py
-.agents/test-mcp.sh
-python3 .agents/test-lsp.py
-python3 .agents/test-browser-sync.py
-.agents/test-permissions.sh
-.agents/test-statusline.sh
-.agents/test-readout.sh
-.agents/test-hook-lookup.sh
-.agents/test-product-folder.sh
-.agents/test-mods.sh
-.agents/test-codex.sh
-.agents/test-export.sh
-# colloid-only
-python3 demo/check-inventory.py
-# /colloid-only
-```
+`.agents/check-all.sh` lists every check, one command per line, and runs them
+all; `.agents/suite.sh` runs it and records the tree it passed on, which
+`hooks/lib/owed.py` compares with the session's edits. Run one surface by
+copying its line out of the script. `lint-suite.py` fails when `ci.yml` and the
+script run different checks.
 
 `test-review-contract.sh` runs `review-harness/bin/extract-contract.sh --check`,
 which fails when `contract.md` differs from a fresh extraction of
