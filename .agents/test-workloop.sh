@@ -1156,8 +1156,13 @@ out="$(ow_check_printing 'for i in $(seq 100); do echo "ok $i"; done; echo "FAIL
 [[ "$out" != *"$label"* && "$(grep -c 'FAIL: late' <<<"$out")" == 1 ]] || fail "a failure inside the tail was repeated or labelled: $out"
 out="$(ow_check_printing 'for i in $(seq 25); do echo "FAIL: row $i"; done; for i in $(seq 40); do echo "ok $i"; done; exit 1')"
 [[ "$out" == *"$label"* && "$(grep -c '^FAIL: row' <<<"$out")" == 20 && "$out" == *"FAIL: row 20"* && "$out" != *"FAIL: row 21"* && "$out" == *"… and 5 more failure lines"* ]] || fail "the cap on failure lines above the tail was wrong: $out"
-out="$(ow_check_printing 'echo "FAIL: passed anyway"; for i in $(seq 100); do echo "ok $i"; done; exit 0')"
-[[ "$out" != *"$label"* ]] || fail "a passing verify was labelled: $out"
+# check prints nothing of a passing verify, so its recorded text is read instead
+ow_check_printing 'echo "FAIL: passed anyway"; for i in $(seq 100); do echo "ok $i"; done; exit 0' >/dev/null
+recorded="$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))["runs"]["ow"]["verified"]; print(v["result"]); print(v["tail"])' "$state")"
+[[ "$recorded" == pass$'\n'* && "$recorded" != *"$label"* && "$recorded" == *"ok 100" ]] || fail "a passing verify was labelled: $recorded"
+out="$(ow_check_printing 'echo "not ok 7 - x"; echo "noise line"; echo "  note FAIL: y"; echo "Error: Cannot find module z"; echo "AssertionError"; for i in $(seq 45); do echo "ok $i"; done; exit 1')"
+kept="$(awk -v a="$label" -v b='last 40 lines:' '$0==a {on=1; next} $0==b {on=0} on' <<<"$out")"
+[[ "$kept" == $'not ok 7 - x\n  note FAIL: y\nError: Cannot find module z\nAssertionError' ]] || fail "the failure lines above the tail were not each form, in order, without the noise line: $kept"
 python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); r=s["runs"]["ow"]; r["verify"]=sys.argv[2]; r["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state" "$ow_verify"
 expect PASS "${tool[@]}" check ow
 rm -f "$mark"

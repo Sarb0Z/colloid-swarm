@@ -28,7 +28,8 @@ SHA = re.compile(r"[0-9a-f]{40}")
 TAIL_LINES = 40
 FAILURE_LINES = 20
 FAILURE_LABEL = "failure lines above the tail:"
-FAILURE_LINE = re.compile(r"^(FAIL|not ok|Traceback)|FAIL:|^\w+(Error|Exception)\b.*:")
+TAIL_LABEL = f"last {TAIL_LINES} lines:"
+FAILURE_LINE = re.compile(r"^(FAIL|not ok|Traceback)|FAIL:|^\w*(Error|Exception)\b")
 
 
 def verify_timeout() -> int:
@@ -713,7 +714,12 @@ def guard_command(command: str, repo: Path, what: str) -> None:
 
 
 def run_verify(command: str, cwd: Path, what: str, timeout: int, budget: int | None = None) -> tuple[bool, str]:
-    """Run `command` for at most `timeout` seconds; a timeout names `budget`, the whole allowance, when it is the part left of it."""
+    """Run `command` for at most `timeout` seconds; a timeout names `budget`, the whole allowance, when it is the part left of it.
+
+    The text is the last TAIL_LINES lines of output. On a failure whose
+    earlier output holds failure lines, those come first under FAILURE_LABEL
+    and the tail follows under TAIL_LABEL.
+    """
     # A new session puts the shell and everything it spawns in one process
     # group, so a timeout kills a test runner's server or watcher too, not
     # just the shell in front of it.
@@ -735,14 +741,14 @@ def run_verify(command: str, cwd: Path, what: str, timeout: int, budget: int | N
 
 
 def failure_lines_above(lines: list[str]) -> list[str]:
-    """The label and the first FAILURE_LINES failure lines of `lines`, then a count of those left out; empty when none match."""
+    """The label and the first FAILURE_LINES failure lines of `lines`, a count of those left out, and the tail's label; empty when none match."""
     found = [line for line in lines if FAILURE_LINE.search(line)]
     if not found:
         return []
     kept = [FAILURE_LABEL, *found[:FAILURE_LINES]]
     if len(found) > FAILURE_LINES:
         kept.append(f"… and {len(found) - FAILURE_LINES} more failure lines")
-    return kept
+    return [*kept, TAIL_LABEL]
 
 
 def remove_worktree(repo: Path, path: Path) -> bool:
