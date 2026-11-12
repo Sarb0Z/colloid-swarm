@@ -9,6 +9,10 @@
 # checks declared read access, proves a fix's test catches its bug, and walks
 # a workloop run to its completion gate. No mocks — every line is the real thing.
 #
+# Every beat that prints a verdict compares it with the one it expects; the
+# script exits 1 after the last beat when any differed, so a regression cannot
+# hide behind a printed line.
+#
 # Runs offline. Every beat but 6 needs bash, python3 and git; beat 6 also needs
 # node, and announces a skip without it. Every scratch path lives under one
 # folder that the EXIT trap below removes.
@@ -19,8 +23,15 @@ cd "$repo"
 
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-# A viewer's git identity or signing setup must not stop a scratch commit.
-g() { git -c user.name=demo -c user.email=demo@example.invalid -c commit.gpgsign=false "$@"; }
+# A viewer's git identity, signing setup or global hooks must not stop a scratch commit.
+g() { git -c user.name=demo -c user.email=demo@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"; }
+mkrepo() {  # <dir> <file> <content> <message>: a repository with one commit
+  mkdir -p "$1/$(dirname "$2")"
+  g -C "$1" init -q -b main
+  printf '%s\n' "$3" > "$1/$2"
+  g -C "$1" add -A
+  g -C "$1" commit -qm "$4"
+}
 
 # Colour only on a terminal, and never when NO_COLOR is set non-empty (no-color.org).
 bold=''; dim=''; grn=''; red=''; rst=''
@@ -29,6 +40,16 @@ if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
 fi
 rule() { printf '%s\n' "${dim}────────────────────────────────────────────────────────────${rst}"; }
 sec()  { printf '\n%s▸ %s%s\n' "$bold" "$1" "$rst"; }
+mismatch=0
+expect() {  # <beat> <expected> <got> <what>: flag a result that is not the expected one
+  [[ "$2" == "$3" ]] && return 0
+  printf '  %sMISMATCH%s  beat %s expected %s, got %s: %s\n' "$red" "$rst" "$1" "$2" "$3" "$4"
+  mismatch=1
+}
+verdict() {  # <PASS|FAIL> <text>
+  local colour="$grn"; [[ "$1" == FAIL ]] && colour="$red"
+  printf '  %s%s%s  %s\n' "$colour" "$1" "$rst" "$2"
+}
 
 printf '%s⊰ COLLOID SWARM — scaffold demo ⊱%s\n' "$bold" "$rst"
 printf '%sengine-agnostic agent OS: personas · layout · membrane · export · MCP · publish guard · read access · revert-check · completion gate%s\n' "$dim" "$rst"
@@ -50,41 +71,52 @@ guard=.agents/hooks/policy/guard-destructive.sh
 # The patterns sit on the command line literally. The guard matches the tokens
 # of a command, not the text of one, so quoting a pattern is not running it and
 # the live session's own guard lets this script through.
-probe() {
-  local label="$1" payload="$2" out rc
+probe() {  # <label> <payload> <BLOCK|PASS>
+  local label="$1" payload="$2" want="$3" out rc got
   out="$(printf '{"command":%s}' "$payload" | "$guard" 2>&1)" && rc=0 || rc=$?
   if [[ $rc -eq 2 ]]; then
+    got=BLOCK
     printf '  %sBLOCK%s  %-26s %s%s%s\n' "$red" "$rst" "$label" "$dim" "$out" "$rst"
   else
+    got=PASS
     printf '  %sPASS %s  %-26s %s(exit %s)%s\n' "$grn" "$rst" "$label" "$dim" "$rc" "$rst"
   fi
+  expect 3 "$want" "$got" "$label"
 }
 j() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
-probe "rm -Rf home"        "$(j 'rm -Rf ~')"
-probe "force-push"         "$(j 'git push --force origin main')"
-probe "reset --hard via -C" "$(j 'git -C /repo reset --hard')"
-probe "ssh prod restart"   "$(j 'ssh prod systemctl restart nginx')"
-probe "TRUNCATE no TABLE"  "$(j 'psql -c "TRUNCATE users"')"
-probe "DELETE no WHERE"    "$(j 'psql -c "DELETE FROM users"')"
-probe "terraform destroy"  "$(j 'terraform destroy -auto-approve')"
-probe "ls -la"             "$(j 'ls -la')"
-probe "scoped build clean" "$(j 'rm -rf ./build/tmp')"
-probe "quoted, not run"    "$(j 'grep -q "rm -rf /" notes.md')"
+probe "rm -Rf home"        "$(j 'rm -Rf ~')" BLOCK
+probe "force-push"         "$(j 'git push --force origin main')" BLOCK
+probe "reset --hard via -C" "$(j 'git -C /repo reset --hard')" BLOCK
+probe "ssh prod restart"   "$(j 'ssh prod systemctl restart nginx')" BLOCK
+probe "TRUNCATE no TABLE"  "$(j 'psql -c "TRUNCATE users"')" BLOCK
+probe "DELETE no WHERE"    "$(j 'psql -c "DELETE FROM users"')" BLOCK
+probe "terraform destroy"  "$(j 'terraform destroy -auto-approve')" BLOCK
+probe "ls -la"             "$(j 'ls -la')" PASS
+probe "scoped build clean" "$(j 'rm -rf ./build/tmp')" PASS
+probe "quoted, not run"    "$(j 'grep -q "rm -rf /" notes.md')" PASS
 
 # ── 4. Progressive disclosure ───────────────────────────────────────────────
 sec "4. Progressive disclosure — scoped AGENTS.md + symlink fan-out"
 rule
-canon=$(find . -name AGENTS.md -type f | wc -l | tr -d ' ')
+# Tracked files only: lane worktrees under .agents/worktrees/ are not part of the scaffold.
+tracked_links() { git ls-files -s -- "$@" | awk -F'\t' '$1 ~ /^120000/ {print $2}'; }
+canon=$(git ls-files -s -- '*AGENTS.md' | awk -F'\t' '$1 !~ /^120000/' | wc -l | tr -d ' ')
 hosts=()
 for d in .agents .claude .codex .opencode .kimi demo .github; do [[ -d "$d" ]] && hosts+=("$d"); done
-links=$(find "${hosts[@]}" -type l | wc -l | tr -d ' ')
-broken=$(find . -type l ! -exec test -e {} \; -print)
+links=$(tracked_links "${hosts[@]}" | wc -l | tr -d ' ')
+broken=""
+while IFS= read -r link; do
+  [[ -e "$link" ]] || broken+="$link"$'\n'
+done < <(tracked_links .)
 printf '  canonical AGENTS.md files: %s\n' "$canon"
 printf '  fan-out symlinks:          %s\n' "$links"
 if [[ -z "$broken" ]]; then
-  printf '  %sPASS%s  every symlink resolves to a canonical file\n' "$grn" "$rst"
+  verdict PASS "every symlink resolves to a canonical file"
+  expect 4 PASS PASS "symlinks resolve"
 else
-  printf '  %sFAIL%s  broken symlinks:\n%s\n' "$red" "$rst" "$broken"
+  verdict FAIL "broken symlinks:"
+  printf '%s' "$broken"
+  expect 4 PASS FAIL "symlinks resolve"
 fi
 printf '\n%sone rule, three doors — all resolve to the same canonical file:%s\n' "$dim" "$rst"
 for p in .agents/skills/security-scan/AGENTS.md \
@@ -105,7 +137,7 @@ printf '  emitted: %s (%s files)\n' \
 # Assertions read the export's own drop lists, so a new entry is checked here
 # the moment it is added rather than against a copy that drifts.
 printf '\n'
-python3 - "$kit" <<'PY' | while IFS='|' read -r verdict text; do
+results="$(python3 - "$kit" <<'PY'
 import importlib.util
 import json
 import pathlib
@@ -162,12 +194,11 @@ stale = [k for k in ex.DROPPED_KEYS[".agents/config.json.example"]
 emit(not stale, f"{len(ex.DROPPED_KEYS['.agents/config.json.example'])} "
      "genome config keys dropped" + (f" — {stale}" if stale else ""))
 PY
-  if [[ "$verdict" == PASS ]]; then
-    printf '  %sPASS%s  %s\n' "$grn" "$rst" "$text"
-  else
-    printf '  %sFAIL%s  %s\n' "$red" "$rst" "$text"
-  fi
-done
+)"
+while IFS='|' read -r result text; do
+  verdict "$result" "$text"
+  expect 5 PASS "$result" "$text"
+done <<<"$results"
 
 # ── 6. Repository-owned MCP servers ─────────────────────────────────────────
 sec "6. Repository-owned MCP — the membrane at the network edge"
@@ -183,27 +214,30 @@ for server in research-mcp security-mcp; do
   printf '%s$ mcp-probe.py %s list%s\n' "$dim" "$server" "$rst"
   tools="$(demo/mcp-probe.py "$dir" list)"
   printf '  %s tools: %s\n' "$server" "$(tr '\n' ' ' <<<"$tools")"
+  expect 6 listed "${tools:+listed}" "$server lists its tools"
 done
 
 # Both guards refuse before they open a socket, so this runs with no network.
-mcp_probe() {
-  local label="$1" server="$2" tool="$3" args="$4" out
+mcp_probe() {  # <label> <server> <tool> <args> <ALLOWED|REFUSED>
+  local label="$1" server="$2" tool="$3" args="$4" want="$5" out got
   out="$(demo/mcp-probe.py ".agents/mcp-servers/$server" call "$tool" "$args")"
-  local verdict="$red REFUSED$rst"
+  got=REFUSED
   if python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if (d.get("allowed") or d.get("ok")) else 1)' <<<"$out"; then
-    verdict="$grn ALLOWED$rst"
+    got=ALLOWED
   fi
-  printf '  %b  %-30s %s%s%s\n' "$verdict" "$label" "$dim" \
+  local colour="$red"; [[ "$got" == ALLOWED ]] && colour="$grn"
+  printf '  %s%s%s  %-30s %s%s%s\n' "$colour" "$got" "$rst" "$label" "$dim" \
     "$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d.get("reason") or d.get("error",""))' <<<"$out")" "$rst"
+  expect 6 "$want" "$got" "$server $label"
 }
 printf '\n%ssecurity-mcp validate_target — operator target policy:%s\n' "$dim" "$rst"
-mcp_probe "loopback"        security-mcp validate_target '{"targetUrl":"http://127.0.0.1:3000"}'
-mcp_probe "public host"     security-mcp validate_target '{"targetUrl":"https://example.com"}'
-mcp_probe "cloud metadata"  security-mcp validate_target '{"targetUrl":"http://169.254.169.254/"}'
+mcp_probe "loopback"        security-mcp validate_target '{"targetUrl":"http://127.0.0.1:3000"}' ALLOWED
+mcp_probe "public host"     security-mcp validate_target '{"targetUrl":"https://example.com"}' REFUSED
+mcp_probe "cloud metadata"  security-mcp validate_target '{"targetUrl":"http://169.254.169.254/"}' REFUSED
 printf '\n%sresearch-mcp fetch_readable — SSRF guard:%s\n' "$dim" "$rst"
-mcp_probe "cloud metadata"  research-mcp fetch_readable '{"url":"http://169.254.169.254/latest/meta-data/"}'
-mcp_probe "loopback ssh"    research-mcp fetch_readable '{"url":"http://localhost:22/"}'
-mcp_probe "file:// scheme"  research-mcp fetch_readable '{"url":"file:///etc/passwd"}'
+mcp_probe "cloud metadata"  research-mcp fetch_readable '{"url":"http://169.254.169.254/latest/meta-data/"}' REFUSED
+mcp_probe "loopback ssh"    research-mcp fetch_readable '{"url":"http://localhost:22/"}' REFUSED
+mcp_probe "file:// scheme"  research-mcp fetch_readable '{"url":"file:///etc/passwd"}' REFUSED
 fi
 
 # ── 7. The publish guard ────────────────────────────────────────────────────
@@ -212,39 +246,34 @@ rule
 # The cwd is a scratch repository with one commit and no remote, so the push
 # reason describes that repository. The guard also reads this checkout's
 # hooks.guard_publish.enabled and prunes its expired approval tokens.
+# The guard reads a script the session runs for a hosting provider's
+# management-API host beside a write signal; no line of this demo names such a host.
 pubrepo="$scratch/pub"
-mkdir "$pubrepo"
-g -C "$pubrepo" init -q -b main
-printf 'demo\n' > "$pubrepo/file.txt"
-g -C "$pubrepo" add -A
-g -C "$pubrepo" commit -qm 'one commit'
-# Commands are assembled from parts so this script never carries an outward
-# command as one literal; the live guard reads a script it is asked to run.
-git_=git; gh_=gh; npm_=npm; vc_=vercel
-publish_probe() {
-  local mode="$1" command="$2" out
+mkrepo "$pubrepo" file.txt demo 'one commit'
+publish_probe() {  # <mode> <command> <ASK|DENY|QUIET>
+  local mode="$1" command="$2" want="$3" out got reason=""
   out="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]},"permission_mode":sys.argv[2],"cwd":sys.argv[3]}))' \
     "$command" "$mode" "$pubrepo" | .agents/hooks/policy/guard-publish.sh)"
   if [[ -z "$out" ]]; then
+    got=QUIET
     printf '  %sQUIET%s %-7s %s\n' "$grn" "$rst" "$mode" "$command"
-    return
-  fi
-  python3 -c 'import json,sys
+  else
+    IFS='|' read -r got reason <<<"$(python3 -c 'import json,sys
 d = json.loads(sys.stdin.read())["hookSpecificOutput"]
-print(d["permissionDecision"].upper() + "|" + d["permissionDecisionReason"])' <<<"$out" |
-    while IFS='|' read -r verdict reason; do
-      local colour="$red"; [[ "$verdict" == ASK ]] && colour="$dim"
-      printf '  %s%-5s%s %-7s %s\n        %s%s%s\n' "$colour" "$verdict" "$rst" "$mode" "$command" "$dim" "$reason" "$rst"
-    done
+print(d["permissionDecision"].upper() + "|" + d["permissionDecisionReason"])' <<<"$out")"
+    local colour="$red"; [[ "$got" == ASK ]] && colour="$dim"
+    printf '  %s%-5s%s %-7s %s\n        %s%s%s\n' "$colour" "$got" "$rst" "$mode" "$command" "$dim" "$reason" "$rst"
+  fi
+  expect 7 "$want" "$got" "$mode $command"
 }
-publish_probe default "$git_ push origin main"
-publish_probe default "$gh_ pr merge 12"
-publish_probe default "$npm_ publish"
-publish_probe default "$vc_ deploy --prod"
-publish_probe default "$git_ status"
-publish_probe default "$gh_ pr view 12"
+publish_probe default "git push origin main" ASK
+publish_probe default "gh pr merge 12" ASK
+publish_probe default "npm publish" ASK
+publish_probe default "vercel deploy --prod" ASK
+publish_probe default "git status" QUIET
+publish_probe default "gh pr view 12" QUIET
 printf '\n%sthe same push where no human can answer a prompt:%s\n' "$dim" "$rst"
-publish_probe auto "$git_ push origin main"
+publish_probe auto "git push origin main" DENY
 
 # ── 8. Declared read access ─────────────────────────────────────────────────
 sec "8. Declared read access — access.py refuses a read that is really a write"
@@ -257,11 +286,12 @@ policy_repo acc-merge '{"systems":[{"name":"github","probe":"true","read":["gh p
 policy_repo acc-list '{"systems":[{"name":"github","probe":"true","read":["gh pr list"]}]}'
 # check prints its summary only when nothing fails, so each outcome is one call.
 for name in acc-merge acc-list; do
+  want=PASS; [[ "$name" == acc-merge ]] && want=FAIL
   printf '%s$ access.py check  %s(%s)%s\n' "$dim" "$dim" "$(python3 -c 'import json,sys; print(", ".join(json.load(open(sys.argv[1]))["systems"][0]["read"]))' "$scratch/$name/.agents/policy.json")" "$rst"
   if out="$(python3 .agents/access.py check --repo "$scratch/$name" 2>&1)"; then
-    printf '  %sPASS%s  %s\n' "$grn" "$rst" "$out"
+    verdict PASS "$out"; expect 8 "$want" PASS "$name"
   else
-    printf '  %sFAIL%s  %s\n' "$red" "$rst" "${out#FAIL: }"
+    verdict FAIL "${out#FAIL: }"; expect 8 "$want" FAIL "$name"
   fi
 done
 
@@ -269,11 +299,7 @@ done
 sec "9. A test that catches its bug — revert-check.sh"
 rule
 rcrepo="$scratch/rc"
-mkdir "$rcrepo"
-g -C "$rcrepo" init -q -b main
-printf 'bad\n' > "$rcrepo/lib.txt"
-g -C "$rcrepo" add -A
-g -C "$rcrepo" commit -qm 'the bug'
+mkrepo "$rcrepo" lib.txt bad 'the bug'
 base="$(g -C "$rcrepo" rev-parse HEAD)"
 printf 'good\n' > "$rcrepo/lib.txt"
 printf '%s\n' '[[ "$(cat lib.txt)" == good ]] || { echo "assertion failed: lib.txt is not good"; exit 1; }' > "$rcrepo/asserts.sh"
@@ -281,13 +307,14 @@ printf '%s\n' 'test -f lib.txt' > "$rcrepo/imports.sh"
 g -C "$rcrepo" add -A
 g -C "$rcrepo" commit -qm 'the fix and its tests'
 for t in asserts.sh imports.sh; do
+  want=FAIL; [[ "$t" == asserts.sh ]] && want=PASS
   printf '%s$ revert-check.sh <bug commit> --tests %s -- bash %s%s\n' "$dim" "$t" "$t" "$rst"
   rc=0
   out="$(cd "$rcrepo" && "$repo/.agents/revert-check.sh" "$base" --tests "$t" -- bash "$t" 2>&1)" || rc=$?
   if [[ $rc -eq 0 ]]; then
-    printf '  %sPASS%s  exit 0\n' "$grn" "$rst"
+    verdict PASS "exit 0"; expect 9 "$want" PASS "$t"
   else
-    printf '  %sFAIL%s  exit %s\n' "$red" "$rst" "$rc"
+    verdict FAIL "exit $rc"; expect 9 "$want" FAIL "$t"
   fi
   sed 's/^/    /' <<<"$out"
 done
@@ -296,17 +323,17 @@ done
 sec "10. The completion gate — workloop.py check names what blocks completion"
 rule
 wlrepo="$scratch/wl"
-mkdir -p "$wlrepo/src" "$wlrepo/docs"
-g -C "$wlrepo" init -q -b main
-printf 'a\n' > "$wlrepo/src/app.txt"
-g -C "$wlrepo" add -A
-g -C "$wlrepo" commit -qm base
+mkrepo "$wlrepo" src/app.txt a base
 # --state and --repo keep the run out of this checkout's own worktrees and readouts.
 wl() { python3 .agents/workloop.py --state "$scratch/workloop-state.json" "$@"; }
 step() { printf '%s$ workloop.py %s%s\n' "$dim" "$*" "$rst"; }
-gate() {  # <args...>: print check's verdict, which exits 1 while blocked
+gate() {  # <expected exit code> <args...>: print check's verdict, which exits 1 while blocked
+  local want="$1" out rc=0
+  shift
   step "$@"
-  wl "$@" 2>&1 | sed 's/^/  /' || true
+  out="$(wl "$@" 2>&1)" || rc=$?
+  sed 's/^/  /' <<<"$out"
+  expect 10 "$want" "$rc" "workloop.py $* exit code"
 }
 wl init demo --objective 'ship one change' --acceptance 'reviewed, QA observed' \
   --repo "$wlrepo" --verify 'test -f src/app.txt' --lane solo --worker implementer \
@@ -315,18 +342,23 @@ wl claim demo solo --agent demo-writer | sed 's/^/  /'
 printf 'b\n' >> "$wlrepo/src/app.txt"
 g -C "$wlrepo" commit -qam change
 wl submit demo solo --evidence 'ran the change' | sed 's/^/  /'
-gate check --recorded demo
+gate 1 check --recorded demo
+mkdir "$wlrepo/docs"
 printf 'accepted\n' > "$wlrepo/docs/review.md"
 g -C "$wlrepo" add docs/review.md
 g -C "$wlrepo" commit -qm 'review record'
 tip="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["demo"]["lanes"]["solo"]["tip"])' "$scratch/workloop-state.json")"
 wl review demo solo --reference docs/review.md --result accept --tip "$tip" | sed 's/^/  /'
 wl qa demo --evidence 'scenario observed' | sed 's/^/  /'
-gate check demo
+gate 0 check demo
 printf 'c\n' >> "$wlrepo/src/app.txt"
 g -C "$wlrepo" commit -qam 'a later change'
 wl submit demo solo --evidence 'ran the later change' | sed 's/^/  /'
 printf '%sthe tip moved, so the review and the QA record no longer cover it:%s\n' "$dim" "$rst"
-gate check --recorded demo
+gate 1 check --recorded demo
 
 printf '\n%s⊱ every line above is live output — no mocks, no slides ⊰%s\n' "$bold" "$rst"
+if [[ $mismatch -ne 0 ]]; then
+  printf '%sone or more beats printed a result other than the expected one%s\n' "$red" "$rst" >&2
+  exit 1
+fi
