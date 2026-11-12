@@ -82,5 +82,35 @@ PY
 then check "managed-settings.json names a valid policyHelper entry" 0
 else check "managed-settings.json names a valid policyHelper entry" 1; fi
 
+# The installer reaches its sudo step whether the account's style is a link to
+# this repository's file or a stale copy. `sudo` and `ls` are stubs that log
+# their arguments, so nothing is installed and no machine path is read.
+stubs="$staging/stubs"
+mkdir -p "$stubs"
+printf '#!/bin/sh\necho "$*" >> "%s"\n' "$staging/sudo.log" > "$stubs/sudo"
+printf '#!/bin/sh\nexit 0\n' > "$stubs/ls"
+chmod 755 "$stubs/sudo" "$stubs/ls"
+for form in link copy; do
+  home="$staging/home-$form"
+  mkdir -p "$home/.claude/output-styles"
+  if [ "$form" = link ]; then
+    ln -s "$here/claude/output-style.md" "$home/.claude/output-styles/colloid.md"
+  else
+    printf 'a stale style\n' > "$home/.claude/output-styles/colloid.md"
+  fi
+  : > "$staging/sudo.log"
+  if HOME="$home" PATH="$stubs:$PATH" bash "$here/claude/install-device-policy.sh" \
+       > "$staging/install-$form.txt" 2>&1 \
+     && grep -q 'policy.json' "$staging/sudo.log" \
+     && cmp -s "$home/.claude/output-styles/colloid.md" "$here/claude/output-style.md"
+  then check "the installer reaches sudo with the account's style as a $form" 0
+  else
+    check "the installer reaches sudo with the account's style as a $form" 1
+    sed 's/^/      /' "$staging/install-$form.txt"
+  fi
+done
+[ -L "$staging/home-link/.claude/output-styles/colloid.md" ]
+check "the installer keeps the account's link" "$?"
+
 echo
 if [ "$fails" = "0" ]; then echo "ALL PASS"; else echo "$fails FAILURE(S)"; exit 1; fi
