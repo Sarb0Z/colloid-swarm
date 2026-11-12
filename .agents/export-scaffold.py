@@ -28,6 +28,7 @@ DROPPED_PATHS = (
     ".agents/fixtures",
     ".agents/export-scaffold.py",
     ".agents/test-export.sh",
+    ".agents/test-export-servers.sh",
     ".agents/port-public.py",
     ".agents/test-port-public.sh",
     ".agents/public",
@@ -42,6 +43,11 @@ DROPPED_PATHS = (
     ".agents/knowledge/research",
     ".agents/knowledge/transcripts",
 )
+
+# What a satellite receives of each repository-owned MCP server: the program
+# and its licence. Build inputs, tests, manifests and lockfiles stay in the
+# carrier, so a satellite's dependency graph sees none of them.
+SERVER_SHIPPED = ("dist", "LICENSE", "README.md", "UPSTREAM.json")
 
 DROPPED_POLICIES = ("genome-inject.sh",)
 
@@ -243,6 +249,20 @@ def drop_paths(target):
             path.unlink()
 
 
+def prune_servers(target):
+    """Keep only SERVER_SHIPPED in each server folder; the list fails closed."""
+    for server in sorted((target / ".agents/mcp-servers").iterdir()):
+        if not server.is_dir():
+            continue
+        for path in sorted(server.iterdir()):
+            if path.name in SERVER_SHIPPED:
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+
 def rewrite_documents(target):
     for relative in (".agents/claude/settings.json", ".agents/codex/hooks.json"):
         path = target / relative
@@ -275,8 +295,8 @@ def strip_tree(target):
     for path in sorted(target.rglob("*")):
         if path.is_symlink() or not path.is_file() or path.suffix not in TEXT_SUFFIXES:
             continue
-        if "mcp-servers" in path.parts:
-            continue                   # vendored server source carries no markers
+        if "mcp-servers" in path.parts and "dist" in path.parts:
+            continue                   # a bundle's files carry no markers
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -309,6 +329,7 @@ def main():
     tracked_export(target, commit)
     sections = debt_sections(target / ".agents/debt-log.md")
     drop_paths(target)
+    prune_servers(target)
     rewrite_documents(target)
     stripped = strip_tree(target)
     entries = finalize(target, sections)

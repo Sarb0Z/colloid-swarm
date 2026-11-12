@@ -66,6 +66,7 @@ python3 .agents/lint-contract.py
 python3 .agents/lint-suite.py
 python3 .agents/eval/test-cell-time.py
 .agents/test-export.sh
+.agents/test-export-servers.sh
 .agents/test-stack-packs.sh
 python3 .agents/port-public.py check
 .agents/test-port-public.sh

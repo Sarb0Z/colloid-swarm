@@ -209,8 +209,15 @@ directory holds its own `.gitignore`, and `mcp.py` and `browser-sync.py` refuse
 to write a file there that Git does not ignore.
 
 Repository-owned servers under `mcp-servers/` ship committed `dist/` bundles so
-clients can launch from a clean clone. After changing their source, run that
-server's `npm run build` and `npm run check`.
+clients can launch from a clean clone.
+
+<!-- colloid-only -->
+After changing their source, run that server's `npm run build` and
+`npm run check`.
+<!-- /colloid-only -->
+
+A satellite holds only the bundle, its licence and its README. The bundle
+arrives by sync from the carrier.
 
 ## Hooks
 

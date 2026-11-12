@@ -138,6 +138,7 @@ Not removed:
 - Metadata that the page does not display. `excerpt`, `byline` and `siteName`
   can come from meta tags or JSON-LD. Their invisible characters are removed.
 
+<!-- colloid-only -->
 ## Build
 
 ```sh
@@ -155,3 +156,4 @@ with no install and no network.
 bundle matches a clean rebuild, so a stale `dist/` fails the check instead of
 being overwritten by it. Build first, then commit `dist/` with the source that
 produced it.
+<!-- /colloid-only -->

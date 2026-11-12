@@ -121,9 +121,10 @@ report="$(run "$mono" || true)"
 ok 'a marker inside a monorepo package is found'
 
 # --- The scaffold's own files select no stack -------------------------------
-# Every satellite carries `.agents/mcp-servers/*/tsconfig.json`. Read as a
-# marker, it keeps the TypeScript pack alive in a repository with no
-# TypeScript, which is the stale pack this gate exists to remove.
+# The carrier holds `.agents/mcp-servers/*/tsconfig.json`; a satellite does not.
+# Read as a marker in the carrier, it keeps the TypeScript pack alive in a
+# repository with no TypeScript, which is the stale pack this gate exists to
+# remove.
 vendored="$(build vendored .agents/mcp-servers/research-mcp/tsconfig.json next.config.js)"
 dir="$vendored"; pack typescript '**/*.ts **/*.tsx' '**/tsconfig.json'
 git -C "$vendored" add -A

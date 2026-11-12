@@ -41,12 +41,9 @@
 /CLAUDE.local.md
 **/__pycache__/
 **/.tsbuildinfo-claude
-.agents/mcp-servers/*/node_modules/
 
-# A repository-level `dist/` or `package-lock.json` rule, left unanchored,
-# also matches inside the bundled MCP servers and drops the very files the
-# registry points at — a fresh clone then fails `resolve_registry` and every
+# A repository-level `dist/` rule, left unanchored, also matches inside the
+# bundled MCP servers and drops the very files the registry points at — a fresh clone then fails `resolve_registry` and every
 # sync script exits non-zero. Re-include the directory first: git cannot
 # re-include a file whose parent directory is excluded.
 !.agents/mcp-servers/*/dist/
-!.agents/mcp-servers/*/package-lock.json

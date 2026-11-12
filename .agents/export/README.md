@@ -153,7 +153,15 @@ and copies the kit's `export/base` to `.agents/scaffold-base`.
    (`diff -ru /tmp/kit-new/.agents/skills/<name> <target>/.agents/skills/<name>`).
    The satellite keeps its edits; report the ones that fill a general gap, not
    a local adaptation, so the carrier can fold them back into its own skill.
-10. Remove the `export/` directory last; the steps above read from it.
+10. Delete any `.agents/mcp-servers/*/node_modules`.
+11. Resolve a conflict under `.agents/mcp-servers/` by taking the kit's side:
+    delete the file outside `dist/`, and take the kit's copy inside it. A
+    satellite receives each repository-owned server as its bundle only, so the
+    kit holds no file outside `dist/`, `LICENSE`, `README.md` and
+    `UPSTREAM.json`.
+12. Remove `research-01-duplicate-ssrf-tables` from the satellite's
+    `debt-log.md`. The code it describes no longer ships.
+13. Remove the `export/` directory last; the steps above read from it.
 
 ## Adapt
 
@@ -196,7 +204,9 @@ will keep it.
   and the root's Routing section both do.
 - **Servers** (`.agents/mcp.json`): `context7` and `research-mcp` on
   everywhere; `playwright` on where there is a browser surface; the rest
-  registered and off until a task turns one on. Keep repository-owned bundles
+  registered and off until a task turns one on. A satellite receives each
+  repository-owned server as its bundle only; a server changes in the carrier
+  and reaches the satellite at the next sync. Keep repository-owned bundles
   only when their tools make sense; a removed bundle needs
   `export/drop-server.py <repo> <name>` so the registry does not point at a
   missing executable. A disabled entry masks a same-named user-level server in
