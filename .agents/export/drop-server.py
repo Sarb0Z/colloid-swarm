@@ -4,11 +4,15 @@
 `mcp.py` validates repository-owned paths before writing host configuration, so
 a target that omits a bundled server must omit its registry record too.
 
+A dropped server that declared `sources` leaves the hook matchers in the host
+files stale, so the target's own `sources-matcher.py` regenerates them.
+
 Usage:  drop-server.py <repo> <server-name>
 """
 
 import json
 import pathlib
+import subprocess
 import sys
 
 
@@ -37,6 +41,15 @@ def main() -> None:
     path = agents / "mcp.json"
     changed = ["mcp.json"] if path.exists() and drop(path, "mcpServers", name) else []
     print(f"drop-server: removed {name} from {', '.join(changed) if changed else 'nothing'}")
+    matcher = agents / "sources-matcher.py"
+    if matcher.exists():
+        # -I: the target is a repository being edited, not code to trust with the
+        # interpreter's script-directory and cwd imports.
+        run = subprocess.run([sys.executable, "-I", str(matcher)], capture_output=True, text=True)
+        sys.stdout.write(run.stdout)
+        sys.stderr.write(run.stderr)
+        if run.returncode:
+            raise SystemExit(f"drop-server: {matcher} failed ({run.returncode})")
 
 
 if __name__ == "__main__":

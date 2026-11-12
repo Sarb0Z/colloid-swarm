@@ -185,6 +185,13 @@ rm -rf "$work/lean/.agents/mcp-servers/security-mcp"
 python3 "$work/lean/export/drop-server.py" "$work/lean" security-mcp >/dev/null
 python3 "$work/lean/.agents/mcp.py" >/dev/null
 
+# Dropping a server that declares `sources` (exa ships no bundle) regenerates the
+# hook matchers, so the copy's own check still passes.
+python3 "$work/lean/export/drop-server.py" "$work/lean" exa >/dev/null
+python3 "$work/lean/.agents/sources-matcher.py" --check >/dev/null \
+  || fail "dropping exa left the sources matchers stale"
+! grep -q 'exa' "$work/lean/.agents/claude/settings.json" || fail "dropping exa left it in a host matcher"
+
 # merge-kit applies only the carrier's change, keeps the satellite's edits and
 # deletions, and leaves a same-line edit on both sides to a hand merge.
 base="$work/base-kit" sat="$work/satellite"
