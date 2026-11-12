@@ -214,6 +214,31 @@ rm "$fx/.agents/.teardown-pending-$session" "$fx/new-file.txt"
 ok "clean-up counts ledger resources and untracked files, and clears when they are gone"
 
 # colloid-only
+# ── the carrier's critical paths ────────────────────────────────────────────
+# Each pattern names tracked files, and none names a symlink: an edit lands in
+# the canonical target, so a pattern on a link never fires.
+python3 - "$repo" <<'PY' || fail "owed.critical_paths in policy.json"
+import json, subprocess, sys
+repo = sys.argv[1]
+sys.path.insert(0, repo + "/.agents/hooks/lib")
+import owed
+tracked = {}
+for row in subprocess.run(["git", "-C", repo, "ls-files", "-s"], capture_output=True, text=True, check=True).stdout.splitlines():
+    meta, _, path = row.partition("\t")
+    tracked[path] = meta.split()[0]
+bad = []
+for pattern in json.load(open(repo + "/.agents/policy.json"))["owed"]["critical_paths"]:
+    rx = owed.glob_regex(pattern)
+    hits = [p for p in tracked if rx.match(p)]
+    if not hits:
+        bad.append(f"{pattern} matches no tracked file")
+    bad += [f"{pattern} matches the symlink {p}" for p in hits if tracked[p] == "120000"]
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+PY
+ok "every critical-path pattern names tracked files and no symlink"
+
 # ── lint-suite ──────────────────────────────────────────────────────────────
 lint() { python3 "$repo/.agents/lint-suite.py" --script "$1" --ci "$2" 2>&1; }
 cat > "$scratch/check-all.sh" <<'SH'

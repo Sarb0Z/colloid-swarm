@@ -14,7 +14,11 @@
       ".agents/lenses.md",
       ".agents/hooks/**",
       ".agents/claude/settings.json",
-      ".codex/hooks.json"
+      ".agents/claude/adapter.sh",
+      ".agents/claude/*.py",
+      ".agents/codex/**",
+      ".kimi/hooks/**",
+      ".kimi/config.toml.example"
     ],
     "suite": ".agents/check-all.sh"
   }
