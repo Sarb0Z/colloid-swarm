@@ -22,16 +22,17 @@ jobs:
   scaffold:
     name: Scaffold suites
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       # The Scrapling launcher test resolves its pinned environment with uvx.
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Host layout
         run: python3 .agents/check-layout.py
@@ -252,14 +253,15 @@ jobs:
   mods:
     name: Claude Code mods
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       CLAUDE_CODE_VERSION: '2.1.288'
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Install Claude Code
@@ -270,6 +272,7 @@ jobs:
   servers:
     name: ${{ matrix.server }} on node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -282,8 +285,8 @@ jobs:
       run:
         working-directory: .agents/mcp-servers/${{ matrix.server }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -297,4 +300,4 @@ jobs:
       # inside check:bundle. This step still catches any other file a check
       # step rewrites or leaves behind.
       - name: Working tree is clean
-        run: "$GITHUB_WORKSPACE/.agents/check-clean-tree.sh"
+        run: '"$GITHUB_WORKSPACE/.agents/check-clean-tree.sh"'
