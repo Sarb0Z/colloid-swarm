@@ -35,6 +35,7 @@ from workloop_lanes import (
 from workloop_messages import (
     cmd_ack_message,
     cmd_archive,
+    cmd_digest,
     cmd_inbox,
     cmd_send,
     cmd_watch,
@@ -93,6 +94,7 @@ def parser() -> argparse.ArgumentParser:
     beat = sub.add_parser("heartbeat"); beat.add_argument("run"); beat.add_argument("lane"); beat.add_argument("--agent", required=True); beat.add_argument("--progress", help="what the lane is doing right now"); beat.set_defaults(func=cmd_heartbeat)
     reap = sub.add_parser("reap"); reap.add_argument("run"); reap.add_argument("--lane"); reap.set_defaults(func=cmd_reap)
     watch = sub.add_parser("watch"); watch.add_argument("run"); watch.add_argument("--stale-seconds", type=int, default=900); watch.set_defaults(func=cmd_watch)
+    digest = sub.add_parser("digest", help="one line per lane and cell: name, role, state, silence, last action"); digest.add_argument("run"); digest.set_defaults(func=cmd_digest)
     archive = sub.add_parser("archive"); archive.add_argument("run"); archive.set_defaults(func=cmd_archive)
     return root
 

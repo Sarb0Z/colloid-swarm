@@ -29,6 +29,7 @@ from workloop_state import (
     now,
     rebuild_steps,
     record,
+    refresh_readout,
     replayed,
     run_of,
     shared_of,
@@ -326,6 +327,7 @@ def cmd_teardown(args: argparse.Namespace) -> None:
                  f"released ({len(removed)} worktree(s) removed) but the run stays open: once that is resolved, close it with abandon {args.run}")
         run["torn_down"] = {"at": now(), "removed": removed, "kept": kept, "errors": errors}
         record(args.run, run, "teardown", detail=f"removed {len(removed)}, kept {len(kept)}, errors {len(errors)}", supplied=args.event_id)
+    refresh_readout(state_path(args.state), run["repo"])
     print(f"removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)")
     for line in kept:
         print(f"kept branch {line}")
