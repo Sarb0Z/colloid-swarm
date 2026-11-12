@@ -58,10 +58,16 @@ GH_MUTATING_VERBS = {"create", "merge", "close", "reopen", "comment", "edit",
                      "delete", "review", "ready", "lock", "unlock", "transfer",
                      "run", "upload"}
 GH_MUTATING_AREAS = {"pr", "issue", "release", "repo", "gist", "label", "workflow"}
-# Areas whose only mutating verbs are these: `gh secret set` writes a repository
-# secret, `gh run rerun` starts a workflow run again. Their other verbs read.
-GH_AREA_WRITES = {"secret": {"set", "delete"}, "variable": {"set", "delete"},
-                  "run": {"rerun", "cancel", "delete"}}
+# Further writes, as the leading words of the command: `gh secret set` writes a
+# repository secret, `gh run rerun` starts a workflow run again. The other
+# verbs of these areas read.
+GH_WRITE_PHRASES = (
+    ("secret", "set"), ("secret", "delete"), ("variable", "set"), ("variable", "delete"),
+    ("run", "rerun"), ("run", "cancel"), ("run", "delete"),
+    ("ssh-key", "add"), ("repo", "deploy-key", "add"),
+    ("repo", "archive"), ("repo", "rename"), ("repo", "sync"), ("repo", "fork"),
+    ("cache", "delete"), ("codespace", "delete"), ("label", "clone"), ("project", "item-add"),
+)
 NPM_PUBLISHERS = {"npm", "pnpm", "yarn", "bun"}
 READ_FLAGS_GH_API = {"GET", "HEAD"}
 # One deploy vendor per row; the verb set is that CLI's outward-mutating verbs.
@@ -544,8 +550,9 @@ def rule_bash(command, shell, place=None):
             area = area[1:] if area[0] not in ("-R", "--repo") else area[2:]
         if len(area) >= 2 and area[0] in GH_MUTATING_AREAS and area[1] in GH_MUTATING_VERBS:
             return f"gh {area[0]} {area[1]} mutates GitHub state."
-        if len(area) >= 2 and area[1] in GH_AREA_WRITES.get(area[0], ()):
-            return f"gh {area[0]} {area[1]} mutates GitHub state."
+        for phrase in GH_WRITE_PHRASES:
+            if tuple(area[:len(phrase)]) == phrase:
+                return f"gh {' '.join(phrase)} mutates GitHub state."
         if area and area[0] == "api":
             method = None
             for index, word in enumerate(rest):
