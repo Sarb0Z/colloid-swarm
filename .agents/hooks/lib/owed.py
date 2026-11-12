@@ -94,6 +94,7 @@ def critical_regexes(repo):
             if isinstance(pattern, str)]
 
 
+# debt: owed-shared-helpers -- workloop_git and check-stack-packs translate globs too.
 def glob_regex(pattern):
     """`**` crosses directories, `*` and `?` stop at a slash."""
     out, index = "", 0
@@ -177,6 +178,7 @@ def blob(repo, rev, path):
     return out.strip() if out else None
 
 
+# debt: owed-record-lookups -- one git call per record and critical file.
 def review_states(repo, files):
     """{file: state} for each critical-path file in `files` that exists at HEAD,
     and the unresolvable record names. A record covers a file only when its
