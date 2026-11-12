@@ -193,7 +193,7 @@ def _env(value):
     return value
 
 
-def server_config(name, server):
+def server_config(server):
     """One registry server in OpenCode's `mcp.servers` shape."""
     if server.get("type") == "stdio":
         record = {
@@ -206,10 +206,7 @@ def server_config(name, server):
             record["environment"] = _env(dict(server["env"]))
         return record
     if server.get("type") == "http":
-        url = _env(server["url"])
-        if ENV.search(url):
-            _fail(f"{name} has an environment placeholder in its URL, which OpenCode does not expand")
-        record = {"type": "remote", "url": url}
+        record = {"type": "remote", "url": _env(server["url"])}
         if server.get("headers"):
             record["headers"] = _env(dict(server["headers"]))
         return record
@@ -258,7 +255,7 @@ def payload(repo, servers):
     rendered = {}
     for name, server in servers.items():
         if server["enabled"] and mcp_hosts.renders(server, "opencode"):
-            record = server_config(name, server)
+            record = server_config(server)
             if record is not None:
                 rendered[name] = record
     document = {

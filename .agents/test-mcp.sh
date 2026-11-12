@@ -65,6 +65,10 @@ FIXTURE = {"mcpServers": {
         "description": "Fixture Claude-excluded server.", "enabled": True,
         "hosts": ["codex", "kimi", "opencode"],
         "type": "stdio", "command": "npx", "args": ["-y", "fx-noclaude"]},
+    "fx-noopencode": {
+        "description": "Fixture OpenCode-excluded server.", "enabled": True,
+        "hosts": ["claude", "codex", "kimi"],
+        "type": "stdio", "command": "npx", "args": ["-y", "fx-noopencode"]},
     # The one name mcp.py resolves by hand, for the browser-extension gate.
     "playwright-reader": {
         "description": "Fixture reader.", "sources": ["browser_navigate"],
@@ -75,7 +79,7 @@ FIXTURE = {"mcpServers": {
         "description": "Fixture browser.", "enabled": False, "type": "stdio", "command": "npx",
         "args": ["-y", "fx-browser", "--config", "${REPO_ROOT}/.agents/.browser/playwright.json"]},
 }}
-ON = {"fx-docs", "fx-plain", "fx-nokimi", "fx-noclaude"}
+ON = {"fx-docs", "fx-plain", "fx-nokimi", "fx-noclaude", "fx-noopencode"}
 
 try:
     agents = work / ".agents"
@@ -129,10 +133,10 @@ try:
     for item in claude.values():
         assert item["type"] in {"stdio", "http"}
         assert not ({"description", "sources", "outward", "hosts", "codex_startup_timeout_sec"} & set(item)), item
-    # OpenCode renders the same enabled set, plus the hosts' own shapes.
+    # OpenCode renders the enabled set its `hosts` lists allow, in its own shapes.
     opencode = json.loads((work / ".opencode/opencode.json").read_text())
-    assert set(opencode["mcp"]["servers"]) == defaults, opencode["mcp"]["servers"]
-    assert "fx-nokimi" in opencode["mcp"]["servers"]
+    assert set(opencode["mcp"]["servers"]) == {
+        "fx-docs", "fx-plain", "fx-nokimi", "fx-noclaude"}, opencode["mcp"]["servers"]
     assert opencode["mcp"]["servers"]["fx-docs"]["command"] == ["npx", "-y", "fx-docs"]
     fixture = opencode["agents"]["fixture"]
     assert fixture["description"] == "Fixture persona."
@@ -153,6 +157,7 @@ try:
     # Off its list Kimi keeps a disabled record, as it does for a disabled server.
     assert kimi_records["fx-nokimi"]["enabled"] is False
     assert "enabled" not in kimi_records["fx-noclaude"] and "hosts" not in kimi_records["fx-noclaude"]
+    assert "enabled" not in kimi_records["fx-noopencode"]
     assert all("hosts" not in item for item in kimi_records.values())
     assert all("codex_startup_timeout_sec" not in item for item in kimi_records.values())
     assert all("sources" not in item for item in kimi_records.values())
@@ -162,7 +167,7 @@ try:
     assert codex["fx-docs"]["startup_timeout_sec"] == 30
     assert "startup_timeout_sec" not in codex["fx-plain"]
     assert "fx-sse" not in codex and "fx-nocodex" not in codex
-    assert "fx-nokimi" in codex and "fx-noclaude" in codex
+    assert "fx-nokimi" in codex and "fx-noclaude" in codex and "fx-noopencode" in codex
     assert codex["fx-token"]["bearer_token_env_var"] == "FX_TOKEN"
 
     original_registry = (agents / "mcp.json").read_bytes()
@@ -176,6 +181,29 @@ try:
     run()
     with (work / ".codex/config.toml").open("rb") as stream:
         assert tomllib.load(stream)["mcp_servers"]["fx-docs"]["env"] == {"FIXTURE_ENV": "value"}
+    (agents / "mcp.json").write_bytes(original_registry)
+    run()
+
+    # A remote URL's ${NAME} reaches OpenCode as {env:NAME}, which OpenCode
+    # substitutes inside any string of its config.
+    mutate("fx-nocodex", "enabled", True)
+    run()
+    remote = json.loads((work / ".opencode/opencode.json").read_text())["mcp"]["servers"]["fx-nocodex"]
+    assert remote == {"type": "remote", "url": "https://fixture.invalid/mcp?key={env:FX_KEY}"}, remote
+    (agents / "mcp.json").write_bytes(original_registry)
+    run()
+
+    # An enabled SSE server with no `hosts` reaches Claude and Kimi only: Codex
+    # and OpenCode leave it out by type, not by list.
+    document = json.loads(original_registry)
+    document["mcpServers"]["fx-sse"]["enabled"] = True
+    del document["mcpServers"]["fx-sse"]["hosts"]
+    (agents / "mcp.json").write_text(json.dumps(document))
+    run()
+    assert "fx-sse" in json.loads((work / ".mcp.json").read_text())["mcpServers"]
+    assert "enabled" not in json.loads(kimi.read_text())["mcpServers"]["fx-sse"]
+    assert "fx-sse" not in tomllib.loads((work / ".codex/config.toml").read_text())["mcp_servers"]
+    assert "fx-sse" not in json.loads((work / ".opencode/opencode.json").read_text())["mcp"]["servers"]
     (agents / "mcp.json").write_bytes(original_registry)
     run()
 
@@ -417,12 +445,33 @@ try:
     run()
 
     # colloid-only
-    # The carrier's own registry, every entry enabled: which hosts reach each
-    # server. Catches a `hosts` edit that moves a server to a host nobody chose
-    # for it; misses a renderer that ignores the list, which the fixture rows
-    # above cover. An SSE server stays off Codex and OpenCode by type.
-    import mcp_hosts
-    real = json.loads((source / ".agents/mcp.json").read_text())["mcpServers"]
+    # The carrier's own registry, every entry enabled, through the four real
+    # renderers: which hosts each generated file gives each server. Catches a
+    # renderer or a `hosts` edit that moves a server to a host nobody chose for
+    # it. The entries' repository-owned files and the reader's extension are
+    # stand-ins, and the two credentials are set, so every entry renders.
+    real = json.loads((source / ".agents/mcp.json").read_text())
+    for server in real["mcpServers"].values():
+        server["enabled"] = True
+    (agents / "mcp.json").write_text(json.dumps(real))
+    for relative in ("playwright-session.py", "scrapling-mcp.py",
+                     "mcp-servers/security-mcp/dist/server.js",
+                     "mcp-servers/research-mcp/dist/server.js",
+                     "browser-extensions/fx/manifest.json"):
+        (agents / relative).parent.mkdir(parents=True, exist_ok=True)
+        (agents / relative).write_text("{}\n")
+    run(EXA_API_KEY="fixture", GREPTILE_API_KEY="fixture")
+    reach = {name: set() for name in real["mcpServers"]}
+    for name in json.loads((work / ".mcp.json").read_text())["mcpServers"]:
+        reach[name].add("claude")
+    for name, item in tomllib.loads((work / ".codex/config.toml").read_text())["mcp_servers"].items():
+        if item.get("enabled", True):
+            reach[name].add("codex")
+    for name, item in json.loads(kimi.read_text())["mcpServers"].items():
+        if item.get("enabled", True):
+            reach[name].add("kimi")
+    for name in json.loads((work / ".opencode/opencode.json").read_text())["mcp"]["servers"]:
+        reach[name].add("opencode")
     every = {"claude", "codex", "kimi", "opencode"}
     expected = {name: every for name in (
         "context7", "playwright", "playwright-reader", "appium-mcp", "security-mcp",
@@ -430,10 +479,6 @@ try:
     expected["atlassian"] = {"claude", "kimi"}
     expected["exa"] = {"claude", "kimi", "opencode"}
     expected["scrapling"] = {"claude"}
-    reach = {
-        name: {host for host in mcp_hosts.HOSTS if mcp_hosts.renders(server, host)
-               and not (server["type"] == "sse" and host in {"codex", "opencode"})}
-        for name, server in real.items()}
     assert reach == expected, reach
     # /colloid-only
 

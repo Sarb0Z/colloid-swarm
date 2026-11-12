@@ -10,7 +10,7 @@ They appear on the first `python3 .agents/mcp.py sync`.
 | --- | --- |
 | `permissions` | `.agents/claude/settings.json` — `permissions.ask`, then `.deny` |
 | `agents` | `.agents/personas/*.md` |
-| `mcp.servers` | `.agents/mcp.json`, enabled servers only |
+| `mcp.servers` | `.agents/mcp.json`, enabled servers whose `hosts` lists `opencode` or that carry no `hosts`, SSE servers excluded |
 | `instructions` | the body of `.agents/claude/output-style.md` |
 
 ## What OpenCode reads without an adapter
@@ -35,8 +35,9 @@ here and is dropped.
 
 An MCP name keeps letters, digits, `_` and `-`; any other character becomes
 `_`, which is how OpenCode names a tool. A `${NAME}` credential in an
-environment value or header becomes `{env:NAME}`. A remote URL carrying a
-placeholder fails the render, because OpenCode does not expand one there.
+environment value, a header or a remote URL becomes `{env:NAME}`, which
+OpenCode substitutes inside any string of its config (opencode.ai/docs/config,
+"Variables"), so exa's key reaches its URL.
 
 ## Agents
 
