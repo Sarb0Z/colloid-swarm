@@ -33,7 +33,7 @@ printf '#!/usr/bin/env bash\n[[ -f "$(dirname "$0")/../suite-should-pass" ]]\n' 
 touch "$fx/suite-should-pass"
 printf '# contract\n' > "$fx/AGENTS.md"
 printf 'x\n' > "$fx/app.txt"
-printf '.agents/.readout/\n.agents/.wrap-*\n.agents/.teardown-pending-*\n' > "$fx/.gitignore"
+printf '.agents/.readout/\n.agents/.wrap-*\n.agents/.teardown-pending-*\n*.ign\n' > "$fx/.gitignore"
 g() { git -C "$fx" -c user.name=t -c user.email=t@t "$@"; }
 g init -q -b main
 g add -A && g commit -qm base
@@ -75,7 +75,6 @@ commit_as_session "critical work"
 note | grep -q "AGENTS.md (unreviewed)" || fail "the note must name the file: $(note)"
 ok "an unreviewed critical-path file raises review and is named"
 
-printf 'push line\n' | cat > /dev/null
 line="$(owed review-line "$base..HEAD")"
 [[ "$line" == *"unreviewed: "*"AGENTS.md"* && "$line" == *".agents/hooks/policy/h.sh"* ]] || fail "review-line: $line"
 ok "review-line names the unreviewed critical files a range carries"
@@ -103,6 +102,38 @@ printf '# Review\nCovers: %s..deadbeefdeadbeef\n' "$base" > "$fx/docs/reviews/20
 note | grep -q "record git cannot resolve: docs/reviews/2026-11-12-round.md" || fail "the record must be named: $(note)"
 ok "a record whose tip git cannot resolve covers nothing and is named"
 printf '# Review\nCovers: %s..%s\n' "$base" "$new_tip" > "$fx/docs/reviews/2026-11-12-round.md"
+
+# A record covers a file only when its range touched the file: this range
+# touches app.txt alone, so the hook committed before it stays unreviewed.
+printf 'two\n' > "$fx/.agents/hooks/policy/h2.sh"
+commit_as_session "second hook"
+hook_commit="$(g rev-parse HEAD)"
+printf 'more\n' >> "$fx/app.txt"
+commit_as_session "app only"
+printf '# Review\nCovers: %s..%s\n' "$hook_commit" "$(g rev-parse HEAD)" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" || fail "a record whose range never touched the hook must not cover it: $(note)"
+ok "a record covers a file only when its range touched it"
+
+printf '# Review\nCovers: %s..HEAD\n' "$base" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" || fail "a HEAD tip must cover nothing: $(note)"
+note | grep -q "record git cannot resolve: docs/reviews/2026-11-12-app.md (Covers: $base..HEAD)" || fail "a HEAD tip must be named: $(note)"
+printf '# Review\nCovers: %s..%s\n' "$base" "${hook_commit:0:6}" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" || fail "a six-digit tip must cover nothing: $(note)"
+printf '# Review\nCovers: %s..%s\n' "${base:0:7}" "${hook_commit:0:7}" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" && fail "a seven-digit hash is a record end: $(note)"
+ok "a record end must be a hexadecimal object name of at least seven digits"
+rm "$fx/docs/reviews/2026-11-12-app.md"
+
+line="$(python3 - "$fx" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1] + "/.agents/hooks/lib")
+import owed
+print(owed.review_line(sys.argv[1], "HEAD", limit=2))
+PY
+)"
+[[ "$line" == *"Only the newest 2 commits were read."* ]] || fail "a bounded read must say so: $line"
+[[ "$(owed push-line)" == *"h2.sh"* ]] || fail "push-line on a repository with no remote: $(owed push-line)"
+ok "a push with no remote reads a bounded history and says so"
 
 # ── suite ───────────────────────────────────────────────────────────────────
 rm -f "$fx/.agents/.wrap-commits-$key" "$fx/.agents/.wrap-edits-$key"
@@ -133,6 +164,19 @@ touch "$fx/suite-should-pass"
 ( cd "$fx" && .agents/suite.sh )
 ok "a failing suite records no pass"
 
+# A Stop reads the written paths only: it writes no objects, and a path git
+# ignores is not owed to the suite.
+objects() { g count-objects -v | awk '/^count:/ {print $2}'; }
+printf 'after pass\n' >> "$fx/app.txt"
+printf 'x\n' > "$fx/scratch.ign"
+edit_record scratch.ign
+before="$(objects)"
+[[ "$(strip)" == "owed: suite" ]] || fail "an edit after the pass, with an ignored path written: $(strip)"
+[[ "$(objects)" == "$before" ]] || fail "a Stop wrote objects: $before -> $(objects)"
+note | grep -q "scratch.ign" && fail "an ignored path must not be owed to the suite: $(note)"
+( cd "$fx" && .agents/suite.sh )
+ok "a Stop hashes the written paths without writing objects and skips ignored ones"
+
 # ── report ──────────────────────────────────────────────────────────────────
 owed raise report --session "$session" --key "$key"
 [[ "$(strip)" == "owed: report" ]] || fail "raised report: $(strip)"
@@ -143,6 +187,20 @@ owed clear report --session "$session" --key "$key"
 [[ -z "$(strip)" && -f "$fx/.agents/.readout/owed-report--9999" ]] || fail "clear with a session must clear only that session's"
 owed clear report
 ok "report is raised, and cleared with or without a session"
+
+for tier in diff large investigation; do
+  owed raise report --session "$session" --key "$key" --tier "$tier"
+  [[ "$(strip)" == "owed: report" ]] || fail "report with tier $tier: $(strip)"
+  case "$tier" in
+    diff) want=".agents/playbooks/diff-wrap.md" ;;
+    large) want="hostile-review.md" ;;
+    investigation) want=".agents/playbooks/report-investigation.md" ;;
+  esac
+  note | grep -q "$want" || fail "the $tier report note must name $want: $(note)"
+  [[ "$tier" == diff ]] && { note | grep -q "hostile-review.md" && fail "the diff tier names no hostile review: $(note)"; }
+  owed clear report
+done
+ok "the report note names the tier crossed and the playbooks to run"
 
 # ── clean-up ────────────────────────────────────────────────────────────────
 printf 'docker\twaiting\t-\tpostgres container\n#blocked\n' > "$fx/.agents/.teardown-pending-$session"

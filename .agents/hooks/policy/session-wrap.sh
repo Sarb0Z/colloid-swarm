@@ -513,6 +513,7 @@ if [[ "$landed_tier" == "diff" || "$landed_tier" == "large" ]]; then
   add "Committed and unwrapped ($size):"
   add "$shown"
   add ""
+  report_tier="$landed_tier"
   add "This crossed the '$landed_tier' threshold. Ask the user: full session wrap, or skip? Use a question tool where the host has one, otherwise ask in the reply."
   add "Honor the answer; if they skip, stop here."
   add "If they want it, read the file for each section below and work it against the files listed above; do not sweep files you did not edit."
@@ -539,6 +540,7 @@ elif [[ "$tier" == "diff" || "$tier" == "large" ]]; then
     add "Uncommitted changes this session ($size):"
     add "$shown"
     add ""
+    report_tier="$tier"
     add "This crossed the '$tier' threshold. Ask the user: full session wrap, or skip? Use a question tool where the host has one, otherwise ask in the reply."
     add "Honor the answer; if they skip, stop here."
     add "If they want it, read the file for each section below and work it against the files this session touched; do not sweep files you did not edit."
@@ -597,6 +599,7 @@ EOF
     add ""
     add "Ask the user whether they want a session report, with a question tool where the host has one and in the reply otherwise."
     add "If they want it: $wrap_dir/report-investigation.md"
+    report_tier="investigation"
     next_investigated="1"
   fi
 fi
@@ -633,7 +636,7 @@ fi
 if [[ "$host" == "claude" ]]; then
   [[ -z "$ident" ]] && exit 0
   owed="$lib/owed.py"
-  [[ -n "$report_owed" ]] && { python3 "$owed" raise report --repo "$repo" --session "$ident" --key "$key" \
+  [[ -n "$report_owed" ]] && { python3 "$owed" raise report --repo "$repo" --session "$ident" --key "$key" --tier "${report_tier:-diff}" \
     || echo "session-wrap: could not raise the report flag" >&2; }
   strip="$(python3 "$owed" write --repo "$repo" --session "$ident" --key "$key")" || {
     echo "session-wrap: could not compute the owed flags" >&2

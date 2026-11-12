@@ -36,7 +36,7 @@ Usage:
                                           `git push` from DIR carries
   owed.py review-line REVRANGE [--repo DIR]             critical files a commit
                                           range carries that no record covers
-  owed.py raise report [--repo DIR] --session ID
+  owed.py raise report [--repo DIR] --session ID [--tier diff|large|investigation]
   owed.py clear report [--repo DIR] [--session ID]      no session: every one
   owed.py tree [--repo DIR]                             tree hash of the work tree
   owed.py record-pass TREE [--repo DIR]                 remember a passing tree
@@ -50,7 +50,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -59,14 +58,24 @@ sys.path.insert(0, str(HERE))
 import config  # noqa: E402
 
 COVERS = re.compile(r"^Covers:[ \t]*(\S+?)\.\.(\S+)[ \t]*$", re.M)
+HASH = re.compile(r"[0-9a-fA-F]{7,64}")
 STATES = ("changed since review", "unreviewed")
+# A push with no remote branch to measure against carries every commit of the
+# history; the line reads the newest ones only and says so.
+NO_REMOTE_LIMIT = 200
+REPORT_PLAYBOOKS = {
+    "diff": "crossed the diff tier: .agents/playbooks/diff-wrap.md, then report-implementation.md",
+    "large": "crossed the large tier: .agents/playbooks/diff-wrap.md, hostile-review.md, "
+             "then report-implementation.md",
+    "investigation": "a long session with no diff: .agents/playbooks/report-investigation.md",
+}
 
 
-def git(repo, *args, env=None, check=False):
+def git(repo, *args, env=None, check=False, input=None):
     clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     clean.update(env or {})
     result = subprocess.run(["git", "--literal-pathspecs", "-C", str(repo), *args],
-                            capture_output=True, text=True, env=clean)
+                            capture_output=True, text=True, env=clean, input=input)
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(args)}: {result.stderr.strip()}")
     return result.stdout if result.returncode == 0 else None
@@ -146,13 +155,15 @@ def resolves(repo, rev):
 
 
 def records(repo):
-    """([(base, tip, name)] with both ends resolvable, [names git cannot resolve])."""
+    """([(base, tip, name)] with both ends resolvable, [names git cannot resolve]).
+    An end must be a hexadecimal object name of at least seven digits: `HEAD`
+    or a branch name moves with later commits and would cover them."""
     good, unresolved = [], []
     for path in sorted(glob.glob(os.path.join(repo, "docs", "reviews", "*.md"))):
         text = Path(path).read_text(encoding="utf-8", errors="replace")
         for base, tip in COVERS.findall(text):
             name = os.path.relpath(path, repo)
-            if resolves(repo, base) and resolves(repo, tip):
+            if HASH.fullmatch(base) and HASH.fullmatch(tip) and resolves(repo, base) and resolves(repo, tip):
                 good.append((base, tip, name))
             else:
                 unresolved.append(f"{name} (Covers: {base}..{tip})")
@@ -166,7 +177,10 @@ def blob(repo, rev, path):
 
 def review_states(repo, files):
     """{file: state} for each critical-path file in `files` that exists at HEAD,
-    and the unresolvable record names."""
+    and the unresolvable record names. A record covers a file only when its
+    range touched the file: the file is `reviewed` when its content at the
+    record's tip equals HEAD, and `changed since review` when a record touched
+    it and the content has moved."""
     patterns = critical_regexes(repo)
     critical = [f for f in files if any(p.match(f) for p in patterns) and blob(repo, "HEAD", f)]
     if not critical:
@@ -178,21 +192,24 @@ def review_states(repo, files):
     states = {}
     for path in critical:
         head = blob(repo, "HEAD", path)
-        if any(blob(repo, tip, path) == head for _, tip, _ in good):
+        seen = [(base, tip) for (base, tip), names in touched.items() if path in names]
+        if any(blob(repo, tip, path) == head for _, tip in seen):
             states[path] = "reviewed"
-        elif any(path in names for names in touched.values()):
+        elif seen:
             states[path] = "changed since review"
         else:
             states[path] = "unreviewed"
     return states, unresolved
 
 
-def review_line(repo, rev_range):
+def review_line(repo, rev_range, limit=None):
     """One line for a push prompt: the critical-path files in `rev_range` that no
-    record covers, empty when none."""
+    record covers, empty when none. `limit` bounds the commits read, newest
+    first; a line that hit the bound says so."""
     if not critical_regexes(repo):
         return ""
-    commits = git(repo, "rev-list", "--no-merges", *rev_range.split(), check=True).split()
+    bound = [f"--max-count={limit}"] if limit else []
+    commits = git(repo, "rev-list", "--no-merges", *bound, *rev_range.split(), check=True).split()
     states, unresolved = review_states(repo, commit_files(repo, commits))
     parts = []
     for state in STATES:
@@ -201,15 +218,19 @@ def review_line(repo, rev_range):
             parts.append(f"{state}: {', '.join(names)}")
     if unresolved:
         parts.append(f"records git cannot resolve: {', '.join(unresolved)}")
-    return "critical-path files without a covering review record: " + "; ".join(parts) if parts else ""
+    line = "critical-path files without a covering review record: " + "; ".join(parts) if parts else ""
+    if limit and len(commits) >= limit:
+        line = (line + " " if line else "") + f"Only the newest {limit} commits were read."
+    return line
 
 
 def push_line(here):
     """`review_line` for the commits a `git push` run in `here` carries: those
-    after the upstream, or, with none, the commits on no remote."""
+    after the upstream, or, with none, the newest commits on no remote."""
     top = (git(here, "rev-parse", "--show-toplevel", check=True)).strip()
-    upstream = git(top, "rev-parse", "-q", "--verify", "@{u}") is not None
-    return review_line(top, "@{u}..HEAD" if upstream else "HEAD --not --remotes")
+    if git(top, "rev-parse", "-q", "--verify", "@{u}") is not None:
+        return review_line(top, "@{u}..HEAD")
+    return review_line(top, "HEAD --not --remotes", limit=NO_REMOTE_LIMIT)
 
 
 def tree(repo):
@@ -241,8 +262,28 @@ def suite_flag(repo, written):
         recorded = ""
     if not recorded:
         return list(written), False
-    changed = set((git(repo, "diff-tree", "-r", "--name-only", "--no-renames", recorded, tree(repo)) or "").splitlines())
-    return [p for p in written if p in changed], True
+    return changed_since(repo, recorded, written), True
+
+
+def changed_since(repo, recorded_tree, paths):
+    """The `paths` whose content in the work tree differs from `recorded_tree`.
+    Only these paths are hashed, with `git hash-object` and no `-w`, so a Stop
+    neither walks the tree nor writes objects. A path git ignores is not in a
+    recorded tree and is skipped."""
+    listed = set((git(repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
+                      *paths) or "").split("\0"))
+    present = [p for p in paths if p in listed and os.path.isfile(os.path.join(repo, p))]
+    hashes = {}
+    if present:
+        out = git(repo, "hash-object", "--stdin-paths", input="\n".join(present) + "\n", check=True)
+        hashes = dict(zip(present, out.split()))
+    recorded = {}
+    for row in (git(repo, "ls-tree", "-r", "-z", recorded_tree, "--", *paths) or "").split("\0"):
+        meta, _, path = row.partition("\t")
+        if path:
+            recorded[path] = meta.split()[2]
+    ignored = {p for p in paths if p not in listed and os.path.isfile(os.path.join(repo, p))}
+    return [p for p in paths if p not in ignored and hashes.get(p) != recorded.get(p)]
 
 
 def worklog_flag(repo, commits):
@@ -313,8 +354,10 @@ def compute(repo, session, key):
         why = "no passing run recorded" if not recorded else "changed since the last passing run"
         flags["suite"] = (None, [f"{policy(repo)['suite']}: {why}"] + stale)
 
-    if report_marker(repo, key).is_file():
-        flags["report"] = (None, ["a session report is owed"])
+    marker = report_marker(repo, key)
+    if marker.is_file():
+        tier = (lines(marker) or [""])[0].strip()
+        flags["report"] = (None, [f"a session report is owed: {REPORT_PLAYBOOKS.get(tier, 'see .agents/playbooks/report-implementation.md')}"])
 
     day_file = worklog_flag(repo, commits)
     if day_file:
@@ -356,6 +399,7 @@ def main(argv):
     p = sub.add_parser("review-line"); p.add_argument("range"); common(p)
     common(sub.add_parser("push-line"))
     p = sub.add_parser("raise"); p.add_argument("flag", choices=["report"]); common(p, True, True)
+    p.add_argument("--tier", choices=sorted(REPORT_PLAYBOOKS), default="")
     p = sub.add_parser("clear"); p.add_argument("flag", choices=["report"]); common(p, True)
     common(sub.add_parser("tree"))
     p = sub.add_parser("record-pass"); p.add_argument("tree"); common(p)
@@ -380,7 +424,7 @@ def main(argv):
     elif args.command == "raise":
         marker = report_marker(args.repo, key)
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(f"{int(time.time())}\n", encoding="utf-8")
+        marker.write_text(f"{args.tier}\n", encoding="utf-8")
     elif args.command == "clear":
         markers = [report_marker(args.repo, key)] if key else sorted(
             Path(args.repo, ".agents", ".readout").glob("owed-report--*"))
