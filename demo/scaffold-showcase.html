@@ -598,7 +598,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Surfaces unaddressed breadcrumbs; on a compaction resume, re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 386 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 393 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -790,9 +790,16 @@ fi
 # the digest is the same one workloop-inbox.sh gives at each prompt. The start
 # source, after the agent id, tells it whether this start ended the session&#x27;s
 # earlier cells (startup, resume) or not (clear, compact).
+# The inbox prints its digest on stderr too, for a prompt&#x27;s terminal, so its
+# stderr is shown here only when it fails.
 workloop_digest=&quot;&quot;
 if [[ -f &quot;$proj/.agents/.workloop-state.json&quot; &amp;&amp; -f &quot;$lib/workloop-inbox.py&quot; ]]; then
-  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; &quot;${start_source:-startup}&quot; 2&gt;/dev/null || true)&quot;
+  inbox_err=&quot;$(mktemp)&quot;
+  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; &quot;${start_source:-startup}&quot; 2&gt;&quot;$inbox_err&quot;)&quot; || {
+    printf &#x27;session-start: workloop-inbox.py failed, so no workloop run is listed: %s\n&#x27; &quot;$(tail -n 1 &quot;$inbox_err&quot;)&quot; &gt;&amp;2
+    workloop_digest=&quot;&quot;
+  }
+  rm -f &quot;$inbox_err&quot;
 fi
 
 # Installed copies of the output style that say something else. The carrier
