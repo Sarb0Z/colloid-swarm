@@ -200,7 +200,7 @@ def verification_due(run: dict) -> bool:
     if not main_lane(run) or not run.get("verify"):
         return False
     problems, stale = completion_problems(run), set(verification_problems(run))
-    waiting = stale | {"qa:missing", *wc.cell_problems(run)}
+    waiting = stale | {"qa:missing", "qa:stale",*wc.cell_problems(run)}
     return any(p in stale for p in problems) and all(p in waiting for p in problems)
 
 
@@ -291,6 +291,10 @@ def completion_problems(run: dict) -> list[str]:
         return problems + (["verify:undeclared"] if run["lanes"] else [])
     if not run["qa"]:
         problems.append("qa:missing")
+    # The evidence covers exactly the lanes and tips it recorded: a lane added
+    # or moved since, or a record that stored none, is stale.
+    elif run["qa"].get("tips") != {name: lane.get("tip") for name, lane in run["lanes"].items()}:
+        problems.append("qa:stale")
     # Every other run's composed test runs: a main lane's at its accepted
     # commit by `check`, worktree lanes' over the merged tree by `integrate`,
     # re-run if any lane moved afterwards. After teardown the checkout and the

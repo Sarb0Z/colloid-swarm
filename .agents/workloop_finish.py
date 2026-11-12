@@ -43,15 +43,17 @@ def cmd_qa(args: argparse.Namespace) -> None:
         if replayed(run, args.event_id): print("replayed event"); return
         if not run.get("verify"):
             fail(f"run {args.run!r} declared no --verify: a read-only fan-out records no QA, and check {args.run} passes once every cell is back")
-        unresolved = [name for name, lane in run["lanes"].items() if lane["state"] != "reviewed" or lane["attention"]]
+        # QA runs beside review: a submitted lane is enough, and the record binds
+        # the evidence to each lane's submitted tip (`completion_problems` reads it back).
+        unresolved = [name for name, lane in run["lanes"].items() if lane["state"] not in ("review", "reviewed") or lane["attention"]]
         if unresolved:
             fail("QA is blocked by lanes: " + ", ".join(unresolved))
         pending = [message["id"] for message in run["messages"] if message["requires_ack"] and not message.get("acknowledged_at")]
         if pending:
             fail("QA is blocked by unacknowledged peer messages: " + ", ".join(pending))
         if not run["lanes"]:
-            fail("QA needs at least one reviewed lane")
-        run["qa"] = {"at": now(), "evidence": args.evidence}
+            fail("QA needs at least one submitted lane")
+        run["qa"] = {"at": now(), "evidence": args.evidence, "tips": {name: lane.get("tip") for name, lane in run["lanes"].items()}}
         record(args.run, run, "qa", detail=args.evidence, supplied=args.event_id)
     print(f"recorded QA evidence for {args.run!r}")
 
@@ -149,7 +151,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         # A QA cell recorded before the merge waits for the merge; a cell out
         # never blocks it. Dropped by exact problem, never by prefix: a lane
         # named `cell` or `qa` has problems that start the same way.
-        waiting = {*wc.cell_problems(run), "qa:missing", *wm.integration_problems(run)}
+        waiting = {*wc.cell_problems(run), "qa:missing", "qa:stale", *wm.integration_problems(run)}
         blockers = [problem for problem in wm.completion_problems(run) if problem not in waiting]
         if blockers:
             fail("integration is blocked by " + ", ".join(blockers))
