@@ -90,3 +90,28 @@ No P0. The P1 and the P2s that change code go back to lane `ledger`.
 | G3 | No change |
 | AMBIGUITY 1 | Settled as (a) by R1, "every web address found in the call", with the userinfo dropped by 2; the transcript already holds the full call |
 | AMBIGUITY 2 | Settled as (b): an address inside a script or a typed value is not a page the browser was on |
+
+## The fixes and their QA
+
+The writer landed every adopted finding as `55c7eba`, trailing `21ab76c`, and
+debt `scrapling-session-limits` holds the accepted limits (findings 5, 10,
+12). The new rows ran red against the earlier ledger, the first stopping the
+script, and nine inversion mutations each failed their row: the `,`
+terminator, the userinfo strip, the `%20`, the host check, the session token,
+the case-insensitive scheme, the dedupe, the browse-kind filter and the
+pattern equality. Its edits to `sources-ledger.py` and `test-codex.sh` went
+through scripts, so the post-edit check never ran; the lead then ran ruff,
+which flagged two `%` formats and an unused `noqa`, and saw the ledger swallow
+an unreadable payload and an unwritable trail with no word. `1c972a6` reports
+each on stderr and still exits 0, its rows red against `55c7eba`. The Kimi
+normalizer still drops `session_id`, so a Kimi row matches on the browser
+session alone; Scrapling renders on Claude only. The lead filed finding 13's
+breadcrumb in `a21f057`.
+
+| Claim | Run | Result |
+|---|---|---|
+| Through the real Claude hooks, each session call writes its row and a script's secret never reaches the ledger | independent QA cell: a scratch worktree of `1c972a6` with Scrapling enabled, one fresh headless session (sonnet, guest account, session `a96ef717`), loopback pages only: `browser_open qa1`, `browser_fetch a.html`, `browser_evaluate` of `fetch("…/b.html");var k="sk-live-QA7f3a91c4e2";`, `browser_actions` typing `…/typed`, `close_session` | three rows, `…/a.html session=qa1 host=a96ef717-…`, then the same page with `…/b.html`, then with `…/typed`; `host=` equals the session's id; the secret 0 times in the ledger; one PostToolUse run per call |
+| The suites | `test-codex.sh`, `test-sources-matcher.py`, `sources-matcher.py --check`, `port-public.py check`, `demo/check-inventory.py` at `1c972a6` | all pass |
+
+Not run: a call that fails part-way (debt `scrapling-session-limits`), and the
+Codex normalizer's `session_id` beyond its `assert_json` row.
