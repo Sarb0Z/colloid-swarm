@@ -19,7 +19,7 @@ sessions' commits never raise one.
   suite     a path the session wrote differs between the working tree and the
             tree of the last passing run of `owed.suite` (`suite.sh` records
             that tree), or no pass is recorded.
-  report    raised with `raise report`, cleared by `clear report`.
+  report    raised with `raise report`, cleared by `clear report --session ID`.
   worklog   the work log is on and today's file is older than the session's
             newest commit.
   cleanup   resources the teardown ledger holds for the session, worktrees it
@@ -37,7 +37,7 @@ Usage:
   owed.py review-line REVRANGE [--repo DIR]             critical files a commit
                                           range carries that no record covers
   owed.py raise report [--repo DIR] --session ID [--tier diff|large|investigation]
-  owed.py clear report|learning [--repo DIR] [--session ID]   no session: every one
+  owed.py clear report|learning [--repo DIR] (--session ID | --all)
             `learning` is raised beside `report` while hooks.learning_report.enabled
             is true, and names .agents/playbooks/learning-report.md
   owed.py tree [--repo DIR]                             tree hash of the work tree
@@ -415,6 +415,7 @@ def main(argv):
     p = sub.add_parser("raise"); p.add_argument("flag", choices=["report"]); common(p, True, True)
     p.add_argument("--tier", choices=sorted(REPORT_PLAYBOOKS), default="")
     p = sub.add_parser("clear"); p.add_argument("flag", choices=RAISED); common(p, True)
+    p.add_argument("--all", action="store_true")
     common(sub.add_parser("tree"))
     p = sub.add_parser("record-pass"); p.add_argument("tree"); common(p)
     common(sub.add_parser("suite-command"))
@@ -444,6 +445,11 @@ def main(argv):
         if args.tier != "investigation" and learning_enabled(args.repo):
             marker_for(args.repo, "learning", key).write_text("1\n", encoding="utf-8")
     elif args.command == "clear":
+        # Several sessions share a checkout; a clear that named none would
+        # take another session's flag with it.
+        if bool(key) == args.all:
+            raise SystemExit(f"owed.py clear {args.flag}: name one session with "
+                             f"--session \"$CLAUDE_CODE_SESSION_ID\", or pass --all for every session's")
         markers = [marker_for(args.repo, args.flag, key)] if key else sorted(
             Path(args.repo, ".agents", ".readout").glob(f"owed-{args.flag}--*"))
         for marker in markers:

@@ -180,13 +180,23 @@ ok "a Stop hashes the written paths without writing objects and skips ignored on
 # ── report ──────────────────────────────────────────────────────────────────
 owed raise report --session "$session" --key "$key"
 [[ "$(strip)" == "owed: report" ]] || fail "raised report: $(strip)"
-owed clear report
-[[ -z "$(strip)" ]] || fail "clear report: $(strip)"
-owed raise report --session "$session" --key "$key"; owed raise report --session other --key 9999
+owed clear report 2>"$scratch/err" && fail "clear with no session and no --all must refuse"
+grep -q -- "--all" "$scratch/err" || fail "the refusal must name --all: $(cat "$scratch/err")"
+[[ "$(strip)" == "owed: report" ]] || fail "a refused clear must leave the flag: $(strip)"
+# A host that sets no session id expands "$CLAUDE_CODE_SESSION_ID" to nothing.
+owed clear report --session "" 2>/dev/null && fail "clear with an empty session must refuse"
+[[ "$(strip)" == "owed: report" ]] || fail "an empty session must leave the flag: $(strip)"
+owed raise report --session other --key 9999
 owed clear report --session "$session" --key "$key"
 [[ -z "$(strip)" && -f "$fx/.agents/.readout/owed-report--9999" ]] || fail "clear with a session must clear only that session's"
-owed clear report
-ok "report is raised, and cleared with or without a session"
+owed clear report --all
+[[ ! -e "$fx/.agents/.readout/owed-report--9999" ]] || fail "clear --all must clear every session's report"
+# session-wrap.sh raises under the shell's cksum of the session id; a
+# playbook clears with the session id alone.
+owed raise report --session sess-b --key "$(printf '%s' sess-b | cksum | tr -d ' ')"
+owed clear report --session sess-b
+[[ -z "$(ls "$fx/.agents/.readout" | grep '^owed-report--')" ]] || fail "clear --session must find the flag session-wrap raised: $(ls "$fx/.agents/.readout")"
+ok "report is raised; clear takes one session or --all, and refuses neither or an empty session"
 
 for tier in diff large investigation; do
   owed raise report --session "$session" --key "$key" --tier "$tier"
@@ -198,24 +208,24 @@ for tier in diff large investigation; do
   esac
   note | grep -q "$want" || fail "the $tier report note must name $want: $(note)"
   [[ "$tier" == diff ]] && { note | grep -q "hostile-review.md" && fail "the diff tier names no hostile review: $(note)"; }
-  owed clear report
+  owed clear report --session "$session" --key "$key"
 done
 ok "the report note names the tier crossed and the playbooks to run"
 
 # Pairing mode (hooks.learning_report.enabled) raises `learning` beside `report`.
 owed raise report --session "$session" --key "$key" --tier diff
 [[ "$(strip)" == "owed: report" ]] || fail "pairing off must raise only report: $(strip)"
-owed clear report
+owed clear report --session "$session" --key "$key"
 printf '{"hooks":{"learning_report":{"enabled":true}}}\n' > "$fx/.agents/config.json"
 owed raise report --session "$session" --key "$key" --tier diff
 [[ "$(strip)" == "owed: report · learning" ]] || fail "pairing on must raise learning beside report: $(strip)"
 note | grep -q ".agents/playbooks/learning-report.md" || fail "the learning note must name its playbook: $(note)"
-owed clear learning
+owed clear learning --session "$session" --key "$key"
 [[ "$(strip)" == "owed: report" ]] || fail "clear learning must clear only learning: $(strip)"
-owed clear report
+owed clear report --session "$session" --key "$key"
 owed raise report --session "$session" --key "$key" --tier investigation
 [[ "$(strip)" == "owed: report" ]] || fail "an investigation report carries no learning report: $(strip)"
-owed clear report
+owed clear report --session "$session" --key "$key"
 rm "$fx/.agents/config.json"
 ok "learning is raised beside report only with pairing on, and clear learning clears it"
 

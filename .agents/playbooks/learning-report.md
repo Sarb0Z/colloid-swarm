@@ -35,6 +35,11 @@ Do not write a file. When the user asks to persist the report to
 Task(subagent_type='learning-reporter',
      prompt=<the decision-brief> + <the changed-file list>)
 ```
+
+Last, after giving the report, clear the status strip's `learning` flag. On
+Claude Code, run
+`python3 .agents/hooks/lib/owed.py clear learning --session "$CLAUDE_CODE_SESSION_ID"`;
+other hosts raise no flag.
 <!-- colloid-only -->
 
 The reporter is exempt from genome stamping; prepend no stamp.
