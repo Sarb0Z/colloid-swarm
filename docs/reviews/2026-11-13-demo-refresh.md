@@ -53,3 +53,42 @@ lanes are accepted at their tips, `a78fb81` and `e9f3f2e`, and integrated. The
 adopted fixes land as run `demo-refresh-r2`, branched from the merged result,
 and its QA reruns the plan's whole acceptance over both runs. The page lane's
 7,203 changed lines are mostly generated source panels.
+
+# Round 2
+
+Run `demo-refresh-r2`, branched from the round 1 merge at `f187496`: lane
+`page` `f187496..14367ef` and lane `script` `f187496..be1ec59`. One reviewer
+(opus) read both whole, statically; one QA cell (sonnet) ran the plan's
+acceptance 1 to 8 and the run's 9 to 12 beside it.
+
+## QA
+
+Every item passed at both tips. The demo from `/tmp` exits 0 with the ten
+beats' expected outcomes; four inversions of one beat's expectation, in beats
+7, 9 and 10, each exit 1 with one `MISMATCH` line naming the beat. Piped and
+`NO_COLOR` output carry no escape byte, and a terminal still gets colour.
+Beat 4's link count does not move when a worktree holding a broken link
+exists. At 1280 and 390 px the page's scroll width equals the viewport, with
+every source panel open, no console message and no broken `#` link; exactly
+the four framing placeholders remain; `embed-src.py` is idempotent. QA did not
+run `check-all.sh` or `port-public.py check`; the lead runs both on the merged
+commit.
+
+## Code review
+
+Every round 1 row is fixed except rows 6 and 14, which land in part. The
+reviewer accepted the writers' choices: `ui-gate` counted once, as a gate;
+`demo.sh` at 364 lines, the cost of row 6's result checks; beat 4 counting
+tracked files.
+
+| # | Sev | Finding | Evidence | Disposition |
+|---|---|---|---|---|
+| R1 | P2 | Several result checks cannot tell an error from the failure they expect. Beat 8 counts any non-zero `access.py` exit as the refusal; beat 9 counts `revert-check.sh`'s exit 1 for a scratch worktree it cannot create as a weak test; beat 10 compares exit codes only, and the last `check --recorded` exits 1 on `solo:review` whether or not `qa:stale` is raised; beat 6 reads any reply that is not JSON as REFUSED | inspection | Adopted: beat 8 matches the refused command's name, beat 9 the weak test's reason, beat 10 the expected blocker, and beat 6 reads REFUSED only from an explicit refusal |
+| R2 | P2 | The README, `demo/AGENTS.md` and the beat 3 comment say `bash demo/demo.sh` passes the guard because it matches tokens, not text. The guard reads only the command line a session runs and opens no file it runs | reproduced by the lead: the guard exits 0 on `bash x.sh` whose body is a recursive force delete; `guard-destructive.py` opens no file | Adopted: the guard reads the command a session runs, not the files it runs, so `bash demo/demo.sh` passes; matching tokens is why a probe that hands it a destructive command as quoted data passes |
+| R3 | P2 | `MISMATCH` lines go to stdout, which the run's composed test discards, so a failed `check` or `integrate` shows only the closing line, which names no beat | inspection | Adopted: `MISMATCH` lines go to stderr |
+| R4 | P2 | `demo.sh` is 364 lines, and printing a coloured verdict exists in four copies | `wc -l` | Accepted: the growth is row 6's result checks |
+| R5 | P2 | `check-inventory.py` takes a page path no caller passes, and a wrong path gives a traceback | inspection | Adopted: the argument goes |
+| R6 | P2 | The breakdown check compares only the sum, so wrong figures that still add to 27 pass | inspection | Filed as a breadcrumb: deriving each figure from the cards' badges needs a precedence rule for hooks with two badges, which the page does not state |
+
+Every finding is a P2, so both lanes are accepted at their tips and
+integrated, and the lead applies R1, R2, R3 and R5 on `main`.
