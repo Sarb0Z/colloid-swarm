@@ -30,6 +30,9 @@ await build({
   },
 });
 await chmod(join(outDirectory, 'server.js'), 0o755);
+// The bundle is ESM. Node reads a module type from the nearest package.json,
+// and a satellite ships no server package.json, so the bundle carries its own.
+await writeFile(join(outDirectory, 'package.json'), '{"type":"module"}\n');
 
 const manifest = await createBuildManifest(outDirectory);
 await writeFile(

@@ -1,6 +1,7 @@
 {
   "algorithm": "sha256",
   "files": {
+    "package.json": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae",
     "server.js": "3dda917cd951920b8d6119ee5af9392388b27019f73c44dfc24cbbc28866bddc",
     "templates/admin-panel-exposed.yaml": "c33e075b357c301f3968dbbe5a06b06cd5021df486d043135a572064f34abd25",
     "templates/aws-credentials-file.yaml": "fb45023cf7dcd8ccef72dd9f5d3597f3a094fa74f35b408cdc70d9b01d651055",
