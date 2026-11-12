@@ -53,11 +53,6 @@ A target that already carries the scaffold has edited its copy. Copying the
 new kit over it erases those edits, so a re-sync is a three-way merge against
 the kit it was last synced from:
 
-Every kit carries `export/base`, one line: the full carrier commit it was
-exported from. Copy it into the target as `.agents/scaffold-base` and commit it
-with the sync; at each later sync, replace it with the new kit's `export/base`.
-The merge never touches that file, and `--find-base` prints it as the base.
-
 ```sh
 # in the carrier: the commit in the target's .agents/scaffold-base; without that
 # file, the commit whose scaffold the target holds most of, byte for byte
@@ -77,8 +72,14 @@ stays pruned) and does not add a carrier file under a directory the target
 pruned. It applies a change to the executable bit, and a three-way merge keeps
 CRLF line endings. It decides every path before it writes: a kit directory
 where the target has a file is a conflict, not a partial apply. It reports the
-root `AGENTS.md` for step 3. A first sync has no
-base; it copies the kit.
+root `AGENTS.md` for step 3.
+
+Every kit carries `export/base`, one line: the full carrier commit it was
+exported from. The merge reports it, and `--apply` writes it to the target's
+`.agents/scaffold-base`; commit that file with the sync. `--find-base` prints
+it as the base at the next sync, and ranks instead when the file is absent or
+does not hold a full commit hash. A first sync has no base; it copies the kit
+and copies the kit's `export/base` to `.agents/scaffold-base`.
 
 1. Reconcile `export/gitignore-fragment` on every sync, not only the first:
    each carrier release can add a runtime state file, and a missing line means

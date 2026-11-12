@@ -12,10 +12,14 @@ the carrier's change, and only that change is applied.
 
 --find-base prints the commit in the satellite's committed .agents/scaffold-base
 (the kit's export/base, kept at the last sync). Without that file, or when it
-names a commit the carrier lacks, it ranks carrier commits by how many scaffold
+holds anything but a full commit hash the carrier knows, it ranks carrier commits by how many scaffold
 files the satellite holds byte-identical, oldest first among equal counts, and
 prints the best three. Build the base kit by running that commit's own exporter
 from a detached worktree.
+
+The merge reports the new kit's export/base. With --apply it also writes that
+hash to the satellite's .agents/scaffold-base, so the next --find-base names
+this sync; a new kit without export/base leaves the stamp as it is.
 
 Without --apply the merge only reports. A file the satellite deleted stays
 deleted: a pruned skill or stack pack is an adaptation, not drift, and so does
@@ -29,6 +33,7 @@ and never written. Exit 1 when any path needs a hand merge.
 import filecmp
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -37,9 +42,10 @@ SCAFFOLD_ROOTS = (".agents", ".claude", ".codex", ".kimi", ".github/instructions
                   ".github/lsp.json", ".github/copilot-instructions.md", ".worktreeinclude")
 HAND_MERGED = {"AGENTS.md", "CLAUDE.md"}
 # The carrier commit the satellite was last synced from. It lives in neither
-# kit (the kit's copy is export/base, which files() skips), so the merge never
-# visits it and the satellite's copy stays as it is.
+# kit (the kit's copy is export/base, which files() skips), so the merge loop
+# never visits it; merge() writes it from the new kit's export/base under --apply.
 STAMP = ".agents/scaffold-base"
+FULL_HASH = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 
 
 def git(*args, cwd):
@@ -59,18 +65,38 @@ def stamped_base(satellite, carrier):
                            capture_output=True, text=True)
     if shown.returncode:
         return False                                      # no committed stamp: a pre-stamp sync
-    commit = shown.stdout.strip()
+    commit = shown.stdout.removesuffix("\n")
+    if not FULL_HASH.fullmatch(commit):
+        print(f"{STAMP} holds {commit!r}, which is not a full commit hash; ranking instead.")
+        return False
     known = subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=carrier,
                            capture_output=True)
-    if not commit or known.returncode:
+    if known.returncode:
         print(f"{STAMP} names {commit!r}, which is not in the carrier; ranking instead.")
         return False
     print(f"{commit}  (from {STAMP} in {satellite})")
     return True
 
 
+def toplevel(path, what):
+    """The real root of the repository holding `path`, or a SystemExit saying what to fix."""
+    run = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path,
+                         capture_output=True, text=True)
+    if run.returncode:
+        raise SystemExit(f"merge-kit: {what} is not inside a git repository")
+    return pathlib.Path(run.stdout.strip()).resolve()
+
+
 def find_base(satellite):
-    carrier = git("rev-parse", "--show-toplevel", cwd=os.getcwd()).strip()
+    carrier = toplevel(os.getcwd(), f"the current directory {os.getcwd()} (run --find-base inside the carrier)")
+    if not satellite.is_dir():
+        raise SystemExit(f"merge-kit: the satellite {satellite} is not a directory")
+    if toplevel(satellite, f"the satellite {satellite}") != satellite:
+        raise SystemExit(f"merge-kit: {satellite} is not the root of its git repository; "
+                         "pass the satellite's top-level directory")
+    if subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=satellite,
+                      capture_output=True).returncode:
+        raise SystemExit(f"merge-kit: the satellite {satellite} has no commits; commit its scaffold first")
     if stamped_base(satellite, carrier):
         return
     held = blobs(satellite, "HEAD")
@@ -192,6 +218,22 @@ def decide(satellite, base_kit, relative, b, n):
     return "merge", "", "merge"
 
 
+def record_stamp(satellite, new_kit, apply):
+    """Report the new kit's carrier commit, and under --apply record it as the
+    satellite's base for the next sync."""
+    source = new_kit / "export/base"
+    if not source.is_file():
+        print(f"new kit has no export/base: {STAMP} left as it is")
+        return
+    commit = source.read_text(encoding="utf-8").strip()
+    if apply:
+        (satellite / STAMP).parent.mkdir(parents=True, exist_ok=True)
+        (satellite / STAMP).write_text(commit + "\n", encoding="utf-8")
+        print(f"wrote {STAMP}: {commit}")
+    else:
+        print(f"would write {STAMP}: {commit}")
+
+
 def merge(satellite, base_kit, new_kit, apply):
     base, new = files(base_kit), files(new_kit)
     report = {key: [] for key in ("added", "updated", "merged", "removed",
@@ -227,6 +269,7 @@ def merge(satellite, base_kit, new_kit, apply):
             print(f"{key}: {len(paths)}")
             for path in paths:
                 print(f"  {path}")
+    record_stamp(satellite, new_kit, apply)
     if not apply:
         print("dry run: nothing written; rerun with --apply")
     return 1 if report["conflict"] or report["hand-merge"] else 0

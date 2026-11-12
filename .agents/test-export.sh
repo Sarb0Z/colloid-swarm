@@ -292,12 +292,42 @@ out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo")"
 grep -q 'not in the carrier' <<<"$out" || fail "--find-base did not report a stamp the carrier lacks: $out"
 grep -qE '^ +[0-9]+ ' <<<"$out" || fail "--find-base did not fall back to the ranking: $out"
 
-# The stamp is the satellite's own file: a merge neither reports nor changes it.
+# Only a full lowercase hash counts as a stamp: a revision name, a prefix or
+# any other text is said so and the ranking decides.
+for bad in HEAD "${newer:0:7}" not-a-hash "${newer^^}"; do
+  printf '%s\n' "$bad" >"$satrepo/.agents/scaffold-base"
+  gitc -C "$satrepo" commit -qam "stamp $bad"
+  out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo")"
+  grep -q 'not a full commit hash' <<<"$out" || fail "--find-base took '$bad' as a stamp: $out"
+  grep -qE '^ +[0-9]+ ' <<<"$out" || fail "--find-base did not rank after the stamp '$bad': $out"
+done
+
+# A path that is not a repository root, a repository without commits and a
+# directory outside the carrier each get their own error, never a traceback.
+mkdir -p "$satrepo/sub"
+out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo/sub" 2>&1)" && fail "--find-base accepted a subdirectory"
+grep -q 'not the root' <<<"$out" && ! grep -q Traceback <<<"$out" || fail "--find-base on a subdirectory: $out"
+empty="$work/find-empty"; mkdir -p "$empty"; gitc -C "$empty" init -q
+out="$(cd "$carrier" && python3 "$mergekit" --find-base "$empty" 2>&1)" && fail "--find-base accepted a satellite with no commits"
+grep -q 'no commits' <<<"$out" && ! grep -q Traceback <<<"$out" || fail "--find-base on an empty repository: $out"
+out="$(cd "$work" && python3 "$mergekit" --find-base "$satrepo" 2>&1)" && fail "--find-base ran outside the carrier"
+grep -q 'not inside a git repository' <<<"$out" && ! grep -q Traceback <<<"$out" || fail "--find-base outside the carrier: $out"
+
+# The merge reports the new kit's export/base in both modes; only --apply writes
+# it to the satellite's .agents/scaffold-base, and a kit without one leaves it.
 sat2="$work/satellite-stamped"
 cp -R "$sat" "$sat2"
-printf '%s\n' "$newer" >"$sat2/.agents/scaffold-base"
+printf '%s\n' "$older" >"$sat2/.agents/scaffold-base"
+printf '%s\n' "$newer" >"$kit/export/base"
+out="$(python3 "$mergekit" "$sat2" "$base" "$kit" 2>&1 || true)"
+grep -q "would write .agents/scaffold-base: $newer" <<<"$out" || fail "merge-kit dry run did not report the stamp: $out"
+[[ "$(cat "$sat2/.agents/scaffold-base")" == "$older" ]] || fail "merge-kit dry run changed the stamp"
 out="$(python3 "$mergekit" "$sat2" "$base" "$kit" --apply 2>&1 || true)"
-grep -q 'scaffold-base' <<<"$out" && fail "merge-kit reported the satellite's scaffold-base: $out"
-[[ "$(cat "$sat2/.agents/scaffold-base")" == "$newer" ]] || fail "merge-kit changed the satellite's scaffold-base"
+[[ "$(cat "$sat2/.agents/scaffold-base")" == "$newer" ]] || fail "merge-kit --apply did not write the new kit's base: $out"
+rm "$kit/export/base"
+printf '%s\n' "$older" >"$sat2/.agents/scaffold-base"
+out="$(python3 "$mergekit" "$sat2" "$base" "$kit" --apply 2>&1 || true)"
+grep -q 'no export/base' <<<"$out" || fail "merge-kit did not say the new kit has no export/base: $out"
+[[ "$(cat "$sat2/.agents/scaffold-base")" == "$older" ]] || fail "merge-kit changed the stamp without a new base"
 
 echo "Export checks passed."
