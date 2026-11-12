@@ -48,5 +48,8 @@ Acceptance 7 failed:
 QA also saw a process-group warning from `revert-check.sh` in its own sandbox;
 neither the lane's runs nor the lead's printed it.
 
-The page lane's 7,203 changed lines are mostly generated source panels; the
-fix round stays in the lane.
+Every finding is a P2, which the controller files rather than reopens, so both
+lanes are accepted at their tips, `a78fb81` and `e9f3f2e`, and integrated. The
+adopted fixes land as run `demo-refresh-r2`, branched from the merged result,
+and its QA reruns the plan's whole acceptance over both runs. The page lane's
+7,203 changed lines are mostly generated source panels.
