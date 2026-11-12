@@ -68,6 +68,12 @@ the tree: F10, F11, F16 and F28 hold, now at `hostile-review.md:91-92`,
 `.agents/AGENTS.md:81-133` and `claude/normalize-hook.py:84-87`. F18 no longer
 holds: since unit 0 the status line also reads `.agents/.readout/`.
 
+Re-opened for unit 2 at `912245c` on 2026-11-12, the same way, over F2, F5,
+F6, F7 and F27: all hold. F2's fence is still `hostile-review.md:17-82`; F5's
+review of the review is now `hostile-review.md:126-134` and still only
+labels; F7 is now `AGENTS.md:52-53`, `workloop_finish.py:46-54` and
+`workloop_main.py:292-293`; F27's worktree line is `.gitignore:27-28`.
+
 ## One reader for four readouts
 
 Units 4, 5, 7 and 9 each replace a question or a silence with a readout
