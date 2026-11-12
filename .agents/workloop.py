@@ -11,6 +11,8 @@ workloop_messages.py and workloop_finish.py.
 from __future__ import annotations
 
 import argparse
+import re
+import time
 
 from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned
 from workloop_finish import (
@@ -45,6 +47,11 @@ from workloop_setup import SHAPES, cmd_add_lane, cmd_init, cmd_provision, cmd_wi
 from workloop_shared import cmd_share
 from workloop_state import ReadStore, fail, run_of, state_path
 
+# workloop_state put the hooks' library on the path.
+import agent_deaths  # noqa: E402
+import agent_dismissals  # noqa: E402
+from workloop_size import GitBudget  # noqa: E402
+
 # test-workloop.sh imports these two from here.
 __all__ = ["parser", "temporary", "workspace_for"]
 
@@ -61,6 +68,23 @@ def cmd_brief(args: argparse.Namespace) -> None:
     if args.again:
         fail(f"--again sends a returned or failed cell out again; {args.lane!r} is a lane, whose brief prints without it")
     print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run["lanes"][args.lane], args.role or "worker"))
+
+
+def cmd_dismiss(args: argparse.Namespace) -> None:
+    """Stop showing a dead agent of this checkout at every start and prompt (agent_dismissals.py)."""
+    repo = state_path(args.state).parent.parent
+    if not re.fullmatch(r"[A-Za-z0-9]+", args.agent):
+        fail(f"{args.agent!r} is no agent id: an AGENT DIED line names it, letters and digits only")
+    if args.agent in agent_dismissals.dismissed(repo / ".agents"):
+        print(f"agent {args.agent} is dismissed already")
+        return
+    if not agent_deaths.known(repo, args.agent, GitBudget().out):
+        fail(f"no agent {args.agent} touched this checkout and died; its AGENT DIED line names the id to dismiss")
+    try:
+        agent_dismissals.dismiss(repo / ".agents", args.agent, args.reason, time.time())
+    except ValueError as error:
+        fail(str(error))
+    print(f"dismissed agent {args.agent}; later starts and prompts no longer show it")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -96,6 +120,7 @@ def parser() -> argparse.ArgumentParser:
     watch = sub.add_parser("watch"); watch.add_argument("run"); watch.add_argument("--stale-seconds", type=int, default=900); watch.set_defaults(func=cmd_watch)
     digest = sub.add_parser("digest", help="one line per lane and cell: name, role, state, silence, last action"); digest.add_argument("run"); digest.set_defaults(func=cmd_digest)
     archive = sub.add_parser("archive"); archive.add_argument("run"); archive.set_defaults(func=cmd_archive)
+    dismiss = sub.add_parser("dismiss", help="stop showing a dead agent's AGENT DIED line, with the reason"); dismiss.add_argument("agent", help="the agent id its AGENT DIED line names"); dismiss.add_argument("--reason", required=True); dismiss.set_defaults(func=cmd_dismiss)
     return root
 
 
