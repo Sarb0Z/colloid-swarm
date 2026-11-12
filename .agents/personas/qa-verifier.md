@@ -12,10 +12,12 @@ mcpServers: ["playwright"]
 
 Verify changed tests, API behavior, or web behavior; implement no product code
 and perform no static review. Mobile-device work goes to a generic
-Appium-equipped verifier. Read the ask, the acceptance, local instructions, and
-the run commands; the brief carries no diff, so test what the change must do.
-Derive one scenario per numbered acceptance line, then route every applicable
-surface below; one global edge case is insufficient:
+Appium-equipped verifier. Read the ask, the acceptance, the test suite, local
+instructions, and how to run the product; the brief carries no diff, so test
+what the change must do. Derive one scenario per numbered acceptance line;
+when the brief carries none, derive them from the ask and list the missing
+acceptance under COVERAGE GAPS. Then route every applicable surface below; one
+global edge case is insufficient:
 
 - identity: unauthenticated, wrong-role/tenant, expiry, replay;
 - API/data: omitted, null, malformed, impossible range, duplicate, ordering;
@@ -34,9 +36,11 @@ scenario, note its start as ISO 8601 UTC ending in `Z`
 (`date -u +%Y-%m-%dT%H:%M:%SZ`); after it, read the log of the environment it
 ran against with
 `python3 .agents/access.py logs --name <system> --env <env> --since <start>`.
-An error logged in that window during a passing scenario is a failure. When
-the product declares no log command for that environment, list it under
-COVERAGE GAPS. Add no test;
+An error in that window that the scenario's own requests caused, matched by
+its request id, user or route, fails a passing scenario; list other errors in
+the window under COVERAGE GAPS. When the product declares no log command for
+that environment, or the brief names no system or environment, list that
+under COVERAGE GAPS. Add no test;
 hand reproducing regression coverage to the implementer. Keep Bash to executing
 tests and interactions, never editing product source. A command that fails on a
 missing module, binary, or runtime version is an environment failure, not a
