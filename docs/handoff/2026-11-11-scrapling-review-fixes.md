@@ -285,6 +285,25 @@ that fails with an unknown ID fires PostToolUse or PostToolUseFailure. The
 Appium cross-clear runs through the adapter with a crafted payload and is
 reported as not run against a live device.
 
+**Result (2026-11-12): reproduced, after units 1 to 6.** An independent QA cell
+ran one fresh headless Claude session (sonnet, the guest account, session
+`50a6e0b5`) from a scratch worktree of `d190ab5` after `mcp.py enable
+scrapling`, with Scrapling as its only server and every page on loopback.
+
+| Claim | Observed |
+|---|---|
+| Each host's render | `.mcp.json` has the registry's exact `uvx … python -I …/scrapling-mcp.py` command; OpenCode lists no Scrapling server and keeps its four deny rows; Codex has none; Kimi keeps a disabled record |
+| The surface | connected with 12 tools, none of the five denied; `browser_open` requires `session_id`; neither it nor `browser_fetch_once` offers a dropped field |
+| No program launches | `browser_fetch_once` with `executable_path` naming a marker-writing script returned the loopback page; no marker |
+| `file://` | refused: "only http and https addresses are fetched" |
+| Stop names what is open | after `sess-a` closed, Stop blocked with "- [stealth] sess-b [scrapling]"; after `sess-b` closed, Stop passed |
+| A failed close | `close_session` on an unknown ID fired PostToolUseFailure, not PostToolUse, and cleared nothing |
+| The Appium cross-clear | `test-teardown-gate.sh` in the worktree: its adapter and cross-server rows pass; no live device |
+
+Not run: sessions on Codex, OpenCode and Kimi, whose generated files alone
+were read. The model passed `browser_open` a `url`, which it has no parameter
+for; Scrapling ignored it, as it ignores the dropped fields.
+
 ## Lenses
 
 - Higher-level abstraction: removing the dangerous parameters from the schema
