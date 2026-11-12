@@ -75,14 +75,14 @@ TEXT_SUFFIXES = {".md", ".sh", ".py", ".toml", ".json", ".txt", ".example"}
 DEBT_SUFFIXES = TEXT_SUFFIXES | {".ts", ".mjs", ".js"}
 
 
-def tracked_export(destination):
-    """Copy the canonical scaffold and static host adapters from Git."""
+def tracked_export(destination, commit):
+    """Copy the canonical scaffold and static host adapters of `commit` from Git."""
     with tempfile.TemporaryDirectory() as staging:
         archive = os.path.join(staging, "scaffold.tar")
         with open(archive, "wb") as stream:
             subprocess.run(
                 [
-                    "git", "-C", str(REPO), "archive", "HEAD",
+                    "git", "-C", str(REPO), "archive", commit,
                     ".agents", ".claude", ".codex", ".kimi", "AGENTS.md", "CLAUDE.md",
                     ".github/lsp.json", ".github/copilot-instructions.md",
                     ".github/instructions", ".worktreeinclude",
@@ -93,11 +93,15 @@ def tracked_export(destination):
             tar.extractall(destination, filter="data")
 
 
-def write_base_stamp(target):
-    """Record the commit `git archive HEAD` read, so a later sync names its base."""
-    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"],
+def head_commit():
+    """The full hash of HEAD, read once: the archive and the stamp must name one commit."""
+    return subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"],
                           capture_output=True, text=True, check=True).stdout.strip()
-    (target / "export/base").write_text(head + "\n", encoding="utf-8")
+
+
+def write_base_stamp(target, commit):
+    """Record the commit the archive read, so a later sync names its base."""
+    (target / "export/base").write_text(commit + "\n", encoding="utf-8")
 
 
 def strip_markers(text, path):
@@ -301,13 +305,14 @@ def main():
         raise SystemExit(f"export: {target} exists and is not empty")
     target.mkdir(parents=True, exist_ok=True)
     warn_dirty()
-    tracked_export(target)
+    commit = head_commit()
+    tracked_export(target, commit)
     sections = debt_sections(target / ".agents/debt-log.md")
     drop_paths(target)
     rewrite_documents(target)
     stripped = strip_tree(target)
     entries = finalize(target, sections)
-    write_base_stamp(target)
+    write_base_stamp(target, commit)
 
     print(f"exported to {target}")
     print(f"  dropped {len(DROPPED_PATHS)} paths, stripped markers from {stripped} files")
