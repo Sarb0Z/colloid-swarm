@@ -70,11 +70,13 @@ cannot stop the run.
 
 ## The "it's real" moment
 
-The live session's own guard is wired to the same scripts. Typing `rm -Rf ~`
-as a command here gets **blocked before it runs** (exit 2). The guard matches a
-command's tokens, not its text, so `bash demo/demo.sh` passes: the demo hands
-each probe pattern to the guard as quoted data and never runs it. The scaffold
-governs the session showing it.
+The live session's own guard runs the same scripts. Type `rm -Rf ~` as a
+command here, and the guard **blocks it before it runs** (exit 2). The guard
+reads only the command line that a session runs. It does not open the files
+that the command runs, so `bash demo/demo.sh` passes. Inside the demo, each
+probe gives its pattern to the guard as quoted data. The guard reads the tokens
+of a command, not its text, so it does not read quoted data as a command. The
+scaffold governs the session that shows it.
 
 ## Requirements
 
