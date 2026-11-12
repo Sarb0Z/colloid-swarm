@@ -3,10 +3,11 @@
 Workflow: Scaffold · Stakes: Critical (what every satellite receives of two
 servers, and where their supply-chain advisories become visible).
 
-**Gate: awaiting the operator.** No code lands before the operator's OK on this
-plan and rulings on Decisions 1 to 4 below. Those decisions stand in for the
-`grill-me` interview that a Critical Build calls for; the operator may ask for
-the interview instead.
+**Gate: passed.** The operator OK'd this plan on 2026-11-12 with these rulings:
+Decision 1 (a), the export keeps only the program; Decision 2 (a), turn on
+Dependabot alerts for `colloid-swarm`; Decision 3 (a), U5 is in;
+Decision 4, research-mcp's licence names the operator alone, as `Sarb0Z`. The
+decisions stood in for the `grill-me` interview, as the gate question said.
 
 The ask, verbatim (2026-11-12), after a satellite's Dependabot reported 158
 alerts, 105 of them in the two server lockfiles: "It seems like an architecture
@@ -137,8 +138,8 @@ Each unit is one commit.
      instructions inside a `colloid-only` marker and tells satellites the
      bundle arrives by sync.
    - **Other files.** The `test-stack-packs.sh:124-126` comment stops claiming
-     satellites carry `tsconfig.json`. Decision 4's licence change, if any,
-     lands here.
+     satellites carry `tsconfig.json`. `research-mcp/LICENSE` names
+     `Sarb0Z` as copyright holder (Decision 4).
    - **Tests.** A new script, `.agents/test-export-servers.sh`, holds
      Acceptance 1 to 4. It is listed in `check-all.sh` inside a `colloid-only`
      marker and added to `DROPPED_PATHS`, keeping `test-export.sh` from
