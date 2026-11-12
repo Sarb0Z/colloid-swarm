@@ -6,8 +6,8 @@ line injected into every cell).
 
 **Gate: closed for U1 to U3**, ruled by the operator on 2026-11-13: Decision
 1 (b), 2 (a), 3 (a), 4 (a); the decisions stood in for the `grill-me`
-interview. **Open for U4**: no U4 code before spike S7 returns, U4's plan
-is reviewed, and the operator approves it.
+interview. **Open for U4**: it stopped at its stop condition after spike S7
+and waits on the operator's ruling.
 
 The ask, verbatim (2026-11-13), after background agent U3 in the tax-appeals-app
 console died when the Mac's lid closed and no one noticed for two days: "Just
@@ -109,8 +109,9 @@ read 2026-11-13.
 | P11 | Of 858 agents changed in 7 days, 813 read completed from their own files: `finished`, and the newest record answers their `SubagentHandback` call or is a final answer; for none does the parent hold a newer other verdict. Of the other 45 the parent says 27 completed, 4 failed (2 with no API-error record), 3 killed, 2 stopped; 9 have no verdict since their last work. A cold scan reading every parent took 2.1 s | throwaway scan | observed; P12 qualifies it |
 | P12 | An agent that ends its turn waiting on its own background command gets a parent notification `completed` with the summary "is waiting on its own background work"; its `meta.json` reads `finished: true`, its newest record is a final answer, and its final turn holds a tool result with `toolUseResult.backgroundTaskId`. 57 parent transcripts here hold such notifications | spike `bg-spike`, session `4363d9f0`; `rg -c` over the store | observed |
 | P13 | A restarted background session writes a notification with no `<status>`: "was restarted after the previous session ended"; the agent then resumes under the same id | spike, session `e951c686` | observed |
-| P14 | Background sessions, 2.1.322: `claude --bg -- "<prompt>"` starts one; `claude agents --json --all`, `logs`, `stop`, `respawn`, `rm` manage them. Each has `<config>/jobs/<id>/state.json` with `state` (`running`, `blocked`, `done`, `failed`, `stopped`, `crashed`), `sessionId`, `resumeSessionId`, `respawnFlags`. SIGHUP to the launching shell leaves it running; SIGKILL makes the supervisor respawn it within about 1 s and its subagent resumes under the same id; `claude stop` sets `stopped`, and `claude respawn` resumes it. The commit, push and draft-PR behaviour is system-prompt text for a session that entered a worktree; with `worktree.bgIsolation: "none"` one run edited in place and made no worktree, commit or push. No setting turns off push or PR as such | spike `bg-spike` (8 sessions in a scratch repository with a local remote); the 2.1.322 binary | observed; one sample per run |
+| P14 | Background sessions, 2.1.322: `claude --bg -- "<prompt>"` starts one; `claude agents --json --all`, `logs`, `stop`, `respawn`, `rm` manage them. Each has `<config>/jobs/<id>/state.json` with `state` (`running`, `blocked`, `done`, `failed`, `stopped`, `crashed`), `sessionId`, `resumeSessionId`, `respawnFlags`. SIGHUP to the launching shell leaves it running. After SIGKILL the supervisor respawned it within about 1 s once (S6), and in three runs of S7 it settled `stopped` and the account's transient supervisor exited 5 s later; `claude stop` sets `stopped`, and `claude respawn` resumes it with its subagent under the same id. The commit, push and draft-PR behaviour is system-prompt text for a session that entered a worktree; with `worktree.bgIsolation: "none"` one run edited in place and made no worktree, commit or push. No setting turns off push or PR as such | spike `bg-spike` (8 sessions in a scratch repository with a local remote); the 2.1.322 binary | observed; one sample per run |
 | P15 | This machine already holds 11 background-session jobs from the operator's own work; one records a push to a GitHub remote | `~/.claude-personal/jobs/*/state.json` | observed |
+| P16 | `/bg` on a session with a background subagent out asks "1 local agent will be stopped"; going ahead kills it (exit 137), forks a new session id whose transcript copies the old one, and the new transcript gets `failed`, "didn't finish before the previous session ended". A background session runs in `default` permission mode: it waits `blocked` on every prompt, a Write and the publish guard's ask on `git push` included, until someone attaches and answers; the push did not leave the machine | spike S7 (`bg-spike-2`), a scratch clone with a local remote | observed |
 | E1 | 88 agents in 30 days ended without completing: 40 session ended, 18 usage limit, 15 stopped by their parent, 10 sleep, 4 no network, 1 stall | cell scan of parent transcripts | observed |
 | E4 | A sleep death reaches the parent at a dark wake, up to 460 min after the agent's last work | U3 transcript; `pmset -g log` | observed |
 | E5 | U3's parent got the failure at 04:36Z, began a reply, its own turn died at 07:40Z, and it stayed open but idle | `2f0a4771-….jsonl:3675-3699` | observed |
@@ -207,8 +208,9 @@ Built in order; each works end to end before the next starts.
     session whose job reads `state: "stopped"` in `<config>/jobs/<id>/
     state.json`, matched by `sessionId` or `resumeSessionId` (P14); the
     reader reads the file and runs no `claude` command. Shown with the remedy
-    `claude respawn <id>`. A killed background session needs no case: its
-    supervisor respawns it and its agent's new records read `running`.
+    `claude respawn <id>`. A killed background session either respawns, and
+    its agent's new records read `running`, or settles `stopped` and reads
+    `parked` (P14).
 - **Which agents a checkout shows.** An agent is this repository's when its
   parent session's cwd is inside this checkout or one of its worktrees, when
   any path it edited (its `Edit`, `Write`, `MultiEdit` and `NotebookEdit`
@@ -302,54 +304,27 @@ Built in order; each works end to end before the next starts.
 
 ### U4: long unattended work runs as a background session
 
-Spike S6 ran (P12-P15). Claude Code's supervisor already restarts a killed
-background session and resumes its subagents under the same id, and a
-background session ignores its terminal closing (P14). The harness adds a
-setting and a hint, not a supervisor.
+**Stopped at its stop condition; waiting on the operator.** The design was:
+the operator moves the lead to the background with `/bg` when its cells must
+outlive their attention, `worktree.bgIsolation: "none"` keeps it in the
+checkout, and the readout hints when to do it. Spikes S6 and S7 (P12-P16)
+found:
 
-- **Options.** (a) Recommended: the lead's own session goes to the
-  background when its cells must outlive the operator's attention; the
-  operator runs `/bg` (or starts the lead with `claude --bg`), and every cell
-  out carries over (B2). (b) Each lane dispatched as its own `claude --bg`
-  session: it would survive its lead too, but gives the lead no task
-  notification and needs its own claim, settings and worktree mapping, new
-  orchestration this ask does not need.
-- **Setting.** `worktree.bgIsolation: "none"` in `.agents/claude/settings.json`,
-  so a backgrounded lead stays in the checkout under the harness's own
-  worktree and commit rules and is never prompted to commit, push or open a
-  PR from a worktree it entered (P14). A push still meets the publish guard.
-- **Hint.** The statusline readout shows `<n> cells out · /bg keeps them
-  through sleep and a closed terminal` while this session has cells out and
-  its registry entry's `kind` is not `bg`.
-- **Spike S7 first, no code**, in a scratch clone of this repository whose
-  only remote is a local bare repository: `/bg` on an interactive session
-  with a background writer out (tmux-driven) — does the writer carry over,
-  survive SIGKILL of the process and SIGHUP of its pane, and finish; does the
-  registry read `kind: bg`; with the setting, does the session edit in place;
-  does the publish guard's ask block the job (`blocked`) or deny in a
-  background session (`guard-publish.sh` denies outside the prompting
-  permission modes).
-- **Stop condition.** If a backgrounded session pushes or opens a PR past the
-  guard, or `/bg` drops the cells out, U4 stops and returns to the operator.
-- **Acceptance U4.** (1) A lead moved to the background by `/bg` with a
-  writer out: SIGKILL of its process leaves the writer finishing under the
-  same id; killing its tmux pane leaves both running. (2) That session makes
-  no `.claude/worktrees/` worktree and no commit, push or PR it was not asked
-  for. (3) A `git push` it attempts stops at the publish guard and the local
-  origin is unchanged. (4) The readout shows the hint while cells are out in
-  a session that is not `kind: bg`, and not otherwise. (5) With Acceptance
-  10, the operator closes the lid on a backgrounded lead with a writer out for
-  20 minutes; the writer finishes with no resume and no `AGENT DIED:` line.
-  (6) `.agents/suite.sh` passes.
-- **Lenses U4.** Higher-level abstraction: Claude Code's supervisor is the
-  supervisor; the harness only stops it from pushing and says when to use it.
-  Irreducible constraints: a sleeping Mac runs nothing, so only resumption on
-  wake helps, which the supervisor does (B2, P14). Carve at the joints:
-  prevention is U4, detection is U1, and U1 still shows what U4 does not
-  prevent. Principal architect: n/a. Implicit state machines: the job's
-  `running` → `crashed` → `running` (respawn) and `stopped` → `running`
-  (`claude respawn`), read by U1's `parked`. Concession drift: the hint is
-  advice the operator may ignore; U1 still shows the death.
+- `/bg` kills the cells out (P16), so the hint would advise the one moment it
+  destroys work; the design's stop condition, "`/bg` drops the cells out", is
+  met.
+- After SIGKILL the supervisor respawned the session once in four runs; in
+  three it settled `stopped` (P14). `claude respawn <id>` resumed it each
+  time, which U1's `parked` line already prints.
+- What held: a background session ignores its terminal closing; with
+  `bgIsolation: "none"` it edited in place and made no worktree, commit or
+  push; the publish guard stopped its `git push` and nothing left the
+  machine (P14, P16).
+- A background session waits `blocked` on every permission prompt until
+  someone attaches (P16), so a backgrounded lead in default mode stalls on
+  its first ordinary write.
+- Whether a background session's agents resume after a real sleep (B2) is
+  documented, not observed.
 
 ### Test seams
 
