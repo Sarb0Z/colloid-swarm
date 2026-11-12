@@ -91,11 +91,12 @@ cfg_heavy_calls="$(printf '%s\n' "$cfg" | sed -n '6p')"
 report_every_turn="$(printf '%s\n' "$cfg" | sed -n '7p')"
 learning_enabled="$(printf '%s\n' "$cfg" | sed -n '8p')"
 
-parsed="$(python3 "$lib/payload.py" stop_hook_active=false project_dir transcript_path session_id)"
+parsed="$(python3 "$lib/payload.py" stop_hook_active=false project_dir transcript_path session_id host)"
 stop_active="$(printf '%s\n' "$parsed" | sed -n '1p')"
 proj="$(printf '%s\n' "$parsed" | sed -n '2p')"
 transcript="$(printf '%s\n' "$parsed" | sed -n '3p')"
 session_id="$(printf '%s\n' "$parsed" | sed -n '4p')"
+host="$(printf '%s\n' "$parsed" | sed -n '5p')"
 
 [[ "$stop_active" == "yes" ]] && exit 0
 [[ -z "$proj" ]] && proj="$PWD"
@@ -600,10 +601,15 @@ EOF
   fi
 fi
 
+# On Claude Code the report questions above become the `report` flag, and the
+# work-log reminder below the `worklog` flag, both read from owed.py.
+report_owed=""
+[[ -n "$sections" ]] && report_owed="yes"
+
 # The work log (hooks.worklog), when on: one line inside a wrap that already
 # fires, never a block of its own, when today's file predates this session's
 # newest recorded commit. session-start.sh owns the folder rules.
-if [[ -n "$sections" && -n "$own_commits" ]]; then
+if [[ "$host" != "claude" && -n "$sections" && -n "$own_commits" ]]; then
   newest="$(tail -n 1 "$own_commits" 2>/dev/null || true)"
   committed_at="$(git log -1 --format=%ct "$newest" 2>/dev/null || true)"
   if [[ "$committed_at" =~ ^[0-9]+$ ]]; then
@@ -619,6 +625,27 @@ fi
 
 if ! record_state "$next_fired" "$next_investigated" "$next_implemented"; then
   sections=""
+fi
+
+# Claude Code: no question. The owed flags go to the status strip, and one
+# systemMessage line shows when the set of flags differs from the last stop of
+# this session. A host that cannot render a systemMessage keeps the question.
+if [[ "$host" == "claude" ]]; then
+  [[ -z "$ident" ]] && exit 0
+  owed="$lib/owed.py"
+  [[ -n "$report_owed" ]] && { python3 "$owed" raise report --repo "$repo" --session "$ident" --key "$key" \
+    || echo "session-wrap: could not raise the report flag" >&2; }
+  strip="$(python3 "$owed" write --repo "$repo" --session "$ident" --key "$key")" || {
+    echo "session-wrap: could not compute the owed flags" >&2
+    exit 0
+  }
+  last_file="$repo/.agents/.readout/owed-last--$key"
+  last="$(cat "$last_file" 2>/dev/null || true)"
+  if [[ "$strip" != "$last" ]]; then
+    printf '%s\n' "$strip" > "$last_file" || echo "session-wrap: could not record the last owed line" >&2
+    [[ -n "$strip" ]] && python3 -c 'import json, sys; print(json.dumps({"systemMessage": sys.argv[1]}))' "$strip"
+  fi
+  exit 0
 fi
 
 # Both prompts end in a question to the user. `codex exec` has no one to answer

@@ -397,4 +397,43 @@ out="$(wrap "$log_off" alpha)"
 [[ "$out" == *"Committed and unwrapped"* && "$out" != *"Work log"* ]] || fail "the work log is off and still spoke: $out"
 ok "the work log is silent when off"
 
+# ─────────────────────── Claude Code: flags, no question ───────────────────────
+# A real Claude Stop payload goes through the adapter and normalize-hook.py, which
+# marks the host; every other host keeps the question (the rows above).
+claude_stop() {  # <repo> <session>: stdout to $scratch/stop.out, stderr to $scratch/stop.err
+  printf '{"hook_event_name":"Stop","session_id":"%s","transcript_path":"","cwd":"%s","stop_hook_active":false}' "$2" "$1" \
+    | bash "$1/.agents/claude/adapter.sh" session-wrap.sh >"$scratch/stop.out" 2>"$scratch/stop.err"
+}
+
+cl="$(fixture claude-flags)"
+start "$cl" cl1
+commit "$cl" cl1 a.txt
+claude_stop "$cl" cl1 || fail "a Claude stop must exit 0: $(cat "$scratch/stop.err")"
+[[ ! -s "$scratch/stop.err" ]] || fail "a Claude stop must say nothing on stderr: $(cat "$scratch/stop.err")"
+python3 - "$scratch/stop.out" <<'PY' || fail "stdout must be one systemMessage JSON naming the report flag: $(cat "$scratch/stop.out")"
+import json, sys
+message = json.loads(open(sys.argv[1]).read())
+assert message == {"systemMessage": "owed: report"}, message
+PY
+ok "a Claude stop after a commit exits 0, prints the systemMessage and asks nothing"
+
+claude_stop "$cl" cl1 || fail "the second Claude stop must exit 0"
+[[ ! -s "$scratch/stop.out" && ! -s "$scratch/stop.err" ]] || fail "an unchanged flag set must print nothing: $(cat "$scratch/stop.out" "$scratch/stop.err")"
+ok "a second stop with the same flags prints nothing"
+
+shown="$(python3 "$cl/.agents/hooks/lib/owed.py" show --repo "$cl" --session cl1)"
+[[ "$shown" == "owed: report"* ]] || fail "the report flag is not raised before clear: $shown"
+python3 "$cl/.agents/hooks/lib/owed.py" clear report --repo "$cl" --session cl1
+shown="$(python3 "$cl/.agents/hooks/lib/owed.py" show --repo "$cl" --session cl1)"
+[[ -z "$(printf '%s\n' "$shown" | sed -n 1p)" ]] || fail "clear report left the flag raised: $shown"
+ok "owed.py clear report clears the report flag"
+
+cx="$(fixture codex-question)"
+start "$cx" cx1
+commit "$cx" cx1 a.txt
+out="$(wrap "$cx" cx1)"
+[[ "$out" == *"Committed and unwrapped"* && "$out" == *"Ask the user: full session wrap, or skip?"* ]] \
+  || fail "a payload with no Claude host must keep today's question: $out"
+ok "a Codex-shaped payload still gets the question"
+
 printf '\nall session-wrap tests passed\n'
