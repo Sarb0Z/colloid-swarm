@@ -495,6 +495,27 @@ the text the operator approved.
 - 2.4: the window placeholders `{since}` and `{minutes}`, from the log
   research of 2026-11-12, settle the convention unit 7's review left to this
   unit (review `2026-11-12-harness-w1`, unit 7 finding 6).
+- 2.1: the acceptance is written in the plan, the lane brief, or the first
+  message when no plan file is written, not committed with the plan, since a
+  rule on when a statement is written needs a hook. Where none was written, as
+  in a Fix, the lead writes it from the reproduced defect into the QA brief.
+  QA's brief carries the run's test suite, and the lead's question names how
+  to run the product. The QA record stores each lane's submitted tip only:
+  QA covers the lanes, and the composed tree is the integration's verify run.
+  `qa:stale` also fires for a lane added after QA and a record with no tips,
+  and outside a run QA reruns when a review fix lands after it (review
+  `2026-11-12-harness-u2`, findings 1, 4, 6, 9-11, 13 and 18).
+- 2.2: the fenced reviewer contract changes too, where the approved text left
+  it alone: supplied QA evidence is checked against the `Acceptance:` lines,
+  and none at Critical stakes is a `HANDOFF: qa-verifier`, since a reviewer
+  dispatched beside QA never has its evidence. The disprove pass also takes a
+  pasted diff applied to its base, in a folder under `$TMPDIR` (same review,
+  findings 3 and 23).
+- 2.3: a `--tests` path that is absolute, holds `..` or names no file at HEAD
+  is refused, and a failure at the fix names the environment or the fix as
+  its cause (same review, findings 2 and 7).
+- 2.4: a logged error fails a passing scenario only when the scenario's own
+  requests caused it (same review, finding 12).
 
 ## Rulings
 
