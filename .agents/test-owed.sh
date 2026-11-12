@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# Firing tests for the owed-work flags (hooks/lib/owed.py), the suite runner
+# (suite.sh) and the suite/CI reconciliation (lint-suite.py).
+#
+# Seams under test:
+#   owed.py over a fixture repository with edit-record and commit-record files
+#     and review records: catches each flag's transitions (reviewed, changed
+#     since review, unreviewed; suite stale and passed; clean-up present and
+#     gone); misses the real hook's attribution of shell-written files.
+#   suite.sh's pass record: catches a stale pass read as current; misses a
+#     suite that passes vacuously.
+#   lint-suite.py against a fixture ci.yml and the real one: catches a check
+#     in one list and not the other; misses a CI step whose failure is ignored.
+set -euo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+ok() { printf 'ok    %s\n' "$*"; }
+
+fx="$scratch/fx"
+key=4242
+session=sess-owed
+mkdir -p "$fx/.agents/hooks/lib" "$fx/docs/reviews"
+cp "$repo"/.agents/hooks/lib/*.py "$fx/.agents/hooks/lib/"
+cp "$repo/.agents/suite.sh" "$fx/.agents/suite.sh"
+cat > "$fx/.agents/policy.json" <<'JSON'
+{"owed": {"critical_paths": ["AGENTS.md", ".agents/hooks/**"], "suite": "bash .agents/fake-suite.sh"}}
+JSON
+printf '#!/usr/bin/env bash\n[[ -f "$(dirname "$0")/../suite-should-pass" ]]\n' > "$fx/.agents/fake-suite.sh"
+touch "$fx/suite-should-pass"
+printf '# contract\n' > "$fx/AGENTS.md"
+printf 'x\n' > "$fx/app.txt"
+printf '.agents/.readout/\n.agents/.wrap-*\n.agents/.teardown-pending-*\n*.ign\n' > "$fx/.gitignore"
+g() { git -C "$fx" -c user.name=t -c user.email=t@t "$@"; }
+g init -q -b main
+g add -A && g commit -qm base
+base="$(g rev-parse HEAD)"
+
+owed() { python3 "$fx/.agents/hooks/lib/owed.py" "$@" --repo "$fx"; }
+show() { owed show --session "$session" --key "$key"; }
+strip() { show | sed -n 1p; }
+note() { show | tail -n +2; }
+commit_as_session() {  # <message>: commit everything and record it as the session's
+  g add -A && g commit -qm "$1"
+  g rev-parse HEAD >> "$fx/.agents/.wrap-commits-$key"
+}
+edit_record() { printf '1\t%s\n' "$1" >> "$fx/.agents/.wrap-edits-$key"; }
+
+# ── nothing owed ────────────────────────────────────────────────────────────
+[[ -z "$(strip)" ]] || fail "a fresh session owes nothing: $(strip)"
+owed write --session "$session" --key "$key"
+[[ -f "$fx/.agents/.readout/owed--$session.json" ]] || fail "write must store owed--<session>.json"
+[[ -z "$(python3 "$fx/.agents/hooks/lib/readout.py" strip "$fx" "$session")" ]] || fail "an empty owed strip must show nothing"
+ok "a session with no records owes nothing and its readout is empty"
+
+# ── review ──────────────────────────────────────────────────────────────────
+printf 'other session\n' >> "$fx/AGENTS.md"
+g add -A && g commit -qm "another session's critical edit"
+[[ -z "$(strip)" ]] || fail "another session's commit raised a flag: $(strip)"
+ok "history and other sessions' commits raise no flag"
+
+printf 'app change\n' >> "$fx/app.txt"
+commit_as_session "non-critical"
+[[ "$(strip)" != *review* ]] || fail "a non-critical file raised review: $(strip)"
+ok "a committed file off the critical list raises no review flag"
+
+mkdir -p "$fx/.agents/hooks/policy"
+printf 'one\n' > "$fx/.agents/hooks/policy/h.sh"
+printf 'session line\n' >> "$fx/AGENTS.md"
+commit_as_session "critical work"
+[[ "$(strip)" == "owed: review 2"* ]] || fail "two unreviewed critical files: $(strip)"
+note | grep -q "AGENTS.md (unreviewed)" || fail "the note must name the file: $(note)"
+ok "an unreviewed critical-path file raises review and is named"
+
+line="$(owed review-line "$base..HEAD")"
+[[ "$line" == *"unreviewed: "*"AGENTS.md"* && "$line" == *".agents/hooks/policy/h.sh"* ]] || fail "review-line: $line"
+ok "review-line names the unreviewed critical files a range carries"
+
+reviewed_tip="$(g rev-parse HEAD)"
+printf '# Review\nCovers: %s..%s\n' "$base" "$reviewed_tip" > "$fx/docs/reviews/2026-11-12-round.md"
+g add -A && g commit -qm "review record"
+[[ "$(strip)" != *review* ]] || fail "a covering record must clear review: $(strip)"
+[[ -z "$(owed review-line "$base..$reviewed_tip")" ]] || fail "review-line must be empty once covered"
+ok "a record covering the content clears review and the push line"
+
+printf 'fixup\n' >> "$fx/AGENTS.md"
+commit_as_session "fixup folded in"
+[[ "$(strip)" == "owed: review 1"* ]] || fail "a fix after review: $(strip)"
+note | grep -q "AGENTS.md (changed since review)" || fail "state must read changed since review: $(note)"
+ok "content that moved after review shows changed since review"
+
+new_tip="$(g rev-parse HEAD)"
+printf '# Review\nCovers: %s..%s\n' "$base" "$new_tip" > "$fx/docs/reviews/2026-11-12-round.md"
+[[ "$(strip)" != *review* ]] || fail "moving the record's tip must clear review: $(strip)"
+ok "moving the record's tip clears changed since review"
+
+printf '# Review\nCovers: %s..deadbeefdeadbeef\n' "$base" > "$fx/docs/reviews/2026-11-12-round.md"
+[[ "$(strip)" == "owed: review"* ]] || fail "an unresolvable tip covers nothing: $(strip)"
+note | grep -q "record git cannot resolve: docs/reviews/2026-11-12-round.md" || fail "the record must be named: $(note)"
+ok "a record whose tip git cannot resolve covers nothing and is named"
+printf '# Review\nCovers: %s..%s\n' "$base" "$new_tip" > "$fx/docs/reviews/2026-11-12-round.md"
+
+# A record covers a file only when its range touched the file: this range
+# touches app.txt alone, so the hook committed before it stays unreviewed.
+printf 'two\n' > "$fx/.agents/hooks/policy/h2.sh"
+commit_as_session "second hook"
+hook_commit="$(g rev-parse HEAD)"
+printf 'more\n' >> "$fx/app.txt"
+commit_as_session "app only"
+printf '# Review\nCovers: %s..%s\n' "$hook_commit" "$(g rev-parse HEAD)" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" || fail "a record whose range never touched the hook must not cover it: $(note)"
+ok "a record covers a file only when its range touched it"
+
+printf '# Review\nCovers: %s..HEAD\n' "$base" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" || fail "a HEAD tip must cover nothing: $(note)"
+note | grep -q "record git cannot resolve: docs/reviews/2026-11-12-app.md (Covers: $base..HEAD)" || fail "a HEAD tip must be named: $(note)"
+printf '# Review\nCovers: %s..%s\n' "$base" "${hook_commit:0:6}" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" || fail "a six-digit tip must cover nothing: $(note)"
+printf '# Review\nCovers: %s..%s\n' "${base:0:7}" "${hook_commit:0:7}" > "$fx/docs/reviews/2026-11-12-app.md"
+note | grep -q "h2.sh (unreviewed)" && fail "a seven-digit hash is a record end: $(note)"
+ok "a record end must be a hexadecimal object name of at least seven digits"
+rm "$fx/docs/reviews/2026-11-12-app.md"
+
+line="$(python3 - "$fx" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1] + "/.agents/hooks/lib")
+import owed
+print(owed.review_line(sys.argv[1], "HEAD", limit=2))
+PY
+)"
+[[ "$line" == *"Only the newest 2 commits were read."* ]] || fail "a bounded read must say so: $line"
+[[ "$(owed push-line)" == *"h2.sh"* ]] || fail "push-line on a repository with no remote: $(owed push-line)"
+ok "a push with no remote reads a bounded history and says so"
+
+# ── suite ───────────────────────────────────────────────────────────────────
+rm -f "$fx/.agents/.wrap-commits-$key" "$fx/.agents/.wrap-edits-$key"
+edit_record app.txt
+[[ "$(strip)" == "owed: suite" ]] || fail "no recorded pass with a written path must raise suite: $(strip)"
+ok "suite is owed while no pass is recorded"
+
+( cd "$fx" && .agents/suite.sh ) || fail "suite.sh must pass on the fixture"
+[[ -z "$(strip)" ]] || fail "a pass must clear suite: $(strip)"
+ok "a passing suite.sh clears suite"
+
+printf 'later\n' >> "$fx/app.txt"
+[[ "$(strip)" == "owed: suite" ]] || fail "an edit after the pass must bring suite back: $(strip)"
+note | grep -q "app.txt" || fail "the note must name the changed path: $(note)"
+ok "the next edit returns suite"
+
+printf 'unrelated\n' > "$fx/other.txt"
+( cd "$fx" && .agents/suite.sh )
+printf 'unrelated 2\n' >> "$fx/other.txt"
+[[ -z "$(strip)" ]] || fail "a path the session did not write must not raise suite: $(strip)"
+ok "a path this session did not write raises nothing"
+
+rm -f "$fx/suite-should-pass"
+printf 'again\n' >> "$fx/app.txt"
+if ( cd "$fx" && .agents/suite.sh ) >/dev/null 2>&1; then fail "suite.sh must fail when the suite fails"; fi
+[[ "$(strip)" == "owed: suite" ]] || fail "a failing suite must not record a pass: $(strip)"
+touch "$fx/suite-should-pass"
+( cd "$fx" && .agents/suite.sh )
+ok "a failing suite records no pass"
+
+# A Stop reads the written paths only: it writes no objects, and a path git
+# ignores is not owed to the suite.
+objects() { g count-objects -v | awk '/^count:/ {print $2}'; }
+printf 'after pass\n' >> "$fx/app.txt"
+printf 'x\n' > "$fx/scratch.ign"
+edit_record scratch.ign
+before="$(objects)"
+[[ "$(strip)" == "owed: suite" ]] || fail "an edit after the pass, with an ignored path written: $(strip)"
+[[ "$(objects)" == "$before" ]] || fail "a Stop wrote objects: $before -> $(objects)"
+note | grep -q "scratch.ign" && fail "an ignored path must not be owed to the suite: $(note)"
+( cd "$fx" && .agents/suite.sh )
+ok "a Stop hashes the written paths without writing objects and skips ignored ones"
+
+# ── report ──────────────────────────────────────────────────────────────────
+owed raise report --session "$session" --key "$key"
+[[ "$(strip)" == "owed: report" ]] || fail "raised report: $(strip)"
+owed clear report
+[[ -z "$(strip)" ]] || fail "clear report: $(strip)"
+owed raise report --session "$session" --key "$key"; owed raise report --session other --key 9999
+owed clear report --session "$session" --key "$key"
+[[ -z "$(strip)" && -f "$fx/.agents/.readout/owed-report--9999" ]] || fail "clear with a session must clear only that session's"
+owed clear report
+ok "report is raised, and cleared with or without a session"
+
+for tier in diff large investigation; do
+  owed raise report --session "$session" --key "$key" --tier "$tier"
+  [[ "$(strip)" == "owed: report" ]] || fail "report with tier $tier: $(strip)"
+  case "$tier" in
+    diff) want=".agents/playbooks/diff-wrap.md" ;;
+    large) want="hostile-review.md" ;;
+    investigation) want=".agents/playbooks/report-investigation.md" ;;
+  esac
+  note | grep -q "$want" || fail "the $tier report note must name $want: $(note)"
+  [[ "$tier" == diff ]] && { note | grep -q "hostile-review.md" && fail "the diff tier names no hostile review: $(note)"; }
+  owed clear report
+done
+ok "the report note names the tier crossed and the playbooks to run"
+
+# Pairing mode (hooks.learning_report.enabled) raises `learning` beside `report`.
+owed raise report --session "$session" --key "$key" --tier diff
+[[ "$(strip)" == "owed: report" ]] || fail "pairing off must raise only report: $(strip)"
+owed clear report
+printf '{"hooks":{"learning_report":{"enabled":true}}}\n' > "$fx/.agents/config.json"
+owed raise report --session "$session" --key "$key" --tier diff
+[[ "$(strip)" == "owed: report · learning" ]] || fail "pairing on must raise learning beside report: $(strip)"
+note | grep -q ".agents/playbooks/learning-report.md" || fail "the learning note must name its playbook: $(note)"
+owed clear learning
+[[ "$(strip)" == "owed: report" ]] || fail "clear learning must clear only learning: $(strip)"
+owed clear report
+owed raise report --session "$session" --key "$key" --tier investigation
+[[ "$(strip)" == "owed: report" ]] || fail "an investigation report carries no learning report: $(strip)"
+owed clear report
+rm "$fx/.agents/config.json"
+ok "learning is raised beside report only with pairing on, and clear learning clears it"
+
+# ── clean-up ────────────────────────────────────────────────────────────────
+printf 'docker\twaiting\t-\tpostgres container\n#blocked\n' > "$fx/.agents/.teardown-pending-$session"
+printf 'scratch\n' > "$fx/new-file.txt"
+edit_record new-file.txt
+[[ "$(strip)" == "owed: suite · cleanup 2" ]] || fail "ledger entry and untracked file: $(strip)"
+note | grep -q "docker: postgres container" || fail "ledger resource must be named: $(note)"
+note | grep -q "untracked: new-file.txt" || fail "untracked file must be named: $(note)"
+rm "$fx/.agents/.teardown-pending-$session" "$fx/new-file.txt"
+[[ -z "$(strip)" ]] || fail "clean-up must clear itself: $(strip)"
+ok "clean-up counts ledger resources and untracked files, and clears when they are gone"
+
+# colloid-only
+# ── the carrier's critical paths ────────────────────────────────────────────
+# Each pattern names tracked files, and none names a symlink: an edit lands in
+# the canonical target, so a pattern on a link never fires.
+python3 - "$repo" <<'PY' || fail "owed.critical_paths in policy.json"
+import json, subprocess, sys
+repo = sys.argv[1]
+sys.path.insert(0, repo + "/.agents/hooks/lib")
+import owed
+tracked = {}
+for row in subprocess.run(["git", "-C", repo, "ls-files", "-s"], capture_output=True, text=True, check=True).stdout.splitlines():
+    meta, _, path = row.partition("\t")
+    tracked[path] = meta.split()[0]
+bad = []
+for pattern in json.load(open(repo + "/.agents/policy.json"))["owed"]["critical_paths"]:
+    rx = owed.glob_regex(pattern)
+    hits = [p for p in tracked if rx.match(p)]
+    if not hits:
+        bad.append(f"{pattern} matches no tracked file")
+    bad += [f"{pattern} matches the symlink {p}" for p in hits if tracked[p] == "120000"]
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+PY
+ok "every critical-path pattern names tracked files and no symlink"
+
+# ── check-all.sh: a listed script that is missing ───────────────────────────
+mkdir -p "$scratch/car/.agents"
+awk '/^LIST$/ {skip = 0} !skip {print} /cat <<.LIST.$/ {skip = 1; print ".agents/missing-check.sh"}' \
+  "$repo/.agents/check-all.sh" > "$scratch/car/.agents/check-all.sh"
+chmod +x "$scratch/car/.agents/check-all.sh"
+out="$("$scratch/car/.agents/check-all.sh" 2>&1)" || fail "a satellite must skip a missing script: $out"
+[[ "$out" == *"(absent here, skipped)"* ]] || fail "a satellite's skip must be named: $out"
+touch "$scratch/car/.agents/export-scaffold.py"
+out="$("$scratch/car/.agents/check-all.sh" 2>&1)" && fail "the carrier must fail on a missing script: $out"
+[[ "$out" == *"(listed but missing)"* ]] || fail "the carrier's failure must name the script: $out"
+ok "check-all.sh fails a missing script in the carrier"
+
+# ── lint-suite ──────────────────────────────────────────────────────────────
+lint() { python3 "$repo/.agents/lint-suite.py" --script "$1" --ci "$2" 2>&1; }
+cat > "$scratch/check-all.sh" <<'SH'
+checks() {
+  cat <<'LIST'
+python3 .agents/a.py
+.agents/test-b.sh
+python3 .agents/port-public.py check
+python3 demo/check-inventory.py
+LIST
+}
+SH
+cat > "$scratch/ci.yml" <<'YML'
+jobs:
+  x:
+    steps:
+      - name: A
+        run: python3 .agents/a.py
+      - name: B
+        run: .agents/test-b.sh | tee b.log
+      - name: P
+        run: |
+          pip install thing
+          python3 .agents/port-public.py check
+      - name: Clean
+        run: .agents/check-clean-tree.sh
+      - name: Embed
+        run: python3 demo/embed-src.py
+      - name: Inventory
+        run: python3 demo/check-inventory.py
+YML
+out="$(lint "$scratch/check-all.sh" "$scratch/ci.yml")" || fail "agreeing lists must pass: $out"
+ok "lint-suite passes when the lists agree, with the CI-only steps named"
+
+sed -i.bak '/test-b.sh/d' "$scratch/ci.yml"
+out="$(lint "$scratch/check-all.sh" "$scratch/ci.yml")" && fail "a check missing from CI must fail"
+[[ "$out" == *".agents/test-b.sh: in check-all.sh but not run by ci.yml"* ]] || fail "wrong message: $out"
+ok "lint-suite fails a check the script has and CI lacks"
+
+printf '      - name: Extra\n        run: .agents/test-extra.sh\n' >> "$scratch/ci.yml"
+printf '      - name: B\n        run: .agents/test-b.sh\n' >> "$scratch/ci.yml"
+out="$(lint "$scratch/check-all.sh" "$scratch/ci.yml")" && fail "a check missing from the script must fail"
+[[ "$out" == *".agents/test-extra.sh: run by ci.yml but not in check-all.sh"* ]] || fail "wrong message: $out"
+ok "lint-suite fails a check CI has and the script lacks"
+
+python3 "$repo/.agents/lint-suite.py" >/dev/null || fail "the real script and ci.yml disagree"
+ok "the real check-all.sh and ci.yml agree"
+# /colloid-only

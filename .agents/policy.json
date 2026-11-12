@@ -5,5 +5,21 @@
       "probe": "gh auth status --hostname github.com",
       "read": ["gh pr list --limit 20", "gh run list --limit 10"]
     }
-  ]
+  ],
+  "owed": {
+    "critical_paths": [
+      "AGENTS.md",
+      ".agents/AGENTS.md",
+      ".agents/playbooks/**",
+      ".agents/lenses.md",
+      ".agents/hooks/**",
+      ".agents/claude/settings.json",
+      ".agents/claude/adapter.sh",
+      ".agents/claude/*.py",
+      ".agents/codex/**",
+      ".kimi/hooks/**",
+      ".kimi/config.toml.example"
+    ],
+    "suite": ".agents/check-all.sh"
+  }
 }

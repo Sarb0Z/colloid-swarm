@@ -139,6 +139,7 @@ def normalize(payload, policy, repo):
         out["stop_hook_active"] = bool(payload.get("stop_hook_active", False))
         out["transcript_path"] = payload.get("transcript_path", "")
         out["session_id"] = payload.get("session_id", "")
+        out["host"] = "claude"
     elif policy == "provenance-gate.sh":
         out["transcript_path"] = payload.get("transcript_path", "")
         out["session_id"] = payload.get("session_id", "")

@@ -74,6 +74,24 @@ ASK = [
     ("Bash", {"command": "railway up"}),
     ("Bash", {"command": "docker push repo/img:latest"}),
     ("Bash", {"command": "gh workflow run deploy.yml"}),
+    ("Bash", {"command": "gh secret set TOKEN --body x"}),
+    ("Bash", {"command": "gh variable set NAME --body x"}),
+    ("Bash", {"command": "gh run rerun 123"}),
+    ("Bash", {"command": "gh run cancel 123"}),
+    ("Bash", {"command": "echo 1 | xargs gh pr merge"}),
+    ("Bash", {"command": "gh secret delete TOKEN"}),
+    ("Bash", {"command": "gh variable delete NAME"}),
+    ("Bash", {"command": "gh run delete 123"}),
+    ("Bash", {"command": "gh ssh-key add key.pub"}),
+    ("Bash", {"command": "gh repo deploy-key add key.pub"}),
+    ("Bash", {"command": "gh repo archive o/r --yes"}),
+    ("Bash", {"command": "gh repo rename new-name"}),
+    ("Bash", {"command": "gh repo sync"}),
+    ("Bash", {"command": "gh repo fork o/r"}),
+    ("Bash", {"command": "gh cache delete --all"}),
+    ("Bash", {"command": "gh codespace delete --all"}),
+    ("Bash", {"command": "gh label clone o/r"}),
+    ("Bash", {"command": "gh project item-add 1 --owner o --url u"}),
     ("Bash", {"command": "gh release upload v1 dist.tgz"}),
     # A wrapper that runs the rest of the line does not hide the publish.
     ("Bash", {"command": "timeout 600 git push"}),
@@ -142,6 +160,9 @@ PASS = [
     ("Bash", {"command": "gh pr view 5"}),
     ("Bash", {"command": "gh pr list"}),
     ("Bash", {"command": "gh api repos/o/r/issues"}),
+    ("Bash", {"command": "gh run view 123"}),
+    ("Bash", {"command": "gh secret list"}),
+    ("Bash", {"command": "echo 1 | xargs gh pr view"}),
     ("Bash", {"command": "gh api -X GET repos/o/r"}),
     ("Bash", {"command": "npm install"}),
     ("Bash", {"command": "npm run publish-report"}),
@@ -960,6 +981,11 @@ PLAIN_FORMS = [
     "gh repo create", "gh repo edit", "gh repo delete",
     "gh gist create", "gh gist edit", "gh gist delete",
     "gh workflow run",
+    "gh secret set", "gh secret delete", "gh variable set", "gh variable delete",
+    "gh run rerun", "gh run cancel", "gh run delete",
+    "gh ssh-key add", "gh repo deploy-key add", "gh repo archive", "gh repo rename",
+    "gh repo sync", "gh repo fork", "gh cache delete", "gh codespace delete",
+    "gh label clone", "gh project item-add",
     "npm publish", "npm unpublish", "pnpm publish", "pnpm unpublish",
     "yarn publish", "yarn unpublish", "yarn npm publish",
     "bun publish", "bun unpublish",
@@ -1355,6 +1381,87 @@ with database_repo({".env": f"DATABASE_URL={LOCAL}\n"}) as repo, \
     decision, reason = database_call(repo, "dotenv -e .env -- knex migrate:latest", outside)
     check("a dotenv -e file outside the repository is not read, and asks",
           decision == "ask" and "inside the repository" in reason, reason or "silence")
+
+# The push prompt names a critical-path file the push carries without a review
+# record covering its content. A scratch repository with a bare remote; the git
+# environment is cleared of GIT_DIR and its siblings so only the scratch is touched.
+git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+git_env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+
+def scratch_git(cwd, *args):
+    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, env=git_env)
+    if done.returncode:
+        raise RuntimeError(f"git {' '.join(args)}: {done.stderr}")
+    return done.stdout.strip()
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = pathlib.Path(tmp)
+    remote, work = tmp / "remote.git", tmp / "work"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True, env=git_env)
+    work.mkdir()
+    scratch_git(work, "init", "-q", "-b", "main")
+    (work / ".agents").mkdir()
+    (work / ".agents" / "policy.json").write_text('{"owed": {"critical_paths": ["AGENTS.md"]}}\n')
+    (work / "AGENTS.md").write_text("contract\n")
+    scratch_git(work, "add", "-A")
+    scratch_git(work, "commit", "-q", "-m", "base")
+    scratch_git(work, "remote", "add", "origin", str(remote))
+    scratch_git(work, "push", "-q", "-u", "origin", "main")
+    base = scratch_git(work, "rev-parse", "HEAD")
+
+    def push_reason():
+        return guard.verdict("Bash", {"command": "git push"}, cwd=str(work), repo=str(work))
+
+    check("a push carrying no critical-path file names none",
+          "AGENTS.md" not in (push_reason() or "") and push_reason() is not None, push_reason())
+
+    (work / "AGENTS.md").write_text("contract\nnew rule\n")
+    scratch_git(work, "commit", "-q", "-am", "critical change")
+    tip = scratch_git(work, "rev-parse", "HEAD")
+    reason = push_reason()
+    check("the push prompt names an unreviewed critical-path file",
+          reason and "unreviewed: AGENTS.md" in reason, reason)
+
+    (work / "docs" / "reviews").mkdir(parents=True)
+    record = work / "docs" / "reviews" / "2026-11-12-round.md"
+    record.write_text(f"Covers: {base}..{tip}\n")
+    scratch_git(work, "add", "-A")
+    scratch_git(work, "commit", "-q", "-m", "review record")
+    reason = push_reason()
+    check("a Covers record over the file's content clears the push line",
+          reason and "AGENTS.md" not in reason and "could not be computed" not in reason, reason)
+
+    (work / "AGENTS.md").write_text("contract\nnew rule\nfold-in\n")
+    scratch_git(work, "commit", "-q", "-am", "fixup after review")
+    reason = push_reason()
+    check("a fix-up after the record shows changed since review",
+          reason and "changed since review: AGENTS.md" in reason, reason)
+
+    record.write_text(f"Covers: {base}..{scratch_git(work, 'rev-parse', 'HEAD')}\n")
+    reason = push_reason()
+    check("moving the record's tip clears it", reason and "AGENTS.md" not in reason, reason)
+
+    record.write_text(f"Covers: {base}..{tip}\n")
+    scratch_git(work, "branch", "--unset-upstream")
+    reason = push_reason()
+    check("with no upstream the line reads the commits on no remote branch",
+          reason and "changed since review: AGENTS.md" in reason, reason)
+
+    # A failure in owed.py leaves the ask in place and says the line could not be computed.
+    broken = tmp / "broken"
+    shutil.copytree(here / "hooks" / "lib", broken / ".agents" / "hooks" / "lib")
+    (broken / ".agents" / "hooks" / "lib" / "owed.py").write_text('raise RuntimeError("boom")\n')
+    result = subprocess.run(
+        [sys.executable, str(broken / ".agents" / "hooks" / "lib" / "guard-publish.py")],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"},
+                          "cwd": str(work), "permission_mode": "default"}),
+        capture_output=True, text=True, env=env)
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    check("a failing owed.py keeps the ask and names the error",
+          out["permissionDecision"] == "ask" and "could not be computed" in out["permissionDecisionReason"]
+          and "boom" in out["permissionDecisionReason"], result.stdout + result.stderr)
 
 print()
 print("ALL PASS" if fails == 0 else f"{fails} FAILURE(S)")

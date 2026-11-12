@@ -58,6 +58,16 @@ GH_MUTATING_VERBS = {"create", "merge", "close", "reopen", "comment", "edit",
                      "delete", "review", "ready", "lock", "unlock", "transfer",
                      "run", "upload"}
 GH_MUTATING_AREAS = {"pr", "issue", "release", "repo", "gist", "label", "workflow"}
+# Further writes, as the leading words of the command: `gh secret set` writes a
+# repository secret, `gh run rerun` starts a workflow run again. The other
+# verbs of these areas read.
+GH_WRITE_PHRASES = (
+    ("secret", "set"), ("secret", "delete"), ("variable", "set"), ("variable", "delete"),
+    ("run", "rerun"), ("run", "cancel"), ("run", "delete"),
+    ("ssh-key", "add"), ("repo", "deploy-key", "add"),
+    ("repo", "archive"), ("repo", "rename"), ("repo", "sync"), ("repo", "fork"),
+    ("cache", "delete"), ("codespace", "delete"), ("label", "clone"), ("project", "item-add"),
+)
 NPM_PUBLISHERS = {"npm", "pnpm", "yarn", "bun"}
 READ_FLAGS_GH_API = {"GET", "HEAD"}
 # One deploy vendor per row; the verb set is that CLI's outward-mutating verbs.
@@ -479,6 +489,19 @@ def unwrap(words, shell, stripped, place):
         return words, None
 
 
+def review_state(here):
+    """The push prompt's line on critical-path files the push carries without a
+    covering review record, empty when none. It informs only: a failure to
+    compute it is named in the line and never changes the guard's decision."""
+    try:
+        spec = importlib.util.spec_from_file_location("owed", os.path.join(HERE, "owed.py"))
+        owed = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(owed)
+        return owed.push_line(here or os.getcwd())
+    except Exception as error:
+        return f"The review state of the pushed commits could not be computed ({type(error).__name__}: {error})."
+
+
 def rule_bash(command, shell, place=None):
     """The reason to ask for one command. `place` locates it for the rules
     that read files: {"here", "repo", "remote", "earlier", "lost"}, where
@@ -499,6 +522,17 @@ def rule_bash(command, shell, place=None):
                 return reason
         return None
 
+    if name == "xargs":
+        # `xargs` runs its command with the piped words appended, so the command
+        # is judged as written: `echo 1 | xargs gh pr merge`.
+        index = 0
+        while index < len(rest) and rest[index].startswith("-"):
+            index += 2 if rest[index] in shell.XARGS_VALUED else 1
+        for inner in shell.normalize(" ".join(shlex.quote(word) for word in rest[index:])):
+            reason = rule_bash(inner, shell, place)
+            if reason:
+                return reason
+        return None
     if name == "git":
         # git accepts global options (-C, -c, --git-dir) before the verb;
         # git_verb in guard-destructive.py already knows how to skip them.
@@ -507,7 +541,8 @@ def rule_bash(command, shell, place=None):
             letters, longs, _ = shell.parts(after)
             if "n" in letters or "--dry-run" in longs:
                 return None
-            return "git push publishes commits to the remote."
+            line = review_state(place["here"])
+            return "git push publishes commits to the remote." + (f" {line}" if line else "")
     if name == "gh":
         # `-R/--repo <owner/repo>` may come before the area: `gh -R o/r pr merge 1`.
         area = rest
@@ -515,6 +550,9 @@ def rule_bash(command, shell, place=None):
             area = area[1:] if area[0] not in ("-R", "--repo") else area[2:]
         if len(area) >= 2 and area[0] in GH_MUTATING_AREAS and area[1] in GH_MUTATING_VERBS:
             return f"gh {area[0]} {area[1]} mutates GitHub state."
+        for phrase in GH_WRITE_PHRASES:
+            if tuple(area[:len(phrase)]) == phrase:
+                return f"gh {' '.join(phrase)} mutates GitHub state."
         if area and area[0] == "api":
             method = None
             for index, word in enumerate(rest):
