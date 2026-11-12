@@ -428,6 +428,17 @@ shown="$(python3 "$cl/.agents/hooks/lib/owed.py" show --repo "$cl" --session cl1
 [[ -z "$(printf '%s\n' "$shown" | sed -n 1p)" ]] || fail "clear report left the flag raised: $shown"
 ok "owed.py clear report clears the report flag"
 
+cp_on="$(fixture claude-pairing ',"learning_report":{"enabled":true}')"
+start "$cp_on" cp1
+commit "$cp_on" cp1 a.txt
+claude_stop "$cp_on" cp1 || fail "a Claude stop with pairing on must exit 0: $(cat "$scratch/stop.err")"
+[[ ! -s "$scratch/stop.err" ]] || fail "pairing on: nothing on stderr: $(cat "$scratch/stop.err")"
+python3 - "$scratch/stop.out" <<'PY' || fail "pairing on must raise learning beside report: $(cat "$scratch/stop.out")"
+import json, sys
+assert json.loads(open(sys.argv[1]).read()) == {"systemMessage": "owed: report · learning"}
+PY
+ok "with pairing on, a commit raises learning and report and asks nothing"
+
 cx="$(fixture codex-question)"
 start "$cx" cx1
 commit "$cx" cx1 a.txt

@@ -37,7 +37,9 @@ Usage:
   owed.py review-line REVRANGE [--repo DIR]             critical files a commit
                                           range carries that no record covers
   owed.py raise report [--repo DIR] --session ID [--tier diff|large|investigation]
-  owed.py clear report [--repo DIR] [--session ID]      no session: every one
+  owed.py clear report|learning [--repo DIR] [--session ID]   no session: every one
+            `learning` is raised beside `report` while hooks.learning_report.enabled
+            is true, and names .agents/playbooks/learning-report.md
   owed.py tree [--repo DIR]                             tree hash of the work tree
   owed.py record-pass TREE [--repo DIR]                 remember a passing tree
   owed.py suite-command [--repo DIR]                    print `owed.suite`
@@ -332,8 +334,18 @@ def load_module(name):
     return module
 
 
-def report_marker(repo, key):
-    return Path(repo) / ".agents" / ".readout" / f"owed-report--{key}"
+RAISED = ("report", "learning")
+
+
+def marker_for(repo, flag, key):
+    """The file that holds a raised flag; a `*` key matches every session's."""
+    return Path(repo) / ".agents" / ".readout" / f"owed-{flag}--{key}"
+
+
+def learning_enabled(repo):
+    """The opt-in pairing mode: false unless exactly `true`."""
+    return config.read(config.load(os.path.join(repo, ".agents", "config.json")),
+                       "hooks.learning_report.enabled", False)
 
 
 def compute(repo, session, key):
@@ -354,10 +366,12 @@ def compute(repo, session, key):
         why = "no passing run recorded" if not recorded else "changed since the last passing run"
         flags["suite"] = (None, [f"{policy(repo)['suite']}: {why}"] + stale)
 
-    marker = report_marker(repo, key)
+    marker = marker_for(repo, "report", key)
     if marker.is_file():
         tier = (lines(marker) or [""])[0].strip()
         flags["report"] = (None, [f"a session report is owed: {REPORT_PLAYBOOKS.get(tier, 'see .agents/playbooks/report-implementation.md')}"])
+    if marker_for(repo, "learning", key).is_file():
+        flags["learning"] = (None, ["a pairing-mode learning report is owed, outside any skip: .agents/playbooks/learning-report.md"])
 
     day_file = worklog_flag(repo, commits)
     if day_file:
@@ -367,8 +381,8 @@ def compute(repo, session, key):
     if items:
         flags["cleanup"] = (len(items), items)
 
-    names = {"review": "review", "suite": "suite", "report": "report", "worklog": "worklog", "cleanup": "cleanup"}
-    segments = [names[f] + (f" {flags[f][0]}" if flags[f][0] else "") for f in names if f in flags]
+    order = ("review", "suite", "report", "learning", "worklog", "cleanup")
+    segments = [f + (f" {flags[f][0]}" if flags[f][0] else "") for f in order if f in flags]
     strip = "owed: " + " · ".join(segments) if segments else ""
     return flags, strip
 
@@ -400,7 +414,7 @@ def main(argv):
     common(sub.add_parser("push-line"))
     p = sub.add_parser("raise"); p.add_argument("flag", choices=["report"]); common(p, True, True)
     p.add_argument("--tier", choices=sorted(REPORT_PLAYBOOKS), default="")
-    p = sub.add_parser("clear"); p.add_argument("flag", choices=["report"]); common(p, True)
+    p = sub.add_parser("clear"); p.add_argument("flag", choices=RAISED); common(p, True)
     common(sub.add_parser("tree"))
     p = sub.add_parser("record-pass"); p.add_argument("tree"); common(p)
     common(sub.add_parser("suite-command"))
@@ -422,12 +436,16 @@ def main(argv):
         if line:
             print(line)
     elif args.command == "raise":
-        marker = report_marker(args.repo, key)
+        marker = marker_for(args.repo, "report", key)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(f"{args.tier}\n", encoding="utf-8")
+        # The pairing-mode learning report rides beside a report that follows
+        # work, not beside a long investigation.
+        if args.tier != "investigation" and learning_enabled(args.repo):
+            marker_for(args.repo, "learning", key).write_text("1\n", encoding="utf-8")
     elif args.command == "clear":
-        markers = [report_marker(args.repo, key)] if key else sorted(
-            Path(args.repo, ".agents", ".readout").glob("owed-report--*"))
+        markers = [marker_for(args.repo, args.flag, key)] if key else sorted(
+            Path(args.repo, ".agents", ".readout").glob(f"owed-{args.flag}--*"))
         for marker in markers:
             marker.unlink(missing_ok=True)
     elif args.command == "tree":

@@ -202,6 +202,23 @@ for tier in diff large investigation; do
 done
 ok "the report note names the tier crossed and the playbooks to run"
 
+# Pairing mode (hooks.learning_report.enabled) raises `learning` beside `report`.
+owed raise report --session "$session" --key "$key" --tier diff
+[[ "$(strip)" == "owed: report" ]] || fail "pairing off must raise only report: $(strip)"
+owed clear report
+printf '{"hooks":{"learning_report":{"enabled":true}}}\n' > "$fx/.agents/config.json"
+owed raise report --session "$session" --key "$key" --tier diff
+[[ "$(strip)" == "owed: report · learning" ]] || fail "pairing on must raise learning beside report: $(strip)"
+note | grep -q ".agents/playbooks/learning-report.md" || fail "the learning note must name its playbook: $(note)"
+owed clear learning
+[[ "$(strip)" == "owed: report" ]] || fail "clear learning must clear only learning: $(strip)"
+owed clear report
+owed raise report --session "$session" --key "$key" --tier investigation
+[[ "$(strip)" == "owed: report" ]] || fail "an investigation report carries no learning report: $(strip)"
+owed clear report
+rm "$fx/.agents/config.json"
+ok "learning is raised beside report only with pairing on, and clear learning clears it"
+
 # ── clean-up ────────────────────────────────────────────────────────────────
 printf 'docker\twaiting\t-\tpostgres container\n#blocked\n' > "$fx/.agents/.teardown-pending-$session"
 printf 'scratch\n' > "$fx/new-file.txt"
@@ -239,6 +256,18 @@ if bad:
 PY
 ok "every critical-path pattern names tracked files and no symlink"
 
+# ── check-all.sh: a listed script that is missing ───────────────────────────
+mkdir -p "$scratch/car/.agents"
+awk '/^LIST$/ {skip = 0} !skip {print} /cat <<.LIST.$/ {skip = 1; print ".agents/missing-check.sh"}' \
+  "$repo/.agents/check-all.sh" > "$scratch/car/.agents/check-all.sh"
+chmod +x "$scratch/car/.agents/check-all.sh"
+out="$("$scratch/car/.agents/check-all.sh" 2>&1)" || fail "a satellite must skip a missing script: $out"
+[[ "$out" == *"(absent here, skipped)"* ]] || fail "a satellite's skip must be named: $out"
+touch "$scratch/car/.agents/export-scaffold.py"
+out="$("$scratch/car/.agents/check-all.sh" 2>&1)" && fail "the carrier must fail on a missing script: $out"
+[[ "$out" == *"(listed but missing)"* ]] || fail "the carrier's failure must name the script: $out"
+ok "check-all.sh fails a missing script in the carrier"
+
 # ── lint-suite ──────────────────────────────────────────────────────────────
 lint() { python3 "$repo/.agents/lint-suite.py" --script "$1" --ci "$2" 2>&1; }
 cat > "$scratch/check-all.sh" <<'SH'
@@ -247,6 +276,7 @@ checks() {
 python3 .agents/a.py
 .agents/test-b.sh
 python3 .agents/port-public.py check
+python3 demo/check-inventory.py
 LIST
 }
 SH
