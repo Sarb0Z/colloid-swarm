@@ -41,6 +41,7 @@ rc_of "$script" "$base" --tests check.sh -- bash check.sh
 [[ $rc -eq 0 ]] || fail "a test that catches its defect must exit 0 (got $rc): $out"
 grep -qF 'assertion failed: lib.txt is not good' <<<"$out" || fail "the reverted run must fail on the assertion, not on a missing test: $out"
 grep -qF 'catches the defect' <<<"$out" || fail "pass line missing: $out"
+grep -qF 'confirm' <<<"$out" || fail "the pass line must ask the reader to confirm the failure is the test's assertion: $out"
 [[ "$(leaks)" -eq 1 ]] || fail "worktree leaked after success"
 ok "a test added by the fix passes at the fix and fails reverted, and the worktree is gone"
 
@@ -57,6 +58,7 @@ fixture "$STRICT"
 rc_of "$script" "$base" --tests check.sh -- bash missing-test.sh
 [[ $rc -eq 1 ]] || fail "a command that cannot run at the fix must exit 1 (got $rc): $out"
 grep -qF 'cannot run at the fix' <<<"$out" && grep -qF 'environment' <<<"$out" || fail "environment message missing: $out"
+grep -qF 'either the environment or the fix is wrong' <<<"$out" || fail "the failure at the fix must name both causes: $out"
 grep -qF 'does not catch' <<<"$out" && fail "an environment failure was reported as a weak test: $out"
 [[ "$(leaks)" -eq 1 ]] || fail "worktree leaked after an environment failure"
 ok "a command that fails at the fix is named an environment failure"
@@ -69,9 +71,38 @@ runner=$!
 for _ in $(seq 40); do [[ -s "$PIDFILE" ]] && break; sleep 0.25; done
 [[ -s "$PIDFILE" ]] || fail "the command never started"
 kill -TERM "$runner"
-set +e; wait "$runner"; set -e
+set +e; wait "$runner"; interrupted=$?; set -e
+[[ $interrupted -eq 143 ]] || fail "TERM must exit 143 (got $interrupted)"
 child="$(cat "$PIDFILE")"
 for _ in $(seq 20); do kill -0 "$child" 2>/dev/null || break; sleep 0.25; done
 kill -0 "$child" 2>/dev/null && { kill "$child"; fail "the command's child outlived the interrupt"; }
 [[ "$(leaks)" -eq 1 ]] || fail "worktree leaked after an interrupt"
-ok "an interrupt removes the worktree and stops the command's child"
+ok "an interrupt exits 143, removes the worktree and stops the command's child"
+
+# A test path is read relative to the repository root. A leading ./ is the same
+# file; a misspelt, absolute or .. path is a usage error, never a false proof.
+fixture "$STRICT"
+rc_of "$script" "$base" --tests ./check.sh -- bash check.sh
+[[ $rc -eq 0 ]] || fail "./check.sh must name check.sh (got $rc): $out"
+grep -qF 'assertion failed: lib.txt is not good' <<<"$out" || fail "./check.sh was restored away: $out"
+for bad in chek.sh /abs/check.sh ../check.sh sub/../../check.sh; do
+  rc_of "$script" "$base" --tests "$bad" -- bash check.sh
+  [[ $rc -eq 2 ]] || fail "--tests $bad must exit 2 (got $rc): $out"
+  grep -qF 'catches the defect' <<<"$out" && fail "--tests $bad was proved: $out"
+done
+[[ "$(leaks)" -eq 1 ]] || fail "worktree leaked after a refused test path"
+ok "./check.sh is accepted; a misspelt, absolute or .. test path exits 2"
+
+# A worktree that cannot be created is a failure of the run, not a usage error.
+fixture "$STRICT"
+touch "$fx/.git/worktrees"
+rc_of "$script" "$base" --tests check.sh -- bash check.sh
+[[ $rc -eq 1 ]] || fail "a worktree that cannot be created must exit 1 (got $rc): $out"
+ok "a worktree that cannot be created exits 1"
+
+# Uncommitted changes at HEAD are not in the scratch worktree; say so.
+fixture "$STRICT"
+printf 'edited\n' >> "$fx/lib.txt"
+rc_of "$script" "$base" --tests check.sh -- bash check.sh
+grep -qF 'uncommitted changes' <<<"$out" || fail "a dirty tree must be named: $out"
+ok "uncommitted changes are named on stderr"

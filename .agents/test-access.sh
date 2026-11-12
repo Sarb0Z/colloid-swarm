@@ -188,3 +188,9 @@ for args in "--name nope --env staging" "--name svc --env local" "--name svc --e
   [[ $rc -eq 1 ]] || fail "logs $args must exit 1 (got $rc)"
 done
 ok "logs refuses a guarded command, an unknown system, an undeclared environment and a bad start"
+
+# A log line that is not UTF-8 is printed with a replacement character, not a crash.
+binary="$(fixture '{"systems":[{"name":"svc","probe":"true","read":[],"logs":{"staging":"printf \"bad \\377 byte {since}\\n\""}}]}')"
+set +e; out="$(acc logs --name svc --env staging --since 2026-11-12T09:30:00Z --repo "$binary" 2>&1)"; rc=$?; set -e
+[[ $rc -eq 0 ]] && grep -qF 'bad' <<<"$out" && grep -qF 'byte 2026-11-12T09:30:00Z' <<<"$out" || fail "a non-UTF-8 log byte must not crash logs (rc=$rc): $out"
+ok "a non-UTF-8 byte in a log is replaced, not a crash"

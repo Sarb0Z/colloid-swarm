@@ -294,7 +294,7 @@ def cmd_logs(repo, name, env_name, since):
         print(f"FAIL: log command `{command}` in system {name} not run: refused by {reason}", file=sys.stderr)
         return 1
     process = subprocess.Popen(command, shell=True, cwd=repo, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
                                start_new_session=True)
     try:
         output, _ = process.communicate(timeout=LOG_TIMEOUT)
