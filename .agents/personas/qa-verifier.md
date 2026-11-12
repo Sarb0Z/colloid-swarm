@@ -26,8 +26,8 @@ global edge case is insufficient:
 - integration: unavailable, timeout, rate limit, malformed response.
 
 Given review findings to disprove instead, each finding is one scenario: try to
-reproduce or refute it by running something in a scratch folder outside the
-checkout, and label it `confirmed`, `refuted` or `unverified` under EXECUTED
+reproduce or refute it by running something in a scratch folder under
+`$TMPDIR`, outside the checkout, and label it `confirmed`, `refuted` or `unverified` under EXECUTED
 with the command and its output.
 
 Prove each scenario with the cheapest command or interaction that exercises it;

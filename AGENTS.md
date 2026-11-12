@@ -50,7 +50,7 @@ Read a playbook workflow's file before its first step.
 | **Delegate** implementation and tests to medium cells, one writer per tree; research to researcher cells | — | When the unit is large | Yes |
 | Implement and test (below) | Run it once, for real | Yes | Yes |
 | QA beside the code review, from the `Acceptance:` block; where none was written, as in a Fix, the lead writes numbered acceptance from the reproduced defect into the QA brief; rerun it when a lane tip it ran on moves (`qa:stale`) or a review fix lands after it | — | When behavior is observable | Yes |
-| Code review of each delivered scope, over all its chunks; a chunk gets no reviewer of its own | — | One reviewer | One reviewer reading the scope whole and its seams with the rest of the system, then a QA cell's disprove pass (`.agents/playbooks/hostile-review.md`) on each `P0` and `P1` resting on `inspection`, as one round; several reviewers, one axis each, only for work designed from first principles |
+| Code review of each delivered scope, over all its chunks; a chunk gets no reviewer of its own | — | One reviewer | One reviewer reading the scope whole and its seams with the rest of the system, then the disprove pass (`.agents/playbooks/hostile-review.md`), as one round; several reviewers, one axis each, only for work designed from first principles |
 | Apply the safe changes; walk the operator through each one that needs them | — | Safe changes | Both |
 | Commit along seams as each chunk lands | — | Yes | Yes; walk-through fixes fold in before push |
 
