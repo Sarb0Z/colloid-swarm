@@ -30,16 +30,42 @@ address is not covered. Windows is unverified: there patchright's own socks5
 resolver switch takes effect, and the launcher's, passed later, replaces it.
 """
 
+import functools
+import importlib.util
 import inspect
 import ipaddress
+import logging
 import os
 import socket
-from typing import Annotated
+from typing import Annotated, get_args
 from urllib.parse import unquote, urlsplit
 
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
+from pydantic.fields import FieldInfo
 from scrapling.core.ai import ScraplingMCPServer
 from scrapling.core.ai import server as server_module
+
+AGENTS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_proxy_lib():
+    """`lib/proxy.py`, shared with mcp_playwright.py, loaded by path: `-I` forbids an import."""
+    spec = importlib.util.spec_from_file_location("colloid_proxy", os.path.join(AGENTS_DIR, "lib", "proxy.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+PROXY = _load_proxy_lib()
+
+# Proxies the operator named in config.json (`scrapling.proxies`), read once at
+# start; the env file behind each name is read at call time.
+PROXY_NAMES = PROXY.load_names(os.path.join(AGENTS_DIR, "config.json"))
+
+# Every secret of a resolved named proxy, scrubbed from the text of any tool
+# error and any log record this process emits.
+REDACTOR = PROXY.Redactor()
 
 SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
@@ -62,9 +88,6 @@ SCRUBBED_ENV_PREFIXES = ("NODE_", "PLAYWRIGHT_", "PATCHRIGHT_", "SCRAPLING_", "D
 
 # The cloud-metadata hosts .agents/mcp_playwright.py blocks for Playwright.
 METADATA_HOSTS = frozenset(ipaddress.ip_address(host) for host in ("169.254.169.254", "fd00:ec2::254"))
-
-# The schemes Scrapling's `construct_proxy_dict` accepts in a proxy string.
-PROXY_SCHEMES = ("http", "https", "socks4", "socks5")
 
 # Upstream's instructions minus the advice to start with HTTP and use
 # `make_request`, which this server does not offer.
@@ -154,12 +177,32 @@ def _refuse_proxy(proxy):
     _refuse_backslash(server)
     scheme, separator, _ = server.partition("://")
     parts = urlsplit(server)
-    if not separator or scheme.lower() not in PROXY_SCHEMES or not parts.hostname:
+    if not separator or scheme.lower() not in PROXY.SCHEMES or not parts.hostname:
         raise ValueError(
             f"Refused {server!r}: a proxy server is written as <scheme>://<host>[:port], "
-            f"with {', '.join(PROXY_SCHEMES)} as its scheme."
+            f"with {', '.join(PROXY.SCHEMES)} as its scheme."
         )
     _refuse_metadata(server, parts.hostname)
+
+
+def _resolve_proxy(proxy):
+    """`proxy` as the tool takes it: a configured name becomes its split dictionary.
+
+    Anything else, a URL or a dictionary, passes unchanged. A resolved name
+    registers its password and URL with the redactor before any code can
+    quote them.
+    """
+    if not isinstance(proxy, str) or not PROXY.NAME.fullmatch(proxy):
+        return proxy
+    if proxy not in PROXY_NAMES:
+        known = ", ".join(sorted(PROXY_NAMES)) or "none"
+        raise ValueError(
+            f"Refused proxy {proxy!r}: it is not a configured proxy name (configured: {known}) "
+            "and not a URL. Write a URL as <scheme>://<host>[:port]."
+        )
+    resolved, secrets = PROXY.resolve(proxy, PROXY_NAMES[proxy])
+    REDACTOR.add(proxy, secrets)
+    return resolved
 
 
 def _host_resolver_switch(addresses):
@@ -215,7 +258,66 @@ for _tool in (ScraplingMCPServer.browser_open, ScraplingMCPServer.browser_fetch_
 server_module.AsyncStealthySession = _session_resolving_none_of(server_module.AsyncStealthySession, METADATA_HOSTS)
 
 
-def _narrowed(parent, dropped=(), replace=None, check_url=False, doc=None):
+def _redacting(upstream_wrapper):
+    """`upstream_wrapper`, which turns a tool's errors into `ToolError`, with the redactor over that error's text.
+
+    It covers every kept tool, the ones this launcher does not override too:
+    a later `browser_fetch` or `browser_actions` call in a session opened by
+    a proxy name fails with text that may quote the proxy.
+    """
+
+    def wrap(tool):
+        wrapped = upstream_wrapper(tool)
+
+        @functools.wraps(wrapped)
+        async def redacted(*args, **kwargs):
+            try:
+                return await wrapped(*args, **kwargs)
+            except Exception as error:
+                message = REDACTOR.scrub(str(error))
+                if message == str(error):
+                    raise
+                raise ToolError(message) from None
+
+        return redacted
+
+    return wrap
+
+
+# The second seam into upstream: `_build_server` registers every tool through
+# the module global `_mcp_tool`. Fail at import when it stops doing so.
+if "_mcp_tool" not in ScraplingMCPServer._build_server.__code__.co_names:
+    raise RuntimeError("Scrapling's _build_server no longer registers tools through _mcp_tool; recheck the launcher's redaction seam")
+server_module._mcp_tool = _redacting(server_module._mcp_tool)
+
+
+def _redact_log_records():
+    """Pass every log record this process creates through the redactor, whichever logger or handler it reaches."""
+    make_record = logging.getLogRecordFactory()
+
+    def redacted_record(*args, **kwargs):
+        record = make_record(*args, **kwargs)
+        REDACTOR.filter(record)
+        return record
+
+    logging.setLogRecordFactory(redacted_record)
+
+
+_redact_log_records()
+
+
+def _proxy_parameter(parameter):
+    """`parameter`, a tool's `proxy`, with its description naming the configured proxies, never a value."""
+    base, *metadata = get_args(parameter.annotation)
+    note = (
+        f" Or the name of a configured proxy ({', '.join(sorted(PROXY_NAMES))}): the server reads its URL, "
+        "so a name keeps the password out of this conversation."
+    )
+    metadata = [Field(description=item.description + note) if isinstance(item, FieldInfo) else item for item in metadata]
+    return parameter.replace(annotation=Annotated[(base, *metadata)])
+
+
+def _narrowed(parent,dropped=(), replace=None, check_url=False, doc=None):
     """Build an override of `parent` whose signature omits `dropped`.
 
     `replace` maps a parameter name to a replacement `inspect.Parameter`. The
@@ -225,6 +327,8 @@ def _narrowed(parent, dropped=(), replace=None, check_url=False, doc=None):
     """
     signature = inspect.signature(parent)
     replace = replace or {}
+    if PROXY_NAMES and "proxy" in signature.parameters:
+        replace = {"proxy": _proxy_parameter(signature.parameters["proxy"]), **replace}
     # `self` is left out of the published signature: Scrapling wraps the bound
     # method with functools.wraps, which copies this attribute as the schema
     # source and would otherwise offer `self` as a required argument.
@@ -237,6 +341,9 @@ def _narrowed(parent, dropped=(), replace=None, check_url=False, doc=None):
     annotations["return"] = signature.return_annotation
 
     async def override(self, **kwargs):
+        # A name resolves first, so a refusal of the url below is already scrubbed.
+        if "proxy" in kwargs:
+            kwargs["proxy"] = _resolve_proxy(kwargs["proxy"])
         if check_url:
             _refuse_address(kwargs["url"])
         _refuse_proxy(kwargs.get("proxy"))

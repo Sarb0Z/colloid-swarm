@@ -666,6 +666,12 @@ try:
         check(not DENIED & set(tools), f"none of the denied tools is listed (found {sorted(DENIED & set(tools))})")
         for name in sorted(KEPT & set(tools)):
             want = dict(expected_tools[name], inputSchema=narrowed_schema(name, expected_tools[name]["inputSchema"]))
+            # A config.json that names proxies appends them to the `proxy` description (test-scrapling-proxy.sh
+            # owns that text); the rest of the schema is still compared whole.
+            offered = tools[name]["inputSchema"].get("properties", {}).get("proxy", {})
+            upstream_proxy = want["inputSchema"].get("properties", {}).get("proxy", {})
+            if offered.get("description", "").startswith(upstream_proxy.get("description", "\0")):
+                upstream_proxy["description"] = offered["description"]
             check(tools[name] == want, f"{name} equals upstream's tool after exactly the narrowing")
 
         # The wiring from each tool to its checks. A metadata address is never
