@@ -30,8 +30,10 @@ sessions' commits never raise one.
 repository decisions, beyond one operator's `config.json`.
 
 Usage:
-  owed.py write [--repo DIR] --session ID [--key KEY]   write the `owed` readout
+  owed.py write [--repo DIR] --session ID [--key KEY]   write the `owed` readout, print its strip
   owed.py show  [--repo DIR] --session ID [--key KEY]   print the strip and note
+  owed.py push-line [--repo DIR]                        review-line for what a
+                                          `git push` from DIR carries
   owed.py review-line REVRANGE [--repo DIR]             critical files a commit
                                           range carries that no record covers
   owed.py raise report [--repo DIR] --session ID
@@ -99,8 +101,10 @@ def glob_regex(pattern):
 
 
 def cksum_key(ident):
+    """The record key edit-record.sh and session-wrap.sh derive: `cksum` with
+    the space between its checksum and its byte count removed."""
     result = subprocess.run(["cksum"], input=ident.encode(), capture_output=True, check=True)
-    return result.stdout.split()[0].decode()
+    return "".join(result.stdout.decode().split())
 
 
 def lines(path):
@@ -186,7 +190,9 @@ def review_states(repo, files):
 def review_line(repo, rev_range):
     """One line for a push prompt: the critical-path files in `rev_range` that no
     record covers, empty when none."""
-    commits = (git(repo, "rev-list", "--no-merges", rev_range) or "").split()
+    if not critical_regexes(repo):
+        return ""
+    commits = git(repo, "rev-list", "--no-merges", *rev_range.split(), check=True).split()
     states, unresolved = review_states(repo, commit_files(repo, commits))
     parts = []
     for state in STATES:
@@ -196,6 +202,14 @@ def review_line(repo, rev_range):
     if unresolved:
         parts.append(f"records git cannot resolve: {', '.join(unresolved)}")
     return "critical-path files without a covering review record: " + "; ".join(parts) if parts else ""
+
+
+def push_line(here):
+    """`review_line` for the commits a `git push` run in `here` carries: those
+    after the upstream, or, with none, the commits on no remote."""
+    top = (git(here, "rev-parse", "--show-toplevel", check=True)).strip()
+    upstream = git(top, "rev-parse", "-q", "--verify", "@{u}") is not None
+    return review_line(top, "@{u}..HEAD" if upstream else "HEAD --not --remotes")
 
 
 def tree(repo):
@@ -340,6 +354,7 @@ def main(argv):
     for name in ("write", "show"):
         common(sub.add_parser(name), session=True, required=True)
     p = sub.add_parser("review-line"); p.add_argument("range"); common(p)
+    common(sub.add_parser("push-line"))
     p = sub.add_parser("raise"); p.add_argument("flag", choices=["report"]); common(p, True, True)
     p = sub.add_parser("clear"); p.add_argument("flag", choices=["report"]); common(p, True)
     common(sub.add_parser("tree"))
@@ -349,11 +364,15 @@ def main(argv):
 
     key = getattr(args, "key", "") or (cksum_key(args.session) if getattr(args, "session", "") else "")
     if args.command == "write":
-        write_readout(args.repo, args.session, key)
+        print(write_readout(args.repo, args.session, key)[1])
     elif args.command == "show":
         flags, strip = compute(args.repo, args.session, key)
         print(strip)
         print(note_of(flags))
+    elif args.command == "push-line":
+        line = push_line(args.repo)
+        if line:
+            print(line)
     elif args.command == "review-line":
         line = review_line(args.repo, args.range)
         if line:
