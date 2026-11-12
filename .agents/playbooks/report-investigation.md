@@ -19,3 +19,5 @@ Then, for either:
    evidence that establishes it (the files, commands, or sources).
 3. **Ruled out** — dead ends and why, so the next investigator skips them.
 4. **Open questions, risks, and the recommended next step.**
+
+Last, after writing the report, run `python3 .agents/hooks/lib/owed.py clear report`.

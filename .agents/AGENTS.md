@@ -13,7 +13,7 @@ paths:
 <!-- colloid-only -->
 - `.genome-ledger` and `.mutagen-ledger` are runtime state on the same terms.
 <!-- /colloid-only -->
-- `config.json.example` defines hook defaults; `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` the ignored per-operator override layered on top, read alike by `hooks/lib/config.py`. While either fails to parse, the publish guard asks on every command that could run a listed script. It reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: exempting a script from an ask is a repository decision, beyond `config.json`'s reach. `access.py` reads `systems`, the systems the product runs on and their read-only commands, from `policy.json` only, for the same reason. `hooks.product_folder.enabled` is the opposite, config-only key: opening a folder outside the repository is one operator's choice on one machine, so `product_folder.py` reads it from `config.json` alone and never from `policy.json`.
+- `config.json.example` defines hook defaults; `policy.json` is the tracked per-repository policy — a hook the repository runs without, the scripts its publish guard must ask about — and `config.json` the ignored per-operator override layered on top, read alike by `hooks/lib/config.py`. While either fails to parse, the publish guard asks on every command that could run a listed script. It reads `hooks.guard_publish.dry_run_commands` from `policy.json` only: exempting a script from an ask is a repository decision, beyond `config.json`'s reach. `access.py` reads `systems`, the systems the product runs on and their read-only commands, from `policy.json` only, for the same reason, and so does `owed.py` for `owed.critical_paths`, the globs whose files need review, and `owed.suite`, the one command that runs the repository's checks. `hooks.product_folder.enabled` is the opposite, config-only key: opening a folder outside the repository is one operator's choice on one machine, so `product_folder.py` reads it from `config.json` alone and never from `policy.json`.
 - `mcp.json` is the MCP registry and its project state. Toggle a server only through `python3 .agents/mcp.py enable|disable <name>`, which also rewrites every host's MCP configuration; commit intentional state changes.
 - `.opencode/opencode.json` and `.opencode/instructions/colloid.md` are generated connection files, like `.codex/config.toml`. `mcp_opencode.py` renders the permission rules and agent roles from `.agents/claude/settings.json` and `.agents/personas`, so edit those sources and never the generated file.
 - `personas/*.md`, linked from `.claude/agents/*.md`, are Claude-native definitions and `.codex/agents/*.toml` static Codex ones; model and effort are explicit in each, not generated from a tier registry.
@@ -76,65 +76,9 @@ A skill's `AGENTS.md` governs editing it and its `SKILL.md` using it; a file und
 
 ## Verification
 
-Run the narrow checks for the surface changed:
-
-```sh
-python3 .agents/check-layout.py
-.agents/lint-skills.sh
-.agents/test-lint-skills.sh
-python3 .agents/lint-breadcrumbs.py
-python3 .agents/lint-decisions.py
-python3 .agents/check-test-isolation.py
-.agents/test-session-start.sh
-.agents/test-done-prime.sh
-.agents/test-workloop.sh
-.agents/test-provision.sh
-.agents/test-worktree-provision.sh
-.agents/test-worktree-sessions.sh
-.agents/test-parallel-writers.sh
-.agents/test-workloop-inbox.sh
-.agents/test-style-inject.sh
-.agents/test-ui-gate.sh
-.agents/test-teardown-gate.sh
-.agents/test-session-end.sh
-.agents/test-post-edit-check.sh
-.agents/test-stop-investigate.sh
-.agents/test-access.sh
-.agents/test-provenance-gate.sh
-.agents/test-review-contract.sh
-python3 .agents/test-sources-matcher.py
-.agents/test-untrusted-content.sh
-python3 .agents/test-guard-destructive.py
-python3 .agents/test-wait-gate.py
-.agents/test-keychain-notice.sh
-.agents/test-session-wrap.sh
-python3 .agents/test-guard-publish.py
-python3 .agents/test-hosted-scripts.py
-.agents/test-device-policy.sh
-.agents/test-mcp.sh
-.agents/test-opencode.sh
-python3 .agents/test-lsp.py
-python3 .agents/test-browser-sync.py
-.agents/test-permissions.sh
-.agents/test-statusline.sh
-.agents/test-readout.sh
-.agents/test-hook-lookup.sh
-.agents/test-product-folder.sh
-.agents/test-mods.sh
-.agents/test-codex.sh
-.agents/test-scrapling-launcher.sh
-python3 .agents/test-proxy-names.py
-.agents/test-scrapling-proxy.sh
-.agents/test-proxy-file-guard.sh
-# colloid-only
-python3 .agents/lint-contract.py
-python3 .agents/eval/test-cell-time.py
-.agents/test-export.sh
-.agents/test-stack-packs.sh
-python3 .agents/port-public.py check
-.agents/test-port-public.sh
-# /colloid-only
-```
+Run the narrow checks for the surface changed: `.agents/check-all.sh` holds the
+list, one command per line, and `.agents/suite.sh` runs it whole and records the
+tree it passed on. Copy a surface's line out of the script to run it alone.
 
 <!-- colloid-only -->
 Run `export-scaffold.py` only from a reviewed commit: it reads Git, not the working tree.

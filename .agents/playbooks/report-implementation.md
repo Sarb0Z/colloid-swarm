@@ -17,3 +17,5 @@ behavior the reader can observe, then the code that produces it.
 - **Review findings declined or filed**, each with its reason.
 
 Then draft a commit message for the session's work in conventional style.
+
+Last, after writing the report, run `python3 .agents/hooks/lib/owed.py clear report`.

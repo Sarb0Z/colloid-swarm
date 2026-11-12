@@ -51,6 +51,18 @@ out="$(rd strip "$target" s1)"
 [[ "$out" != *"9/9"* ]] || fail "another session's readout is visible"
 ok "strip joins visible segments in file-name order and hides another session's"
 
+# Seam: readout.py strip fed a folder of five readouts. Catches the order of
+# segments in the line; misses where the host's terminal cuts the line.
+order="$scratch/order"
+rd write access --repo "$order" --strip "access A"
+rd write checks --repo "$order" --strip "checks C"
+rd write owed --repo "$order" --session s1 --strip "owed O"
+rd write systems --repo "$order" --strip "systems S"
+rd write workloop --repo "$order" --strip "workloop W"
+out="$(rd strip "$order" s1)"
+[[ "$out" == "owed O  ·  access A  ·  checks C  ·  systems S  ·  workloop W" ]] || fail "owed must lead the strip, the rest by name: $out"
+ok "strip puts the owed readout first, session suffix included, and the rest in file-name order"
+
 out="$(rd strip "$target" "")"
 [[ "$out" == "2 owed" ]] || fail "an empty session must see only repository-wide readouts: $out"
 ok "an empty session argument sees only repository-wide readouts"

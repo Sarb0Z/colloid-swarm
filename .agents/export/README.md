@@ -239,6 +239,13 @@ will keep it.
     remove a system that reports unreachable;
   - verify the product's own MCP connectors for the same systems, and enable
     each that answers with `python3 .agents/mcp.py enable <name>`.
+- **Owed work** (`owed` in `.agents/policy.json`, tracked): the satellite
+  declares its own `critical_paths`, the globs whose files need a review record
+  (its contract, its playbooks, its hooks), and its own `suite`, the one
+  command that runs its checks; `.agents/suite.sh` runs that command and
+  records the tree it passed on. The export drops the carrier's `policy.json`
+  and with it the carrier's values. A satellite that declares neither gets no
+  `review` or `suite` flag.
 
 ## Materialize host state
 
