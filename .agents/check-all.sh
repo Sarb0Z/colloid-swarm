@@ -18,6 +18,7 @@ python3 .agents/lint-breadcrumbs.py
 python3 .agents/lint-decisions.py
 python3 .agents/check-test-isolation.py
 .agents/test-owed.sh
+.agents/test-suite-runner.sh
 .agents/test-session-start.sh
 .agents/test-done-prime.sh
 .agents/test-workloop.sh

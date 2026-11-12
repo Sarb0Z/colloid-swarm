@@ -8,15 +8,7 @@
 #     since review, unreviewed; suite stale and passed; clean-up present and
 #     gone); misses the real hook's attribution of shell-written files.
 #   suite.sh's pass record: catches a stale pass read as current; misses a
-#     suite that passes vacuously.
-#   suite.sh's copy of the checkout: catches a check that writes relative to
-#     its script or CLAUDE_PROJECT_DIR; misses an absolute path to the checkout.
-#   suite.sh's temporary home: catches a write under `~`; misses a lookup that
-#     skips HOME.
-#   suite.sh's settings check: catches a check that rewrites the checkout's
-#     core.* or extensions.* settings; misses every other absolute write.
-#   suite.sh's check of the copy's tree: catches a check that writes a tracked
-#     or untracked unignored file; misses one that writes only ignored files.
+#     suite that passes vacuously. suite.sh's isolation is test-suite-runner.sh's.
 #   lint-suite.py against a fixture ci.yml and the real one: catches a check
 #     in one list and not the other; misses a CI step whose failure is ignored.
 #   lint-suite.py's test walk and reach over a fixture git repository: catches
@@ -29,6 +21,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
+# suite.sh sweeps its TMPDIR for scratch folders; this one is private to the test.
+mkdir "$scratch/tmp"
+export TMPDIR="$scratch/tmp"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 ok() { printf 'ok    %s\n' "$*"; }
 
@@ -45,7 +40,7 @@ printf '#!/usr/bin/env bash\n[[ -f "$(dirname "$0")/../suite-should-pass" ]]\n' 
 touch "$fx/suite-should-pass"
 printf '# contract\n' > "$fx/AGENTS.md"
 printf 'x\n' > "$fx/app.txt"
-printf '.agents/.readout/\n.agents/.wrap-*\n.agents/.teardown-pending-*\n.agents/.sources-ledger\n*.ign\n' > "$fx/.gitignore"
+printf '.agents/.readout/\n.agents/.wrap-*\n.agents/.teardown-pending-*\n*.ign\n' > "$fx/.gitignore"
 g() { git -C "$fx" -c user.name=t -c user.email=t@t "$@"; }
 g init -q -b main
 g add -A && g commit -qm base
@@ -188,145 +183,6 @@ before="$(objects)"
 note | grep -q "scratch.ign" && fail "an ignored path must not be owed to the suite: $(note)"
 ( cd "$fx" && .agents/suite.sh )
 ok "a Stop hashes the written paths without writing objects and skips ignored ones"
-
-# ── suite.sh runs the checks in a copy under a temporary home ───────────────
-# Each row swaps the fixture's suite for a probe and puts the passing one back.
-cp "$fx/.agents/fake-suite.sh" "$scratch/fake-suite.pass"
-copy_of() { sed -n 's/^suite.sh: checks run in //p' <<<"$1"; }
-
-probe="suite-probe-$$.ign"
-real_home="$HOME"
-cat > "$fx/.agents/fake-suite.sh" <<SH
-#!/usr/bin/env bash
-printf 'x\n' > .agents/.sources-ledger
-printf 'x\n' > "\$HOME/$probe"
-printf 'x\n' > "\$CLAUDE_PROJECT_DIR/$probe"
-printf '%s\n' "\$(pwd -P)" "\$HOME" "\$CLAUDE_PROJECT_DIR" > "$scratch/where"
-SH
-out="$(cd "$fx" && .agents/suite.sh 2>&1)" || fail "suite.sh with the probe suite: $out"
-escaped=""
-for f in "$fx/.agents/.sources-ledger" "$fx/$probe" "$real_home/$probe"; do
-  if [[ -e "$f" ]]; then escaped+=" $f"; rm -f "$f"; fi
-done
-[[ -z "$escaped" ]] || fail "probes written outside the copy and the temporary home:$escaped"
-copy="$(copy_of "$out")"
-{ read -r cwd; read -r home; read -r project; } < "$scratch/where"
-[[ -n "$copy" && "$copy" != "$(cd "$fx" && pwd -P)" ]] || fail "suite.sh must print a copy's path: $out"
-[[ "$cwd" == "$copy" && "$project" == "$copy" ]] || fail "the checks ran in $cwd with CLAUDE_PROJECT_DIR $project, not the copy $copy"
-[[ "$home" != "$real_home" && "$(dirname "$home")" == "$(dirname "$copy")" ]] || fail "HOME $home is not a temporary home beside the copy $copy"
-[[ ! -e "$(dirname "$copy")" ]] || fail "the scratch folder $(dirname "$copy") outlived the run"
-ok "suite.sh runs the checks in a copy under a temporary home, and nothing they write reaches the checkout or the real home"
-cp "$scratch/fake-suite.pass" "$fx/.agents/fake-suite.sh"
-
-printf 'gone\n' > "$fx/gone.txt"
-g add -- gone.txt && g commit -qm "a file to delete"
-rm "$fx/gone.txt"
-printf 'untracked\n' > "$fx/untracked.txt"
-printf 'staged\n' > "$fx/staged.txt" && g add -- staged.txt
-ln -s app.txt "$fx/link"
-printf 'ignored\n' > "$fx/x.ign"
-cat > "$fx/.agents/fake-suite.sh" <<SH
-#!/usr/bin/env bash
-cp app.txt "$scratch/copy-app.txt"
-{
-  [[ -f untracked.txt ]] && echo untracked
-  [[ -e gone.txt ]] || echo deleted
-  [[ -L link ]] && echo "link -> \$(readlink link)"
-  [[ -f staged.txt ]] && echo staged
-  [[ -e x.ign ]] || echo "no ignored file"
-} > "$scratch/copy-files"
-git status --porcelain > "$scratch/copy-status"
-git remote > "$scratch/copy-remote"
-SH
-out="$(cd "$fx" && .agents/suite.sh 2>&1)" || fail "suite.sh with the copy probe: $out"
-cmp -s "$fx/app.txt" "$scratch/copy-app.txt" || fail "the copy must carry the uncommitted edit of app.txt"
-[[ "$(cat "$scratch/copy-files")" == $'untracked\ndeleted\nlink -> app.txt\nstaged\nno ignored file' ]] || fail "the copy's files: $(cat "$scratch/copy-files")"
-[[ "$(g status --porcelain)" == "$(cat "$scratch/copy-status")" ]] || fail "git status in the copy: $(cat "$scratch/copy-status") against the fixture's $(g status --porcelain)"
-[[ "$(cat "$scratch/copy-status")" == *"A  staged.txt"* && "$(cat "$scratch/copy-status")" == *" D gone.txt"* ]] || fail "the copy's index must be the fixture's: $(cat "$scratch/copy-status")"
-[[ ! -s "$scratch/copy-remote" ]] || fail "the copy must have no remote: $(cat "$scratch/copy-remote")"
-ok "the copy carries the uncommitted edit, untracked file, deletion, symlink and index, no ignored file, and no remote"
-g rm -q --cached -- staged.txt
-rm "$fx/untracked.txt" "$fx/staged.txt" "$fx/link" "$fx/x.ign"
-g checkout -q -- gone.txt
-cp "$scratch/fake-suite.pass" "$fx/.agents/fake-suite.sh"
-
-# Every way a git setting reaches a check from outside the temporary home
-# carries a credential helper here, and the global ones a second identity.
-mkdir -p "$scratch/xdg/git"
-printf '[credential]\n\thelper = from-system\n' > "$scratch/system.gitconfig"
-printf '[credential]\n\thelper = from-global\n[user]\n\temail = global@example.invalid\n' > "$scratch/global.gitconfig"
-printf '[credential]\n\thelper = from-xdg\n[user]\n\temail = xdg@example.invalid\n' > "$scratch/xdg/git/config"
-cat > "$fx/.agents/fake-suite.sh" <<SH
-#!/usr/bin/env bash
-{
-  git config user.email
-  printf 'helper=%s\n' "\$(git config --get-all credential.helper)"
-  printf 'GH_TOKEN=%s GITHUB_TOKEN=%s\n' "\${GH_TOKEN-unset}" "\${GITHUB_TOKEN-unset}"
-} > "$scratch/identity"
-SH
-out="$(cd "$fx" && GIT_CONFIG_SYSTEM="$scratch/system.gitconfig" GIT_CONFIG_GLOBAL="$scratch/global.gitconfig" \
-  XDG_CONFIG_HOME="$scratch/xdg" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=from-env \
-  GH_TOKEN=leak GITHUB_TOKEN=leak .agents/suite.sh 2>&1)" || fail "suite.sh with the identity probe: $out"
-[[ "$(cat "$scratch/identity")" == $'suite@colloid.invalid\nhelper=\nGH_TOKEN=unset GITHUB_TOKEN=unset' ]] || fail "a check's git identity, credential helper and tokens: $(cat "$scratch/identity")"
-ok "a check sees the suite identity, no credential helper and no GitHub token"
-cp "$scratch/fake-suite.pass" "$fx/.agents/fake-suite.sh"
-
-pass="$fx/.agents/.readout/suite-pass"
-rm -f "$pass"
-printf '#!/usr/bin/env bash\ngit -C "%s" config core.bare true\n' "$fx" > "$fx/.agents/fake-suite.sh"
-status=0; out="$(cd "$fx" && .agents/suite.sh 2>&1)" || status=$?
-g config --unset core.bare
-[[ "$status" == 1 && "$out" == *"core.bare"* ]] || fail "a check that sets the checkout's core.bare must fail the run and name it (exit $status): $out"
-[[ ! -e "$pass" ]] || fail "a run that changed core.bare recorded a pass"
-printf '#!/usr/bin/env bash\ngit -C "%s" config branch.main.vscode-merge-base origin/main\n' "$fx" > "$fx/.agents/fake-suite.sh"
-out="$(cd "$fx" && .agents/suite.sh 2>&1)" || fail "a branch setting written during the run must not fail it: $out"
-g config --unset branch.main.vscode-merge-base
-[[ -s "$pass" ]] || fail "a run that changed only a branch setting must record a pass"
-ok "a check that changes the checkout's core or extensions settings fails the run and records no pass; a branch setting does not"
-
-rm -f "$pass"
-printf '#!/usr/bin/env bash\nprintf "changed\\n" >> app.txt\nprintf "x\\n" > made-in-copy.txt\n' > "$fx/.agents/fake-suite.sh"
-status=0; out="$(cd "$fx" && .agents/suite.sh 2>&1)" || status=$?
-[[ "$status" == 1 && "$out" == *"app.txt"* && "$out" == *"made-in-copy.txt"* ]] || fail "a check that writes the copy's files must fail the run and name them (exit $status): $out"
-[[ ! -e "$pass" && ! -e "$fx/made-in-copy.txt" ]] || fail "a run that changed the copy recorded a pass or wrote the checkout"
-ok "a check that writes a tracked or untracked file of the copy fails the run, names the files and records no pass"
-
-# A suite whose check leaves a child running, started as its own job so it
-# takes an interrupt the way a terminal sends one.
-printf '#!/usr/bin/env bash\nsleep 300 &\necho "$!" > "%s/child"\nwait\n' "$scratch" > "$fx/.agents/fake-suite.sh"
-start_suite() {  # <log>: start suite.sh in the background, wait for its check's child
-  rm -f "$scratch/child"
-  set -m; (cd "$fx" && exec .agents/suite.sh) >"$1" 2>&1 & suite_pid=$!; set +m
-  for _ in $(seq 100); do [[ -s "$scratch/child" ]] && break; sleep 0.1; done
-  [[ -s "$scratch/child" ]] || fail "the check never started: $(cat "$1")"
-  child="$(cat "$scratch/child")"
-}
-ended() {  # <pid>: true once the process is gone, polling for up to 10 s
-  for _ in $(seq 100); do ps -p "$1" >/dev/null || return 0; sleep 0.1; done
-  return 1
-}
-stop_leftovers() {  # what a run that failed this row left running
-  kill -KILL "$suite_pid" 2>/dev/null || true
-  local group; group="$(ps -o pgid= -p "$child" | tr -d ' ')" || true
-  [[ -n "$group" ]] && kill -KILL -- "-$group" 2>/dev/null || true
-}
-start_suite "$scratch/int.log"
-kill -INT "$suite_pid"
-if ! ended "$suite_pid" || ! ended "$child"; then stop_leftovers; fail "an interrupt must end suite.sh and its check's child: $(cat "$scratch/int.log")"; fi
-wait "$suite_pid" 2>/dev/null && fail "an interrupted run must not exit 0"
-left="$(dirname "$(copy_of "$(cat "$scratch/int.log")")")"
-[[ "$left" != . && ! -e "$left" ]] || fail "an interrupted run left its scratch folder $left"
-ok "an interrupt stops the checks' process group and removes the scratch folder"
-
-start_suite "$scratch/kill.log"
-kill -KILL "$suite_pid"; wait "$suite_pid" 2>/dev/null || true
-stop_leftovers
-left="$(dirname "$(copy_of "$(cat "$scratch/kill.log")")")"
-[[ "$left" != . && -d "$left" ]] || fail "a killed run must leave its scratch folder for this row to sweep: $left"
-cp "$scratch/fake-suite.pass" "$fx/.agents/fake-suite.sh"
-( cd "$fx" && .agents/suite.sh ) >/dev/null || fail "suite.sh after a killed run"
-[[ ! -e "$left" ]] || { rm -rf "$left"; fail "the next run must sweep the scratch folder a killed run left: $left"; }
-ok "the next run sweeps a scratch folder a killed run left"
 
 # ── report ──────────────────────────────────────────────────────────────────
 owed raise report --session "$session" --key "$key"

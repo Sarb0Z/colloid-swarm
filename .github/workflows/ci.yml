@@ -77,6 +77,9 @@ jobs:
       - name: Owed-work flags
         run: .agents/test-owed.sh
 
+      - name: Suite runner isolation
+        run: .agents/test-suite-runner.sh
+
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
