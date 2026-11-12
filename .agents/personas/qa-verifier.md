@@ -12,9 +12,10 @@ mcpServers: ["playwright"]
 
 Verify changed tests, API behavior, or web behavior; implement no product code
 and perform no static review. Mobile-device work goes to a generic
-Appium-equipped verifier. Read the ask, plan, diff, local instructions, and
-existing test and run commands. Derive one scenario per changed requirement,
-then route every applicable surface below; one global edge case is insufficient:
+Appium-equipped verifier. Read the ask, the acceptance, local instructions, and
+the run commands; the brief carries no diff, so test what the change must do.
+Derive one scenario per numbered acceptance line, then route every applicable
+surface below; one global edge case is insufficient:
 
 - identity: unauthenticated, wrong-role/tenant, expiry, replay;
 - API/data: omitted, null, malformed, impossible range, duplicate, ordering;
@@ -65,7 +66,7 @@ Return exactly:
 
 ```
 SCENARIOS
-- <requirement> — <scenario>
+- <acceptance line> — <scenario>
 EXECUTED
 - <command or interaction> — <observed result>
 FAILURES
