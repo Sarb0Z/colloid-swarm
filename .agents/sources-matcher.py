@@ -36,49 +36,52 @@ import re
 import sys
 from pathlib import Path
 
-# The matcher is replaced in place rather than through a parse-and-dump, so the
-# hand-maintained formatting around each host file survives. Which value to
-# replace is decided by the parser, not by a pattern: a regex reaching from a
-# matcher forward to the sources-capture command would, in a group that has lost
-# its own `matcher` key, land on the previous group's and silently rewrite it.
-TOML_MATCHER = re.compile(r'(matcher = ")([^"]*)("\ncommand = "[^"]*sources-capture\.sh")')
+# JSON hosts are rewritten through the parsed structure, which dumps back to the
+# files' exact bytes. Kimi's TOML has no parser in the standard library of every
+# supported Python, so its matcher is replaced as text; the pattern spans the
+# hook's own event, matcher and command lines, so it cannot reach another hook.
+TOML_HOOK = re.compile(r'event = "([^"]*)"\nmatcher = "([^"]*)"(\ncommand = "[^"]*sources-capture\.sh")')
 
 # Each host file, the policy whose groups carry the matcher, the host's native
-# web tools, how the file is parsed, and which matcher kind it takes.
+# web tools, how the file is parsed, the events the policy registers on there
+# (one group each), and which matcher kind it takes.
 CAPTURE, UNTRUSTED = "sources-capture.sh", "untrusted-content.sh"
 HOSTS = (
-    (".agents/claude/settings.json", CAPTURE, ("WebSearch", "WebFetch"), "json"),
-    (".agents/codex/hooks.json", CAPTURE, (), "json"),
-    (".kimi/config.toml.example", CAPTURE, ("WebSearch", "FetchURL"), "toml"),
-    (".agents/claude/settings.json", UNTRUSTED, ("WebFetch", "WebSearch"), "json"),
-    (".agents/codex/hooks.json", UNTRUSTED, (), "json"),
+    (".agents/claude/settings.json", CAPTURE, ("WebSearch", "WebFetch"), "json", ("PostToolUse",)),
+    (".agents/codex/hooks.json", CAPTURE, (), "json", ("PostToolUse",)),
+    (".kimi/config.toml.example", CAPTURE, ("WebSearch", "FetchURL"), "toml", ("PostToolUse",)),
+    (".agents/claude/settings.json", UNTRUSTED, ("WebFetch", "WebSearch"), "json",
+     ("PostToolUse", "PostToolUseFailure")),
+    (".agents/codex/hooks.json", UNTRUSTED, (), "json", ("PostToolUse",)),
 )
 
 SERVER = "[A-Za-z0-9_-]+"
 
 
-def render(kind, value):
-    """The exact bytes a host file uses to state one matcher."""
-    return f'matcher = "{value}"' if kind == "toml" else f'"matcher": {json.dumps(value)}'
-
-
-def locate(text, kind, policy):
-    """The matcher of every group running `policy`; None stands for a group stating none."""
-    if kind == "toml":
-        found = TOML_MATCHER.search(text)
-        return [found.group(2)] if found else []
+def json_groups(data, policy):
+    """(event, group) for every hook group running `policy`."""
     found = []
-    for groups in (json.loads(text).get("hooks") or {}).values():
+    for event, groups in (data.get("hooks") or {}).items():
         for group in groups:
             commands = " ".join(hook.get("command", "") for hook in group.get("hooks") or [])
             if policy in commands:
-                found.append(group.get("matcher"))
+                found.append((event, group))
     return found
 
 
+def registration_errors(events, wanted):
+    """Why the events carrying the policy are not exactly `wanted`, one group each."""
+    problems = []
+    for event in wanted:
+        count = events.count(event)
+        if count != 1:
+            problems.append(f"{count} groups on {event}, expected 1")
+    problems.extend(f"unexpected group on {event}" for event in sorted(set(events) - set(wanted)))
+    return problems
+
+
 def whole_server(name):
-    alias = name.replace("-", "_")
-    return f"mcp__({name}|plugin_{alias}_{alias})__.*"
+    return f"mcp__({name}|plugin_{name}_{name})__.*"
 
 
 def matcher(registry, native):
@@ -96,13 +99,18 @@ def matcher(registry, native):
     if tools:
         parts.append(f"mcp__{SERVER}__({'|'.join(sorted(tools))})")
     parts.extend(sorted(whole))
-    return "|".join(parts)
+    return anchored(parts)
+
+
+def anchored(parts):
+    """Claude tests a regex matcher unanchored, so a matcher states its own ends."""
+    return f"^({'|'.join(parts)})$"
 
 
 def untrusted_matcher(registry, native):
     """The untrusted-content alternation: every `sources` server, whole."""
     names = sorted(name for name, server in registry.items() if server.get("sources"))
-    return "|".join([*native, *(whole_server(name) for name in names)])
+    return anchored([*native, *(whole_server(name) for name in names)])
 
 
 BUILDERS = {CAPTURE: matcher, UNTRUSTED: untrusted_matcher}
@@ -122,39 +130,44 @@ def main():
         return 1
 
     stale = 0
-    for rel, policy, native, kind in HOSTS:
+    for rel, policy, native, kind, events in HOSTS:
         path = repo / rel
         if not path.exists():
             continue                     # a satellite may not carry every host
         text = path.read_text()
         try:
-            found = locate(text, kind, policy)
+            if kind == "json":
+                data = json.loads(text)
+                entries = [(event, group.get("matcher")) for event, group in json_groups(data, policy)]
+            else:
+                entries = [(m.group(1), m.group(2)) for m in TOML_HOOK.finditer(text)]
         except ValueError as error:
             print(f"sources-matcher: {rel} does not parse: {error}", file=sys.stderr)
             stale += 1
             continue
-        if not found or None in found:
-            # Keep going: one host losing its matcher must not hide the state of
-            # the others, which is the whole point of checking all of them.
-            print(f"sources-matcher: no {policy} matcher in {rel}", file=sys.stderr)
+        # Keep going after a host fails: one host losing its registration must
+        # not hide the state of the others, which is why all are checked.
+        problems = registration_errors([event for event, _ in entries], events)
+        if problems:
+            print(f"sources-matcher: {rel} registers {policy} wrongly: {'; '.join(problems)}",
+                  file=sys.stderr)
             stale += 1
             continue
         want = BUILDERS[policy](registry, native)
-        if all(current == want for current in found):
+        if all(current == want for _, current in entries):
             continue
-        current = found[0]
         if check:
             stale += 1
-            print(f"sources-matcher: {rel} {policy} is stale\n  have: {' ; '.join(found)}\n  want: {want}",
+            print(f"sources-matcher: {rel} {policy} is stale\n"
+                  f"  have: {' ; '.join(str(current) for _, current in entries)}\n  want: {want}",
                   file=sys.stderr)
             continue
-        quoted = render(kind, current)
-        if len(set(found)) != 1 or text.count(quoted) != len(found):
-            print(f"sources-matcher: {rel} states the {policy} matchers unevenly; "
-                  "refusing to guess which one belongs to it", file=sys.stderr)
-            stale += 1
-            continue
-        path.write_text(text.replace(quoted, render(kind, want)))
+        if kind == "json":
+            for _, group in json_groups(data, policy):
+                group["matcher"] = want
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        else:
+            path.write_text(TOML_HOOK.sub(lambda m: f'event = "{m.group(1)}"\nmatcher = "{want}"{m.group(3)}', text))
         print(f"{rel}: {policy} matcher updated")
 
     if stale:
