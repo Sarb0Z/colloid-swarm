@@ -175,6 +175,19 @@ jobs:
             echo '::notice title=Scrapling browser block not exercised::No live browser row ran; the SKIP line in the log says why.'
           fi
 
+      - name: Named proxies
+        run: python3 .agents/test-proxy-names.py
+
+      # Self-skips where uvx is absent; the browser rows skip with a notice
+      # where no Scrapling browser is installed, as in the step above.
+      - name: Scrapling named proxies
+        shell: bash
+        run: |
+          .agents/test-scrapling-proxy.sh | tee "$RUNNER_TEMP/scrapling-proxy.log"
+          if grep -q '^SKIP scrapling proxy' "$RUNNER_TEMP/scrapling-proxy.log"; then
+            echo '::notice title=Scrapling proxy check skipped::The named-proxy rows did not run; the SKIP line in the log says why.'
+          fi
+
       - name: Root contract size
         run: python3 .agents/lint-contract.py
 

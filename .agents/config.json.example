@@ -25,6 +25,9 @@
     "proxy_env": "PLAYWRIGHT_PROXY",
     "proxy_bypass": []
   },
+  "scrapling": {
+    "proxies": {}
+  },
   "mcp_env": {
     "research-mcp": {
       "RESEARCH_MCP_CONTACT_EMAIL": ""

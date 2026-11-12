@@ -549,6 +549,8 @@ python3 .agents/test-browser-sync.py
 .agents/test-product-folder.sh
 .agents/test-mods.sh
 .agents/test-codex.sh
+python3 .agents/test-proxy-names.py
+.agents/test-scrapling-proxy.sh
 .agents/test-export.sh
 # colloid-only
 python3 demo/check-inventory.py
