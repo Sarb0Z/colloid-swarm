@@ -313,6 +313,33 @@ describe('fetch_readable on a page that hides content from its reader', () => {
     expect(out.text).toBe('Account Sign in Sign up');
   });
 
+  // Seams: the next three catch a wrong threshold or note text; they miss how a
+  // real page renders.
+  describe('a short article', () => {
+    const article = (chars: number) =>
+      serve(`<html><head><title>Post</title></head><body><article><p>${'a'.repeat(chars)}</p></article></body></html>`);
+    const shortNote = (n: number) =>
+      `Readability found only ${n} characters: probably a page drawn by scripts or a list of links; a browser tool reads it as rendered`;
+
+    it('notes 199 characters with the count', async () => {
+      const out = await read(article(199));
+      expect(out.text?.length).toBe(199);
+      expect(out.notes).toContain(shortNote(199));
+    });
+
+    it('does not note 200 characters', async () => {
+      const out = await read(article(200));
+      expect(out.text?.length).toBe(200);
+      expect(out.notes.join(' ')).not.toMatch(/Readability found only/);
+    });
+
+    it('leaves the no-article branch unchanged', async () => {
+      const out = await read(serve('<html><head><title>App</title></head><body><button>Sign in</button></body></html>'));
+      expect(out.notes.join(' ')).toMatch(/no article body/);
+      expect(out.notes.join(' ')).not.toMatch(/Readability found only/);
+    });
+  });
+
   it('adds no note to an ordinary page', async () => {
     const http = new ArchiveFetcher();
     const out = await handleFetchReadable({ url: CAPTURE, archived: false, maxChars: 120_000 }, http);

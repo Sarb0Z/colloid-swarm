@@ -6,6 +6,8 @@ import type { ArticleLink, HiddenReport } from '../../core/readable.js';
 import { canonicalUrl, extractArticle, extractPageText, extractPdfText } from '../../core/readable.js';
 import { captureAge, findSnapshot } from '../../core/wayback.js';
 
+const SHORT_ARTICLE_CHARS = 200;
+
 export const fetchReadableInputSchema = z.object({
   url: z.string().min(1).describe('Absolute http(s) URL to read.'),
   archived: z
@@ -316,6 +318,11 @@ export async function handleFetchReadable(
     };
   }
 
+  if (article.text.length < SHORT_ARTICLE_CHARS) {
+    notes.push(
+      `Readability found only ${article.text.length} characters: probably a page drawn by scripts or a list of links; a browser tool reads it as rendered`,
+    );
+  }
   notes.push(...hiddenNotes(article.hidden));
   return {
     ...base,

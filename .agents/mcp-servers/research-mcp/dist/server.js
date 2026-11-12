@@ -61700,6 +61700,12 @@ async function authorizeUrl(rawUrl, resolver = systemResolver) {
   }
   const rejected = addresses.find((entry) => !isPublicAddress(entry));
   if (rejected) {
+    if (!literal2 && addresses.every((entry) => entry.address === "0.0.0.0" || entry.address === "::")) {
+      return {
+        allowed: false,
+        reason: `${hostname2} resolves only to 0.0.0.0 or ::, the answer a DNS filter gives for a blocked name`
+      };
+    }
     return {
       allowed: false,
       reason: `${hostname2} resolves to non-public address ${rejected.address}`
@@ -73020,6 +73026,7 @@ function captureAge(timestamp, now) {
 }
 
 // src/mcp/tools/fetch-readable.tool.ts
+var SHORT_ARTICLE_CHARS = 200;
 var fetchReadableInputSchema = external_exports.object({
   url: external_exports.string().min(1).describe("Absolute http(s) URL to read."),
   archived: external_exports.boolean().default(false).describe("Read the Wayback capture instead of the live page. Use for dead or changed URLs."),
@@ -73244,6 +73251,11 @@ async function handleFetchReadable(input, http) {
       ...cap(page.text, input.maxChars),
       notes
     };
+  }
+  if (article.text.length < SHORT_ARTICLE_CHARS) {
+    notes.push(
+      `Readability found only ${article.text.length} characters: probably a page drawn by scripts or a list of links; a browser tool reads it as rendered`
+    );
   }
   notes.push(...hiddenNotes(article.hidden));
   return {
