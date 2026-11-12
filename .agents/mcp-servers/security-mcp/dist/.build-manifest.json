@@ -41,6 +41,7 @@
     "templates/wp-config-backup.yaml": "c5a070b47664a20d4283638002b0ab68cf7dc0e76fd115be4b8450940b048030",
     "templates/wp-readme.yaml": "656ddf1f40d1fd171b63221619659e9080bc9196034292c7522469de7d3d7140",
     "templates/x-powered-by.yaml": "ffae06940d4754c115f4dfd848e1bf4f3d26174ca77ab4c0d25f7965d0f2dcb9",
+    "THIRD-PARTY-NOTICES.txt": "8a2fa0a3dffba3ef148de5bc18aa76b4e1a331cd4a88027c9205de699a16d2ef",
     "wordlists/common-paths.txt": "4afa5106cc95cbecaf9b50d6eaeb578190fe9d3c3324c928391b515d861fe391"
   }
 }

@@ -2,6 +2,7 @@
   "algorithm": "sha256",
   "files": {
     "package.json": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae",
-    "server.js": "209e5fc1bf3a3e0b136f4fa3d74a5c7df98728016fbaaa254fe530b05d154d4a"
+    "server.js": "209e5fc1bf3a3e0b136f4fa3d74a5c7df98728016fbaaa254fe530b05d154d4a",
+    "THIRD-PARTY-NOTICES.txt": "a591748ad6e2d1bf0e5aeda39026c4b4919a54ed58c7f1a97d34dc6a4e4f021e"
   }
 }
