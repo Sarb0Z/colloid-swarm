@@ -62,7 +62,7 @@ def stamped_base(satellite, carrier):
     """Print the commit in the satellite's committed .agents/scaffold-base and
     return True; return False, after saying why, when the ranking must decide."""
     shown = subprocess.run(["git", "show", f"HEAD:{STAMP}"], cwd=satellite,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, check=False)
     if shown.returncode:
         return False                                      # no committed stamp: a pre-stamp sync
     commit = shown.stdout.removesuffix("\n")
@@ -70,7 +70,7 @@ def stamped_base(satellite, carrier):
         print(f"{STAMP} holds {commit!r}, which is not a full commit hash; ranking instead.")
         return False
     known = subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=carrier,
-                           capture_output=True)
+                           capture_output=True, check=False)
     if known.returncode:
         print(f"{STAMP} names {commit!r}, which is not in the carrier; ranking instead.")
         return False
@@ -81,7 +81,7 @@ def stamped_base(satellite, carrier):
 def toplevel(path, what):
     """The real root of the repository holding `path`, or a SystemExit saying what to fix."""
     run = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path,
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, check=False)
     if run.returncode:
         raise SystemExit(f"merge-kit: {what} is not inside a git repository")
     return pathlib.Path(run.stdout.strip()).resolve()
@@ -95,7 +95,7 @@ def find_base(satellite):
         raise SystemExit(f"merge-kit: {satellite} is not the root of its git repository; "
                          "pass the satellite's top-level directory")
     if subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=satellite,
-                      capture_output=True).returncode:
+                      capture_output=True, check=False).returncode:
         raise SystemExit(f"merge-kit: the satellite {satellite} has no commits; commit its scaffold first")
     if stamped_base(satellite, carrier):
         return
@@ -162,7 +162,7 @@ def text_merge(ours, base, theirs):
         return None
     run = subprocess.run(["git", "merge-file", "-p", "-L", "satellite", "-L", "base-kit",
                           "-L", "new-kit", str(ours), str(base), str(theirs)],
-                         capture_output=True)
+                         capture_output=True, check=False)
     if run.returncode < 0 or run.returncode > 127:
         raise SystemExit(f"merge-kit: git merge-file failed on {ours}: {run.stderr.decode(errors='replace')}")
     return run.stdout, run.returncode > 0
