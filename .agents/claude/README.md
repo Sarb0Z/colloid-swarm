@@ -201,7 +201,9 @@ not carry a separate mapping. Unsupported or empty tool shapes write no row.
 | --- | --- |
 | `WebSearch` with `query` | `search`, query |
 | `WebFetch`, `FetchURL`, or `*__fetch_readable` with `url` | `fetch`, URL |
-| `*__browser_navigate` with `url` | `browse`, URL |
+| `*__browser_navigate`, `*__browser_fetch_once` with `url` | `browse`, URL |
+| Scrapling `*__browser_fetch` with `url` | `browse`, URL; with `session_id`, `<URL> session=<id> [host=<host session>]` |
+| Scrapling `*__browser_actions`, `*__browser_evaluate` with `session_id` | `browse`, `<page> session=<id> [host=<host session>] [<address> ...]`: the page is the session's last `browser_fetch` URL (`-` before one), the addresses are those in the call, never its script |
 | `*__resolve_open_access` with `query` | `search`, query |
 | Context7 `*__resolve-library-id` / `*__query-docs` with `query` | `search`, query |
 | plugin Exa with `url`, otherwise `query` | `fetch` URL, otherwise `search` query |

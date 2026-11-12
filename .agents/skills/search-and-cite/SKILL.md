@@ -130,12 +130,17 @@ The researcher's `SOURCES` become the answer's sources. When writing it:
 ## The evidence trail
 
 The `sources-capture` hook logs every observable `WebSearch` / `WebFetch` /
-Context7 / `browser_navigate` / `browser_fetch_once` / `browser_fetch` / `fetch_readable` / `resolve_open_access` call,
+Context7 / `browser_navigate` / `browser_fetch_once` / `browser_fetch` / `browser_actions` / `browser_evaluate` / `fetch_readable` / `resolve_open_access` call,
 the researcher cell's included, to `.agents/.sources-ledger`
 (`ts · agent · kind · value`). Codex hosted web search bypasses local tool
 hooks; its MCP calls are captured. The ledger is the operator's audit trail and
-a backstop for the URLs read (`fetch`/`browse` rows are real URLs; `search` rows
-hold the query, not the result link). Transient and gitignored; safe to delete.
+a backstop for the URLs read (`fetch`/`browse` rows are addresses, without
+userinfo, a space written `%20`; `search` rows hold the query, not the result
+link). A Scrapling call that names a session writes
+`<page> session=<id> [host=<id>] [<address> ...]`: the page is the session's
+last `browser_fetch` address (`-` before one), and the addresses are those in a
+`browser_actions` or `browser_evaluate` call, never its script. Transient and
+gitignored; safe to delete.
 
 ## File what a cell found
 

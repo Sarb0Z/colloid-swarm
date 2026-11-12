@@ -6944,7 +6944,7 @@ exit 0
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Research</div><h3>search-and-cite</h3><p>Draw the line between an inline lookup and a delegated researcher cell — and carry sources through to the answer.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 164 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 169 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
 name: search-and-cite
 description: Use when a turn rests on an external fact — a library API, a version, a &quot;current best practice&quot;, anything the agent would otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
 ---
@@ -7076,12 +7076,17 @@ The researcher&#x27;s `SOURCES` become the answer&#x27;s sources. When writing i
 ## The evidence trail
 
 The `sources-capture` hook logs every observable `WebSearch` / `WebFetch` /
-Context7 / `browser_navigate` / `browser_fetch_once` / `browser_fetch` / `fetch_readable` / `resolve_open_access` call,
+Context7 / `browser_navigate` / `browser_fetch_once` / `browser_fetch` / `browser_actions` / `browser_evaluate` / `fetch_readable` / `resolve_open_access` call,
 the researcher cell&#x27;s included, to `.agents/.sources-ledger`
 (`ts · agent · kind · value`). Codex hosted web search bypasses local tool
 hooks; its MCP calls are captured. The ledger is the operator&#x27;s audit trail and
-a backstop for the URLs read (`fetch`/`browse` rows are real URLs; `search` rows
-hold the query, not the result link). Transient and gitignored; safe to delete.
+a backstop for the URLs read (`fetch`/`browse` rows are addresses, without
+userinfo, a space written `%20`; `search` rows hold the query, not the result
+link). A Scrapling call that names a session writes
+`&lt;page&gt; session=&lt;id&gt; [host=&lt;id&gt;] [&lt;address&gt; ...]`: the page is the session&#x27;s
+last `browser_fetch` address (`-` before one), and the addresses are those in a
+`browser_actions` or `browser_evaluate` call, never its script. Transient and
+gitignored; safe to delete.
 
 ## File what a cell found
 
@@ -11394,7 +11399,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 122 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 128 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -11515,7 +11520,13 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 
 - **Condition** — the `scrapling` registry entry launches `uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from &#x27;scrapling[ai]==0.5.1&#x27;`, so every dependency resolves as it stood on that date, and a security release of any of them never arrives. Acceptable: the same environment on every machine is what the launcher&#x27;s tool-surface test and the live QA measured, and the server is off by default and Claude only.
 - **Trigger** — a security advisory against Scrapling or any package in its resolved environment, or the next Scrapling release worth taking.
-- **Rework** — move the version and the date together in the entry&#x27;s `args` and `description` in `.agents/mcp.json`, the install line in `skills/search-and-cite/SKILL.md` and `PINNED_ARGS` in `test-scrapling-launcher.sh`, then rerun that test and the stealth tier&#x27;s live check; a few lines, plus a browser download.
+- **Rework** — move the version and the date together in the entry&#x27;s `args` and `description` in `.agents/mcp.json`, the install line in `skills/search-and-cite/SKILL.md` and `PINNED_ARGS` in `test-scrapling-launcher.sh`, the pin sentence of `scrapling-stealth-tier` in `decisions.md`, then rerun that test and the stealth tier&#x27;s live check; a few lines, plus a browser download.
+
+### scrapling-session-limits
+
+- **Condition** — the ledger&#x27;s Scrapling session rows (`page_of` in `hooks/lib/sources-ledger.py`) accept four limits. The page is the address of the session&#x27;s last `browser_fetch`, so a click or an evaluate that navigates leaves it stale. An address keeps its query string, credentials in it included (userinfo is dropped). A call that fails (PostToolUseFailure) leaves no row, so a `browser_actions` that fails part-way with its effects kept is unrecorded. The matcher also runs the hook on every server&#x27;s `browser_evaluate`, Playwright&#x27;s included, which costs about 70 ms a call and writes nothing. Acceptable: the row&#x27;s job is a trail of addresses read, the transcript holds the full call, and none of the four writes a wrong address.
+- **Trigger** — an audit that needs the page after a navigating click, a credential seen in a ledger query string, a failed action sequence that must be traced, or Scrapling gaining a navigating action.
+- **Rework** — record the page from the call&#x27;s result in `source_row`, strip known credential parameters in `clean_url`, add a PostToolUseFailure trigger to the three hosts&#x27; hook files and the matcher, and key the matcher on the Scrapling server alone; about 40 lines and a test row each.
 </code></pre></details>
             </article>
         <article class="card">

@@ -73,6 +73,8 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         out["agent"] = text(source, "agent_type") or "unknown"
         out["tool_name"] = text(source, "tool_name")
         out["tool_input"] = tool_input
+        # Keys a browser session to the host session that opened it.
+        out["session_id"] = text(source, "session_id")
     elif policy == "post-edit-check.sh":
         files, warnings = patch_paths(tool_input.get("command"))
         out["files"] = files

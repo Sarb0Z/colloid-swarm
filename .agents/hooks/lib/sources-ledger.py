@@ -8,10 +8,15 @@ supported lookup, and appends
 `ts \t agent \t kind \t value` to .agents/.sources-ledger.
 
 A Scrapling call that names a browser session writes a `browse` value of
-`<page> session=<id> [<address> ...]`: the page is the newest address the trail
-holds for that session (`-` when none), and the addresses are every http or
-https address in a `browser_actions` or `browser_evaluate` call's input. Nothing
-else of a script or an action list is written.
+`<page> session=<id> [host=<id>] [<address> ...]`: the page is the address of
+the session's last `browser_fetch`, the only call that navigates (`-` when
+none), `host=` names the host session the payload carries, and the addresses
+are every http or https address in a `browser_actions` or `browser_evaluate`
+call's input. Nothing else of a script or an action list is written.
+
+An address is a trail of one token: userinfo is dropped, since it is a
+credential and not part of the page, and a space is written `%20`. Only the
+session branch writes a second token, so the page lookup reads nothing else.
 
 The trail is capped rather than unbounded. Rolling at the append is the only
 place that knows a row was added; the check is one stat call, so the rewrite
@@ -31,13 +36,22 @@ CAP_BYTES = 256 * 1024
 KEEP_ROWS = 2000
 # How far back a session's last page is looked up.
 TAIL_BYTES = 64 * 1024
-ADDRESS = re.compile(r"https?://[^\s\"'`<>\\]+")
+# An address ends where script text can begin: whitespace, a quote, a backtick,
+# a bracket, a brace, `;`, `,` or a template `${`. A leading `//host` is not one.
+ADDRESS = re.compile(r"https?://(?:(?!\$\{)[^\s\"'`<>\\()\[\]{};,])+", re.IGNORECASE)
+USERINFO = re.compile(r"^(https?://)[^/?#]*@", re.IGNORECASE)
+# The same pattern as SESSION_ID_PATTERN in scrapling-mcp.py; a test compares them.
 SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def text(value, default=""):
     """A non-string field is a missing field, not a crash."""
     return value if isinstance(value, str) else default
+
+
+def clean_url(value):
+    """One token: no userinfo, no space. The query string stays."""
+    return USERINFO.sub(r"\1", value.strip()).replace(" ", "%20")
 
 
 def web_addresses(value):
@@ -47,7 +61,7 @@ def web_addresses(value):
     script body or a typed value never reaches the trail beyond its URLs.
     """
     if isinstance(value, str):
-        found = [match.rstrip(".,;:!?)]}") for match in ADDRESS.findall(value)]
+        found = [clean_url(match.rstrip(".:!?")) for match in ADDRESS.findall(value)]
     elif isinstance(value, dict):
         found = [a for item in value.values() for a in web_addresses(item)]
     elif isinstance(value, list):
@@ -57,11 +71,14 @@ def web_addresses(value):
     return list(dict.fromkeys(found))
 
 
-def page_of(ledger, session):
-    """The newest address the ledger recorded for a browser session, or None.
+def page_of(ledger, session, host):
+    """The page recorded for a browser session, or None.
 
-    A session-bearing browse row is `<page> session=<id> [<address> ...]` with
-    `-` for a page not yet recorded. Only the tail of the trail is read.
+    Reads only rows the session branch wrote: a `browse` row whose second token
+    is `session=<id>` (every other value is one token). A row names a host
+    session with `host=<id>`; with a host the row must carry the same one, and
+    without a host the browser session alone matches. Only the tail of the trail is read.
+    debt: scrapling-session-limits
     """
     try:
         with open(ledger, "rb") as trail:
@@ -75,49 +92,55 @@ def page_of(ledger, session):
         if len(fields) != 4 or fields[2] != "browse":
             continue
         tokens = fields[3].split(" ")
-        if "session=" + session in tokens[1:2]:
-            return tokens[0]
+        if len(tokens) < 2 or tokens[1] != "session=" + session:
+            continue
+        if host and "host=" + host not in tokens[2:3]:
+            continue
+        return tokens[0]
     return None
 
 
-def session_row(tool_input, addresses, page):
-    """The browse value `<page> session=<id> [<address> ...]`, or None without a session."""
+def session_row(tool_input, host, addresses, page):
+    """The browse value `<page> session=<id> [host=<id>] [<address> ...]`, or None without a session."""
     session = text(tool_input.get("session_id")).strip()
     if not SESSION_ID.match(session):
         return None
-    return " ".join([page or "-", "session=" + session] + addresses)
+    marks = ["session=" + session] + (["host=" + host] if host else [])
+    return " ".join([page or "-"] + marks + addresses)
 
 
 def source_row(payload, last_page):
     """Return (kind, value) for a supported lookup, or None.
 
-    `last_page(session)` names the newest address recorded for a browser session.
+    `last_page(session, host)` names the page recorded for a browser session.
     """
     tool = text(payload.get("tool_name"))
     raw_input = payload.get("tool_input")
     tool_input = raw_input if isinstance(raw_input, dict) else {}
+    host = text(payload.get("session_id")).strip()
+    host = host if SESSION_ID.match(host) else ""
 
     if tool.endswith(("__browser_actions", "__browser_evaluate")):
         session = text(tool_input.get("session_id")).strip()
         called = web_addresses({k: v for k, v in tool_input.items() if k != "session_id"})
-        value = session_row(tool_input, called, last_page(session))
+        value = session_row(tool_input, host, called, last_page(session, host))
         return ("browse", value) if value else None
     if tool.endswith("__browser_fetch"):
-        url = text(tool_input.get("url")).strip()
-        return "browse", (url and session_row(tool_input, [], url)) or url
+        url = clean_url(text(tool_input.get("url")))
+        return "browse", (url and session_row(tool_input, host, [], url)) or url
 
     if tool == "WebSearch":
         return "search", text(tool_input.get("query"))
     if tool in {"WebFetch", "FetchURL"} or tool.endswith("__fetch_readable"):
-        return "fetch", text(tool_input.get("url"))
+        return "fetch", clean_url(text(tool_input.get("url")))
     if tool.endswith(("__browser_navigate", "__browser_fetch_once")):
-        return "browse", text(tool_input.get("url"))
+        return "browse", clean_url(text(tool_input.get("url")))
     if tool.endswith("__resolve_open_access"):
         return "search", text(tool_input.get("query"))
     if tool.endswith(("__resolve-library-id", "__query-docs")):
         return "search", text(tool_input.get("query"))
     if tool.startswith("mcp__plugin_exa_exa__"):
-        url = text(tool_input.get("url"))
+        url = clean_url(text(tool_input.get("url")))
         return ("fetch", url) if url else ("search", text(tool_input.get("query")))
     return None
 
@@ -132,7 +155,7 @@ def main():
 
     project = text(payload.get("project_dir")) or os.environ.get("CLAUDE_PROJECT_DIR") or "."
     ledger = os.path.join(project, ".agents", ".sources-ledger")
-    row = source_row(payload, lambda session: page_of(ledger, session))
+    row = source_row(payload, lambda session, host: page_of(ledger, session, host))
     if row is None:
         return 0
     kind, value = row

@@ -345,14 +345,16 @@ assert_json \
   '{"project_dir":"/repo","subagent_type":"reviewer"}'
 # /colloid-only
 assert_json \
-  '{"cwd":"/repo","tool_name":"mcp__context7__query-docs","tool_input":{"query":"hook contracts","libraryId":"/openai/codex"}}' \
+  '{"cwd":"/repo","session_id":"host-1","tool_name":"mcp__context7__query-docs","tool_input":{"query":"hook contracts","libraryId":"/openai/codex"}}' \
   sources-capture.sh \
-  '{"project_dir":"/repo","agent":"unknown","tool_name":"mcp__context7__query-docs","tool_input":{"query":"hook contracts","libraryId":"/openai/codex"}}'
+  '{"project_dir":"/repo","agent":"unknown","tool_name":"mcp__context7__query-docs","tool_input":{"query":"hook contracts","libraryId":"/openai/codex"},"session_id":"host-1"}'
 
 python3 - "$repo" <<'PY'
 import importlib.util
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -384,10 +386,10 @@ cases = [
      ("fetch", "https://example.test/c")),
 ]
 for payload, expected in cases:
-    actual = sources.source_row(payload, lambda session: None)
+    actual = sources.source_row(payload, lambda session, host: None)
     if actual != expected:
         raise SystemExit(f"source classifier: expected {expected}, got {actual}")
-if sources.source_row({"tool_name": "apply_patch", "tool_input": {}}, lambda session: None) is not None:
+if sources.source_row({"tool_name": "apply_patch", "tool_input": {}}, lambda session, host: None) is not None:
     raise SystemExit("source classifier recorded an unsupported tool")
 
 # Scrapling calls that name a browser session write `<page> session=<id> [<address> ...]`.
@@ -395,23 +397,23 @@ secret = "sk-live-0123456789abcdef0123456789abcdef"
 session_cases = [
     # a session fetch leads with its own address, so a later call finds the page
     ({"tool_name": "mcp__scrapling__browser_fetch", "tool_input": {"url": "https://example.test/p", "session_id": "s1"}},
-     lambda session: None, ("browse", "https://example.test/p session=s1")),
+     lambda session, host: None, ("browse", "https://example.test/p session=s1")),
     # an evaluate with a fetch literal: the page comes from the trail, the literal is an address, the rest is dropped
     ({"tool_name": "mcp__scrapling__browser_evaluate", "tool_input": {
         "session_id": "s1", "expression": 'async () => { const k = "' + secret + '"; return (await fetch("https://api.example.test/v1?q=1")).text(); }'}},
-     lambda session: "https://example.test/p" if session == "s1" else None,
+     lambda session, host: "https://example.test/p" if session == "s1" else None,
      ("browse", "https://example.test/p session=s1 https://api.example.test/v1?q=1")),
     # an actions call: addresses in typed values are found, selectors and other values are not written
     ({"tool_name": "mcp__scrapling__browser_actions", "tool_input": {
         "session_id": "s2", "actions": [{"type": "textbox", "target": "#q", "value": "see https://example.test/go, then " + secret}]}},
-     lambda session: "https://example.test/p",
+     lambda session, host: "https://example.test/p",
      ("browse", "https://example.test/p session=s2 https://example.test/go")),
     # a session with no recorded page carries the marker
     ({"tool_name": "mcp__scrapling__browser_evaluate", "tool_input": {"session_id": "s3", "expression": "document.title"}},
-     lambda session: None, ("browse", "- session=s3")),
+     lambda session, host: None, ("browse", "- session=s3")),
     # a call with no session, as Playwright's own browser_evaluate, writes nothing
     ({"tool_name": "mcp__playwright__browser_evaluate", "tool_input": {"function": "() => '" + secret + "'"}},
-     lambda session: None, None),
+     lambda session, host: None, None),
 ]
 for payload, last_page, expected in session_cases:
     actual = sources.source_row(payload, last_page)
@@ -441,6 +443,122 @@ with tempfile.TemporaryDirectory() as project:
         ["browse", "- session=s9"],
     ] or secret in trail:
         raise SystemExit(f"session ledger rows wrong: {rows}")
+
+def ledger_rows(payloads):
+    """Fire each payload at the ledger script in a fresh project; return the value of each row and the raw file."""
+    with tempfile.TemporaryDirectory() as project:
+        Path(project, ".agents").mkdir()
+        for payload in payloads:
+            payload = {"project_dir": project, **payload}
+            done = subprocess.run(
+                [sys.executable, str(source_path)], text=True, capture_output=True, input=json.dumps(payload),
+            )
+            if done.returncode:
+                raise SystemExit(f"sources ledger failed: {done.stderr}")
+        trail_path = Path(project, ".agents/.sources-ledger")
+        trail = trail_path.read_text() if trail_path.exists() else ""
+    return [row.split("\t")[2:] for row in trail.splitlines()], trail
+
+def scrapling(tool, **tool_input):
+    return {"tool_name": "mcp__scrapling__" + tool, "tool_input": tool_input}
+
+def must_equal(label, actual, expected):
+    if actual != expected:
+        raise SystemExit(f"{label}: expected {expected}, got {actual}")
+
+# An address ends where script text begins: each reproduction keeps the secret out of the file.
+for label, script, clean in (
+    ("css url()", "background:url(https://a.test/i.png);--k:" + secret, "https://a.test/i.png"),
+    ("object literal", "x={u:https://a.test/,k:" + secret + "}", "https://a.test/"),
+    ("typed comma", "https://a.test/go," + secret, "https://a.test/go"),
+    ("template literal", "`https://a.test/${id}` + '" + secret + "'", "https://a.test/"),
+    ("array literal", "[https://a.test/q,'" + secret + "']", "https://a.test/q"),
+):
+    rows, trail = ledger_rows([scrapling("browser_evaluate", session_id="s1", expression=script)])
+    if secret in trail:
+        raise SystemExit(f"ledger {label}: the secret reached the file")
+    must_equal("ledger " + label, rows, [["browse", "- session=s1 " + clean]])
+
+# Userinfo is a credential: dropped from every url-kind value, the query string kept.
+rows, trail = ledger_rows([
+    {"tool_name": "WebFetch", "tool_input": {"url": "https://bob:SECRET@api.test/?q=1"}},
+    scrapling("browser_fetch", url="https://bob:SECRET@api.test/p?q=2", session_id="s1"),
+    scrapling("browser_evaluate", session_id="s1", expression="fetch('https://u:SECRET@b.test/x')"),
+])
+if "SECRET" in trail:
+    raise SystemExit("ledger userinfo reached the file")
+must_equal("ledger userinfo rows", rows, [
+    ["fetch", "https://api.test/?q=1"],
+    ["browse", "https://api.test/p?q=2 session=s1"],
+    ["browse", "https://api.test/p?q=2 session=s1 https://b.test/x"],
+])
+
+# The scheme matches in any case; protocol-relative //host is not an address.
+rows, _ = ledger_rows([scrapling("browser_evaluate", session_id="s1", expression='go("HTTPS://A.test/x"); "//b.test/y"')])
+must_equal("ledger scheme case", rows, [["browse", "- session=s1 HTTPS://A.test/x"]])
+
+# A space in a url-kind value is written %20, so a navigate row cannot name another session's page.
+rows, _ = ledger_rows([
+    {"tool_name": "mcp__playwright__browser_navigate", "tool_input": {"url": "https://evil.test/ session=s2"}},
+    scrapling("browser_evaluate", session_id="s2", expression="document.title"),
+])
+must_equal("ledger spoofed page", rows, [
+    ["browse", "https://evil.test/%20session=s2"],
+    ["browse", "- session=s2"],
+])
+
+# Host sessions that reuse one browser session ID each get their own page.
+rows, _ = ledger_rows([
+    {"session_id": "hostA", **scrapling("browser_fetch", url="https://a.test/", session_id="main")},
+    {"session_id": "hostB", **scrapling("browser_fetch", url="https://b.test/", session_id="main")},
+    {"session_id": "hostA", **scrapling("browser_evaluate", session_id="main", expression="1")},
+    {"session_id": "hostB", **scrapling("browser_evaluate", session_id="main", expression="1")},
+    scrapling("browser_evaluate", session_id="main", expression="1"),
+])
+must_equal("ledger host sessions", [r[1] for r in rows], [
+    "https://a.test/ session=main host=hostA",
+    "https://b.test/ session=main host=hostB",
+    "https://a.test/ session=main host=hostA",
+    "https://b.test/ session=main host=hostB",
+    "https://b.test/ session=main",
+])
+
+# A search row naming a session is never read as a page; a repeated address is written once.
+rows, _ = ledger_rows([
+    {"tool_name": "WebSearch", "tool_input": {"query": "https://x.test/ session=s1"}},
+    scrapling("browser_evaluate", session_id="s1", expression='fetch("https://r.test/a"); fetch("https://r.test/a")'),
+])
+must_equal("ledger search row and repeats", rows, [
+    ["search", "https://x.test/ session=s1"],
+    ["browse", "- session=s1 https://r.test/a"],
+])
+
+# One Scrapling payload through Claude's real adapter reaches the ledger without the script.
+with tempfile.TemporaryDirectory() as project:
+    Path(project, ".agents").mkdir()
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": project}
+    for payload in (
+        {"tool_name": "mcp__scrapling__browser_fetch", "tool_input": {"url": "https://example.test/p", "session_id": "s1"}},
+        {"tool_name": "mcp__scrapling__browser_evaluate", "tool_input": {"session_id": "s1", "expression": 'fetch("https://api.example.test/x");' + secret}},
+    ):
+        done = subprocess.run(
+            [str(repo / ".claude/hooks/adapter.sh"), "sources-capture.sh"], text=True, capture_output=True, env=env,
+            input=json.dumps({"hook_event_name": "PostToolUse", "cwd": project, "session_id": "hostA", **payload}),
+        )
+        if done.returncode:
+            raise SystemExit(f"Claude source adapter failed: {done.stderr}")
+    trail = Path(project, ".agents/.sources-ledger").read_text()
+    rows = [row.split("\t")[2:] for row in trail.splitlines()]
+    must_equal("Claude adapter scrapling rows", rows, [
+        ["browse", "https://example.test/p session=s1 host=hostA"],
+        ["browse", "https://example.test/p session=s1 host=hostA https://api.example.test/x"],
+    ])
+    if secret in trail:
+        raise SystemExit("Claude adapter wrote the script body")
+
+# The ledger and the launcher accept the same session IDs.
+launcher = re.search(r'^SESSION_ID_PATTERN = r"(.*)"$', (repo / ".agents/scrapling-mcp.py").read_text(), re.M)
+must_equal("session ID pattern", sources.SESSION_ID.pattern, launcher and launcher.group(1))
 
 adapter = repo / ".codex/hooks/adapter.sh"
 

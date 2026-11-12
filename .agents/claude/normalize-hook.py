@@ -129,6 +129,8 @@ def normalize(payload, policy, repo):
         out["agent"] = (agent if isinstance(agent, str) else "main").strip() or "main"
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input
+        # Keys a browser session to the host session that opened it.
+        out["session_id"] = payload.get("session_id", "")
     elif policy == "post-edit-check.sh":
         out["files"] = write_targets.named(tool_input)
         out["session_id"] = payload.get("session_id", "")
