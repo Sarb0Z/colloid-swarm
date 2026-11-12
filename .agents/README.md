@@ -523,8 +523,10 @@ python3 .agents/check-stack-packs.py
 `.agents/check-all.sh` lists every check, one command per line, and runs them
 all; `.agents/suite.sh` runs it and records the tree it passed on, which
 `hooks/lib/owed.py` compares with the session's edits. Run one surface by
-copying its line out of the script. `lint-suite.py` fails when `ci.yml` and the
-script run different checks.
+copying its line out of the script.
+<!-- colloid-only -->
+`lint-suite.py` fails when `ci.yml` and the script run different checks.
+<!-- /colloid-only -->
 
 `test-review-contract.sh` runs `review-harness/bin/extract-contract.sh --check`,
 which fails when `contract.md` differs from a fresh extraction of

@@ -89,11 +89,14 @@ that rests on a fact neither the lead nor the reviewer can check goes to the
 user, not to a decline; a fact the lead can check, it checks. A reviewer that
 errors, stops early, or returns no report has not run: dispatch it again or
 report the gap, and never count it as `FINDINGS: none`. External evidence alone belongs in knowledge. A round's one ledger is
-`docs/reviews/<date>-<slug>.md`, carrying one line `Covers: <base>..<tip>`:
-`owed.py` reads it to tell which content of a critical-path file a review
-covered, and a record's tip that git cannot resolve covers nothing. After
-folding a round's `P2` fixes the lead moves the record's tip to the new
-commit; a `P0` fix gets a new round and its own record. Create no second
+`docs/reviews/<date>-<slug>.md`, carrying one line `Covers: <base>..<tip>` per
+lane, both ends commit hashes of at least seven hexadecimal digits: `owed.py`
+reads it to tell which content of a critical-path file a review covered, and a
+record covers a file only when its range touched the file. A record end that
+is not a hash, such as `HEAD` or a branch name, or that git cannot resolve,
+covers nothing. After folding a round's `P1` and `P2` fixes the lead moves the
+record's tip to the new commit; a `P0` fix gets a new round and its own
+record. Create no second
 review ledger beside it. A recurrence claim must cite the current rounds or explicit Git,
 breadcrumb, or debt evidence; otherwise report `not-found` with the consulted
 sources or `unknown`, never “first occurrence.” The two rules on checkable
