@@ -384,11 +384,63 @@ cases = [
      ("fetch", "https://example.test/c")),
 ]
 for payload, expected in cases:
-    actual = sources.source_row(payload)
+    actual = sources.source_row(payload, lambda session: None)
     if actual != expected:
         raise SystemExit(f"source classifier: expected {expected}, got {actual}")
-if sources.source_row({"tool_name": "apply_patch", "tool_input": {}}) is not None:
+if sources.source_row({"tool_name": "apply_patch", "tool_input": {}}, lambda session: None) is not None:
     raise SystemExit("source classifier recorded an unsupported tool")
+
+# Scrapling calls that name a browser session write `<page> session=<id> [<address> ...]`.
+secret = "sk-live-0123456789abcdef0123456789abcdef"
+session_cases = [
+    # a session fetch leads with its own address, so a later call finds the page
+    ({"tool_name": "mcp__scrapling__browser_fetch", "tool_input": {"url": "https://example.test/p", "session_id": "s1"}},
+     lambda session: None, ("browse", "https://example.test/p session=s1")),
+    # an evaluate with a fetch literal: the page comes from the trail, the literal is an address, the rest is dropped
+    ({"tool_name": "mcp__scrapling__browser_evaluate", "tool_input": {
+        "session_id": "s1", "expression": 'async () => { const k = "' + secret + '"; return (await fetch("https://api.example.test/v1?q=1")).text(); }'}},
+     lambda session: "https://example.test/p" if session == "s1" else None,
+     ("browse", "https://example.test/p session=s1 https://api.example.test/v1?q=1")),
+    # an actions call: addresses in typed values are found, selectors and other values are not written
+    ({"tool_name": "mcp__scrapling__browser_actions", "tool_input": {
+        "session_id": "s2", "actions": [{"type": "textbox", "target": "#q", "value": "see https://example.test/go, then " + secret}]}},
+     lambda session: "https://example.test/p",
+     ("browse", "https://example.test/p session=s2 https://example.test/go")),
+    # a session with no recorded page carries the marker
+    ({"tool_name": "mcp__scrapling__browser_evaluate", "tool_input": {"session_id": "s3", "expression": "document.title"}},
+     lambda session: None, ("browse", "- session=s3")),
+    # a call with no session, as Playwright's own browser_evaluate, writes nothing
+    ({"tool_name": "mcp__playwright__browser_evaluate", "tool_input": {"function": "() => '" + secret + "'"}},
+     lambda session: None, None),
+]
+for payload, last_page, expected in session_cases:
+    actual = sources.source_row(payload, last_page)
+    if actual != expected:
+        raise SystemExit(f"session source classifier: expected {expected}, got {actual}")
+    if actual and secret in actual[1]:
+        raise SystemExit("session source classifier wrote a script body")
+
+with tempfile.TemporaryDirectory() as project:
+    Path(project, ".agents").mkdir()
+    for tool, tool_input in (
+        ("mcp__scrapling__browser_fetch", {"url": "https://example.test/p", "session_id": "s1"}),
+        ("mcp__scrapling__browser_evaluate", {"session_id": "s1", "expression": 'fetch("https://api.example.test/x"); "' + secret + '"'}),
+        ("mcp__scrapling__browser_actions", {"session_id": "s9", "actions": [{"type": "wait_time", "ms": 1}]}),
+    ):
+        done = subprocess.run(
+            [sys.executable, str(source_path)], text=True, capture_output=True,
+            input=json.dumps({"project_dir": project, "tool_name": tool, "tool_input": tool_input}),
+        )
+        if done.returncode:
+            raise SystemExit(f"sources ledger failed: {done.stderr}")
+    trail = Path(project, ".agents/.sources-ledger").read_text()
+    rows = [row.split("\t")[2:] for row in trail.splitlines()]
+    if rows != [
+        ["browse", "https://example.test/p session=s1"],
+        ["browse", "https://example.test/p session=s1 https://api.example.test/x"],
+        ["browse", "- session=s9"],
+    ] or secret in trail:
+        raise SystemExit(f"session ledger rows wrong: {rows}")
 
 adapter = repo / ".codex/hooks/adapter.sh"
 
