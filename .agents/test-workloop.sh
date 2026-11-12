@@ -1141,6 +1141,27 @@ expect PASS "${tool[@]}" check ow
 [[ -f "$mark" ]] || fail "check did not rerun after a recorded failure"
 rm "$mark"
 ok "a recorded failure is not current: check runs the composed test again"
+# a failing verify's output keeps the failure lines that scrolled above its last 40 lines
+ow_verify="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["ow"]["verify"])' "$state")"
+# stdin is the script a verify prints; its exit status is the next argument; the run's check output comes back
+ow_check_printing() {
+  printf '%s\n' "$1" > "$scratch/verify-out.sh"
+  python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); r=s["runs"]["ow"]; r["verify"]="bash "+sys.argv[2]; r["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state" "$scratch/verify-out.sh"
+  "${tool[@]}" check ow 2>&1 || true
+}
+label='failure lines above the tail:'
+out="$(ow_check_printing 'echo "FAIL: first"; echo "Traceback (most recent call last):"; echo "AssertionError: boom"; for i in $(seq 100); do echo "ok $i"; done; exit 1')"
+[[ "$out" == *"$label"* && "$out" == *"FAIL: first"* && "$out" == *"Traceback (most recent call last):"* && "$out" == *"AssertionError: boom"* && "$out" != *"ok 1"$'\n'* ]] || fail "a failure above the tail was lost: $out"
+out="$(ow_check_printing 'for i in $(seq 100); do echo "ok $i"; done; echo "FAIL: late"; for i in $(seq 5); do echo "ok tail $i"; done; exit 1')"
+[[ "$out" != *"$label"* && "$(grep -c 'FAIL: late' <<<"$out")" == 1 ]] || fail "a failure inside the tail was repeated or labelled: $out"
+out="$(ow_check_printing 'for i in $(seq 25); do echo "FAIL: row $i"; done; for i in $(seq 40); do echo "ok $i"; done; exit 1')"
+[[ "$out" == *"$label"* && "$(grep -c '^FAIL: row' <<<"$out")" == 20 && "$out" == *"FAIL: row 20"* && "$out" != *"FAIL: row 21"* && "$out" == *"… and 5 more failure lines"* ]] || fail "the cap on failure lines above the tail was wrong: $out"
+out="$(ow_check_printing 'echo "FAIL: passed anyway"; for i in $(seq 100); do echo "ok $i"; done; exit 0')"
+[[ "$out" != *"$label"* ]] || fail "a passing verify was labelled: $out"
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); r=s["runs"]["ow"]; r["verify"]=sys.argv[2]; r["verified"]["result"]="fail"; json.dump(s, open(p,"w"))' "$state" "$ow_verify"
+expect PASS "${tool[@]}" check ow
+rm -f "$mark"
+ok "a failing verify shows up to 20 failure lines from above its last 40, each once, and says how many more there were"
 # the run reads live state after its review: a lane-path commit or a dirty lane path makes it stale everywhere
 printf 'after\n' >> "$work/src/app.txt"; commit_paths "$work" after src/app.txt; after_sha="$(git -C "$work" rev-parse HEAD)"
 expect "completion is blocked by solo:moved-after-review"$'\n'"the checkout has commits touching the lane's paths after its accepted tip ${late_sha:0:12}; re-submit the lane for review" "${tool[@]}" check ow

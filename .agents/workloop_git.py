@@ -26,6 +26,9 @@ import guard_verdict  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 SHA = re.compile(r"[0-9a-f]{40}")
 TAIL_LINES = 40
+FAILURE_LINES = 20
+FAILURE_LABEL = "failure lines above the tail:"
+FAILURE_LINE = re.compile(r"^(FAIL|not ok|Traceback)|FAIL:|^\w+(Error|Exception)\b.*:")
 
 
 def verify_timeout() -> int:
@@ -724,7 +727,22 @@ def run_verify(command: str, cwd: Path, what: str, timeout: int, budget: int | N
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
         return False, f"{what} did not finish within {budget or timeout}s"
-    return process.returncode == 0, "\n".join((output or "").splitlines()[-TAIL_LINES:])
+    lines = (output or "").splitlines()
+    tail = lines[-TAIL_LINES:]
+    if process.returncode == 0:
+        return True, "\n".join(tail)
+    return False, "\n".join(failure_lines_above(lines[:-TAIL_LINES]) + tail)
+
+
+def failure_lines_above(lines: list[str]) -> list[str]:
+    """The label and the first FAILURE_LINES failure lines of `lines`, then a count of those left out; empty when none match."""
+    found = [line for line in lines if FAILURE_LINE.search(line)]
+    if not found:
+        return []
+    kept = [FAILURE_LABEL, *found[:FAILURE_LINES]]
+    if len(found) > FAILURE_LINES:
+        kept.append(f"… and {len(found) - FAILURE_LINES} more failure lines")
+    return kept
 
 
 def remove_worktree(repo: Path, path: Path) -> bool:
