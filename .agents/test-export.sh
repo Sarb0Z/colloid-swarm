@@ -255,4 +255,49 @@ cmp -s "$sat/.agents/playbooks/crlf.md" <(printf 'A\r\nb\r\nc\r\nd\r\nE\r\n') \
 [[ -L "$sat/.claude/skills/workloop" ]] || fail "merge-kit wrote through a linked directory"
 [[ -e "$sat/.agents/hooks/lib/__pycache__/config.pyc" ]] || fail "merge-kit treated bytecode as kit content"
 
+# --find-base reads the satellite's committed .agents/scaffold-base; without it
+# the ranking puts the oldest of equally good commits first.
+carrier="$work/find-carrier" ; satrepo="$work/find-satellite"
+gitc() { git -c user.name=t -c user.email=t@example.invalid "$@"; }
+mkdir -p "$carrier/.agents" "$satrepo/.agents"
+gitc -C "$carrier" init -q
+printf 'one\n' >"$carrier/.agents/held.md"
+gitc -C "$carrier" add .agents && gitc -C "$carrier" commit -qm older
+older="$(git -C "$carrier" rev-parse HEAD)"
+printf 'later\n' >"$carrier/.agents/added-later.md"
+gitc -C "$carrier" add .agents && gitc -C "$carrier" commit -qm newer
+newer="$(git -C "$carrier" rev-parse HEAD)"
+gitc -C "$satrepo" init -q
+printf 'one\n' >"$satrepo/.agents/held.md"
+gitc -C "$satrepo" add .agents && gitc -C "$satrepo" commit -qm sync
+mergekit="$kit/export/merge-kit.py"
+
+out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo")"
+first="$(grep -E '^ +[0-9]+ ' <<<"$out" | head -1)"
+grep -q " ${older:0:7} " <<<"$first" || fail "--find-base ranked a tie newest first: $out"
+
+# An uncommitted stamp is not the satellite's: the committed HEAD decides.
+printf '%s\n' "$newer" >"$satrepo/.agents/scaffold-base"
+out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo")"
+[[ "$out" != *"$newer"* ]] || fail "--find-base trusted an uncommitted stamp: $out"
+gitc -C "$satrepo" add .agents/scaffold-base && gitc -C "$satrepo" commit -qm stamp
+out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo")"
+[[ "$out" == *"$newer"* ]] || fail "--find-base ignored the committed scaffold-base: $out"
+grep -qi 'scaffold-base' <<<"$out" || fail "--find-base did not say the base came from the stamp: $out"
+[[ "$(wc -l <<<"$out" | tr -d ' ')" == 1 ]] || fail "--find-base ranked after naming the stamp: $out"
+
+printf '%s\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa >"$satrepo/.agents/scaffold-base"
+gitc -C "$satrepo" commit -qam badstamp
+out="$(cd "$carrier" && python3 "$mergekit" --find-base "$satrepo")"
+grep -q 'not in the carrier' <<<"$out" || fail "--find-base did not report a stamp the carrier lacks: $out"
+grep -qE '^ +[0-9]+ ' <<<"$out" || fail "--find-base did not fall back to the ranking: $out"
+
+# The stamp is the satellite's own file: a merge neither reports nor changes it.
+sat2="$work/satellite-stamped"
+cp -R "$sat" "$sat2"
+printf '%s\n' "$newer" >"$sat2/.agents/scaffold-base"
+out="$(python3 "$mergekit" "$sat2" "$base" "$kit" --apply 2>&1 || true)"
+grep -q 'scaffold-base' <<<"$out" && fail "merge-kit reported the satellite's scaffold-base: $out"
+[[ "$(cat "$sat2/.agents/scaffold-base")" == "$newer" ]] || fail "merge-kit changed the satellite's scaffold-base"
+
 echo "Export checks passed."

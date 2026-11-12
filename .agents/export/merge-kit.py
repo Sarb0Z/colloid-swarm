@@ -10,9 +10,12 @@ erases those edits. The base kit is the export of the carrier commit the
 satellite was last synced from; the difference between it and the new kit is
 the carrier's change, and only that change is applied.
 
---find-base ranks carrier commits by how many scaffold files the satellite
-holds byte-identical, and prints the best three. Build the base kit by running
-that commit's own exporter from a detached worktree.
+--find-base prints the commit in the satellite's committed .agents/scaffold-base
+(the kit's export/base, kept at the last sync). Without that file, or when it
+names a commit the carrier lacks, it ranks carrier commits by how many scaffold
+files the satellite holds byte-identical, oldest first among equal counts, and
+prints the best three. Build the base kit by running that commit's own exporter
+from a detached worktree.
 
 Without --apply the merge only reports. A file the satellite deleted stays
 deleted: a pruned skill or stack pack is an adaptation, not drift, and so does
@@ -33,6 +36,10 @@ import sys
 SCAFFOLD_ROOTS = (".agents", ".claude", ".codex", ".kimi", ".github/instructions",
                   ".github/lsp.json", ".github/copilot-instructions.md", ".worktreeinclude")
 HAND_MERGED = {"AGENTS.md", "CLAUDE.md"}
+# The carrier commit the satellite was last synced from. It lives in neither
+# kit (the kit's copy is export/base, which files() skips), so the merge never
+# visits it and the satellite's copy stays as it is.
+STAMP = ".agents/scaffold-base"
 
 
 def git(*args, cwd):
@@ -45,8 +52,27 @@ def blobs(repo, rev):
     return {line.split("\t", 1)[1]: line.split()[2] for line in out.splitlines()}
 
 
+def stamped_base(satellite, carrier):
+    """Print the commit in the satellite's committed .agents/scaffold-base and
+    return True; return False, after saying why, when the ranking must decide."""
+    shown = subprocess.run(["git", "show", f"HEAD:{STAMP}"], cwd=satellite,
+                           capture_output=True, text=True)
+    if shown.returncode:
+        return False                                      # no committed stamp: a pre-stamp sync
+    commit = shown.stdout.strip()
+    known = subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=carrier,
+                           capture_output=True)
+    if not commit or known.returncode:
+        print(f"{STAMP} names {commit!r}, which is not in the carrier; ranking instead.")
+        return False
+    print(f"{commit}  (from {STAMP} in {satellite})")
+    return True
+
+
 def find_base(satellite):
     carrier = git("rev-parse", "--show-toplevel", cwd=os.getcwd()).strip()
+    if stamped_base(satellite, carrier):
+        return
     held = blobs(satellite, "HEAD")
     revisions = git("log", "--format=%h %ad %s", "--date=short", "--", *SCAFFOLD_ROOTS,
                     cwd=carrier).splitlines()
@@ -54,6 +80,9 @@ def find_base(satellite):
     for line in revisions:
         tree = blobs(carrier, line.split()[0])
         ranked.append((sum(1 for p, b in held.items() if tree.get(p) == b), line))
+    # git log lists newest first; a stable sort on the count alone keeps that
+    # order among ties, so reverse first and the oldest tied commit leads.
+    ranked.reverse()
     ranked.sort(key=lambda item: item[0], reverse=True)
     print(f"{len(held)} scaffold files in {satellite}; identical-file count per carrier commit:")
     for same, line in ranked[:3]:
