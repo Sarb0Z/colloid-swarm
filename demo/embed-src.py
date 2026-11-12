@@ -37,7 +37,7 @@ MANIFEST = {
     "session-wrap":      ".agents/hooks/policy/session-wrap.sh",
     "pre-compact":       ".agents/hooks/policy/pre-compact.sh",
     "done-prime":        ".agents/hooks/policy/done-prime.sh",
-    "guard-publish":     ".agents/hooks/policy/guard-publish.sh",
+    "guard-publish":     ".agents/hooks/lib/guard-publish.py",
     "denied-tool":       ".agents/hooks/policy/denied-tool.sh",
     "keychain-notice":   ".agents/hooks/policy/keychain-notice.sh",
     "edit-record":       ".agents/hooks/policy/edit-record.sh",
@@ -123,7 +123,7 @@ CARD_H3 = re.compile(r'<h3>(.*?)</h3>')
 OLD_GEN = re.compile(r'\s*<details class="src" data-gen="1">.*?</details>', re.S)
 
 
-def panel(name, rel):
+def panel(rel):
     path = os.path.join(REPO, rel)
     with open(path, encoding="utf-8") as f:
         text = f.read()
@@ -149,7 +149,7 @@ def repl(m):
     if not rel:
         return open_tag + inner + close
     inner = inner.rstrip()
-    return f"{open_tag}{inner}\n              {panel(name, rel)}\n            {close}"
+    return f"{open_tag}{inner}\n              {panel(rel)}\n            {close}"
 
 
 def main():

@@ -65,14 +65,16 @@ cannot stop the run.
     review and QA evidence, `check` runs the run's composed test and passes; a
     later commit and resubmit moves the lane's tip, and `check --recorded`
     reports the review and the QA record as stale. Every call carries `--state`
-    and `--repo` for the scratch folder, so no run lands in this checkout.
+    for the scratch folder and `init` carries `--repo`, so no run lands in this
+    checkout.
 
 ## The "it's real" moment
 
-The live session's own guard is wired to the same scripts. Writing `rm -rf ~`
-straight into a shell here gets **blocked before it runs** — the demo assembles
-its probe payloads at runtime specifically so presenting it doesn't trip the
-very membrane it's demonstrating. The scaffold governs the session showing it.
+The live session's own guard is wired to the same scripts. Typing `rm -Rf ~`
+as a command here gets **blocked before it runs** (exit 2). The guard matches a
+command's tokens, not its text, so `bash demo/demo.sh` passes: the demo hands
+each probe pattern to the guard as quoted data and never runs it. The scaffold
+governs the session showing it.
 
 ## Requirements
 
