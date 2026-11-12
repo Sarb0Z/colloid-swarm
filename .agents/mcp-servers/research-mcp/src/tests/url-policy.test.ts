@@ -76,6 +76,19 @@ describe('authorizeUrl', () => {
       expect(decision.allowed).toBe(false);
       if (!decision.allowed) expect(decision.reason).toContain('resolves to non-public address');
     });
+
+    it.each([
+      ['0.0.0.0', 'http://0.0.0.0/x'],
+      ['::', 'http://[::]/x'],
+    ])('keeps the non-public reason for the literal %s, which no DNS lookup answered', async (address, url) => {
+      const decision = await authorizeUrl(url, async () => {
+        throw new Error('resolver must not be called for a literal');
+      });
+      expect(decision.allowed).toBe(false);
+      if (!decision.allowed) {
+        expect(decision.reason).toBe(`${address} resolves to non-public address ${address}`);
+      }
+    });
   });
 
   it('rejects a literal private address without consulting DNS', async () => {
