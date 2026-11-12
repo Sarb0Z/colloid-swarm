@@ -66,6 +66,12 @@ jobs:
       - name: Test isolation
         run: python3 .agents/check-test-isolation.py
 
+      - name: Suite and CI list agree
+        run: python3 .agents/lint-suite.py
+
+      - name: Owed-work flags
+        run: .agents/test-owed.sh
+
       - name: SessionStart policy
         run: .agents/test-session-start.sh
 
@@ -77,6 +83,9 @@ jobs:
 
       - name: Teardown gate policy
         run: .agents/test-teardown-gate.sh
+
+      - name: Session-end policy
+        run: .agents/test-session-end.sh
 
       - name: Workloop controller
         run: .agents/test-workloop.sh
@@ -124,6 +133,18 @@ jobs:
 
       - name: Untrusted-content note policy
         run: .agents/test-untrusted-content.sh
+
+      - name: Wait gate
+        run: python3 .agents/test-wait-gate.py
+
+      - name: Keychain notice
+        run: .agents/test-keychain-notice.sh
+
+      - name: Session-wrap policy
+        run: .agents/test-session-wrap.sh
+
+      - name: Hosted-script detection
+        run: python3 .agents/test-hosted-scripts.py
 
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
@@ -178,8 +199,14 @@ jobs:
       - name: Root contract size
         run: python3 .agents/lint-contract.py
 
+      - name: Cell-time eval
+        run: python3 .agents/eval/test-cell-time.py
+
       - name: Export kit
         run: .agents/test-export.sh
+
+      - name: Stack packs
+        run: .agents/test-stack-packs.sh
 
       - name: Public port
         run: |
