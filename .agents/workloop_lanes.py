@@ -291,7 +291,7 @@ def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str,
         repo = lane["workspace"]
         found = wm.review_range(run, lane) if role == "reviewer" else None
         return [
-            f"Workspace: the checkout {repo}, on its current branch — no worktree; this lane's work is the commits since its first claim that touch its paths.",
+            f"Workspace: the checkout {repo}, on its current branch — no worktree" + ("." if role == "qa" else "; this lane's work is the commits since its first claim that touch its paths."),
             *([f"Diff: {found[0][:12]}..{found[1][:12]} in the checkout; this lane's commits: {', '.join(sha[:12] for sha in found[2])} — build its diff with: git diff {found[0]}..{found[1]} -- {' '.join(lane['paths'] + shared_of(run))}"] if found else []),
             *([f"Mixed commits — {'; '.join(found[3])}: paths outside the lane's in its own commits; judge whether they are this lane's work or another writer's"] if found and found[3] else []),
             f"Provision: .agents/provision.sh {repo} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
@@ -326,14 +326,16 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         f"Objective: {run['objective']}",
         f"Acceptance: {run['acceptance']}",
         *([f"Model: {lane['model']}"] if lane.get("model") else []),
-        f"Owned paths: {', '.join(lane['paths'])}",
+        # QA reproduces the acceptance written before the code, not what the diff suggests:
+        # its brief names the run's test suite and no owned or changed paths.
+        *(([f"Test suite: {run['verify']}"] if run.get("verify") else []) if role == "qa" else [f"Owned paths: {', '.join(lane['paths'])}"]),
         *shared_lines(run, f".agents/provision.sh {lane['workspace']}"),
         *place_lines(run, run_name, lane_name, lane, role, command),
         f"Environment: export COLLOID_RUN={run_name} COLLOID_LANE={lane_name} COMPOSE_PROJECT_NAME={wd.project_name(run_name, lane_name)}. Label what only this lane uses with --label colloid.run={run_name} --label colloid.lane={lane_name} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={run_name} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
         *([WORKING_PRACTICE.read_text().strip()] if role in {"worker", "qa"} else []),
         f"Progress: {command} heartbeat {run_name} {lane_name} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
-        "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
+        "Preserve unrelated work. Record executable evidence before handoff." if role == "qa" else "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
         # A reviewer closes with its contract's AMBIGUITY and HANDOFF lines.
         *([wc.OPEN_GATES] if role != "reviewer" else []),
         "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",

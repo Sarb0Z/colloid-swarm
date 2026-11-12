@@ -112,9 +112,10 @@ the cell submits.
   --lane csv --worker implementer --path apps/web/src/pages/reports
 # dispatch the printed prompt; the cell claims, commits on the current branch, submits
 .agents/workloop.py brief export csv --role reviewer   # dispatch; it accepts with --tip
+.agents/workloop.py brief export csv --role qa         # dispatch beside the reviewer
+.agents/workloop.py qa export --evidence '<observed result>'      # binds the submitted tip
 .agents/workloop.py check export      # runs --verify once, at the accepted commit
-.agents/workloop.py qa export --evidence '<observed result>'
-.agents/workloop.py check export && .agents/workloop.py teardown export
+.agents/workloop.py teardown export
 ```
 
 The lane works in the main checkout on its current branch: no worktree, branch
@@ -409,8 +410,9 @@ recorded lane tips still match; a lane commit after integration reports
 `integration:stale` until `integrate` reruns.
 
 ```sh
-.agents/workloop.py integrate slice-3b
+# the reviewer and the QA cell go out together once every lane is submitted
 .agents/workloop.py qa slice-3b --evidence 'Playwright and service tests passed'
+.agents/workloop.py integrate slice-3b
 .agents/workloop.py check slice-3b
 .agents/workloop.py teardown slice-3b
 ```
@@ -439,7 +441,16 @@ left of its work.
 
 ## Complete the cycle
 
-Only the independent QA result advances the run. `check` is the completion
+Only the independent QA result advances the run. QA and review run side by
+side: `qa` is recorded once every lane is submitted (in `review` or
+`reviewed`, none active or carrying attention), so dispatch the QA cell when
+the reviewer goes out. The record stores each lane's submitted tip: QA covers
+those tips, and the composed tree is the integration's own `--verify` run.
+`check` fails with `qa:stale` when a lane's tip has moved since, a lane has
+been added since, or the record holds no tips, so QA reruns after a lane is
+reopened and resubmitted. A QA brief carries the run's acceptance lines and its
+test suite (`--verify`, left out when the run has none) and no diff or path
+list: QA reproduces the acceptance written before the code. `check` is the completion
 gate: it fails when any lane is unresolved, lacks evidence, or has
 unacknowledged attention, when the run lacks QA evidence, or when its composed
 test has no current pass: an integration for worktree lanes, a verification at

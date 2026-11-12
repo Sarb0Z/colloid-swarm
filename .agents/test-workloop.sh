@@ -313,6 +313,8 @@ expect 'integration:stale:alpha' "${tool[@]}" check multi
 expect 'moved after its accepted review' "${tool[@]}" integrate multi --workspace "$integ"
 "${tool[@]}" submit multi alpha --evidence 'more'; accept multi alpha docs/alpha/review.md#ok2
 expect PASS "${tool[@]}" integrate multi --workspace "$integ"
+expect 'qa:stale' "${tool[@]}" check multi
+"${tool[@]}" qa multi --evidence 'scenarios passed again'
 expect PASS "${tool[@]}" check multi
 ok "a lane commit after integration is stale until integrate reruns"
 
@@ -1171,6 +1173,7 @@ expect 'teardown waits for completion; blocked by solo:moved-after-review' "${to
 # a re-submission is a review round like any other: this is the lane's fourth, so the accept carries a ruling
 "${tool[@]}" submit ow solo --evidence 'verify passed' >/dev/null 2>&1; accept ow solo docs/ow/review.md#ok --ruling 'moved after review; review it again'
 expect 'verified:stale' "${tool[@]}" check ow --recorded
+"${tool[@]}" qa ow --evidence 'scenario passed on the new tip'
 expect PASS "${tool[@]}" check ow
 [[ -f "$mark" ]] || fail "check did not retest the newly accepted commit"
 rm "$mark"
@@ -1857,6 +1860,70 @@ p = sys.argv[1]; s = json.load(open(p)); s["runs"]["legacy"] = dict(s["runs"]["d
 EOF
 expect 'predates pinned bases' "${tool[@]}" status legacy
 ok "a run without a pinned base is refused"
+
+# ── unit 2.1: QA beside review, bound to the tips it ran on ─────────────────
+# Seams. cmd_qa's gate: catches QA recorded before every lane is submitted;
+# misses whether QA ran on the right tree. The tip binding: catches evidence
+# taken on a lane that moved; misses an integration rebuilt to identical tips,
+# which is not stale. check's qa:stale: catches stale evidence at completion;
+# misses the evidence's content. The QA brief: catches a diff or changed-path
+# list reaching QA; misses wording QA reads elsewhere.
+"${tool[@]}" init qs --objective 'qa beside review' --acceptance '1. the page lists rows' --repo "$work" --verify 'true' >/dev/null
+qsl="$scratch/lane-qs"
+"${tool[@]}" add-lane qs one --worker implementer --workspace "$qsl" --path src --path docs/qs >/dev/null
+"${tool[@]}" claim qs one --agent qs1
+expect 'QA is blocked by lanes: one' "${tool[@]}" qa qs --evidence early
+printf 'qs\n' >> "$qsl/src/app.txt"; mkdir -p "$qsl/docs/qs"; printf 'r\n' > "$qsl/docs/qs/review.md"; commit "$qsl" qs-one
+"${tool[@]}" submit qs one --evidence 'one ok' >/dev/null
+qs_tip="$(tip_of qs one)"
+"${tool[@]}" qa qs --evidence 'scenario passed' || fail 'QA was refused for a lane in review'
+python3 -c 'import json,sys; q=json.load(open(sys.argv[1]))["runs"]["qs"]["qa"]; assert q["tips"] == {"one": sys.argv[2]}, q' "$state" "$qs_tip" || fail 'the QA record does not hold the lane tip it ran on'
+if "${tool[@]}" check qs --recorded 2>&1 | grep -q 'qa:stale'; then fail 'check called QA stale with no lane moved'; fi
+ok "QA is recorded once every lane is submitted and stores each lane's tip; an unmoved lane is not stale"
+"${tool[@]}" review qs one --reference docs/qs/review.md#p1 --result reopen --severity P1 --message 'more' >/dev/null
+"${tool[@]}" ack qs one --agent qs1 >/dev/null
+printf 'more\n' >> "$qsl/src/app.txt"; commit "$qsl" qs-two
+"${tool[@]}" submit qs one --evidence 'one again' >/dev/null
+expect 'qa:stale' "${tool[@]}" check qs --recorded
+ok "a lane reopened and resubmitted after QA makes check fail with qa:stale"
+# a lane added after QA is a lane the evidence never covered
+"${tool[@]}" init qa3 --objective x --acceptance y --repo "$work" --verify true >/dev/null
+"${tool[@]}" add-lane qa3 one --worker implementer --workspace "$scratch/lane-qa3a" --path src >/dev/null
+"${tool[@]}" claim qa3 one --agent q3 >/dev/null
+printf 'q3\n' >> "$scratch/lane-qa3a/src/app.txt"; commit "$scratch/lane-qa3a" q3-one
+"${tool[@]}" submit qa3 one --evidence ok >/dev/null
+"${tool[@]}" qa qa3 --evidence 'one lane covered' >/dev/null
+"${tool[@]}" add-lane qa3 two --worker implementer --workspace "$scratch/lane-qa3b" --path tests >/dev/null
+expect 'qa:stale' "${tool[@]}" check qa3 --recorded
+ok "a lane added after QA makes check fail with qa:stale"
+# a record without tips binds nothing, so it is stale
+python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); del s["runs"]["qa3"]["qa"]["tips"]; json.dump(s, open(p,"w"))' "$state"
+expect 'qa:stale' "${tool[@]}" check qa3 --recorded
+ok "a QA record with no tips is stale"
+# QA covers each lane's submitted tip; the composed tree is the integration's own verify run
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["multi"]; assert sorted(r["qa"]["tips"]) == ["alpha", "beta"] and "integration" not in r["qa"], r["qa"]' "$state" || fail "a several-lane QA record holds the tips and no integration field"
+ok "a several-lane QA record holds both lane tips and no integration commit"
+"${tool[@]}" init qe --objective x --acceptance y --repo "$work" --verify true >/dev/null
+expect 'QA needs at least one submitted lane' "${tool[@]}" qa qe --evidence x
+
+# QA brief: the acceptance and the run's test suite, no diff, no path list
+qs_brief="$(full_brief qs one --role qa)"
+grep -q '^Acceptance: 1. the page lists rows$' <<<"$qs_brief" && grep -q '^Test suite: true$' <<<"$qs_brief" || fail "the QA lane brief lacks the acceptance or the test suite"
+! grep -Eq '^(Diff|Owned paths):|git diff|Run commands' <<<"$qs_brief" || fail "the QA lane brief carries a diff, a path list or a run-commands label"
+"${tool[@]}" add-cell qs critic --role qa --model sonnet >/dev/null
+qs_cell="$(cat "$work/.agents/worktrees/qs/.workloop/cells/critic.md")"
+grep -q '^Acceptance: 1. the page lists rows$' <<<"$qs_cell" && grep -q '^Test suite: true$' <<<"$qs_cell" || fail "the QA cell brief lacks the acceptance or the test suite"
+! grep -Eq '^(Diff|Owned paths):|git diff|Run commands' <<<"$qs_cell" || fail "the QA cell brief carries a diff, a path list or a run-commands label"
+"${tool[@]}" init qf --objective x --acceptance y --repo "$work" >/dev/null
+"${tool[@]}" add-cell qf critic --role qa --model sonnet >/dev/null
+! grep -Eq 'Test suite|None' "$work/.agents/worktrees/qf/.workloop/cells/critic.md" || fail "a QA cell brief of a run with no --verify names a test suite"
+# a main lane's QA brief says nothing of owned paths or of the lane's commits; its worker brief still does
+"${tool[@]}" init qm --objective x --acceptance y --repo "$work" --verify true --lane solo --worker implementer --path docs/qm >/dev/null
+qm_qa="$(full_brief qm solo --role qa)"
+! grep -Eq 'Do not edit outside owned|commits since its first claim' <<<"$qm_qa" || fail "a main lane's QA brief points at owned paths or the lane's commits"
+qm_worker="$(full_brief qm solo --role worker)"
+grep -q 'Do not edit outside owned' <<<"$qm_worker" && grep -q 'commits since its first claim' <<<"$qm_worker" || fail "the worker brief lost its owned-path lines"
+ok "a QA brief holds the acceptance and the test suite, none when the run has none, and no diff or path list"
 
 rm "$state.lock"
 if "${tool[@]}" status supervised 2>/dev/null; then fail 'read-only status recreated a missing lock'; fi
