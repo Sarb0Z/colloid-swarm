@@ -429,7 +429,7 @@ try:
         "research-mcp", "linear", "greptile")}
     expected["atlassian"] = {"claude", "kimi"}
     expected["exa"] = {"claude", "kimi", "opencode"}
-    expected["scrapling"] = {"claude", "opencode"}
+    expected["scrapling"] = {"claude"}
     reach = {
         name: {host for host in mcp_hosts.HOSTS if mcp_hosts.renders(server, host)
                and not (server["type"] == "sse" and host in {"codex", "opencode"})}

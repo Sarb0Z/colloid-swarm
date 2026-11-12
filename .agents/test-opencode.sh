@@ -156,6 +156,22 @@ check("the harness's destructive MCP rules reach the config as denies",
       {"action": "linear_delete*", "resource": "*", "effect": "deny"} in carried)
 check("the style renders", bool(mcp_opencode.style(source)))
 
+# colloid-only
+# Scrapling is Claude only: its launcher and ledger hooks run nowhere else.
+# Enabled in a scratch registry, never the real one, OpenCode renders no server
+# for it and still carries the deny rules for its raw-HTTP and state-file tools.
+# Catches a Scrapling entry that reaches OpenCode; misses the other hosts,
+# which test-mcp.sh pins.
+registry = json.loads((source / ".agents/mcp.json").read_text())["mcpServers"]
+scratch = {"scrapling": {**registry["scrapling"], "enabled": True}}
+rendered = mcp_opencode.payload(source, scratch)["config"]
+check("Scrapling enabled renders no OpenCode server", "scrapling" not in rendered["mcp"]["servers"],
+      rendered["mcp"]["servers"])
+check("Scrapling's deny rules still reach OpenCode",
+      {"action": "scrapling_make_request", "resource": "*", "effect": "deny"} in rendered["permissions"],
+      [rule for rule in rendered["permissions"] if "scrapling" in rule["action"]])
+# /colloid-only
+
 generated = source / mcp_opencode.CONFIG
 if generated.exists():
     current = json.loads(generated.read_text())

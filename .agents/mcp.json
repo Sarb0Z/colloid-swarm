@@ -47,7 +47,7 @@
       "description": "Stealth browser for bot-walled pages, including Cloudflare's interactive checkbox. Claude only. Install its browser once: uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from 'scrapling[ai]==0.5.1' scrapling install",
       "sources": ["browser_fetch_once", "browser_fetch"],
       "enabled": false,
-      "hosts": ["claude", "opencode"],
+      "hosts": ["claude"],
       "type": "stdio",
       "command": "uvx",
       "args": [
