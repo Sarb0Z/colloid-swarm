@@ -20,11 +20,20 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PAGE = REPO / "demo/scaffold-showcase.html"
 GEN = REPO / "demo/embed-src.py"
-WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
-         8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
-         14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
-         19: "nineteen", 20: "twenty", 21: "twenty-one", 22: "twenty-two",
-         23: "twenty-three", 24: "twenty-four", 25: "twenty-five"}
+ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+        "eighteen", "nineteen"]
+TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+
+def word(n):
+    """The lede's spelling of 1 to 99: `twenty-seven`."""
+    if n < 20:
+        return ONES[n]
+    return TENS[n // 10] + (f"-{ONES[n % 10]}" if n % 10 else "")
+
+
+WORDS = {n: word(n) for n in range(1, 100)}
 
 page = PAGE.read_text()
 gen = GEN.read_text()
@@ -39,8 +48,15 @@ def compare(label, on_page, on_disk):
     return on_disk
 
 
+def found(pattern, what, group=0):
+    match = re.search(pattern, page, re.S)
+    if match is None:
+        raise SystemExit(f"check-inventory: {PAGE.name} has no {what}")
+    return match.group(group)
+
+
 def band(name, nxt):
-    return re.search(rf'id="{name}".*?(?=id="{nxt}"|\Z)', page, re.S).group(0)
+    return found(rf'id="{name}".*?(?=id="{nxt}"|\Z)', f'"{name}" band')
 
 
 hooks = compare(
@@ -75,7 +91,7 @@ for claimed, actual, noun in [
     elif int(claimed.group(1)) != actual:
         problems.append(f"counts: the page claims {claimed.group(1)} {noun}; the repository has {actual}")
 
-lede = re.search(r'lede">(.*?)</p>', page, re.S).group(1)
+lede = found(r'lede">(.*?)</p>', "lede paragraph", 1)
 for actual, noun in [(len(hooks), "enforcement hooks"), (len(skills), "skills")]:
     if actual not in WORDS:
         problems.append(f"lede: {actual} {noun} is past this check's number words — say it another way")

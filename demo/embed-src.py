@@ -52,6 +52,8 @@ MANIFEST = {
     "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
     "style-inject":      ".agents/hooks/policy/style-inject.sh",
     "session-end":       ".agents/hooks/policy/session-end.sh",
+    "proxy-file-guard":  ".agents/hooks/policy/proxy-file-guard.sh",
+    "untrusted-content": ".agents/hooks/policy/untrusted-content.sh",
     # skills (SKILL.md only)
     "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",
     "search-and-cite":                    ".agents/skills/search-and-cite/SKILL.md",
