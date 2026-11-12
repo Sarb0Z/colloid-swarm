@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
 """Stamp a background agent's last sign of life into the workloop state.
 
-Usage: agent_activity.py <state-path> <seen-dir> <session> <event> <agent-id> <transcript-path>
+Usage: agent_activity.py <state-path> <agents-dir> <session> <event> <agent-id> <transcript-path>
+The normalized hook payload arrives on stdin; a batch's last tool call is its
+`tool_name` and `tool_input`.
 
 The inbox hook runs this between a subagent's tool calls. The agent reports
-nothing: the stamp is the time and a few words of its last tool call, read from
-its own transcript, so an agent that is stuck or silent still shows an age.
+nothing: the stamp is the time and a few words of its last tool call, taken from
+the hook payload, so an agent that is stuck or silent still shows an age.
 
 A lane is bound by its claim. A cell is bound by the brief header in the first
 record of its transcript, `<dirname(transcript-path)>/<session>/subagents/agent-<agent-id>.jsonl`:
 `WORKLOOP CELL BRIEF — <run>/<name>` on its first line, or on its second after
-`READ-ONLY`. The stamp lands on `activity_at` and `activity` of the lane or
-cell, at most once a minute per agent (<seen-dir>/.activity-<session>-<agent>),
-under the state file's lock and in the layout `workloop_state.Store` writes. It then
-refreshes the repository-wide `workloop` readout (`readout.py`): agents out and the
-oldest silence, empty when none is out; the lead's prompt refreshes it too.
+`READ-ONLY`; the transcript is read for nothing else, and only when no lane is
+claimed by the agent. The stamp lands on `activity_at` and `activity` of the lane
+or cell, at most once a minute per agent (<agents-dir>/.readout/.activity-<session>-<agent>,
+the gitignored folder the readout's own files live in; a batch that bound to
+nothing writes it too, so an unbound agent costs one lookup a minute), under the
+state file's lock and in the layout `workloop_state.Store` writes. It then
+refreshes the repository-wide `workloop` readout (`readout.py`): agents out and
+the oldest silence, empty when none is out; the lead's prompt refreshes it too.
+
+The state lock is taken without blocking and retried for about a second; a hook
+that must not block reports on stderr and exits 0 when it cannot get it.
 """
 
 from __future__ import annotations
 
-import calendar
 import fcntl
 import json
 import os
@@ -28,16 +35,39 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
+
+from agent_silence import silence, stamped
 
 INTERVAL_SECONDS = 60
 ACTION_MAX = 70
 READOUT_STALE_SECONDS = 600
-TAIL_BYTES = 65536
+LOCK_TRIES = 20
+LOCK_WAIT = 0.05
 CELL_HEADER = re.compile(r"WORKLOOP CELL BRIEF — (\S+)/(\S+)")
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # The input field that says most about a tool call, in order of preference.
 DETAIL_KEYS = ("description", "file_path", "command", "pattern", "path", "url", "query", "prompt")
+
+
+class LockBusy(RuntimeError):
+    """Another process holds the state lock past the retry window."""
+
+
+@contextmanager
+def state_lock(state: Path, mode: int):
+    """The state file's lock, taken without blocking and retried briefly."""
+    with open(f"{state}.lock", "a+") as lock:
+        for _ in range(LOCK_TRIES):
+            try:
+                fcntl.flock(lock, mode | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(LOCK_WAIT)
+        else:
+            raise LockBusy(f"{state}.lock is held by another process")
+        yield
 
 
 def clean(value: str) -> str:
@@ -68,35 +98,18 @@ def cell_binding(path: Path) -> tuple[str, str] | None:
     return None
 
 
-def summary(call: dict) -> str:
+def summary(tool_name: str, tool_input: dict) -> str:
+    """The tool and the one input field that says most about the call; '' when the payload names no tool."""
+    if not tool_name:
+        return ""
     detail = ""
-    tool_input = call.get("input") if isinstance(call.get("input"), dict) else {}
     for key in DETAIL_KEYS:
         value = tool_input.get(key)
         if isinstance(value, str) and value.strip():
             detail = os.path.basename(value) if key == "file_path" else value
             break
-    text = CONTROL.sub(" ", f"{call.get('name', 'tool')} {detail}").strip()
+    text = CONTROL.sub(" ", f"{tool_name} {detail}").strip()
     return text if len(text) <= ACTION_MAX else text[:ACTION_MAX - 1] + "…"
-
-
-def last_action(path: Path) -> str:
-    """The agent's most recent tool call, from the tail of its transcript; '' before its first."""
-    with path.open("rb") as source:
-        source.seek(0, os.SEEK_END)
-        source.seek(max(0, source.tell() - TAIL_BYTES))
-        tail = source.read().decode("utf-8", errors="replace")
-    for raw in reversed(tail.splitlines()):
-        try:
-            record = json.loads(raw)
-        except ValueError:
-            continue  # a partial line at the tail's start or the transcript's write edge
-        content = record.get("message", {}).get("content") if isinstance(record, dict) else None
-        if record.get("type") == "assistant" and isinstance(content, list):
-            for part in reversed(content):
-                if isinstance(part, dict) and part.get("type") == "tool_use":
-                    return summary(part)
-    return ""
 
 
 def due(ledger: Path, now: float) -> bool:
@@ -106,10 +119,18 @@ def due(ledger: Path, now: float) -> bool:
         return True
 
 
+def holds_lane(state: Path, agent_id: str) -> bool:
+    """Whether a live run's active lane is claimed by the agent."""
+    with state_lock(state, fcntl.LOCK_SH):
+        data = json.loads(state.read_text())
+    return any(lane.get("claimed_by") == agent_id and lane.get("state") == "active"
+               for run in data.get("runs", {}).values() if not run.get("torn_down")
+               for lane in run.get("lanes", {}).values())
+
+
 def stamp_state(state: Path, agent_id: str, cell: tuple[str, str] | None, action: str) -> bool:
     """Write the stamp on the agent's lane or cell; False when the state names neither."""
-    with open(f"{state}.lock", "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with state_lock(state, fcntl.LOCK_EX):
         data = json.loads(state.read_text())
         target = None
         for run in data.get("runs", {}).values():
@@ -141,13 +162,10 @@ def stamp_state(state: Path, agent_id: str, cell: tuple[str, str] | None, action
     return True
 
 
-def stamp_seconds(value: str) -> float:
-    return float(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")))
-
-
-def agents_out(data: dict, at: float) -> list[tuple[str, str, int, str]]:
+def agents_out(data: dict, at: float) -> list[tuple[str, str, int | None, str]]:
     """Each active lane and cell out in a live run: name, role, seconds silent, last action.
-    Silence is measured as `workloop_state.silence` does: from the newest of the stamp, a heartbeat and going out."""
+    Silence is `agent_silence.silence`; it is None for an agent with no stamp and no heartbeat,
+    which has shown nothing since it went out."""
     found = []
     for run_name, run in data.get("runs", {}).items():
         if run.get("torn_down"):
@@ -158,44 +176,71 @@ def agents_out(data: dict, at: float) -> list[tuple[str, str, int, str]]:
         for name, cell in (run.get("cells") or {}).items():
             if cell.get("state") == "out":
                 found.append((f"{run_name}/{name}", cell.get("role", "cell"), cell, "out_since"))
-    return [(label, role, int(at - max(stamp_seconds(agent[key]) for key in ("activity_at", "heartbeat_at", since) if agent.get(key))),
-             agent.get("activity") or "-") for label, role, agent, since in found if agent.get(since)]
+    return [(label, role, int(seconds) if stamped(agent) else None, agent.get("activity") or "-")
+            for label, role, agent, since in found
+            if (seconds := silence(agent, since, at)) is not None]
 
 
 def write_readout(state: Path, repo: Path, at: float) -> None:
     """The repository-wide `workloop` readout: agents out and the oldest silence; empty when none is out."""
     out = agents_out(json.loads(state.read_text()), at)
-    strip = f"{len(out)} agent{'s' if len(out) != 1 else ''} out, oldest silent {max(quiet for _, _, quiet, _ in out) // 60}m" if out else ""
-    note = "\n".join(f"{label} ({role}) silent {quiet // 60}m: {action}" for label, role, quiet, action in sorted(out, key=lambda item: -item[2])) if out else ""
+    heard = sorted((agent for agent in out if agent[2] is not None), key=lambda agent: -agent[2])
+    unstamped = [agent for agent in out if agent[2] is None]
+    # The oldest silence is judged over agents that stamped; an unstamped one is counted apart.
+    parts = [f"{len(out)} agent{'s' if len(out) != 1 else ''} out"]
+    if heard:
+        parts.append(f"oldest silent {heard[0][2] // 60}m")
+    if unstamped:
+        parts.append(f"{len(unstamped)} unstamped")
+    strip = ", ".join(parts) if out else ""
+    note = "\n".join([f"{label} ({role}) silent {quiet // 60}m: {action}" for label, role, quiet, action in heard]
+                     + [f"{label} ({role}) unstamped" for label, role, _, _ in unstamped])
     subprocess.run([sys.executable, str(Path(__file__).with_name("readout.py")), "write", "workloop", "--strip", strip, "--note", note,
                     "--stale-after", str(READOUT_STALE_SECONDS), "--repo", str(repo)], check=True)
 
 
-def main() -> None:
-    state, seen_dir, session, event, agent_id, transcript_path = sys.argv[1:7]
-    if not agent_id:
-        # The lead's prompt refreshes the readout, so it clears once the last agent is back.
-        if event == "UserPromptSubmit":
-            write_readout(Path(state), Path(seen_dir).parent, time.time())
-        return
-    if event not in ("SubagentStart", "PostToolBatch"):
-        return
-    ledger = Path(seen_dir) / f".activity-{clean(session)}-{clean(agent_id)}"
+def stamp_agent(state: Path, agents_dir: Path, session: str, event: str, agent_id: str, transcript_path: str, action: str) -> None:
+    ledger = agents_dir / ".readout" / f".activity-{clean(session)}-{clean(agent_id)}"
     now = time.time()
     if not due(ledger, now):
         return
-    cell, action = None, ""
-    if transcript_path:
+    cell = None
+    if transcript_path and not holds_lane(state, agent_id):
         path = transcript(transcript_path, session, agent_id)
         try:
-            cell, action = cell_binding(path), last_action(path)
+            cell = cell_binding(path)
         except (OSError, ValueError) as error:
             # The file is written after SubagentStart, so only a later miss is a fault.
             if event != "SubagentStart":
-                print(f"agent_activity: {path} cannot be read ({error}); {agent_id} is stamped with its time only", file=sys.stderr)
-    if stamp_state(Path(state), agent_id, cell, action):
+                print(f"agent_activity: {path} cannot be read ({error}); {agent_id} is not stamped", file=sys.stderr)
+    stamped_now = stamp_state(state, agent_id, cell, action)
+    # A batch that bound to nothing is remembered too, so a stranger costs one lookup a minute.
+    if stamped_now or event == "PostToolBatch":
+        ledger.parent.mkdir(parents=True, exist_ok=True)
         ledger.write_text(f"{now}\n")
-        write_readout(Path(state), Path(seen_dir).parent, now)
+    if stamped_now:
+        write_readout(state, agents_dir.parent, now)
+
+
+def main() -> None:
+    state, agents_dir, session, event, agent_id, transcript_path = sys.argv[1:7]
+    if not agent_id:
+        # The lead's prompt refreshes the readout, so it clears once the last agent is back.
+        if event == "UserPromptSubmit":
+            write_readout(Path(state), Path(agents_dir).parent, time.time())
+        return
+    if event not in ("SubagentStart", "PostToolBatch"):
+        return
+    try:
+        payload = json.load(sys.stdin)
+    except ValueError:
+        payload = {}
+    tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+    action = summary(str(payload.get("tool_name") or "") if isinstance(payload, dict) else "", tool_input if isinstance(tool_input, dict) else {})
+    try:
+        stamp_agent(Path(state), Path(agents_dir), session, event, agent_id, transcript_path, action)
+    except LockBusy as error:
+        print(f"agent_activity: {agent_id} is not stamped this time: {error}", file=sys.stderr)
 
 
 if __name__ == "__main__":

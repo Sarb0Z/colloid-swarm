@@ -86,8 +86,14 @@ def normalize(payload, policy, repo):
         out["session_id"] = payload.get("session_id", "")
         out["agent_id"] = payload.get("agent_id", "")
         # The session's main transcript: a subagent's own is beside it, under
-        # <session>/subagents/, and names the cell's brief and its last tool call.
+        # <session>/subagents/, and names the cell's brief.
         out["transcript_path"] = payload.get("transcript_path") or ""
+        # PostToolBatch carries every call of the batch with its response, which
+        # can be large; the hook needs only the last call's name and input.
+        calls = payload.get("tool_calls")
+        last = calls[-1] if isinstance(calls, list) and calls and isinstance(calls[-1], dict) else {}
+        out["tool_name"] = last.get("tool_name") or ""
+        out["tool_input"] = last.get("tool_input") if isinstance(last.get("tool_input"), dict) else {}
     elif policy == "parallel-writers-gate.sh":
         out["event"] = payload.get("hook_event_name", "")
         out["tool_name"] = payload.get("tool_name") or ""

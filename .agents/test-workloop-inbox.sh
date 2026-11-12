@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/agent_silence.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
 mkdir -p "$scratch/bin"
 cat > "$scratch/bin/docker" <<'EOF'
@@ -149,6 +149,27 @@ import json, sys
 p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["supervised"] = True; json.dump(s, open(p, "w"))
 EOF
 ok "only a supervised run reports a lane stale; an ordinary one reports elapsed time"
+
+# the hook's stamp is a sign of life beside the heartbeat: a supervised lane stamped a
+# minute ago whose last heartbeat was 15 minutes ago is not stale at the prompt
+stamp_db() {  # <seconds ago, or "none">
+  python3 - "$state" "$1" <<'EOF'
+import json, sys, time
+p, ago = sys.argv[1:3]; s = json.load(open(p)); lane = s["runs"]["r1"]["lanes"]["db"]
+if ago == "none":
+    lane.pop("activity_at", None)
+else:
+    lane["activity_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - int(ago)))
+json.dump(s, open(p, "w"))
+EOF
+}
+stamp_db 60
+ctx="$(context "$(fire UserPromptSubmit '')")"
+[[ "$ctx" != *"db stale"* ]] || fail "a supervised lane stamped a minute ago was called stale: $ctx"
+stamp_db none
+ctx="$(context "$(fire UserPromptSubmit '')")"
+[[ "$ctx" == *"db stale "* ]] || fail "the same lane without a stamp was not called stale: $ctx"
+ok "a supervised lane stamped a minute ago with no heartbeat for 15 minutes is not stale at the prompt"
 
 
 # a claimant this session started that is no longer live: its lane's docker
@@ -516,39 +537,98 @@ PY
 field() {  # <kind> <name> <key>
   python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["r1"]; print(r[sys.argv[2]][sys.argv[3]].get(sys.argv[4],""))' "$state" "$@"
 }
-fire_t() {  # <event> <agent_id>, with a transcript
-  printf '{"project_dir":"%s","event":"%s","session_id":"s1","agent_id":"%s","transcript_path":"%s"}' "$dir" "$1" "$2" "$tdir/main.jsonl" | bash "$policy" >/dev/null
+fire_t() {  # <event> <agent_id> [tool_name] [tool_input json], with a transcript; stderr lands in $hook_err
+  local input="${4:-}"; [[ -n "$input" ]] || input='{}'
+  printf '{"project_dir":"%s","event":"%s","session_id":"s1","agent_id":"%s","transcript_path":"%s","tool_name":"%s","tool_input":%s}' \
+    "$dir" "$1" "$2" "$tdir/main.jsonl" "${3:-}" "$input" | bash "$policy" >/dev/null 2>"$hook_err"
 }
+hook_err="$scratch/hook.err"
+ledgers="$dir/.agents/.readout"
 cat > "$state" <<EOF
 {"version":1,"runs":{"r1":{"objective":"o","supervised":false,"messages":[],"lanes":{
   "api":{"state":"active","claimed_by":"a1","claimed_at":"$now","attention":null,"env":"ready"}}}}}
 EOF
-rm -f "$dir"/.agents/.activity-s1-*
+rm -f "$ledgers"/.activity-s1-*
 put_cells out
-fire_t PostToolBatch c1
-[[ "$(field cells scout activity)" == "Read plan.md" && -n "$(field cells scout activity_at)" ]] || fail "a cell was not stamped from its transcript: $(field cells scout activity)"
-ok "a cell is bound by the brief header in its transcript and stamped with its last tool call"
-fire_t PostToolBatch a1
+# the cell's transcript ends on a Read of plan.md; the action shown is the payload's call, not the transcript's
+fire_t PostToolBatch c1 Grep '{"pattern":"TODO","path":"/x"}'
+[[ "$(field cells scout activity)" == "Grep TODO" && -n "$(field cells scout activity_at)" ]] || fail "a cell was not stamped from its payload: $(field cells scout activity)"
+ok "a cell is bound by the brief header in its transcript and stamped with the batch's last tool call from the payload"
+fire_t PostToolBatch a1 Bash '{"command":"pytest -q tests/test_api.py","description":"Run the api tests"}'
 [[ "$(field lanes api activity)" == "Bash Run the api tests" && -n "$(field lanes api activity_at)" ]] || fail "a lane was not stamped by its claim: $(field lanes api activity)"
 ok "a lane is bound by its claim and stamped with its last tool call"
-call Edit '{"file_path":"/x/z.py"}' >> "$tdir/s1/subagents/agent-c1.jsonl"
-fire_t PostToolBatch c1
-[[ "$(field cells scout activity)" == "Read plan.md" ]] || fail "a second stamp inside a minute was written"
-rm -f "$dir/.agents/.activity-s1-c1"
-fire_t PostToolBatch c1
+fire_t PostToolBatch c1 Edit '{"file_path":"/x/z.py"}'
+[[ "$(field cells scout activity)" == "Grep TODO" ]] || fail "a second stamp inside a minute was written"
+rm -f "$ledgers/.activity-s1-c1"
+fire_t PostToolBatch c1 Edit '{"file_path":"/x/z.py"}'
 [[ "$(field cells scout activity)" == "Edit z.py" ]] || fail "the stamp did not follow once the minute passed: $(field cells scout activity)"
 ok "an agent is stamped at most once a minute"
-put_cells returned; rm -f "$dir/.agents/.activity-s1-c1"
+put_cells returned; rm -f "$ledgers/.activity-s1-c1"
 fire_t PostToolBatch c1
 [[ -z "$(field cells scout activity)" ]] || fail "a cell already back was stamped"
+ok "a cell that is back is not stamped"
+
+# the Claude normalizer hands the policy a batch's last call, name and input only: the responses stay behind
+normalized="$(printf '%s' '{"hook_event_name":"PostToolBatch","session_id":"s1","agent_id":"c1","transcript_path":"/t/main.jsonl","tool_calls":[{"tool_name":"Read","tool_input":{"file_path":"/a"},"tool_use_id":"u1","tool_response":"BIGONE"},{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_use_id":"u2","tool_response":"BIGTWO"}]}' \
+  | python3 "$repo/.agents/claude/normalize-hook.py" workloop-inbox.sh "$repo")"
+python3 - "$normalized" <<'PY' || fail "the normalizer did not pass the batch's last call alone: $normalized"
+import json, sys
+out = json.loads(sys.argv[1])
+assert out["tool_name"] == "Bash" and out["tool_input"] == {"command": "ls"}, out
+assert "BIG" not in sys.argv[1] and out["event"] == "PostToolBatch" and out["agent_id"] == "c1", out
+PY
+ok "the Claude normalizer passes a batch's last tool call, never its responses"
+
+# the stamp ledger lives in the gitignored readout folder: a stamp leaves the work tree clean
+cp "$repo/.gitignore" "$dir/.gitignore"
+git -C "$dir" init -q 2>/dev/null
+git -C "$dir" add -A >/dev/null
+git -C "$dir" -c user.name=t -c user.email=t@example.com commit -qm fixture
+put_cells out; rm -f "$ledgers"/.activity-s1-* "$dir"/.agents/.activity-s1-*
+fire_t PostToolBatch c1 Edit '{"file_path":"/x/z.py"}'
+[[ -f "$ledgers/.activity-s1-c1" ]] || fail "the stamp wrote no ledger in the readout folder"
+[[ -z "$(git -C "$dir" status --porcelain --untracked-files=all)" ]] || fail "a stamp left the work tree dirty: $(git -C "$dir" status --porcelain --untracked-files=all)"
+ok "a stamp leaves git status --porcelain --untracked-files=all clean"
+
+# an agent bound to nothing costs one lookup a minute at a tool batch, and none at its start
+rm -f "$ledgers"/.activity-s1-*
+fire_t SubagentStart stranger
+[[ ! -e "$ledgers/.activity-s1-stranger" ]] || fail "a start that bound to nothing wrote the ledger"
 fire_t PostToolBatch stranger
-ok "a cell that is back, and an agent bound to nothing, are not stamped"
+[[ -e "$ledgers/.activity-s1-stranger" ]] || fail "a tool batch that bound to nothing wrote no ledger"
+ok "a miss writes the ledger on a tool batch only"
+
+# a lane's claim binds it before any transcript is read; a cell with no transcript is named as not stamped
+rm -f "$ledgers"/.activity-s1-* "$tdir/s1/subagents/agent-a1.jsonl"
+fire_t PostToolBatch a1 Read '{"file_path":"/x/q.py"}'
+[[ "$(field lanes api activity)" == "Read q.py" && ! -s "$hook_err" ]] || fail "a lane's stamp read its transcript: $(field lanes api activity) / $(cat "$hook_err")"
+rm -f "$tdir/s1/subagents/agent-c1.jsonl"
+fire_t PostToolBatch c1 Read '{"file_path":"/x/q.py"}'
+grep -q 'c1 is not stamped' "$hook_err" || fail "an unreadable cell transcript did not say the cell is not stamped: $(cat "$hook_err")"
+ok "a lane is bound by its claim without its transcript; an unreadable cell transcript says it is not stamped"
+
+# the state lock is taken without blocking: a holder past the retry window costs a stderr line and exit 0
+rm -f "$ledgers"/.activity-s1-*
+python3 - "$state.lock" > "$scratch/held" <<'PY' &
+import fcntl, sys, time
+lock = open(sys.argv[1], "a+"); fcntl.flock(lock, fcntl.LOCK_EX); print("held", flush=True); time.sleep(6)
+PY
+holder=$!
+for _ in $(seq 50); do grep -q held "$scratch/held" && break; sleep 0.1; done
+started=$SECONDS
+fire_t PostToolBatch a1 Read '{"file_path":"/x/w.py"}' || fail "the hook failed while the state lock was held"
+elapsed=$((SECONDS - started))
+kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
+grep -q 'a1 is not stamped' "$hook_err" || fail "a held state lock was not reported on stderr: $(cat "$hook_err")"
+[[ "$elapsed" -le 4 && "$(field lanes api activity)" == "Read q.py" ]] || fail "a held state lock blocked the hook ${elapsed}s or still stamped: $(field lanes api activity)"
+ok "the state lock is taken without blocking and a busy lock is reported, exit 0"
 
 # the readout names the agents out and the oldest silence, and is empty when none is out
 readout() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$dir/.agents/.readout/workloop.json" "$1"; }
 put_cells out
-rm -f "$dir"/.agents/.activity-s1-*
-fire_t PostToolBatch c1
+rm -f "$ledgers"/.activity-s1-*
+{ printf '{"type":"user","message":{"role":"user","content":"READ-ONLY — this cell reads.\\nWORKLOOP CELL BRIEF — r1/scout\\nRead the brief."}}\n'; } > "$tdir/s1/subagents/agent-c1.jsonl"
+fire_t PostToolBatch c1 Edit '{"file_path":"/x/z.py"}'
 python3 - "$state" <<'PY'
 import json, sys, time
 p = sys.argv[1]; s = json.load(open(p))
@@ -565,6 +645,26 @@ PY
 fire UserPromptSubmit '' >/dev/null
 [[ -z "$(readout strip)" && -z "$(readout note)" ]] || fail "the readout stayed after every agent was back: $(readout strip)"
 ok "the readout names the agents out and the oldest silence, and is empty once none is out"
+
+# an agent with no stamp and no heartbeat is counted apart: the oldest silence is over stamped agents only
+put_cells out
+fire UserPromptSubmit '' >/dev/null
+[[ "$(readout strip)" == "1 agent out, 1 unstamped" && "$(readout note)" == "r1/scout (research) unstamped" ]] || fail "the readout did not count the unstamped cell apart: $(readout strip) / $(readout note)"
+python3 - "$state" <<'PY'
+import json, sys, time
+p = sys.argv[1]; s = json.load(open(p)); r = s["runs"]["r1"]
+at = lambda seconds: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - seconds))
+r["lanes"]["api"].update(state="active", claimed_at=at(3600), activity_at=at(300))
+json.dump(s, open(p, "w"))
+PY
+fire UserPromptSubmit '' >/dev/null
+[[ "$(readout strip)" == "2 agents out, oldest silent 5m, 1 unstamped" ]] || fail "the oldest silence took in the unstamped cell: $(readout strip)"
+put_cells returned
+python3 - "$state" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["lanes"]["api"]["state"] = "reviewed"; json.dump(s, open(p, "w"))
+PY
+ok "the readout counts an unstamped agent apart from the oldest silence"
 
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"

@@ -34,6 +34,7 @@ import time
 from pathlib import Path
 
 import worktree_records as wr  # beside this script, so found before the path below is added
+from agent_silence import silence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
@@ -41,7 +42,7 @@ try:
 except ImportError:  # a trimmed export without the controller still gets the digest
     wd = None  # type: ignore[assignment]
 
-from workloop_size import GitBudget, size_notes, stamp  # noqa: E402
+from workloop_size import GitBudget, size_notes  # noqa: E402
 
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
@@ -220,10 +221,11 @@ def main_block(runs: dict, seen_dir: Path | None = None, session: str = "", ende
                     continue
                 # A heartbeat is a contract only under --supervised; an ordinary
                 # lane that has simply been working for a while is not stale.
-                beat = stamp(lane.get("heartbeat_at") or lane.get("claimed_at"))
+                # The hook's stamp counts as a sign of life beside the heartbeat.
+                quiet = silence(lane, "claimed_at", now)
                 progress = f" — {lane['progress']}" if lane.get("progress") else ""
-                if beat is not None and now - beat > STALE_SECONDS:
-                    minutes = int((now - beat) // 60)
+                if quiet is not None and quiet > STALE_SECONDS:
+                    minutes = int(quiet // 60)
                     if run.get("supervised"):
                         notes.append(f"{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)")
                     else:
