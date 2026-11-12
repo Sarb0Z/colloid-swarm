@@ -12,13 +12,15 @@ Hooks and skills are checked for full coverage because those are the sets that
 grow. Playbooks and personas are checked only through the manifest, since not
 every file in those directories earns a card and an exemption list would rot the
 same way the page did.
+
+The page's prose is not compared to the code: debt: showcase-prose-unchecked
 """
 import re
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PAGE = REPO / "demo/scaffold-showcase.html"
+PAGE = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "demo/scaffold-showcase.html"
 GEN = REPO / "demo/embed-src.py"
 ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
         "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
@@ -90,6 +92,14 @@ for claimed, actual, noun in [
         problems.append(f"counts: the page states no {noun} total")
     elif int(claimed.group(1)) != actual:
         problems.append(f"counts: the page claims {claimed.group(1)} {noun}; the repository has {actual}")
+
+breakdown = re.search(
+    r"(\d+) gates · (\d+) context injectors · (\d+) evidence trails · (\d+) checkpoints", page)
+if breakdown is None:
+    problems.append("counts: the hero map states no gates/injectors/trails/checkpoints breakdown")
+elif sum(map(int, breakdown.groups())) != len(hooks):
+    problems.append(f"counts: the hero map's breakdown sums to {sum(map(int, breakdown.groups()))}; "
+                    f"the repository has {len(hooks)} policies")
 
 lede = found(r'lede">(.*?)</p>', "lede paragraph", 1)
 for actual, noun in [(len(hooks), "enforcement hooks"), (len(skills), "skills")]:
