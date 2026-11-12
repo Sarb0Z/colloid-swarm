@@ -6952,7 +6952,7 @@ exit 0
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Research</div><h3>search-and-cite</h3><p>Draw the line between an inline lookup and a delegated researcher cell — and carry sources through to the answer.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 156 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 157 lines</span></summary><div class="srcpath">.agents/skills/search-and-cite/SKILL.md</div><pre><code>---
 name: search-and-cite
 description: Use when a turn rests on an external fact — a library API, a version, a &quot;current best practice&quot;, anything the agent would otherwise assert from memory. Draws the line between a quick inline lookup and delegating a researcher cell, and carries sources through to the answer. Everyday citation hygiene, not a full research report.
 ---
@@ -6981,7 +6981,8 @@ When `fetch_readable` reports `failure: &quot;blocked&quot;` with no capture, op
 page in the `playwright` entry. If that stops at a challenge it cannot pass,
 such as an interactive checkbox, the operator can switch on the `scrapling`
 entry (`python3 .agents/mcp.py enable scrapling`, then restart; once,
-`uvx --from &#x27;scrapling[ai]==0.5.1&#x27; scrapling install`). Read the page with its
+`uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from
+&#x27;scrapling[ai]==0.5.1&#x27; scrapling install`). Read the page with its
 `browser_fetch_once` and `solve_cloudflare: true`, one page at a time and never
 crawling, expecting 15-190 s a page; a multi-step flow uses `browser_open` ...
 `close_session`. The `researcher` persona has neither browser, so this route is
@@ -11394,7 +11395,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 116 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 122 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -11510,6 +11511,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — `owed.py` (471 lines, a 70-line `main`) repeats three pieces other scaffold code carries: the glob translation (`owed.glob_regex`, `workloop_git._glob_regex`, `check-stack-packs.py`), the session key, which is the session id&#x27;s `cksum` (`owed.cksum_key`, `edit-record.sh`, `session-start.sh`, `session-wrap.sh`), and the work-log check (`owed.worklog_flag`, and `session-wrap.sh` for Codex and Kimi). Acceptable: each copy is short with its own test rows, and `test-owed.sh` checks the shell&#x27;s `cksum` key against `owed.py`&#x27;s (review harness-u4, finding 17).
 - **Trigger** — a change to the glob syntax `critical_paths` or lanes accept, to how a session is keyed, or to the work-log rule; or `owed.py` passing 500 lines.
 - **Rework** — a `hooks/lib/globs.py` the Python callers import, the key computed once by `edit-record.sh` and passed on, and the Codex and Kimi wrap reading `owed.py`&#x27;s work-log answer; ~60 lines.
+
+### scrapling-pin-frozen
+
+- **Condition** — the `scrapling` registry entry launches `uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from &#x27;scrapling[ai]==0.5.1&#x27;`, so every dependency resolves as it stood on that date, and a security release of any of them never arrives. Acceptable: the same environment on every machine is what the launcher&#x27;s tool-surface test and the live QA measured, and the server is off by default and Claude only.
+- **Trigger** — a security advisory against Scrapling or any package in its resolved environment, or the next Scrapling release worth taking.
+- **Rework** — move the version and the date together in the entry&#x27;s `args` and `description` in `.agents/mcp.json`, the install line in `skills/search-and-cite/SKILL.md` and `PINNED_ARGS` in `test-scrapling-launcher.sh`, then rerun that test and the stealth tier&#x27;s live check; a few lines, plus a browser download.
 </code></pre></details>
             </article>
         <article class="card">

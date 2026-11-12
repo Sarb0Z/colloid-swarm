@@ -40,6 +40,7 @@ sys.path.insert(0, str(repo / ".agents"))
 import mcp as registry
 
 LAUNCHER = repo / ".agents/scrapling-mcp.py"
+# debt: scrapling-pin-frozen
 PINNED_ARGS = ["--python", "3.12", "--exclude-newer", "2026-11-09T00:00:00Z", "--from", "scrapling[ai]==0.5.1",
                "python", "-I", str(LAUNCHER)]
 DROPPED = {"executable_path", "additional_args", "cdp_url", "new_context"}

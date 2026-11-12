@@ -27,7 +27,8 @@ When `fetch_readable` reports `failure: "blocked"` with no capture, open the
 page in the `playwright` entry. If that stops at a challenge it cannot pass,
 such as an interactive checkbox, the operator can switch on the `scrapling`
 entry (`python3 .agents/mcp.py enable scrapling`, then restart; once,
-`uvx --from 'scrapling[ai]==0.5.1' scrapling install`). Read the page with its
+`uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from
+'scrapling[ai]==0.5.1' scrapling install`). Read the page with its
 `browser_fetch_once` and `solve_cloudflare: true`, one page at a time and never
 crawling, expecting 15-190 s a page; a multi-step flow uses `browser_open` ...
 `close_session`. The `researcher` persona has neither browser, so this route is

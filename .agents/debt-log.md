@@ -114,3 +114,9 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — `owed.py` (471 lines, a 70-line `main`) repeats three pieces other scaffold code carries: the glob translation (`owed.glob_regex`, `workloop_git._glob_regex`, `check-stack-packs.py`), the session key, which is the session id's `cksum` (`owed.cksum_key`, `edit-record.sh`, `session-start.sh`, `session-wrap.sh`), and the work-log check (`owed.worklog_flag`, and `session-wrap.sh` for Codex and Kimi). Acceptable: each copy is short with its own test rows, and `test-owed.sh` checks the shell's `cksum` key against `owed.py`'s (review harness-u4, finding 17).
 - **Trigger** — a change to the glob syntax `critical_paths` or lanes accept, to how a session is keyed, or to the work-log rule; or `owed.py` passing 500 lines.
 - **Rework** — a `hooks/lib/globs.py` the Python callers import, the key computed once by `edit-record.sh` and passed on, and the Codex and Kimi wrap reading `owed.py`'s work-log answer; ~60 lines.
+
+### scrapling-pin-frozen
+
+- **Condition** — the `scrapling` registry entry launches `uvx --python 3.12 --exclude-newer 2026-11-09T00:00:00Z --from 'scrapling[ai]==0.5.1'`, so every dependency resolves as it stood on that date, and a security release of any of them never arrives. Acceptable: the same environment on every machine is what the launcher's tool-surface test and the live QA measured, and the server is off by default and Claude only.
+- **Trigger** — a security advisory against Scrapling or any package in its resolved environment, or the next Scrapling release worth taking.
+- **Rework** — move the version and the date together in the entry's `args` and `description` in `.agents/mcp.json`, the install line in `skills/search-and-cite/SKILL.md` and `PINNED_ARGS` in `test-scrapling-launcher.sh`, then rerun that test and the stealth tier's live check; a few lines, plus a browser download.
