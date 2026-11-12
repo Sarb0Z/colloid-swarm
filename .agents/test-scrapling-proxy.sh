@@ -303,7 +303,7 @@ try:
     is_error, text = client.tool("browser_fetch_once", {"url": "https://example.com/", "proxy": "nope"})
     check(is_error and "'nope'" in text and all(proxy_name in text for proxy_name in proxies) and not leaks(text),
           f"an unknown name is refused, naming the configured names: {text[:200]!r}")
-    for name, expect in (("loose", "chmod 600"), ("gone", "does not exist"), ("nokey", "no ABSENT=... line"),
+    for name, expect in (("loose", "ask the operator to run chmod 600"), ("gone", "does not exist"), ("nokey", "no ABSENT=... line"),
                          ("emptyvalue", "value is empty"), ("badscheme", "must use http, https, socks4, or socks5")):
         is_error, text = client.tool("browser_fetch_once", {"url": "https://example.com/", "proxy": name})
         check(is_error and f"proxy '{name}'" in text and expect in text and not leaks(text),

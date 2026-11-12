@@ -127,7 +127,8 @@ def _read_line_value(name, named):
     if status.st_mode & 0o077:
         os.close(descriptor)
         raise ProxyError(f"{label}: the env file grants group or other access "
-                         f"(mode {stat.S_IMODE(status.st_mode):04o}); run chmod 600 {named.env_file}")
+                         f"(mode {stat.S_IMODE(status.st_mode):04o}); ask the operator to run chmod 600 {named.env_file}, "
+                         "which the session's own shell cannot")
     with os.fdopen(descriptor, "rb") as handle:
         try:
             text = handle.read().decode()

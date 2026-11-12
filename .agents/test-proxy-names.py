@@ -97,7 +97,7 @@ with tempfile.TemporaryDirectory() as folder:
         path = env_file(f"mode-{mode:o}.env", f"PROXY={url}\nOTHER={NEIGHBOUR}\n", mode)
         message = failure(proxy.resolve, "office", proxy.Named(path, "PROXY"))
         check(f"mode {mode:04o} is refused with the chmod 600 instruction",
-              clean(message) and "chmod 600" in message and str(path) in message and "proxy 'office'" in message, message)
+              clean(message) and f"ask the operator to run chmod 600 {path}" in message and str(path) in message and "proxy 'office'" in message, message)
     for mode in (0o600, 0o400, 0o700):
         path = env_file(f"ok-{mode:o}.env", f"PROXY={url}\n", mode)
         check(f"mode {mode:04o} is read", proxy.resolve("office", proxy.Named(path, "PROXY"))[0]["username"] == "probe")
