@@ -31,9 +31,9 @@ passes, so a failed build leaves nothing to push. It fails when:
 - a line carries an unreviewed spelling variant of a replaced name (`Acme Co`,
   `AcmeCo2`, `acme_co`) or a common word in any case;
 - shipped code carries a `debt:` pointer the debt log lacks;
-- any check in the CI demo steps or the `.agents/AGENTS.md` Verification list
-  fails on the filtered tree. Steps only CI runs (the SEO quick-audit test, the
-  servers job, the Codex integration step) are not repeated here.
+- any check in the CI demo steps or on `.agents/check-all.sh`, the repository's
+  check list, fails on the filtered tree. Steps only CI runs (the servers job, the Codex
+  integration step) are not repeated here.
 
 A flagged line is reviewed by adding the id the build prints to `reviewed`. The
 id covers that line in that file (or in any commit message), so the same text

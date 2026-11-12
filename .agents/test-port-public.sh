@@ -31,7 +31,9 @@ fixture() {
   local repo="$work/$1"
   mkdir -p "$repo/.agents/public" "$repo/secret"
   git -C "$repo" init -q -b main
-  printf '## Verification\n\n```sh\ntrue\n```\n' > "$repo/.agents/AGENTS.md"
+  printf '## Verification\n\n`.agents/check-all.sh` holds the list.\n' > "$repo/.agents/AGENTS.md"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$repo/.agents/check-all.sh"
+  chmod +x "$repo/.agents/check-all.sh"
   cat > "$repo/.agents/public/port.json" <<JSON
 {
   "branch": "main",
@@ -89,6 +91,13 @@ python3 "$tool" --repo "$repo" build "$work/out-again" --against "$out" > "$work
   || fail "determinism: two ports of one history differ"
 grep -q 'fast-forward from' "$work/again.log" || fail "determinism: --against did not report a fast-forward"
 pass=$((pass + 1))
+
+# The filtered tree runs the repository's check list, and a failing check stops
+# the build with that check's output.
+repo="$(fixture failing-checks)"
+printf '#!/usr/bin/env bash\necho "lint: broken"\nexit 1\n' > "$repo/.agents/check-all.sh"
+git -C "$repo" add -A && commit "$repo" "Work <work@acme.example>" "test: break the check list"
+expect_fail failing-checks "lint: broken" "$repo"
 
 # A name on the machine that nobody classified.
 repo="$(fixture unclassified)"

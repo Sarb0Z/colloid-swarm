@@ -320,19 +320,12 @@ def gate(out, config):
     return leaks
 
 
-def verification_list(out):
-    text = (out / ".agents/AGENTS.md").read_text()
-    block = re.search(r"## Verification.*?```sh\n(.*?)```", text, re.S)
-    if not block:
-        fail("the filtered .agents/AGENTS.md has no Verification list to run")
-    return [line for line in block[1].splitlines() if line.strip() and not line.startswith("#")]
-
-
 def verify(out):
-    """Run the CI demo steps and the Verification list in the filtered checkout."""
-    steps = ["python3 demo/embed-src.py", "python3 demo/check-inventory.py"] \
-        if (out / "demo/embed-src.py").exists() else []
-    steps += verification_list(out)
+    """Run the CI demo step and the repository's check list in the filtered checkout."""
+    if not (out / ".agents/check-all.sh").exists():
+        fail("the filtered tree has no .agents/check-all.sh, the check list to run")
+    steps = ["python3 demo/embed-src.py"] if (out / "demo/embed-src.py").exists() else []
+    steps.append(".agents/check-all.sh")   # names each failing check itself; demo/check-inventory.py is on it
     if (out / ".agents/check-clean-tree.sh").exists():
         steps.append(".agents/check-clean-tree.sh")   # last, as in CI: no check may dirty the tree
     failed = []
