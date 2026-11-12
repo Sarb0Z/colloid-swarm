@@ -325,4 +325,48 @@ ok "lint-suite fails a check CI has and the script lacks"
 
 python3 "$repo/.agents/lint-suite.py" >/dev/null || fail "the real script and ci.yml disagree"
 ok "the real check-all.sh and ci.yml agree"
+
+# Every test file must be listed or called by a listed check. The fixture tree
+# is a git repository so the walk sees tracked, untracked and ignored files.
+tt="$scratch/tt"
+mkdir -p "$tt/.agents/node_modules/p" "$tt/.agents/worktrees/w" "$tt/.agents/mcp-servers/m" "$tt/.agents/sub"
+printf '.agents/ignored/\n' > "$tt/.gitignore"
+mkdir -p "$tt/.agents/ignored"
+printf 'checks() {\n  cat <<'"'"'LIST'"'"'\n.agents/test-b.sh\nLIST\n}\n' > "$tt/.agents/check-all.sh"
+printf '#!/usr/bin/env bash\n.agents/sub/test-mid.sh\n' > "$tt/.agents/test-b.sh"
+printf '#!/usr/bin/env bash\n.agents/test-leaf.py\n' > "$tt/.agents/sub/test-mid.sh"
+printf 'x\n' > "$tt/.agents/test-leaf.py"
+for f in .agents/node_modules/p/test-n.sh .agents/worktrees/w/test-w.sh .agents/mcp-servers/m/test-m.sh .agents/ignored/test-i.sh; do printf 'x\n' > "$tt/$f"; done
+git -C "$tt" init -q -b main && git -C "$tt" add -A
+treelint() { python3 "$repo/.agents/lint-suite.py" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt" 2>&1; }
+# the shared fixture ci.yml was edited above; give this check an agreeing one
+printf 'jobs:\n  x:\n    steps:\n      - run: .agents/test-b.sh\n      - run: .agents/check-clean-tree.sh\n      - run: python3 demo/embed-src.py\n' > "$scratch/ci.yml"
+out="$(treelint)" || fail "a listed test, tests called one and two levels down, and skipped folders must pass: $out"
+[[ "$out" == *"3 test files reached"* ]] || fail "the reached count must be 3: $out"
+ok "lint-suite reaches tests listed or called two levels down, and skips ignored and vendored folders"
+
+printf 'x\n' > "$tt/.agents/test-x.sh"
+out="$(treelint)" && fail "an untracked, unignored, unreached test must fail"
+[[ "$out" == *".agents/test-x.sh: test file is neither listed in check-all.sh nor called by a listed check"* ]] || fail "wrong message: $out"
+ok "lint-suite fails a test nobody lists or calls, even untracked"
+
+printf '#!/usr/bin/env bash\n# .agents/test-x.sh\n' > "$tt/.agents/sub/test-mid.sh"
+out="$(treelint)" && fail "a test named only in a comment must fail"
+[[ "$out" == *"test-x.sh: test file is neither"* ]] || fail "wrong message: $out"
+printf '#!/usr/bin/env bash\n.agents/test-leaf.py\n.agents/test-x.sh\n' > "$tt/.agents/sub/test-mid.sh"
+out="$(treelint)" || fail "a test called on a non-comment line must pass: $out"
+ok "lint-suite counts only non-comment lines as calls"
+
+# the allowlist: a reason lets an unlisted test pass; a stale entry fails
+alt="$scratch/lint-allow.py"
+sed 's/^UNLISTED_TESTS = {}/UNLISTED_TESTS = {".agents\/test-x.sh": "r", ".agents\/test-leaf.py": "r", ".agents\/test-gone.sh": "r"}/' "$repo/.agents/lint-suite.py" > "$alt"
+sed -i.bak 's#^ROOT = .*#ROOT = Path("'"$repo"'")#' "$alt"
+printf '#!/usr/bin/env bash\n# nothing\n' > "$tt/.agents/sub/test-mid.sh"
+out="$(python3 "$alt" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt" 2>&1)" && fail "stale allowlist entries must fail"
+[[ "$out" == *"UNLISTED_TESTS entry .agents/test-gone.sh no longer describes an unlisted test"* ]] || fail "gone entry unreported: $out"
+[[ "$out" != *"test-x.sh: test file is neither"* ]] || fail "an allowlisted test must pass: $out"
+printf '#!/usr/bin/env bash\n.agents/test-leaf.py\n' > "$tt/.agents/sub/test-mid.sh"
+out="$(python3 "$alt" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt" 2>&1)" && fail "an entry for a reached test must fail"
+[[ "$out" == *"UNLISTED_TESTS entry .agents/test-leaf.py no longer describes an unlisted test"* ]] || fail "reached entry unreported: $out"
+ok "lint-suite lets an allowlisted test pass and fails an entry that no longer describes an unlisted test"
 # /colloid-only

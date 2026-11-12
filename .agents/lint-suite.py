@@ -16,19 +16,36 @@ workflow. Two named lists hold the differences that are meant:
   NOT_ON_CI  checks the runner cannot run, each with its reason.
 
 An entry that no longer describes a difference is itself a failure.
+
+The same list must also reach every test file. Every `test-*` file under
+`.agents/` that git tracks or could track (ignored files, and folders named
+node_modules, worktrees and mcp-servers, are not walked) must be a listed check
+or be named on a non-comment line of a file that is reached, however deep. A
+test nobody runs passes nothing. UNLISTED_TESTS holds the tests that are meant
+to be unreached, each with its reason; an entry whose test is reached or gone
+fails. A name match is by file name, so two test files sharing a name are both
+reached when either is named; none share a name today. A call built from a
+variable is not seen, and neither is a call behind a condition.
+
+The tree check runs on the real tree when no `--script` is given, and on the
+tree named by `--root` otherwise.
 """
 import argparse
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SKIPPED_FOLDERS = {"node_modules", "worktrees", "mcp-servers"}
 
 CI_ONLY = {
     ".agents/check-clean-tree.sh": "asserts the workflow's own earlier steps left the tree clean",
     "demo/embed-src.py": "regenerates the showcase panels so the clean-tree step can see drift",
 }
 NOT_ON_CI = {}
+UNLISTED_TESTS = {}
 
 CHECK = re.compile(r"^(?:python3\s+)?((?:\.agents|demo)/\S+(?:\s+[A-Za-z][\w-]*)?)\s*(?:$|\|)")
 
@@ -104,17 +121,84 @@ def problems(script, ci):
     return errors, len(in_script)
 
 
+def test_files(root):
+    """Relative paths of the test-* files under .agents/ that git sees and the walk keeps."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    listing = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".agents"],
+        env=env, capture_output=True, text=True, check=True,
+    ).stdout
+    found = set()
+    for rel in filter(None, listing.split("\0")):
+        parts = Path(rel).parts
+        if (
+            parts[-1].startswith("test-")
+            and not SKIPPED_FOLDERS.intersection(parts[:-1])
+            and (Path(root) / rel).is_file()
+        ):
+            found.add(rel)
+    return found
+
+
+def active_lines(path):
+    return [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def reached_tests(root, listed, tests):
+    """The test files the listed checks run, directly or through a file they call."""
+    by_name = {}
+    for rel in tests:
+        by_name.setdefault(Path(rel).name, []).append(rel)
+    patterns = {name: re.compile(r"(?<![\w.-])" + re.escape(name) + r"(?![\w-])") for name in by_name}
+    reached = {script_path(check) for check in listed} & tests
+    queue = [script_path(check) for check in listed]
+    seen = set()
+    while queue:
+        rel = queue.pop()
+        if rel in seen or not (Path(root) / rel).is_file():
+            continue
+        seen.add(rel)
+        text = "\n".join(active_lines(Path(root) / rel))
+        for name, pattern in patterns.items():
+            if pattern.search(text):
+                for hit in by_name[name]:
+                    reached.add(hit)
+                    queue.append(hit)
+    return reached
+
+
+def test_problems(root, script):
+    tests = test_files(root)
+    reached = reached_tests(root, script_checks(script), tests)
+    errors = []
+    for rel in sorted(tests - reached - set(UNLISTED_TESTS)):
+        errors.append(f"{rel}: test file is neither listed in {Path(script).name} nor called by a listed check")
+    for rel in UNLISTED_TESTS:
+        if rel in reached or rel not in tests:
+            errors.append(f"UNLISTED_TESTS entry {rel} no longer describes an unlisted test")
+    return errors, len(tests & reached)
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--script", default=str(ROOT / ".agents" / "check-all.sh"))
+    parser.add_argument("--script", default=None)
     parser.add_argument("--ci", default=str(ROOT / ".github" / "workflows" / "ci.yml"))
+    parser.add_argument("--root", default=None, help="tree whose test files must be reached (default: this one, when no --script)")
     args = parser.parse_args(argv)
-    errors, count = problems(args.script, args.ci)
+    root = args.root or (str(ROOT) if args.script is None else None)
+    script = args.script or str(ROOT / ".agents" / "check-all.sh")
+    errors, count = problems(script, args.ci)
+    tests_reached = None
+    if root:
+        more, tests_reached = test_problems(root, script)
+        errors += more
     for error in errors:
         print(f"FAIL: {error}", file=sys.stderr)
     if errors:
         return 1
-    print(f"suite lint: {count} checks, script and CI agree")
+    suffix = f"; {tests_reached} test files reached" if tests_reached is not None else ""
+    print(f"suite lint: {count} checks, script and CI agree{suffix}")
     return 0
 
 
