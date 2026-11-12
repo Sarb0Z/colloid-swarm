@@ -36,6 +36,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/emit-context.py" \
      "$repo/.agents/hooks/lib/mcp-off.py" "$repo/.agents/hooks/lib/lsp-missing.py" \
      "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/workloop_size.py" \
+     "$repo/.agents/hooks/lib/agent_silence.py" \
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
@@ -403,6 +404,15 @@ inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
 [[ "$inflight_context" == *"Workloop runs in flight"* && "$inflight_context" == *"WORKLOOP r1: api awaits review"* ]] || fail "session start did not surface the run in flight"
 [[ "$inflight_context" != *"WORKLOOP old"* ]] || fail "session start surfaced a torn-down run"
 printf 'ok: a run in flight is surfaced at session start\n'
+# An inbox that cannot run still lets the session start, and says why on stderr.
+broken_inbox="$(make_fixture broken-inbox)"
+write_config "$broken_inbox" true false
+cp "$inflight/.agents/.workloop-state.json" "$broken_inbox/.agents/"
+rm "$broken_inbox/.agents/hooks/lib/agent_silence.py"
+broken_out="$(run_policy "$broken_inbox" startup 2>"$scratch/broken-inbox.err")" || fail "a failing inbox must not fail session start"
+[[ "$(context_of "$broken_out")" != *"WORKLOOP r1"* ]] || fail "a failing inbox listed a run"
+grep -q "workloop-inbox.py failed.*agent_silence" "$scratch/broken-inbox.err" || fail "a failing inbox must be named on stderr: $(cat "$scratch/broken-inbox.err")"
+printf 'ok: a failing inbox is named on stderr and session start goes on\n'
 # The start source reaches the digest: a startup ended the session's cells, a compaction did not.
 python3 - "$inflight/.agents/.workloop-state.json" <<'PY'
 import json, sys

@@ -190,9 +190,16 @@ fi
 # the digest is the same one workloop-inbox.sh gives at each prompt. The start
 # source, after the agent id, tells it whether this start ended the session's
 # earlier cells (startup, resume) or not (clear, compact).
+# The inbox prints its digest on stderr too, for a prompt's terminal, so its
+# stderr is shown here only when it fails.
 workloop_digest=""
 if [[ -f "$proj/.agents/.workloop-state.json" && -f "$lib/workloop-inbox.py" ]]; then
-  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" "${start_source:-startup}" 2>/dev/null || true)"
+  inbox_err="$(mktemp)"
+  workloop_digest="$(python3 "$lib/workloop-inbox.py" "$proj/.agents/.workloop-state.json" "$proj/.agents" "${session_id:-start}" SessionStart "" "${start_source:-startup}" 2>"$inbox_err")" || {
+    printf 'session-start: workloop-inbox.py failed, so no workloop run is listed: %s\n' "$(tail -n 1 "$inbox_err")" >&2
+    workloop_digest=""
+  }
+  rm -f "$inbox_err"
 fi
 
 # Installed copies of the output style that say something else. The carrier
