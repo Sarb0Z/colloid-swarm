@@ -129,12 +129,13 @@ def main():
         print(f"sources-matcher: cannot read .agents/mcp.json: {error}", file=sys.stderr)
         return 1
 
-    stale = 0
+    stale = broken = 0
     for rel, policy, native, kind, events in HOSTS:
         path = repo / rel
         if not path.exists():
             continue                     # a satellite may not carry every host
         text = path.read_text()
+        data = None                      # the parsed file, for JSON hosts only
         try:
             if kind == "json":
                 data = json.loads(text)
@@ -143,7 +144,7 @@ def main():
                 entries = [(m.group(1), m.group(2)) for m in TOML_HOOK.finditer(text)]
         except ValueError as error:
             print(f"sources-matcher: {rel} does not parse: {error}", file=sys.stderr)
-            stale += 1
+            broken += 1
             continue
         # Keep going after a host fails: one host losing its registration must
         # not hide the state of the others, which is why all are checked.
@@ -151,7 +152,7 @@ def main():
         if problems:
             print(f"sources-matcher: {rel} registers {policy} wrongly: {'; '.join(problems)}",
                   file=sys.stderr)
-            stale += 1
+            broken += 1
             continue
         want = BUILDERS[policy](registry, native)
         if all(current == want for _, current in entries):
@@ -162,7 +163,7 @@ def main():
                   f"  have: {' ; '.join(str(current) for _, current in entries)}\n  want: {want}",
                   file=sys.stderr)
             continue
-        if kind == "json":
+        if data is not None:
             for _, group in json_groups(data, policy):
                 group["matcher"] = want
             path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
@@ -170,8 +171,12 @@ def main():
             path.write_text(TOML_HOOK.sub(lambda m: f'event = "{m.group(1)}"\nmatcher = "{want}"{m.group(3)}', text))
         print(f"{rel}: {policy} matcher updated")
 
+    if broken:
+        print("Fix the files above by hand: the generator rewrites matchers, never hook groups.",
+              file=sys.stderr)
     if stale:
         print("Run: python3 .agents/sources-matcher.py", file=sys.stderr)
+    if broken or stale:
         return 1
     if check:
         print(f"sources matcher: in sync across {len(HOSTS)} host matchers")

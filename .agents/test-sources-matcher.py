@@ -157,6 +157,9 @@ for label, edit in (("the PostToolUseFailure key is deleted", drop_failure_key),
         check(f"{label}: run {' '.join(args) or 'plain'} fails naming file, policy and event",
               run.returncode != 0 and ".agents/claude/settings.json" in run.stderr
               and "untrusted-content.sh" in run.stderr and "PostToolUse" in run.stderr, run.stderr)
+        # The generator cannot restore a deleted group, so it must not name itself as the remedy.
+        check(f"{label}: run {' '.join(args) or 'plain'} asks for a hand fix, not a rerun",
+              "by hand" in run.stderr and "Run: python3" not in run.stderr, run.stderr)
 
 
 def differing_groups(files):
