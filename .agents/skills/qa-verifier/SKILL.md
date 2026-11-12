@@ -13,10 +13,19 @@ replace static review.
 
 Brief it with the ask, the acceptance and the run commands, and no diff: the
 acceptance is the plan's `Acceptance:` block, numbered observable behaviours
-with expected values, or the lane brief's where no plan was written. QA tests
-what the change must do, not what the diff shows it does. Its evidence holds
-for the lane tips it ran on; when one moves, `check` reports `qa:stale` and QA
-reruns.
+with expected values, or the lane brief's where no plan was written. Name the
+system and environment it runs against, so it can read that environment's
+log. QA tests what the change must do, not what the diff shows it does. Its
+evidence holds for the lane tips it ran on; when one moves, `check` reports
+`qa:stale` and QA reruns.
+
+The cell notes each scenario's start as ISO 8601 UTC ending in `Z`
+(`date -u +%Y-%m-%dT%H:%M:%SZ`), and after the scenario reads the log of the
+environment it ran against with
+`python3 .agents/access.py logs --name <system> --env <env> --since <start>`.
+An error logged in that window during a passing scenario is a failure. When
+the product declares no log command for that environment, the report says so
+under `COVERAGE GAPS`.
 
 Route applicable scenarios through
 identity, API or data validation, state and retry, UI, navigation and

@@ -24,7 +24,14 @@ surface below; one global edge case is insufficient:
 - integration: unavailable, timeout, rate limit, malformed response.
 
 Prove each scenario with the cheapest command or interaction that exercises it;
-never infer runtime success from code or a passing unrelated suite. Add no test;
+never infer runtime success from code or a passing unrelated suite. Before each
+scenario, note its start as ISO 8601 UTC ending in `Z`
+(`date -u +%Y-%m-%dT%H:%M:%SZ`); after it, read the log of the environment it
+ran against with
+`python3 .agents/access.py logs --name <system> --env <env> --since <start>`.
+An error logged in that window during a passing scenario is a failure. When
+the product declares no log command for that environment, list it under
+COVERAGE GAPS. Add no test;
 hand reproducing regression coverage to the implementer. Keep Bash to executing
 tests and interactions, never editing product source. A command that fails on a
 missing module, binary, or runtime version is an environment failure, not a
@@ -66,7 +73,7 @@ Return exactly:
 
 ```
 SCENARIOS
-- <acceptance line> — <scenario>
+- <acceptance line> — <scenario> — <start, UTC>
 EXECUTED
 - <command or interaction> — <observed result>
 FAILURES
