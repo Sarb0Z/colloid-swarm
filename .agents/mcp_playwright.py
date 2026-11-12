@@ -5,13 +5,23 @@ only. It names sites whose cookies the operator copies into the browser and a
 proxy that carries credentials, so the tracked `policy.json` may not set it.
 """
 
+import importlib.util
 import json
 import re
 import secrets
 import subprocess
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
 
+
+def _load_proxy_lib():
+    """`lib/proxy.py`, shared with the Scrapling launcher, loaded by path."""
+    spec = importlib.util.spec_from_file_location("colloid_proxy", Path(__file__).resolve().parent / "lib/proxy.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+PROXY = _load_proxy_lib()
 BROWSER_DIR = ".agents/.browser"
 CONFIG = f"{BROWSER_DIR}/playwright.json"
 PROFILE = f"{BROWSER_DIR}/profile"
@@ -133,26 +143,10 @@ def load_settings(repo, path=None):
 def _proxy_url(raw, token, env_name):
     """Split a proxy URL into Playwright's fields. Errors never quote the URL:
     it carries the proxy password."""
-    shape = f"${env_name} is not a proxy URL of the form scheme://[user:password@]host:port"
     try:
-        parts = urlsplit(raw.strip().replace("{session}", token or ""))
-        port = parts.port
-        host = parts.hostname
-    except ValueError:
-        raise SettingsError(shape) from None
-    if parts.scheme not in {"http", "https", "socks5"}:
-        raise SettingsError(f"${env_name} must use http, https, or socks5")
-    if not host or port is None or parts.path not in {"", "/"} or parts.query or parts.fragment:
-        raise SettingsError(shape)
-    if parts.scheme == "socks5" and (parts.username or parts.password):
-        raise SettingsError(f"${env_name} is socks5 with credentials, which Chromium cannot send; "
-                            "use the vendor's http or https endpoint")
-    proxy = {"server": f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}"}
-    if parts.username:
-        proxy["username"] = unquote(parts.username)
-    if parts.password:
-        proxy["password"] = unquote(parts.password)
-    return proxy
+        return PROXY.split_url(raw, f"${env_name}", token)
+    except PROXY.ProxyError as error:
+        raise SettingsError(str(error)) from None
 
 
 def _proxy(repo, settings, environ, rotate):

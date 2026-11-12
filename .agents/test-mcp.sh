@@ -71,6 +71,8 @@ ON = {"fx-docs", "fx-plain"}
 try:
     agents = work / ".agents"
     (agents / "codex").mkdir(parents=True)
+    (agents / "lib").mkdir()
+    shutil.copy2(source / ".agents/lib/proxy.py", agents / "lib/proxy.py")
     for relative in ("mcp.py", "mcp_codex.py", "mcp_opencode.py", "mcp_playwright.py"):
         shutil.copy2(source / ".agents" / relative, agents / relative)
     (agents / "mcp.py").chmod(0o755)
@@ -372,8 +374,9 @@ try:
     for value, message in (
         ("http://user:secret/host", "is not a proxy URL"),
         ("http://user:secret@host", "is not a proxy URL"),
-        ("ftp://user:secret@host:21", "must use http, https, or socks5"),
+        ("ftp://user:secret@host:21", "must use http, https, socks4, or socks5"),
         ("socks5://user:secret@host:1080", "Chromium cannot send"),
+        ("socks4://user:secret@host:1080", "Chromium cannot send"),
         ("http://user:secret@host:8080/path", "is not a proxy URL"),
     ):
         rejected = refuse(FX_PROXY=value)

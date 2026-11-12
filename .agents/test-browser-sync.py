@@ -89,6 +89,8 @@ def rows_of(path):
 def fixture(root):
     agents = root / ".agents"
     (agents / "codex").mkdir(parents=True)
+    (agents / "lib").mkdir()
+    shutil.copy2(here / "lib/proxy.py", agents / "lib/proxy.py")
     for name in ("mcp.py", "mcp_codex.py", "mcp_opencode.py", "mcp_playwright.py", "browser-sync.py",
                  "playwright-session.py"):
         shutil.copy2(here / name, agents / name)
