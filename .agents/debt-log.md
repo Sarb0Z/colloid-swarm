@@ -102,3 +102,15 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — the rule that a run declared without `--verify` is finished once it holds a cell and every cell is back lives in three places: the controller's `completion_problems` (`workloop_main.py`), the digest's cell notes (`hooks/lib/workloop-inbox.py`) and the session start's lead-less close (`hooks/lib/worktree_runs.py`). The hooks import nothing from the controller, so a trimmed export without it still runs them. Acceptable: the copies disagree only on a run holding lanes and no `verify`, which only a run made before `--verify` was required can be.
 - **Trigger** — a change to the fan-out rule, or a fourth reader of it.
 - **Rework** — one pure `fanout_state(run)` in `hooks/lib`, which the controller loads as the hooks do; ~30 lines and the three callers' test rows.
+
+### owed-record-lookups
+
+- **Condition** — `owed.py`'s `review_states` runs one git call per review record and per critical-path file at each record's tip, so a push prompt's cost grows with records × files: 201 records and 6 files took 6.9 s (review harness-u4, finding 7). Acceptable: one record in `docs/reviews/` carries `Covers:` today, and a push with no remote reads at most 200 commits.
+- **Trigger** — a push prompt that takes over a second, or about 50 records carrying `Covers:`.
+- **Rework** — one `git cat-file --batch-check` pass over every `<tip>:<path>` pair and one `git diff --name-only` per record range, cached for the call; ~30 lines and a timing row in `test-owed.sh`.
+
+### owed-shared-helpers
+
+- **Condition** — `owed.py` (471 lines, a 70-line `main`) repeats three pieces other scaffold code carries: the glob translation (`owed.glob_regex`, `workloop_git._glob_regex`, `check-stack-packs.py`), the session key, which is the session id's `cksum` (`owed.cksum_key`, `edit-record.sh`, `session-start.sh`, `session-wrap.sh`), and the work-log check (`owed.worklog_flag`, and `session-wrap.sh` for Codex and Kimi). Acceptable: each copy is short with its own test rows, and `test-owed.sh` checks the shell's `cksum` key against `owed.py`'s (review harness-u4, finding 17).
+- **Trigger** — a change to the glob syntax `critical_paths` or lanes accept, to how a session is keyed, or to the work-log rule; or `owed.py` passing 500 lines.
+- **Rework** — a `hooks/lib/globs.py` the Python callers import, the key computed once by `edit-record.sh` and passed on, and the Codex and Kimi wrap reading `owed.py`'s work-log answer; ~60 lines.
