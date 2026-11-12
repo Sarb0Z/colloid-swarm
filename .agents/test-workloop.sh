@@ -1906,6 +1906,25 @@ ok "a several-lane QA record holds both lane tips and no integration commit"
 "${tool[@]}" init qe --objective x --acceptance y --repo "$work" --verify true >/dev/null
 expect 'QA needs at least one submitted lane' "${tool[@]}" qa qe --evidence x
 
+# QA brief: the acceptance and the run's test suite, no diff, no path list
+qs_brief="$(full_brief qs one --role qa)"
+grep -q '^Acceptance: 1. the page lists rows$' <<<"$qs_brief" && grep -q '^Test suite: true$' <<<"$qs_brief" || fail "the QA lane brief lacks the acceptance or the test suite"
+! grep -Eq '^(Diff|Owned paths):|git diff|Run commands' <<<"$qs_brief" || fail "the QA lane brief carries a diff, a path list or a run-commands label"
+"${tool[@]}" add-cell qs critic --role qa --model sonnet >/dev/null
+qs_cell="$(cat "$work/.agents/worktrees/qs/.workloop/cells/critic.md")"
+grep -q '^Acceptance: 1. the page lists rows$' <<<"$qs_cell" && grep -q '^Test suite: true$' <<<"$qs_cell" || fail "the QA cell brief lacks the acceptance or the test suite"
+! grep -Eq '^(Diff|Owned paths):|git diff|Run commands' <<<"$qs_cell" || fail "the QA cell brief carries a diff, a path list or a run-commands label"
+"${tool[@]}" init qf --objective x --acceptance y --repo "$work" >/dev/null
+"${tool[@]}" add-cell qf critic --role qa --model sonnet >/dev/null
+! grep -Eq 'Test suite|None' "$work/.agents/worktrees/qf/.workloop/cells/critic.md" || fail "a QA cell brief of a run with no --verify names a test suite"
+# a main lane's QA brief says nothing of owned paths or of the lane's commits; its worker brief still does
+"${tool[@]}" init qm --objective x --acceptance y --repo "$work" --verify true --lane solo --worker implementer --path docs/qm >/dev/null
+qm_qa="$(full_brief qm solo --role qa)"
+! grep -Eq 'Do not edit outside owned|commits since its first claim' <<<"$qm_qa" || fail "a main lane's QA brief points at owned paths or the lane's commits"
+qm_worker="$(full_brief qm solo --role worker)"
+grep -q 'Do not edit outside owned' <<<"$qm_worker" && grep -q 'commits since its first claim' <<<"$qm_worker" || fail "the worker brief lost its owned-path lines"
+ok "a QA brief holds the acceptance and the test suite, none when the run has none, and no diff or path list"
+
 rm "$state.lock"
 if "${tool[@]}" status supervised 2>/dev/null; then fail 'read-only status recreated a missing lock'; fi
 printf 'PASS: workloop controller\n'
