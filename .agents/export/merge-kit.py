@@ -87,8 +87,9 @@ def toplevel(path, what):
     return pathlib.Path(run.stdout.strip()).resolve()
 
 
-def find_base(satellite):
-    carrier = toplevel(os.getcwd(), f"the current directory {os.getcwd()} (run --find-base inside the carrier)")
+def check_satellite(satellite):
+    """Refuse a satellite path that is not the root of a repository with commits:
+    a subdirectory would take the kit's paths one level down."""
     if not satellite.is_dir():
         raise SystemExit(f"merge-kit: the satellite {satellite} is not a directory")
     if toplevel(satellite, f"the satellite {satellite}") != satellite:
@@ -97,6 +98,11 @@ def find_base(satellite):
     if subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=satellite,
                       capture_output=True, check=False).returncode:
         raise SystemExit(f"merge-kit: the satellite {satellite} has no commits; commit its scaffold first")
+
+
+def find_base(satellite):
+    carrier = toplevel(os.getcwd(), f"the current directory {os.getcwd()} (run --find-base inside the carrier)")
+    check_satellite(satellite)
     if stamped_base(satellite, carrier):
         return
     held = blobs(satellite, "HEAD")
@@ -284,6 +290,7 @@ def main(argv):
     if len(positional) != 3 or any(a.startswith("-") for a in positional):
         raise SystemExit(__doc__.strip().split("\n\n")[0])
     satellite, base_kit, new_kit = (pathlib.Path(a).resolve() for a in positional)
+    check_satellite(satellite)
     for kit in (base_kit, new_kit):
         if not (kit / ".agents").is_dir():
             raise SystemExit(f"merge-kit: {kit} is not an exported kit")

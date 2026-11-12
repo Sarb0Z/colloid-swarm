@@ -231,6 +231,10 @@ printf 'a\r\nb\r\nc\r\nd\r\nE\r\n' >"$kit/.agents/playbooks/crlf.md"
 printf 'satellite file\n' >"$sat/.agents/blocked"
 mkdir -p "$kit/.agents/blocked"
 printf 'kit file\n' >"$kit/.agents/blocked/inner.md"
+# A satellite is the root of a repository that has committed its scaffold.
+git -C "$sat" init -q
+git -C "$sat" add -A
+git -C "$sat" -c user.name=t -c user.email=t@example.invalid commit -qm sync
 before="$(cd "$sat" && find . -type f -exec cksum {} + | sort)"
 python3 "$kit/export/merge-kit.py" "$sat" "$base" "$kit" >/dev/null && fail "merge-kit hid a conflict"
 [[ "$(cd "$sat" && find . -type f -exec cksum {} + | sort)" == "$before" ]] \
@@ -329,5 +333,11 @@ printf '%s\n' "$older" >"$sat2/.agents/scaffold-base"
 out="$(python3 "$mergekit" "$sat2" "$base" "$kit" --apply 2>&1 || true)"
 grep -q 'no export/base' <<<"$out" || fail "merge-kit did not say the new kit has no export/base: $out"
 [[ "$(cat "$sat2/.agents/scaffold-base")" == "$older" ]] || fail "merge-kit changed the stamp without a new base"
+
+# A satellite path below its repository root is refused before anything is
+# written, since the kit's paths would land one level down.
+out="$(python3 "$mergekit" "$sat2/.agents" "$base" "$kit" --apply 2>&1)" && fail "merge-kit merged into a subdirectory"
+grep -q 'not the root' <<<"$out" && [[ ! -e "$sat2/.agents/.agents" ]] \
+  || fail "merge-kit on a subdirectory: $out"
 
 echo "Export checks passed."
