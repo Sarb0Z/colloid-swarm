@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # The scaffold's whole check list, run from the repository root. `suite.sh`
-# runs this as the repository's `owed.suite`; `lint-suite.py` holds the list
-# and `.github/workflows/ci.yml` to the same set of checks. To run one surface,
-# copy its line out of the list.
+# runs this as the repository's `owed.suite`. To run one surface, copy its line
+# out of the list.
 #
-# Every check runs even after one fails, so a single run names every failure.
+# Every check runs even after one fails, so a single run names every failure; a
+# check whose script this repository does not carry is skipped and named.
 set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
