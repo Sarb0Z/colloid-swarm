@@ -136,6 +136,10 @@ def normalize(src: object, policy: str, repo: str) -> dict[str, object]:
         out["cwd"] = text(source, "cwd")
     elif policy == "untrusted-content.sh":
         out["event"] = text(source, "hook_event_name")
+    elif policy == "proxy-file-guard.sh":
+        # Codex has no Read or Grep tool: a file is read through the shell.
+        out["tool_name"] = text(source, "tool_name")
+        out["command"] = text(tool_input, "command")
     elif policy == "pre-compact.sh":
         out["trigger"] = text(source, "trigger")
     return out

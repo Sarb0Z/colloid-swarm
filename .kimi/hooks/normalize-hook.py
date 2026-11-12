@@ -93,6 +93,10 @@ def normalize(payload, policy, repo):
         out["session_id"] = payload.get("session_id", "")
         out["reason"] = payload.get("reason", "")
         out["cwd"] = payload.get("cwd") or ""
+    elif policy == "proxy-file-guard.sh":
+        out["tool_name"] = payload.get("tool_name") or ""
+        for key in ("file_path", "path", "command"):
+            out[key] = tool_input.get(key) if isinstance(tool_input.get(key), str) else ""
     elif policy == "pre-compact.sh":
         out["trigger"] = payload.get("trigger", "") or "auto"
     return out

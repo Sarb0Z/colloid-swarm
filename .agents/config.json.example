@@ -132,6 +132,9 @@
     },
     "publish_approval": {
       "enabled": true
+    },
+    "proxy_file_guard": {
+      "enabled": true
     }
   }
 }

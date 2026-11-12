@@ -146,6 +146,14 @@ matcher = "Bash"
 command = ".kimi/hooks/adapter.sh teardown-gate.sh"
 timeout = 10
 
+# A call that names a configured Scrapling proxy's env file is denied; Kimi's
+# file-read tools are Read and ReadFile (both appear in its session logs).
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash|Read|ReadFile|Grep"
+command = ".kimi/hooks/adapter.sh proxy-file-guard.sh"
+timeout = 10
+
 [[hooks]]
 event = "PreCompact"
 command = ".kimi/hooks/adapter.sh pre-compact.sh"
