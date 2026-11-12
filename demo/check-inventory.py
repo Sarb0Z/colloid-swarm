@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PAGE = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "demo/scaffold-showcase.html"
+PAGE = REPO / "demo/scaffold-showcase.html"
 GEN = REPO / "demo/embed-src.py"
 ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
         "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
