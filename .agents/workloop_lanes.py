@@ -26,6 +26,7 @@ from workloop_shared import LOCKFILE_ONLY, share_line, shared_lines
 from workloop_state import (
     ReadStore,
     Store,
+    activity_columns,
     fail,
     lane_of,
     now,
@@ -89,6 +90,9 @@ def cmd_claim(args: argparse.Namespace) -> None:
         lane["claimed_by"] = args.agent
         lane["claimed_at"] = now()
         lane["heartbeat_at"] = now()
+        # The new claimant has not acted yet: the last claimant's stamp and action are not its own.
+        lane.pop("activity", None)
+        lane.pop("activity_at", None)
         record(args.run, run, "claim", args.lane, args.agent, args.event_id)
     print(f"claimed lane {args.lane!r} for {args.agent}")
 
@@ -273,7 +277,8 @@ def cmd_status(args: argparse.Namespace) -> None:
             model = f"\tmodel={lane['model']}" if lane.get("model") else ""
             # The reviewer's accept names this commit (--tip).
             tip = f"\ttip={lane['tip'][:12]}" if lane.get("tip") and lane["state"] in ("review", "reviewed") else ""
-            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}{model}\t{', '.join(lane['paths'])}{tip}{lease}{progress}")
+            away = activity_columns(lane, "claimed_at") if lane["state"] == "active" and lane.get("claimed_at") else ""
+            print(f"{name}\t{lane['state']}{attention}\tpending={pending}\t{lane['worker']}{model}\t{', '.join(lane['paths'])}{tip}{lease}{progress}{away}")
         for line in wc.status_lines(run):
             print(line)
         if run.get("verify"):

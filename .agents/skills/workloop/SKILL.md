@@ -373,12 +373,18 @@ Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
 its host agent id at start and each unread message for its lane once between
 tool calls, and the lead hears at every prompt which lanes await review, carry
 attention, are stale or broken or growing past their size, and each run's next
-closing step: `integrate`, `check`, QA, or `teardown`. A hook
-cannot wake an idle lead, so for a run that outlives the lead's turn, schedule
-the poll: `/loop 10m .agents/workloop.py watch <run>`. On Codex and Kimi the manual
-`inbox` stands.
+closing step: `integrate`, `check`, QA, or `teardown`. The same hook stamps each
+background lane and cell with the time and its last tool call, at most once a
+minute, so `status` shows every agent's time out, its silence and its last action
+without the agent reporting anything. A hook cannot wake an idle lead, so when
+agents are still out as your turn ends, schedule the loop:
+`/loop 10m .agents/workloop.py watch <run>`. Each pass, post
+`.agents/workloop.py digest <run>` when it differs from the last one you
+posted, and end the loop when `.agents/workloop.py check <run> --recorded` passes. On Codex and
+Kimi the manual `inbox` stands.
 
-`watch` is read-only and reports O(lanes + messages) work. Its restart request
+`watch` is read-only and reports O(lanes + cells + messages) work. It and the
+loop serve any run, supervised or not. Its restart request
 must be delivered by a native host adapter or a lead; it never claims to restart or
 interrupt an agent itself. A run retains at most 128 messages by default.
 Archive acknowledgement-free status and evidence-ready chatter before that
