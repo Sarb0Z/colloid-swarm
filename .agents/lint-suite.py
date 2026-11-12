@@ -27,7 +27,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CI_ONLY = {
     ".agents/check-clean-tree.sh": "asserts the workflow's own earlier steps left the tree clean",
     "demo/embed-src.py": "regenerates the showcase panels so the clean-tree step can see drift",
-    "demo/check-inventory.py": "gates the showcase inventory, which only the carrier ships",
 }
 NOT_ON_CI = {}
 

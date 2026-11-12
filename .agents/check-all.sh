@@ -65,6 +65,7 @@ python3 .agents/eval/test-cell-time.py
 .agents/test-stack-packs.sh
 python3 .agents/port-public.py check
 .agents/test-port-public.sh
+python3 demo/check-inventory.py
 # /colloid-only
 LIST
 }
@@ -75,7 +76,14 @@ while IFS= read -r check; do
   script="${check#python3 }"
   script="${script%% *}"
   if [[ ! -e "$script" ]]; then
-    printf '== %s (absent here, skipped)\n' "$check"
+    # The carrier lists only what it ships, so a missing script there is a
+    # defect; a repository that pruned a skill or a subsystem skips it.
+    if [[ -e .agents/export-scaffold.py ]]; then
+      printf '== %s (listed but missing)\n' "$check"
+      failed+=("$check")
+    else
+      printf '== %s (absent here, skipped)\n' "$check"
+    fi
     continue
   fi
   printf '== %s\n' "$check"
