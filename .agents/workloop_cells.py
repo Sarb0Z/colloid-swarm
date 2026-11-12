@@ -150,7 +150,8 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
         "Question: the lead wrote it below the three lines of your dispatch prompt.",
         f"Workspace: the checkout {run['repo']}, read only — no worktree, no branch, no claim; another cell may be writing in it, so read committed state where it matters.",
         f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish.",
-        OPEN_GATES,
+        # A review cell closes with its contract's AMBIGUITY and HANDOFF lines.
+        *([OPEN_GATES] if cell["role"] != "review" else []),
         *([WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
         f"State: {command} status {run_name}",
     )) + "\n")

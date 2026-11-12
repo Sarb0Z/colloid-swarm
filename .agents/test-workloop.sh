@@ -1271,15 +1271,20 @@ expect "'solo' is a lane, whose brief prints without it" "${tool[@]}" brief oc s
 oc_status="$("${tool[@]}" status oc)"
 [[ "$oc_status" == *$'scout\tcell out\tresearch\tmodel=opus'* && "$oc_status" == *$'critic\tcell out\tqa\tmodel=sonnet'* ]] || fail "status does not list the cells with role, model and state: $oc_status"
 ok "add-cell records a read-only cell beside a one-writer run's lane, one namespace with it, and prints a READ-ONLY dispatch to its cells/<name>.md brief"
-# ── the open-gates line: root contract and every brief template share one format ──
-open_gates="$(cd "$repo/.agents" && python3 -c 'import workloop_cells as wc; print(wc.OPEN_GATES)')"
-gate_format='needs_confirmation: <gate> — <what waits> — <how to resume>'
-grep -qF -- "$gate_format" <<<"$open_gates" || fail "the shared open-gates line lacks the format: $open_gates"
-grep -qF -- "$gate_format" "$repo/AGENTS.md" || fail "the root AGENTS.md lacks the format: $gate_format"
+# ── the open-gates line: the root contract's sentence and the briefs' line, as tested in fresh sessions ──
+# A reviewer and a review cell close with their own contract's lines instead.
+root_gates='A final message that leaves a gate or a ruling open ends with one line for each, `needs_confirmation: <gate> — <what waits> — <how to resume>`.'
+open_gates='Open gates: finish the work no gate holds, then end your final message with one line per open gate or open ruling, `needs_confirmation: <gate> — <what waits> — <how to resume>`; never skip one.'
+grep -qF -- "$root_gates" "$repo/AGENTS.md" || fail "the root AGENTS.md lacks the open-gates sentence: $root_gates"
 grep -qxF -- "$open_gates" <<<"$(full_brief oc solo)" || fail "the worker brief lacks the open-gates line"
-grep -qxF -- "$open_gates" <<<"$(full_brief oc solo --role reviewer)" || fail "the reviewer brief lacks the open-gates line"
-grep -qxF -- "$open_gates" "$cell_file" || fail "the cell brief lacks the open-gates line"
-ok "the root contract and the worker, reviewer and cell briefs carry the same needs_confirmation format"
+grep -qxF -- "$open_gates" <<<"$(full_brief oc solo --role qa)" || fail "the qa brief lacks the open-gates line"
+grep -qxF -- "$open_gates" "$cell_file" || fail "the research cell's brief lacks the open-gates line"
+! grep -qF -- 'needs_confirmation:' <<<"$(full_brief oc solo --role reviewer)" || fail "the reviewer brief carries the open-gates line beside its contract's closing lines"
+"${tool[@]}" init og --objective x --acceptance y --repo "$work" --verify true --lane og-lane --worker implementer --path src >/dev/null
+"${tool[@]}" add-cell og judge --role review --model sonnet >/dev/null
+! grep -qF -- 'needs_confirmation:' "$real_work/.agents/worktrees/og/.workloop/cells/judge.md" || fail "a review cell's brief carries the open-gates line"
+"${tool[@]}" abandon og >/dev/null
+ok "the root contract, the worker and qa briefs and a research cell's brief carry the open-gates line; a reviewer's and a review cell's do not"
 # a cell's brief never lands on a main lane's: lane cell-a's brief and cell a's are two files
 "${tool[@]}" init sc --objective x --acceptance y --repo "$work" --verify true --lane cell-a --worker implementer --path src >/dev/null
 "${tool[@]}" add-cell sc a --role research --model haiku >/dev/null
