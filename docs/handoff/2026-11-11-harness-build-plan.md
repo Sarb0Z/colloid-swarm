@@ -463,13 +463,29 @@ the text the operator approved.
   and Prettier (same review, finding 14).
 - 4.4: added, since the live check showed the host hides readouts past the
   terminal's width (review `2026-11-12-session-wrap`, findings 7 and 9).
-- 4.1: the report flag clears by `owed.py clear report`, which the two report
-  playbooks gain as their last step, since a report lives in the reply and
-  leaves no file a flag could read; `owed.critical_paths` and `owed.suite`
-  are read from `policy.json` only. 4.2: `session-wrap.sh` learns the host
-  from a `host` field that the Claude normalizer adds to its branch; unit 5's
-  lane edits the same file in another run, so the second of the two merges
-  resolves it.
+- 4.1: the report flag clears by
+  `owed.py clear report --session "$CLAUDE_CODE_SESSION_ID"`, which the two
+  report playbooks gain as their last step, since a report lives in the reply
+  and leaves no file a flag could read. A clear names one session or `--all`,
+  since sessions share a checkout and one fresh session cleared every
+  session's flag (QA `2026-11-12-harness-u4`, scenario 8).
+  `owed.critical_paths` and `owed.suite` are read from `policy.json` only.
+  4.2: `session-wrap.sh` learns the host from a `host` field that the Claude
+  normalizer adds to its branch; unit 5's lane edits the same file in another
+  run, so the second of the two merges resolves it.
+- 4.1: a record covers a file only when its range touched the file and the
+  file's content at the record's tip equals HEAD, where the approved sentence
+  also admitted a record that never saw the change; both ends of a record are
+  commit hashes, since `HEAD` or a branch name follows later commits (review
+  `2026-11-12-harness-u4`, findings 1 and 2).
+- 4.1: the Verification lists in `.agents/AGENTS.md` and the scaffold README
+  become a pointer to `check-all.sh`, which holds the one list; a check
+  another session adds joins the script.
+- 4.2: pairing mode's learning report becomes a `learning` flag beside
+  `report` on Claude Code, cleared by `learning-report.md`'s last step
+  (Ruling 6).
+- 4.5: the guard and Claude's `permissions.ask` cover seventeen GitHub writes,
+  not five (review `2026-11-12-harness-u4`, findings 5 and 6).
 - 2.4: the window placeholders `{since}` and `{minutes}`, from the log
   research of 2026-11-12, settle the convention unit 7's review left to this
   unit (review `2026-11-12-harness-w1`, unit 7 finding 6).
@@ -489,6 +505,9 @@ Ruled by the operator on 2026-11-11.
    the QA gate change (2.1).
 5. Ruled on 2026-11-12: the five GitHub writes the publish guard lets
    through are fixed in unit 4, which already edits the guard (4.5).
+6. Ruled on 2026-11-12: on Claude Code the pairing-mode learning report is a
+   `learning` flag in the status strip, with nothing blocking (review
+   `2026-11-12-harness-u4`, finding 4).
 
 Decided by the lead, open to reversal: chunk 1.3 is dropped, since reviewers caught a planted false claim without its line, and unit 1's acceptance names its controls (2026-11-12); QA and review run side by side, with
 QA evidence bound to the tips it ran on (2.1); tsc errors outside the
