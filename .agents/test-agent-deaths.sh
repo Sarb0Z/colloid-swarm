@@ -251,6 +251,31 @@ expect(r.problems and "no session registry entry names this session, own-session
 print("ok    an own registry entry that is missing or fails ps prints the cannot-tell line, and nothing reads lost")
 PY
 
+# A clock step moves `ps`'s start on Linux: an entry within the slack reads live, one beyond it ended,
+# and a value that does not parse compares as text.
+python3 - <<'PY' || exit 1
+import os, sys
+sys.path.insert(0, os.environ["LIB"])
+from agent_sessions import Hosts, START_SLACK_SECONDS
+
+recorded = "Thu Jan  1 00:10:00 2026"
+def state(seen, entry=recorded):
+    hosts = Hosts([{"pid": 1, "session": "s", "proc_start": entry}], "s", lambda pid: seen)
+    return hosts.state("s")
+
+within = f"Thu Jan  1 00:10:{START_SLACK_SECONDS:02d} 2026"
+beyond = f"Thu Jan  1 00:10:{START_SLACK_SECONDS + 1:02d} 2026"
+assert state(recorded) == "live", "an identical start did not read live"
+assert state(within) == "live", f"a start {START_SLACK_SECONDS}s off did not read live"
+assert state("Thu Jan  1 00:09:55 2026") == "live", "a start earlier within the slack did not read live"
+assert state(beyond) == "unknown", "a start beyond the slack was trusted (the own session must fail the test)"
+other = Hosts([{"pid": 1, "session": "s", "proc_start": recorded}, {"pid": 2, "session": "t", "proc_start": recorded}], "s", lambda pid: recorded if pid == 1 else beyond)
+assert other.state("s") == "live" and other.state("t") == "ended", "a start beyond the slack did not read ended"
+assert state("not a date", entry="not a date") == "live", "equal unparseable values did not match as text"
+assert state("not a date") == "unknown", "an unparseable value matched a parsed one"
+print("ok    a registry start within the slack of ps reads live, one beyond it ended, an unparseable value compares as text")
+PY
+
 # An `api-request-blob` record copies an earlier request, edit calls and all, and
 # carries no timestamp: the reader takes its paths as before and does not fail on it.
 d="$(case_dir blob)"
