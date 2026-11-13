@@ -225,6 +225,19 @@ def report(repo: Path, session: str, runs: dict, effects: Effects) -> Report:
     return result
 
 
+def judged_dead(repo: Path) -> dict[str, tuple[str, str]]:
+    """{agent id: (state, cause)} of the agents the last read judged failed, lost or parked and
+    no dismissal covers, from the cache alone: the statusline reads this at every refresh and
+    runs no reader. A missing or unreadable cache or dismissal file gives {}."""
+    try:
+        judged = json.loads((repo / ".agents" / CACHE).read_bytes())["judged"]
+        dismissals = agent_dismissals.dismissed(repo / ".agents")
+        return {aid: (state, cause) for aid, (state, cause, at, _job) in judged.items()
+                if not agent_dismissals.covers(dismissals, aid, at)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
 def _load(path: Path) -> dict:
     """The cache, or an empty one. A cache written by other reader code keeps only the agents it
     showed, as transcripts to read again, and its verdicts: every entry it settled was judged by
