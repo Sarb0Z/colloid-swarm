@@ -153,6 +153,10 @@ def repl(m):
     return f"{open_tag}{inner}\n              {panel(rel)}\n            {close}"
 
 
+class PageError(Exception):
+    """The page cannot be rebuilt: it lacks a block the publish variant is cut from."""
+
+
 def render(page):
     """The page with every panel rebuilt from its source, and the publish variant built from it.
 
@@ -162,7 +166,7 @@ def render(page):
     style = re.search(r"<style>.*?</style>", out, re.S)
     body = re.search(r"<body>(.*)</body>", out, re.S)
     if style is None or body is None:
-        sys.exit(f"embed-src: {PAGE} has no <style> or <body> block to build the publish variant from")
+        raise PageError(f"{os.path.relpath(PAGE, REPO)} has no <style> or <body> block to build the publish variant from")
     return out, style.group(0) + "\n\n" + body.group(1).strip() + "\n"
 
 
@@ -173,7 +177,10 @@ def main():
     missing = [k for k in MANIFEST if k not in seen]
     if missing:
         sys.stderr.write("warning: manifest keys not found on page: %s\n" % ", ".join(missing))
-    out, artifact = render(page)
+    try:
+        out, artifact = render(page)
+    except PageError as error:
+        sys.exit(f"embed-src: {error}")
     with open(PAGE, "w", encoding="utf-8") as f:
         f.write(out)
     embedded = out.count('data-gen="1"')

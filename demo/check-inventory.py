@@ -41,11 +41,12 @@ def word(n):
 
 WORDS = {n: word(n) for n in range(1, 100)}
 
-page = PAGE.read_text()
+page = PAGE.read_text(encoding="utf-8")
 spec = importlib.util.spec_from_file_location("embed_src", GEN)
 if spec is None or spec.loader is None:
     raise SystemExit(f"check-inventory: cannot load {GEN.name} as Python")
 embed = importlib.util.module_from_spec(spec)
+sys.dont_write_bytecode = True   # loading the generator leaves no __pycache__ beside it
 spec.loader.exec_module(embed)
 problems = []
 
@@ -81,10 +82,10 @@ skills = compare(
 )
 
 manifest = embed.MANIFEST
-absent = sorted({rel for rel in manifest.values() if not (REPO / rel).exists()})
+absent = sorted({rel for rel in manifest.values() if not (REPO / rel).is_file()})
 for key, rel in sorted(manifest.items()):
     if rel in absent:
-        problems.append(f"manifest: `{key}` points at `{rel}`, which does not exist")
+        problems.append(f"manifest: `{key}` points at `{rel}`, which is not a file")
     if key not in page:
         problems.append(f"manifest: `{key}` has no card on the page")
 for name in sorted(hooks - set(manifest)):
@@ -92,14 +93,20 @@ for name in sorted(hooks - set(manifest)):
 for name in sorted(skills - set(manifest)):
     problems.append(f"manifest: skill `{name}` has a card but no source panel")
 
-# A panel quotes its file whole, so any edit to the file leaves it stale.
+# A panel quotes its file whole, so any edit to the file leaves it stale. Bytes
+# are compared, as a clean-tree check would see them, line endings included.
 if not absent:
-    fresh_page, fresh_artifact = embed.render(page)
-    if fresh_page != page:
-        stale = sorted({rel for rel in manifest.values() if embed.panel(rel) not in page})
-        problems.append(f"panels: stale against {', '.join(f'`{rel}`' for rel in stale) or 'the manifest'}")
-    if not ARTIFACT.exists() or ARTIFACT.read_text() != fresh_artifact:
-        problems.append(f"panels: `{ARTIFACT.relative_to(REPO)}` is not the publish variant of the page")
+    try:
+        fresh_page, fresh_artifact = embed.render(page)
+    except embed.PageError as error:
+        problems.append(f"page: {error}")
+    else:
+        if fresh_page.encode("utf-8") != PAGE.read_bytes():
+            stale = sorted({rel for rel in manifest.values() if embed.panel(rel) not in page})
+            problems.append(f"panels: stale against {', '.join(f'`{rel}`' for rel in stale)}" if stale
+                            else f"page: `{PAGE.relative_to(REPO)}` is not what `embed-src.py` writes from it")
+        elif not ARTIFACT.is_file() or ARTIFACT.read_bytes() != fresh_artifact.encode("utf-8"):
+            problems.append(f"panels: `{ARTIFACT.relative_to(REPO)}` is not the publish variant of the page")
 
 # The headline counts are hand-written, and they are what went stale first.
 for claimed, actual, noun in [
