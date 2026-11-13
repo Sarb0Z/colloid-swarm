@@ -609,6 +609,34 @@ expect(sorted(r.shown) == ["amisread", "aold"], "a cache from other reader code 
 print("ok    a cache written by other reader code is judged again, keeping the agents it showed")
 PY
 
+# The start rule (process_start.py) is reader code too: a cache written before it
+# changed is judged again. The case edits its own copy of the modules.
+d="$(case_dir start-rule)"
+cp -R "$repo/.agents/hooks/lib" "$d/lib"
+LIB="$d/lib" python3 - "$d" <<'PY' || exit 1
+import importlib, json, os, sys
+from pathlib import Path
+from fx import *
+import agent_deaths
+d = Path(sys.argv[1]); store = Store(d / "home"); repo = checkout(d / "repo")
+store.session(OWN, repo); store.register(OWN, NOW - 7200)
+store.session("s-gone", repo)
+store.agent("s-gone", "amisread", [prompt(NOW - 3000), edit(NOW - 2900, repo / "b.txt", "u2"), result(NOW - 2890, "u2")], repo, finished=False)
+(repo / "b.txt").write_text("changed\n")
+expect(store.read(repo).shown == ["amisread"], "the lost agent was not shown")
+cache_path = repo / ".agents" / ".readout" / ".agent-deaths-cache"
+cache = json.loads(cache_path.read_text())
+cache["agents"]["amisread"] = {"file": cache["agents"]["amisread"]["file"], "settled": "completed"}
+cache_path.write_text(json.dumps(cache))
+expect(store.read(repo).shown == [], "a cache this same code wrote was judged again")
+rule = Path(os.environ["LIB"]) / "process_start.py"
+rule.write_text(rule.read_text() + "\n# a changed start rule\n")
+importlib.reload(agent_deaths)
+r = store.read(repo)
+expect(r.shown == ["amisread"], "a cache written before process_start.py changed kept its settled verdict", r)
+print("ok    a cache written before the start rule changed is judged again")
+PY
+
 # Review finding 5: a transcript's unfinished last line, which Claude Code is
 # still writing, is skipped; an agent whose read fails keeps its session's
 # verdicts, so the next read still finds the parent's "stalled".
