@@ -18,9 +18,29 @@ earlier versions wrote `state: "blocked"`.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from agent_records import need, real_folders
+
+# On Linux `ps` derives a process's start from the boot time, which a clock step moves, so a
+# live session's start can drift from the recorded one by the size of the step. A reused pid
+# belongs to a process started after its session ended, so its start differs from the recorded
+# one by at least the session's lifetime, far more than this.
+START_SLACK_SECONDS = 5
+LSTART_FORMAT = "%a %b %d %H:%M:%S %Y"
+
+
+def same_start(recorded: str | None, seen: str | None) -> bool:
+    """Whether two `lstart` texts name the same process start: equal as text, or both parse
+    and lie within START_SLACK_SECONDS of each other."""
+    if recorded == seen:
+        return True
+    try:
+        gap = datetime.strptime(recorded, LSTART_FORMAT) - datetime.strptime(seen, LSTART_FORMAT)
+    except (ValueError, TypeError):
+        return False
+    return abs(gap.total_seconds()) <= START_SLACK_SECONDS
 
 
 def registry(dirs: list[Path]) -> tuple[list[dict], list[str]]:
@@ -77,7 +97,7 @@ def stopped_jobs(dirs: list[Path]) -> tuple[dict[str, str], list[str]]:
 
 class Hosts:
     """Which sessions run now: a session is live when a registry entry names it and its
-    process's start, from `proc_start(pid)`, equals the entry's `procStart`, which rejects an
+    process's start, from `proc_start(pid)`, matches the entry's `procStart` (`same_start`), which rejects an
     entry a killed process left. The test is trusted once it passes for the reader's own
     session (`trusted`)."""
 
@@ -92,7 +112,7 @@ class Hosts:
         return self.seen[entry["pid"]]
 
     def live(self, session: str) -> dict | None:
-        return next((e for e in self.entries if e["session"] == session and self.started(e) == e["proc_start"]), None)
+        return next((e for e in self.entries if e["session"] == session and same_start(e["proc_start"], self.started(e))), None)
 
     def trusted(self) -> bool:
         """Whether the liveness test held for the reader's own session; `why` says why not. A
