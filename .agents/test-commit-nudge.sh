@@ -67,7 +67,7 @@ edit w1 "$dir/src/a.txt" 31
 edit w1 "$dir/src/b.txt" 5
 got="$(fire w1)"
 since="$(python3 -c 'import time; print(time.strftime("%H:%M", time.localtime(time.time() - 31 * 60)))')"
-[[ "$got" == "COMMIT: 2 of your edited files have been uncommitted since $since (31 min). Commit each piece whose acceptance passes, staging by path." ]] \
+[[ "$got" == "COMMIT: 2 of your edited files have been uncommitted since $since (31 min). Commit each piece whose acceptance passes, staging by path, unless this repository says commits wait for the operator." ]] \
   || fail "1: the nudge read '$got' (stderr: $(cat "$scratch/err"))"
 ok "a lane writer whose oldest uncommitted edit is 31 minutes old hears one COMMIT: line"
 
@@ -99,9 +99,18 @@ printf 'd\n' > "$dir/src/d.txt"
 edit w2 "$dir/src/d.txt" 40
 printf '{"hooks":{"workloop_inbox":{"enabled":true},"commit_nudge":{"enabled":false}}}\n' > "$config"
 expect_none "$(fire w2)" "6: with hooks.commit_nudge.enabled false"
+[[ ! -e "$dir/.agents/.readout/.commit-nudge-w2" ]] || fail "6: the toggle off still read the transcript and wrote state"
 printf '{"hooks":{"workloop_inbox":{"enabled":true},"commit_nudge":{"enabled":true}}}\n' > "$config"
 [[ "$(fire w2)" == "COMMIT: 1 of your edited files"*"(40 min)."* ]] || fail "6: the toggle on again did not nudge: $(fire w2)"
-ok "hooks.commit_nudge.enabled false silences it, and on it speaks"
+ok "hooks.commit_nudge.enabled false silences it and leaves the offset where it was, and on it speaks"
+
+# 6b. A config that does not parse: silent, with the reason on stderr.
+printf '{not json\n' > "$config"
+rm -f "$dir/.agents/.readout/.commit-nudge-w2"
+[[ -z "$(fire w2)" && "$(cat "$scratch/err")" == *"commit_nudge: w2 gets no commit reminder: policy.json or config.json does not parse"* ]] \
+  || fail "6b: an unparsed config: $(cat "$scratch/err")"
+printf '{"hooks":{"workloop_inbox":{"enabled":true},"commit_nudge":{"enabled":true}}}\n' > "$config"
+ok "a config that does not parse leaves the nudge silent and says why on stderr"
 
 # 7. A cell with no lane, and the lead.
 edit w9 "$dir/src/d.txt" 90
@@ -122,6 +131,31 @@ edit w1 "$dir/src/e.txt" 60
 rewind w1
 printf 'not json\n' > "$dir/.agents/.readout/.commit-nudge-w1"
 out="$(printf '{"project_dir":"%s","event":"PostToolBatch","session_id":"s1","agent_id":"w1","transcript_path":"%s"}' "$dir" "$transcript_path" | bash "$policy" 2>"$scratch/err")" \
-  || fail "8: the hook exited non-zero"
-[[ -z "$out" && "$(cat "$scratch/err")" == *"commit_nudge: w1 gets no commit reminder"* ]] || fail "8: out='$out' err='$(cat "$scratch/err")'"
+  || fail "9: the hook exited non-zero"
+[[ -z "$out" && "$(cat "$scratch/err")" == *"commit_nudge: w1 gets no commit reminder"* ]] || fail "9: out='$out' err='$(cat "$scratch/err")'"
 ok "a failing nudge reports on stderr and the hook exits 0"
+
+# 10. Which edited paths count as uncommitted: a modified tracked file, a staged-only file, and a rename
+# (its from-path, which git lists as well as the to-path).
+printf 'one\n' > "$dir/src/tracked.txt"; printf 'two\n' > "$dir/src/old-name.txt"
+git -C "$dir" add -- src/tracked.txt src/old-name.txt
+git -C "$dir" -c user.name=t -c user.email=t@t commit -q -m tracked
+printf 'changed\n' >> "$dir/src/tracked.txt"
+printf 'staged\n' > "$dir/src/staged.txt"; git -C "$dir" add -- src/staged.txt
+git -C "$dir" mv src/old-name.txt src/new-name.txt
+rm -f "$dir/.agents/.readout/.commit-nudge-w3"
+python3 - "$state" <<'PY'
+import json, sys
+path = sys.argv[1]; d = json.load(open(path))
+lane = dict(d["runs"]["r1"]["lanes"]["w1"], claimed_by="w3"); d["runs"]["r1"]["lanes"]["w3"] = lane
+json.dump(d, open(path, "w"))
+PY
+for name in tracked staged old-name; do edit w3 "$dir/src/$name.txt" 45; done
+[[ "$(fire w3)" == "COMMIT: 3 of your edited files"*"(45 min)."* ]] \
+  || fail "10: a modified tracked file, a staged-only file and a rename's from-path were not all counted: $(fire w3) $(cat "$scratch/err")"
+ok "a modified tracked file, a staged-only file and a rename's from-path each count as uncommitted"
+
+# 11. One shared lock file, and no lock file per agent.
+[[ -e "$dir/.agents/.readout/.commit-nudge.lock" ]] || fail "11: no shared lock file"
+[[ -z "$(ls "$dir/.agents/.readout" | grep -E '^\.commit-nudge-.*\.lock$' || true)" ]] || fail "11: a per-agent lock file remains"
+ok "the nudge keeps one shared lock file and none per agent"

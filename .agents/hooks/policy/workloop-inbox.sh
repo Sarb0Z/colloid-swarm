@@ -75,9 +75,9 @@ fi
 block="$(python3 "$lib/workloop-inbox.py" "$state" "$proj/.agents" "$session" "$event" "$agent_id")"
 
 # A lane's writer sitting on edits over 30 minutes old hears a COMMIT: line
-# (commit_nudge.py); a cell with no lane, and the lead, hear nothing from it.
-if [[ -n "$agent_id" && "$event" == "PostToolBatch" && -f "$state" ]] \
-    && [[ "$(python3 "$lib/config.py" "$cfg_path" hooks.commit_nudge.enabled=true 2>/dev/null || echo yes)" != "no" ]]; then
+# (commit_nudge.py, which reads the toggle itself); a cell with no lane, and the
+# lead, hear nothing from it.
+if [[ -n "$agent_id" && "$event" == "PostToolBatch" && -f "$state" ]]; then
   nudge="$(python3 "$lib/commit_nudge.py" "$state" "$proj/.agents" "$session" "$agent_id" "$transcript")" \
     || { echo "workloop-inbox: the commit reminder for $agent_id failed" >&2; nudge=""; }
   [[ -z "$nudge" ]] || block="${block:+$block$'\n'}$nudge"

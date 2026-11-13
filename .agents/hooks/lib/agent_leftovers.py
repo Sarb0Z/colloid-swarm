@@ -23,6 +23,7 @@ from pathlib import Path
 
 from agent_records import mtime_ns
 from readout import CONTROL
+from workloop_size import status_paths
 
 SAVED_SUBJECT = "Save unsaved work from worktree "
 
@@ -103,13 +104,7 @@ class Places:
         out = self._ask(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *sorted(names))
         if out is None:
             return None
-        found, entries = set(), iter(out.split("\0"))
-        for entry in entries:
-            if len(entry) > 3:
-                found.add(entry[3:])
-                if entry[0] in "RC":
-                    found.add(next(entries, ""))
-        return found & names
+        return status_paths(out) & names
 
     def saved_with(self, root: Path, names: set[str]) -> tuple[str | None, bool]:
         """The `saved/` branch of the removed worktree `root` whose commit holds any of the names,

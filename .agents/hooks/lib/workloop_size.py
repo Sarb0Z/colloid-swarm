@@ -53,7 +53,11 @@ class GitBudget:
         # one repository.
         env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         try:
-            result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, timeout=remaining, env=env)
+            # Every caller only reads; without --no-optional-locks a status takes
+            # .git/index.lock to refresh the index and fails a concurrent `git add`
+            # or `git commit` of another session in the same checkout.
+            result = subprocess.run(["git", "--no-optional-locks", "-C", str(repo), *args],
+                                    text=True, capture_output=True, timeout=remaining, env=env)
         except (OSError, subprocess.TimeoutExpired) as error:
             return self._drop(args, repo, str(error))
         if result.returncode != 0:
@@ -64,6 +68,17 @@ class GitBudget:
         self.dropped += 1
         print(f"workloop-inbox: git {args[0]} in {repo} dropped: {reason}", file=sys.stderr)
         return None
+
+
+def status_paths(out: str) -> set[str]:
+    """The paths in the stdout of `git status --porcelain -z`, a rename's or copy's from-path included."""
+    found, entries = set(), iter(out.split("\0"))
+    for entry in entries:
+        if len(entry) > 3:
+            found.add(entry[3:])
+            if entry[0] in "RC":
+                found.add(next(entries, ""))
+    return found
 
 
 def changed_lines(git: GitBudget, lane: dict, run: dict) -> int | None:
