@@ -469,7 +469,18 @@ between tool calls it hears each unread message for that lane once; at every
 prompt and at session start the lead hears which lanes await review, carry
 attention, are stale or broken, and when a run is ready to integrate.
 Delivery is remembered in `.agents/.inbox-seen-<session>-<agent>`; the toggle
-is `hooks.workloop_inbox.enabled`.
+is `hooks.workloop_inbox.enabled`. The toggle also carries the `AGENT DIED:`
+lines at each prompt; session start shows them whether it is on or off.
+
+The death reader (`hooks/lib/agent_deaths.py`) finds each background agent
+that died having touched this checkout, from Claude Code's own records and not
+from a second ledger of ours. It shows one `AGENT DIED:` line per such agent
+at every session start and lead prompt, with the cause, the uncommitted edits
+and the remedy, until the agent is resumed, has left nothing, or
+`workloop.py dismiss <agent id> --reason '<why>'` dismisses that death. The
+status strip reads the reader's cache at each refresh and names a lane whose
+claimant, or a cell whose agent, died (`<run>/<lane> died <cause>`) or is
+parked; it runs no reader. See decision `agent-death-reader`.
 
 `parallel-writers-gate.sh` is the rail that makes that the default rather than
 a choice, and it guards this checkout, not the session. On Claude it watches

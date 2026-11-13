@@ -155,9 +155,27 @@ cell out again. `status` and the lead's digest list cells still out; `check`,
 `teardown` and the session end will not close the run while one is, though
 `check` still runs a one-writer run's composed test and names `returned` for
 each, and `integrate` does not wait for them. A torn-down run takes no cell.
-No cell outlives its session, so a cell
-still out at a startup or resume is named with `--failed` or `--again`, unless
-another live session leads its run; a compaction or `/clear` ends no cell.
+A cell still out at a startup or resume has its agent's `AGENT DIED:` line once
+the death reader shows it, and that line decides what follows (below); name a
+cell `--failed` or `--again` only by the line's own remedy, unless another live
+session leads its run. A compaction or `/clear` ends no cell.
+
+A dead cell or lane worker shows as an `AGENT DIED:` line at session start and at
+your prompt, naming its agent id, its session and its cause.
+- A line whose remedy reads "resume it: SendMessage to <id>" is the agent of
+  this session, or of one resumed with `claude --resume`: your first step is
+  `SendMessage` to that agent id, and it continues with its history and its
+  edits. Run `brief <run> <name> --again` for a cell, or `release-stale <run>
+  <lane>` for a lane, only after that `SendMessage` has failed.
+- A line naming another session is resumed in that session. Run `brief --again`
+  or `release-stale` only after `workloop.py dismiss <id> --reason '<why>'`, as
+  the line says; tell the operator which of the two the work needs.
+- Resume once without asking the operator, whatever the cause, except these,
+  which go to the operator with the line, to decide: "failed again after a
+  resume", a usage limit (`rate_limit`), and a lost session ("session ended",
+  "session restarted").
+- An `AGENT PARKED:` line reads `claude respawn <id>`; run that instead of a
+  `SendMessage`.
 
 A lane's own review stays `brief <run> <lane> --role reviewer`, which names
 the commits and the `review --tip` handoff; a review cell is for what is not a
