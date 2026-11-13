@@ -387,13 +387,25 @@ for source in compact clear; do
 done
 # a run another live session leads keeps its cells running; one this session also leads does not
 records="$dir/.agents/worktrees/.records"; mkdir -p "$records"
-live_host="$(cd "$dir/.agents/hooks/lib" && python3 -c 'import json, os, worktree_records as wr; print(json.dumps([os.getppid(), wr.ps_row(os.getppid())[1]]))')"
-printf '{"type": "run", "run": "c-two", "state": "x", "host": %s}\n{"type": "run", "run": "c-one", "state": "x", "host": %s}\n' "$live_host" "$live_host" > "$records/other.jsonl"
-printf '{"type": "run", "run": "c-one", "state": "x", "host": [1, "gone"]}\n' > "$records/s1.jsonl"
+# Stamps as the records write them, `host` and `start`, of this shell: the fake ps
+# reports its start as the real one gives it. An ended session's stamp holds a
+# start this shell never had.
+printf '%s\t%s\n' $$ "$(LC_ALL=C TZ=UTC "$real_ps" -o lstart= -p $$ | awk '{$1=$1};1')" >> "$PS_STARTS"
+stamp_of() {  # <live|ended>: the stamp's keys, to go inside a record line
+  (cd "$dir/.agents/hooks/lib" && python3 -c '
+import json, sys, worktree_records as wr
+pid = int(sys.argv[1]); start = wr.ps.read(pid)
+if sys.argv[2] == "ended":
+    start = dict(start, ticks=start["ticks"] + 1) if "ticks" in start else {"epoch": start["epoch"] - 3600}
+print(json.dumps({"host": [pid, wr.ps_row(pid)[1]], "start": start})[1:-1])' $$ "$1")
+}
+live_host="$(stamp_of live)" ended_host="$(stamp_of ended)"
+printf '{"type": "run", "run": "c-two", "state": "x", %s}\n{"type": "run", "run": "c-one", "state": "x", %s}\n' "$live_host" "$live_host" > "$records/other.jsonl"
+printf '{"type": "run", "run": "c-one", "state": "x", %s}\n' "$ended_host" > "$records/s1.jsonl"
 ctx="$(start_digest startup)"
 has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); returned c-two <name> when each comes back" "another live session's run at a start"
 has "$ctx" "its AGENT DIED line says how to resume it in the session that owns it; to send it again instead, dismiss that line, then brief c-one scout --again" "a run this session leads beside a live one"
-printf '{"type": "run", "run": "c-two", "state": "x", "host": [1, "gone"]}\n' > "$records/other.jsonl"
+printf '{"type": "run", "run": "c-two", "state": "x", %s}\n' "$ended_host" > "$records/other.jsonl"
 has "$(start_digest startup)" "no cell outlives its session: each one's AGENT DIED line" "a run whose only other lead has ended"
 rm -rf "$records"
 ok "cells still out are named at a prompt with returned, and at a startup or resume sent to their AGENT DIED lines, with brief --again only after a dismiss, for runs this session or no live session leads"
