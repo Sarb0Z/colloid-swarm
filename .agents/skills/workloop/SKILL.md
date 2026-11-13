@@ -159,6 +159,18 @@ No cell outlives its session, so a cell
 still out at a startup or resume is named with `--failed` or `--again`, unless
 another live session leads its run; a compaction or `/clear` ends no cell.
 
+A dead cell or lane worker shows as an `AGENT DIED:` line at session start and at
+your prompt, naming its agent id and its cause. Your first step is `SendMessage`
+to that agent id: it continues with its history and its edits. Run
+`brief <run> <name> --again` for a cell, or `release-stale <run> <lane>` for a
+lane, only after the `SendMessage` has failed or when the line says the agent
+cannot be resumed. When the cause is a lost connection (`connection_failed`), a
+network error or a stall, send that `SendMessage` once without asking the
+operator. When the line reads "failed again after a resume", the cause is a
+usage limit (`rate_limit`) or the agent's session was lost, do not resume it:
+bring the line to the operator and ask what to do. An `AGENT PARKED:` line reads
+`claude respawn <id>`; run that instead of a `SendMessage`.
+
 A lane's own review stays `brief <run> <lane> --role reviewer`, which names
 the commits and the `review --tip` handoff; a review cell is for what is not a
 lane, such as a plan. A run started without `--verify` is a read-only fan-out:
