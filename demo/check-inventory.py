@@ -3,10 +3,12 @@
 
 The page drifted across roughly ten commits because nothing compared it to the
 repository: `embed-src.py` refreshes the source panel inside a card that already
-exists, and is silent about a hook or skill that has no card at all.
+exists, and is silent about a hook or skill that has no card at all. A panel
+whose source changed since the last `embed-src.py` run, or a publish variant
+built from another page, fails here too, so the suite sees what CI sees.
 
-Read-only by design — CI asserts a clean working tree, so this reports drift and
-leaves the fix to `embed-src.py` plus a hand-written card.
+Read-only by design: it reports drift and leaves the fix to `embed-src.py` plus
+a hand-written card.
 
 Hooks and skills are checked for full coverage because those are the sets that
 grow. Playbooks and personas are checked only through the manifest, since not
@@ -15,12 +17,14 @@ same way the page did.
 
 The page's prose is not compared to the code: debt: showcase-prose-unchecked
 """
+import importlib.util
 import re
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 PAGE = REPO / "demo/scaffold-showcase.html"
+ARTIFACT = REPO / "demo/scaffold-showcase.artifact.html"
 GEN = REPO / "demo/embed-src.py"
 ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
         "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
@@ -38,7 +42,11 @@ def word(n):
 WORDS = {n: word(n) for n in range(1, 100)}
 
 page = PAGE.read_text()
-gen = GEN.read_text()
+spec = importlib.util.spec_from_file_location("embed_src", GEN)
+if spec is None or spec.loader is None:
+    raise SystemExit(f"check-inventory: cannot load {GEN.name} as Python")
+embed = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(embed)
 problems = []
 
 
@@ -72,9 +80,10 @@ skills = compare(
     {p.name for p in (REPO / ".agents/skills").iterdir() if p.is_dir()},
 )
 
-manifest = dict(re.findall(r'"([^"]+)":\s+"([^"]+)"', gen))
+manifest = embed.MANIFEST
+absent = sorted({rel for rel in manifest.values() if not (REPO / rel).exists()})
 for key, rel in sorted(manifest.items()):
-    if not (REPO / rel).exists():
+    if rel in absent:
         problems.append(f"manifest: `{key}` points at `{rel}`, which does not exist")
     if key not in page:
         problems.append(f"manifest: `{key}` has no card on the page")
@@ -82,6 +91,15 @@ for name in sorted(hooks - set(manifest)):
     problems.append(f"manifest: hook `{name}` has a card but no source panel")
 for name in sorted(skills - set(manifest)):
     problems.append(f"manifest: skill `{name}` has a card but no source panel")
+
+# A panel quotes its file whole, so any edit to the file leaves it stale.
+if not absent:
+    fresh_page, fresh_artifact = embed.render(page)
+    if fresh_page != page:
+        stale = sorted({rel for rel in manifest.values() if embed.panel(rel) not in page})
+        problems.append(f"panels: stale against {', '.join(f'`{rel}`' for rel in stale) or 'the manifest'}")
+    if not ARTIFACT.exists() or ARTIFACT.read_text() != fresh_artifact:
+        problems.append(f"panels: `{ARTIFACT.relative_to(REPO)}` is not the publish variant of the page")
 
 # The headline counts are hand-written, and they are what went stale first.
 for claimed, actual, noun in [
@@ -114,7 +132,7 @@ if problems:
     sys.stderr.write("showcase drifted from the scaffold:\n")
     for line in problems:
         sys.stderr.write(f"  - {line}\n")
-    sys.stderr.write("\nAdd the card by hand, then run `python3 demo/embed-src.py`.\n")
+    sys.stderr.write("\nAdd any missing card by hand, then run `python3 demo/embed-src.py`.\n")
     raise SystemExit(1)
 print(f"showcase: {len(hooks)} hook policies, {len(skills)} skills, "
       f"{len(manifest)} source panels — page matches the repository")

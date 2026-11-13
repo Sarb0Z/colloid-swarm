@@ -354,11 +354,11 @@ def gate(out, config):
 
 
 def verify(out):
-    """Run the CI demo step and the repository's check list in the filtered checkout."""
+    """Run the repository's check list in the filtered checkout, then check it left the tree clean."""
     if not (out / ".agents/check-all.sh").exists():
         fail("the filtered tree has no .agents/check-all.sh, the check list to run")
-    steps = ["python3 demo/embed-src.py"] if (out / "demo/embed-src.py").exists() else []
-    steps.append(".agents/check-all.sh")   # names each failing check itself; demo/check-inventory.py is on it
+    # names each failing check itself; demo/check-inventory.py on it fails a stale showcase
+    steps = [".agents/check-all.sh"]
     if (out / ".agents/check-clean-tree.sh").exists():
         steps.append(".agents/check-clean-tree.sh")   # last, as in CI: no check may dirty the tree
     failed = []

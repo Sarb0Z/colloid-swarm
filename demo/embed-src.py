@@ -153,6 +153,19 @@ def repl(m):
     return f"{open_tag}{inner}\n              {panel(rel)}\n            {close}"
 
 
+def render(page):
+    """The page with every panel rebuilt from its source, and the publish variant built from it.
+
+    `check-inventory.py` compares both with the files on disk.
+    """
+    out = ARTICLE.sub(repl, page)
+    style = re.search(r"<style>.*?</style>", out, re.S)
+    body = re.search(r"<body>(.*)</body>", out, re.S)
+    if style is None or body is None:
+        sys.exit(f"embed-src: {PAGE} has no <style> or <body> block to build the publish variant from")
+    return out, style.group(0) + "\n\n" + body.group(1).strip() + "\n"
+
+
 def main():
     with open(PAGE, encoding="utf-8") as f:
         page = f.read()
@@ -160,19 +173,13 @@ def main():
     missing = [k for k in MANIFEST if k not in seen]
     if missing:
         sys.stderr.write("warning: manifest keys not found on page: %s\n" % ", ".join(missing))
-    out, count = ARTICLE.subn(repl, page)
+    out, artifact = render(page)
     with open(PAGE, "w", encoding="utf-8") as f:
         f.write(out)
     embedded = out.count('data-gen="1"')
-    print(f"embedded {embedded} source panels across {count} cards -> {os.path.relpath(PAGE, REPO)}")
-
-    style = re.search(r"<style>.*?</style>", out, re.S)
-    body = re.search(r"<body>(.*)</body>", out, re.S)
-    if style is None or body is None:
-        sys.exit(f"embed-src: {PAGE} has no <style> or <body> block to build the publish variant from")
-    style, body = style.group(0), body.group(1).strip()
+    print(f"embedded {embedded} source panels across {len(ARTICLE.findall(out))} cards -> {os.path.relpath(PAGE, REPO)}")
     with open(ARTIFACT, "w", encoding="utf-8") as f:
-        f.write(style + "\n\n" + body + "\n")
+        f.write(artifact)
     print(f"wrote publish variant -> {os.path.relpath(ARTIFACT, REPO)}")
 
 

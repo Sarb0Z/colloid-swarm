@@ -75,6 +75,7 @@ python3 .agents/eval/test-cell-time.py
 python3 .agents/port-public.py check
 .agents/test-port-public.sh
 python3 demo/check-inventory.py
+.agents/test-showcase.sh
 # /colloid-only
 LIST
 }

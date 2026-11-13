@@ -33,6 +33,7 @@ DROPPED_PATHS = (
     ".agents/test-port-public.sh",
     ".agents/public",
     ".agents/test-stack-packs.sh",
+    ".agents/test-showcase.sh",
     ".agents/lint-contract.py",
     ".agents/lint-suite.py",
     ".agents/policy.json",
