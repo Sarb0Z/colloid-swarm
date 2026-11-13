@@ -6,6 +6,8 @@
 # Code's real records; the real sessions of the plan's acceptance catch that.
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+# The reader reads $CLAUDE_CONFIG_DIR before the fake home's folders.
+unset CLAUDE_CONFIG_DIR
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
@@ -22,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.environ["LIB"])
 import agent_deaths as ad  # noqa: E402
+from agent_effects import write_atomic  # noqa: E402
 from workloop_size import GitBudget  # noqa: E402
 
 NOW = time.time()
@@ -167,9 +170,31 @@ class Store:
             self.starts[self.pids] = lstart or stamp
         return self.pids
 
-    def read(self, repo, own=OWN, runs=None):
-        effects = ad.Effects(now=time.time(), home=self.home, config_dir="", proc_start=self.starts.get, git=GitBudget().out)
+    def read(self, repo, own=OWN, runs=None, git=None):
+        effects = ad.Effects(now=time.time(), home=self.home, config_dir="", proc_start=self.starts.get,
+                             git=git or GitBudget().out, write=write_atomic)
         return ad.report(Path(repo), own, runs or {}, effects)
+
+
+def failing(subcommand):
+    """Git that gives no answer to `subcommand`, as GitBudget gives none on a failure or a timeout."""
+    real = GitBudget().out
+    return lambda root, *args: None if args[0] == subcommand else real(root, *args)
+
+
+def save_branch(repo, gone):
+    """A removed worktree `gone` whose x.txt was saved on saved/gone-lane, as worktree_removal.py commits it."""
+    out = lambda *args, **kw: subprocess.run(["git", "-C", str(repo), "-c", "user.name=f", "-c", "user.email=f@x", *args],
+                                             capture_output=True, text=True, check=True, **kw).stdout.strip()
+    blob = out("hash-object", "-w", "--stdin", input="saved\n")
+    git(repo, "update-index", "--add", "--cacheinfo", f"100644,{blob},x.txt")
+    tree = out("write-tree")
+    git(repo, "read-tree", "HEAD")
+    commit = out("commit-tree", tree, "-p", "HEAD", "-m", f"Save unsaved work from worktree {gone}\n\nCommitted when the session ended.")
+    git(repo, "update-ref", "refs/heads/saved/gone-lane", commit)
+
+
+STALL = 'Agent "fixture task" failed: Agent stalled: no progress for 600s (stream watchdog did not recover)'
 
 
 def expect(condition, message, report=None):
@@ -212,11 +237,12 @@ expect(r.verdicts["aorphan"] == r.verdicts["aorphan"].__class__("lost", "session
 expect('AGENT DIED: "stalled writer" (implementer, astall) stalled at' in r.block(None, True), "the stall's line is missing", r)
 expect("1 of its 1 edited files uncommitted in" in r.lines[r.shown.index("astall")], "the stall's uncommitted file is not counted", r)
 print("ok    a parent-reported stall reads failed, a killed agent is never shown, an agent its restarted session left reads lost")
-# The reader's own registry entry does not match ps: nothing is judged lost.
+# The reader's own registry entry does not match ps: no agent is newly judged lost.
+store.agent("s-restarted", "anew", [prompt(NOW - 3000), call(NOW - 2900, "Bash", {"command": "x"}, "u4")], repo, finished=False)
 store.starts = {pid: "Fri Feb  2 00:00:00 2026" for pid in store.starts}
 r = store.read(repo)
 expect(r.problems and r.problems[0].startswith("agent deaths: cannot tell live sessions on this host (ps gives 'Fri Feb  2 00:00:00 2026' for pid"), "a mismatched own entry did not print the cannot-tell line", r)
-expect(r.verdicts["aorphan"].state == "unknown" and not any(v.state == "lost" for v in r.verdicts.values()), "an agent was judged lost on an untrusted host", r)
+expect(r.verdicts["anew"].state == "unknown" and "anew" not in r.dead, "an agent was judged lost on an untrusted host", r)
 store.starts = {}
 for path in store.registry.glob("*.json"):
     path.unlink()
@@ -372,23 +398,149 @@ store.age("s-old", "aold", 8 * 86400)
 r = store.read(repo)
 expect(r.shown == ["aold"], "a shown agent whose transcript is 8 days old dropped out", r)
 print("ok    a dead agent with uncommitted edits stays shown after its transcript is 8 days old")
-# A removed worktree's work saved on saved/<name>, as worktree_removal.py commits it.
 gone = d / "gone-lane"
 (repo / "a.txt").write_text("a\n")
-tree = subprocess.run(["git", "-C", str(repo), "write-tree"], capture_output=True, text=True, check=True).stdout.strip()
-git(repo, "update-index", "--add", "--cacheinfo", f"100644,{subprocess.run(['git', '-C', str(repo), 'hash-object', '-w', '--stdin'], input='saved\n', capture_output=True, text=True, check=True).stdout.strip()},x.txt")
-tree = subprocess.run(["git", "-C", str(repo), "write-tree"], capture_output=True, text=True, check=True).stdout.strip()
-git(repo, "read-tree", "HEAD")
-commit = subprocess.run(["git", "-C", str(repo), "-c", "user.name=f", "-c", "user.email=f@x", "commit-tree", tree, "-p", "HEAD",
-                         "-m", f"Save unsaved work from worktree {gone}\n\nCommitted when the session ended."],
-                        capture_output=True, text=True, check=True).stdout.strip()
-git(repo, "update-ref", "refs/heads/saved/gone-lane", commit)
+save_branch(repo, gone)
 store.session("s-saved", repo)
 store.agent("s-saved", "asaved", [prompt(NOW - 3000), edit(NOW - 2900, gone / "x.txt", "u2"), result(NOW - 2890, "u2")], d / "elsewhere", finished=False)
 r = store.read(repo)
 expect("asaved" in r.shown and f"its edits in {os.path.realpath(gone)} were saved on saved/gone-lane" in r.lines[r.shown.index("asaved")],
        "the saved branch holding a dead agent's edits was not named", r)
 print("ok    a dead agent whose worktree was saved names its saved/ branch")
+PY
+
+# Review finding 1: a Git call that gives no answer leaves an agent's
+# leftovers, and whether it is this checkout's, unknown; never "nothing left"
+# or "another checkout's". The read Git failed says so, and the next read,
+# with Git answering, shows the agent's line.
+d="$(case_dir git-unknown)"
+python3 - "$d" <<'PY' || exit 1
+import os, sys
+from pathlib import Path
+from fx import *
+d = Path(sys.argv[1])
+
+
+def scene(name, launched_inside, edited):
+    """One stalled agent with one edit left, `edited` relative to the scene's folder. Beside the
+    checkout is a worktree, and inside it an ignored folder of worktrees, as .agents/worktrees is."""
+    root = d / name; store = Store(root / "home"); repo = checkout(root / "repo")
+    git(repo, "worktree", "add", "-q", "-b", "lane", str(root / "lane"))
+    (repo / ".git" / "info" / "exclude").write_text("wt/\n")
+    git(repo, "worktree", "add", "-q", "-b", "nested", str(repo / "wt" / "nested"))
+    (root / "lane" / "a.txt").write_text("changed\n"); (repo / "wt" / "nested" / "a.txt").write_text("changed\n")
+    save_branch(repo, root / "gone-lane")
+    cwd = repo if launched_inside else root / "product"
+    cwd.mkdir(exist_ok=True)
+    store.session(OWN, repo); store.register(OWN, NOW - 7200)
+    store.session("s-dead", cwd)
+    store.agent("s-dead", "adead", [prompt(NOW - 3000), edit(NOW - 2900, root / edited, "u1"), result(NOW - 2890, "u1")], cwd, finished=False)
+    store.note("s-dead", "adead", "failed", STALL, NOW - 2000)
+    return store, repo, Path(os.path.realpath(root))
+
+
+for name, subcommand, inside, edited, unknown, after in (
+        ("list-outside", "worktree", False, "lane/a.txt", None, "1 of its 1 edited files uncommitted in {root}/lane"),
+        ("list-inside", "worktree", True, "lane/a.txt", "1 edited files, uncommitted count unknown",
+         "1 of its 1 edited files uncommitted in {root}/lane"),
+        ("list-nested", "worktree", True, "repo/wt/nested/a.txt", "1 edited files, uncommitted count unknown",
+         "1 of its 1 edited files uncommitted in {root}/repo/wt/nested"),
+        ("refs", "for-each-ref", True, "gone-lane/x.txt", "1 edited files, uncommitted count unknown",
+         "its edits in {root}/gone-lane were saved on saved/gone-lane"),
+        ("diff-tree", "diff-tree", True, "gone-lane/x.txt", "1 edited files in {root}/gone-lane, uncommitted count unknown",
+         "its edits in {root}/gone-lane were saved on saved/gone-lane")):
+    store, repo, root = scene(name, inside, edited)
+    r = store.read(repo, git=failing(subcommand))
+    named = "worktree list" if subcommand == "worktree" else subcommand
+    expect(any(f"Git gave no answer to {named}" in p for p in r.problems), f"{name}: the Git failure was not named", r)
+    if unknown is None:
+        expect("adead" not in r.shown and "adead" not in r.dead, f"{name}: an agent Git could not place was judged", r)
+    else:
+        expect(r.shown == ["adead"] and unknown.format(root=root) in r.lines[0], f"{name}: the line does not say the count is unknown", r)
+    for read in ("B", "B2"):
+        r = store.read(repo)
+        expect(r.shown == ["adead"] and after.format(root=root) in r.lines[0] and not r.problems,
+               f"{name}: read {read} with Git answering did not show the agent's leftovers", r)
+print("ok    worktree list, for-each-ref or diff-tree giving no answer leaves the agent unknown, and the next read shows its line")
+PY
+
+# Review finding 2, and `show` outside a session: a read that cannot trust
+# the session registry keeps the verdicts the last read gave on the agents it
+# could not judge, shown or counted, and says why; `agent_deaths.py show`
+# reads the workloop runs, so an agent that holds a lane is named.
+d="$(case_dir untrusted)"
+python3 - "$d" <<'PY' || exit 1
+import json, os, subprocess, sys
+from pathlib import Path
+from fx import *
+d = Path(sys.argv[1]); store = Store(d / "home"); repo = checkout(d / "repo"); outside = d / "product"
+outside.mkdir()
+store.session(OWN, repo); store.register(OWN, NOW - 7200)
+store.session("s-gone", repo)
+store.agent("s-gone", "alost", [prompt(NOW - 3000), edit(NOW - 2900, repo / "a.txt", "u1"), result(NOW - 2890, "u1")], repo, finished=False)
+store.agent("s-gone", "aquiet", [prompt(NOW - 3000), call(NOW - 2900, "Bash", {"command": "x"}, "u2")], repo, finished=False)
+(repo / "a.txt").write_text("changed\n")
+r = store.read(repo)
+expect(r.shown == ["alost"] and sorted(r.dead) == ["alost", "aquiet"], "the lost agents were not shown and counted", r)
+store.age("s-gone", "alost", 8 * 86400)
+starts = dict(store.starts)
+store.starts = {pid: "Fri Feb  2 00:00:00 2026" for pid in starts}
+r = store.read(repo)
+expect(r.problems and r.problems[0].startswith("agent deaths: cannot tell live sessions on this host"), "an untrusted read did not say so", r)
+expect(r.shown == ["alost"] and sorted(r.dead) == ["alost", "aquiet"], "an untrusted read dropped what it could not judge", r)
+store.starts = starts
+r = store.read(repo)
+expect(r.shown == ["alost"] and not r.problems, "the agent kept only by being shown dropped out after an untrusted read", r)
+print("ok    a read that cannot trust the registry keeps the last verdicts on what it cannot judge, so nothing drops out")
+store.session("s-held", outside)
+store.agent("s-held", "aheld", [prompt(NOW - 3000), call(NOW - 2900, "Bash", {"command": "x"}, "u3")], outside, finished=False)
+store.note("s-held", "aheld", "failed", STALL, NOW - 2000)
+(repo / ".agents").mkdir(exist_ok=True)
+(repo / ".agents" / ".workloop-state.json").write_text(json.dumps({"runs": {"r1": {"lanes": {"ship": {"state": "active", "claimed_by": "aheld"}}}}}))
+env = dict(os.environ, HOME=str(store.home))
+shown = subprocess.run([sys.executable, os.path.join(os.environ["LIB"], "agent_deaths.py"), "show", str(repo)],
+                       capture_output=True, text=True, env=env)
+expect(shown.returncode == 0, f"show failed: {shown.stderr}")
+out = shown.stdout
+expect("agent deaths: cannot tell live sessions on this host (this read runs in no Claude Code session)" in out,
+       f"show outside a session printed no self-check line:\n{out}")
+expect('AGENT DIED: "fixture task" (implementer, alost)' in out, f"show outside a session dropped the lost agent:\n{out}")
+expect('(implementer, aheld)' in out and "it holds lane r1/ship" in out, f"show did not name the dead agent holding a lane:\n{out}")
+print("ok    show outside a session says it cannot tell live sessions, keeps the lost agent, and names the agent holding a lane")
+PY
+
+# Review finding 5: a transcript's unfinished last line, which Claude Code is
+# still writing, is skipped; an agent whose read fails keeps its session's
+# verdicts, so the next read still finds the parent's "stalled".
+d="$(case_dir unfinished)"
+python3 - "$d" <<'PY' || exit 1
+import json, sys
+from pathlib import Path
+from fx import *
+d = Path(sys.argv[1]); store = Store(d / "home"); repo = checkout(d / "repo")
+store.session(OWN, repo); store.register(OWN, NOW - 7200)
+store.session("s-u", repo)
+store.agent("s-u", "atail", [prompt(NOW - 3000), edit(NOW - 2900, repo / "a.txt", "u1"), result(NOW - 2890, "u1")], repo, finished=False)
+with open(store.transcript("s-u", "atail"), "a") as stream:
+    stream.write('{"type":"assistant","timestamp":"2026-')
+store.agent("s-u", "abad", [prompt(NOW - 3000), edit(NOW - 2900, repo / "b.txt", "u2"), result(NOW - 2890, "u2")], repo, finished=False)
+meta = store.transcript("s-u", "abad").with_name("agent-abad.meta.json")
+whole = meta.read_text()
+meta.write_text(json.dumps({k: v for k, v in json.loads(whole).items() if k != "description"}))
+store.note("s-u", "atail", "failed", STALL, NOW - 2000)
+store.note("s-u", "abad", "failed", STALL, NOW - 2000)
+store.age("s-u", "atail", 1200); store.age("s-u", "abad", 1200)
+(repo / "a.txt").write_text("changed\n"); (repo / "b.txt").write_text("changed\n")
+r = store.read(repo)
+expect("atail" in r.shown and r.verdicts["atail"].cause == "stalled" and not any("atail" in p for p in r.problems),
+       "an agent whose transcript ends in an unfinished line was not read", r)
+expect(any("agent abad could not be read" in p for p in r.problems), "the unreadable agent was not named", r)
+print("ok    a transcript's unfinished last line is skipped")
+meta.write_text(whole)
+r = store.read(repo)
+expect(r.verdicts["abad"].state == "failed" and r.verdicts["abad"].cause == "stalled",
+       "an agent that could not be read lost its session's verdict", r)
+print("ok    an agent that could not be read keeps its session's verdict for the next read")
 PY
 
 # The cache: a second read reuses it and still sees what was added since;
@@ -474,8 +626,8 @@ if out="$(dismiss anobody --reason 'not ours' 2>&1)"; then fail "an unknown agen
 dismiss adone1 --reason 'superseded by lane two' > "$scratch/d1.out" 2>&1 &
 dismiss adone2 --reason 'done by hand' > "$scratch/d2.out" 2>&1 &
 wait
-grep -q $'\tadone1\tsuperseded by lane two$' "$checkout/.agents/.agents-dismissed" || fail "the first of two dismissals at once was lost: $(cat "$checkout/.agents/.agents-dismissed" "$scratch"/d*.out)"
-grep -q $'\tadone2\tdone by hand$' "$checkout/.agents/.agents-dismissed" || fail "the second of two dismissals at once was lost: $(cat "$checkout/.agents/.agents-dismissed" "$scratch"/d*.out)"
+grep -q $'\tadone1\t[0-9.]*\tsuperseded by lane two$' "$checkout/.agents/.agents-dismissed" || fail "the first of two dismissals at once was lost: $(cat "$checkout/.agents/.agents-dismissed" "$scratch"/d*.out)"
+grep -q $'\tadone2\t[0-9.]*\tdone by hand$' "$checkout/.agents/.agents-dismissed" || fail "the second of two dismissals at once was lost: $(cat "$checkout/.agents/.agents-dismissed" "$scratch"/d*.out)"
 python3 - "$d" <<'PY' || exit 1
 import sys
 from pathlib import Path
@@ -484,6 +636,24 @@ d = Path(sys.argv[1]); store = Store(d / "home"); repo = d / "repo"
 store.register(OWN, NOW - 7200)
 r = store.read(repo)
 expect(not r.lines and not r.dead, "a dismissed agent was shown again", r)
+# adone1 is resumed and dies again: the dismissal covered the earlier death only.
+store.extend("s-gone", "adone1", [prompt(NOW - 1000, "go on"), edit(NOW - 990, repo / "a.txt", "w"), result(NOW - 980, "w")], repo)
+store.note("s-gone", "adone1", "failed", STALL, NOW - 900)
+store.age("s-gone", "adone1", 1200)
+r = store.read(repo)
+expect(r.shown == ["adone1"] and list(r.dead) == ["adone1"], "an agent dismissed, then resumed and dead again, was not shown again", r)
+PY
+out="$(dismiss adone2 --reason 'again' 2>&1)" || fail "a second dismissal of the same death failed: $out"
+[[ "$out" == *"agent adone2 is dismissed already"* ]] || fail "a second dismissal of the same death was recorded: $out"
+out="$(dismiss adone1 --reason 'died twice' 2>&1)" || fail "the second death could not be dismissed: $out"
+python3 - "$d" <<'PY' || exit 1
+import sys
+from pathlib import Path
+from fx import *
+d = Path(sys.argv[1]); store = Store(d / "home"); repo = d / "repo"
+store.register(OWN, NOW - 7200)
+r = store.read(repo)
+expect(not r.lines and not r.dead, "an agent's second death, dismissed, was shown", r)
 PY
 python3 - "$checkout/.agents" <<'PY' || exit 1
 import os, sys, time
@@ -493,10 +663,10 @@ import agent_dismissals
 folder = Path(sys.argv[1])
 old = time.strftime(agent_dismissals.STAMP, time.gmtime(time.time() - 31 * 86400))
 with open(folder / agent_dismissals.FILE, "a") as stream:
-    stream.write(f"{old}\taancient\told\n")
-agent_dismissals.dismiss(folder, "anew", "fresh", time.time())
+    stream.write(f"{old}\taancient\t1.5\told\n")
+agent_dismissals.dismiss(folder, "anew", time.time() - 100, "fresh", time.time())
 kept = agent_dismissals.dismissed(folder)
-if "aancient" in kept or not {"adone1", "adone2", "anew"} <= kept:
+if "aancient" in kept or not {"adone1", "adone2", "anew"} <= set(kept):
     sys.exit(f"FAIL: the 30-day rewrite kept {sorted(kept)}")
 PY
-ok "dismiss refuses an agent that touched nothing here, two dismissals at once both survive, a dismissed agent is not shown, and entries past 30 days go"
+ok "dismiss refuses an agent that touched nothing here, two dismissals at once both survive, a dismissed death is not shown, a death after a resume shows again, and entries past 30 days go"

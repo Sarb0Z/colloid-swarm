@@ -47,7 +47,7 @@ def need(record: dict, key: str, where) -> Any:
     return record[key]
 
 
-def epoch(stamp: str, where) -> float:
+def _epoch(stamp: str, where) -> float:
     try:
         return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
     except (AttributeError, ValueError) as error:
@@ -69,7 +69,7 @@ def real_folders(paths) -> list[Path]:
     return seen
 
 
-def projects(stores: list[Path]) -> list[Path]:
+def _projects(stores: list[Path]) -> list[Path]:
     """Every project folder once, by the same path every time: one reached through a symlink
     is the same device and inode as its target, which a real folder of the name is read as."""
     seen, found = set(), []
@@ -85,9 +85,9 @@ def projects(stores: list[Path]) -> list[Path]:
     return found
 
 
-def session_folders(stores: list[Path]):
+def _session_folders(stores: list[Path]):
     """(session folder, parent transcript) for every session that has a `subagents/` folder."""
-    for project in projects(stores):
+    for project in _projects(stores):
         with os.scandir(project) as entries:
             for entry in entries:
                 if entry.is_dir(follow_symlinks=False) and os.path.isdir(os.path.join(entry.path, "subagents")):
@@ -111,7 +111,7 @@ def recent_agents(stores: list[Path], cached: dict, running: set, now: float) ->
     that read saw them, keeps the cached sizes and times without a stat per agent."""
     found, sessions = {}, {}
     oldest = (now - WINDOW_SECONDS) * 1e9
-    for folder, parent in session_folders(stores):
+    for folder, parent in _session_folders(stores):
         key = [mtime_ns(parent), mtime_ns(folder / "subagents"), folder.name in running]
         known = cached.get(str(folder))
         if known and known["key"] == key and not key[2]:
@@ -141,17 +141,22 @@ def read_meta(transcript: Path) -> dict:
             "background": background, "finished": bool(data.get("finished")), "tool_use_id": tool_use_id or ""}
 
 
-def newest_messages(path: Path):
-    """The transcript's user and assistant records, newest first, read back from its end."""
+def _newest_messages(path: Path):
+    """The transcript's user and assistant records, newest first, read back from its end. The text
+    after the last newline is a record Claude Code is still writing, or nothing, and is skipped."""
     with open(path, "rb") as stream:
         position = stream.seek(0, os.SEEK_END)
-        rest = b""
+        rest, unfinished = b"", True
         while position > 0:
             step = min(CHUNK, position)
             position -= step
             stream.seek(position)
             lines = (stream.read(step) + rest).split(b"\n")
             rest = lines.pop(0) if position > 0 else b""
+            # The first time any line is left, the last one is the text after the file's last newline.
+            if unfinished and lines:
+                unfinished = False
+                lines.pop()
             for line in reversed(lines):
                 if b'"type":"user"' in line or b'"type":"assistant"' in line:
                     record = json.loads(line)
@@ -159,12 +164,12 @@ def newest_messages(path: Path):
                         yield record
 
 
-def blocks(record: dict) -> list[dict]:
+def _blocks(record: dict) -> list[dict]:
     content = (record.get("message") or {}).get("content")
     return [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
 
 
-def waiting(path: Path) -> bool:
+def _waiting(path: Path) -> bool:
     """Whether the agent's final turn, the records after its newest user record that is not a
     tool result, started a background command (a tool result whose `toolUseResult` carries a
     `backgroundTaskId`): it ended that turn to wait on the command, so its answer is no
@@ -172,12 +177,12 @@ def waiting(path: Path) -> bool:
     with open(path, "rb") as stream:
         if BACKGROUND_TASK not in stream.read():
             return False
-    for record in newest_messages(path):
+    for record in _newest_messages(path):
         if record["type"] == "user":
             result = record.get("toolUseResult")
             if isinstance(result, dict) and result.get("backgroundTaskId"):
                 return True
-            if not any(b.get("type") == "tool_result" for b in blocks(record)):
+            if not any(b.get("type") == "tool_result" for b in _blocks(record)):
                 return False
     return False
 
@@ -186,29 +191,29 @@ def how_it_ends(path: Path) -> dict:
     """The agent's newest message record: when, in which folder, and whether it is a final answer,
     an answer given while its own background command runs (`waiting`), the result of its
     SubagentHandback call, an API error (with the error's class) or other."""
-    records = newest_messages(path)
+    records = _newest_messages(path)
     newest = next(records, None)
     if newest is None:
         return {"newest": None, "end": "other", "cwd": ""}
     where = f"{path}'s newest {newest['type']} record"
-    found = {"newest": epoch(need(newest, "timestamp", where), where), "cwd": need(newest, "cwd", where), "end": "other"}
+    found = {"newest": _epoch(need(newest, "timestamp", where), where), "cwd": need(newest, "cwd", where), "end": "other"}
     message = newest.get("message") or {}
     if newest.get("isApiErrorMessage"):
         found.update(end="api-error", error=newest.get("apiError") or need(newest, "error", where))
     elif newest["type"] == "assistant":
-        if message.get("stop_reason") == "end_turn" and not any(b.get("type") == "tool_use" for b in blocks(newest)):
-            found["end"] = "waiting" if waiting(path) else "answer"
+        if message.get("stop_reason") == "end_turn" and not any(b.get("type") == "tool_use" for b in _blocks(newest)):
+            found["end"] = "waiting" if _waiting(path) else "answer"
     else:
-        answered = {b.get("tool_use_id") for b in blocks(newest) if b.get("type") == "tool_result"}
+        answered = {b.get("tool_use_id") for b in _blocks(newest) if b.get("type") == "tool_result"}
         for _, record in zip(range(HANDBACK_REACH), records):
             if any(b.get("type") == "tool_use" and b.get("id") in answered and b.get("name") == "SubagentHandback"
-                   for b in blocks(record)):
+                   for b in _blocks(record)):
                 found["end"] = "handback"
                 break
     return found
 
 
-def lines_from(path: Path, offset: int, markers: tuple[bytes, ...]) -> tuple[list[bytes], int]:
+def _lines_from(path: Path, offset: int, markers: tuple[bytes, ...]) -> tuple[list[bytes], int]:
     """Complete lines written since `offset` that hold any of `markers`, in file order, and
     the offset reached. A transcript only grows; a file shorter than the offset is read
     again from its start, and the offset reached is then below the one given. A session
@@ -231,10 +236,10 @@ def lines_from(path: Path, offset: int, markers: tuple[bytes, ...]) -> tuple[lis
 
 def edits_since(path: Path, offset: int) -> tuple[list[str], int]:
     """Paths the agent's Edit, Write, MultiEdit and NotebookEdit calls named since `offset`."""
-    lines, reached = lines_from(path, offset, EDIT_CALLS)
+    lines, reached = _lines_from(path, offset, EDIT_CALLS)
     paths = []
     for line in lines:
-        for block in blocks(json.loads(line)):
+        for block in _blocks(json.loads(line)):
             target = block.get("input") or {}
             if block.get("type") == "tool_use" and block.get("name") in EDIT_TOOLS:
                 value = target.get("file_path") or target.get("notebook_path")
@@ -250,7 +255,7 @@ def notes_since(path: Path, offset: int) -> tuple[list[list], int]:
     summary]. A notification on another kind of task, such as a monitor's event, may
     carry no status; it is kept with an empty one."""
     notes = []
-    lines, reached = lines_from(path, offset, (NOTE,))
+    lines, reached = _lines_from(path, offset, (NOTE,))
     for line in lines:
         record = json.loads(line)
         content = record.get("content")
@@ -260,7 +265,7 @@ def notes_since(path: Path, offset: int) -> tuple[list[list], int]:
             note = content.split("</task-notification>", 1)[0]
             tags = dict(TAG.findall(note))
             for aid in TASK_ID.findall(note):
-                notes.append([aid, epoch(need(record, "timestamp", where), where), tags.get("status", ""),
+                notes.append([aid, _epoch(need(record, "timestamp", where), where), tags.get("status", ""),
                               html.unescape(tags.get("summary", ""))])
     return notes, reached
 
@@ -270,14 +275,14 @@ def results_since(path: Path, offset: int) -> tuple[list[list], int]:
     `Agent` call's result, a user record whose `toolUseResult` carries `agentId` and
     `status`, as [tool use id, time, status]."""
     results = []
-    lines, reached = lines_from(path, offset, (AGENT_RESULT,))
+    lines, reached = _lines_from(path, offset, (AGENT_RESULT,))
     for line in lines:
         record = json.loads(line)
         result = record.get("toolUseResult")
         if record.get("type") == "user" and isinstance(result, dict) and result.get("agentId"):
             where = f"{path}: the result of agent {result['agentId']}"
-            for block in blocks(record):
+            for block in _blocks(record):
                 if block.get("type") == "tool_result":
-                    results.append([need(block, "tool_use_id", where), epoch(need(record, "timestamp", where), where),
+                    results.append([need(block, "tool_use_id", where), _epoch(need(record, "timestamp", where), where),
                                     need(result, "status", where)])
     return results, reached

@@ -71,13 +71,13 @@ class Hosts:
         return next((e for e in self.entries if e["session"] == session and self.started(e) == e["proc_start"]), None)
 
     def trusted(self) -> bool:
-        """Whether the liveness test held for the reader's own session; `why` says why not,
-        and is empty for a reader that runs in no session."""
+        """Whether the liveness test held for the reader's own session; `why` says why not. A
+        reader that runs in no session has none to test, so it never trusts the test."""
         if not self.checked:
             self.checked = True
             mine = [e for e in self.entries if e["session"] == self.own]
             if not self.own:
-                self.why = ""
+                self.why = "this read runs in no Claude Code session"
             elif not mine:
                 self.why = f"no session registry entry names this session, {self.own}"
             elif not self.live(self.own):

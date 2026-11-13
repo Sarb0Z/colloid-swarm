@@ -41,6 +41,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from agent_silence import silence, stamped
+from readout import CONTROL
 
 INTERVAL_SECONDS = 60
 ACTION_MAX = 70
@@ -50,7 +51,6 @@ LOCK_WAIT = 0.05
 CELL_HEADER = re.compile(r"WORKLOOP CELL BRIEF — (\S+)/(\S+)")
 # The first prompt lines the delegation guide lets precede the header (.agents/claude/delegation.md).
 MARKER_LINE = re.compile(r"(READ-ONLY|NOTES-ONLY)\b|WORKSPACE:\s*\S")
-CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # The input field that says most about a tool call, in order of preference.
 DETAIL_KEYS = ("description", "file_path", "command", "pattern", "path", "url", "query", "prompt")
 

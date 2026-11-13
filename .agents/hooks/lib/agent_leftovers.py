@@ -7,25 +7,31 @@ the worktree in that commit's subject), or when it holds a lane or a cell of
 a run here. What it left: edited files still uncommitted, counted per
 worktree; a `saved/` branch holding any of them; its lane or cell; or, for an
 agent of the reading session, its failure itself.
+
+A Git call that gives no answer leaves the question open rather than answered
+"no": `belongs` then answers None, and `edits_left` gives a clause saying the
+uncommitted count is unknown, so the agent is never cached as having left
+nothing and the next read asks again.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import time
 from functools import cached_property
 from pathlib import Path
 
+from agent_records import mtime_ns
+from readout import CONTROL
+
 SAVED_SUBJECT = "Save unsaved work from worktree "
-CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
-def real(path: str) -> Path:
+def _real(path: str) -> Path:
     return Path(os.path.realpath(path))
 
 
-def git_key(repo: Path) -> list[int] | None:
+def _git_key(repo: Path) -> list[int] | None:
     """Times that change when a worktree or a `saved/` branch comes or goes, or None in a linked
     worktree, whose `.git` is a file: there Git is asked every time."""
     common = repo / ".git"
@@ -34,28 +40,29 @@ def git_key(repo: Path) -> list[int] | None:
     return [mtime_ns(common / "worktrees"), mtime_ns(common / "refs" / "heads" / "saved"), mtime_ns(common / "packed-refs")]
 
 
-def mtime_ns(path: Path) -> int:
-    try:
-        return os.stat(path).st_mtime_ns
-    except FileNotFoundError:
-        return 0
-
-
 class Places:
     """This checkout's worktrees, and the `saved/` branches of removed ones, by real path.
-    Git is asked the first time either is needed, and not again while `git_key` holds: the
-    lists from the last read are passed in as `known`, and `known` is what to keep after."""
+    Git is asked the first time either is needed, and not again while `_git_key` holds: the
+    lists from the last read are passed in as `known`, and `known` is what to keep after.
+    `unanswered` names each Git subcommand that gave no answer during this read."""
 
     def __init__(self, repo: Path, git, known: dict) -> None:
-        self.repo, self.git, self.top, self.known = repo, git, real(str(repo)), known
+        self.repo, self.git, self.top, self.known = repo, git, _real(str(repo)), known
+        self.unanswered: set[str] = set()
+
+    def _ask(self, root: Path, *args: str) -> str | None:
+        out = self.git(root, *args)
+        if out is None:
+            self.unanswered.add(" ".join(args[:2]) if args[0] == "worktree" else args[0])
+        return out
 
     @cached_property
     def listed(self) -> dict:
-        key = git_key(self.repo)
+        key = _git_key(self.repo)
         if key is not None and self.known.get("key") == key:
             return self.known
-        listing = self.git(self.repo, "worktree", "list", "--porcelain")
-        refs = self.git(self.repo, "for-each-ref", "--format=%(refname:short)%09%(objectname)%09%(subject)", "refs/heads/saved/")
+        listing = self._ask(self.repo, "worktree", "list", "--porcelain")
+        refs = self._ask(self.repo, "for-each-ref", "--format=%(refname:short)%09%(objectname)%09%(subject)", "refs/heads/saved/")
         fresh = {"key": key, "live": [line[len("worktree "):] for line in (listing or "").splitlines() if line.startswith("worktree ")],
                  "saved": [[subject[len(SAVED_SUBJECT):], name, commit]
                            for name, commit, subject in (line.split("\t", 2) for line in (refs or "").splitlines() if line.count("\t") >= 2)
@@ -64,13 +71,18 @@ class Places:
             self.known = fresh
         return fresh
 
+    @property
+    def placed_all(self) -> bool:
+        """Whether the worktree and `saved/` lists are whole: a path no root holds is then outside."""
+        return not self.unanswered & {"worktree list", "for-each-ref"}
+
     @cached_property
     def live(self) -> set[Path]:
-        return {path for path in map(real, self.listed["live"]) if path.is_dir()} or {self.top}
+        return {path for path in map(_real, self.listed["live"]) if path.is_dir()} or {self.top}
 
     @cached_property
     def saved(self) -> list[tuple[Path, str, str]]:
-        return [(real(root), name, commit) for root, name, commit in self.listed["saved"]]
+        return [(_real(root), name, commit) for root, name, commit in self.listed["saved"]]
 
     @cached_property
     def roots(self) -> list[Path]:
@@ -80,15 +92,15 @@ class Places:
     def inside(self, path: str) -> bool:
         """Whether the path lies in this checkout, its worktrees or a saved one; the checkout
         itself is tested first, without Git."""
-        return bool(path) and (real(path).is_relative_to(self.top) or self.root_of(path) is not None)
+        return bool(path) and (_real(path).is_relative_to(self.top) or self.root_of(path) is not None)
 
     def root_of(self, path: str) -> Path | None:
-        target = real(path)
+        target = _real(path)
         return next((root for root in self.roots if target.is_relative_to(root)), None)
 
     def uncommitted(self, root: Path, names: set[str]) -> set[str] | None:
         """The names Git reports as changed or untracked in `root`; None when Git gave no answer."""
-        out = self.git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *sorted(names))
+        out = self._ask(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *sorted(names))
         if out is None:
             return None
         found, entries = set(), iter(out.split("\0"))
@@ -99,15 +111,19 @@ class Places:
                     found.add(next(entries, ""))
         return found & names
 
-    def saved_with(self, root: Path, names: set[str]) -> str | None:
-        """The `saved/` branch of the removed worktree `root` whose commit holds any of the names."""
+    def saved_with(self, root: Path, names: set[str]) -> tuple[str | None, bool]:
+        """The `saved/` branch of the removed worktree `root` whose commit holds any of the names,
+        and whether Git answered for every branch it had to look in."""
+        answered = True
         for saved_root, name, commit in self.saved:
             if saved_root != root:
                 continue
-            changed = self.git(self.repo, "diff-tree", "-r", "--root", "--name-only", "--no-commit-id", commit)
-            if changed and names & set(changed.splitlines()):
-                return name
-        return None
+            changed = self._ask(self.repo, "diff-tree", "-r", "--root", "--name-only", "--no-commit-id", commit)
+            if changed is None:
+                answered = False
+            elif names & set(changed.splitlines()):
+                return name, True
+        return None, answered
 
 
 def run_agents(runs: dict) -> dict[str, str]:
@@ -123,18 +139,31 @@ def run_agents(runs: dict) -> dict[str, str]:
     return held
 
 
-def belongs(agent_id: str, info: dict, places: Places, held: dict) -> bool:
-    return agent_id in held or any(places.inside(path) for path in [info["ends"]["cwd"], *info["edits"]])
+def belongs(agent_id: str, info: dict, places: Places, held: dict) -> bool | None:
+    """Whether the agent is this checkout's; None when a Git list that could have placed it gave no answer."""
+    if agent_id in held or any(places.inside(path) for path in [info["ends"]["cwd"], *info["edits"]]):
+        return True
+    return False if places.placed_all else None
 
 
 def edits_left(info: dict, places: Places) -> list[str]:
-    """A clause per worktree holding the agent's uncommitted edits, or per `saved/` branch holding them."""
+    """A clause per worktree holding the agent's uncommitted edits, or per `saved/` branch holding
+    them. Where Git gave no answer a clause says the count is unknown, so the list is empty only
+    when Git answered that nothing is left."""
+    if not info["edits"]:
+        return []
     groups: dict[Path, set[str]] = {}
+    unplaced = 0
     for path in info["edits"]:
         root = places.root_of(path)
         if root:
-            groups.setdefault(root, set()).add(real(path).relative_to(root).as_posix())
-    clauses = []
+            groups.setdefault(root, set()).add(_real(path).relative_to(root).as_posix())
+        else:
+            unplaced += 1
+    # Without the worktree list every edit falls to the checkout's own root, so no grouping holds.
+    if "worktree list" in places.unanswered:
+        return [f"{len(info['edits'])} edited files, uncommitted count unknown"]
+    clauses = [] if places.placed_all or not unplaced else [f"{unplaced} edited files, uncommitted count unknown"]
     for root, names in sorted(groups.items()):
         if root in places.live:
             left = places.uncommitted(root, names)
@@ -142,8 +171,12 @@ def edits_left(info: dict, places: Places) -> list[str]:
                 clauses.append(f"{len(names)} edited files in {root}, uncommitted count unknown")
             elif left:
                 clauses.append(f"{len(left)} of its {len(names)} edited files uncommitted in {root}")
-        elif branch := places.saved_with(root, names):
+            continue
+        branch, answered = places.saved_with(root, names)
+        if branch:
             clauses.append(f"its edits in {root} were saved on {branch}")
+        elif not answered:
+            clauses.append(f"{len(names)} edited files in {root}, uncommitted count unknown")
     return clauses
 
 
@@ -153,7 +186,7 @@ def leftovers(agent_id: str, info: dict, edits: list[str], held: dict, own: str)
     return clauses or (["it died in this session"] if info["session"] == own else [])
 
 
-def clean(text: str) -> str:
+def _clean(text: str) -> str:
     return CONTROL.sub(" ", text).replace('"', "'")
 
 
@@ -173,6 +206,6 @@ def line(agent_id: str, info: dict, verdict, clauses: list[str], own: str, live:
         remedy = (f"resume session {session} ({where}) and message agent {agent_id}; "
                   "to send the work again instead, dismiss this first")
     meta = info["meta"]
-    return (f'{head}: "{clean(meta["description"])}" ({clean(meta["type"])}, {agent_id}) {verdict.cause} at {when}, '
+    return (f'{head}: "{_clean(meta["description"])}" ({_clean(meta["type"])}, {agent_id}) {verdict.cause} at {when}, '
             f"session {session} ({live}); {'; '.join(clauses)}; {remedy}; "
             f"dismiss: .agents/workloop.py dismiss {agent_id} --reason '<why>'")

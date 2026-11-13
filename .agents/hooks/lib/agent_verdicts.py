@@ -13,7 +13,7 @@ The first rule that applies decides:
      `completed` one saying the agent "is waiting on its own background work".
   2. Its own files: `completed` when `meta.json` says finished and its newest
      record answers its SubagentHandback call or is a final answer given with
-     no background command of its own running (agent_records.waiting), which
+     no background command of its own running (agent_records.how_it_ends), which
      is tested first and reads no session transcript; `failed <error class>`
      when finished on an API error record.
   3. Liveness, for the rest: `running` while its session is live and its
@@ -97,10 +97,15 @@ class Parents:
         result = self.data(parent(info), "results").get(info["meta"]["tool_use_id"])
         return (*result, "", False) if result else None
 
-    def keep(self, agents: dict) -> dict:
-        """The cached verdicts on the agents still tracked, by session transcript."""
+    def keep(self, agents: dict, unread: set[str]) -> dict:
+        """The cached verdicts on the agents still tracked, by session transcript, and every verdict
+        in the session transcripts of `unread`, which hold an agent this read could not read:
+        their read positions are kept, so a verdict dropped here would never be read again."""
         kept = {}
         for path, data in self.cached.items():
+            if path in unread:
+                kept[path] = data
+                continue
             mine = {aid: info for aid, info in agents.items() if parent(info) == path}
             if mine:
                 uses = {info["meta"]["tool_use_id"] for info in mine.values()}
@@ -136,7 +141,7 @@ def completed(info: dict) -> bool:
     return info["meta"]["finished"] and info["ends"]["end"] in ("answer", "handback")
 
 
-def shorten(summary: str) -> str:
+def _shorten(summary: str) -> str:
     """The cause a notification's summary gives: its error type, a stall, else its first clause."""
     if found := ERROR_TYPE.search(summary):
         return found.group(1)
@@ -146,7 +151,7 @@ def shorten(summary: str) -> str:
     return text[:60] or "no reason given"
 
 
-def from_told(told: tuple, info: dict, agent_id: str) -> Verdict:
+def _from_told(told: tuple, info: dict, agent_id: str) -> Verdict:
     at, status, summary, again = told
     if status not in STATUSES:
         raise ar.RecordError(f"{parent(info)}: the verdict on agent {agent_id} has an unknown status {status!r}")
@@ -156,7 +161,7 @@ def from_told(told: tuple, info: dict, agent_id: str) -> Verdict:
     if state != "failed":
         return Verdict(state, "", at)
     ends = info["ends"]
-    cause = ends["error"] if ends["end"] == "api-error" else shorten(summary)
+    cause = ends["error"] if ends["end"] == "api-error" else _shorten(summary)
     return Verdict("failed", f"failed again after a resume ({cause})" if again else cause, at)
 
 
@@ -167,7 +172,7 @@ def judge(agent_id: str, info: dict, parents: Parents, hosts: Hosts, now: float,
     told = parents.told(agent_id, info)
     newest = info["ends"]["newest"]
     if told and (newest is None or told[0] >= newest):
-        return from_told(told, info, agent_id)
+        return _from_told(told, info, agent_id)
     if info["meta"]["finished"] and info["ends"]["end"] == "api-error":
         return Verdict("failed", info["ends"]["error"], newest)
     if not hosts.trusted():

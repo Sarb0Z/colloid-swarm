@@ -48,8 +48,8 @@ from workloop_shared import cmd_share
 from workloop_state import ReadStore, fail, run_of, state_path
 
 # workloop_state put the hooks' library on the path.
-import agent_deaths  # noqa: E402
 import agent_dismissals  # noqa: E402
+import agent_effects  # noqa: E402
 from workloop_size import GitBudget  # noqa: E402
 
 # test-workloop.sh imports these two from here.
@@ -72,19 +72,28 @@ def cmd_brief(args: argparse.Namespace) -> None:
 
 def cmd_dismiss(args: argparse.Namespace) -> None:
     """Stop showing a dead agent of this checkout at every start and prompt (agent_dismissals.py)."""
-    repo = state_path(args.state).parent.parent
+    state = state_path(args.state)
+    agents_dir = state.parent
     if not re.fullmatch(r"[A-Za-z0-9]+", args.agent):
         fail(f"{args.agent!r} is no agent id: an AGENT DIED line names it, letters and digits only")
-    if args.agent in agent_dismissals.dismissed(repo / ".agents"):
-        print(f"agent {args.agent} is dismissed already")
-        return
-    if not agent_deaths.known(repo, args.agent, GitBudget().out):
-        fail(f"no agent {args.agent} touched this checkout and died; its AGENT DIED line names the id to dismiss")
     try:
-        agent_dismissals.dismiss(repo / ".agents", args.agent, args.reason, time.time())
+        died = agent_effects.death_at(state, args.agent, GitBudget().out)
+        dismissals = agent_dismissals.dismissed(agents_dir)
     except ValueError as error:
         fail(str(error))
-    print(f"dismissed agent {args.agent}; later starts and prompts no longer show it")
+    if died is None and args.agent in dismissals:
+        print(f"agent {args.agent} is dismissed already")
+        return
+    if died is None:
+        fail(f"no agent {args.agent} touched this checkout and died; its AGENT DIED line names the id to dismiss")
+    if agent_dismissals.covers(dismissals, args.agent, died):
+        print(f"agent {args.agent} is dismissed already")
+        return
+    try:
+        agent_dismissals.dismiss(agents_dir, args.agent, died, args.reason, time.time())
+    except ValueError as error:
+        fail(str(error))
+    print(f"dismissed agent {args.agent}'s death; later starts and prompts no longer show it unless it dies again")
 
 
 def parser() -> argparse.ArgumentParser:

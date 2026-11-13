@@ -4,29 +4,28 @@
 Usage: agent_deaths.py show <repo> [<session>]    every line, none cut
 
 workloop-inbox.py calls `report` at every Claude Code session start and lead
-prompt. It reads every agent whose transcript changed in the last 7 days
+prompt, through agent_effects.py, which wires in the clock, `ps`, Git and the
+cache's write. It reads every agent whose transcript changed in the last 7 days
 (agent_records.py), and every agent it showed before however old, and gives
 each one verdict (agent_verdicts.py). A dead agent (failed or lost) of this
 checkout that left something is shown, one line each (agent_leftovers.py),
-until it is resumed, leaves nothing, or is dismissed (agent_dismissals.py);
-the others are counted in one line.
+until it is resumed, leaves nothing, or that death is dismissed
+(agent_dismissals.py); the others are counted in one line.
 
 What it read is cached in `.agents/.readout/.agent-deaths-cache`, replaced
 atomically: an agent whose transcript is unchanged costs a stat, a completed
 one nothing more, a session's transcript is read on from where the last read
 stopped, and an agent whose edits were all committed asks Git nothing until
-it works again. `cached_dead` gives the last read's dead agents without
-reading again.
+it works again. A read that cannot judge an agent the last read judged dead,
+because it cannot tell live sessions or Git gave no answer, keeps that verdict
+while the agent has written nothing since.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
-import tempfile
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -51,6 +50,7 @@ class Effects:
     config_dir: str
     proc_start: Callable[[int], str | None]
     git: Callable[..., str | None]
+    write: Callable[[Path, str], None]  # replaces the file's text atomically
 
 
 @dataclass
@@ -72,7 +72,7 @@ class Report:
         return "\n".join(shown + tally + self.problems)
 
 
-def refresh(old: dict | None, transcript: str, session: str, stat: list) -> dict:
+def _refresh(old: dict | None, transcript: str, session: str, stat: list) -> dict:
     """The agent's facts, read again where its transcript changed. While it may still be
     running its meta.json is read again too: `finished` may land after the last record."""
     path = Path(transcript)
@@ -82,7 +82,7 @@ def refresh(old: dict | None, transcript: str, session: str, stat: list) -> dict
             "ends": ar.how_it_ends(path), "edits": old["edits"] if old else [], "edits_at": old["edits_at"] if old else 0}
 
 
-def with_edits(info: dict) -> dict:
+def _with_edits(info: dict) -> dict:
     """The agent's edited paths, read on from where the last read stopped, when its transcript grew."""
     if info["edits_at"] == info["file"][0]:
         return info
@@ -90,7 +90,7 @@ def with_edits(info: dict) -> dict:
     return dict(info, edits=sorted({*info["edits"], *paths}), edits_at=reached)
 
 
-def candidates(cache: dict, dirs: list[Path], running: set, now: float) -> dict:
+def _candidates(cache: dict, dirs: list[Path], running: set, now: float) -> dict:
     """{id: [transcript, session, size, mtime_ns]}: the window's agents, and the ones shown before."""
     found, cache["sessions"] = ar.recent_agents(ar.real_folders(d / "projects" for d in dirs), cache["sessions"], running, now)
     for agent_id in cache["shown"]:
@@ -117,8 +117,9 @@ class Reading:
     jobs: dict
 
 
-def judge_one(agent_id: str, old: dict | None, file: list, at: Reading) -> tuple[dict, av.Verdict | None]:
-    """The agent's cache entry and verdict; no verdict for an agent of another checkout.
+def _judge_one(agent_id: str, old: dict | None, file: list, at: Reading) -> tuple[dict, av.Verdict | None]:
+    """The agent's cache entry and verdict; no verdict for an agent of another checkout, or one
+    Git could not place, which is cached `unknown` so the next read places it again.
     Whether it is this checkout's is settled before its session transcript is read, so another
     project's long transcript costs nothing here. A completed or stopped agent is cached as its
     verdict alone; that and another checkout's agent hold until its transcript changes."""
@@ -129,40 +130,57 @@ def judge_one(agent_id: str, old: dict | None, file: list, at: Reading) -> tuple
             return old, av.Verdict(old["settled"])
         if old["state"] == ELSEWHERE:
             return old, None
-    info = refresh(None if old and "settled" in old else old, transcript, session, stat)
+    info = _refresh(None if old and "settled" in old else old, transcript, session, stat)
     if av.completed(info):
         return {"file": stat, "settled": "completed"}, av.Verdict("completed")
     if agent_id not in at.held:
-        info = with_edits(info)
-        if not al.belongs(agent_id, info, at.places, at.held):
-            return dict(info, state=ELSEWHERE), None
+        info = _with_edits(info)
+        belongs = al.belongs(agent_id, info, at.places, at.held)
+        if not belongs:
+            return dict(info, state=ELSEWHERE if belongs is False else "unknown"), None
     verdict = av.judge(agent_id, info, at.parents, at.hosts, at.now, at.jobs)
     entry = {"file": stat, "settled": verdict.state} if verdict.state in av.SETTLED else dict(info, state=verdict.state)
     return entry, verdict
 
 
-def judge_all(cache: dict, found: dict, at: Reading, problems: list) -> dict:
-    """The verdict on every candidate of this checkout, and on every agent holding a lane or cell here."""
-    agents, verdicts = {}, {}
+def _carried(cached: list | None, verdict: av.Verdict | None, entry: dict) -> av.Verdict | None:
+    """The last read's verdict on a dead agent this read could not judge, while the agent has
+    written nothing since that verdict."""
+    if cached is None or (verdict is not None and verdict.state != "unknown") or entry.get("state") != "unknown":
+        return verdict
+    newest = entry["ends"]["newest"]
+    return av.Verdict(*cached) if newest is None or newest <= cached[2] else verdict
+
+
+def _judge_all(cache: dict, found: dict, at: Reading, problems: list) -> dict:
+    """The verdict on every candidate of this checkout, and on every agent holding a lane or cell
+    here. An agent that cannot be read keeps its last entry, and its session's verdicts stay."""
+    agents, verdicts, unread = {}, {}, set()
     for agent_id, file in found.items():
+        old = cache["agents"].get(agent_id)
         try:
-            agents[agent_id], verdict = judge_one(agent_id, cache["agents"].get(agent_id), file, at)
+            agents[agent_id], verdict = _judge_one(agent_id, old, file, at)
         except (OSError, ValueError) as error:
             problems.append(f"agent deaths: agent {agent_id} could not be read: {error}")
+            unread.add(av.parent({"transcript": file[0], "session": file[1]}))
+            if old:
+                agents[agent_id] = old
             continue
-        if verdict:
+        if verdict := _carried(cache["judged"].get(agent_id), verdict, agents[agent_id]):
             verdicts[agent_id] = verdict
     cache["agents"] = agents
-    cache["parents"] = at.parents.keep({aid: info for aid, info in agents.items() if info.get("state", ELSEWHERE) != ELSEWHERE})
+    tracked = {aid: info for aid, info in agents.items() if info.get("state", ELSEWHERE) != ELSEWHERE}
+    cache["parents"] = at.parents.keep(tracked, unread)
     return verdicts
 
 
-def show_dead(repo: Path, cache: dict, verdicts: dict, at: Reading, report: Report) -> None:
-    dismissed = agent_dismissals.dismissed(repo / ".agents")
-    dead = [aid for aid, verdict in verdicts.items() if verdict.state in av.SHOWN and aid not in dismissed]
+def _show_dead(repo: Path, cache: dict, verdicts: dict, at: Reading, report: Report) -> None:
+    dismissals = agent_dismissals.dismissed(repo / ".agents")
+    judged = {aid: [v.state, v.cause, v.at, v.job] for aid, v in verdicts.items() if v.state in av.SHOWN}
+    dead = [aid for aid in judged if not agent_dismissals.covers(dismissals, aid, verdicts[aid].at)]
     committed, own = {}, at.hosts.own
     for agent_id in sorted(dead, key=lambda aid: -verdicts[aid].at):
-        info = cache["agents"][agent_id] = with_edits(cache["agents"][agent_id])
+        info = cache["agents"][agent_id] = _with_edits(cache["agents"][agent_id])
         report.dead[agent_id] = verdicts[agent_id].cause
         # Edits found all committed stay so until the agent works again.
         edits = [] if cache["committed"].get(agent_id) == info["file"] else al.edits_left(info, at.places)
@@ -171,7 +189,7 @@ def show_dead(repo: Path, cache: dict, verdicts: dict, at: Reading, report: Repo
         if clauses := al.leftovers(agent_id, info, edits, at.held, own):
             report.shown.append(agent_id)
             report.lines.append(al.line(agent_id, info, verdicts[agent_id], clauses, own, at.hosts.state(info["session"])))
-    cache.update(shown=report.shown, dead=report.dead, committed=committed, places=at.places.known)
+    cache.update(shown=report.shown, judged=judged, committed=committed, places=at.places.known)
 
 
 def report(repo: Path, session: str, runs: dict, effects: Effects) -> Report:
@@ -179,31 +197,37 @@ def report(repo: Path, session: str, runs: dict, effects: Effects) -> Report:
     result = Report()
     if not (repo / ".git").exists():
         return result
-    cache = load(repo / ".agents" / CACHE)
+    cache = _load(repo / ".agents" / CACHE)
     dirs = ar.config_dirs(effects.home, effects.config_dir)
     entries, problems = sessions.registry(dirs)
     jobs, unreadable = sessions.stopped_jobs(dirs)
     hosts = sessions.Hosts(entries, session, effects.proc_start)
     hosts.trusted()
-    found = candidates(cache, dirs, {entry["session"] for entry in entries}, effects.now)
+    found = _candidates(cache, dirs, {entry["session"] for entry in entries}, effects.now)
     at = Reading(al.run_agents(runs), al.Places(repo, effects.git, cache["places"]), av.Parents(cache["parents"]),
                  hosts, effects.now, jobs)
-    result.verdicts = judge_all(cache, found, at, problems)
-    show_dead(repo, cache, result.verdicts, at, result)
+    result.verdicts = _judge_all(cache, found, at, problems)
+    _show_dead(repo, cache, result.verdicts, at, result)
     problems += unreadable
+    if at.places.unanswered:
+        problems.append(f"agent deaths: Git gave no answer to {', '.join(sorted(at.places.unanswered))}, "
+                        "so what rests on it is read again next time")
     if hosts.why:
         problems.insert(0, f"agent deaths: cannot tell live sessions on this host ({hosts.why})")
     result.problems = problems
-    # A read outside any session judges no agent lost, so it would drop lost agents from the cache.
+    # A read outside any session judges no agent lost, so it would drop newly lost agents from the cache.
     if session:
-        save(repo / ".agents" / CACHE, cache)
+        _save(repo / ".agents" / CACHE, cache, effects.write)
     return result
 
 
-def load(path: Path) -> dict:
-    empty = {"sessions": {}, "agents": {}, "parents": {}, "shown": [], "dead": {}, "committed": {}, "places": {}}
+def _load(path: Path) -> dict:
+    empty = {"sessions": {}, "agents": {}, "parents": {}, "shown": [], "judged": {}, "committed": {}, "places": {}}
     try:
-        return {**empty, **json.loads(path.read_bytes())}
+        data = json.loads(path.read_bytes())
+        if not isinstance(data, dict):
+            raise ValueError("it holds no JSON object")
+        return {key: data.get(key, value) for key, value in empty.items()}
     except FileNotFoundError:
         return empty
     except ValueError as error:
@@ -211,59 +235,13 @@ def load(path: Path) -> dict:
         return empty
 
 
-def save(path: Path, cache: dict) -> None:
+def _save(path: Path, cache: dict, write: Callable[[Path, str], None]) -> None:
     if not path.exists() and not (cache["sessions"] or cache["agents"]):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=".agent-deaths.", dir=path.parent)
-    try:
-        with os.fdopen(handle, "w") as stream:
-            stream.write(json.dumps(cache, separators=(",", ":")))
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-
-def read_in_hook(repo: Path, session: str, runs: dict, git) -> Report:
-    """`report` with the real effects, for a hook that must not block: a reader that fails says
-    so on stderr and in the block, and the hook goes on."""
-    try:
-        return report(repo, session, runs, real_effects(git))
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f"agent deaths: the reader failed: {error}", file=sys.stderr)
-        return Report(problems=[f"agent deaths: the reader failed ({error}), so no dead agent is listed"])
-
-
-def cached_dead(agents_dir: Path) -> dict:
-    """The dead agents of this checkout the last read found: id -> cause."""
-    return load(agents_dir / CACHE)["dead"]
-
-
-def known(repo: Path, agent_id: str, git) -> bool:
-    """Whether the agent is a dead agent of this checkout, by the last read or by one now. A read
-    outside any session judges no agent by liveness, so a lost agent is known only from the last
-    read a session made."""
-    return agent_id in cached_dead(repo / ".agents") or agent_id in report(repo, "", {}, real_effects(git)).dead
-
-
-def proc_start(pid: int) -> str | None:
-    """The process's start as Claude Code's registry records it, or None when no such process runs."""
-    env = dict(os.environ, LC_ALL="C", TZ="UTC")
-    result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, env=env, timeout=5)
-    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
-
-
-def real_effects(git) -> Effects:
-    return Effects(now=time.time(), home=Path.home(), config_dir=os.environ.get("CLAUDE_CONFIG_DIR", ""),
-                   proc_start=proc_start, git=git)
+    write(path, json.dumps(cache, separators=(",", ":")))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (3, 4) or sys.argv[1] != "show":
-        sys.exit(f"usage: {SHOW} <repo> [<session>]")
-    from workloop_size import GitBudget
-    text = report(Path(sys.argv[2]).resolve(), sys.argv[3] if len(sys.argv) == 4 else "", {},
-                  real_effects(GitBudget().out)).block(None, True)
-    if text:
-        print(text)
+    import agent_effects
+    agent_effects.show(sys.argv[1:])

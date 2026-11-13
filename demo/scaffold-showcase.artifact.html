@@ -1319,7 +1319,7 @@ exit 0
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
               <p class="what">Carries a parallel run&#x27;s messages without polling. Wired to SubagentStart, SubagentStop, UserPromptSubmit and PostToolBatch. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; each tool batch stamps the lane or cell with the time and the batch&#x27;s last call, so a silent cell shows an age, and binds a cell to its agent&#x27;s id. When a worker finishes without submitting, only the lane&#x27;s Docker resources are reaped; one that died keeps them for its resume. Either way the lane waits for the lead&#x27;s <code>release-stale</code>.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 295 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 296 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
 Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt; &lt;host&gt;]
@@ -1358,6 +1358,7 @@ from pathlib import Path
 
 # Imported before the controller&#x27;s folder joins the path below, so each resolves beside this script.
 import agent_deaths
+import agent_effects
 import agent_verdicts as av
 import worktree_records as wr
 from agent_silence import parse, silence
@@ -1593,7 +1594,7 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     git = GitBudget()
     # Claude Code&#x27;s records are read at a prompt (a Claude Code hook) and at a Claude Code start.
     claude = event == &quot;UserPromptSubmit&quot; or host == &quot;claude&quot;
-    report = agent_deaths.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    report = agent_effects.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else &quot;&quot;
     return &quot;\n&quot;.join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == &quot;SessionStart&quot;)) if part)
@@ -11392,7 +11393,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>workloop.py</h3><p>The controller behind the workloop skill: one command line over durable run state. <code>init</code> a run, <code>add-lane</code> for each writer, then <code>claim</code>, <code>submit</code>, <code>review</code>, <code>qa</code>, <code>check</code>, <code>integrate</code> and <code>teardown</code>. QA is recorded against the lane tips it ran on; a lane&#x27;s tip moves only on <code>submit</code>, so a later commit and resubmit makes <code>check</code> report <code>qa:stale</code>. For a one-writer run <code>check</code> runs the composed test; for parallel lanes <code>integrate</code> does.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 129 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 138 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Durable, provider-neutral coordination for bounded parallel agent work.
 
 This file is the command line: the argument parser that routes each command to
@@ -11442,8 +11443,8 @@ from workloop_shared import cmd_share
 from workloop_state import ReadStore, fail, run_of, state_path
 
 # workloop_state put the hooks&#x27; library on the path.
-import agent_deaths  # noqa: E402
 import agent_dismissals  # noqa: E402
+import agent_effects  # noqa: E402
 from workloop_size import GitBudget  # noqa: E402
 
 # test-workloop.sh imports these two from here.
@@ -11466,19 +11467,28 @@ def cmd_brief(args: argparse.Namespace) -&gt; None:
 
 def cmd_dismiss(args: argparse.Namespace) -&gt; None:
     &quot;&quot;&quot;Stop showing a dead agent of this checkout at every start and prompt (agent_dismissals.py).&quot;&quot;&quot;
-    repo = state_path(args.state).parent.parent
+    state = state_path(args.state)
+    agents_dir = state.parent
     if not re.fullmatch(r&quot;[A-Za-z0-9]+&quot;, args.agent):
         fail(f&quot;{args.agent!r} is no agent id: an AGENT DIED line names it, letters and digits only&quot;)
-    if args.agent in agent_dismissals.dismissed(repo / &quot;.agents&quot;):
-        print(f&quot;agent {args.agent} is dismissed already&quot;)
-        return
-    if not agent_deaths.known(repo, args.agent, GitBudget().out):
-        fail(f&quot;no agent {args.agent} touched this checkout and died; its AGENT DIED line names the id to dismiss&quot;)
     try:
-        agent_dismissals.dismiss(repo / &quot;.agents&quot;, args.agent, args.reason, time.time())
+        died = agent_effects.death_at(state, args.agent, GitBudget().out)
+        dismissals = agent_dismissals.dismissed(agents_dir)
     except ValueError as error:
         fail(str(error))
-    print(f&quot;dismissed agent {args.agent}; later starts and prompts no longer show it&quot;)
+    if died is None and args.agent in dismissals:
+        print(f&quot;agent {args.agent} is dismissed already&quot;)
+        return
+    if died is None:
+        fail(f&quot;no agent {args.agent} touched this checkout and died; its AGENT DIED line names the id to dismiss&quot;)
+    if agent_dismissals.covers(dismissals, args.agent, died):
+        print(f&quot;agent {args.agent} is dismissed already&quot;)
+        return
+    try:
+        agent_dismissals.dismiss(agents_dir, args.agent, died, args.reason, time.time())
+    except ValueError as error:
+        fail(str(error))
+    print(f&quot;dismissed agent {args.agent}&#x27;s death; later starts and prompts no longer show it unless it dies again&quot;)
 
 
 def parser() -&gt; argparse.ArgumentParser:

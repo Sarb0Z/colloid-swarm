@@ -37,6 +37,7 @@ from pathlib import Path
 
 # Imported before the controller's folder joins the path below, so each resolves beside this script.
 import agent_deaths
+import agent_effects
 import agent_verdicts as av
 import worktree_records as wr
 from agent_silence import parse, silence
@@ -272,7 +273,7 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     git = GitBudget()
     # Claude Code's records are read at a prompt (a Claude Code hook) and at a Claude Code start.
     claude = event == "UserPromptSubmit" or host == "claude"
-    report = agent_deaths.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    report = agent_effects.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else ""
     return "\n".join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")) if part)
