@@ -23,6 +23,7 @@ while the agent has written nothing since.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -41,6 +42,9 @@ ELSEWHERE = "elsewhere"
 SHOWN_MAX = 5
 CACHE = Path(".readout") / ".agent-deaths-cache"
 SHOW = "python3 .agents/hooks/lib/agent_deaths.py show"
+# The reader's own code, by content: a cache another version wrote is judged again (`_load`).
+RULES = hashlib.sha256(b"".join(Path(__file__).with_name(f"{name}.py").read_bytes() for name in (
+    "agent_deaths", "agent_records", "agent_verdicts", "agent_leftovers", "agent_sessions"))).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -222,17 +226,26 @@ def report(repo: Path, session: str, runs: dict, effects: Effects) -> Report:
 
 
 def _load(path: Path) -> dict:
-    empty = {"sessions": {}, "agents": {}, "parents": {}, "shown": [], "judged": {}, "committed": {}, "places": {}}
+    """The cache, or an empty one. A cache written by other reader code keeps only the agents it
+    showed, as transcripts to read again, and its verdicts: every entry it settled was judged by
+    rules this code may not share, and would hold until the agent's transcript changed."""
+    empty = {"rules": RULES, "sessions": {}, "agents": {}, "parents": {}, "shown": [], "judged": {}, "committed": {}, "places": {}}
     try:
         data = json.loads(path.read_bytes())
         if not isinstance(data, dict):
             raise ValueError("it holds no JSON object")
-        return {key: data.get(key, value) for key, value in empty.items()}
     except FileNotFoundError:
         return empty
     except ValueError as error:
         print(f"agent deaths: {path} is unreadable ({error}); reading every agent afresh", file=sys.stderr)
         return empty
+    if data.get("rules") == RULES:
+        return {key: data.get(key, value) for key, value in empty.items()}
+    agents = data.get("agents", {})
+    shown = [aid for aid in data.get("shown", []) if "transcript" in agents.get(aid, {})]
+    return dict(empty, shown=shown, judged=data.get("judged", {}),
+                agents={aid: {"transcript": agents[aid]["transcript"], "session": agents[aid]["session"], "file": None,
+                              "edits": [], "edits_at": 0} for aid in shown})
 
 
 def _save(path: Path, cache: dict, write: Callable[[Path, str], None]) -> None:

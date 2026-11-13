@@ -32,7 +32,9 @@ EDIT_CALLS = tuple(b'"name":"%s"' % name.encode() for name in EDIT_TOOLS)
 # Session transcript lines that may carry a verdict: a notification, or an Agent call's result.
 NOTE = b"<task-notification>"
 AGENT_RESULT = b'"agentId":"'
-BACKGROUND_TASK = b'"backgroundTaskId":"'
+# A tool call the agent started in the background, as both interactive and headless sessions
+# write it; only the interactive ones add the result's `toolUseResult.backgroundTaskId`.
+BACKGROUND_START = b'"run_in_background":true'
 TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 TAG = re.compile(r"<(status|summary)>(.*?)</\1>", re.S)
 
@@ -171,19 +173,19 @@ def _blocks(record: dict) -> list[dict]:
 
 def _waiting(path: Path) -> bool:
     """Whether the agent's final turn, the records after its newest user record that is not a
-    tool result, started a background command (a tool result whose `toolUseResult` carries a
-    `backgroundTaskId`): it ended that turn to wait on the command, so its answer is no
-    completion. Only a transcript that names a background task anywhere is read back."""
+    tool result, started a background command (a `tool_use` whose input sets
+    `run_in_background`): it ended that turn to wait on the command, so its answer is no
+    completion. Only a transcript that holds such a call anywhere is read back."""
     with open(path, "rb") as stream:
-        if BACKGROUND_TASK not in stream.read():
+        if BACKGROUND_START not in stream.read():
             return False
     for record in _newest_messages(path):
-        if record["type"] == "user":
-            result = record.get("toolUseResult")
-            if isinstance(result, dict) and result.get("backgroundTaskId"):
+        blocks = _blocks(record)
+        if record["type"] == "assistant":
+            if any(b.get("type") == "tool_use" and (b.get("input") or {}).get("run_in_background") is True for b in blocks):
                 return True
-            if not any(b.get("type") == "tool_result" for b in _blocks(record)):
-                return False
+        elif not any(b.get("type") == "tool_result" for b in blocks):
+            return False
     return False
 
 
@@ -273,7 +275,8 @@ def notes_since(path: Path, offset: int) -> tuple[list[list], int]:
 def results_since(path: Path, offset: int) -> tuple[list[list], int]:
     """A foreground agent's verdicts in a session transcript since `offset`: each is its
     `Agent` call's result, a user record whose `toolUseResult` carries `agentId` and
-    `status`, as [tool use id, time, status]."""
+    `status`, as [tool use id, time, status]. A headless session writes `toolUseResult` here,
+    in its own transcript, though not in its agents' transcripts."""
     results = []
     lines, reached = _lines_from(path, offset, (AGENT_RESULT,))
     for line in lines:

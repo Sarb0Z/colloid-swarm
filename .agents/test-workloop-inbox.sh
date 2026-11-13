@@ -206,12 +206,12 @@ project = os.path.join(home, ".claude", "projects", "-fixture")
 def iso(at): return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(at))
 def line(record): return json.dumps(dict(record, cwd=repo), separators=(",", ":")) + "\n"
 def msg(kind, at, content, **extra): return {"type": kind, "timestamp": iso(at), "message": {"role": kind, "content": content, **extra}}
-def tool(at, name, use): return msg("assistant", at, [{"type": "tool_use", "id": use, "name": name, "input": {"command": "x"}}], stop_reason="tool_use")
+def tool(at, name, use, **extra): return msg("assistant", at, [{"type": "tool_use", "id": use, "name": name, "input": {"command": "x", **extra}}], stop_reason="tool_use")
 def result(at, use, **extra): return dict(msg("user", at, [{"type": "tool_result", "tool_use_id": use}]), **extra)
 ends = {
     "gone": [tool(now - 2000, "SubagentHandback", "h"), result(now - 1990, "h")],
     "adied": [dict(msg("assistant", now - 2000, [{"type": "text", "text": "API Error"}]), isApiErrorMessage=True, error="server_error", apiError="computer_slept")],
-    "await": [tool(now - 2000, "Bash", "b"), result(now - 1990, "b", toolUseResult={"backgroundTaskId": "b1"}),
+    "await": [tool(now - 2000, "Bash", "b", run_in_background=True), result(now - 1990, "b", toolUseResult={"backgroundTaskId": "b1"}),
               msg("assistant", now - 1980, [{"type": "text", "text": "waiting on the suite"}], stop_reason="end_turn")],
     "acell": [dict(msg("assistant", now - 2000, [{"type": "text", "text": "API Error"}]), isApiErrorMessage=True, error="rate_limit", apiError="usage_limit_reached")],
 }
