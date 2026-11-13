@@ -209,3 +209,18 @@ withdraws that expectation: the cell's session ended, and Decision 3 (a) and
 the rewritten guide (disposition 12) send a lost session to the operator, which
 each run did, with no step that fails or re-sends the cell. W-C passes on
 that reading; it goes to the operator's walk-through with findings 8 and 9.
+
+## Landed
+
+Both lanes were accepted at `84d718e` and `67c8ee6`, integrated with the run's
+composed test passing, and merged at `8ab2460`. The trailing commits on main:
+- `3c0b490`, the inbox digest test's label;
+- `076d5fe`, the knowledge notes (the registry status, the wording's third
+  round, its index line);
+- `906ab72`, the showcase card for the new `agent-waits` hook. The first
+  `suite.sh` on the landed tree failed `demo/check-inventory.py` alone (27
+  policies claimed against 28), because the run's composed test did not
+  include it.
+
+`suite.sh` then passed on `906ab72`'s tree ("all checks passed", Acceptance
+13).
