@@ -2,7 +2,10 @@
 
 Each config folder (agent_records.config_dirs) holds `sessions/<pid>.json`, one
 per running session, with its `sessionId`, `procStart` and `startedAt` (epoch
-ms); a clean exit removes it, a kill leaves it. Claude Code computes
+ms), and on 2.1.322 its `status` with `statusUpdatedAt` (epoch ms): `waiting`
+while a permission prompt is open, then `busy` once it is answered or denied
+(observed live), besides `idle` and `shell`; a clean exit removes it, a kill
+leaves it. Claude Code computes
 `procStart` as `ps -o lstart= -p <pid>` under `LC_ALL=C TZ=UTC`, trimmed, on
 every platform but Windows. A background session's supervisor keeps
 `jobs/<job id>/state.json` with its `state`, `sessionId` and `resumeSessionId`,
@@ -27,9 +30,12 @@ def registry(dirs: list[Path]) -> tuple[list[dict], list[str]]:
         for path in sorted(folder.glob("*.json")):
             try:
                 data = json.loads(path.read_text())
+                status_at = data.get("statusUpdatedAt")
                 entries.append({"pid": int(need(data, "pid", path)), "session": need(data, "sessionId", path),
                                 "proc_start": need(data, "procStart", path),
-                                "started_at": float(need(data, "startedAt", path)) / 1000})
+                                "started_at": float(need(data, "startedAt", path)) / 1000,
+                                "status": data.get("status"),
+                                "status_at": float(status_at) / 1000 if status_at is not None else None})
             except FileNotFoundError:
                 continue  # its session exited while this read the folder
             except (ValueError, TypeError) as error:

@@ -30,12 +30,15 @@ waits="$fx/.agents/.readout/.agent-waits"
 # sessions, this shell's own process as `own` and as `other`.
 project="$HOME/.claude/projects/-fixture"
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/jobs" "$project"
-register() {  # <session id> <pid>
-  python3 - "$HOME/.claude/sessions/$2-$1.json" "$1" "$2" "$(LC_ALL=C TZ=UTC ps -o lstart= -p "$2" | awk '{$1=$1};1')" <<'PY'
+register() {  # <session id> <pid> [<status> <seconds from now it was set>] [<seconds from now the process started>]
+  python3 - "$HOME/.claude/sessions/$2-$1.json" "$1" "$2" "$(LC_ALL=C TZ=UTC ps -o lstart= -p "$2" | awk '{$1=$1};1')" "${3:-}" "${4:-0}" "${5:--3600}" <<'PY'
 import json, sys, time
-path, session, pid, start = sys.argv[1:]
-json.dump({"pid": int(pid), "sessionId": session, "cwd": "/", "procStart": start,
-           "startedAt": int((time.time() - 3600) * 1000), "kind": "interactive"}, open(path, "w"))
+path, session, pid, start, status, status_at, started = sys.argv[1:]
+entry = {"pid": int(pid), "sessionId": session, "cwd": "/", "procStart": start,
+         "startedAt": int((time.time() + float(started)) * 1000), "kind": "interactive"}
+if status:
+    entry.update(status=status, statusUpdatedAt=int((time.time() + float(status_at)) * 1000))
+json.dump(entry, open(path, "w"))
 PY
 }
 register own $$
@@ -114,6 +117,30 @@ rm "$HOME/.claude/sessions/$$-other.json"
 [[ "$(prompt_block)" != *"WAITING ON YOU"* ]] || fail "a wait of an ended session still shows: $(prompt_block)"
 register other $$
 ok "a wait closes when its session ends"
+
+# ── 3a. the operator's answer closes the wait while an approved command still runs ──
+# Observed on 2.1.322: the session's registry entry reads `waiting` while a subagent's prompt
+# is open and `busy`, with a newer statusUpdatedAt, once it is answered or denied; the agent's
+# transcript stays on the tool_use until the approved command ends.
+agent other a4 "Long approved command"
+fire "$(payload other a4 'python3 -c "import time; time.sleep(150)"')" >/dev/null
+register other $$ waiting 1
+[[ "$(prompt_block)" == *'WAITING ON YOU: "Long approved command" (a4) Bash: python3 -c'* ]] || fail "a wait whose session reads waiting does not show: $(prompt_block)"
+register other $$ busy -60
+[[ "$(prompt_block)" == *'(a4) Bash'* ]] || fail "a status set before the request closed the wait: $(prompt_block)"
+register other $$ busy 1
+[[ "$(prompt_block)" != *"WAITING ON YOU"* ]] || fail "the session left waiting after the request, yet the wait still shows: $(prompt_block)"
+register other $$
+ok "a wait closes once its session's registry entry leaves waiting after the request, before the approved command writes anything"
+
+# ── 3b. a session resumed under the same id closes the wait the killed process left ──
+agent other a5 "Killed then resumed"
+fire "$(payload other a5 'touch resumed.txt')" >/dev/null
+[[ "$(prompt_block)" == *'(a5) Bash'* ]] || fail "the wait before the resume does not show: $(prompt_block)"
+register other $$ "" 0 1
+[[ "$(prompt_block)" != *"WAITING ON YOU"* ]] || fail "a session whose process started after the request still shows the wait: $(prompt_block)"
+register other $$
+ok "a wait closes when its session's running process started after the request (claude --resume)"
 
 # ── 4. the lead's own prompt is not kept ──
 : > "$scratch/hook.err"

@@ -14,10 +14,13 @@ atomically under an `fcntl` lock on `.agent-waits.lock`. A payload with no
 `agent_id` is the lead's own prompt, in front of the operator already, and is
 not kept.
 
-A wait closes when the agent writes a message record newer than the request
-(the tool's result after an approval, its text after a deny), or when its
-session ends; answering fires no hook of its own. `open_waits` judges that
-and drops the closed entries under the same lock.
+Answering fires no hook of its own, and an approved command writes nothing to
+the transcript until it ends. A wait closes when its session's registry entry
+leaves `waiting` after the request (the operator answered), when the agent
+writes a message record newer than the request, when its session ends, or
+when a process that started after the request runs the session (a `claude
+--resume` under the same id). `open_waits` judges that and drops the closed
+entries under the same lock.
 
 A background session (`claude --bg`) waits with its job reading blocked
 (`blocked`) and its `needs` saying what for; `job_lines` names each one whose
@@ -116,11 +119,20 @@ def record(agents_dir: Path, payload: dict, now: float) -> bool:
     return True
 
 
-def _closed(wait: dict, live: Callable[[str], bool | None]) -> bool:
-    """Whether the agent wrote past its request, or its session ended. A transcript that is gone
-    went with its session."""
+def _closed(wait: dict, live: Callable[[str], bool | None], entry: Callable[[str], dict | None]) -> bool:
+    """Whether the prompt was answered or the agent wrote past it, or its session ended. A
+    transcript that is gone went with its session."""
     if live(wait["session"]) is False:
         return True
+    running = entry(wait["session"])
+    if running:
+        # A session resumed under the same id since the request is a new process: the prompt went with the old one.
+        if running["started_at"] > wait["at"]:
+            return True
+        # The session leaves `waiting` when the prompt is answered or denied, before an approved command ends.
+        status_at = running.get("status_at")
+        if running.get("status") not in (None, "waiting") and status_at is not None and status_at > wait["at"]:
+            return True
     try:
         newest = ar.how_it_ends(Path(wait["transcript"]))["newest"]
     except FileNotFoundError:
@@ -128,11 +140,12 @@ def _closed(wait: dict, live: Callable[[str], bool | None]) -> bool:
     return newest is not None and newest > wait["at"]
 
 
-def open_waits(agents_dir: Path, live: Callable[[str], bool | None]) -> dict[str, dict]:
+def open_waits(agents_dir: Path, live: Callable[[str], bool | None], entry: Callable[[str], dict | None]) -> dict[str, dict]:
     """The waits still open, {agent id: wait}; the closed ones are dropped from the file.
-    `live(session)` is True or False, or None when liveness cannot be told on this host."""
+    `live(session)` is True or False, or None when liveness cannot be told on this host;
+    `entry(session)` is the session's registry entry while it runs, else None."""
     waits = _load(agents_dir / FILE)
-    closed = {agent_id: wait["at"] for agent_id, wait in waits.items() if _closed(wait, live)}
+    closed = {agent_id: wait["at"] for agent_id, wait in waits.items() if _closed(wait, live, entry)}
     if closed:
         # A wait the hook replaced since this read is a new prompt, and stays.
         _rewrite(agents_dir, lambda now: {aid: w for aid, w in now.items() if closed.get(aid) != w["at"]})

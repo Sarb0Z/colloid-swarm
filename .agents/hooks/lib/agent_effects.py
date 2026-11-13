@@ -78,14 +78,14 @@ def read_in_hook(repo: Path, session: str, runs: dict, git) -> ad.Report:
 def liveness(entries: list[dict]):
     """`live(session)`: True while a registry entry names it with its process's start, False
     otherwise, and None for every session while no entry passes that test, since then the test
-    itself may not hold on this host."""
+    itself may not hold on this host; and `entry(session)`, that running entry or None."""
     hosts = sessions.Hosts(entries, "", proc_start)
 
     def live(session: str) -> bool | None:
         if hosts.live(session):
             return True
         return False if any(hosts.live(entry["session"]) for entry in entries) else None
-    return live
+    return live, hosts.live
 
 
 def waiting(agents_dir: Path) -> tuple[dict, list[str], list[str]]:
@@ -94,8 +94,8 @@ def waiting(agents_dir: Path) -> tuple[dict, list[str], list[str]]:
     sessions' after the agents', and a problem line for each record that could not be read."""
     dirs = ar.config_dirs(Path.home(), os.environ.get("CLAUDE_CONFIG_DIR", ""))
     entries, problems = sessions.registry(dirs)
-    live = liveness(entries)
-    waits = aw.open_waits(agents_dir, live)
+    live, entry = liveness(entries)
+    waits = aw.open_waits(agents_dir, live, entry)
     jobs, unreadable = sessions.jobs(dirs)
     return waits, aw.agent_lines(waits) + aw.job_lines(jobs, agents_dir.parent, live), problems + unreadable
 
