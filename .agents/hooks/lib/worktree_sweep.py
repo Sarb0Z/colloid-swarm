@@ -51,7 +51,7 @@ def reclaim(folder: Path) -> None:
                 stream.write(claim.read_text())
             # The folded entries end under their dead host; a session that resumed
             # meanwhile is written last again, so it does not read as gone.
-            if verdict == wr.ps.LIVE:
+            if verdict in (wr.ps.LIVE, wr.MEND):
                 wr.append(folder, record.stem, [dict({"type": "host", "at": int(time.time())}, **mark)])
             claim.unlink()
 
@@ -70,22 +70,22 @@ def unpark(main: Path) -> None:
 
 
 def over(entries: list[dict], path: Path) -> bool:
-    """The session's process is gone (a file with no host: untouched for 24 hours). A live stamp
-    with no `start` is written again with it (`upgrade`)."""
+    """The session's process is gone (a file with no host: untouched for 24 hours). A stamp live
+    by its host text alone is written again with its process's `start` (`upgrade`)."""
     mark = wr.last_host(entries)
     if not mark:
         return time.time() - path.stat().st_mtime > IDLE_SECONDS
     verdict = wr.stamp_state(mark)
-    if verdict == wr.ps.LIVE and "start" not in mark:
+    if verdict == wr.MEND:
         upgrade(path, mark)
     return verdict == wr.ps.GONE
 
 
 def upgrade(path: Path, mark: dict) -> None:
-    """Append a live text-only stamp again with its `start`, so its session reads the same in any
-    zone or locale from now on (debt: worktree-records-local-stamps). The entry has no `at`: no
-    process began, so it dates no resume (`finish`). Nothing is written when the record went or
-    gained another stamp since the sweep read it."""
+    """Append a stamp live by its host text again with its process's own `start`, so its session
+    reads the same in any zone or locale from now on (debt: worktree-records-local-stamps). The
+    entry has no `at`: no process began, so it dates no resume (`finish`). Nothing is written
+    when the record went or gained another stamp since the sweep read it."""
     start = wr.ps.read(mark["host"][0])
     try:
         current = wr.last_host(wr.load(path))

@@ -389,15 +389,16 @@ done
 records="$dir/.agents/worktrees/.records"; mkdir -p "$records"
 # Stamps as the records write them, `host` and `start`, of this shell: the fake ps
 # reports its start as the real one gives it. An ended session's stamp holds a
-# start this shell never had.
+# start text and a start this shell never had.
 printf '%s\t%s\n' $$ "$(LC_ALL=C TZ=UTC "$real_ps" -o lstart= -p $$ | awk '{$1=$1};1')" >> "$PS_STARTS"
 stamp_of() {  # <live|ended>: the stamp's keys, to go inside a record line
   (cd "$dir/.agents/hooks/lib" && python3 -c '
 import json, sys, worktree_records as wr
-pid = int(sys.argv[1]); start = wr.ps.read(pid)
+pid = int(sys.argv[1]); start, text = wr.ps.read(pid), wr.ps_row(pid)[1]
 if sys.argv[2] == "ended":
     start = dict(start, ticks=start["ticks"] + 1) if "ticks" in start else {"epoch": start["epoch"] - 3600}
-print(json.dumps({"host": [pid, wr.ps_row(pid)[1]], "start": start})[1:-1])' $$ "$1")
+    text = "Thu Jan  1 00:00:00 2026"
+print(json.dumps({"host": [pid, text], "start": start})[1:-1])' $$ "$1")
 }
 live_host="$(stamp_of live)" ended_host="$(stamp_of ended)"
 printf '{"type": "run", "run": "c-two", "state": "x", %s}\n{"type": "run", "run": "c-one", "state": "x", %s}\n' "$live_host" "$live_host" > "$records/other.jsonl"

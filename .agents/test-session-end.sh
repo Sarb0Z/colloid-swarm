@@ -672,28 +672,51 @@ else
 fi
 ok "a live session keeps its record and worktree through sweeps in another zone and locale; the sweeper's own stamp carries its start"
 
-# The start decides, not the host text, which matches in all of these.
+# Written in another zone than the sweep's, the host text never matches, so the
+# start alone decides.
+karachi="$(TZ=Asia/Karachi ps -o lstart= -p "$live" | awk '{$1=$1};1')"
 if [[ -n "$linux" ]]; then
   for name in exact ticks boot; do u5_wt "$name"; done
-  hand exact exact "$live" "$(text_of "$live")" "$(start_of "$live")"
-  hand ticks ticks "$live" "$(text_of "$live")" "$(start_of "$live" ticks)"
-  hand boot boot "$live" "$(text_of "$live")" "$(start_of "$live" boot)"
+  hand exact exact "$live" "$karachi" "$(start_of "$live")"
+  hand ticks ticks "$live" "$karachi" "$(start_of "$live" ticks)"
+  hand boot boot "$live" "$karachi" "$(start_of "$live" boot)"
   kept=(exact) ended=(ticks boot) on="equal to the process's" off="of another tick count or boot"
 else
   for name in near early far; do u5_wt "$name"; done
-  hand near near "$live" "$(text_of "$live")" "$(start_of "$live" 3)"
-  hand early early "$live" "$(text_of "$live")" "$(start_of "$live" -3)"
-  hand far far "$live" "$(text_of "$live")" "$(start_of "$live" -6)"
+  hand near near "$live" "$karachi" "$(start_of "$live" 3)"
+  hand early early "$live" "$karachi" "$(start_of "$live" -3)"
+  hand far far "$live" "$karachi" "$(start_of "$live" -6)"
   kept=(near early) ended=(far) on="3 s either side of the process's" off="6 s off"
 fi
-u5_sweep
+u5_sweep TZ=America/New_York
 for name in "${kept[@]}"; do
   [[ -d "$scratch/u5-$name" && -f "$u5records/$name.jsonl" ]] || fail "the live $name record must keep its worktree and record: $u5_out $u5_err"
 done
 for name in "${ended[@]}"; do
   [[ ! -e "$scratch/u5-$name" && ! -e "$u5records/$name.jsonl" ]] || fail "a $name start that is not the process's must read gone: $u5_out $u5_err"
 done
-ok "a recorded start $on reads live and one $off reads gone, whatever the host text says"
+ok "a recorded start $on reads live and one $off reads gone, where the host text was written in another zone"
+
+# Hooks from before `start` write back what a sweep keeps as `dict(e, host=...)`:
+# a session that resumed during that sweep gets its new process's host beside the
+# start of the one that ended. The host text, equal to ps here, reads it live, and
+# the sweep writes the stamp again with the process's own start.
+sleep 300 >/dev/null 2>&1 & sleepers+=($!); resumer=$!
+u5_wt resumed-pair
+if [[ -n "$linux" ]]; then ended_start="$(start_of "$live" ticks)"; else ended_start="$(start_of "$live" -3600)"; fi
+hand resumed-pair resumed-pair "$resumer" "$(text_of "$resumer")" "$ended_start"
+u5_sweep
+[[ -d "$scratch/u5-resumed-pair" && -f "$u5records/resumed-pair.jsonl" ]] \
+  || fail "a live process's host text beside another process's start must keep its record and worktree: $u5_out $u5_err"
+python3 - "$u5records/resumed-pair.jsonl" "$resumer" "$(text_of "$resumer")" "$(start_of "$resumer")" <<'PY' \
+  || fail "the sweep must write that stamp again with the process's own start: $(cat "$u5records/resumed-pair.jsonl")"
+import json, sys
+lines = [json.loads(line) for line in open(sys.argv[1]).read().splitlines()]
+sys.exit(not (len(lines) == 2 and lines[-1] == {"type": "host", "host": [int(sys.argv[2]), sys.argv[3]], "start": json.loads(sys.argv[4])}))
+PY
+u5_sweep
+[[ "$(wc -l < "$u5records/resumed-pair.jsonl")" -eq 2 ]] || fail "a mended stamp must not be written again: $(cat "$u5records/resumed-pair.jsonl")"
+ok "a live process's host text beside another process's start reads live, and the sweep writes it again with its own start, once"
 
 # What a sweep writes back goes under the session's stamp: its start with it, and
 # none where that stamp has none, whatever start the entry carried before.
