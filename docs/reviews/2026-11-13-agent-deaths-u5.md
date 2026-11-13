@@ -11,7 +11,7 @@ teardown gate, the export and the public tree, under the verbatim contract;
 Critical stakes, since a session read as ended has its idle worktrees removed
 and the unit touches a gate hook.
 
-Covers: d4a53e9..28bb742
+Covers: d4a53e9..b8ddf84
 
 ## Findings
 
@@ -55,3 +55,34 @@ One QA cell (sonnet) at `28bb742`, every scenario in scratch clones under
 | 3 | Fix, since the module is this unit's own and unlanded and a sweep that aborts mid-run is the failure this plan exists for. All three errors read cannot tell with one stderr line naming the pid and the cause; `PermissionError` too, rather than gone as the reviewer offered, because a session's own process whose `/proc` entry cannot be read must not lose its worktrees. The death reader's handling of a failing `ps` stays as it was before this lane. |
 | 4 | Fix, by the lead on main after the lane lands, with a sentence on when a process counts as gone. |
 | 5 | Decline. `hostile-review.md:41` makes 300 lines a measurement to report, not a limit; R9 split the file by responsibility into recording, removal and sweep, and the four functions write and read a record's own stamp, which is recording's; no function crosses 40 lines. The plan's prediction missed because `stamp` and `stamp_state` are new code, not code the loader replaced. |
+
+## Fixes
+
+`a40b486` carries Disposition 1: `stamp_state` answers `MEND` when the `start`
+is missing or reads gone and the `host` text equals `ps` exactly, and the
+sweep's `upgrade` appends the process's own `start`; `reclaim` and `alive`
+read `MEND` as live. `90b5236` carries 2: the sweep's recorded set reads claim
+files too. `b8ddf84` carries 3, and routes the lock check through the same
+read, so a pid whose start `ps` cannot give keeps its lock; the death reader
+still raises on a missing `ps`, as at d4a53e9. Each has a test row red on
+28bb742. The writer's verify at `b8ddf84`: exit 0 in 423 s, `linux-check.sh`
+nine tests and the self-check. The review contract gives a `P1` fix no new
+round; QA reran.
+
+## QA round 2, at `b8ddf84`
+
+One QA cell (sonnet), clones at b8ddf84, 28bb742 and d4a53e9; holders its own
+`perl -e 'sleep 3600'` processes.
+
+| Scenario | Observed | Result |
+|---|---|---|
+| 1 Finding 1, real d4a53e9 `close` | Holders 16 s apart; the old `close`, with the new `rehost` run while its claim stood, printed `kept …: its session resumed during this sweep` and left `{"host": [72020, …], "start": {"epoch": 1794576383}, …}`, the resumed holder's host beside the first holder's start. b8ddf84 kept the worktree and appended one entry with `"start": {"epoch": 1794576399}`, the holder's own; 28bb742 printed `removed …/wt1-28bb742`. With holders 4 s apart the slack reads the pair as one start, which is live and correct | pass |
+| 2 Claim-only worktree, start cannot be told | Idle 48 h, clean, merged: b8ddf84 kept it and named nothing; with the claim moved aside the same sweep removed it; 28bb742 `removed idle …/wt2-28bb742 … could go: merged into main` | pass |
+| 3 `ps` hangs, `ps` missing | b8ddf84 exit 0, record and worktree kept, one line each: `ps could not be run (Command '['ps', …]' timed out after 5 seconds)` and `ps could not be run ([Errno 2] No such file or directory: 'ps')`; 28bb742 exit 1 with `TimeoutExpired` and `FileNotFoundError` tracebacks | pass |
+| 4 Round 1's 18, 20, 22, 24 | Zone and locale sweeps keep the worktree; a text-only live stamp gains `"start": {"epoch": 1794576399}`, a killed one is removed; the 9be9158 sweep keeps a b8ddf84 record; `not a date` keeps the record with one line | pass |
+| 5 Text fallback stays narrow | A start 6 s off with the text `Mon Jan  1 00:00:00 2024` was removed; 4 s off with the same text kept | pass |
+| 6 `linux-check.sh` | Nine tests PASS with `test-session-end.sh`, `PASS procStart self-check`, exit 0 | pass |
+
+Scenario 1 times the resume in a harness around the real `close` and `finish`,
+not with a second session; every sweep ran on macOS, so the Linux start form is
+covered by `linux-check.sh` and the lead's container run in round 1.
