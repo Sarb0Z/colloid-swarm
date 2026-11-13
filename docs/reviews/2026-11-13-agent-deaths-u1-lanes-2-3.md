@@ -64,12 +64,42 @@ the reader wrote live (Acceptance 4); warm prompt-hook timing with the wait
 read (Acceptance 12, finding 7); the whole guide loaded with an
 other-session line (findings 8, 9).
 
+## QA round 1 and the disprove pass
+
+An independent QA cell (sonnet) at `9fb7184` and `a629263`, real sessions in
+scratch clones with a local remote (haiku for the sessions under test, Opus
+for the wording):
+
+| Line | Run | Result |
+|---|---|---|
+| 17, ordinary session | a run `qa-run` with cell `c1`; an interactive session's background subagent, bound to `c1`, prompted on `touch prompted.txt`; Yes, a deny, a kill | pass: the pane stayed on "Do you want to proceed?"; a second start showed `WAITING ON YOU: "touch probe" (a0e3d61be50924178) …`; `watch qa-run` printed `WAITING ON THE OPERATOR — qa-run/c1: its cell's agent waits on a permission prompt for 15s, Bash: …`; gone after the deny (the file never created) and after the kill |
+| 17, background session | `claude --bg` job `f25326e9` held on `touch bgprompt.txt` | pass: `WAITING ON YOU: "touch bgprompt.txt" (f25326e9) approve Bash: touch bgprompt.txt; claude attach f25326e9` in the clone, none from the main checkout; gone after `claude attach` and Yes |
+| 4, statusline half | `readout.py strip /Users/alice/Projects/colloid-swarm qa-session` from the u1-words lane, over the cache the landed reader wrote | pass: `1 agent out, oldest silent 888m  ·  mcp-bundle-ship/ship died session ended`; nothing written in the main checkout |
+| 9 (a), whole guide | the lane's whole `SKILL.md` as a skill, a stub controller, Opus, one run per case | pass: case A, `SendMessage` to the id with no question before it, no `--again`; case B, no `SendMessage`, no `--again`, "this one is your call" |
+| Suites | each lane's hook tests; `lint-decisions.py`, `lint-skills.sh` | pass |
+
+| Finding | Probe | Label |
+|---|---|---|
+| 1 | `touch approved.txt && python3 -c "import time; time.sleep(150)"` approved at 07:35:23; read 43 s later | confirmed: the transcript stayed at 30 lines with a `tool_use` newest, `approved.txt` existed, a start still printed `WAITING ON YOU: "sleep probe" (acf8504ec8710c721) …` and `watch` "waits on a permission prompt for 1m"; both cleared once the command finished (37 lines) |
+| 8 | case C, two Opus runs, whole guide: the digest's "1 cell out (trace); no cell outlives its session: returned … --failed '<why>', or brief … --again" and the cell's agent id, no `AGENT DIED:` line | refuted: both ran `SendMessage` to the id first and `returned … --failed` only after it failed ("No transcript found") |
+| 9 | case D, two Opus runs, whole guide: an `AGENT DIED:` line naming session `s-other-77` | refuted: one sent one `SendMessage`, which failed, then told the operator to resume in `s-other-77` or choose to re-send; the other sent none and said the restart belongs in that terminal; neither ran `--again` or `release-stale` |
+
+The QA cell killed the default tmux server with a `pkill -n -f "claude
+--model haiku"` whose newest match was the server, taking another session's
+`stopprobe` tmux session (cwd `/tmp/stop-attended.MdxegQ`) with it; the
+operator is told.
+
 ## Dispositions
 
-Pending: the disprove pass on findings 1, 8 and 9 runs in the QA cell.
+No P0. The lead settles the AMBIGUITY as (a): the operator's answer ends the
+wait, since a running approved command is the agent working, and the silence
+check must see it again.
 
 | # | Disposition |
 |---|---|
+| 1 | Adopted, confirmed: a wait also closes when its session's registry entry reports a status other than waiting (`status`, `statusUpdatedAt`, which interactive and background entries both carry) updated after the request; the writer probes what the entry reads before and after an approval first, and a fixture row and the long-command scenario follow |
+| 8 | Refuted in two runs; adopted as wording anyway, since the kept sentence and the paragraph still disagree on the page: the guide's sentence and the digest's remedy for cells out of an ended session point at their `AGENT DIED:` lines; to the operator's walk-through with case C's command |
+| 9 | Refuted in two runs; adopted as wording anyway: a line naming another session is resumed in that session, and a re-send follows only a dismiss, as the line says; the unmatched condition goes; to the operator's walk-through with case D's command |
 | 2 | Adopted: a wait closes when its session's registry entry started after it |
 | 3 | Adopted: `cmd_watch` prints the reader's error on stderr and goes on with no waits |
 | 4 | Adopted: `waiting_agents` binds an unbound cell by the brief header in the waiting agent's transcript, as the stamp hook does |
