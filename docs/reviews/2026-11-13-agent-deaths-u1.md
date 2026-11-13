@@ -192,6 +192,11 @@ The lead's check at `984b48b`, the lane's `show`:
 | The main checkout, no session | "1 agent that left nothing died this week."; "agent deaths: cannot tell live sessions on this host (this read runs in no Claude Code session)" |
 | The main checkout, the lead's session | `AGENT DIED: "Implement bundle-only server shipping" (implementer, a869dfbeebb5c3eae) session ended … it holds lane mcp-bundle-ship/ship …`; the cache it wrote there deleted |
 
+Landed on `main` at `49eb623` after `integrate` passed; the 32 `.cells-*`
+files in the main checkout deleted (finding 4). Acceptance 13:
+`bash .agents/suite.sh` on the landed tree exited 0, "all checks passed",
+`port-public.py check` and `demo/check-inventory.py` included.
+
 QA's real-death lines stand for `984b48b`: the commit changes only how a
 final turn's background start is read and when a cache is judged again, and
 the lead's check covers both on QA's own store.
