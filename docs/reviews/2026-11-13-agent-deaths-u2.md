@@ -134,3 +134,25 @@ through short Python scripts rather than the edit tools, so the post-edit hook
 did not run on them; the lead ran its gate by hand,
 `POST_EDIT_MODE=check bash .agents/hooks/policy/post-edit-check.sh` over the
 four changed Python files, which exited 0 with no finding.
+
+## QA round 2, at `5047e01`
+
+One QA cell (sonnet), scratch clones under
+`$TMPDIR/agent-death-probe/qa-u2-r2/`.
+
+| Scenario | Observed | Result |
+|---|---|---|
+| Acceptance 7 on: a haiku lead in tmux, its background `implementer` leaves `notes/one.txt` uncommitted and sleeps 1,900 s | at the first tool batch after the wait, 11:13:47Z, the transcript's only `COMMIT:` record: "1 of your edited files have been uncommitted since 15:34 (39 min). Commit each piece whose acceptance passes, staging by path, unless this repository says commits wait for the operator."; none on the next batch; none after the writer committed by path (`3000846`); the hook run that carried it took 435 ms | pass |
+| Acceptance 7 off: the same with `hooks.commit_nudge.enabled: false` | no `uncommitted since` in the writer's transcript over the same batches | pass |
+| Disposition 1: 600 tracked files, a status of six paths looped against a concurrent `git add`/`git reset`, 30 s | through `GitBudget`: 0 of 2,224 add/reset runs failed on `index.lock`; plain `git status` as the control: 691 of 2,386 | pass |
+| Acceptance 9 (b): two fresh opus leads, one-writer lane, "set one.txt to ALPHA; then two.txt to BETA" | each implementer claimed, wrote one.txt, committed it by path, then two.txt and a second commit (`f48c927`, `7199fa8`; `f05c8c4`, `ea9361d`) | pass, 2 of 2 |
+| Briefs: a one-writer lane and two worktree lanes | worker briefs carry one "Commit on" line and the practice line "Only a lane's writer commits"; reviewer and QA briefs carry no "Commit on" line | pass |
+| An unparsed `config.json` (`{"hooks": {`), the inbox hook run with a real PostToolBatch payload | exit 0, no stdout, stderr names the file and "w1 gets no commit reminder: policy.json or config.json does not parse"; with the file restored the nudge fires again | pass |
+| This checkout | `agent_deaths.py show` exit 0 with the `mcp-bundle-ship` line; `test-commit-nudge.sh` 12 `ok`; `test-workloop.sh` `PASS: workloop controller` | pass |
+
+The sleep took 39 minutes of wall clock for 1,900 s, so the Mac likely slept
+during it; the nudge still fired once at the next batch. The unparsed-config
+row ran in its own clone with a fabricated agent transcript, since the live
+clone's run needed its configuration. Another session deleted the shared
+`$TMPDIR/agent-death-probe/` folder once mid-run; the cell rebuilt its clones
+and reran what it lost.
