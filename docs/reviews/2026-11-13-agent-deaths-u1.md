@@ -46,6 +46,25 @@ HANDOFF (reviewer): QA of Acceptance 1, 3 and 13 on the landed tree, plus a
 `/clear` start and a `claude --resume` start whose block has no "cannot tell
 live sessions" line (finding 6). Disprove pass on finding 1.
 
+## QA round 1
+
+An independent QA cell (sonnet) at `59886a0`, real `claude -p` sessions
+(haiku) in a scratch clone with a local remote, over about four hours with
+the Mac asleep on battery and waking for seconds every 15-20 minutes:
+
+| Line | Run | Result |
+|---|---|---|
+| Suite | the four hook tests and `port-public.py check` from the lane | pass: 96 `ok`, "generated starters match the tree" |
+| 8 live | `dismiss nosuchagent`; `dismiss <id>`; the next start and prompt | pass: exit 1 "no agent nosuchagent touched this checkout and died…"; exit 0; no line at either |
+| 1 | a background writer edits a file and waits; the proxy cuts every tunnel at 01:31:24Z | unverified: the headless session's own 10-minute background-wait ceiling stopped the writer before a connection error (`[Request interrupted by user]`); a start at 03:35Z showed one line, "session ended", with the resume-session and dismiss remedies, right for what happened; a start at 01:57Z showed none, the session's records being under 10 minutes quiet (rule 3) |
+| 4 live | `agent_deaths.py show <main checkout>` | fail from the command: "1 agent that left nothing died this week", since `show` passes no runs and, with no session, judges nothing lost and prints no self-check line; through the hook's path with a live session and the real runs: `AGENT DIED: "Implement bundle-only server shipping" (implementer, a869dfbeebb5c3eae) … it holds lane mcp-bundle-ship/ship …`, no cache written in the main checkout |
+| 3, 15 | SIGKILL and resume; `/exit`, Ctrl-C twice, pane kill | not run: the auto-mode classifier gave no verdict on the launches three times running |
+
+| # | Sev | Finding | Evidence |
+|---|---|---|---|
+| Q1 | P2 | `show` reads no workloop runs, so a held lane never shows from the command | live |
+| Q2 | P2 | `show` with no session judges nothing lost and prints no "cannot tell live sessions" line, which reads as no deaths | live |
+
 ## Disprove pass
 
 A QA cell (sonnet) ran finding 1 in a scratch clone at `59886a0`, through
@@ -77,4 +96,6 @@ one death.
 | 7 | Adopted in lane 2, which edits `.agents/README.md`: its inbox paragraph says the toggle also carries the `AGENT DIED` lines at prompts |
 | 8 | Adopted: one shared control-character pattern and one `mtime_ns`; the Git and temporary-file effects move to the entry point and reach the logic as parameters |
 | 9 | Adopted in the plan: about 100 runs a day here (95 lead prompts on 2026-11-11 at most in 7 days; 64 sessions in 7 days), about 4 s a day warm |
+| Q1, Q2 | Adopted into the correction cycle: `show` reads the runs as the hooks do, and with no session prints the self-check line |
+| QA | Rerun on the corrected tip: line 1 with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, lines 3, 15, 4 and 8 live, finding 6's `/clear` and `--resume` starts, the suite |
 | Sizes | Accepted: the test files follow one file per hook, as before the lane; the writer makes module-internal helpers private while in the files; the long signatures stay, each parameter being an effect or a read the caller owns |
