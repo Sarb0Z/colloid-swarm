@@ -65,3 +65,104 @@ follow-up writer lane after the lane lands.
 | 7 | Fix. The comments state what the code does. |
 | 8 | Fix. The header describes the list by what it covers. |
 | 9 | Fix. A passing test's `note:` and `SKIP` lines are printed. |
+
+# Follow-up lane: code review round 1
+
+Run `agent-deaths-u3b`, one worktree lane `u3b-fixes`: Dispositions 1-9
+above, and one defect the lead found live during the run (below). One
+reviewer (opus) read the scope whole and its seams under the verbatim
+contract; one QA cell (sonnet) ran eight scenarios beside it.
+
+Covers: 51add4e..2f9629b
+
+## The defect found live
+
+The lane's writer ran `linux-check.sh` as a foreground Bash call. Claude Code
+moved the call to the background after 180 s: its `tool_use` carries no
+`run_in_background`, and its tool result record carries
+`toolUseResult.backgroundTaskId`. The writer then ended its turn with text
+while the command ran. The reader judged it `completed` (rule 2, an answer),
+and the inbox hook's `active_note` reaped the lane's labelled container: the
+run printed `the container was lost during test-workloop.sh`, exit 2.
+`how_it_ends` on the writer's transcript cut at that moment
+(`$TMPDIR/agent-death-probe/autobg/agent-cut.jsonl`) gives `answer` at
+51add4e and `waiting` at 378920d; the whole transcript gives `handback`.
+
+The reviewer counted the marker in the real transcripts: 671 agent
+transcripts carry `"backgroundTaskId":"`, 635 of them background agents and
+none foreground; all 849 such results are Bash, 540 with
+`run_in_background: true` and 309 moved to the background.
+
+## Disposition 2 reproduction
+
+The writer stepped a `--cap-add SYS_TIME` container's clock and read a running
+process's start:
+
+| Reading | `ps -o lstart=` | `/proc/stat` btime |
+|---|---|---|
+| Before | Fri Nov 13 10:36:05 2026 | 1794357955 |
+| After `date -s '+2 seconds'` | Fri Nov 13 10:36:07 2026 | 1794357957 |
+| After `date -s '-2 seconds'` | Fri Nov 13 10:36:05 2026 | 1794357955 |
+
+QA read a registry entry with `Hosts` on a stepped clock, the entry's
+`procStart` taken from `ps` at 11:02:48:
+
+| Clock | `ps` lstart | `Hosts` state |
+|---|---|---|
+| Baseline | 11:02:48 | live |
+| +3 s | 11:02:51 | live |
+| +10 s | 11:02:58 | ended |
+| Back to the original | 11:02:48 | live |
+
+The clock is the Colima VM's, shared by every container; each step was undone
+in the same `docker exec`.
+
+## Findings
+
+| # | Sev | Finding | Evidence |
+|---|---|---|---|
+| 1 | P1 | The image is built with the run's labels, so `colloid-linux-check:ubuntu-24.04-458851885` carries `colloid.run=agent-deaths-u3b` and `colloid.lane=u3b-fixes`, and every later container from it inherits them; a lane reap by those labels removes another run's container mid-run, against `workloop_docker.py`'s "never anything else" (`linux-check.sh:47-49,84`) | reproduced by the reviewer (`docker create` from the image, listed by the lane's label filter) and by QA (an env-less run's container carried both labels) |
+| 2 | P2 | Disposition 2's plan rule, Test seams line, breadcrumb and reproduction record are not in the range | inspection |
+| 3 | P2 | `worktree_records.alive` compares `lstart` as exact text, a second copy of the liveness rule; a Linux clock step makes the worktree sweep read a live session as gone (`worktree_records.py:129-131`, `worktree_sweep.py:70-71,83,102`, `workloop-inbox.py:172`) | theoretical |
+| 4 | P2 | The self-check never shows the slack works on Linux `ps` output: its probe entries are exact or an hour off, so a format `LSTART_FORMAT` cannot parse would switch the slack off unseen (`linux-check.sh:118-150`) | inspection |
+| 5 | P2 | A foreground worker whose Bash call is moved to the background and which then answers gets rule 1's `completed` from its `Agent` call result before `waiting` is read, so its lane is still reaped mid-command (`agent_verdicts.py:170-175`, `agent_records.py:191-194`) | theoretical; 0 foreground agents among the 671 transcripts |
+| 6 | P2 | Each change to the Dockerfile text leaves another unused image of about 321 MB that nothing removes (`linux-check.sh:46,82-86`) | reproduced: `docker image ls` lists both tags |
+| 7 | P2 | The header overclaims: `test-style-inject.sh` reads no process table, file mode, clock or git ownership; the image labels let no teardown reap anything, since `workloop_docker.owned` lists no images (`linux-check.sh:7-10,21-23`) | inspection |
+| 8 | P2 | A container lost during the self-check exits 1, not 2 (`linux-check.sh:153-159`) | inspection |
+
+Finding 3 extends past a clock step. `worktree_records.ps_row` reads
+`lstart` in the session's own time zone, and one process's start reads
+`11:06:59`, `16:06:59` and `06:06:59` under `TZ=UTC`, `Asia/Karachi` and
+`America/New_York`. After a Mac's time zone changes, the sweep therefore
+reads every session recorded before the change as gone; `worktree_removal.py`
+saves a gone session's unsaved work to `saved/<name>` before it removes the
+worktree. Records hold local-time text, so reading in UTC without a migration
+would read every live session as gone once.
+
+## QA
+
+One QA cell (sonnet) at `2f9629b`.
+
+| Scenario | Observed | Result |
+|---|---|---|
+| 1 Full run | 8 PASS, `PASS procStart self-check`, the indented `note:` line under `test-session-start.sh`, `linux-check: all passed`, exit 0, about 3.5 min | pass |
+| 2 Labels | with `COLLOID_RUN=qa-label-probe COLLOID_LANE=probe`: all three labels; with neither set, the container carried `colloid.run=agent-deaths-u3b colloid.lane=u3b-fixes`, from the image | fail (finding 1) |
+| 3 Dockerfile edit | `building colloid-linux-check:ubuntu-24.04-1025532827`; the unedited script built nothing | pass |
+| 4 Setup exits | `no test named test-no-such.sh in .agents/`, exit 2, 0 Docker events; `docker rm -f` mid-run: `the container was lost during test-workloop.sh`, exit 2 | pass |
+| 5 Normal user | with both cache checks in `agent_deaths.py` disabled, `FAIL: an unchanged transcript was opened again`, exit 1, on the host and in the container | pass |
+| 6 Mismatch half | the mismatch reason replaced by the no-entry text: `FAIL procStart self-check`, exit 1 | pass |
+| 7 Stepped clock | the `Hosts` table above | pass |
+| 8 Moved to the background | cut `waiting`, whole `handback`, cut at 51add4e `answer`; `test-agent-deaths.sh` exit 0, twice | pass |
+
+## Dispositions
+
+| # | Disposition |
+|---|---|
+| 1 | Fix, reopening the lane. `LABEL colloid.tool=linux-check` goes in the Dockerfile text, so the tag changes; `colloid.run` and `colloid.lane` go on `docker run` only. QA reruns scenario 2. |
+| 2 | Fix, by the lead on main after the lane lands. |
+| 3 | Defer to the operator: the fix needs a migration of the recorded start texts, so it is a unit of its own. |
+| 4 | Fix. A probe entry 3 s off `ps` must read live. |
+| 5 | Defer. A breadcrumb names the one-session probe. |
+| 6 | Fix. After a build, the other `colloid-linux-check:*` tags are removed; a failed removal prints one line on stderr. |
+| 7 | Fix. |
+| 8 | Fix. |
