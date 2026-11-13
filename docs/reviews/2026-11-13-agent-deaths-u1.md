@@ -99,3 +99,35 @@ one death.
 | Q1, Q2 | Adopted into the correction cycle: `show` reads the runs as the hooks do, and with no session prints the self-check line |
 | QA | Rerun on the corrected tip: line 1 with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, lines 3, 15, 4 and 8 live, finding 6's `/clear` and `--resume` starts, the suite |
 | Sizes | Accepted: the test files follow one file per hook, as before the lane; the writer makes module-internal helpers private while in the files; the long signatures stay, each parameter being an effect or a read the caller owns |
+
+## The fixes
+
+The writer (opus) landed `bbac86f` (finding 4: the three `.cells-*`
+patterns back) and `34c8bba` (findings 1, 2, 3, 5 and 8, the sizes line, Q1
+and Q2, the showcase and public tree regenerated):
+
+- 1: a Git subcommand with no answer leaves `belongs` undecided, cached
+  `unknown`, and `edits_left` adds "N edited files, uncommitted count
+  unknown", so `committed` is never written; the read prints "agent deaths:
+  Git gave no answer to <subcommands>, so what rests on it is read again next
+  time".
+- 2: the cache's `dead` becomes `judged` (state, cause, time, job); a read
+  that cannot judge an agent keeps its last verdict while the agent has
+  written nothing newer.
+- 3: a dismissal line is `<time>\t<id>\t<death time>\t<reason>`, and covers
+  verdicts no newer than that death.
+- 5: the text after a transcript's last newline is skipped; an agent whose
+  read fails keeps its cache entry and its session's notifications.
+- 8: `agent_effects.py` holds the clock, `ps`, Git, the atomic write and the
+  `show` entry point; `agent_deaths.py` imports none of `subprocess`,
+  `tempfile` or `time`; `CONTROL` comes from `readout.py`, `mtime_ns` from
+  `agent_records.py`.
+- Q1, Q2: `show` reads the runs not torn down from the state file, and with
+  no session prints "cannot tell live sessions on this host (this read runs
+  in no Claude Code session)".
+
+| Claim | Run | Result |
+|---|---|---|
+| New rows | `test-agent-deaths.sh`: `git-unknown` (five scenes), `untrusted` (with `show` naming a held lane), `unfinished`, a death after a resume in the dismiss block | 21 ok; each new row fails with its fix removed |
+| Hook tests | `test-workloop-inbox.sh`, `test-session-start.sh`, `test-workloop.sh`, `test-readout.sh` | pass (25 s, 61 s, 241 s) |
+| Copies | `port-public.py check`, `demo/check-inventory.py` | match |
