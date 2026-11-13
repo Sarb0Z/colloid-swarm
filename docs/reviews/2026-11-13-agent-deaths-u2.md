@@ -80,3 +80,57 @@ reads so. The fixes below bring the brief lines and the working practice to it.
 | 11 | Fix. `implementer.md` and `.codex/agents/implementer.toml` carry the commit clause in their summaries. |
 | 12 | Accept. 310 lines; the module stays one reader of one record format. |
 | 13 | Fix. Case 9's messages, and rows for a modified tracked file, a staged-only file and a rename; the toggle-off case checks the offset stays. |
+
+## QA round 1, at `aab37e9`
+
+One QA cell (sonnet), before the fixes; it ran on the tip the fixes moved, so
+round 2 reruns what they touch.
+
+| Acceptance | Observed | Result |
+|---|---|---|
+| 7, on | An interactive haiku lead in clone A dispatched a background `implementer` in lane `w1`; it wrote `notes/one.txt`, left it uncommitted and slept 1,900 s. Its next tool batch (10:16:49Z) carried `COMMIT: 1 of your edited files have been uncommitted since 14:45 (31 min). Commit each piece whose acceptance passes, staging by path.` | pass |
+| 7, no repeat | The writer died before its next batch (below); the hook run by hand with a real payload from A printed nothing, twice. | not observed live |
+| 7, off | Clone B with `hooks.commit_nudge.enabled=false`: 0 `uncommitted since` in the agent's transcript, over one batch after the wait. | pass, one batch |
+| 7, cost | The PostToolBatch record of `workloop-inbox.sh` in A: `durationMs` 619; by hand 0.28 s. | under 5 s |
+| 9 (b) | Two fresh headless opus leads, a one-writer lane, the task "set src/one.txt to ALPHA; then set src/two.txt to BETA": in both the implementer wrote one.txt, ran `git add -- src/one.txt && git commit … -- src/one.txt`, then wrote two.txt. | pass, 2 of 2 |
+| 9 (c) | A headless lead passed the edit task unchanged to a `general-purpose` haiku cell with no lane: Read, Read, Edit, Edit, no Bash; `git status` shows both files modified. A first run whose lead added "Do not commit" was discarded. | pass |
+| Reader | `agent_deaths.py show` in this checkout names the dead `mcp-bundle-ship` claimant with no `reader failed` line; `test-agent-deaths.sh` and `test-commit-nudge.sh` pass. | pass |
+
+Both writers in clones A and B died mid-run on a Cloudflare 403
+`authentication_failed` from the API, which also killed three Agent dispatches
+before any tool call; two resumes of A's writer failed the same way. The
+reader, run in each clone, gave A `failed again after a resume
+(authentication_failed)` and B `authentication_failed`, each with "1 of its 1
+edited files uncommitted", the lane it holds, the resume command and the
+dismiss command: an unplanned live run of the cause classes and of Decision 3's
+"failed again after a resume" going to the operator.
+
+## Fixes
+
+One writer (sonnet) in the lane, claimed and submitted at `5047e01`.
+
+| Commit | Dispositions |
+|---|---|
+| `ac0166a` | 1, 4, 5, 7, 8, 13: `GitBudget.out` runs `git --no-optional-locks`; one `status_paths` parser in `workloop_size.py` for the reader and the nudge; the nudge reads the toggle in-process after the lane check, imports `agent_effects` only past both, and locks one `.commit-nudge.lock`; `workloop-inbox.sh` no longer reads the toggle; test rows for a modified tracked file, a staged-only file, a rename's from-path, an unparsed config and the shared lock |
+| `5aaa12f` | 2, 9, 10, 11: the commit line opens "Only a lane's writer commits; a reviewer, a QA cell and a cell with no lane never do. As the writer, claim the lane first, then commit each piece …"; `place_lines` gives the `Commit on` line to the worker only; `test-workloop.sh` asserts reviewer and QA briefs of both lane kinds carry none; the implementer summaries; the wording runs |
+| `3fb32f3` | 3, 6, 8: the export's Adapt policy bullet names `hooks.commit_nudge.enabled: false`; the README line on editor-tool edits; two breadcrumbs |
+| `5047e01` | the showcase and its public copy |
+
+The writer's evidence: the disprove pass's loops against the fixed runner gave
+0 of 979 add/reset runs failing on `index.lock`, against 405 of 980 at
+`aab37e9`. The inbox hook's PostToolBatch median, 20 runs after a warm-up, two
+passes: a cell with no lane 253 and 259 ms before, 236 and 229 ms after; a
+lane writer 270 and 274 ms before, 252 and 233 ms after. Acceptance 9 (b) on
+the new line, two fresh headless opus leads: both implementers claimed, wrote
+one.txt, committed it by path, then wrote two.txt (sessions `00d13753`,
+`9b73de81`); a first pair run at once died on the same 403 before any tool
+call. The listed tests, `check-inventory.py`, `lint-breadcrumbs.py` and
+`port-public.py check` pass.
+
+Lead check of the diff: each Fix row is met; `GitBudget`'s 5 s budget bounds
+the nudge's status as the removed 4 s timeout did. Dispositions 1 and 5 hold
+for every `GitBudget` caller, which only read. The writer wrote some edits
+through short Python scripts rather than the edit tools, so the post-edit hook
+did not run on them; the lead ran its gate by hand,
+`POST_EDIT_MODE=check bash .agents/hooks/policy/post-edit-check.sh` over the
+four changed Python files, which exited 0 with no finding.
