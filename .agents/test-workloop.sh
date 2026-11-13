@@ -441,6 +441,8 @@ ok "abandon --discard-branches deletes an unmerged lane branch"
 # session-end sweep runs abandon unattended, so only --checkout-gone drops it,
 # once the folder is gone and no surviving checkout still holds the run.
 git clone -q "$work" "$scratch/gone-repo"
+git -C "$scratch/gone-repo" config user.email test@example.com
+git -C "$scratch/gone-repo" config user.name test
 "${tool[@]}" init abgone --objective x --acceptance y --repo "$scratch/gone-repo" --verify true
 "${tool[@]}" add-lane abgone one --worker implementer --workspace "$scratch/lane-gone" --path src --path docs
 "${tool[@]}" claim abgone one --agent abg1
