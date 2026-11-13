@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib" "$dir/.agents/claude" "$dir/.agents/codex" "$dir/.codex/hooks"
 cp "$repo/.agents/hooks/policy/teardown-gate.sh" "$dir/.agents/hooks/policy/"
-cp "$repo"/.agents/hooks/lib/{config,emit-context,write_targets,worktree_records,guard-destructive}.py "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{config,emit-context,write_targets,worktree_records,process_start,guard-destructive}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
 cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
 cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
@@ -776,7 +776,8 @@ gitdir="$scratch/repo"
 mkdir -p "$gitdir/.agents/hooks/policy" "$gitdir/.agents/hooks/lib"
 cp "$gate" "$gitdir/.agents/hooks/policy/"
 cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" \
-  "$repo/.agents/hooks/lib/guard-destructive.py" "$repo/.agents/hooks/lib/worktree_records.py" "$gitdir/.agents/hooks/lib/"
+  "$repo/.agents/hooks/lib/guard-destructive.py" "$repo/.agents/hooks/lib/worktree_records.py" \
+  "$repo/.agents/hooks/lib/process_start.py" "$gitdir/.agents/hooks/lib/"
 git -C "$gitdir" init -q
 git -C "$gitdir" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
 gate="$gitdir/.agents/hooks/policy/teardown-gate.sh"

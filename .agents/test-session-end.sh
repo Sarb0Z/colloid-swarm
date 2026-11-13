@@ -115,7 +115,7 @@ bash_call "$R" "$wl init t1 --objective o --acceptance a --repo $R --verify true
 bash_call "$R" "$wl add-lane t1 l1 --worker w --path src"
 lane="$R/.agents/worktrees/t1/l1"
 [[ -d "$lane" && "$(recorded "$lane")" == 1 ]] || fail "add-lane was not recorded"
-grep -q '"run": "t1", "state"' "$records"/*.jsonl || fail "the run was not recorded with its lead"
+grep -q '"run": "t1", .*"type": "run"' "$records"/*.jsonl || fail "the run was not recorded with its lead"
 # t5 is finished, `check` passes; t1 stays unfinished, its lane never claimed.
 bash_call "$R" "$wl init t5 --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane t5 l5 --worker w --path docs"
@@ -136,7 +136,7 @@ ok "add-lane is recorded with its run, and a worktree made in another repository
 mark6="$scratch/ran-t6"
 worktrees_before="$(git -C "$R" worktree list --porcelain | grep '^worktree ')"
 bash_call "$R" "$wl init t6 --objective o --acceptance a --repo $R --verify 'touch $mark6' --lane solo --worker w --path notes"
-grep -q '"run": "t6", "state"' "$records"/*.jsonl || fail "init --lane was not recorded with its lead"
+grep -q '"run": "t6", .*"type": "run"' "$records"/*.jsonl || fail "init --lane was not recorded with its lead"
 [[ "$(git -C "$R" worktree list --porcelain | grep '^worktree ')" == "$worktrees_before" ]] || fail "init --lane made a worktree"
 $wl claim t6 solo --agent cell6 >/dev/null
 mkdir -p "$R/notes" && printf 'solo\n' > "$R/notes/solo.txt" && git -C "$R" add -- notes/solo.txt && git -C "$R" commit -qm solo
@@ -335,6 +335,7 @@ for line in open(path):
     if not line.strip():
         continue
     entry = dict(json.loads(line), host=[pid, start])
+    entry.pop("start", None)
     if entry.get("type") == "host":
         continue
     if entry.get("type") == "run":
@@ -498,7 +499,7 @@ age 3600
 (cd "$R/.agents/hooks/lib" && python3 - "$records/s1.jsonl" "$R/.agents/workloop.py" <<'PY') || fail "a sweep must give back a record whose session resumed before the claim"
 import pathlib, sys, time, worktree_records as w, worktree_sweep as s
 record = pathlib.Path(sys.argv[1])
-w.append(record.parent, "s1", [{"type": "host", "host": w.host(), "at": int(time.time())}])
+w.append(record.parent, "s1", [dict({"type": "host", "at": int(time.time())}, **w.stamp())])
 before = record.read_text()
 lines = s.close(record, "", pathlib.Path(sys.argv[2]))
 claims = list(record.parent.glob(".s1.jsonl.*"))
@@ -514,7 +515,7 @@ sys.path.insert(0, "$R/.agents/hooks/lib")
 import worktree_records as w
 from pathlib import Path
 if "check" in sys.argv:
-    w.append(Path("$records"), "s1", [{"type": "host", "host": w.host(), "at": int(time.time())}])
+    w.append(Path("$records"), "s1", [dict({"type": "host", "at": int(time.time())}, **w.stamp())])
     sys.exit(0)
 sys.exit("stub workloop: " + " ".join(sys.argv[1:]))
 PY
@@ -605,5 +606,142 @@ printf 'x\n' > "$scratch/wt-nosave/src/x.txt"
 [[ -f "$scratch/wt-nosave/src/x.txt" ]] || fail "a worktree whose save failed must stay: $(cat "$scratch/nosave")"
 grep -q "kept $scratch/wt-nosave: its unsaved work could not be committed" "$scratch/nosave" || fail "the failed save must be named: $(cat "$scratch/nosave")"
 ok "a worktree whose unsaved work cannot be committed stays"
+
+# ── a session's start, whatever the zone and locale ─────────────────────────
+# A stamp keeps `host`, [pid, start text in the writer's zone and locale], which
+# code from before `start` reads, and gains `start`. The expected start is read
+# here without process_start.py: on Linux the boot id and field 22 of
+# /proc/<pid>/stat, elsewhere the C-locale UTC `ps` start in seconds. These
+# sweeps run over a repository of their own, so only these records are judged.
+U="$scratch/u5"
+git init -q -b main "$U" && printf '.agents/\n*.log\n' > "$U/.gitignore" && git -C "$U" add .gitignore && git -C "$U" commit -qm init
+u5records="$U/.agents/worktrees/.records" && mkdir -p "$u5records"
+lib="$R/.agents/hooks/lib"
+linux=""; [[ "$(uname)" == Linux ]] && linux=yes
+u5_sweep() {  # [VAR=value ...]: one session-start sweep of $U under those variables -> u5_out, u5_err
+  u5_out="$(cd "$lib" && env "$@" python3 worktree_sweep.py sweep "$U" u5-sweeper startup "$R/.agents/workloop.py" 2>"$scratch/u5-err")"
+  u5_err="$(<"$scratch/u5-err")"
+}
+u5_wt() { git -C "$U" worktree add -q "$scratch/u5-$1" -b "u5-$1"; }
+text_of() { ps -o lstart= -p "$1" | awk '{$1=$1};1'; }
+start_of() {  # <pid> [seconds | ticks | boot]: the pid's start as a record holds it, optionally moved off
+  if [[ -n "$linux" ]]; then
+    python3 - "$(cat /proc/sys/kernel/random/boot_id)" "$(awk '{print $22}' "/proc/$1/stat")" "${2:-}" <<'PY'
+import json, sys
+boot, ticks, move = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+print(json.dumps({"boot": "00000000-0000-4000-8000-000000000000" if move == "boot" else boot,
+                  "ticks": ticks + 1 if move == "ticks" else ticks}))
+PY
+  else
+    python3 - "$(LC_ALL=C TZ=UTC ps -o lstart= -p "$1")" "${2:-0}" <<'PY'
+import calendar, json, sys, time
+print(json.dumps({"epoch": calendar.timegm(time.strptime(sys.argv[1].strip(), "%a %b %d %H:%M:%S %Y")) + int(sys.argv[2])}))
+PY
+  fi
+}
+hand() {  # <session> <worktree> <pid> <host text> [start json]: a record stamped by hand
+  printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": [%s, "%s"]%s, "at": %s}\n' \
+    "$scratch/u5-$2" "$3" "$4" "${5:+, \"start\": $5}" "$(date +%s)" > "$u5records/$1.jsonl"
+}
+sleep 300 >/dev/null 2>&1 & sleepers+=($!); live=$!
+
+u5_wt zone
+(cd "$lib" && TZ=Asia/Karachi python3 -c 'import sys, worktree_records as w; w.record(sys.argv[1], "zone", [{"type": "worktree", "path": sys.argv[2], "by": "git worktree add"}])' \
+  "$U" "$scratch/u5-zone")
+python3 - "$u5records/zone.jsonl" "$$" "$(TZ=Asia/Karachi ps -o lstart= -p $$ | awk '{$1=$1};1')" "$(start_of $$)" <<'PY' \
+  || fail "a worktree recorded now must carry its host text as before and a start in this host's form: $(cat "$u5records/zone.jsonl")"
+import json, sys
+entry = json.loads(open(sys.argv[1]).read())
+sys.exit(entry["host"] != [int(sys.argv[2]), sys.argv[3]] or entry.get("start") != json.loads(sys.argv[4]))
+PY
+ok "a worktree recorded now is stamped with its host text as before and a start in this host's form"
+
+printf '{"type": "host", "host": [%s, "%s"], "at": %s}\n' $$ "$(text_of $$)" "$(date +%s)" > "$u5records/u5-sweeper.jsonl"
+u5_sweep TZ=America/New_York
+[[ -d "$scratch/u5-zone" && -f "$u5records/zone.jsonl" ]] || fail "a live session's record and worktree must stay through a sweep in another zone: $u5_out $u5_err"
+python3 - "$u5records/u5-sweeper.jsonl" "$$" "$(start_of $$)" <<'PY' || fail "the sweeping session's own stamp must carry its start: $(tail -1 "$u5records/u5-sweeper.jsonl")"
+import json, sys
+last = json.loads(open(sys.argv[1]).read().splitlines()[-1])
+sys.exit(last["type"] != "host" or last["host"][0] != int(sys.argv[2]) or last.get("start") != json.loads(sys.argv[3]))
+PY
+if [[ "$(LC_ALL=de_DE.UTF-8 TZ=UTC ps -o lstart= -p $$)" == "$(LC_ALL=C TZ=UTC ps -o lstart= -p $$)" ]]; then
+  printf 'note: LC_ALL=de_DE.UTF-8 leaves ps output as in the C locale here, so the sweep in that locale is skipped\n'
+else
+  u5_sweep TZ=UTC LC_ALL=de_DE.UTF-8
+  [[ -d "$scratch/u5-zone" && -f "$u5records/zone.jsonl" ]] || fail "a live session's record and worktree must stay through a sweep in another locale: $u5_out $u5_err"
+fi
+ok "a live session keeps its record and worktree through sweeps in another zone and locale; the sweeper's own stamp carries its start"
+
+# The start decides, not the host text, which matches in all of these.
+if [[ -n "$linux" ]]; then
+  for name in exact ticks boot; do u5_wt "$name"; done
+  hand exact exact "$live" "$(text_of "$live")" "$(start_of "$live")"
+  hand ticks ticks "$live" "$(text_of "$live")" "$(start_of "$live" ticks)"
+  hand boot boot "$live" "$(text_of "$live")" "$(start_of "$live" boot)"
+  kept=(exact) ended=(ticks boot) on="equal to the process's" off="of another tick count or boot"
+else
+  for name in near early far; do u5_wt "$name"; done
+  hand near near "$live" "$(text_of "$live")" "$(start_of "$live" 3)"
+  hand early early "$live" "$(text_of "$live")" "$(start_of "$live" -3)"
+  hand far far "$live" "$(text_of "$live")" "$(start_of "$live" -6)"
+  kept=(near early) ended=(far) on="3 s either side of the process's" off="6 s off"
+fi
+u5_sweep
+for name in "${kept[@]}"; do
+  [[ -d "$scratch/u5-$name" && -f "$u5records/$name.jsonl" ]] || fail "the live $name record must keep its worktree and record: $u5_out $u5_err"
+done
+for name in "${ended[@]}"; do
+  [[ ! -e "$scratch/u5-$name" && ! -e "$u5records/$name.jsonl" ]] || fail "a $name start that is not the process's must read gone: $u5_out $u5_err"
+done
+ok "a recorded start $on reads live and one $off reads gone, whatever the host text says"
+
+# What a sweep writes back goes under the session's stamp: its start with it, and
+# none where that stamp has none, whatever start the entry carried before.
+sleep 300 >/dev/null 2>&1 & ghost=$!; ghost_text="$(text_of "$ghost")"; ghost_start="$(start_of "$ghost")"
+kill "$ghost"; wait "$ghost" 2>/dev/null || true
+for name in carry drop; do u5_wt "$name"; printf 'kept\n' > "$scratch/u5-$name/run.log"; done
+hand carry carry "$ghost" "$ghost_text" "$ghost_start"
+hand drop drop "$ghost" "$ghost_text" "$ghost_start"
+printf '{"type": "host", "host": [%s, "%s"], "at": %s}\n' "$ghost" "$ghost_text" "$(date +%s)" >> "$u5records/drop.jsonl"
+u5_sweep
+python3 - "$u5records" "$ghost" "$ghost_text" "$ghost_start" <<'PY' || fail "the entries a sweep writes back must carry the session's stamp and only its start: $(cat "$u5records"/carry.jsonl "$u5records"/drop.jsonl 2>&1)"
+import json, sys
+from pathlib import Path
+folder, host, start = Path(sys.argv[1]), [int(sys.argv[2]), sys.argv[3]], json.loads(sys.argv[4])
+carry = [json.loads(line) for line in (folder / "carry.jsonl").read_text().splitlines()]
+drop = [json.loads(line) for line in (folder / "drop.jsonl").read_text().splitlines()]
+sys.exit(not (len(carry) == len(drop) == 1 and carry[0]["host"] == host == drop[0]["host"]
+              and carry[0].get("start") == start and "start" not in drop[0]))
+PY
+ok "what a sweep writes back carries the session's stamp: its start where it has one, none where it has none"
+
+# A start that cannot be told keeps its record, and one stderr line names the pid.
+sleep 300 >/dev/null 2>&1 & sleepers+=($!); murky=$!
+u5_wt murky
+if [[ -n "$linux" ]]; then other='{"epoch": 1}'; else other='{"boot": "b", "ticks": 1}'; fi
+hand murky murky "$murky" "$(text_of "$murky")" "$other"
+u5_sweep
+[[ -d "$scratch/u5-murky" && -f "$u5records/murky.jsonl" ]] || fail "a start in another host's form must keep its record: $u5_out $u5_err"
+[[ "$(grep -c "pid $murky " <<<"$u5_err")" == 1 ]] || fail "one stderr line must name the pid whose start cannot be told: $u5_err"
+if [[ -n "$linux" ]]; then
+  printf 'note: Linux reads a start from /proc, not ps, so the row for a ps start that does not parse is skipped\n'
+else
+  sleep 300 >/dev/null 2>&1 & sleepers+=($!); garbled=$!
+  u5_wt garbled
+  hand garbled garbled "$garbled" "$(text_of "$garbled")" "$(start_of "$garbled")"
+  # A claim a killed sweep left beside that stamp stays for a sweep that can tell.
+  printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": [%s, "x"]}\n' "$scratch/u5-claimed" "$gone" \
+    > "$u5records/.garbled.jsonl.sweep-$gone"
+  mkdir -p "$scratch/u5-ps"
+  printf '#!/usr/bin/env bash\n[[ "$*" == "-o lstart= -p %s" ]] && { echo "not a date"; exit 0; }\nexec %s "$@"\n' "$garbled" "$(command -v ps)" \
+    > "$scratch/u5-ps/ps" && chmod +x "$scratch/u5-ps/ps"
+  u5_sweep PATH="$scratch/u5-ps:$PATH"
+  [[ -d "$scratch/u5-garbled" && -f "$u5records/garbled.jsonl" && "$u5_out" != *removed* ]] \
+    || fail "a ps start that does not parse must keep the record and read no session gone: $u5_out $u5_err"
+  [[ "$(grep -c "pid $garbled " <<<"$u5_err")" == 1 && "$u5_err" == *"ps gives 'not a date'"* ]] || fail "one stderr line must name the pid ps gave no start for: $u5_err"
+  [[ -f "$u5records/.garbled.jsonl.sweep-$gone" ]] && ! grep -q u5-claimed "$u5records/garbled.jsonl" \
+    || fail "a dead sweep's claim must stay while the stamp beside it cannot be told: $(ls -A "$u5records")"
+fi
+ok "a start that cannot be told keeps its record, and on macOS a dead sweep's claim beside it, and names its pid on stderr once"
 
 printf 'PASS: session-end worktree teardown\n'

@@ -132,3 +132,9 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Condition** — `demo/check-inventory.py` keeps a card for every hook and skill and the lede's counts true, and `demo/embed-src.py` keeps each source panel current; nothing compares a card's hand-written sentence with the code it describes. The 2026-11-13 audit found 40 false statements accumulated since August, and its review five more. Acceptable: a reader can open each card's source panel beside its sentence.
 - **Trigger** — an audit that again finds a card contradicting its source, or an operator acting on a claim the code does not make.
 - **Rework** — generate each card's description from a summary line its source carries (a docstring's first sentence), or give each card a checked quote; about 80 lines in `check-inventory.py` and a convention for the sources.
+
+### worktree-records-local-stamps
+
+- **Condition** — every worktree record stamp keeps `host`, [pid, `ps` start text in the writer's locale and zone], beside its zone-free `start` (`hooks/lib/worktree_records.py`), because a session started in a worktree or branch whose hooks predate `start` reads `host` alone against the main checkout's shared records. A stamp with no `start`, written before it or by such hooks since, is read as before, its text exactly against `ps` in the reader's locale and zone (`stamp_state`). Acceptable: a session whose stamp has no `start` reads gone only after a zone or locale change.
+- **Trigger** — in one repository: its last sync names a base at or after the commit that added `start`, and no worktree or branch checked out there runs hooks from before it; for the carrier, `git worktree list` shows none.
+- **Rework** — drop the text branch of `stamp_state` and the start text in `host`, keeping the pid; about 10 lines, and the test rows that write text-only stamps.
