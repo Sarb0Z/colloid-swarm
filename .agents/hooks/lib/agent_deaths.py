@@ -44,7 +44,8 @@ CACHE = Path(".readout") / ".agent-deaths-cache"
 SHOW = "python3 .agents/hooks/lib/agent_deaths.py show"
 # The reader's own code, by content: a cache another version wrote is judged again (`_load`).
 RULES = hashlib.sha256(b"".join(Path(__file__).with_name(f"{name}.py").read_bytes() for name in (
-    "agent_deaths", "agent_records", "agent_verdicts", "agent_leftovers", "agent_sessions"))).hexdigest()[:16]
+    "agent_deaths", "agent_records", "agent_verdicts", "agent_leftovers", "agent_sessions",
+    "process_start"))).hexdigest()[:16]
 
 
 @dataclass(frozen=True)

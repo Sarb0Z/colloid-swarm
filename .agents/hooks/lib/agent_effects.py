@@ -24,16 +24,10 @@ import agent_records as ar
 import agent_sessions as sessions
 import agent_verdicts as av
 import agent_waits as aw
+from process_start import utc_lstart
 from workloop_size import GitBudget
 
 STATE = Path(".agents") / ".workloop-state.json"
-
-
-def proc_start(pid: int) -> str | None:
-    """The process's start as Claude Code's registry records it, or None when no such process runs."""
-    env = dict(os.environ, LC_ALL="C", TZ="UTC")
-    result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, env=env, timeout=5)
-    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -49,7 +43,7 @@ def write_atomic(path: Path, text: str) -> None:
 
 def real(git) -> ad.Effects:
     return ad.Effects(now=time.time(), home=Path.home(), config_dir=os.environ.get("CLAUDE_CONFIG_DIR", ""),
-                      proc_start=proc_start, git=git, write=write_atomic)
+                      proc_start=utc_lstart, git=git, write=write_atomic)
 
 
 def runs_at(state: Path) -> dict:
@@ -79,7 +73,7 @@ def liveness(entries: list[dict]):
     """`live(session)`: True while a registry entry names it with its process's start, False
     otherwise, and None for every session while no entry passes that test, since then the test
     itself may not hold on this host; and `entry(session)`, that running entry or None."""
-    hosts = sessions.Hosts(entries, "", proc_start)
+    hosts = sessions.Hosts(entries, "", utc_lstart)
 
     def live(session: str) -> bool | None:
         if hosts.live(session):

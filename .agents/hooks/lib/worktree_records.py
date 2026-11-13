@@ -8,8 +8,10 @@ worktree_sweep.py is the session-start sweep.
 
 RECORD FILE: `<main checkout>/.agents/worktrees/.records/<session>.jsonl`,
 gitignored, appended only, one object per line: `worktree` (path, by, run?),
-`run` (run, state) or `host`. Each carries `host`, the session's [pid, ps
-start time]; the last one decides whether the session still runs.
+`run` (run, state) or `host`. Each carries the session's stamp: `host`, its
+[pid, ps start time in the writer's locale and zone], and `start`, that
+process's start as process_start.py reads it; the last stamp decides whether
+the session still runs. Code from before `start` reads `host` alone.
 
 ONLY WHAT THE CALL CREATED: PreToolUse stores what the command asks for and
 the worktrees and runs that exist, under the call's tool_use_id; PostToolUse
@@ -29,6 +31,10 @@ import sys
 import time
 from pathlib import Path
 
+_spec = importlib.util.spec_from_file_location("process_start", Path(__file__).with_name("process_start.py"))
+ps = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ps)
+
 RECORDS = Path(".agents/worktrees/.records")
 # Ancestors that only carry the hook: the session's own process is the first
 # one past them.
@@ -37,6 +43,8 @@ CARRIERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "env", "timeout", "nohup
 # call would act on that repository instead of the one it names.
 GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR")
 SNAPSHOT_SECONDS = 86400
+# A stamp's session is live by its host text, and the stamp is to be written again with its start.
+MEND = "live, its start to be written"
 PORCELAIN = {"HEAD ": "head", "branch refs/heads/": "branch", "locked": "locked", "prunable": "prunable"}
 
 
@@ -126,9 +134,32 @@ def host() -> list | None:
     return None
 
 
-def alive(recorded) -> bool:
-    row = ps_row(int(recorded[0])) if isinstance(recorded, list) and len(recorded) == 2 else None
-    return row is not None and row[1] == recorded[1]
+def stamp() -> dict:
+    """The session's stamp: `host`, from host(), and `start` when its process's start reads."""
+    found = host()
+    start = ps.read(found[0]) if found else None
+    return {"host": found, "start": start} if isinstance(start, dict) else {"host": found}
+
+
+def stamp_state(mark) -> str:
+    """process_start's LIVE, GONE or CANNOT_TELL for a stamp from `last_host`, or MEND: live by
+    its host text while its `start` is missing or reads gone."""
+    recorded = mark.get("host") if isinstance(mark, dict) else None
+    if not (isinstance(recorded, list) and len(recorded) == 2):
+        return ps.GONE
+    verdict = ps.state(int(recorded[0]), mark["start"]) if "start" in mark else ps.GONE
+    if verdict != ps.GONE:
+        return verdict
+    # debt: worktree-records-local-stamps -- the start text, exactly, in this locale and zone. Hooks
+    # from before `start` write it alone, and write a resumed session's host beside the start of
+    # the process that ended (`dict(e, host=...)` in their write-back).
+    row = ps_row(int(recorded[0]))
+    return MEND if row is not None and row[1] == recorded[1] else ps.GONE
+
+
+def alive(mark) -> bool:
+    """Whether the stamp's session may still run: never false while its start cannot be told."""
+    return stamp_state(mark) != ps.GONE
 
 
 def session_key(session: str) -> str:
@@ -159,14 +190,15 @@ def load(path: Path) -> list[dict]:
     return entries
 
 
-def last_host(entries: list[dict]):
-    hosts = [entry.get("host") for entry in entries if entry.get("host")]
-    return hosts[-1] if hosts else None
+def last_host(entries: list[dict]) -> dict | None:
+    """The newest stamp: the last entry's `host`, with its `start` when it carries one."""
+    marked = [entry for entry in entries if entry.get("host")]
+    return {key: marked[-1][key] for key in ("host", "start") if key in marked[-1]} if marked else None
 
 
 def record(project, session: str, entries: list[dict]) -> None:
-    stamp, now = host(), int(time.time())
-    append(records_dir(project), session, [dict(entry, host=stamp, at=now) for entry in entries])
+    mark, now = stamp(), int(time.time())
+    append(records_dir(project), session, [dict(entry, **mark, at=now) for entry in entries])
 
 
 def runs_in(state: str) -> dict:
