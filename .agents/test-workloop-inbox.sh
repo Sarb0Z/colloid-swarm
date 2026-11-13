@@ -376,8 +376,8 @@ has "$ctx" "WORKLOOP c-fanout-open: 1 cell out (scout); returned c-fanout-open s
 start_digest() { python3 "$dir/.agents/hooks/lib/workloop-inbox.py" "$state" "$dir/.agents" s1 SessionStart "" "$1"; }
 for source in startup resume; do
   ctx="$(start_digest "$source")"
-  has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); no cell outlives its session: returned c-two <name> --failed '<why>', or brief c-two <name> --again" "two cells out at a $source"
-  has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "one cell out at a $source"
+  has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); no cell outlives its session: each one's AGENT DIED line says how to resume it in the session that owns it; to send it again instead, dismiss that line, then brief c-two <name> --again" "two cells out at a $source"
+  has "$ctx" "its AGENT DIED line says how to resume it in the session that owns it; to send it again instead, dismiss that line, then brief c-one scout --again" "one cell out at a $source"
 done
 # a compaction or /clear ends no cell, so its cells keep the prompt's remedy
 for source in compact clear; do
@@ -392,9 +392,9 @@ printf '{"type": "run", "run": "c-two", "state": "x", "host": %s}\n{"type": "run
 printf '{"type": "run", "run": "c-one", "state": "x", "host": [1, "gone"]}\n' > "$records/s1.jsonl"
 ctx="$(start_digest startup)"
 has "$ctx" "WORKLOOP c-two: 2 cells out (critic, scout); returned c-two <name> when each comes back" "another live session's run at a start"
-has "$ctx" "returned c-one scout --failed '<why>', or brief c-one scout --again" "a run this session leads beside a live one"
+has "$ctx" "its AGENT DIED line says how to resume it in the session that owns it; to send it again instead, dismiss that line, then brief c-one scout --again" "a run this session leads beside a live one"
 printf '{"type": "run", "run": "c-two", "state": "x", "host": [1, "gone"]}\n' > "$records/other.jsonl"
-has "$(start_digest startup)" "no cell outlives its session: returned c-two <name>" "a run whose only other lead has ended"
+has "$(start_digest startup)" "no cell outlives its session: each one's AGENT DIED line" "a run whose only other lead has ended"
 rm -rf "$records"
 ok "cells still out are named at a prompt with returned, and with --failed or brief --again only at a startup or resume, for runs this session or no live session leads"
 

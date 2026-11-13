@@ -431,7 +431,7 @@ s["runs"]["r1"]["cells"] = {"scout": {"role": "research", "model": "opus", "stat
 json.dump(s, open(path, "w"))
 PY
 inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
-assert_contains "$inflight_context" "1 cell out (scout); no cell outlives its session: returned r1 scout --failed '<why>', or brief r1 scout --again"
+assert_contains "$inflight_context" "1 cell out (scout); no cell outlives its session: its AGENT DIED line says how to resume it in the session that owns it; to send it again instead, dismiss that line, then brief r1 scout --again"
 inflight_context="$(context_of "$(run_policy "$inflight" compact)")"
 assert_contains "$inflight_context" "1 cell out (scout); returned r1 scout when it comes back"
 assert_not_contains "$inflight_context" "no cell outlives its session"

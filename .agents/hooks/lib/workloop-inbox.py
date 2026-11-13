@@ -134,7 +134,7 @@ def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -> list[st
     """Cells still out, with the remedy that fits the moment: a cell whose agent died is
     resumed or sent out again; while their session may still run them the lead records
     each as it comes back; once that session's process has ended (`ended`), no cell
-    outlives it, so each is failed or sent out again."""
+    outlives it, so each is resumed from its AGENT DIED line, or dismissed and sent out again."""
     cells = run.get("cells") or {}
     dead = {name: av.dead_since(verdicts, cell.get("agent_id"), parse(cell.get("out_since")))
             for name, cell in sorted(cells.items()) if cell.get("state") == "out"}
@@ -147,7 +147,9 @@ def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -> list[st
         back = cells and not run.get("verify") and not notes
         return notes + ([f"every cell is back; check {run_name}, then teardown {run_name}"] if back else [])
     name = out[0] if len(out) == 1 else "<name>"
-    remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"
+    their = "its" if len(out) == 1 else "each one's"
+    remedy = (f"no cell outlives its session: {their} AGENT DIED line says how to resume it in the session that owns it; "
+              f"to send it again instead, dismiss that line, then brief {run_name} {name} --again"
               if ended else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")
     return notes + [f"{len(out)} cell{'s' if len(out) > 1 else ''} out ({', '.join(out)}); {remedy}"]
 
