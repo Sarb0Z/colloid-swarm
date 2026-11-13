@@ -12,8 +12,8 @@ read both lanes whole and their seams with the landed reader, under the
 verbatim contract; Critical stakes, since the lanes add a hook and change a
 contract the lead follows.
 
-Covers: 49eb623..9fb7184
-Covers: 49eb623..a629263
+Covers: 49eb623..84d718e
+Covers: 49eb623..67c8ee6
 
 ## Findings
 
@@ -110,3 +110,54 @@ check must see it again.
 | 11 | Adopted: `death_segments` uses `dead_since` with the cell's `out_since` |
 | 12 | Adopted: the lead resumes once without asking for any cause but "failed again after a resume", a usage limit (`rate_limit`) and a lost session ("session ended", "session restarted"), which go to the operator |
 | Sizes | Accepted: `readout.py` passes 300 by the strip's death join; the files already over 300 are outside these lanes' growth |
+
+## Fixes
+
+Each lane's fixes trail its reviewed commits.
+
+| Lane | Commit | Findings |
+|---|---|---|
+| u1-waiting | `0111578` | 1, 2, 5: a wait closes when its session's registry entry reads a status other than `waiting` set after the request, or a process started after the request runs the session; the README names the closings and that lead prompts show the line only while `hooks.workloop_inbox.enabled` is on |
+| u1-waiting | `1e43f69` | 3, 4: `watch` reads the waits through `read_waits`, which says on stderr that none is named when they cannot be read; `briefed_cells` binds a cell with no `agent_id` by the brief header that opens its waiting agent's transcript |
+| u1-waiting | `5c85d32` | 8, the digest: a cell out of an ended session is sent to its `AGENT DIED:` line, and a re-send follows a dismiss |
+| u1-waiting | `84d718e` | the showcase and its public copy rebuilt |
+| u1-words | `a5fbb54` | 6, 10, 11: `prune` keeps `*.lock`; a cache other than missing that cannot be read shows `deaths: unreadable`; the strip uses `dead_since` with the cell's `out_since` |
+| u1-words | `884579c` | 8, 9, 12, the guide: a cell out at a start follows its `AGENT DIED:` line; another session's line is resumed there and re-sent only after a dismiss; the lead resumes once without asking for any cause but the three that go to the operator; 8 of 8 fresh Opus runs of the whole guide |
+| u1-words | `67c8ee6` | the `agent-death-reader` decision names the same causes; the showcase and public copy regenerated |
+
+The writer's probe for finding 1 (2.1.322, an interactive haiku session in a
+scratch clone): while a background subagent's prompt was open the session's
+registry entry read `status: "waiting"`, set about 13 ms after the hook's
+record and unchanged 13 s later; 2 s after Yes on `touch approved.txt &&
+python3 -c "import time; time.sleep(90)"` it read `busy` with a newer
+`statusUpdatedAt` while the command ran; after a deny it read `busy` too. Its
+live rerun of the long command with an unstamped cell: the line and the
+watch's `WAITING ON THE OPERATOR — probe/longcmd` while the prompt was open,
+neither 4 s after Yes with the transcript still on the `tool_use`.
+
+The lead read the 2.1.322 binary for what sets that status: the session reads
+`waiting` whenever a dialog with a waiting reason is on top, a queued
+elicitation, or a pending worker or sandbox request, ahead of `busy` and
+`idle` (`uEe`, `f$o`), and every status write sets `statusUpdatedAt`. So the
+lead's own turn starting or ending does not close an open wait. With two
+prompts queued, answering the first leaves the second on top: the first wait
+then stays open until its agent writes or the second is answered (the writer
+expected the opposite, both closed); QA round 2 records which.
+
+Finding 7, measured by the writer on this machine's store, warm: the wait read
+takes 1.7 ms with no wait open and 8.9 ms with one, beside the death reader's
+44 ms; the whole `workloop-inbox.sh` prompt hook takes 234 ms (median of 10),
+mostly interpreter start-up. The lead revises disposition 7: Acceptance 12's
+50 ms is the death reader's own budget, which holds; the wait read adds 1.7 ms
+at a prompt, and 8.9 ms only while a prompt is open, when the line calls the
+operator anyway. Sharing the reads would join the two readers' internals
+across the lanes for about 5 ms, so it is not done.
+
+The lead's check at `84d718e` and `67c8ee6`: `test-agent-waits.sh` (8 rows),
+`test-workloop-inbox.sh`, `test-session-start.sh` and `test-agent-deaths.sh`
+on u1-waiting; `test-readout.sh`, `test-agent-deaths.sh`,
+`lint-decisions.py` and `lint-skills.sh` on u1-words: all pass. The writer
+changed three assertions in `test-workloop-inbox.sh` and
+`test-session-start.sh` by a string replace, not the edit tool; the lead read
+the diff (assertion text only), and `bash -n` passes. The `ok` label after
+them in `test-workloop-inbox.sh` still names `--failed`.
