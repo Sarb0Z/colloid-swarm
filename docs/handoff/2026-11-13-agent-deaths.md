@@ -113,6 +113,8 @@ read 2026-11-13.
 | P14 | Background sessions, 2.1.322: `claude --bg -- "<prompt>"` starts one; `claude agents --json --all`, `logs`, `stop`, `respawn`, `rm` manage them. Each has `<config>/jobs/<id>/state.json` with `state` (`running`, `blocked`, `done`, `failed`, `stopped`, `crashed`), `sessionId`, `resumeSessionId`, `respawnFlags`. SIGHUP to the launching shell leaves it running. After SIGKILL the supervisor respawned it within about 1 s once (S6), and in three runs of S7 it settled `stopped` and the account's transient supervisor exited 5 s later; `claude stop` sets `stopped`, and `claude respawn` resumes it with its subagent under the same id. The commit, push and draft-PR behaviour is system-prompt text for a session that entered a worktree; with `worktree.bgIsolation: "none"` one run edited in place and made no worktree, commit or push. No setting turns off push or PR as such | spike `bg-spike` (8 sessions in a scratch repository with a local remote); the 2.1.322 binary | observed; one sample per run |
 | P15 | This machine already holds 11 background-session jobs from the operator's own work; one records a push to a GitHub remote | `~/.claude-personal/jobs/*/state.json` | observed |
 | P16 | `/bg` on a session with a background subagent out asks "1 local agent will be stopped"; going ahead kills it (exit 137), forks a new session id whose transcript copies the old one, and the new transcript gets `failed`, "didn't finish before the previous session ended". A background session runs in `default` permission mode: it waits `blocked` on every prompt, a Write and the publish guard's ask on `git push` included, until someone attaches and answers; the push did not leave the machine | spike S7 (`bg-spike-2`), a scratch clone with a local remote | observed |
+| P17 | A background subagent waiting on a permission prompt in an ordinary session is named only by the `PermissionRequest` hook payload (`agent_id`, `agent_type`, `tool_name`, `tool_input`, no `tool_use_id`), which fires as the prompt opens. Its transcript ends on the `tool_use` with no result, as a running command's does; `meta.json`, the parent's transcript and the `Notification` hook (`permission_prompt`, "Claude needs your permission", no agent) record nothing that names it. An answer fires no hook of its own; the agent's next `PostToolUse` or its `SubagentStop` follows | spike S8, two agents in a scratch repository with logging hooks | observed |
+| P18 | With the lid closed on battery the Mac dark-wakes every 15-20 minutes for a few seconds; three cells of this session stalled together over the two sleeps 01:40-01:56Z and 01:58-02:16Z, and each carried on at the next wake: Claude Code resent the cut-off turn with an `isMeta` user record "Your response above was cut off mid-stream…", four times in S8's transcript. None died; the run's watch flagged S8 silent 16 and 18 minutes | `pmset -g log`; the cells' transcripts | observed |
 | E1 | 88 agents in 30 days ended without completing: 40 session ended, 18 usage limit, 15 stopped by their parent, 10 sleep, 4 no network, 1 stall | cell scan of parent transcripts | observed |
 | E4 | A sleep death reaches the parent at a dark wake, up to 460 min after the agent's last work | U3 transcript; `pmset -g log` | observed |
 | E5 | U3's parent got the failure at 04:36Z, began a reply, its own turn died at 07:40Z, and it stayed open but idle | `2f0a4771-….jsonl:3675-3699` | observed |
@@ -260,8 +262,9 @@ Built in order; each works end to end before the next starts.
   read back to its newest message record; parents and edited paths are read
   only for the 45 or so that are not plainly completed. Verdicts of agents
   whose files have not changed come from the cache. Runs: each session start
-  and lead prompt. Budget, measured in QA: 300 ms with an empty cache, 50 ms
-  warm.
+  and lead prompt: at most 95 lead prompts a day here in the last 7 days
+  (2026-11-11) and 64 sessions in 7 days, so about 100 runs a day, about 4 s
+  warm. Budget, measured in QA: 300 ms with an empty cache, 50 ms warm.
 - **Lead behaviour.** The workloop guide's cell lifecycle (`SKILL.md:152-160`)
   says to resume a dead cell by `SendMessage` first and, under Decision 3, that
   the lead resumes a transient failure once without asking.
@@ -270,14 +273,19 @@ Built in order; each works end to end before the next starts.
   (P16; the first U4 spike sat 20 minutes on the publish guard's ask). A
   background session whose job reads `blocked` is shown as `WAITING ON YOU:
   "<description>" (<agent id>) <its needs text>; claude attach <id>`. For an
-  agent inside an ordinary session, spike S8 first reads whether Claude
-  Code's `Notification` hook (`permission_prompt`) names the agent and
-  whether its transcript shows the pending prompt; the line follows what S8
-  finds.
+  agent inside an ordinary session only the `PermissionRequest` hook names
+  it (P17), so lane 2 registers one that records the session, the agent, the
+  tool and its command in the gitignored `.agents/.readout/`. The agent shows
+  `WAITING ON YOU: "<description>" (<agent id>) <tool>: <command>` until the
+  same agent's next `PostToolUse`, `PostToolUseFailure` or `SubagentStop`, or
+  its session ends; the run's watch names such a cell waiting, not silent. A
+  session that started before the hook was registered shows nothing new.
 - **Two lanes.** The first (`u1-reader`) built the reader, its wiring at
   each start and prompt, and the `.cells` removal. The second builds the
   readout's `died <cause>`, the workloop guide's cell-lifecycle wording, the
-  `decisions.md` entry and the waiting line.
+  `decisions.md` entry, the waiting line with its `PermissionRequest` hook,
+  and `.agents/README.md`'s inbox paragraph saying its toggle also carries
+  the `AGENT DIED` lines at prompts (review finding 7).
 - **Scope.** Claude Code only; Codex and Kimi keep today's behaviour.
 
 ### U2: writers commit as they go
@@ -433,8 +441,10 @@ found:
     job reads `stopped` reads `parked`.
 17. A background session whose job reads `blocked` shows a `WAITING ON YOU:`
     line with its needs text and `claude attach <id>`, and none once it is
-    answered; an agent waiting on a prompt in an ordinary session shows one
-    if spike S8 finds a record that names it.
+    answered; a background subagent of an ordinary session waiting on a
+    permission prompt (a Bash command outside the allow list) shows one
+    naming its tool and command within one prompt, the watch names its cell
+    waiting, and the line is gone after the prompt is answered or denied.
 
 ## Lenses
 
