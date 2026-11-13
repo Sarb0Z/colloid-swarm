@@ -1237,7 +1237,7 @@ body=&quot;$(python3 &quot;$lib/output_style.py&quot; body &quot;$style&quot;)&q
 [[ -z &quot;$body&quot; ]] &amp;&amp; exit 0
 
 {
-  echo &quot;The session&#x27;s output style, which Claude Code sends to the main session only; it binds this cell as it binds the lead. In a cell, \&quot;the user\&quot; is still the operator: approval comes only from their messages, and a question or a human gate returns to the lead in the final report. Commits in the lead&#x27;s tree are the lead&#x27;s; a cell commits only in its own workloop worktree.&quot;
+  echo &quot;The session&#x27;s output style, which Claude Code sends to the main session only; it binds this cell as it binds the lead. In a cell, \&quot;the user\&quot; is still the operator: approval comes only from their messages, and a question or a human gate returns to the lead in the final report. Commits in the lead&#x27;s tree are the lead&#x27;s, except a lane&#x27;s writer, which commits its lane&#x27;s paths by path in the tree its lane names; a cell with no lane never commits.&quot;
   echo
   printf &#x27;%s\n&#x27; &quot;$body&quot;
 } | python3 &quot;$lib/emit-context.py&quot; SubagentStart
@@ -12264,7 +12264,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 106 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 107 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -12293,6 +12293,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-worktree-sessions.sh
 .agents/test-parallel-writers.sh
 .agents/test-workloop-inbox.sh
+.agents/test-commit-nudge.sh
 .agents/test-agent-deaths.sh
 .agents/test-agent-waits.sh
 .agents/test-style-inject.sh
@@ -15834,7 +15835,7 @@ if __name__ == &quot;__main__&quot;:
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>The committed defaults for every toggle and threshold above. <code>policy.json</code> is the tracked per-repository policy, and an ignored <code>config.json</code> overrides both for one operator. Only the <code>session_wrap</code> thresholds also read <code>WRAP_*</code> environment variables.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 140 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 143 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -15903,6 +15904,9 @@ if __name__ == &quot;__main__&quot;:
       &quot;enabled&quot;: true
     },
     &quot;workloop_inbox&quot;: {
+      &quot;enabled&quot;: true
+    },
+    &quot;commit_nudge&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;sources_capture&quot;: {
