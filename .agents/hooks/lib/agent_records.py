@@ -236,27 +236,37 @@ def _lines_from(path: Path, offset: int, markers: tuple[bytes, ...]) -> tuple[li
     return [data[start:data.find(b"\n", start)] for start in sorted(starts)], offset + end
 
 
+def _edit_paths(record: dict) -> list[str]:
+    """Paths the edit calls of one record name."""
+    paths = []
+    for block in _blocks(record):
+        target = block.get("input") or {}
+        if block.get("type") == "tool_use" and block.get("name") in EDIT_TOOLS:
+            value = target.get("file_path") or target.get("notebook_path")
+            if isinstance(value, str) and value:
+                paths.append(value)
+    return paths
+
+
+def edits_since(path: Path, offset: int) -> tuple[list[str], int]:
+    """Paths the agent's Edit, Write, MultiEdit and NotebookEdit calls named since `offset`,
+    in any record that holds such a call."""
+    lines, reached = _lines_from(path, offset, EDIT_CALLS)
+    return [value for line in lines for value in _edit_paths(json.loads(line))], reached
+
+
 def timed_edits_since(path: Path, offset: int) -> tuple[list[tuple[str, float]], int]:
-    """The agent's Edit, Write, MultiEdit and NotebookEdit calls since `offset`, each as
-    (path named, time of the record that holds the call)."""
+    """The edits the agent itself made since `offset`, each as (path, time of the record that
+    made the call). Only an `assistant` record made a call; the `api-request-blob` records
+    Claude Code keeps beside them copy earlier requests, carry no timestamp, and are skipped."""
     lines, reached = _lines_from(path, offset, EDIT_CALLS)
     edits = []
     for line in lines:
         record = json.loads(line)
-        for block in _blocks(record):
-            target = block.get("input") or {}
-            if block.get("type") == "tool_use" and block.get("name") in EDIT_TOOLS:
-                value = target.get("file_path") or target.get("notebook_path")
-                if isinstance(value, str) and value:
-                    where = f"{path}: an edit record"
-                    edits.append((value, _epoch(need(record, "timestamp", where), where)))
+        if record.get("type") == "assistant":
+            where = f"{path}: an edit record"
+            edits += [(value, _epoch(need(record, "timestamp", where), where)) for value in _edit_paths(record)]
     return edits, reached
-
-
-def edits_since(path: Path, offset: int) -> tuple[list[str], int]:
-    """Paths the agent's Edit, Write, MultiEdit and NotebookEdit calls named since `offset`."""
-    edits, reached = timed_edits_since(path, offset)
-    return [value for value, _ in edits], reached
 
 
 def notes_since(path: Path, offset: int) -> tuple[list[list], int]:

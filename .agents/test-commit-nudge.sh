@@ -109,7 +109,14 @@ expect_none "$(fire w9)" "7: a cell with no lane"
 expect_none "$(fire '')" "7: the lead"
 ok "a cell with no lane and the lead hear none"
 
-# 8. A failure in the nudge goes to stderr and the hook's other output stays.
+# 8. An api-request-blob record copies an earlier request, edit call included, with no timestamp: it is no edit and no failure.
+printf 'f\n' > "$dir/src/f.txt"
+printf '%s\n' '{"type":"api-request-blob","hash":"h","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Edit","input":{"file_path":"'"$dir"'/src/f.txt"}}]}}' >> "$scratch/project/s1/subagents/agent-w1.jsonl"
+rewind w1
+expect_none "$(fire w1)" "8: an api-request-blob record without a timestamp"
+ok "a timestamp-less api-request-blob record is neither an edit nor a failure"
+
+# 9. A failure in the nudge goes to stderr and the hook's other output stays.
 printf 'e\n' > "$dir/src/e.txt"
 edit w1 "$dir/src/e.txt" 60
 rewind w1

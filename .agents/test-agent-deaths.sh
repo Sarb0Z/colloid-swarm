@@ -251,6 +251,27 @@ expect(r.problems and "no session registry entry names this session, own-session
 print("ok    an own registry entry that is missing or fails ps prints the cannot-tell line, and nothing reads lost")
 PY
 
+# An `api-request-blob` record copies an earlier request, edit calls and all, and
+# carries no timestamp: the reader takes its paths as before and does not fail on it.
+d="$(case_dir blob)"
+python3 - "$d" <<'PY' || exit 1
+import sys
+from pathlib import Path
+from fx import *
+d = Path(sys.argv[1]); store = Store(d / "home"); repo = checkout(d / "repo")
+store.session(OWN, repo); store.register(OWN, NOW - 7200)
+store.session("s-blob", repo)
+blob = {"type": "api-request-blob", "hash": "h", "message": {"role": "assistant", "content": [
+    {"type": "tool_use", "id": "u2", "name": "Edit", "input": {"file_path": str(repo / "b.txt"), "old_string": "a", "new_string": "b"}}]}}
+store.agent("s-blob", "ablob", [prompt(NOW - 3000), edit(NOW - 2900, repo / "a.txt", "u1"), result(NOW - 2890, "u1"), blob], repo, description="blob writer")
+store.note("s-blob", "ablob", "failed", 'Agent "blob writer" failed: Agent stalled: no progress for 600s (stream watchdog did not recover)', NOW - 2000)
+(repo / "a.txt").write_text("changed\n"); (repo / "b.txt").write_text("changed\n")
+r = store.read(repo)
+expect(not r.problems, "a timestamp-less api-request-blob record failed the reader", r)
+expect("2 of its 2 edited files uncommitted in" in r.lines[r.shown.index("ablob")], "the blob's edited path is not counted as before", r)
+print("ok    an api-request-blob record without a timestamp does not fail the reader, and its paths count as before")
+PY
+
 # Acceptance 2 and the remaining verdict sources: a failed agent resumed and
 # working is not shown; an API error read from its own files is; a foreground
 # agent takes its Agent call's result; a failure after a resume says so.
