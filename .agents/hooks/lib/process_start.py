@@ -16,9 +16,11 @@ lock's start, and the death reader (agent_sessions.py) a registry entry's
                not move it; equal within START_SLACK_SECONDS.
 
 A read has three answers: the start, None when no such process runs, or
-CANNOT_TELL when what it read does not parse; `state` also cannot tell when the
-recorded start is in a form this host does not read. Cannot tell is never gone:
-each caller keeps what it would end, and one stderr line names the pid.
+CANNOT_TELL when its `/proc` entry or `ps` cannot be read, or what it read does
+not parse; `state` also cannot tell when the recorded start is in a form this
+host does not read. Cannot tell is never gone: each caller keeps what it would
+end, and one stderr line names the pid and the cause. `utc_lstart` alone
+raises when `ps` cannot be run, as the death reader expects.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from pathlib import Path
 # boot time, which a clock step moves, so two texts of one start may differ by a step this size.
 START_SLACK_SECONDS = 5
 LSTART_FORMAT = "%a %b %d %H:%M:%S %Y"
+PS_SECONDS = 5
 LIVE, GONE, CANNOT_TELL = "live", "gone", "cannot tell"
 LINUX = sys.platform.startswith("linux")
 PROC = Path("/proc")
@@ -57,8 +60,17 @@ def utc_lstart(pid: int) -> str | None:
     """`ps -o lstart= -p <pid>` under LC_ALL=C TZ=UTC, trimmed: the text Claude Code writes as a
     registry entry's `procStart` and into its worktree locks; None when no such process runs."""
     result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True,
-                            env=dict(os.environ, LC_ALL="C", TZ="UTC"), timeout=5)
+                            env=dict(os.environ, LC_ALL="C", TZ="UTC"), timeout=PS_SECONDS)
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
+
+
+def utc_text(pid: int):
+    """utc_lstart's text or None, or CANNOT_TELL when `ps` cannot be run or does not answer in time."""
+    try:
+        return utc_lstart(pid)
+    except (subprocess.TimeoutExpired, OSError) as error:
+        warn(pid, f"ps could not be run ({error})")
+        return CANNOT_TELL
 
 
 def epoch_of(text) -> int | None:
@@ -81,16 +93,21 @@ def same_start(recorded: str | None, seen: str | None) -> bool:
 def read(pid: int):
     """The process's start in this host's form, None when no such process runs, or CANNOT_TELL."""
     if not LINUX:
-        text = utc_lstart(pid)
+        text = utc_text(pid)
+        if text is None or text == CANNOT_TELL:
+            return text
         epoch = epoch_of(text)
-        if text is not None and epoch is None:
+        if epoch is None:
             warn(pid, f"ps gives {text!r} for its start, which does not parse")
             return CANNOT_TELL
-        return {"epoch": epoch} if text is not None else None
+        return {"epoch": epoch}
     try:
         stat = (PROC / str(pid) / "stat").read_text()
     except (FileNotFoundError, ProcessLookupError):
         return None
+    except OSError as error:
+        warn(pid, f"its /proc entry does not read ({error})")
+        return CANNOT_TELL
     try:
         boot = (PROC / "sys" / "kernel" / "random" / "boot_id").read_text().strip()
         ticks = int(stat[stat.rindex(")") + 2:].split()[TICKS_INDEX])

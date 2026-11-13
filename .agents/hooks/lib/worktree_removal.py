@@ -43,12 +43,13 @@ IN_PROGRESS = ("BISECT_LOG", "rebase-merge", "rebase-apply", "MERGE_HEAD", "CHER
 def claude_lock_ended(reason: str, ending_pid: int | None) -> bool:
     """True when `reason` is Claude Code's lock (`claude session|agent <id> (pid N[ start S])`,
     S its start as C-locale UTC `ps` text) and that session is over: its pid is the ending one,
-    gone, or started more than START_SLACK_SECONDS from S. A start that does not parse holds."""
+    gone, or started more than START_SLACK_SECONDS from S. A start that does not parse, or a pid
+    whose start `ps` cannot give, holds."""
     match = CLAUDE_LOCK.match(reason or "")
     if not match:
         return False
     pid = int(match.group(1))
-    started = wr.ps.utc_lstart(pid) if pid != ending_pid else None
+    started = wr.ps.utc_text(pid) if pid != ending_pid else None
     if started is None:
         return True
     locked, seen = wr.ps.epoch_of(match.group(2)), wr.ps.epoch_of(started)

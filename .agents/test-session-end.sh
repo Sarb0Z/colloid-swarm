@@ -795,6 +795,44 @@ u5_sweep
 [[ "$(wc -l < "$u5records/text-live.jsonl")" -eq 2 ]] || fail "a stamp written with its start must not be written again: $(cat "$u5records/text-live.jsonl")"
 ok "a text-only stamp reads live for its running process and is written again with its start, once; for a finished pid it reads gone"
 
+# A start that cannot be read at all, from a /proc entry that refuses, a ps that
+# does not answer in time or no ps, reads cannot tell, with one stderr line naming
+# the pid and the cause; a Claude Code lock whose pid ps cannot read holds. Each
+# case runs on either host by setting the reader's platform and timeout.
+mkdir -p "$scratch/u5-proc/900001" "$scratch/u5-proc/sys/kernel/random" "$scratch/u5-slow-ps" "$scratch/u5-no-ps"
+printf 'b\n' > "$scratch/u5-proc/sys/kernel/random/boot_id"
+printf '900001 (sleep) S 1\n' > "$scratch/u5-proc/900001/stat" && chmod 000 "$scratch/u5-proc/900001/stat"
+printf '#!/usr/bin/env bash\nsleep 3\n' > "$scratch/u5-slow-ps/ps" && chmod +x "$scratch/u5-slow-ps/ps"
+[[ "$(id -u)" == 0 ]] && printf 'note: root reads a file at mode 0, so the unreadable /proc case is skipped\n'
+python3 - "$lib" "$scratch" "$(id -u)" 2>"$scratch/u5-read-err" <<'PY' || fail "a start that cannot be read must read cannot tell and a lock hold: $(cat "$scratch/u5-read-err")"
+import importlib.util, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("worktree_removal", f"{sys.argv[1]}/worktree_removal.py")
+rm = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rm)
+wr, ps, scratch, path = rm.wr, rm.wr.ps, Path(sys.argv[2]), os.environ["PATH"]
+got = {}
+if sys.argv[3] != "0":
+    ps.LINUX, ps.PROC = True, scratch / "u5-proc"
+    got["/proc refuses"] = wr.stamp_state({"host": [900001, "x"], "start": {"boot": "b", "ticks": 1}})
+ps.LINUX, ps.PS_SECONDS = False, 0.5
+os.environ["PATH"] = f"{scratch / 'u5-slow-ps'}:{path}"
+got["ps too slow"] = wr.stamp_state({"host": [900002, "x"], "start": {"epoch": 1}})
+os.environ["PATH"] = str(scratch / "u5-no-ps")
+got["no ps"] = wr.stamp_state({"host": [900003, "x"], "start": {"epoch": 1}})
+got["lock, no ps"] = rm.claude_lock_ended("claude session s1 (pid 900004 start Thu Jan  1 00:00:00 2026)", None)
+want = dict({key: ps.CANNOT_TELL for key in got}, **{"lock, no ps": False})
+sys.exit(f"{got}; want {want}" if got != want else 0)
+PY
+for cause in "900002 still runs: ps could not be run (.*timed out" "900003 still runs: ps could not be run (.*No such file" "900004 still runs: ps could not be run (.*No such file"; do
+  [[ "$(grep -c "pid $cause" "$scratch/u5-read-err")" == 1 ]] || fail "one stderr line must name the pid and the cause ($cause): $(cat "$scratch/u5-read-err")"
+done
+if [[ "$(id -u)" != 0 ]]; then
+  [[ "$(grep -c "pid 900001 still runs: its /proc entry does not read (.*Permission denied" "$scratch/u5-read-err")" == 1 ]] \
+    || fail "one stderr line must name the pid /proc refused and why: $(cat "$scratch/u5-read-err")"
+fi
+ok "a start /proc refuses, a ps too slow or no ps reads cannot tell with one stderr line naming the pid and the cause; a lock then holds"
+
 # Claude Code's lock names its session's start as C-locale UTC text: within the
 # 5 s slack of the pid's start it holds, beyond it the session has ended, and a
 # start that does not parse holds.
