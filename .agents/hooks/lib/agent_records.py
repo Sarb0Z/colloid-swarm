@@ -236,18 +236,27 @@ def _lines_from(path: Path, offset: int, markers: tuple[bytes, ...]) -> tuple[li
     return [data[start:data.find(b"\n", start)] for start in sorted(starts)], offset + end
 
 
-def edits_since(path: Path, offset: int) -> tuple[list[str], int]:
-    """Paths the agent's Edit, Write, MultiEdit and NotebookEdit calls named since `offset`."""
+def timed_edits_since(path: Path, offset: int) -> tuple[list[tuple[str, float]], int]:
+    """The agent's Edit, Write, MultiEdit and NotebookEdit calls since `offset`, each as
+    (path named, time of the record that holds the call)."""
     lines, reached = _lines_from(path, offset, EDIT_CALLS)
-    paths = []
+    edits = []
     for line in lines:
-        for block in _blocks(json.loads(line)):
+        record = json.loads(line)
+        for block in _blocks(record):
             target = block.get("input") or {}
             if block.get("type") == "tool_use" and block.get("name") in EDIT_TOOLS:
                 value = target.get("file_path") or target.get("notebook_path")
                 if isinstance(value, str) and value:
-                    paths.append(value)
-    return paths, reached
+                    where = f"{path}: an edit record"
+                    edits.append((value, _epoch(need(record, "timestamp", where), where)))
+    return edits, reached
+
+
+def edits_since(path: Path, offset: int) -> tuple[list[str], int]:
+    """Paths the agent's Edit, Write, MultiEdit and NotebookEdit calls named since `offset`."""
+    edits, reached = timed_edits_since(path, offset)
+    return [value for value, _ in edits], reached
 
 
 def notes_since(path: Path, offset: int) -> tuple[list[list], int]:

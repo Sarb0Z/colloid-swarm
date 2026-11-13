@@ -69,6 +69,9 @@
     "workloop_inbox": {
       "enabled": true
     },
+    "commit_nudge": {
+      "enabled": true
+    },
     "sources_capture": {
       "enabled": true
     },

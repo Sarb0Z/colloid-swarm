@@ -113,6 +113,9 @@ jobs:
       - name: Workloop inbox policy
         run: .agents/test-workloop-inbox.sh
 
+      - name: Commit nudge
+        run: .agents/test-commit-nudge.sh
+
       - name: Agent-death reader
         run: .agents/test-agent-deaths.sh
 

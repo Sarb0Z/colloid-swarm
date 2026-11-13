@@ -13,7 +13,10 @@
 #                        between its tool calls, once each; and it stamps the
 #                        lane or cell with the time and the batch's last tool
 #                        call (tool_name and tool_input of the payload), at
-#                        most once a minute (agent_activity.py).
+#                        most once a minute (agent_activity.py); and, for a
+#                        lane's writer whose edits sit uncommitted over 30
+#                        minutes, a COMMIT: line (commit_nudge.py, toggle
+#                        hooks.commit_nudge.enabled).
 #   UserPromptSubmit   — for the lead: lanes awaiting review, carrying
 #                        attention, stale, broken, or whose worker died; cells
 #                        still out or whose agent died; messages awaiting
@@ -70,6 +73,15 @@ if [[ ( -n "$agent_id" || "$event" == "UserPromptSubmit" ) && -f "$state" ]]; th
 fi
 
 block="$(python3 "$lib/workloop-inbox.py" "$state" "$proj/.agents" "$session" "$event" "$agent_id")"
+
+# A lane's writer sitting on edits over 30 minutes old hears a COMMIT: line
+# (commit_nudge.py); a cell with no lane, and the lead, hear nothing from it.
+if [[ -n "$agent_id" && "$event" == "PostToolBatch" && -f "$state" ]] \
+    && [[ "$(python3 "$lib/config.py" "$cfg_path" hooks.commit_nudge.enabled=true 2>/dev/null || echo yes)" != "no" ]]; then
+  nudge="$(python3 "$lib/commit_nudge.py" "$state" "$proj/.agents" "$session" "$agent_id" "$transcript")" \
+    || { echo "workloop-inbox: the commit reminder for $agent_id failed" >&2; nudge=""; }
+  [[ -z "$nudge" ]] || block="${block:+$block$'\n'}$nudge"
+fi
 [[ -n "$block" ]] || exit 0
 printf '%s' "$block" | python3 "$lib/emit-context.py" "$event"
 exit 0
