@@ -285,8 +285,9 @@ Built in order; each works end to end before the next starts.
   such a lane or cell waiting on the operator, not silent. A session that
   started before the hook was registered shows nothing new.
 - **Lanes.** The first (`u1-reader`, landed at `49eb623`) built the reader,
-  its wiring at each start and prompt, and the `.cells` removal. Two more run
-  at once on disjoint files: `u1-waiting` builds the waiting line with its
+  its wiring at each start and prompt, and the `.cells` removal. Two more ran
+  at once on disjoint files and landed at `8ab2460`, with the showcase's
+  `agent-waits` card at `906ab72`: `u1-waiting` builds the waiting line with its
   `PermissionRequest` hook and the watch's waiting cells (Acceptance 17);
   `u1-words` builds the readout's `died <cause>` (Acceptance 4's statusline
   half), the workloop guide's cell-lifecycle wording with its headless test
@@ -300,6 +301,10 @@ Built in order; each works end to end before the next starts.
 - `working-practice.md` gains: "Commit each piece once its narrow acceptance
   passes: stage your lane's paths by path and commit on the branch of the tree
   your lane names, unless this repository says commits wait for the operator."
+  As built (`7dff597`) it adds "before you start the next piece": under the
+  line above, fresh implementers committed both pieces at the end in 4 of 4
+  runs, and with the addition piece by piece in 2 of 2
+  (`.agents/knowledge/research/2026-11-13-commit-as-you-go-wording.md`).
 - The line `style-inject.sh:30` injects into every cell becomes: "Commits in
   the lead's tree are the lead's, except a lane's writer, which commits its
   lane's paths by path in the tree its lane names; a cell with no lane never
