@@ -166,3 +166,24 @@ One QA cell (sonnet) at `2f9629b`.
 | 6 | Fix. After a build, the other `colloid-linux-check:*` tags are removed; a failed removal prints one line on stderr. |
 | 7 | Fix. |
 | 8 | Fix. |
+
+The operator ruled finding 3 into this delivery as U5 of the plan.
+
+## Fixes
+
+`e703c7a` carries Dispositions 1, 4, 6, 7 and 8, in `linux-check.sh` only.
+The writer's full run built `colloid-linux-check:ubuntu-24.04-2548917560`,
+whose labels are `colloid.tool=linux-check` alone, and removed the two older
+images. The review contract gives a `P1` fix no new round; QA reran.
+
+## QA round 2, at `e703c7a`
+
+One QA cell (sonnet); every scenario through the script.
+
+| Scenario | Observed | Result |
+|---|---|---|
+| Full run with `COLLOID_RUN=qa-label-probe COLLOID_LANE=probe` | the container carried all three labels, the image `colloid.tool` alone; 8 PASS, `PASS procStart self-check`, `linux-check: all passed`, exit 0 | pass |
+| One test with neither variable set | the container carried `colloid.tool=linux-check` alone; exit 0 | pass |
+| `START_SLACK_SECONDS = 0` in a scratch copy | `FAIL procStart self-check`, naming `procStart [Fri Nov 13 11:16:31 2026] 3 s after ps [Fri Nov 13 11:16:28 2026]`, exit 1 | pass |
+| A Dockerfile edit, then a second with the first image in use | the first build left only its own tag; the second printed `could not remove the old image colloid-linux-check:ubuntu-24.04-2199238142` on stderr and exited 0 | pass |
+| `docker rm -f` during the self-check (a `sleep 30` added to the probe) | `the container was lost during the procStart self-check`, exit 2 | pass |
