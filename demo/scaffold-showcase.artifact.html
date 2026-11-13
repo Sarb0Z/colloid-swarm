@@ -9112,7 +9112,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Picks the shape of a delegation before anything is dispatched: one writer by default, a read-only fan-out, parallel slices, a contract-first split, or a bake-off. Where writers work at once, the controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 473 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 479 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Designs each delegation before dispatch, choosing among one writer, a read-only fan-out, parallel slices, a contract-first split and a bake-off, and coordinates writing lanes through a portable, evidence-backed controller.
 ---
@@ -9269,21 +9269,27 @@ cell out again. `status` and the lead&#x27;s digest list cells still out; `check
 `teardown` and the session end will not close the run while one is, though
 `check` still runs a one-writer run&#x27;s composed test and names `returned` for
 each, and `integrate` does not wait for them. A torn-down run takes no cell.
-No cell outlives its session, so a cell
-still out at a startup or resume is named with `--failed` or `--again`, unless
-another live session leads its run; a compaction or `/clear` ends no cell.
+A cell still out at a startup or resume has its agent&#x27;s `AGENT DIED:` line once
+the death reader shows it, and that line decides what follows (below); name a
+cell `--failed` or `--again` only by the line&#x27;s own remedy, unless another live
+session leads its run. A compaction or `/clear` ends no cell.
 
 A dead cell or lane worker shows as an `AGENT DIED:` line at session start and at
-your prompt, naming its agent id and its cause. Your first step is `SendMessage`
-to that agent id: it continues with its history and its edits. Run
-`brief &lt;run&gt; &lt;name&gt; --again` for a cell, or `release-stale &lt;run&gt; &lt;lane&gt;` for a
-lane, only after the `SendMessage` has failed or when the line says the agent
-cannot be resumed. When the cause is a lost connection (`connection_failed`), a
-network error or a stall, send that `SendMessage` once without asking the
-operator. When the line reads &quot;failed again after a resume&quot;, the cause is a
-usage limit (`rate_limit`) or the agent&#x27;s session was lost, do not resume it:
-bring the line to the operator and ask what to do. An `AGENT PARKED:` line reads
-`claude respawn &lt;id&gt;`; run that instead of a `SendMessage`.
+your prompt, naming its agent id, its session and its cause.
+- A line whose remedy reads &quot;resume it: SendMessage to &lt;id&gt;&quot; is the agent of
+  this session, or of one resumed with `claude --resume`: your first step is
+  `SendMessage` to that agent id, and it continues with its history and its
+  edits. Run `brief &lt;run&gt; &lt;name&gt; --again` for a cell, or `release-stale &lt;run&gt;
+  &lt;lane&gt;` for a lane, only after that `SendMessage` has failed.
+- A line naming another session is resumed in that session. Run `brief --again`
+  or `release-stale` only after `workloop.py dismiss &lt;id&gt; --reason &#x27;&lt;why&gt;&#x27;`, as
+  the line says; tell the operator which of the two the work needs.
+- Resume once without asking the operator, whatever the cause, except these,
+  which go to the operator with the line, to decide: &quot;failed again after a
+  resume&quot;, a usage limit (`rate_limit`), and a lost session (&quot;session ended&quot;,
+  &quot;session restarted&quot;).
+- An `AGENT PARKED:` line reads `claude respawn &lt;id&gt;`; run that instead of a
+  `SendMessage`.
 
 A lane&#x27;s own review stays `brief &lt;run&gt; &lt;lane&gt; --role reviewer`, which names
 the commits and the `review --tip` handoff; a review cell is for what is not a
@@ -12796,7 +12802,7 @@ fi
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>readout.py</h3><p>One reader for unit readouts, small JSON files in <code>.agents/.readout/</code> with a strip line and a note. The status line, the session-start note and a person all read the same files; a readout past its freshness window shows its age, and an unreadable file is named rather than skipped.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 319 lines</span></summary><div class="srcpath">.agents/hooks/lib/readout.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 325 lines</span></summary><div class="srcpath">.agents/hooks/lib/readout.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;One reader for unit readouts: the status strip, the session-start note and
 a person all read the same files.
 
@@ -12817,8 +12823,8 @@ past it, its strip segment and note carry its age: `(12m old)`, `(30h old)`,
 Only `*.json` files are readouts; any other file in the folder is the
 writing unit&#x27;s own ledger. Lifetime: `prune` (run at session start) removes
 session-scoped readouts written over 7 days ago, `.write-*.tmp` files over an
-hour old, and any non-`*.json` file whose mtime is over 7 days old, so a unit
-that keeps a ledger here must touch it at least weekly. Repository-wide
+hour old, and any other file whose mtime is over 7 days old, except a `*.lock`
+file, so a unit that keeps a ledger here must touch it at least weekly. Repository-wide
 readouts are never pruned; their writer owns them.
 
 Strip text has every control character turned into a space. A note keeps its
@@ -12981,29 +12987,34 @@ def note_lines(note, limit, command):
 
 def death_segments(repo):
     &quot;&quot;&quot;`&lt;run&gt;/&lt;lane&gt; died &lt;cause&gt;` or `&lt;run&gt;/&lt;cell&gt; parked` for each active lane whose claimant,
-    and each cell out whose agent, the death reader&#x27;s cache judges dead or parked. The cache is
-    read as it stands: the strip runs at every refresh and never runs the reader.&quot;&quot;&quot;
+    and each cell out whose agent, the death reader&#x27;s cache judges dead or parked; a cell sent
+    out again ignores its earlier agent&#x27;s death. The cache is read as it stands: the strip runs
+    at every refresh and never runs the reader. A missing cache shows nothing; one that cannot
+    be read shows `deaths: unreadable`.&quot;&quot;&quot;
     state = Path(repo) / &quot;.agents&quot; / &quot;.workloop-state.json&quot;
     try:
         data = json.loads(state.read_text(encoding=&quot;utf-8&quot;))
     except (OSError, ValueError):
         return []
-    import agent_deaths  # not at the top: write and show run from a copy of this file alone
-    dead = agent_deaths.judged_dead(Path(repo))
-    if not dead:
-        return []
+    # Not at the top: write and show run from a copy of this file alone.
+    import agent_deaths
+    import agent_silence
+    import agent_verdicts
+    try:
+        dead = agent_deaths.judged_dead(Path(repo))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return [&quot;deaths: unreadable&quot;]
     segments = []
     for run_name, run in (data.get(&quot;runs&quot;) or {}).items():
         if run.get(&quot;torn_down&quot;):
             continue
-        held = [(name, lane.get(&quot;claimed_by&quot;)) for name, lane in (run.get(&quot;lanes&quot;) or {}).items()
+        held = [(name, lane.get(&quot;claimed_by&quot;), None) for name, lane in (run.get(&quot;lanes&quot;) or {}).items()
                 if lane.get(&quot;state&quot;) == &quot;active&quot;]
-        held += [(name, cell.get(&quot;agent_id&quot;)) for name, cell in (run.get(&quot;cells&quot;) or {}).items()
-                 if cell.get(&quot;state&quot;) == &quot;out&quot;]
-        for name, agent in held:
-            if agent in dead:
-                verdict, cause = dead[agent]
-                segments.append(cut(f&quot;{run_name}/{name} &quot; + (&quot;parked&quot; if verdict == &quot;parked&quot; else f&quot;died {cause}&quot;)))
+        held += [(name, cell.get(&quot;agent_id&quot;), agent_silence.parse(cell.get(&quot;out_since&quot;)))
+                 for name, cell in (run.get(&quot;cells&quot;) or {}).items() if cell.get(&quot;state&quot;) == &quot;out&quot;]
+        for name, agent, since in held:
+            if verdict := agent_verdicts.dead_since(dead, agent, since):
+                segments.append(cut(f&quot;{run_name}/{name} &quot; + (&quot;parked&quot; if verdict.state == &quot;parked&quot; else f&quot;died {verdict.cause}&quot;)))
     return segments
 
 
@@ -13057,7 +13068,8 @@ def prune(repo):
     if not directory.is_dir():
         return
     for path in directory.iterdir():
-        if not path.is_file() or path.suffix == &quot;.json&quot;:
+        # A lock file&#x27;s mtime never moves while it is in use, and a unit&#x27;s writers lock on it.
+        if not path.is_file() or path.suffix in (&quot;.json&quot;, &quot;.lock&quot;):
             continue
         limit = PRUNE_TEMP_AFTER if path.name.startswith(&quot;.write-&quot;) and path.suffix == &quot;.tmp&quot; else PRUNE_FILE_AFTER
         if now - datetime.fromtimestamp(path.stat().st_mtime, timezone.utc) &gt; limit:
