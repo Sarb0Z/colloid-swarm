@@ -18,8 +18,9 @@
 #   suite.sh's process handling: catches checks left running by an interrupt,
 #     a SIGKILL to suite.sh's group or a read from the terminal, and a scratch
 #     folder a killed run left; misses a check that leaves its session.
-#   check-env.sh's github mode: catches a CI step left with the runner's git
-#     identity, system settings or a token; misses a step placed before it.
+#   check-env.sh's github mode: catches a CI step left with the runner's home,
+#     git identity, system settings or a token; misses a step placed before
+#     it, which lint-suite.py fails (test-owed.sh).
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
@@ -180,8 +181,10 @@ ok "a check sees the suite identity, no credential helper, no GitHub token, and 
 # mode. A system file that marks every folder safe, as GitHub's Ubuntu image
 # writes one, stands in for the runner's: under the mode's settings a step
 # reads git's refusal of a checkout whose owner differs, and the suite identity.
+# The mode runs from an empty home, so it has no Playwright browsers to copy.
+mkdir "$scratch/runner-home"
 clean=(env -u GH_TOKEN -u GITHUB_TOKEN -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_PARAMETERS
-  -u GIT_CONFIG_COUNT -u CLAUDE_PROJECT_DIR)
+  -u GIT_CONFIG_COUNT -u CLAUDE_PROJECT_DIR -u PLAYWRIGHT_BROWSERS_PATH HOME="$scratch/runner-home")
 runner=(env -u GIT_CONFIG_NOSYSTEM GIT_CONFIG_SYSTEM="$scratch/trusting.gitconfig" GIT_TEST_ASSUME_DIFFERENT_OWNER=1)
 printf '[safe]\n\tdirectory = *\n' > "$scratch/trusting.gitconfig"
 git init -q "$scratch/foreign"
@@ -189,6 +192,8 @@ git init -q "$scratch/foreign"
 : > "$scratch/github.env"
 out="$("${clean[@]}" GITHUB_ENV="$scratch/github.env" RUNNER_TEMP="$scratch/runner" "$fx/.agents/check-env.sh" github 2>&1)" \
   || fail "check-env.sh github: $out"
+grep -qx "HOME=$(cd "$scratch" && pwd -P)/runner/check-home" "$scratch/github.env" \
+  || fail "check-env.sh github did not give later steps the temporary home: $(cat "$scratch/github.env")"
 step=()
 while IFS= read -r line; do step+=("$line"); done < "$scratch/github.env"
 out="$("${runner[@]}" "${step[@]}" git -C "$scratch/foreign" status 2>&1)" && fail "a step under check-env.sh github read a checkout git refuses: $out"
