@@ -212,8 +212,12 @@ Built in order; each works end to end before the next starts.
     Parents are read only for the rest, from the byte offset the cache reached
     last time, since a transcript only grows.
   - A session is live when a registry entry in any config folder names it and
-    `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>`, trimmed, equals its `procStart`
-    (P3, P10), which rejects a stale entry left by a kill. The reader first
+    `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>`, trimmed, lies within
+    `START_SLACK_SECONDS` (5) of its `procStart`, or equals it as text where
+    either does not parse (P3, P10). That rejects a stale entry left by a
+    kill: a reused pid starts after its session ended. On Linux a clock step
+    moves `lstart`, so a step over the slack still reads a live session as
+    ended (a breadcrumb). The reader first
     checks this against its own session. If its own entry is missing or does
     not match, it prints `agent deaths: cannot tell live sessions on this host
     (<why>)` and judges no agent `lost`.
@@ -418,10 +422,12 @@ every older live session as gone and removes its idle worktrees (W3, W4).
   the dismiss lock; they miss a format change in Claude Code's real records.
 - **Headless and tmux-driven real sessions** (Acceptance 1, 3, 9, 15). They
   catch the real records and order; they miss a real sleep.
-- **The Ubuntu container.** It catches GNU, procps and bash 5 differences; it
+- **The Ubuntu container.** It catches GNU, procps and bash 5 differences, and
+  shows the slack parses Linux `ps` output (an entry 3 s off reads live); it
   misses a real Linux Claude Code session (Decision 4 (a)), and a registry
-  entry aging across a clock step: its self-check takes both `procStart`
-  values from one `ps` rule seconds apart. `.agents/linux-check.sh` runs it.
+  entry aging across a clock step: its self-check takes every `procStart`
+  from one `ps` rule seconds apart. QA stepped a container's clock by hand
+  once (the U3 review record). `.agents/linux-check.sh` runs it.
 - **The sweep's start rule (U5)** against real processes under several `TZ`
   and `LC_ALL` values, in `test-session-end.sh` and on the Mac (Acceptance
   18-21). They catch a zone or locale change and the switch from the old

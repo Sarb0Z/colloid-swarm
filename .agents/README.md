@@ -600,6 +600,13 @@ of the real home's settings; a check that changes the checkout's core or
 extensions git settings, or writes a file of the copy, fails the run. Run one
 surface by copying its line out of the script; that line runs in the checkout
 itself.
+
+`.agents/linux-check.sh [test-name.sh ...]` runs the hook tests its header
+lists, and the death reader's `procStart` self-check, in an `ubuntu:24.04`
+container, against the tree it is run from with uncommitted edits included.
+It needs a running Docker daemon, so `check-all.sh` does not list it. It exits
+0 when all pass, 1 when a test or the self-check fails and 2 on a setup
+failure.
 <!-- colloid-only -->
 `lint-suite.py` fails when `ci.yml` and the script run different checks.
 <!-- /colloid-only -->
