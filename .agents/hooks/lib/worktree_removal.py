@@ -71,7 +71,9 @@ class Remover:
         """{folder identity: pids} for the working folder of every visible process but lsof
         and this one, and each folder above it; None when lsof cannot say."""
         if not self._loaded and shutil.which("lsof"):
-            child = subprocess.Popen(["lsof", "-n", "-P", "-w", "-d", "cwd", "-F", "pn"], text=True,
+            # Linux lsof forks a helper that keeps lsof's working folder and is listed under its
+            # own pid; run from the root, neither reads as working in a worktree.
+            child = subprocess.Popen(["lsof", "-n", "-P", "-w", "-d", "cwd", "-F", "pn"], text=True, cwd="/",
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             found, pid, seen = {}, None, {}
             for line in child.communicate()[0].splitlines():

@@ -20,6 +20,9 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 ok() { printf 'ok    %s\n' "$*"; }
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+# The recording session's process is this shell. Under `docker exec` every
+# ancestor is a shell, which the records pass over, so none would be found.
+export CLAUDE_PID=$$
 cd "$scratch"
 
 # A repository carrying the scaffold pieces the hooks and the controller run.
@@ -270,12 +273,22 @@ if [[ -n "$mc_inner" ]]; then
 fi
 ok "build output keeps what lies in it: a worktree or a repository under build/, and an inner worktree git names in another case"
 
-# ── without lsof every worktree reads busy ──────────────────────────────────
-bash_call "$R" 'git worktree add -q ../wt-nolsof -b nolsof'
-report="$(printf '{"hook_event_name":"SessionEnd","reason":"other","session_id":"s1"}' \
-  | PATH=/opt/homebrew/bin:/usr/bin:/bin CLAUDE_PROJECT_DIR="$R" bash "$R/.claude/hooks/adapter.sh" session-end.sh 2>&1)"
-[[ -d "$scratch/wt-nolsof" && "$report" == *"kept $scratch/wt-nolsof: lsof is missing or failed"* ]] || fail "a missing lsof must keep the worktree: $report"
-ok "a missing lsof keeps the worktree rather than reading it empty"
+# ── without a working lsof every worktree reads busy ────────────────────────
+# macOS keeps lsof in /usr/sbin, so this PATH hides it there; Linux keeps it in
+# /usr/bin beside everything else, so an lsof that fails stands in for it.
+mkdir -p "$scratch/failing-lsof" && printf '#!/bin/sh\nexit 1\n' > "$scratch/failing-lsof/lsof" && chmod +x "$scratch/failing-lsof/lsof"
+for path in /opt/homebrew/bin:/usr/bin:/bin "$scratch/failing-lsof:$PATH"; do
+  if [[ "$path" == /opt/* ]] && PATH="$path" command -v lsof >/dev/null; then
+    printf 'note: lsof is on %s here, so only a failing lsof is tried\n' "$path"
+    continue
+  fi
+  bash_call "$R" 'git worktree add -q ../wt-nolsof -b nolsof'
+  report="$(printf '{"hook_event_name":"SessionEnd","reason":"other","session_id":"s1"}' \
+    | PATH="$path" CLAUDE_PROJECT_DIR="$R" bash "$R/.claude/hooks/adapter.sh" session-end.sh 2>&1)"
+  [[ -d "$scratch/wt-nolsof" && "$report" == *"kept $scratch/wt-nolsof: lsof is missing or failed"* ]] || fail "an lsof missing from $path or failing must keep the worktree: $report"
+  git -C "$R" worktree remove "$scratch/wt-nolsof" && git -C "$R" branch -qD nolsof
+done
+ok "a missing or failing lsof keeps the worktree rather than reading it empty"
 
 # ── EnterWorktree at /exit: the answer to Claude Code's prompt stands ───────
 rm -f "$records"/s1.jsonl
