@@ -37,18 +37,22 @@ PARKED_SECONDS = 600
 
 
 def reclaim(folder: Path) -> None:
-    """Fold claim files whose claiming process died back into their record files."""
+    """Fold claim files whose claiming process died back into their record files. A claim stays
+    while the stamp a resumed session wrote beside it cannot be told live or gone."""
     for claim in folder.glob(".*.jsonl.*-*"):
         pid = claim.name.rsplit("-", 1)[-1]
         if pid.isdigit() and wr.ps_row(int(pid)) is None:
             record = folder / claim.name[1:].rsplit(".", 1)[0]
-            live = resumed(record)
+            mark = wr.last_host(wr.load(record)) if record.is_file() else None
+            verdict = wr.stamp_state(mark)
+            if verdict == wr.ps.CANNOT_TELL:
+                continue
             with open(record, "a") as stream:
                 stream.write(claim.read_text())
             # The folded entries end under their dead host; a session that resumed
             # meanwhile is written last again, so it does not read as gone.
-            if live:
-                wr.append(folder, record.stem, [{"type": "host", "host": live, "at": int(time.time())}])
+            if verdict in (wr.ps.LIVE, wr.MEND):
+                wr.append(folder, record.stem, [dict({"type": "host", "at": int(time.time())}, **mark)])
             claim.unlink()
 
 
@@ -66,9 +70,34 @@ def unpark(main: Path) -> None:
 
 
 def over(entries: list[dict], path: Path) -> bool:
-    """The session's process is gone (a file with no host: untouched for 24 hours)."""
-    stamp = wr.last_host(entries)
-    return not wr.alive(stamp) if stamp else time.time() - path.stat().st_mtime > IDLE_SECONDS
+    """The session's process is gone (a file with no host: untouched for 24 hours). A stamp live
+    by its host text alone is written again with its process's `start` (`upgrade`)."""
+    mark = wr.last_host(entries)
+    if not mark:
+        return time.time() - path.stat().st_mtime > IDLE_SECONDS
+    verdict = wr.stamp_state(mark)
+    if verdict == wr.MEND:
+        upgrade(path, mark)
+    return verdict == wr.ps.GONE
+
+
+def upgrade(path: Path, mark: dict) -> None:
+    """Append a stamp live by its host text again with its process's own `start`, so its session
+    reads the same in any zone or locale from now on (debt: worktree-records-local-stamps). The
+    entry has no `at`: no process began, so it dates no resume (`finish`). Nothing is written
+    when the record went or gained another stamp since the sweep read it."""
+    start = wr.ps.read(mark["host"][0])
+    try:
+        current = wr.last_host(wr.load(path))
+    except FileNotFoundError:
+        return  # the session's own end claimed the record meanwhile
+    if isinstance(start, dict) and current == mark:
+        wr.append(path.parent, path.stem, [{"type": "host", "host": mark["host"], "start": start}])
+
+
+def stamped(entry: dict, mark: dict | None) -> dict:
+    """The entry under another stamp, its own `start` dropped where that stamp has none."""
+    return dict({key: value for key, value in entry.items() if key != "start"}, **(mark or {"host": None}))
 
 
 def close(path: Path, reason: str, workloop: Path) -> list[str]:
@@ -79,27 +108,28 @@ def close(path: Path, reason: str, workloop: Path) -> list[str]:
     except FileNotFoundError:
         return []  # another end or sweep claimed it first
     entries, me = wr.load(claimed), wr.host()
-    stamp = wr.last_host(entries)
-    if not reason and stamp and wr.alive(stamp):
+    mark = wr.last_host(entries)
+    if not reason and mark and wr.alive(mark):
         # Its session resumed between the sweep's look and the claim: give the records back.
         wr.append(path.parent, path.stem, entries)
         claimed.unlink()
         return []
     exclude = {pid for pid, _, _ in wr.chain()} if reason in EXITS else {os.getpid()}
-    remover = rm.Remover(f"session {path.stem}", exclude, me[0] if reason and me else stamp[0] if stamp else None,
-                         rn.lost_files)
+    ending = me[0] if reason and me else mark["host"][0] if mark else None
+    remover = rm.Remover(f"session {path.stem}", exclude, ending, rn.lost_files)
     standing = finish(entries, remover, workloop, reason, path)
-    # What stays goes back under the session's host, so only a sweep after that
+    # What stays goes back under the session's stamp, so only a sweep after that
     # process exits takes it; under a live one when the session resumed meanwhile.
-    wr.append(path.parent, path.stem, [dict(e, host=resumed(path) or stamp) for e in standing])
+    wr.append(path.parent, path.stem, [stamped(e, resumed(path) or mark) for e in standing])
     claimed.unlink()
     return remover.lines
 
 
 def resumed(path: Path):
-    """The live host a resumed session wrote to its record while a sweep held the claim."""
-    stamp = wr.last_host(wr.load(path)) if path.is_file() else None
-    return stamp if stamp and wr.alive(stamp) else None
+    """The stamp a resumed session wrote to its record while a sweep held the claim, while its
+    process may still run."""
+    mark = wr.last_host(wr.load(path)) if path.is_file() else None
+    return mark if mark and wr.alive(mark) else None
 
 
 def finish(entries: list[dict], remover, workloop: Path, reason: str, record: Path) -> list[dict]:
@@ -190,7 +220,7 @@ def rehost(folder: Path, me: str) -> None:
     """Claim a resumed session's records for its new process, before any lock: a start that
     finds another sweeping skips the sweep, never this. A record another sweep holds counts."""
     if me and ((folder / f"{me}.jsonl").is_file() or any(folder.glob(f".{me}.jsonl.*-*"))):
-        wr.append(folder, me, [{"type": "host", "host": wr.host(), "at": int(time.time())}])
+        wr.append(folder, me, [dict({"type": "host", "at": int(time.time())}, **wr.stamp())])
 
 
 def sweep(project: Path, session: str, source: str, workloop: Path, emit, budget: float) -> None:
@@ -218,8 +248,13 @@ def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget:
                 for line in close(path, "", workloop):
                     emit(line)
     recorded, leads = set(), set()
-    for path in folder.glob("*.jsonl") if folder.is_dir() else []:
-        for entry in wr.load(path):
+    # A claim still standing (its sweep runs, or its record's stamp cannot be told) records too.
+    for path in [*folder.glob("*.jsonl"), *folder.glob(".*.jsonl.*-*")] if folder.is_dir() else []:
+        try:
+            entries = wr.load(path)
+        except FileNotFoundError:
+            continue  # a session end claimed it, or a sweep gave it back, since the listing
+        for entry in entries:
             recorded |= {str(Path(entry["path"]).resolve())} if entry.get("type") == "worktree" else set()
             leads.add(entry.get("run"))
     for line in rn.unowned_runs(main, leads):

@@ -18,29 +18,10 @@ earlier versions wrote `state: "blocked"`.
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 from agent_records import need, real_folders
-
-# On Linux `ps` derives a process's start from the boot time, which a clock step moves, so a
-# live session's start can drift from the recorded one by the size of the step. A reused pid
-# belongs to a process started after its session ended, so its start differs from the recorded
-# one by at least the session's lifetime, far more than this.
-START_SLACK_SECONDS = 5
-LSTART_FORMAT = "%a %b %d %H:%M:%S %Y"
-
-
-def same_start(recorded: str | None, seen: str | None) -> bool:
-    """Whether two `lstart` texts name the same process start: equal as text, or both parse
-    and lie within START_SLACK_SECONDS of each other."""
-    if recorded == seen:
-        return True
-    try:
-        gap = datetime.strptime(recorded, LSTART_FORMAT) - datetime.strptime(seen, LSTART_FORMAT)
-    except (ValueError, TypeError):
-        return False
-    return abs(gap.total_seconds()) <= START_SLACK_SECONDS
+from process_start import same_start
 
 
 def registry(dirs: list[Path]) -> tuple[list[dict], list[str]]:

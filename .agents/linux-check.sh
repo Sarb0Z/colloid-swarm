@@ -4,10 +4,10 @@
 #
 # Usage: .agents/linux-check.sh [test-name.sh ...]
 #
-# With no arguments it runs eight hook and workloop tests: the death reader's,
-# the wait gate's, the readout's, the workloop inbox's, session start's, the
-# commit nudge's, style injection's and the workloop's. It tests the tree it is
-# run from: the tracked and
+# With no arguments it runs nine hook and workloop tests: the death reader's,
+# the wait gate's, the readout's, the workloop inbox's, session start's,
+# session end's, the commit nudge's, style injection's and the workloop's. It
+# tests the tree it is run from: the tracked and
 # unignored files, uncommitted edits included, committed as one fresh root
 # commit in a git repository inside the container. The tree is streamed in
 # with tar, never bind-mounted, so it works against Colima and a remote Docker
@@ -52,7 +52,7 @@ labels=(--label colloid.tool=linux-check)  # the container's, on `docker run` on
 [[ -n "${COLLOID_LANE:-}" ]] && labels+=(--label "colloid.lane=$COLLOID_LANE")
 default_tests=(
   test-agent-deaths.sh test-agent-waits.sh test-readout.sh
-  test-workloop-inbox.sh test-session-start.sh test-commit-nudge.sh
+  test-workloop-inbox.sh test-session-start.sh test-session-end.sh test-commit-nudge.sh
   test-style-inject.sh test-workloop.sh
 )
 tests=("$@")

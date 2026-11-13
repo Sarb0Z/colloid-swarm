@@ -46,6 +46,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
      "$repo/.agents/hooks/lib/worktree_heal.py" "$repo/.agents/hooks/lib/readout.py" \
+     "$repo/.agents/hooks/lib/process_start.py" \
      "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals,waits}.py "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
@@ -742,16 +743,18 @@ age keeper; age far-lane
 unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
 sleepers=()
 trap 'for pid in "${sleepers[@]+"${sleepers[@]}"}"; do kill "$pid" 2>/dev/null || true; done; rm -rf "$scratch"' EXIT
-host_of() { printf '[%s, "%s"]' "$1" "$(ps -o lstart= -p "$1" | awk '{$1=$1};1')"; }
+stamp_of() {  # <pid>: a running process's stamp as the records write it, `host` and `start`
+  (cd "$sw/.agents/hooks/lib" && python3 -c 'import json, sys, worktree_records as wr; pid = int(sys.argv[1]); print(json.dumps({"host": [pid, wr.ps_row(pid)[1]], "start": wr.ps.read(pid)})[1:-1])' "$1")
+}
 # Backgrounded with their output closed, so no command substitution waits on them.
 sleep 300 >/dev/null 2>&1 & sleepers+=($!)
-live="$(host_of "${sleepers[0]}")"
+live="$(stamp_of "${sleepers[0]}")"
 sleep 300 >/dev/null 2>&1 & gone=$!
-dead="$(host_of "$gone")"
+dead="$(stamp_of "$gone")"
 kill "$gone"; wait "$gone" 2>/dev/null || true
 records="$sw/.agents/worktrees/.records"
 mkdir -p "$records"
-note() { printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": %s}\n' "$scratch/sweep-$1" "$2"; }
+note() { printf '{"type": "worktree", "path": "%s", "by": "git worktree add", %s}\n' "$scratch/sweep-$1" "$2"; }
 
 real="$(cd "$scratch" && pwd -P)"
 wt claude-stale; age claude-stale
@@ -762,7 +765,7 @@ wt live; note live "$live" > "$records/running-session.jsonl"
 wt mine; note mine "$dead" > "$records/fixture-session.jsonl"
 # A claim a killed end left, and folders a killed removal parked.
 wt ghost
-printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": %s}\n' "$real/sweep-ghost" "$dead" \
+printf '{"type": "worktree", "path": "%s", "by": "git worktree add", %s}\n' "$real/sweep-ghost" "$dead" \
   > "$records/.ghost.jsonl.ending-$gone"
 wt parked; mkdir -p "$sw/.git/colloid-trash/1-1/0" && printf 'dep\n' > "$sw/.git/colloid-trash/1-1/0/i.js"
 printf '{"worktree": "%s", "moves": [["%s", "%s"]]}' "$real/sweep-parked" "$real/sweep-parked/node_modules" \
