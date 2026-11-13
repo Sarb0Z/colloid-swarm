@@ -133,20 +133,26 @@ read 2026-11-13.
 | B5 | Background sessions run on macOS and Linux and need a stored credential and a trusted workspace | agent-view, troubleshooting | observed |
 | B6 | No command revokes a `claude setup-token` token; it is removed by hand under claude.ai settings, and users report revocation does not always take effect | issues #48373, #57400, #43801; third-party guides | observed in issues; not tried |
 | W1 | `worktree_records.ps_row` reads `ps -o ppid= -o lstart= -o comm=` in the caller's locale and zone; `alive` is true only when that `lstart` text equals the recorded stamp's, with no slack; `host()` writes the stamp `[pid, <lstart text>]` from the same read | `worktree_records.py:95-131` | observed |
-| W2 | One process's `lstart` reads `11:12:15`, `16:12:15` and `06:12:15` under `TZ=UTC`, `Asia/Karachi` and `America/New_York`, on macOS and in `ubuntu:24.04` alike; `LC_ALL=de_DE.UTF-8` gives `Fr. 13 Nov. 16:12:15 2026`; under `LC_ALL=C TZ=UTC` both platforms give `Fri Nov 13 11:12:15 2026`, which `strptime('%a %b %d %H:%M:%S %Y')` parses | commands on the Mac and in the container | observed |
+| W2 | One process's `lstart` reads `11:12:15`, `16:12:15` and `06:12:15` under `TZ=UTC`, `Asia/Karachi` and `America/New_York`, on macOS and in `ubuntu:24.04` alike; on macOS `LC_ALL=de_DE.UTF-8` gives `Fr. 13 Nov. 16:12:15 2026`, while the container has only the `C`, `C.utf8` and `POSIX` locales and prints the C form for it without an error; under `LC_ALL=C TZ=UTC` both platforms give `Fri Nov 13 11:12:15 2026`, which `strptime('%a %b %d %H:%M:%S %Y')` parses | commands on the Mac and in the container; `locale -a` in `colloid-linux-check:ubuntu-24.04-2548917560` | observed |
 | W3 | At each session start the sweep ends the records of every other session whose last stamp reads not `alive` (`over`); a sweep re-checks `alive` after claiming the file, which the same misreading passes | `worktree_sweep.py:68-102, 216-219` | observed |
 | W4 | Ending a session's records removes each recorded worktree unless it is locked by a live Claude Code lock, has a process whose cwd is in it, holds another worktree or what a save cannot carry; a dirty one is committed to `saved/<name>` first. A finished run is abandoned; an unfinished one is held 24 h. A live session's idle worktree is therefore removed | `worktree_removal.py:86-130, 237-300`; `worktree_runs.py:51-112` | observed |
 | W5 | `ended_runs`, at a startup or resume, counts another session's runs as ended unless `alive` holds for its last stamp; it only changes the remedy text for cells still out | `workloop-inbox.py:133-174` | observed |
-| W6 | `claude_lock_ended` reads Claude Code's lock reason (`pid N start S`, `S` in UTC) and calls the lock ended when the gap to the pid's `ps_row` start, parsed in the caller's zone, exceeds 2 s; a text that does not parse keeps the lock | `worktree_removal.py:34-52` | observed |
-| W7 | A stamp is written only when a call makes a worktree or run (`teardown-gate.sh`), or by `rehost` at a start or resume of a session whose record exists; a session keeps its stamp until then | `teardown-gate.sh:470-505`; `worktree_sweep.py:50-51, 189-215` | observed |
-| W8 | Four record files here hold stamps in this Mac's zone (PKT) with no zone marker, two of them for sessions still running (pids 56644 and 98049) | `.agents/worktrees/.records/*.jsonl`; `ps` | observed |
+| W6 | `claude_lock_ended` reads Claude Code's lock reason (`pid N start S`, `S` in UTC) and calls the lock ended when the gap to the pid's `ps_row` start, parsed in the caller's zone, exceeds 2 s; a text that does not parse keeps the lock. The remover and the heal pass (`worktree_heal.py:173`) call it | `worktree_removal.py:45-58` | observed |
+| W7 | A new stamp is written when a call makes a worktree or run (`teardown-gate.sh`), and by `rehost` at a start or resume of a session whose record exists; `reclaim` and `close` copy a stamp forward onto the entries they write back. A session keeps its stamp until then | `teardown-gate.sh:470-505`; `worktree_sweep.py:50-51, 94, 189-215` | observed |
+| W8 | Four record files here hold stamps in this Mac's zone (PKT) with no zone marker, three of them for sessions still running (pids 3993, 56644 and 98049), each equal to `ps` today | `.agents/worktrees/.records/*.jsonl`; `ps -o lstart=,comm= -p <pid>` | observed |
 | W9 | Nothing else in `.agents/` or `.claude/` stores a start text; three readers test liveness by pid alone (`browser-sync.py:114-130`, `provision.sh:336-350`, `playwright-session.py:81-98`) | `rg` over `.agents .claude` | observed |
-| W10 | Linux `lstart` is `/proc/stat` btime plus `/proc/<pid>/stat` field 22; a clock step moves btime. Field 22 and `/proc/sys/kernel/random/boot_id` do not depend on the wall clock. macOS `ps` has no `etimes` and no `/proc` | container commands; the U3 follow-up reproduction | observed; the macOS start under a clock step is inferred |
+| W10 | Linux `lstart` is `/proc/stat` btime plus `/proc/<pid>/stat` field 22; a clock step moves btime. Field 22 and `/proc/sys/kernel/random/boot_id` do not depend on the wall clock. macOS `ps` has no `etimes` and no `/proc` | container commands; the U3 follow-up reproduction | observed |
 | W11 | `test-session-end.sh` and `test-session-start.sh:745-765` build stamps from a real `ps` in the local zone; `test-workloop-inbox.sh:390-393` from `wr.ps_row`; no test runs `alive`, `over` or `ended_runs` under another zone or locale; `linux-check.sh` does not run `test-session-end.sh` | the cited tests; `linux-check.sh:28-32` | observed |
+| W12 | macOS keeps a process's start as the wall-clock time read once at fork (`forkproc`: `microtime_with_abstime(&child_proc->p_start, …)`; an exec keeps the parent's), and the process table copies that value unchanged (`fill_user64_externproc`: `exp->p_starttime.tv_sec = p->p_start.tv_sec`), so a later clock step does not move what `ps` prints. Pid 98049's stamp from 11 November still equals `ps` after the sleeps of 13 November | xnu `bsd/kern/kern_fork.c`, `bsd/kern/kern_sysctl.c` (apple-oss-distributions, main, read 2026-11-13); W8 | observed in source and in one stamp; no step probed |
+| W13 | Pre-U5 `alive` compares `row[1] == recorded[1]`, so it reads a stamp whose start is not that text as gone; a session started in a worktree or branch whose hooks predate U5 runs that code against the main checkout's shared `.records` (`main_checkout`), and five headless sessions here started inside lane worktrees | `worktree_records.py:129-131`; `.agents/claude/settings.json:470`; `session-start.sh:124-130`; `~/.claude-personal/projects/-Users-alice-Projects-colloid-swarm--agents-worktrees-*` | observed; reproduced by `plan-review-u5` |
+| W14 | `test-agent-deaths.sh:259-269` imports `START_SLACK_SECONDS` from `agent_sessions`; `linux-check.sh`'s self-check matches `ps gives '<text>'` in the reader's line; `test-workloop-inbox.sh:27-34`'s fake `ps` answers only `-o lstart= -p` | the cited lines | observed |
+| W15 | The heal pass removes an unrecorded worktree only with no live lock and no process inside, nothing uncommitted, untracked or hidden from status, and its branch in the default branch or on its upstream | `worktree_heal.py:168-185` | observed |
 
 Re-opened by the lead: H1, H2, H3, H5, H7, H14; P1-P11 run by the lead.
 W1-W11 read at `92403cf` by the read-only cell `research-u5` (run
-`agent-deaths-u5-plan`); the lead re-ran W2's zone half.
+`agent-deaths-u5-plan`); the lead re-ran W2's zone half. W2's locale half,
+W6-W8, W13 and W14 corrected or added by `plan-review-u5` at `9be9158`; W12
+and W15 read by the lead.
 
 **Constraints.** No hook wakes an idle lead (H13). SIGKILL and power loss fire
 nothing (P2); SIGTERM fires `SessionEnd` `other`. Hook work stays small: the
@@ -381,38 +387,70 @@ found:
 
 ### U5: a session read as gone has ended, whatever the clock and zone say
 
-Added by the operator after the U3 follow-up review (its finding 3). The
-worktree sweep compares start times as text in the local zone (W1), so after a
-time-zone change, or a Linux clock step (W10), the next session start reads
-every older live session as gone and removes its idle worktrees (W3, W4).
+Added by the operator after the U3 follow-up review (its finding 3), for both
+cases it names: a time-zone change and a clock step. The worktree sweep
+compares start times as text in the local zone (W1), so after either the next
+session start reads every older live session as gone and removes its idle
+worktrees (W3, W4).
 
-- **One start rule.** A new `.agents/hooks/lib/process_start.py` holds the
-  rule both readers use: `ps` read under `LC_ALL=C TZ=UTC` (W2), the start as
-  epoch seconds, and `START_SLACK_SECONDS` (5), within which two starts of one
-  pid are one process: a reused pid starts after its session ended, so its
-  start differs by at least that session's lifetime. `agent_sessions.same_start`
-  moves there; `worktree_records` loads it the way it loads its siblings.
-- **Stamps carry epoch seconds.** `ps_row` reads under that environment, and
-  `host()` writes `[pid, <epoch int>]`; `alive` holds when the pid's start lies
-  within the slack of the stamp. The number carries no zone or locale, and its
-  type tells it from a stamp written before U5.
-- **Stamps written before U5** (`[pid, "<local text>"]`, W8) are read as
-  before: exact text against `ps` in the caller's locale and zone. A switch
-  without this branch would read every live session as gone at the first
-  sweep (W8). The branch is `debt: worktree-records-local-stamps`, filed in
-  `debt-log.md` with its removal trigger: every repository carrying the
-  harness has synced past U5 and run a session start since, and
-  `.agents/worktrees/.records/` here holds no string stamp.
-- **The lock check** (`claude_lock_ended`, W6) compares the lock's UTC start
-  with the row's epoch under the same slack instead of 2 s; a lock that does
-  not parse still holds.
-- **Tests** (W11): rows in `test-session-end.sh` against real processes and
-  real `ps`, each red on the code before U5 where it changes behaviour; the
-  hand-built stamps in `test-session-start.sh` and `test-workloop-inbox.sh`
-  follow the new form; `linux-check.sh` runs `test-session-end.sh` by default.
+- **A zone-free start beside the old text.** Each entry that carries a stamp
+  keeps `host: [pid, "<lstart text>"]` exactly as today, so code from before
+  U5, still run by a session started in an older worktree or branch (W13),
+  reads it unchanged. A new sibling key `start` holds the process's start in
+  a form no zone, locale or clock step changes:
+  - On Linux, `{"boot": <boot_id>, "ticks": <field 22>}` from `/proc` (W10),
+    compared exactly.
+  - Elsewhere (macOS), `{"epoch": <seconds>}` from `LC_ALL=C TZ=UTC ps -o
+    lstart=` (W2), which a clock step does not move there (W12), compared
+    within `START_SLACK_SECONDS` (5): a reused pid starts after its session
+    ended, so its start differs by at least that session's lifetime.
+
+  Every writer and copier of a stamp writes and copies `start` with `host`:
+  `record`, `rehost`, `reclaim`'s host line, `close`'s write-back and
+  `resumed` (W7).
+- **One start rule.** A new `.agents/hooks/lib/process_start.py` reads a
+  pid's start in that form, compares two, and parses the C-locale UTC text,
+  which `same_start` and `START_SLACK_SECONDS` move into from
+  `agent_sessions.py`; `worktree_records` loads it the way it loads its
+  siblings, so its 305 lines do not grow. A read has three answers: the start,
+  no such process, or cannot tell (output it cannot parse). Cannot tell is
+  never gone: the sweep keeps the record, `reclaim` keeps the claim, and one
+  stderr line names the pid.
+- **A stamp with no `start`** (written before U5, or by pre-U5 code since,
+  W8, W13) is read as before: its text exactly against `ps` in the caller's
+  locale and zone. When that matches, the sweep appends a host entry with
+  `start` for it, so a live session leaves the text-only form at the first
+  sweep after U5 lands. The text branch and the `host` text are `debt:
+  worktree-records-local-stamps` in `debt-log.md`. They go in a repository once
+  its last sync names a base at or after U5's landing and no worktree or
+  branch checked out there runs hooks from before U5; for the carrier, `git
+  worktree list` shows none.
+- **The lock check** (`claude_lock_ended`, W6) parses Claude Code's UTC lock
+  text and compares it with the pid's C-locale UTC start under the same slack
+  instead of 2 s; a lock that does not parse still holds. Claude Code writes
+  that text from the wall clock, so on Linux a step over 5 s still reads a
+  live lock as ended; the record then still holds a recorded worktree, and the
+  heal pass removes an unrecorded one only when no process is inside it and
+  all its work is in the default branch (W15).
+- **Per start:** the sweep reads one start per record file (a `/proc` read on
+  Linux, one `ps` on macOS), and a text-only stamp costs one more `ps` the
+  first time; `finish`'s `resumed` reads stay as today. This checkout holds
+  four record files (W8).
+- **Tests** (W11, W14): rows in `test-session-end.sh` against real processes
+  and real `ps`, each red on the code before U5 where it changes behaviour,
+  among them a fake `ps` that prints an unparsable start. A locale row first
+  checks that the locale changed `ps` output and prints a `note:` and skips
+  when it did not, as in the container (W2). The hand-built stamps in
+  `test-session-start.sh` and `test-workloop-inbox.sh` gain `start`;
+  `test-agent-deaths.sh` imports the slack from `process_start`; the death
+  reader keeps its `ps` command line and its mismatch line's `ps` text, which
+  the fake `ps` and `linux-check.sh`'s self-check match. `linux-check.sh` runs
+  `test-session-end.sh` by default.
 - **Not changed:** the pid-only readers (W9) and `reclaim`'s pid-only test,
-  which compare no start; a Linux clock step larger than the slack, which
-  stays a breadcrumb for both readers (W10).
+  which compare no start. The death reader compares Claude Code's
+  `procStart` text, which on Linux a step over 5 s moves: older live sessions
+  then read ended to a session started after the step, which shows false
+  `AGENT DIED` lines and removes nothing (Acceptance 4), a breadcrumb.
 
 ### Test seams
 
@@ -430,9 +468,13 @@ every older live session as gone and removes its idle worktrees (W3, W4).
   once (the U3 review record). `.agents/linux-check.sh` runs it.
 - **The sweep's start rule (U5)** against real processes under several `TZ`
   and `LC_ALL` values, in `test-session-end.sh` and on the Mac (Acceptance
-  18-21). They catch a zone or locale change and the switch from the old
-  stamps; they miss a real clock step, which only a container with
-  `SYS_TIME` shows, and a time-zone change made in System Settings while a
+  18-22, 24). They catch a zone or locale change, the switch from the old
+  stamps and old code over new ones; the container has only C locales, so
+  its locale row skips (W2). A Linux clock step is shown once by QA in a
+  `SYS_TIME` container (Acceptance 23), which `linux-check.sh` does not run,
+  since the step moves the clock of every container on the host. Not run: a
+  clock step on the Mac, where the start's immunity rests on the kernel
+  source (W12), and a time-zone change made in System Settings while a
   session runs.
 - **The operator's lid test.** It catches a real sleep end to end.
 
@@ -525,14 +567,27 @@ every older live session as gone and removes its idle worktrees (W3, W4).
     `TZ=America/New_York`, and again under `TZ=UTC LC_ALL=de_DE.UTF-8`: its
     record file and worktree stay. The same sweep on the code before U5
     removes the worktree.
-19. A stamp 3 s from the process's start reads alive and one 6 s off reads
-    gone; a Claude Code lock start 3 s off holds and one 6 s off has ended.
-20. A record stamped before U5 (`[pid, "<local text>"]`) of a live process
-    reads alive, and of a finished pid gone. After U5 lands, the first
-    session start here prints no end line for the sessions still running and
-    leaves their record files in `.agents/worktrees/.records/`.
-21. A worktree made after U5 is stamped `[pid, <integer>]`.
-22. `linux-check.sh` runs `test-session-end.sh` by default and passes in
+19. On macOS a `start` 3 s from the process's start reads alive and one 6 s
+    off reads gone; on Linux a `start` whose ticks or boot id differ reads
+    gone. A Claude Code lock start 3 s off holds and one 6 s off has ended.
+20. A text-only stamp (`[pid, "<local text>"]`) of a live process reads
+    alive and gains a host entry with `start`; of a finished pid it reads
+    gone. After U5 lands, the first session start here ends none of the
+    sessions still running (pids 3993, 56644, 98049 at planning), leaves their
+    record files in `.agents/worktrees/.records/`, and each then carries
+    `start`.
+21. A worktree made after U5 is stamped with `host` text as before and a
+    `start` key in its platform's form.
+22. In a scratch clone, a sweep run by the hooks from before U5 (a `git
+    worktree add` at `9be9158`, its session-start sweep run by hand) over a
+    record U5 wrote for a live process keeps the record and the worktree.
+23. In a `--cap-add SYS_TIME` container from the Linux-check image, a record
+    U5 wrote for a live process survives a sweep run after a +10 s clock
+    step, the step undone in the same `docker exec`; the same sweep on the
+    code before U5 ends the record.
+24. A `ps` whose start cannot be parsed leaves the record, prints one stderr
+    line naming the pid, and reads no session gone.
+25. `linux-check.sh` runs `test-session-end.sh` by default and passes in
     `ubuntu:24.04`.
 
 ## Lenses
@@ -571,25 +626,30 @@ every older live session as gone and removes its idle worktrees (W3, W4).
 For U5:
 
 - **Higher-level abstraction:** Claude Code's registry already holds each
-  session's pid and UTC start, but Codex and Kimi sessions write none, so the
-  sweep keeps its own stamp and takes the registry's zone-free reading.
+  session's pid and UTC start, but Codex and Kimi sessions write none, and
+  its text moves with a Linux clock step; the sweep keeps its own stamp and
+  takes each platform's step-free start (W10, W12).
 - **Irreducible constraints:** a pid is reused, so a start must be compared;
   the wall clock is local and can step, so the start is read without a zone
-  and compared with slack; records outlive a code change, so an old stamp
-  reads as before.
+  and, on Linux, without the wall clock; records and older checkouts outlive
+  a code change, so an old stamp reads as before and old code reads a new
+  record as before.
 - **Carve at the joints:** reading a process's start and deciding whether two
   starts are one process is one rule, `process_start.py`, used by the death
   reader, the sweep and the lock check.
 - **Principal architect:** one start reader and one comparison replace three
   (exact local text, exact UTC text, a 2 s lock gap).
-- **Implicit state machines:** a stamp is written as text (before U5) or as
-  epoch seconds, and keeps its form until its session writes a new one; a
-  session is live until its pid is gone or its start differs past the slack,
-  and only a resume's new stamp makes it live again.
-- **Concession drift:** a Linux clock step over 5 s still reads live sessions
-  as gone. Linux's boot-relative start (W10) would remove that; it waits as a
-  breadcrumb because the server does not sleep, rarely steps after boot, and
-  the remover saves unsaved work first (W4).
+- **Implicit state machines:** code version crossed with stamp form. Pre-U5
+  code reads `host` text in every record, as today. U5 code reads `start`
+  where it is, and where it is not reads the text and upgrades the entry. A
+  session is live until its pid is gone or its start differs; cannot tell
+  keeps it; only a resume's new stamp makes an ended session live again.
+- **Concession drift:** what stays open is named with its consequence. A
+  Linux step over 5 s makes the death reader show false `AGENT DIED` lines,
+  removing nothing, and the lock check read a live Claude Code lock as ended,
+  which the heal pass acts on only for a worktree with no process inside and
+  all its work merged (W15). A session that keeps a text-only stamp until a
+  zone change, with no sweep between, still reads gone once.
 
 ## Decisions for the operator
 
@@ -696,3 +756,31 @@ before adopting them (P6-P9, P11).
 The `P1` fixes land in U1 and U2, which round 2 covered, and no `P0` was
 found, so no third round runs (`hostile-review.md:110-113`). The reviewer's
 hand-off to QA stands: Acceptance 1 to 16 are unrun until U1 to U3 are built.
+
+**U5, round 1** at `9be9158` (cell `plan-review-u5`, opus, run
+`agent-deaths-u5-plan`): 2 `P1`, 8 `P2`, all adopted. Both `P1`s were
+reproduced, so no disprove pass ran.
+
+1. `P1`, pre-U5 code reads a number stamp as gone (W13). Adopted: `host` keeps
+   its text and the zone-free start goes in a sibling `start` key, which every
+   writer and copier carries; Acceptance 22.
+2. `P1`, the plan deferred a Linux clock step, which the operator's ruling
+   covers. Adopted: on Linux `start` is the boot id and boot-relative ticks,
+   compared exactly; what stays open is named with its consequence;
+   Acceptance 23.
+3. `P2`, a start that does not parse read as gone. Adopted: cannot tell keeps
+   the record; Acceptance 24.
+4. `P2`, the container has no other locale. Adopted: the locale row skips
+   with a note there (W2).
+5. `P2`, text stamps of live sessions stay fragile until rewritten. Adopted:
+   the sweep upgrades a matching text stamp; Acceptance 20.
+6. `P2`, W2, W6, W7 and W8 inaccurate. Adopted: corrected.
+7. `P2`, the debt trigger could never hold. Adopted: a per-repository trigger.
+8. `P2`, callers of the moved rule unnamed. Adopted: W14 and the Tests line.
+9. `P2`, macOS start under a step inferred. Adopted: W12 from the kernel
+   source; the step itself stays unprobed (Test seams).
+10. `P2`, `worktree_records.py` over 300 lines and the per-start cost unstated.
+    Adopted: the rule lives in `process_start.py`; the cost line.
+
+AMBIGUITY settled as (a): no clock step on either machine may remove a live
+session's worktrees. No `P0`, so no second round runs.
