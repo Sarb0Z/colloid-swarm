@@ -14,7 +14,6 @@ inode, so a path that differs from git's in case or by a link still matches.
 
 from __future__ import annotations
 
-import calendar
 import errno
 import importlib.util
 import json
@@ -34,7 +33,6 @@ TRASH = "colloid-trash"
 SAVE_CAP = 200 * 1024 * 1024
 CLAUDE_LOCK = re.compile(r"^claude (?:session|agent) \S+ \(pid (\d+)(?: start (.+))?\)$")
 GITLINK = re.compile(r"^160000 (?:commit )?([0-9a-f]+)(?: \d+)?\t(.*)$")
-STAMP = "%a %b %d %H:%M:%S %Y"
 # Folders a package manager reinstalls from the repository's lockfile: the only
 # folders whose ignored contents rebuild, and the only ones a walk skips. Build
 # output does not count: it can hold secrets, databases and repositories.
@@ -44,18 +42,17 @@ IN_PROGRESS = ("BISECT_LOG", "rebase-merge", "rebase-apply", "MERGE_HEAD", "CHER
 
 def claude_lock_ended(reason: str, ending_pid: int | None) -> bool:
     """True when `reason` is Claude Code's lock (`claude session|agent <id> (pid N[ start S])`,
-    S in UTC) and that session is over: its pid is the ending one, gone, or started at another time."""
+    S its start as C-locale UTC `ps` text) and that session is over: its pid is the ending one,
+    gone, or started more than START_SLACK_SECONDS from S. A start that does not parse holds."""
     match = CLAUDE_LOCK.match(reason or "")
-    row = wr.ps_row(int(match.group(1))) if match else None
-    if not match or int(match.group(1)) == ending_pid or row is None:
-        return bool(match)
-    if not match.group(2):
+    if not match:
         return False
-    try:
-        locked, started = calendar.timegm(time.strptime(match.group(2), STAMP)), time.mktime(time.strptime(row[1], STAMP))
-    except ValueError:
-        return False
-    return abs(locked - started) > 2
+    pid = int(match.group(1))
+    started = wr.ps.utc_lstart(pid) if pid != ending_pid else None
+    if started is None:
+        return True
+    locked, seen = wr.ps.epoch_of(match.group(2)), wr.ps.epoch_of(started)
+    return locked is not None and seen is not None and abs(locked - seen) > wr.ps.START_SLACK_SECONDS
 
 
 class Remover:

@@ -765,4 +765,21 @@ u5_sweep
 [[ "$(wc -l < "$u5records/text-live.jsonl")" -eq 2 ]] || fail "a stamp written with its start must not be written again: $(cat "$u5records/text-live.jsonl")"
 ok "a text-only stamp reads live for its running process and is written again with its start, once; for a finished pid it reads gone"
 
+# Claude Code's lock names its session's start as C-locale UTC text: within the
+# 5 s slack of the pid's start it holds, beyond it the session has ended, and a
+# start that does not parse holds.
+python3 - "$lib" "$live" "$(LC_ALL=C TZ=UTC ps -o lstart= -p "$live" | awk '{$1=$1};1')" <<'PY' || fail "Claude Code's lock must hold within 5 s of its pid's start and end beyond it"
+import calendar, importlib.util, sys, time
+spec = importlib.util.spec_from_file_location("worktree_removal", f"{sys.argv[1]}/worktree_removal.py")
+rm = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rm)
+pid, start = sys.argv[2], calendar.timegm(time.strptime(sys.argv[3], "%a %b %d %H:%M:%S %Y"))
+ended = lambda text: rm.claude_lock_ended(f"claude session s1 (pid {pid} start {text})", None)
+got = {off: ended(time.strftime("%a %b %d %H:%M:%S %Y", time.gmtime(start + off))) for off in (-3, 3, -6, 6)}
+got["not a date"] = ended("not a date")
+want = {-3: False, 3: False, -6: True, 6: True, "not a date": False}
+sys.exit(f"ended by the lock's start: {got}; want {want}" if got != want else 0)
+PY
+ok "Claude Code's lock holds while its start lies within 5 s of its pid's, ends beyond that, and holds when its start does not parse"
+
 printf 'PASS: session-end worktree teardown\n'
