@@ -1829,6 +1829,39 @@ grep -q 'UNSTAMPED CELL — act/unstamped: out 40m and carries no stamp' <<<"$wa
 ! grep -q 'act/busy' <<<"$watch_out" || fail "watch named a cell stamped a minute ago: $watch_out"
 ok "watch runs on an ordinary run, judges silence by the latest stamp, and names an unstamped cell apart with no --failed remedy"
 
+# A cell whose agent waits on a permission prompt reads waiting on the operator, not silent.
+# The PermissionRequest hook's record sits beside the state file; the agent's session is
+# registered live under a scratch home, and its transcript ends on the call that asked.
+wait_home="$scratch/wait-home"; wait_repo="$scratch/wait-repo"
+wait_state="$wait_repo/.agents/.workloop-state.json"
+mkdir -p "$wait_home/.claude/sessions" "$wait_home/.claude/projects/-w/sw/subagents" "$wait_repo/.agents"
+wtool=(python3 "$repo/.agents/workloop.py" --state "$wait_state")
+"${wtool[@]}" init asks --objective 'two cells out' --acceptance 'each answers' --repo "$work" >/dev/null
+for cell_name in asking hushed; do "${wtool[@]}" add-cell asks "$cell_name" --role research --model haiku >/dev/null; done
+python3 - "$wait_state" "$wait_home" "$(LC_ALL=C TZ=UTC ps -o lstart= -p $$ | awk '{$1=$1};1')" $$ <<'EOF'
+import json, sys, time
+state, home, start, pid = sys.argv[1:]
+s = json.load(open(state)); cells = s["runs"]["asks"]["cells"]
+def at(minutes): return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - minutes * 60))
+for cell in cells.values(): cell.update(out_since=at(40), activity_at=at(25), activity="Bash touch prompted.txt")
+cells["asking"]["agent_id"] = "awaits"
+json.dump(s, open(state, "w"))
+json.dump({"pid": int(pid), "sessionId": "sw", "procStart": start, "startedAt": int(time.time() * 1000)},
+          open(f"{home}/.claude/sessions/{pid}.json", "w"))
+stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 60)) + ".000Z"
+call = {"type": "assistant", "timestamp": stamp, "cwd": "/", "message": {"role": "assistant", "stop_reason": "tool_use",
+        "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "touch prompted.txt"}}]}}
+open(f"{home}/.claude/projects/-w/sw/subagents/agent-awaits.jsonl", "w").write(json.dumps(call) + "\n")
+EOF
+printf '{"project_dir":"%s","agent_id":"awaits","agent_type":"general-purpose","session_id":"sw","transcript_path":"%s","tool_name":"Bash","tool_input":{"command":"touch prompted.txt"}}' \
+  "$wait_repo" "$wait_home/.claude/projects/-w/sw.jsonl" | HOME="$wait_home" python3 "$repo/.agents/hooks/lib/agent_waits.py" record "$wait_repo"
+watch_out="$(HOME="$wait_home" CLAUDE_CONFIG_DIR= "${wtool[@]}" watch asks --stale-seconds 900)"
+grep -q "WAITING ON THE OPERATOR — asks/asking: its cell's agent waits on a permission prompt for .*, Bash: touch prompted.txt" <<<"$watch_out" \
+  || fail "watch did not name the cell waiting on a permission prompt: $watch_out"
+! grep -q 'SILENT CELL — asks/asking' <<<"$watch_out" || fail "watch called a cell waiting on the operator silent: $watch_out"
+grep -q 'SILENT CELL — asks/hushed' <<<"$watch_out" || fail "watch stopped naming the silent cell beside the waiting one: $watch_out"
+ok "watch names a cell whose agent waits on a permission prompt as waiting on the operator, with its tool and command, not silent"
+
 # returned and teardown rewrite the workloop readout; a cell sent out again starts with no stamp
 readout_note() { python3 "$repo/.agents/hooks/lib/readout.py" show --repo "$work"; }
 "${tool[@]}" returned act busy --result reply >/dev/null

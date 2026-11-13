@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import sys
+import time
 
 from workloop_cells import cells_of
 from workloop_paths import canonical_reference, reference_roots
@@ -23,6 +25,10 @@ from workloop_state import (
     silence,
     state_path,
 )
+
+# Resolved from the hooks' library, which workloop_state puts on the path.
+import agent_effects
+import agent_waits as aw
 
 
 def cmd_send(args: argparse.Namespace) -> None:
@@ -95,11 +101,33 @@ def quiet_agents(run: dict, threshold: int) -> list[tuple[str, str, dict, float,
     return found
 
 
+def waiting_agents(run: dict, waits: dict) -> list[tuple[str, str, dict]]:
+    """Active lanes and cells out whose agent has a permission prompt open: name, kind and the wait."""
+    found = []
+    for kind, agents, live, key in (("lane", run["lanes"], "active", "claimed_by"), ("cell", cells_of(run), "out", "agent_id")):
+        for name, agent in sorted(agents.items()):
+            if agent["state"] == live and agent.get(key) in waits:
+                found.append((name, kind, waits[agent[key]]))
+    return found
+
+
 def cmd_watch(args: argparse.Namespace) -> None:
-    with ReadStore(state_path(args.state)) as data:
+    path = state_path(args.state)
+    # An agent stuck on a permission prompt is silent because it waits on the operator, so it is
+    # named as waiting whatever its silence. The waits are read beside the state file.
+    waits, _, problems = agent_effects.waiting(path.parent)
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    with ReadStore(path) as data:
         run = run_of(data, args.run)
-        quiet_now = quiet_agents(run, args.stale_seconds)
+        waiting = waiting_agents(run, waits)
+        held = {name for name, _, _ in waiting}
+        quiet_now = [found for found in quiet_agents(run, args.stale_seconds) if found[0] not in held]
         print(f"watch scan: lanes={len(run['lanes'])} cells={len(cells_of(run))} messages={len(run['messages'])} cost=O(lanes+cells+messages)")
+        for name, kind, wait in waiting:
+            print(f"WAITING ON THE OPERATOR — {args.run}/{name}: its {kind}'s agent waits on a permission prompt "
+                  f"for {age_text(time.time() - wait['at'])}, {wait['tool']}: {aw.clean(wait['subject'])}; "
+                  "answer it in the session that dispatched it.")
         for name, kind, agent, out, quiet in quiet_now:
             if quiet is None:
                 print(f"UNSTAMPED {kind.upper()} — {args.run}/{name}: out {age_text(out)} and carries no stamp: it was dispatched without the printed prompt, or is stuck before its first tool call; look at it.")
@@ -109,7 +137,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 print(f"RESTART REQUEST — {args.run}/{name}: resume or reconcile {agent.get('claimed_by', 'unclaimed')} silent {age_text(quiet)}{last}; inspect inbox and workloop status. Host delivery is required.")
             else:
                 print(f"SILENT CELL — {args.run}/{name}: out {age_text(out)}, silent {age_text(quiet)}{last}; look at it, or record it with returned {args.run} {name} --failed '<why>'.")
-        if not quiet_now: print("no silent agents")
+        if not quiet_now and not waiting: print("no silent agents")
 
 
 def cmd_digest(args: argparse.Namespace) -> None:
