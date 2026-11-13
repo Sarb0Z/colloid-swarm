@@ -7,7 +7,7 @@ start and lead prompts, with `workloop.py dismiss`. One reviewer (opus) read
 the scope whole and its seams, under the verbatim contract; Critical stakes,
 since the lane changes the session-start and inbox hooks.
 
-Covers: b7f8ca1..59886a0
+Covers: b7f8ca1..34c8bba
 
 ## Findings
 
@@ -97,6 +97,7 @@ one death.
 | 8 | Adopted: one shared control-character pattern and one `mtime_ns`; the Git and temporary-file effects move to the entry point and reach the logic as parameters |
 | 9 | Adopted in the plan: about 100 runs a day here (95 lead prompts on 2026-11-11 at most in 7 days; 64 sessions in 7 days), about 4 s a day warm |
 | Q1, Q2 | Adopted into the correction cycle: `show` reads the runs as the hooks do, and with no session prints the self-check line |
+| Q3 | Adopted: the final turn's start of a background command is read from the agent's own `tool_use` (`run_in_background: true`), which both session kinds write; a fixture row with a headless-shaped transcript (no `toolUseResult`); the reader over QA round 2's scratch store lists B and C as "session ended" |
 | QA | Rerun on the corrected tip: line 1 with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, lines 3, 15, 4 and 8 live, finding 6's `/clear` and `--resume` starts, the suite |
 | Sizes | Accepted: the test files follow one file per hook, as before the lane; the writer makes module-internal helpers private while in the files; the long signatures stay, each parameter being an effect or a read the caller owns |
 
@@ -131,3 +132,35 @@ and Q2, the showcase and public tree regenerated):
 | New rows | `test-agent-deaths.sh`: `git-unknown` (five scenes), `untrusted` (with `show` naming a held lane), `unfinished`, a death after a resume in the dismiss block | 21 ok; each new row fails with its fix removed |
 | Hook tests | `test-workloop-inbox.sh`, `test-session-start.sh`, `test-workloop.sh`, `test-readout.sh` | pass (25 s, 61 s, 241 s) |
 | Copies | `port-public.py check`, `demo/check-inventory.py` | match |
+
+## QA round 2
+
+A second independent QA cell (sonnet) at `34c8bba`, real sessions (haiku)
+in a fresh scratch clone with a local remote, the Mac awake:
+
+| Line | Run | Result |
+|---|---|---|
+| 1 | an interactive session behind the proxy dispatches a writer; the cut at 06:11:48Z; a second session starts with the first still live | pass: the parent showed "Connection dropped (ECONNRESET)"; one line, `AGENT DIED: "QA-A writer" (general-purpose, a689a0ed477f2fadb) connection_failed at … session baa4f670-… (live); 1 of its 1 edited files uncommitted in …; resume session … (its open terminal) and message agent a689a0ed477f2fadb; … dismiss: …`; the four writers then under 10 minutes quiet not shown |
+| 3 | a headless session (background-wait ceiling raised) SIGKILLed at 06:16:55Z; a start at 06:31Z; `claude --resume <id> -p` with a prompt that does not message the agent; another start | pass: "session ended … (ended)" with `claude --resume <id>` and the dismiss command, still shown after the resume |
+| 15 | interactive writers ended by `/exit` ("Exit and stop tasks"), Ctrl-C twice, `tmux kill-pane`; a start 13 minutes later | pass: all three shown as session ended, none as stopped |
+| Finding 6 | a fresh interactive start, `/clear`, `claude --resume <id> -p` | pass: no "cannot tell live sessions" line in any |
+| 4 live | `show <main checkout>`; the same with the lead's session id | pass: the self-check line "this read runs in no Claude Code session"; then `AGENT DIED: "Implement bundle-only server shipping" (implementer, a869dfbeebb5c3eae) session ended … it holds lane mcp-bundle-ship/ship …`; the cache it wrote in the main checkout deleted |
+| 8 live | `dismiss nosuchagent`; `dismiss <F's id>`; the next start | pass: exit 1 "no agent nosuchagent touched this checkout and died…"; exit 0; F's line gone, the others shown |
+| Suite | the four hook tests and `port-public.py check` from the lane | pass |
+
+Not run: `/exit`'s other choice, "Move to background and exit", which is
+`/bg` (P16) and goes to the operator's lid check.
+
+The QA cell reported that two headless runs whose background-wait ceiling was
+0 ended their writers, B and C, within 45 s and showed no line, and read that
+as a clean stop. The lead read their records. Each wrote its file with
+Write, started `python3 -c "import time; time.sleep(900)"` with
+`run_in_background`, and ended its turn saying the sleep was still running.
+The parent got `completed`, "is waiting on its own background work", and the
+session's exit killed the sleep. The lane's reader run over the scratch
+store at `34c8bba` lists A, D, E and G and leaves out B and C, with their
+files uncommitted.
+
+| # | Sev | Finding | Evidence |
+|---|---|---|---|
+| Q3 | P1 | A headless session (`entrypoint: sdk-cli`) writes no `toolUseResult` on its subagents' records (B: 2 tool results, none with one; the interactive A and E: 2 of 2), so `_waiting` (`agent_records.py:172-187`) never finds a `backgroundTaskId`; an agent that ended its turn waiting on its own background command reads as a final answer, rule 2 calls it `completed`, and its death with uncommitted work is never shown | live: `agent_deaths.py show <scratch repo> <session>` at `34c8bba` |
