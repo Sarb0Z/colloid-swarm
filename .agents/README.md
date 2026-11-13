@@ -474,17 +474,23 @@ lines at each prompt; session start shows them whether it is on or off.
 
 A lane's writer that sits on edits for over 30 minutes hears, at its next tool
 batch, `COMMIT: <n> of your edited files have been uncommitted since <time>
-(<m> min). Commit each piece whose acceptance passes, staging by path.` It
+(<m> min). Commit each piece whose acceptance passes, staging by path, unless
+this repository says commits wait for the operator.` It
 repeats at most every 30 minutes and stops once those files are committed. A
 cell with no lane and the lead never hear it. `workloop-inbox.sh` runs
 `hooks/lib/commit_nudge.py` for a subagent's tool batch: it reads the agent's
 own transcript for the files its Edit, Write, MultiEdit and NotebookEdit calls
 named, dated by their records, and asks `git status --porcelain` in the lane's
-tree which are still uncommitted. Its state is
-`.agents/.readout/.commit-nudge-<agent>`. The toggle is
-`hooks.commit_nudge.enabled`, on by default. A repository whose contract
-makes commits wait for the operator turns it off in its `policy.json`; the
-`AGENT DIED:` line still names an agent's uncommitted files.
+tree which are still uncommitted, through the same read-only Git runner the
+death reader uses (`--no-optional-locks`, so it never blocks another session's
+`git add`). It sees edits made with the editor tools only: a change written
+from Bash is never counted. Its state is
+`.agents/.readout/.commit-nudge-<agent>`, under one shared lock file. The
+toggle is `hooks.commit_nudge.enabled`, on by default, read by `commit_nudge.py`
+itself; a `policy.json` or `config.json` that does not parse leaves the nudge
+silent and says why on stderr. A repository whose contract makes commits wait
+for the operator turns it off in its `policy.json`; the `AGENT DIED:` line
+still names an agent's uncommitted files.
 
 The death reader (`hooks/lib/agent_deaths.py`) finds each background agent
 that died having touched this checkout, from Claude Code's own records and not

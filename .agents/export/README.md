@@ -178,7 +178,9 @@ will keep it.
   not load at the moment it matters. Do not restate what a README or a runbook
   already owns; point at it.
 - **Policy** (`.agents/policy.json`, tracked): a hook the repository runs
-  without — the browser UI gate in a repository with no browser surface — and
+  without — the browser UI gate in a repository with no browser surface, and
+  `hooks.commit_nudge.enabled: false` in a repository whose contract makes
+  commits wait for the operator (the kit ships it on) — and
   under `hooks.guard_publish.outward_commands`, every script that writes to a
   hosted system: the deploy script, anything that sets hosted environment or
   secrets, applies a schema to a remote database, or writes hosted rows or
