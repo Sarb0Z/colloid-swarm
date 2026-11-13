@@ -70,9 +70,29 @@ def unpark(main: Path) -> None:
 
 
 def over(entries: list[dict], path: Path) -> bool:
-    """The session's process is gone (a file with no host: untouched for 24 hours)."""
+    """The session's process is gone (a file with no host: untouched for 24 hours). A live stamp
+    with no `start` is written again with it (`upgrade`)."""
     mark = wr.last_host(entries)
-    return wr.stamp_state(mark) == wr.ps.GONE if mark else time.time() - path.stat().st_mtime > IDLE_SECONDS
+    if not mark:
+        return time.time() - path.stat().st_mtime > IDLE_SECONDS
+    verdict = wr.stamp_state(mark)
+    if verdict == wr.ps.LIVE and "start" not in mark:
+        upgrade(path, mark)
+    return verdict == wr.ps.GONE
+
+
+def upgrade(path: Path, mark: dict) -> None:
+    """Append a live text-only stamp again with its `start`, so its session reads the same in any
+    zone or locale from now on (debt: worktree-records-local-stamps). The entry has no `at`: no
+    process began, so it dates no resume (`finish`). Nothing is written when the record went or
+    gained another stamp since the sweep read it."""
+    start = wr.ps.read(mark["host"][0])
+    try:
+        current = wr.last_host(wr.load(path))
+    except FileNotFoundError:
+        return  # the session's own end claimed the record meanwhile
+    if isinstance(start, dict) and current == mark:
+        wr.append(path.parent, path.stem, [{"type": "host", "host": mark["host"], "start": start}])
 
 
 def stamped(entry: dict, mark: dict | None) -> dict:

@@ -744,4 +744,25 @@ else
 fi
 ok "a start that cannot be told keeps its record, and on macOS a dead sweep's claim beside it, and names its pid on stderr once"
 
+# A stamp with no start, as hooks from before it write one: read as before, its
+# text exactly against ps here, and written again with its start once it reads live.
+sleep 300 >/dev/null 2>&1 & sleepers+=($!); old=$!
+sleep 300 >/dev/null 2>&1 & finished=$!; finished_text="$(text_of "$finished")"
+kill "$finished"; wait "$finished" 2>/dev/null || true
+u5_wt text-live; u5_wt text-gone
+hand text-live text-live "$old" "$(text_of "$old")"
+hand text-gone text-gone "$finished" "$finished_text"
+u5_sweep
+[[ -d "$scratch/u5-text-live" && ! -e "$scratch/u5-text-gone" && ! -e "$u5records/text-gone.jsonl" ]] \
+  || fail "a text-only stamp must read live for its running process and gone for a finished one: $u5_out $u5_err"
+python3 - "$u5records/text-live.jsonl" "$old" "$(text_of "$old")" "$(start_of "$old")" <<'PY' \
+  || fail "a live text-only stamp must be written again with its start, dating no resume: $(cat "$u5records/text-live.jsonl")"
+import json, sys
+lines = [json.loads(line) for line in open(sys.argv[1]).read().splitlines()]
+sys.exit(not (len(lines) == 2 and lines[-1] == {"type": "host", "host": [int(sys.argv[2]), sys.argv[3]], "start": json.loads(sys.argv[4])}))
+PY
+u5_sweep
+[[ "$(wc -l < "$u5records/text-live.jsonl")" -eq 2 ]] || fail "a stamp written with its start must not be written again: $(cat "$u5records/text-live.jsonl")"
+ok "a text-only stamp reads live for its running process and is written again with its start, once; for a finished pid it reads gone"
+
 printf 'PASS: session-end worktree teardown\n'
