@@ -752,7 +752,13 @@ else
   sleep 300 >/dev/null 2>&1 & sleepers+=($!); garbled=$!
   u5_wt garbled
   hand garbled garbled "$garbled" "$(text_of "$garbled")" "$(start_of "$garbled")"
-  # A claim a killed sweep left beside that stamp stays for a sweep that can tell.
+  # A claim a killed sweep left beside that stamp stays for a sweep that can tell,
+  # and the worktree it names counts as recorded: idle a day, clean and merged, the
+  # heal would otherwise remove it.
+  u5_wt claimed
+  GIT_COMMITTER_DATE=2026-01-01T00:00:00 GIT_AUTHOR_DATE=2026-01-01T00:00:00 git -C "$scratch/u5-claimed" commit -q --allow-empty -m claimed
+  git -C "$U" merge -q --ff-only u5-claimed
+  find "$scratch/u5-claimed" "$U/.git/worktrees/u5-claimed" -exec touch -h -t 202601010000 {} +
   printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "host": [%s, "x"]}\n' "$scratch/u5-claimed" "$gone" \
     > "$u5records/.garbled.jsonl.sweep-$gone"
   mkdir -p "$scratch/u5-ps"
@@ -764,6 +770,7 @@ else
   [[ "$(grep -c "pid $garbled " <<<"$u5_err")" == 1 && "$u5_err" == *"ps gives 'not a date'"* ]] || fail "one stderr line must name the pid ps gave no start for: $u5_err"
   [[ -f "$u5records/.garbled.jsonl.sweep-$gone" ]] && ! grep -q u5-claimed "$u5records/garbled.jsonl" \
     || fail "a dead sweep's claim must stay while the stamp beside it cannot be told: $(ls -A "$u5records")"
+  [[ -d "$scratch/u5-claimed" && "$u5_out" != *u5-claimed* ]] || fail "a worktree named only in a kept claim must count as recorded, not be judged by the heal: $u5_out"
 fi
 ok "a start that cannot be told keeps its record, and on macOS a dead sweep's claim beside it, and names its pid on stderr once"
 

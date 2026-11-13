@@ -248,8 +248,13 @@ def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget:
                 for line in close(path, "", workloop):
                     emit(line)
     recorded, leads = set(), set()
-    for path in folder.glob("*.jsonl") if folder.is_dir() else []:
-        for entry in wr.load(path):
+    # A claim still standing (its sweep runs, or its record's stamp cannot be told) records too.
+    for path in [*folder.glob("*.jsonl"), *folder.glob(".*.jsonl.*-*")] if folder.is_dir() else []:
+        try:
+            entries = wr.load(path)
+        except FileNotFoundError:
+            continue  # a session end claimed it, or a sweep gave it back, since the listing
+        for entry in entries:
             recorded |= {str(Path(entry["path"]).resolve())} if entry.get("type") == "worktree" else set()
             leads.add(entry.get("run"))
     for line in rn.unowned_runs(main, leads):
