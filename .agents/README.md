@@ -379,7 +379,11 @@ lockfile), it holds what a save cannot carry (skip-worktree or
 assume-unchanged files, a bisect, rebase, merge or cherry-pick in progress),
 or its unsaved work cannot be committed. Paths are compared by device and
 inode, so a path git records in another case still matches.
-`session-start.sh` sweeps the records of sessions whose process is gone,
+`session-start.sh` sweeps the records of sessions whose process is gone: its
+pid runs no process, or one with another start (on Linux the boot id and
+`/proc` ticks, elsewhere the start within 5 s), which no time zone, locale or
+clock step changes; a start that cannot be read keeps the record and prints
+one stderr line naming the pid. It
 names each lane folder under `.agents/worktrees/` that belongs to no run,
 closes a run no session leads only when it has lanes, its repository exists
 and git lists none of its worktrees (dropping the entry, with no prune), names
@@ -389,7 +393,8 @@ background, behind a manifest the sweep uses to move them back after a kill:
 removing a lane with 45,000 files takes 2.8 s in place and 11 ms this way.
 `hooks.teardown_gate.enabled` switches all of it off;
 `hooks/lib/worktree_records.py`, `worktree_removal.py`, `worktree_sweep.py`,
-`worktree_runs.py` and `worktree_heal.py` hold the rules.
+`worktree_runs.py` and `worktree_heal.py` hold the rules, and
+`process_start.py` when a process started.
 
 The same start heals what older sessions left (`worktree_heal.py`). It removes
 an idle worktree (24 hours) that no record or run in any checkout names,
