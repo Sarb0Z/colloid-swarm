@@ -371,7 +371,9 @@ found:
 - **Headless and tmux-driven real sessions** (Acceptance 1, 3, 9, 15). They
   catch the real records and order; they miss a real sleep.
 - **The Ubuntu container.** It catches GNU, procps and bash 5 differences; it
-  misses a real Linux Claude Code session (Decision 4 (a)).
+  misses a real Linux Claude Code session (Decision 4 (a)), and a registry
+  entry aging across a clock step: its self-check takes both `procStart`
+  values from one `ps` rule seconds apart. `.agents/linux-check.sh` runs it.
 - **The operator's lid test.** It catches a real sleep end to end.
 
 ## Acceptance
