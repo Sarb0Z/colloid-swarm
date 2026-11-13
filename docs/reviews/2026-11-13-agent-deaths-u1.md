@@ -7,7 +7,7 @@ start and lead prompts, with `workloop.py dismiss`. One reviewer (opus) read
 the scope whole and its seams, under the verbatim contract; Critical stakes,
 since the lane changes the session-start and inbox hooks.
 
-Covers: b7f8ca1..34c8bba
+Covers: b7f8ca1..984b48b
 
 ## Findings
 
@@ -164,3 +164,34 @@ files uncommitted.
 | # | Sev | Finding | Evidence |
 |---|---|---|---|
 | Q3 | P1 | A headless session (`entrypoint: sdk-cli`) writes no `toolUseResult` on its subagents' records (B: 2 tool results, none with one; the interactive A and E: 2 of 2), so `_waiting` (`agent_records.py:172-187`) never finds a `backgroundTaskId`; an agent that ended its turn waiting on its own background command reads as a final answer, rule 2 calls it `completed`, and its death with uncommitted work is never shown | live: `agent_deaths.py show <scratch repo> <session>` at `34c8bba` |
+
+The writer landed `984b48b`. The final turn's background start is a
+`tool_use` whose input has `run_in_background: true`, prefiltered on
+`"run_in_background":true`. Headless parents do write `toolUseResult` on
+their own `Agent` results (31 `completed` and 46 `async_launched` across 50
+`sdk-cli` parent transcripts here), so the foreground verdict reads as
+before. The fix alone left B and C out of the scratch store, whose cache from
+the `34c8bba` read held both as settled `completed`, a settled entry being
+kept until its transcript changes. So the cache now records a hash of the
+reader's five modules, and code with another hash keeps only the agents it
+showed and their verdicts and judges every other agent again. The lead
+adopts this beyond the brief: a dead agent's transcript never changes, so
+without it a misjudgment made by older code would stand for good, and a
+hash cannot be forgotten as a version number can. The cost is one full read
+after any change to those modules. New rows, a headless-shaped transcript
+and a cache from other code, each fail without its change; the reader tests
+(23 ok), `test-workloop-inbox.sh`, `test-session-start.sh`,
+`test-workloop.sh`, `port-public.py check` and `demo/check-inventory.py`
+pass.
+
+The lead's check at `984b48b`, the lane's `show`:
+
+| Store | Result |
+|---|---|
+| QA round 2's scratch repo, with the lead's session | six lines: D, E, G, A (`connection_failed`), C and B (session ended, 1 of 1 edited files uncommitted); F absent, dismissed in line 8 live |
+| The main checkout, no session | "1 agent that left nothing died this week."; "agent deaths: cannot tell live sessions on this host (this read runs in no Claude Code session)" |
+| The main checkout, the lead's session | `AGENT DIED: "Implement bundle-only server shipping" (implementer, a869dfbeebb5c3eae) session ended … it holds lane mcp-bundle-ship/ship …`; the cache it wrote there deleted |
+
+QA's real-death lines stand for `984b48b`: the commit changes only how a
+final turn's background start is read and when a cache is judged again, and
+the lead's check covers both on QA's own store.
