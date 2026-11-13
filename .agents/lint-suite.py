@@ -10,8 +10,9 @@ A check is a command line naming a script under `.agents/` or `demo/`, with
 its arguments, read from the script's list and from the `run:` lines of the
 workflow. Two named lists hold the differences that are meant:
 
-  CI_ONLY    steps that exist to gate the merge and are not suite checks:
-             the clean-tree check and the showcase regeneration pair.
+  CI_ONLY    steps that are not suite checks: the step that gives the job
+             the checks' environment, the clean-tree check and the showcase
+             regeneration pair. A step that drops out of CI fails the lint.
   NOT_ON_CI  checks the runner cannot run, each with its reason.
 
 An entry that no longer describes a difference is itself a failure.
@@ -43,6 +44,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKIPPED_FOLDERS = {"node_modules", "worktrees", "mcp-servers"}
 
 CI_ONLY = {
+    ".agents/check-env.sh": "gives the job's later steps the environment suite.sh gives each check",
     ".agents/check-clean-tree.sh": "asserts the workflow's own earlier steps left the tree clean",
     "demo/embed-src.py": "regenerates the showcase panels so the clean-tree step can see drift",
 }

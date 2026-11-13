@@ -38,6 +38,12 @@ jobs:
       # The Scrapling launcher test resolves its pinned environment with uvx.
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
+      # Every later step runs as suite.sh runs a check: a temporary home with
+      # only a git identity, and no system git settings, where this runner
+      # image marks every folder safe. It stays above the first check.
+      - name: Check environment
+        run: .agents/check-env.sh github
+
       - name: Host layout
         run: python3 .agents/check-layout.py
 
