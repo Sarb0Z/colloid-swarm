@@ -1321,7 +1321,7 @@ exit 0
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
               <p class="what">Carries a parallel run&#x27;s messages without polling. Wired to SubagentStart, SubagentStop, UserPromptSubmit and PostToolBatch. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; each tool batch stamps the lane or cell with the time and the batch&#x27;s last call, so a silent cell shows an age, and binds a cell to its agent&#x27;s id. When a worker finishes without submitting, only the lane&#x27;s Docker resources are reaped; one that died keeps them for its resume. Either way the lane waits for the lead&#x27;s <code>release-stale</code>.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 299 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 301 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
 Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt; &lt;host&gt;]
@@ -1457,7 +1457,7 @@ def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -&gt; list
     &quot;&quot;&quot;Cells still out, with the remedy that fits the moment: a cell whose agent died is
     resumed or sent out again; while their session may still run them the lead records
     each as it comes back; once that session&#x27;s process has ended (`ended`), no cell
-    outlives it, so each is failed or sent out again.&quot;&quot;&quot;
+    outlives it, so each is resumed from its AGENT DIED line, or dismissed and sent out again.&quot;&quot;&quot;
     cells = run.get(&quot;cells&quot;) or {}
     dead = {name: av.dead_since(verdicts, cell.get(&quot;agent_id&quot;), parse(cell.get(&quot;out_since&quot;)))
             for name, cell in sorted(cells.items()) if cell.get(&quot;state&quot;) == &quot;out&quot;}
@@ -1470,7 +1470,9 @@ def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -&gt; list
         back = cells and not run.get(&quot;verify&quot;) and not notes
         return notes + ([f&quot;every cell is back; check {run_name}, then teardown {run_name}&quot;] if back else [])
     name = out[0] if len(out) == 1 else &quot;&lt;name&gt;&quot;
-    remedy = (f&quot;no cell outlives its session: returned {run_name} {name} --failed &#x27;&lt;why&gt;&#x27;, or brief {run_name} {name} --again&quot;
+    their = &quot;its&quot; if len(out) == 1 else &quot;each one&#x27;s&quot;
+    remedy = (f&quot;no cell outlives its session: {their} AGENT DIED line says how to resume it in the session that owns it; &quot;
+              f&quot;to send it again instead, dismiss that line, then brief {run_name} {name} --again&quot;
               if ended else f&quot;returned {run_name} {name} when {&#x27;it&#x27; if len(out) == 1 else &#x27;each&#x27;} comes back&quot;)
     return notes + [f&quot;{len(out)} cell{&#x27;s&#x27; if len(out) &gt; 1 else &#x27;&#x27;} out ({&#x27;, &#x27;.join(out)}); {remedy}&quot;]
 
