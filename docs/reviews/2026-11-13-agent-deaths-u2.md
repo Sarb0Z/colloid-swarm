@@ -48,3 +48,35 @@ and `workloop_lanes.py:298` in reviewer and QA briefs read; code: neither.
 HANDOFF (reviewer): QA of Acceptance 7 live and 9 (b), (c) independently (a QA
 cell is running both); reproduce finding 1's lock collision and finding 2's QA
 commit.
+
+## Disprove pass
+
+One QA cell (sonnet) ran each `P1` against `aab37e9` in a scratch folder.
+
+| # | Label | Command and output |
+|---|---|---|
+| 1 | confirmed | A repository of 600 tracked files, 20 modified and 3 untracked; one loop ran a status over six paths flat out for 30 s while another ran `git add d5/f5 && git reset -q d5/f5`. The nudge's form, `git -C <tree> status --porcelain -z -uall -- <paths>`: 285 of 851 add/reset runs failed "fatal: Unable to create '…/.git/index.lock': File exists."; the death reader's form (`agent_leftovers`): 311 of 925; with `git --no-optional-locks`: 0 of 928. The loop is denser than one status per tool batch, so the rate is not the real one; the collision is. |
+| 2 | refuted (weak) | A clone at `aab37e9` with a lane `w1` holding one commit, and the QA brief `brief r1 w1 --role qa` wrote, which carries two commit instructions: the working practice's commit line and "Commit on the checkout's current branch before submit, staging by path only". Two headless leads, `CLAUDE_CONFIG_DIR=/Users/alice/.claude-personal command claude -p "$(cat …/disprove-u2/prompt.txt)" --model opus --output-format stream-json --verbose`, each dispatched the QA cell with the three dispatch lines and a task to write `notes/check.sh`. Sessions `6595d0cf` and `29881cd2`: each cell read the brief and ran `ls`, `cat`, `test -f` and `git status --short`, no `git add` or `git commit`; `git log` still ends at the lane commit `599d9d6`, the status is empty. Weak: both cells obeyed the brief's `READ-ONLY` line and wrote nothing, so neither had anything a commit line could apply to. (A first attempt had no `CLAUDE_CONFIG_DIR`, used the work account and stopped on its weekly limit.) |
+| 3 | confirmed | `export-scaffold.py` at `aab37e9` built a kit whose `.agents/config.json.example` sets `"commit_nudge": {"enabled": true}` and which ships no `.agents/policy.json`; a scratch target whose `AGENTS.md` says "Commit and push only when asked.", given the kit by the first-sync step, read `python3 .agents/hooks/lib/config.py .agents/config.json hooks.commit_nudge.enabled=true` as `yes`. No step of the kit's `export/README.md` turns it off; `.agents/README.md:481-483` describes the exception, and the Adapt section's policy bullet names only the browser UI gate. |
+
+## Dispositions
+
+AMBIGUITY settled as (a), only the lane's writer commits: the plan's rule
+(U2, "a lane's writer commits each piece"), and `style-inject.sh:30` already
+reads so. The fixes below bring the brief lines and the working practice to it.
+
+| # | Disposition |
+|---|---|
+| 1 | Fix. Every read-only Git call of the reader and the nudge runs with `--no-optional-locks`: `GitBudget.out` passes it, so the death reader, the digest and the nudge share one runner; rerun the disprove pass's two loops against the fixed form (0 failures expected). |
+| 2 | Refuted as a `P1`, so it goes to the operator's walk-through with the command above. The text is fixed with 9 and 10, which change the same lines: the working practice's commit line names the lane's writer as its subject, and `test-workloop.sh` asserts that reviewer and QA briefs, of main and worktree lanes, and a QA cell's brief carry no instruction to commit; 9 (b) reruns twice on the new wording. |
+| 3 | Fix. The export procedure's Adapt policy bullet names `hooks.commit_nudge.enabled: false` for a repository whose contract makes commits wait for the operator, and the `COMMIT:` line carries the working practice's "unless this repository says commits wait for the operator". The two tax-appeals-app repositories say "commit and push only when asked"; their next sync sets it off (operator notes). |
+| 4 | Fix. The toggle is read inside `commit_nudge.py` through `config.py`'s library; a file that does not parse leaves the nudge silent and says so on stderr. |
+| 5 | Fix with 1: one parser of `git status -z` for the reader and the nudge, which keeps a rename's from-path and strips inherited `GIT_*` variables. |
+| 6 | Defer. A README line states that the nudge sees edits made with the editor tools only; the stash, reset and same-batch cases go to `breadcrumbs.md`. |
+| 7 | Fix. The lane check runs before the death reader's modules are imported, and the toggle read is in-process (4), so a cell with no lane pays one Python start; the writer reports the measured per-batch time before and after. |
+| 8 | Fix the file: no per-agent lock file stays after its lane ends. The routing of a nudge failure to the lead is deferred to `breadcrumbs.md`, beside the subagent-stderr gap. |
+| 9 | Fix. The "Commit on … before submit" line goes into the worker's brief only, for main and worktree lanes alike. |
+| 10 | Fix. The commit line orders the claim first: a lane's writer claims, then commits each piece. |
+| 11 | Fix. `implementer.md` and `.codex/agents/implementer.toml` carry the commit clause in their summaries. |
+| 12 | Accept. 310 lines; the module stays one reader of one record format. |
+| 13 | Fix. Case 9's messages, and rows for a modified tracked file, a staged-only file and a rename; the toggle-off case checks the offset stays. |
