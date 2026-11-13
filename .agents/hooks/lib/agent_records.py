@@ -32,9 +32,11 @@ EDIT_CALLS = tuple(b'"name":"%s"' % name.encode() for name in EDIT_TOOLS)
 # Session transcript lines that may carry a verdict: a notification, or an Agent call's result.
 NOTE = b"<task-notification>"
 AGENT_RESULT = b'"agentId":"'
-# A tool call the agent started in the background, as both interactive and headless sessions
-# write it; only the interactive ones add the result's `toolUseResult.backgroundTaskId`.
-BACKGROUND_START = b'"run_in_background":true'
+# A command the agent started in the background: a call that sets `run_in_background`, as both
+# interactive and headless sessions write it, or a foreground call that outlived its timeout and
+# was moved to the background, which only an interactive session records, as the result's
+# `toolUseResult.backgroundTaskId`.
+BACKGROUND_STARTS = (b'"run_in_background":true', b'"backgroundTaskId":')
 TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 TAG = re.compile(r"<(status|summary)>(.*?)</\1>", re.S)
 
@@ -174,17 +176,23 @@ def _blocks(record: dict) -> list[dict]:
 def _waiting(path: Path) -> bool:
     """Whether the agent's final turn, the records after its newest user record that is not a
     tool result, started a background command (a `tool_use` whose input sets
-    `run_in_background`): it ended that turn to wait on the command, so its answer is no
-    completion. Only a transcript that holds such a call anywhere is read back."""
+    `run_in_background`, or a tool result carrying `toolUseResult.backgroundTaskId`): it ended
+    that turn to wait on the command, so its answer is no completion. Only a transcript that
+    holds such a marker anywhere is read back."""
     with open(path, "rb") as stream:
-        if BACKGROUND_START not in stream.read():
-            return False
+        text = stream.read()
+    if not any(marker in text for marker in BACKGROUND_STARTS):
+        return False
     for record in _newest_messages(path):
         blocks = _blocks(record)
         if record["type"] == "assistant":
             if any(b.get("type") == "tool_use" and (b.get("input") or {}).get("run_in_background") is True for b in blocks):
                 return True
-        elif not any(b.get("type") == "tool_result" for b in blocks):
+        elif any(b.get("type") == "tool_result" for b in blocks):
+            outcome = record.get("toolUseResult")
+            if isinstance(outcome, dict) and outcome.get("backgroundTaskId"):
+                return True
+        else:
             return False
     return False
 
