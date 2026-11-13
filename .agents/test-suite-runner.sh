@@ -18,6 +18,8 @@
 #   suite.sh's process handling: catches checks left running by an interrupt,
 #     a SIGKILL to suite.sh's group or a read from the terminal, and a scratch
 #     folder a killed run left; misses a check that leaves its session.
+#   check-env.sh's github mode: catches a CI step left with the runner's git
+#     identity, system settings or a token; misses a step placed before it.
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
@@ -33,7 +35,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 fx="$scratch/fx"
 mkdir -p "$fx/.agents/hooks/lib"
 cp "$repo"/.agents/hooks/lib/*.py "$fx/.agents/hooks/lib/"
-cp "$repo/.agents/suite.sh" "$fx/.agents/suite.sh"
+cp "$repo/.agents/suite.sh" "$repo/.agents/check-env.sh" "$fx/.agents/"
 printf '{"owed": {"suite": "bash .agents/fake-suite.sh"}}\n' > "$fx/.agents/policy.json"
 cat > "$fx/.agents/fake-suite.sh" <<'SH'
 #!/usr/bin/env bash
@@ -173,6 +175,29 @@ out="$(cd "$fx" && GIT_CONFIG_SYSTEM="$scratch/system.gitconfig" GIT_CONFIG_GLOB
   GH_TOKEN=leak GITHUB_TOKEN=leak GIT_TERMINAL_PROMPT=1 .agents/suite.sh 2>&1)" || fail "suite.sh with the identity probe: $out"
 [[ "$(cat "$scratch/identity")" == $'suite@colloid.invalid\nhelper=\nGH_TOKEN=unset GITHUB_TOKEN=unset GIT_TERMINAL_PROMPT=0' ]] || fail "a check's git identity, credential helper, tokens and prompt: $(cat "$scratch/identity")"
 ok "a check sees the suite identity, no credential helper, no GitHub token, and git never prompts"
+
+# CI gives its later steps the same environment through check-env.sh's github
+# mode. A system file that marks every folder safe, as GitHub's Ubuntu image
+# writes one, stands in for the runner's: under the mode's settings a step
+# reads git's refusal of a checkout whose owner differs, and the suite identity.
+clean=(env -u GH_TOKEN -u GITHUB_TOKEN -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_PARAMETERS
+  -u GIT_CONFIG_COUNT -u CLAUDE_PROJECT_DIR)
+runner=(env -u GIT_CONFIG_NOSYSTEM GIT_CONFIG_SYSTEM="$scratch/trusting.gitconfig" GIT_TEST_ASSUME_DIFFERENT_OWNER=1)
+printf '[safe]\n\tdirectory = *\n' > "$scratch/trusting.gitconfig"
+git init -q "$scratch/foreign"
+"${runner[@]}" git -C "$scratch/foreign" status >/dev/null 2>&1 || fail "the stand-in runner's system file did not mark the checkout safe"
+: > "$scratch/github.env"
+out="$("${clean[@]}" GITHUB_ENV="$scratch/github.env" RUNNER_TEMP="$scratch/runner" "$fx/.agents/check-env.sh" github 2>&1)" \
+  || fail "check-env.sh github: $out"
+step=()
+while IFS= read -r line; do step+=("$line"); done < "$scratch/github.env"
+out="$("${runner[@]}" "${step[@]}" git -C "$scratch/foreign" status 2>&1)" && fail "a step under check-env.sh github read a checkout git refuses: $out"
+[[ "$out" == *"dubious ownership"* ]] || fail "a step's refusal was not git's ownership check: $out"
+[[ "$("${runner[@]}" "${step[@]}" git -C "$scratch" config user.email)" == suite@colloid.invalid ]] || fail "a step's git identity is not the suite's"
+out="$("${clean[@]}" GH_TOKEN=leak GITHUB_ENV="$scratch/github-token.env" RUNNER_TEMP="$scratch/runner" \
+  "$fx/.agents/check-env.sh" github 2>&1)" && fail "check-env.sh github passed with GH_TOKEN set"
+[[ "$out" == *"GH_TOKEN is set"* && ! -s "$scratch/github-token.env" ]] || fail "a set GH_TOKEN was not named, or settings were written anyway: $out"
+ok "check-env.sh github gives CI's later steps the suite identity and no system git settings, and refuses a set token"
 
 probe_suite <<SH
 #!/usr/bin/env bash
