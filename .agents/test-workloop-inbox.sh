@@ -14,7 +14,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/commit_nudge.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/agent_silence.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals,waits}.py "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/commit_nudge.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/agent_silence.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/process_start.py" "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals,waits}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
 mkdir -p "$scratch/bin" "$scratch/home"
 # The death reader reads Claude Code's store under the home and asks ps when a

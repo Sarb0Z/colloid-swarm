@@ -256,7 +256,8 @@ PY
 python3 - <<'PY' || exit 1
 import os, sys
 sys.path.insert(0, os.environ["LIB"])
-from agent_sessions import Hosts, START_SLACK_SECONDS
+from agent_sessions import Hosts
+from process_start import START_SLACK_SECONDS
 
 recorded = "Thu Jan  1 00:10:00 2026"
 def state(seen, entry=recorded):
