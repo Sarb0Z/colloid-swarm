@@ -225,6 +225,20 @@ def report(repo: Path, session: str, runs: dict, effects: Effects) -> Report:
     return result
 
 
+def judged_dead(repo: Path) -> dict[str, av.Verdict]:
+    """The verdicts of the agents the last read judged failed, lost or parked and no dismissal
+    covers, from the cache alone: the statusline reads this at every refresh and runs no reader.
+    A missing cache gives {}; a cache or dismissal file that cannot be read raises, for the
+    caller to show."""
+    try:
+        judged = json.loads((repo / ".agents" / CACHE).read_bytes())["judged"]
+    except FileNotFoundError:
+        return {}
+    dismissals = agent_dismissals.dismissed(repo / ".agents")
+    verdicts = {aid: av.Verdict(state, cause, at, job) for aid, (state, cause, at, job) in judged.items()}
+    return {aid: v for aid, v in verdicts.items() if not agent_dismissals.covers(dismissals, aid, v.at)}
+
+
 def _load(path: Path) -> dict:
     """The cache, or an empty one. A cache written by other reader code keeps only the agents it
     showed, as transcripts to read again, and its verdicts: every entry it settled was judged by

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 from workloop_cells import cells_of
 from workloop_paths import canonical_reference, reference_roots
@@ -23,6 +27,11 @@ from workloop_state import (
     silence,
     state_path,
 )
+
+# Resolved from the hooks' library, which workloop_state puts on the path.
+import agent_activity
+import agent_effects
+import agent_waits as aw
 
 
 def cmd_send(args: argparse.Namespace) -> None:
@@ -95,11 +104,64 @@ def quiet_agents(run: dict, threshold: int) -> list[tuple[str, str, dict, float,
     return found
 
 
+def briefed_cells(waits: dict) -> dict[tuple[str, str], str]:
+    """{(run, cell): agent id} for each waiting agent whose transcript opens with a cell brief's
+    header. A cell is bound to its agent at the agent's first tool batch, which an agent held on
+    its first call never reaches, so the header the stamp hook binds by binds it here."""
+    found = {}
+    for agent_id, wait in waits.items():
+        try:
+            cell = agent_activity.cell_binding(Path(wait["transcript"]))
+        except (OSError, ValueError) as error:
+            print(f"watch: {wait['transcript']} could not be read for a cell brief ({error})", file=sys.stderr)
+            continue
+        if cell:
+            found[cell] = agent_id
+    return found
+
+
+def waiting_agents(run_name: str, run: dict, waits: dict) -> list[tuple[str, str, dict]]:
+    """Active lanes and cells out whose agent has a permission prompt open: name, kind and the wait."""
+    found = []
+    for name, lane in sorted(run["lanes"].items()):
+        if lane["state"] == "active" and lane.get("claimed_by") in waits:
+            found.append((name, "lane", waits[lane["claimed_by"]]))
+    briefed = briefed_cells(waits)
+    for name, cell in sorted(cells_of(run).items()):
+        agent_id = cell.get("agent_id") or briefed.get((run_name, name))
+        if cell["state"] == "out" and agent_id in waits:
+            found.append((name, "cell", waits[agent_id]))
+    return found
+
+
+def read_waits(agents_dir: Path) -> dict:
+    """The open permission waits; none, said on stderr, when they cannot be read, so the silence
+    check still runs."""
+    try:
+        waits, _, problems = agent_effects.waiting(agents_dir)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"watch: the agents waiting on a permission prompt could not be read ({error}); none is named", file=sys.stderr)
+        return {}
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    return waits
+
+
 def cmd_watch(args: argparse.Namespace) -> None:
-    with ReadStore(state_path(args.state)) as data:
+    path = state_path(args.state)
+    # An agent stuck on a permission prompt is silent because it waits on the operator, so it is
+    # named as waiting whatever its silence. The waits are read beside the state file.
+    waits = read_waits(path.parent)
+    with ReadStore(path) as data:
         run = run_of(data, args.run)
-        quiet_now = quiet_agents(run, args.stale_seconds)
+        waiting = waiting_agents(args.run, run, waits)
+        held = {name for name, _, _ in waiting}
+        quiet_now = [found for found in quiet_agents(run, args.stale_seconds) if found[0] not in held]
         print(f"watch scan: lanes={len(run['lanes'])} cells={len(cells_of(run))} messages={len(run['messages'])} cost=O(lanes+cells+messages)")
+        for name, kind, wait in waiting:
+            print(f"WAITING ON THE OPERATOR — {args.run}/{name}: its {kind}'s agent waits on a permission prompt "
+                  f"for {age_text(time.time() - wait['at'])}, {wait['tool']}: {aw.clean(wait['subject'])}; "
+                  "answer it in the session that dispatched it.")
         for name, kind, agent, out, quiet in quiet_now:
             if quiet is None:
                 print(f"UNSTAMPED {kind.upper()} — {args.run}/{name}: out {age_text(out)} and carries no stamp: it was dispatched without the printed prompt, or is stuck before its first tool call; look at it.")
@@ -109,7 +171,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 print(f"RESTART REQUEST — {args.run}/{name}: resume or reconcile {agent.get('claimed_by', 'unclaimed')} silent {age_text(quiet)}{last}; inspect inbox and workloop status. Host delivery is required.")
             else:
                 print(f"SILENT CELL — {args.run}/{name}: out {age_text(out)}, silent {age_text(quiet)}{last}; look at it, or record it with returned {args.run} {name} --failed '<why>'.")
-        if not quiet_now: print("no silent agents")
+        if not quiet_now and not waiting: print("no silent agents")
 
 
 def cmd_digest(args: argparse.Namespace) -> None:

@@ -166,7 +166,44 @@ rd prune "$target"
 [[ ! -e "$dir/.write-old.tmp" && ! -e "$dir/ledger-old.log" ]] || fail "prune kept an old temp or ledger file"
 [[ -e "$dir/.write-new.tmp" && -e "$dir/ledger-new.log" ]] || fail "prune removed a fresh temp or ledger file"
 rm "$dir/.write-new.tmp" "$dir/ledger-new.log"
-ok "prune removes temp files over an hour old and other files over 7 days old"
+touch "$dir/unit.lock"
+touch -t 202001010000 "$dir/unit.lock"
+rd prune "$target"
+[[ -e "$dir/unit.lock" ]] || fail "prune removed a lock file"
+rm "$dir/unit.lock"
+ok "prune removes temp files over an hour old and other files over 7 days old, never a lock file"
+
+# Death segments: the strip names a lane whose claimant, or a cell whose agent, the death
+# reader's cache judged failed, lost or parked. Seam: readout.py strip over a workloop state and
+# a cache written by hand. Catches the join between state and cache, dismissals and a bad cache;
+# misses whether the reader writes that cache shape (test-agent-deaths.sh).
+deaths="$scratch/deaths"
+mkdir -p "$deaths/.agents/.readout"
+cat > "$deaths/.agents/.workloop-state.json" <<'JSON'
+{"runs": {"r1": {"lanes": {"l1": {"state": "active", "claimed_by": "aaa"},
+                            "l2": {"state": "active", "claimed_by": "ccc"},
+                            "l3": {"state": "submitted", "claimed_by": "ddd"}},
+                 "cells": {"c1": {"state": "out", "agent_id": "bbb"},
+                           "c2": {"state": "out", "agent_id": "aaa", "out_since": "2026-11-13T00:00:00Z"}}},
+          "old": {"torn_down": true, "lanes": {"l9": {"state": "active", "claimed_by": "aaa"}}}}}
+JSON
+cache="$deaths/.agents/.readout/.agent-deaths-cache"
+printf '%s' '{"judged": {"aaa": ["failed", "connection_failed", 1000.0, ""], "bbb": ["parked", "", 1000.0, "j1"], "ddd": ["lost", "stall", 1000.0, ""]}}' > "$cache"
+out="$(rd strip "$deaths" s1)"
+[[ "$out" == "r1/l1 died connection_failed  ·  r1/c1 parked" ]] || fail "death segments: $out"
+ok "strip names a dead lane claimant and a parked cell agent, not a live claimant, a submitted lane, a torn-down run, or a cell sent out again after its agent's death"
+printf '%s\t%s\t%s\t%s\n' 2026-11-13T00:00:00Z aaa 1000.0 why > "$deaths/.agents/.agents-dismissed"
+out="$(rd strip "$deaths" s1)"
+[[ "$out" == "r1/c1 parked" ]] || fail "a dismissed death still shows: $out"
+ok "a dismissed death leaves the strip"
+rm "$deaths/.agents/.agents-dismissed"
+printf '%s' '{not json' > "$cache"
+[[ "$(rd strip "$deaths" s1)" == "deaths: unreadable" ]] || fail "a corrupt cache did not show unreadable: $(rd strip "$deaths" s1)"
+printf '%s' '{"judged": {"aaa": ["failed"]}}' > "$cache"
+[[ "$(rd strip "$deaths" s1)" == "deaths: unreadable" ]] || fail "a reshaped cache did not show unreadable: $(rd strip "$deaths" s1)"
+rm "$cache"
+[[ -z "$(rd strip "$deaths" s1)" ]] || fail "a missing cache showed something"
+ok "a missing cache shows nothing; a corrupt or reshaped one shows deaths: unreadable"
 
 # show defaults to the script's own repository.
 fake="$scratch/fake"

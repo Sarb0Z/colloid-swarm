@@ -39,9 +39,11 @@
 #     it removed or kept and what each kept one's work is about, each `saved/`
 #     branch, and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
-#   - Workloop runs in flight, and on Claude Code each dead agent of this
-#     checkout read from Claude Code's own records, run or no run
-#     (hooks/lib/workloop-inbox.py, hooks/lib/agent_deaths.py).
+#   - Workloop runs in flight, and on Claude Code each agent of this checkout
+#     waiting on the operator and each dead one, read from Claude Code's own
+#     records and the PermissionRequest hook's, run or no run
+#     (hooks/lib/workloop-inbox.py, hooks/lib/agent_waits.py,
+#     hooks/lib/agent_deaths.py).
 #   - Unit readouts: the note of each readout visible to this session, from
 #     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
 #     files here). Silent when .agents/.readout/ is missing or no readout
@@ -319,7 +321,7 @@ EOF
 
   if [[ -n "$workloop_digest" ]]; then
     section
-    echo "Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; AGENT DIED lines from Claude Code's own records, hooks/lib/agent_deaths.py):"
+    echo "Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; WAITING ON YOU lines for agents stuck on a permission prompt or a blocked background session, hooks/lib/agent_waits.py; AGENT DIED lines from Claude Code's own records, hooks/lib/agent_deaths.py):"
     printf '%s\n' "$workloop_digest"
   fi
 

@@ -2,10 +2,17 @@
 
 Each config folder (agent_records.config_dirs) holds `sessions/<pid>.json`, one
 per running session, with its `sessionId`, `procStart` and `startedAt` (epoch
-ms); a clean exit removes it, a kill leaves it. Claude Code computes
+ms), and on 2.1.322 its `status` with `statusUpdatedAt` (epoch ms): `waiting`
+while a permission prompt is open, then `busy` once it is answered or denied
+(observed live), besides `idle` and `shell`; a clean exit removes it, a kill
+leaves it. Claude Code computes
 `procStart` as `ps -o lstart= -p <pid>` under `LC_ALL=C TZ=UTC`, trimmed, on
 every platform but Windows. A background session's supervisor keeps
-`jobs/<job id>/state.json` with its `state`, `sessionId` and `resumeSessionId`.
+`jobs/<job id>/state.json` with its `state`, `sessionId` and `resumeSessionId`,
+its `name`, its `cwd` (and `worktreePath` when it entered one), and while it
+waits on the operator `needs`, what it waits for. On 2.1.322 a session held
+on a permission prompt reads `state: "working"` with `tempo: "blocked"`;
+earlier versions wrote `state: "blocked"`.
 """
 
 from __future__ import annotations
@@ -23,9 +30,12 @@ def registry(dirs: list[Path]) -> tuple[list[dict], list[str]]:
         for path in sorted(folder.glob("*.json")):
             try:
                 data = json.loads(path.read_text())
+                status_at = data.get("statusUpdatedAt")
                 entries.append({"pid": int(need(data, "pid", path)), "session": need(data, "sessionId", path),
                                 "proc_start": need(data, "procStart", path),
-                                "started_at": float(need(data, "startedAt", path)) / 1000})
+                                "started_at": float(need(data, "startedAt", path)) / 1000,
+                                "status": data.get("status"),
+                                "status_at": float(status_at) / 1000 if status_at is not None else None})
             except FileNotFoundError:
                 continue  # its session exited while this read the folder
             except (ValueError, TypeError) as error:
@@ -33,22 +43,36 @@ def registry(dirs: list[Path]) -> tuple[list[dict], list[str]]:
     return entries, problems
 
 
-def stopped_jobs(dirs: list[Path]) -> tuple[dict[str, str], list[str]]:
-    """The background sessions their supervisor holds stopped, {session id: job id}: each job
-    whose `state` is `stopped`, by its `sessionId` and `resumeSessionId`; and a problem line
-    for each unreadable job."""
+def jobs(dirs: list[Path]) -> tuple[dict[str, dict], list[str]]:
+    """Every background session's job, {job id: its state.json}, and a problem line for each
+    unreadable job."""
     found, problems = {}, []
     for folder in real_folders(d / "jobs" for d in dirs):
         for path in sorted(folder.glob("*/state.json")):
             try:
                 data = json.loads(path.read_text())
-                if need(data, "state", path) == "stopped":
-                    found.update({data[key]: path.parent.name for key in ("sessionId", "resumeSessionId") if data.get(key)})
+                if not isinstance(data, dict):
+                    raise ValueError("it holds no JSON object")
+                need(data, "state", path)
+                found[path.parent.name] = data
             except FileNotFoundError:
                 continue
             except (ValueError, TypeError) as error:
                 problems.append(f"agent deaths: {path} could not be read: {error}")
     return found, problems
+
+
+def job_sessions(job: dict) -> list[str]:
+    """The session ids a job's session runs or ran under: a respawn resumes under `resumeSessionId`."""
+    return [job[key] for key in ("sessionId", "resumeSessionId") if job.get(key)]
+
+
+def stopped_jobs(dirs: list[Path]) -> tuple[dict[str, str], list[str]]:
+    """The background sessions their supervisor holds stopped, {session id: job id}; and a
+    problem line for each unreadable job."""
+    found, problems = jobs(dirs)
+    stopped = {job_id: job for job_id, job in found.items() if job["state"] == "stopped"}
+    return {session: job_id for job_id, job in stopped.items() for session in job_sessions(job)}, problems
 
 
 class Hosts:
