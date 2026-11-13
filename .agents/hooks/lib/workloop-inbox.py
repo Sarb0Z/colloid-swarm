@@ -15,7 +15,8 @@ that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
 awaiting review, lanes carrying attention, lanes whose heartbeat is stale,
 lanes and cells whose agent died. Run or no run, at every Claude Code start
-and prompt it hears the dead agents of this checkout (agent_deaths.py), and
+and prompt it hears the agents of this checkout waiting on the operator
+(agent_waits.py) and its dead agents (agent_deaths.py), and
 at a prompt, when the turn that just ended dispatched two or more cells
 outside any run, read once from the parallel-writers gate's ledger
 <seen-dir>/.outside-runs-<session> (ruling 36).
@@ -133,7 +134,7 @@ def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -> list[st
     """Cells still out, with the remedy that fits the moment: a cell whose agent died is
     resumed or sent out again; while their session may still run them the lead records
     each as it comes back; once that session's process has ended (`ended`), no cell
-    outlives it, so each is failed or sent out again."""
+    outlives it, so each is resumed from its AGENT DIED line, or dismissed and sent out again."""
     cells = run.get("cells") or {}
     dead = {name: av.dead_since(verdicts, cell.get("agent_id"), parse(cell.get("out_since")))
             for name, cell in sorted(cells.items()) if cell.get("state") == "out"}
@@ -146,7 +147,9 @@ def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -> list[st
         back = cells and not run.get("verify") and not notes
         return notes + ([f"every cell is back; check {run_name}, then teardown {run_name}"] if back else [])
     name = out[0] if len(out) == 1 else "<name>"
-    remedy = (f"no cell outlives its session: returned {run_name} {name} --failed '<why>', or brief {run_name} {name} --again"
+    their = "its" if len(out) == 1 else "each one's"
+    remedy = (f"no cell outlives its session: {their} AGENT DIED line says how to resume it in the session that owns it; "
+              f"to send it again instead, dismiss that line, then brief {run_name} {name} --again"
               if ended else f"returned {run_name} {name} when {'it' if len(out) == 1 else 'each'} comes back")
     return notes + [f"{len(out)} cell{'s' if len(out) > 1 else ''} out ({', '.join(out)}); {remedy}"]
 
@@ -274,9 +277,11 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     # Claude Code's records are read at a prompt (a Claude Code hook) and at a Claude Code start.
     claude = event == "UserPromptSubmit" or host == "claude"
     report = agent_effects.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    waiting = agent_effects.waiting_in_hook(seen_dir) if claude else ""
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else ""
-    return "\n".join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")) if part)
+    deaths = report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")
+    return "\n".join(part for part in (outside, digest, waiting, deaths) if part)
 
 
 def main() -> None:

@@ -265,6 +265,21 @@ watch` for CI. Calls the host already runs in the background pass. Codex and
 Kimi have no background flag to point to, so the gate is not wired there. The
 toggle is `hooks.wait_gate.enabled`.
 
+`agent-waits.sh` records, on Claude Code's `PermissionRequest`, a background
+agent whose permission prompt just opened: such an agent is alive and silent,
+and nothing else Claude Code writes names it. The record, in the ignored
+`.agents/.readout/.agent-waits`, holds the session, the agent, its tool and the
+command or path. It closes once the operator answers (the session's registry
+entry leaves `waiting`), the agent writes a newer record, or its session ends
+or is resumed. Every session start then shows `WAITING ON YOU: "<description>"
+(<agent id>) <tool>: <command>`, and one line per background session (`claude
+--bg`) of this checkout held on a prompt, with what it needs and `claude
+attach <id>`; every lead prompt shows them too while
+`hooks.workloop_inbox.enabled` is on. `workloop.py watch` names a lane or cell
+whose agent waits as waiting on the operator, not silent. The hook never
+answers the prompt, skips the lead's own, and runs under Claude only; a
+session started before it was registered shows nothing.
+
 `keychain-notice.sh` names the agent's shell command that is about to read
 the macOS login keychain. The keychain dialog names only the program, such as
 `supabase`, and never the command or the session that ran it. The hook posts a

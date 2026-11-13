@@ -116,6 +116,9 @@ jobs:
       - name: Agent-death reader
         run: .agents/test-agent-deaths.sh
 
+      - name: Agents waiting on the operator
+        run: .agents/test-agent-waits.sh
+
       - name: Output style reach
         run: .agents/test-style-inject.sh
 
