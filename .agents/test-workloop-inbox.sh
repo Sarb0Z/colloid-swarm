@@ -396,7 +396,7 @@ has "$ctx" "its AGENT DIED line says how to resume it in the session that owns i
 printf '{"type": "run", "run": "c-two", "state": "x", "host": [1, "gone"]}\n' > "$records/other.jsonl"
 has "$(start_digest startup)" "no cell outlives its session: each one's AGENT DIED line" "a run whose only other lead has ended"
 rm -rf "$records"
-ok "cells still out are named at a prompt with returned, and with --failed or brief --again only at a startup or resume, for runs this session or no live session leads"
+ok "cells still out are named at a prompt with returned, and at a startup or resume sent to their AGENT DIED lines, with brief --again only after a dismiss, for runs this session or no live session leads"
 
 # closing steps: worktree run
 put_state <<'EOF'
