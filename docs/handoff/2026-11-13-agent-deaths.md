@@ -251,7 +251,8 @@ Built in order; each works end to end before the next starts.
   run: `workloop-inbox.sh:62`, `session-start.sh:198` and
   `workloop-inbox.py:296`. The showcase (`demo/scaffold-showcase.html`) and
   the public tree (`.agents/public/tree/`) are regenerated from the changed
-  files. No new hook event, no `settings.json` change.
+  files. Lane 1 adds no hook event and no `settings.json` change; the
+  waiting line's `PermissionRequest` registration is lane 2's.
 - **Dismissals.** `workloop.py dismiss <agent-id> --reason '<why>'` appends,
   under an `fcntl` lock as `agent_activity.py` takes, to
   `.agents/.agents-dismissed` (gitignored, and listed in
@@ -280,12 +281,15 @@ Built in order; each works end to end before the next starts.
   same agent's next `PostToolUse`, `PostToolUseFailure` or `SubagentStop`, or
   its session ends; the run's watch names such a cell waiting, not silent. A
   session that started before the hook was registered shows nothing new.
-- **Two lanes.** The first (`u1-reader`) built the reader, its wiring at
-  each start and prompt, and the `.cells` removal. The second builds the
-  readout's `died <cause>`, the workloop guide's cell-lifecycle wording, the
-  `decisions.md` entry, the waiting line with its `PermissionRequest` hook,
-  and `.agents/README.md`'s inbox paragraph saying its toggle also carries
-  the `AGENT DIED` lines at prompts (review finding 7).
+- **Lanes.** The first (`u1-reader`, landed at `49eb623`) built the reader,
+  its wiring at each start and prompt, and the `.cells` removal. Two more run
+  at once on disjoint files: `u1-waiting` builds the waiting line with its
+  `PermissionRequest` hook and the watch's waiting cells (Acceptance 17);
+  `u1-words` builds the readout's `died <cause>` (Acceptance 4's statusline
+  half), the workloop guide's cell-lifecycle wording with its headless test
+  (Acceptance 9 (a)), the `decisions.md` entry, and `.agents/README.md`'s
+  inbox paragraph saying its toggle also carries the `AGENT DIED` lines at
+  prompts (review finding 7).
 - **Scope.** Claude Code only; Codex and Kimi keep today's behaviour.
 
 ### U2: writers commit as they go
