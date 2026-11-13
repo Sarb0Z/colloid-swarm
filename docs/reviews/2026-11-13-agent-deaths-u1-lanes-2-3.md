@@ -181,6 +181,28 @@ the wording runs.
 | W-F | this session's agent, `server_error` "Connection lost while your computer was asleep" | pass: one `SendMessage` with no question before it (it failed, the id being made up), no `--again`, then the operator asked |
 | W-C | the start-of-session digest line from F2, the cell's agent id, no `AGENT DIED:` line; three runs | no `SendMessage`, `returned --failed` or `brief --again` in any run; each told the operator the cell's session was lost and offered resuming it in the owning session or a dismiss and re-send |
 
+The live cell ran interactive haiku sessions in tmux on its own socket in a
+scratch clone of u1-waiting, each cell unstamped:
+
+| # | Run | Result |
+|---|---|---|
+| L1 | cell `c1`'s agent prompted on `touch approved.txt && python3 -c "import time; time.sleep(120)"`, then Yes (finding 1, Acceptance 17) | pass: open, `WAITING ON YOU: "probe one" (a00a75da80d049c90) Bash: …`, registry `waiting` 15 ms after the wait's `at`, `watch probe` printed `WAITING ON THE OPERATOR — probe/c1: … for 4s` (bound by the brief header); 4 s after Yes, with `approved.txt` present and the transcript still on the `tool_use`, no line, the record empty, registry `busy` after the `at`, `watch` `no silent agents`, and a real prompt hook printed none |
+| L2 | the lead in a 60 s foreground command, then idle, with a cell's prompt open on `touch busy.txt` | pass: registry `waiting` with one unchanged `statusUpdatedAt` and the line at every 4 s read through the command and 13 s after the lead's turn ended; gone after the answer |
+| L3 | two prompts open at once, `touch a2.txt` and `touch b2.txt`, answered one at a time | both lines while both were open; 1.1 s and 4.6 s after the first answer the registry still read `waiting` with its first `statusUpdatedAt`, and only the second line showed, the first wait closed by its agent's tool result; after the second answer, `busy` and none |
+| L4 | a cell's agent prompted, its session `kill -9`ed by pid, then `claude --resume` (finding 2) | pass: no line after the kill (the dead pid's entry still read `waiting`) nor after the resume; the resumed session's start showed `AGENT DIED: "probe R" (general-purpose, af0e0bcbd9d3cedb8) session ended … (live); it died in this session; resume it: SendMessage to af0e0bcbd9d3cedb8` |
+| L5 | `claude --bg` job `c15ae9aa` held on `touch bgprompt.txt`; `claude attach`, Yes (Acceptance 17) | pass: `WAITING ON YOU: "create bgprompt.txt file" (c15ae9aa) approve Bash: touch bgprompt.txt && ls -l bgprompt.txt; claude attach c15ae9aa` in the clone and from the prompt hook, none from a second clone; none after the answer; stopped and removed |
+
+With a prompt open, `agent_effects.waiting` took 7.0 ms (median of 10), so the
+prompt's two reads come to about 32 ms with F6's reader, under Acceptance 12's
+50 ms. In L3 the first wait closed on its agent's record because `touch`
+returns at once; a long approved command under a second open prompt keeps its
+wait until it ends or the second is answered, as the binary predicts. The
+watch's "for 4s" counts from the `PermissionRequest`, which the registry's
+`waiting` stamp follows by 15 ms; the cell's "about 40 s" counted from the
+dispatch. A cell whose brief opened `READ-ONLY` refused the `touch` in two of
+three attempts until told the write was authorized, which is the model, not
+the lanes.
+
 W-C was briefed to expect a `SendMessage` before any `--failed` or `--again`,
 the expectation round 1's disprove pass held under the earlier guide. The lead
 withdraws that expectation: the cell's session ended, and Decision 3 (a) and
