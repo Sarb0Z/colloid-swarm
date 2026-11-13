@@ -605,7 +605,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, what the worktree sweep removed or kept, and workloop runs with no recorded lead. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 402 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 407 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -646,6 +646,9 @@ detect:
 #     it removed or kept and what each kept one&#x27;s work is about, each `saved/`
 #     branch, and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
+#   - Workloop runs in flight, and on Claude Code each dead agent of this
+#     checkout read from Claude Code&#x27;s own records, run or no run
+#     (hooks/lib/workloop-inbox.py, hooks/lib/agent_deaths.py).
 #   - Unit readouts: the note of each readout visible to this session, from
 #     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
 #     files here). Silent when .agents/.readout/ is missing or no readout
@@ -715,7 +718,7 @@ if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; != &quot;c
   writers_session=&quot;$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot;
   rm -rf &quot;$proj/.agents/.writers-live-$writers_session&quot; &quot;$proj/.agents/.writers-turn-$writers_session&quot; \
          &quot;$proj/.agents/.writers-kinds-$writers_session&quot; \
-         &quot;$proj/.agents/.writers-lock-$writers_session&quot; &quot;$proj/.agents/.cells-$writers_session&quot; \
+         &quot;$proj/.agents/.writers-lock-$writers_session&quot; \
          &quot;$proj/.agents/.cell-markers-$writers_session&quot; &quot;$proj/.agents/.outside-runs-$writers_session&quot; 2&gt;/dev/null || true
 fi
 
@@ -793,20 +796,22 @@ if [[ &quot;$learning_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lear
   learning_body=&quot;$(cat &quot;$learning_playbook&quot;)&quot;
 fi
 
-# A run mid-flight is the first thing a resumed lead needs to know about;
-# the digest is the same one workloop-inbox.sh gives at each prompt. The start
-# source, after the agent id, tells it whether this start ended the session&#x27;s
-# earlier cells (startup, resume) or not (clear, compact).
+# A run mid-flight, and an agent that died mid-work, are the first things a
+# resumed lead needs to know about; the digest is the same one workloop-inbox.sh
+# gives at each prompt. The start source, after the agent id, tells it whether
+# this start ended the session&#x27;s earlier cells (startup, resume) or not (clear,
+# compact); the host tells it to read Claude Code&#x27;s records of dead agents, which
+# a Claude Code start reads run or no run.
 # The inbox prints its digest on stderr too, for a prompt&#x27;s terminal, so its
 # stderr is read here only when it fails; the failure then reaches the lead&#x27;s
 # context as well, since a start hook&#x27;s stderr at exit 0 may reach no one.
 workloop_digest=&quot;&quot;
 workloop_failure=&quot;&quot;
-if [[ -f &quot;$proj/.agents/.workloop-state.json&quot; &amp;&amp; -f &quot;$lib/workloop-inbox.py&quot; ]]; then
+if [[ -f &quot;$lib/workloop-inbox.py&quot; ]] &amp;&amp; [[ -f &quot;$proj/.agents/.workloop-state.json&quot; || &quot;$host&quot; == &quot;claude&quot; ]]; then
   inbox_err=&quot;$(mktemp)&quot; || inbox_err=/dev/null
-  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; &quot;${start_source:-startup}&quot; 2&gt;&quot;$inbox_err&quot;)&quot; || {
+  workloop_digest=&quot;$(python3 &quot;$lib/workloop-inbox.py&quot; &quot;$proj/.agents/.workloop-state.json&quot; &quot;$proj/.agents&quot; &quot;${session_id:-start}&quot; SessionStart &quot;&quot; &quot;${start_source:-startup}&quot; &quot;$host&quot; 2&gt;&quot;$inbox_err&quot;)&quot; || {
     reason=&quot;$(tail -n 1 &quot;$inbox_err&quot;)&quot;
-    workloop_failure=&quot;workloop-inbox.py failed, so no workloop run in this checkout is listed${reason:+: $reason}&quot;
+    workloop_failure=&quot;workloop-inbox.py failed, so no workloop run or dead agent in this checkout is listed${reason:+: $reason}&quot;
     printf &#x27;session-start: %s\n&#x27; &quot;$workloop_failure&quot; &gt;&amp;2
     workloop_digest=&quot;&quot;
   }
@@ -921,13 +926,13 @@ EOF
 
   if [[ -n &quot;$workloop_digest&quot; ]]; then
     section
-    echo &quot;Workloop runs in flight (.agents/.workloop-state.json — lanes, messages, and gates a lead owns):&quot;
+    echo &quot;Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; AGENT DIED lines from Claude Code&#x27;s own records, hooks/lib/agent_deaths.py):&quot;
     printf &#x27;%s\n&#x27; &quot;$workloop_digest&quot;
   fi
 
   if [[ -n &quot;$workloop_failure&quot; ]]; then
     section
-    echo &quot;Workloop runs unknown: $workloop_failure.&quot;
+    echo &quot;Workloop runs and dead agents unknown: $workloop_failure.&quot;
   fi
 
   if [[ -n &quot;$worktree_digest&quot; ]]; then
@@ -1141,7 +1146,7 @@ exit 0
             </article>
             <div class="hook" data-t="context">
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
-              <p class="what">The lead&#x27;s side of the workloop-inbox card under SubagentStart: at each prompt it hears which lanes await review, carry a finding or have gone quiet, which cells are still out, and which run is ready to integrate. It also names a turn that dispatched two or more cells outside any run.</p>
+              <p class="what">The lead&#x27;s side of the workloop-inbox card under SubagentStart: at each prompt it hears which lanes await review, carry a finding or have gone quiet, which lane&#x27;s worker or cell&#x27;s agent died and of what, which cells are still out, and which run is ready to integrate. Run or no run, it hears each agent of this checkout that died leaving edits, a lane or a cell behind, read from Claude Code&#x27;s own records, with how to resume it. It also names a turn that dispatched two or more cells outside any run.</p>
               <div class="io"><b>in</b> {session_id, event} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
             </div>
           </div>
@@ -1320,27 +1325,29 @@ exit 0
             </article>
             <article class="hook" data-t="context">
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
-              <p class="what">Carries a parallel run&#x27;s messages without polling. Wired to SubagentStart, SubagentStop, UserPromptSubmit and PostToolBatch. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; SubagentStop marks the cell stopped in the session&#x27;s record; each tool batch stamps the lane with the time and the batch&#x27;s last call, so a silent cell shows an age. When a worker stops without submitting, only the lane&#x27;s Docker resources are reaped; the lane waits for the lead&#x27;s <code>release-stale</code>.</p>
+              <p class="what">Carries a parallel run&#x27;s messages without polling. Wired to SubagentStart, SubagentStop, UserPromptSubmit and PostToolBatch. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; each tool batch stamps the lane or cell with the time and the batch&#x27;s last call, so a silent cell shows an age, and binds a cell to its agent&#x27;s id. When a worker finishes without submitting, only the lane&#x27;s Docker resources are reaped; one that died keeps them for its resume. Either way the lane waits for the lead&#x27;s <code>release-stale</code>.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 302 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 296 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
-Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt;]
+Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt; &lt;host&gt;]
 
-The start source is session-start.sh&#x27;s (startup, resume, clear, compact).
-Prints the block, or nothing when there is nothing new. The state file is
-the controller&#x27;s own; this reads it and never writes it. Delivery is
-remembered per agent in &lt;seen-dir&gt;/.inbox-seen-&lt;session&gt;-&lt;agent&gt;, so a
-message is injected once and its acknowledgement still goes through
-`ack-message`.
+The start source and host are session-start.sh&#x27;s (startup, resume, clear,
+compact; `claude` on Claude Code). Prints the block, or nothing when there is
+nothing new. The state file is the controller&#x27;s own; this reads it and never
+writes it. Delivery is remembered per agent in
+&lt;seen-dir&gt;/.inbox-seen-&lt;session&gt;-&lt;agent&gt;, so a message is injected once and
+its acknowledgement still goes through `ack-message`.
 
 A subagent hears: its host agent id at start, so it can claim its lane with
 that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
-awaiting review, lanes carrying attention, lanes whose heartbeat is stale.
-At a prompt it also hears, run or no run, when the turn that just ended
-dispatched two or more cells outside any run, read once from the
-parallel-writers gate&#x27;s ledger &lt;seen-dir&gt;/.outside-runs-&lt;session&gt; (ruling 36).
+awaiting review, lanes carrying attention, lanes whose heartbeat is stale,
+lanes and cells whose agent died. Run or no run, at every Claude Code start
+and prompt it hears the dead agents of this checkout (agent_deaths.py), and
+at a prompt, when the turn that just ended dispatched two or more cells
+outside any run, read once from the parallel-writers gate&#x27;s ledger
+&lt;seen-dir&gt;/.outside-runs-&lt;session&gt; (ruling 36).
 
 The digest judges a composed result from state on every prompt, comparing the
 integration record to each lane&#x27;s accepted tip; `check` judges from Git, also
@@ -1357,8 +1364,12 @@ import sys
 import time
 from pathlib import Path
 
-import worktree_records as wr  # beside this script, so found before the path below is added
-from agent_silence import silence
+# Imported before the controller&#x27;s folder joins the path below, so each resolves beside this script.
+import agent_deaths
+import agent_effects
+import agent_verdicts as av
+import worktree_records as wr
+from agent_silence import parse, silence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
@@ -1411,43 +1422,6 @@ def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -&gt; 
     return &quot;\n&quot;.join(lines), delivered
 
 
-def cells_path(seen_dir: Path, session: str) -&gt; Path:
-    return seen_dir / f&quot;.cells-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, session)}&quot;
-
-
-def record_cell(seen_dir: Path, session: str, agent_id: str, event: str) -&gt; None:
-    &quot;&quot;&quot;Keep the session&#x27;s own record of which subagents are running.
-
-    Every subagent, reader or writer, is listed from its start to its stop —
-    the parallel-writers gate tracks writers only and tells an operator to
-    delete its file, so it is not a liveness source. `started` survives a
-    stop, so a claimant that came and went is still known to be ours.
-    &quot;&quot;&quot;
-    path = cells_path(seen_dir, session)
-    try:
-        lines = [line for line in path.read_text().splitlines() if line]
-    except OSError:
-        lines = []
-    entries = dict(line.split(&quot;\t&quot;, 1) for line in lines if &quot;\t&quot; in line)
-    if event == &quot;SubagentStart&quot;:
-        entries[agent_id] = &quot;live&quot;
-    elif event == &quot;SubagentStop&quot; and agent_id in entries:
-        entries[agent_id] = &quot;stopped&quot;
-    else:
-        return
-    path.write_text(&quot;&quot;.join(f&quot;{key}\t{value}\n&quot; for key, value in sorted(entries.items())))
-
-
-def dead_claimants(seen_dir: Path, session: str) -&gt; tuple[set[str], set[str]]:
-    &quot;&quot;&quot;Agent ids this session started, and the subset still live.&quot;&quot;&quot;
-    try:
-        lines = [line for line in cells_path(seen_dir, session).read_text().splitlines() if &quot;\t&quot; in line]
-    except OSError:
-        return set(), set()
-    entries = dict(line.split(&quot;\t&quot;, 1) for line in lines)
-    return set(entries), {key for key, value in entries.items() if value == &quot;live&quot;}
-
-
 def composed_result(run: dict) -&gt; dict | None:
     &quot;&quot;&quot;The run&#x27;s current composed-test record, or None when absent or stale.
 
@@ -1484,20 +1458,26 @@ def closing_notes(run_name: str, run: dict) -&gt; list[str]:
     return [f&quot;check {run_name}, then teardown {run_name}&quot;]
 
 
-def cell_notes(run_name: str, run: dict, ended: bool) -&gt; list[str]:
-    &quot;&quot;&quot;Cells still out, with the remedy that fits the moment: while their session may
-    still run them the lead records each as it comes back; once that session&#x27;s process
-    has ended (`ended`), no cell outlives it, so each is failed or sent out again.&quot;&quot;&quot;
+def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -&gt; list[str]:
+    &quot;&quot;&quot;Cells still out, with the remedy that fits the moment: a cell whose agent died is
+    resumed or sent out again; while their session may still run them the lead records
+    each as it comes back; once that session&#x27;s process has ended (`ended`), no cell
+    outlives it, so each is failed or sent out again.&quot;&quot;&quot;
     cells = run.get(&quot;cells&quot;) or {}
-    out = sorted(name for name, cell in cells.items() if cell.get(&quot;state&quot;) == &quot;out&quot;)
+    dead = {name: av.dead_since(verdicts, cell.get(&quot;agent_id&quot;), parse(cell.get(&quot;out_since&quot;)))
+            for name, cell in sorted(cells.items()) if cell.get(&quot;state&quot;) == &quot;out&quot;}
+    notes = [f&quot;cell {name}&#x27;s agent {how}: {remedy}, or brief {run_name} {name} --again&quot;
+             for name, verdict in dead.items() if verdict for how, remedy in [av.fate(verdict)]]
+    out = [name for name, verdict in dead.items() if not verdict]
     if not out:
         # A run declared without --verify is finished once every cell is back (ruling 35).
         # debt: fanout-rule-copies -- completion_problems and the lead-less close read this rule too.
-        return [f&quot;every cell is back; check {run_name}, then teardown {run_name}&quot;] if cells and not run.get(&quot;verify&quot;) else []
+        back = cells and not run.get(&quot;verify&quot;) and not notes
+        return notes + ([f&quot;every cell is back; check {run_name}, then teardown {run_name}&quot;] if back else [])
     name = out[0] if len(out) == 1 else &quot;&lt;name&gt;&quot;
     remedy = (f&quot;no cell outlives its session: returned {run_name} {name} --failed &#x27;&lt;why&gt;&#x27;, or brief {run_name} {name} --again&quot;
               if ended else f&quot;returned {run_name} {name} when {&#x27;it&#x27; if len(out) == 1 else &#x27;each&#x27;} comes back&quot;)
-    return [f&quot;{len(out)} cell{&#x27;s&#x27; if len(out) &gt; 1 else &#x27;&#x27;} out ({&#x27;, &#x27;.join(out)}); {remedy}&quot;]
+    return notes + [f&quot;{len(out)} cell{&#x27;s&#x27; if len(out) &gt; 1 else &#x27;&#x27;} out ({&#x27;, &#x27;.join(out)}); {remedy}&quot;]
 
 
 def ended_runs(runs: dict, seen_dir: Path, session: str, source: str) -&gt; set[str]:
@@ -1520,48 +1500,57 @@ def ended_runs(runs: dict, seen_dir: Path, session: str, source: str) -&gt; set[
     return {name for name in runs if name in mine or name not in theirs}
 
 
-def main_block(runs: dict, seen_dir: Path | None = None, session: str = &quot;&quot;, ended: frozenset = frozenset()) -&gt; str:
+def active_note(run_name: str, run: dict, lane_name: str, lane: dict, verdicts: dict, now: float) -&gt; str:
+    &quot;&quot;&quot;What an active lane&#x27;s worker is doing, or how it ended without handing the lane back.&quot;&quot;&quot;
+    claimant = lane.get(&quot;claimed_by&quot;) or &quot;&quot;
+    verdict = verdicts.get(claimant)
+    if dead := av.dead_since(verdicts, claimant, None):
+        # Its lane&#x27;s containers stay for the resume.
+        how, remedy = av.fate(dead)
+        return f&quot;{lane_name}&#x27;s worker {claimant} {how} without submitting: {remedy}, or release-stale {run_name} {lane_name}&quot;
+    if wd is not None and verdict and verdict.state in (&quot;completed&quot;, &quot;stopped&quot;):
+        # The worker finished without handing the lane back. What it started in
+        # Docker is owned by the lane, so it goes now; the lane itself waits for
+        # the lead&#x27;s release-stale.
+        result = wd.reap(run_name, sorted(run[&quot;lanes&quot;]), lane_name)
+        tail = f&quot;; {wd.summary(result)}&quot; if (wd.removed_count(result) or result[&quot;failed&quot;]) else &quot;&quot;
+        return f&quot;{lane_name}&#x27;s worker {claimant} has stopped without submitting{tail} — release-stale {run_name} {lane_name} to reopen it&quot;
+    # A heartbeat is a contract only under --supervised; an ordinary lane that has
+    # simply been working for a while is not stale. The hook&#x27;s stamp counts as a
+    # sign of life beside the heartbeat.
+    quiet = silence(lane, &quot;claimed_at&quot;, now)
+    progress = f&quot; — {lane[&#x27;progress&#x27;]}&quot; if lane.get(&quot;progress&quot;) else &quot;&quot;
+    if quiet is not None and quiet &gt; STALE_SECONDS:
+        minutes = int(quiet // 60)
+        if run.get(&quot;supervised&quot;):
+            return f&quot;{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)&quot;
+        return f&quot;{lane_name} active {minutes}m{progress}&quot;
+    return f&quot;{lane_name}{progress}&quot; if progress else &quot;&quot;
+
+
+def lane_notes(run_name: str, run: dict, verdicts: dict, now: float) -&gt; list[str]:
+    notes: list[str] = []
+    for lane_name, lane in sorted(run[&quot;lanes&quot;].items()):
+        if lane.get(&quot;state&quot;) == &quot;review&quot;:
+            notes.append(f&quot;{lane_name} awaits review&quot;)
+        if lane.get(&quot;attention&quot;):
+            notes.append(f&quot;{lane_name} carries {lane[&#x27;attention&#x27;].get(&#x27;severity&#x27;, &#x27;attention&#x27;)}&quot;)
+        if lane.get(&quot;state&quot;) == &quot;active&quot; and (note := active_note(run_name, run, lane_name, lane, verdicts, now)):
+            notes.append(note)
+        if lane.get(&quot;env&quot;) == &quot;broken&quot;:
+            notes.append(f&quot;{lane_name} environment broken (provision {run_name} {lane_name})&quot;)
+    return notes
+
+
+def main_block(runs: dict, verdicts: dict, ended: frozenset, git: GitBudget) -&gt; str:
     now = time.time()
-    git = GitBudget()
     lines: list[str] = []
-    ours, live = dead_claimants(seen_dir, session) if seen_dir else (set(), set())
     for run_name, run in sorted(runs.items()):
-        notes: list[str] = []
-        for lane_name, lane in sorted(run[&quot;lanes&quot;].items()):
-            state = lane.get(&quot;state&quot;)
-            if state == &quot;review&quot;:
-                notes.append(f&quot;{lane_name} awaits review&quot;)
-            if lane.get(&quot;attention&quot;):
-                notes.append(f&quot;{lane_name} carries {lane[&#x27;attention&#x27;].get(&#x27;severity&#x27;, &#x27;attention&#x27;)}&quot;)
-            if state == &quot;active&quot;:
-                claimant = lane.get(&quot;claimed_by&quot;) or &quot;&quot;
-                if wd is not None and claimant in ours and claimant not in live:
-                    # The worker stopped without handing the lane back. What it
-                    # started in Docker is owned by the lane, so it goes now;
-                    # the lane itself waits for the lead&#x27;s release-stale.
-                    result = wd.reap(run_name, sorted(run[&quot;lanes&quot;]), lane_name)
-                    tail = f&quot;; {wd.summary(result)}&quot; if (wd.removed_count(result) or result[&quot;failed&quot;]) else &quot;&quot;
-                    notes.append(f&quot;{lane_name}&#x27;s worker {claimant} has stopped without submitting{tail} — release-stale {run_name} {lane_name} to reopen it&quot;)
-                    continue
-                # A heartbeat is a contract only under --supervised; an ordinary
-                # lane that has simply been working for a while is not stale.
-                # The hook&#x27;s stamp counts as a sign of life beside the heartbeat.
-                quiet = silence(lane, &quot;claimed_at&quot;, now)
-                progress = f&quot; — {lane[&#x27;progress&#x27;]}&quot; if lane.get(&quot;progress&quot;) else &quot;&quot;
-                if quiet is not None and quiet &gt; STALE_SECONDS:
-                    minutes = int(quiet // 60)
-                    if run.get(&quot;supervised&quot;):
-                        notes.append(f&quot;{lane_name} stale {minutes}m{progress} (release-stale if its worker is gone)&quot;)
-                    else:
-                        notes.append(f&quot;{lane_name} active {minutes}m{progress}&quot;)
-                elif progress:
-                    notes.append(f&quot;{lane_name}{progress}&quot;)
-            if lane.get(&quot;env&quot;) == &quot;broken&quot;:
-                notes.append(f&quot;{lane_name} environment broken (provision {run_name} {lane_name})&quot;)
+        notes = lane_notes(run_name, run, verdicts, now)
         pending = [m[&quot;id&quot;] for m in run.get(&quot;messages&quot;, []) if m[&quot;requires_ack&quot;] and not m.get(&quot;acknowledged_at&quot;)]
         if pending:
             notes.append(f&quot;{len(pending)} message(s) await acknowledgement&quot;)
-        notes += cell_notes(run_name, run, run_name in ended) + closing_notes(run_name, run) + size_notes(git, run, now)
+        notes += cell_notes(run_name, run, run_name in ended, verdicts) + closing_notes(run_name, run) + size_notes(git, run, now)
         if notes:
             lines.append(f&quot;WORKLOOP {run_name}: &quot; + &quot;; &quot;.join(notes) + f&quot;. Status: .agents/workloop.py status {run_name}&quot;)
     orphans = wd.foreign_orphans() if (runs and wd is not None) else []
@@ -1594,30 +1583,40 @@ def outside_runs_note(seen_dir: Path, session: str) -&gt; str:
     return OUTSIDE_RUNS_NOTE.format(count=count) if count &gt;= 2 else &quot;&quot;
 
 
+def deliver(runs: dict, seen_dir: Path, safe: str, agent_id: str, event: str) -&gt; str:
+    &quot;&quot;&quot;A subagent&#x27;s block; what it delivers is remembered so it is delivered once.&quot;&quot;&quot;
+    seen_path = seen_dir / f&quot;.inbox-seen-{safe}-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, agent_id)}&quot;
+    try:
+        seen = set(seen_path.read_text().split())
+    except OSError:
+        seen = set()
+    block, delivered = subagent_block(runs, agent_id, event, seen)
+    if delivered:
+        seen_path.write_text(&quot;\n&quot;.join(sorted(seen | delivered)) + &quot;\n&quot;)
+    return block
+
+
+def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str, host: str) -&gt; str:
+    # The count stands with no run and no state file: the note is for a lead who opened no run.
+    outside = outside_runs_note(seen_dir, re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, session)) if event == &quot;UserPromptSubmit&quot; else &quot;&quot;
+    git = GitBudget()
+    # Claude Code&#x27;s records are read at a prompt (a Claude Code hook) and at a Claude Code start.
+    claude = event == &quot;UserPromptSubmit&quot; or host == &quot;claude&quot;
+    report = agent_effects.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
+    digest = main_block(runs, report.verdicts, ended, git) if runs else &quot;&quot;
+    return &quot;\n&quot;.join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == &quot;SessionStart&quot;)) if part)
+
+
 def main() -&gt; None:
     state_path, seen_dir, session, event, agent_id = (Path(sys.argv[1]), Path(sys.argv[2]), *sys.argv[3:6])
-    if agent_id:
-        record_cell(seen_dir, session, agent_id, event)
     runs = live_runs(load(state_path))
-    safe = re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, session)
+    start = sys.argv[6:8] if event == &quot;SessionStart&quot; else []
+    source, host = (start + [&quot;&quot;, &quot;&quot;])[:2]
     if agent_id:
-        if not runs:
-            return
-        seen_path = seen_dir / f&quot;.inbox-seen-{safe}-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, agent_id)}&quot;
-        try:
-            seen = set(seen_path.read_text().split())
-        except OSError:
-            seen = set()
-        block, delivered = subagent_block(runs, agent_id, event, seen)
-        if delivered:
-            seen_path.write_text(&quot;\n&quot;.join(sorted(seen | delivered)) + &quot;\n&quot;)
+        block = deliver(runs, seen_dir, re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, session), agent_id, event) if runs else &quot;&quot;
     else:
-        # The count stands with no run and no state file: the note is for a
-        # lead who opened no run.
-        outside = outside_runs_note(seen_dir, safe) if event == &quot;UserPromptSubmit&quot; else &quot;&quot;
-        source = sys.argv[6] if len(sys.argv) &gt; 6 and event == &quot;SessionStart&quot; else &quot;&quot;
-        ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
-        block = &quot;\n&quot;.join(part for part in (outside, main_block(runs, seen_dir, session, ended) if runs else &quot;&quot;) if part)
+        block = lead_block(runs, seen_dir, session, event, source, host)
     if block:
         print(block)
 
@@ -7925,8 +7924,8 @@ esac
             </div>
             <div class="hook" data-t="trail">
               <div class="top"><span class="id">workloop-inbox</span><span class="badge trail">trail</span></div>
-              <p class="what">Marks the cell stopped in the session&#x27;s record of cells, which is how a worker that stopped without submitting is noticed at the lead&#x27;s next prompt.</p>
-              <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> cell record &nbsp;·&nbsp; exit 0</div>
+              <p class="what">Hands a stopping cell the unread messages for its lanes, as between tool calls. How the cell ended is read later from Claude Code&#x27;s own records, at the lead&#x27;s next start or prompt.</p>
+              <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
             </div>
           </div>
         </div>
@@ -11402,7 +11401,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>workloop.py</h3><p>The controller behind the workloop skill: one command line over durable run state. <code>init</code> a run, <code>add-lane</code> for each writer, then <code>claim</code>, <code>submit</code>, <code>review</code>, <code>qa</code>, <code>check</code>, <code>integrate</code> and <code>teardown</code>. QA is recorded against the lane tips it ran on; a lane&#x27;s tip moves only on <code>submit</code>, so a later commit and resubmit makes <code>check</code> report <code>qa:stale</code>. For a one-writer run <code>check</code> runs the composed test; for parallel lanes <code>integrate</code> does.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 138 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Durable, provider-neutral coordination for bounded parallel agent work.
 
 This file is the command line: the argument parser that routes each command to
@@ -11415,6 +11414,8 @@ workloop_messages.py and workloop_finish.py.
 from __future__ import annotations
 
 import argparse
+import re
+import time
 
 from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned
 from workloop_finish import (
@@ -11449,6 +11450,11 @@ from workloop_setup import SHAPES, cmd_add_lane, cmd_init, cmd_provision, cmd_wi
 from workloop_shared import cmd_share
 from workloop_state import ReadStore, fail, run_of, state_path
 
+# workloop_state put the hooks&#x27; library on the path.
+import agent_dismissals  # noqa: E402
+import agent_effects  # noqa: E402
+from workloop_size import GitBudget  # noqa: E402
+
 # test-workloop.sh imports these two from here.
 __all__ = [&quot;parser&quot;, &quot;temporary&quot;, &quot;workspace_for&quot;]
 
@@ -11465,6 +11471,32 @@ def cmd_brief(args: argparse.Namespace) -&gt; None:
     if args.again:
         fail(f&quot;--again sends a returned or failed cell out again; {args.lane!r} is a lane, whose brief prints without it&quot;)
     print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run[&quot;lanes&quot;][args.lane], args.role or &quot;worker&quot;))
+
+
+def cmd_dismiss(args: argparse.Namespace) -&gt; None:
+    &quot;&quot;&quot;Stop showing a dead agent of this checkout at every start and prompt (agent_dismissals.py).&quot;&quot;&quot;
+    state = state_path(args.state)
+    agents_dir = state.parent
+    if not re.fullmatch(r&quot;[A-Za-z0-9]+&quot;, args.agent):
+        fail(f&quot;{args.agent!r} is no agent id: an AGENT DIED line names it, letters and digits only&quot;)
+    try:
+        died = agent_effects.death_at(state, args.agent, GitBudget().out)
+        dismissals = agent_dismissals.dismissed(agents_dir)
+    except ValueError as error:
+        fail(str(error))
+    if died is None and args.agent in dismissals:
+        print(f&quot;agent {args.agent} is dismissed already&quot;)
+        return
+    if died is None:
+        fail(f&quot;no agent {args.agent} touched this checkout and died; its AGENT DIED line names the id to dismiss&quot;)
+    if agent_dismissals.covers(dismissals, args.agent, died):
+        print(f&quot;agent {args.agent} is dismissed already&quot;)
+        return
+    try:
+        agent_dismissals.dismiss(agents_dir, args.agent, died, args.reason, time.time())
+    except ValueError as error:
+        fail(str(error))
+    print(f&quot;dismissed agent {args.agent}&#x27;s death; later starts and prompts no longer show it unless it dies again&quot;)
 
 
 def parser() -&gt; argparse.ArgumentParser:
@@ -11500,6 +11532,7 @@ def parser() -&gt; argparse.ArgumentParser:
     watch = sub.add_parser(&quot;watch&quot;); watch.add_argument(&quot;run&quot;); watch.add_argument(&quot;--stale-seconds&quot;, type=int, default=900); watch.set_defaults(func=cmd_watch)
     digest = sub.add_parser(&quot;digest&quot;, help=&quot;one line per lane and cell: name, role, state, silence, last action&quot;); digest.add_argument(&quot;run&quot;); digest.set_defaults(func=cmd_digest)
     archive = sub.add_parser(&quot;archive&quot;); archive.add_argument(&quot;run&quot;); archive.set_defaults(func=cmd_archive)
+    dismiss = sub.add_parser(&quot;dismiss&quot;, help=&quot;stop showing a dead agent&#x27;s AGENT DIED line, with the reason&quot;); dismiss.add_argument(&quot;agent&quot;, help=&quot;the agent id its AGENT DIED line names&quot;); dismiss.add_argument(&quot;--reason&quot;, required=True); dismiss.set_defaults(func=cmd_dismiss)
     return root
 
 
@@ -11990,7 +12023,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 104 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 105 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -12019,6 +12052,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-worktree-sessions.sh
 .agents/test-parallel-writers.sh
 .agents/test-workloop-inbox.sh
+.agents/test-agent-deaths.sh
 .agents/test-style-inject.sh
 .agents/test-ui-gate.sh
 .agents/test-teardown-gate.sh

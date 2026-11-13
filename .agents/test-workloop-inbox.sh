@@ -14,9 +14,26 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$dir/.agents/hooks/policy/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/agent_silence.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$dir/.agents/hooks/lib/"
+cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/emit-context.py" "$repo/.agents/hooks/lib/workloop-inbox.py" "$repo/.agents/hooks/lib/agent_activity.py" "$repo/.agents/hooks/lib/agent_silence.py" "$repo/.agents/hooks/lib/readout.py" "$repo/.agents/hooks/lib/workloop_size.py" "$repo/.agents/hooks/lib/worktree_records.py" "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals}.py "$dir/.agents/hooks/lib/"
 cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
-mkdir -p "$scratch/bin"
+mkdir -p "$scratch/bin" "$scratch/home"
+# The death reader reads Claude Code's store under the home and asks ps when a
+# registered session started: a fixture home, and a ps that reports the starts
+# listed in $PS_STARTS (`<pid>\t<start>`) and passes every other call through.
+export HOME="$scratch/home" PS_STARTS="$scratch/ps-starts"
+unset CLAUDE_CONFIG_DIR
+: > "$PS_STARTS"
+real_ps="$(command -v ps)"
+cat > "$scratch/bin/ps" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1 \$2 \$3" == "-o lstart= -p" ]]; then
+  start="\$(awk -F '\t' -v pid="\$4" '\$1 == pid { print \$2 }' "\$PS_STARTS")"
+  [[ -n "\$start" ]] && { printf '%s\n' "\$start"; exit 0; }
+  exit 1
+fi
+exec "$real_ps" "\$@"
+EOF
+chmod +x "$scratch/bin/ps"
 cat > "$scratch/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${DOCKER_LOG:?}"
@@ -172,33 +189,104 @@ ctx="$(context "$(fire UserPromptSubmit '')")"
 ok "a supervised lane stamped a minute ago with no heartbeat for 15 minutes is not stale at the prompt"
 
 
-# a claimant this session started that is no longer live: its lane's docker
-# resources are reaped by label and the lead is told; foreign orphans are named
+# How each claimant and cell agent ended comes from Claude Code's own records
+# (agent_deaths.py): a fixture store under the fake home, the fixture made a
+# Git checkout for this block, and the reader's own session s1 registered
+# with the start the fake ps reports. A claimant that finished without
+# submitting has its lane's docker resources reaped by label; one that died
+# keeps them for the resume, as does one that ended its turn waiting on its
+# own background command and whose session then ended (E6); a cell whose
+# agent died is named; foreign orphans are only named.
+git -C "$dir" init -q
+python3 - "$HOME" "$dir" "$PS_STARTS" <<'EOF'
+import json, os, sys, time
+home, repo, starts = sys.argv[1:4]
+now = time.time()
+project = os.path.join(home, ".claude", "projects", "-fixture")
+def iso(at): return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(at))
+def line(record): return json.dumps(dict(record, cwd=repo), separators=(",", ":")) + "\n"
+def msg(kind, at, content, **extra): return {"type": kind, "timestamp": iso(at), "message": {"role": kind, "content": content, **extra}}
+def tool(at, name, use, **extra): return msg("assistant", at, [{"type": "tool_use", "id": use, "name": name, "input": {"command": "x", **extra}}], stop_reason="tool_use")
+def result(at, use, **extra): return dict(msg("user", at, [{"type": "tool_result", "tool_use_id": use}]), **extra)
+ends = {
+    "gone": [tool(now - 2000, "SubagentHandback", "h"), result(now - 1990, "h")],
+    "adied": [dict(msg("assistant", now - 2000, [{"type": "text", "text": "API Error"}]), isApiErrorMessage=True, error="server_error", apiError="computer_slept")],
+    "await": [tool(now - 2000, "Bash", "b", run_in_background=True), result(now - 1990, "b", toolUseResult={"backgroundTaskId": "b1"}),
+              msg("assistant", now - 1980, [{"type": "text", "text": "waiting on the suite"}], stop_reason="end_turn")],
+    "acell": [dict(msg("assistant", now - 2000, [{"type": "text", "text": "API Error"}]), isApiErrorMessage=True, error="rate_limit", apiError="usage_limit_reached")],
+}
+os.makedirs(os.path.join(project, "s-old", "subagents"))
+for aid, records in ends.items():
+    base = os.path.join(project, "s-old", "subagents", f"agent-{aid}")
+    open(base + ".meta.json", "w").write(json.dumps({"agentType": "implementer", "description": f"task of {aid}", "requestShape": "background", "toolUseId": f"t-{aid}", "finished": True}))
+    open(base + ".jsonl", "w").write("".join(line(r) for r in [msg("user", now - 3000, "go")] + records))
+parent = os.path.join(project, "s-old.jsonl")
+open(parent, "w").write(line(msg("user", now - 3000, "lead")))
+for path in [parent] + [os.path.join(project, "s-old", "subagents", f"agent-{aid}.jsonl") for aid in ends]:
+    os.utime(path, (now - 1200, now - 1200))
+os.makedirs(os.path.join(home, ".claude", "sessions"))
+open(os.path.join(home, ".claude", "sessions", "4242.json"), "w").write(json.dumps(
+    {"pid": 4242, "sessionId": "s1", "cwd": repo, "procStart": "Thu Jan  1 00:00:01 2026", "startedAt": int((now - 7200) * 1000)}))
+open(starts, "a").write("4242\tThu Jan  1 00:00:01 2026\n")
+EOF
 python3 - "$state" <<'EOF'
 import json, sys
 p = sys.argv[1]; s = json.load(open(p)); r = s["runs"]["r1"]
 r["lanes"]["db"] = {"state":"active","claimed_by":"gone","claimed_at":"2026-01-01T00:00:00Z","heartbeat_at":"2026-01-01T00:00:00Z","attention":None,"env":"ready","progress":"seeding"}
+r["lanes"]["lost"] = {"state":"active","claimed_by":"adied","worker":"implementer","claimed_at":"2026-01-01T00:00:00Z","attention":None,"env":"ready"}
+r["lanes"]["e6"] = {"state":"active","claimed_by":"await","worker":"implementer","claimed_at":"2026-01-01T00:00:00Z","attention":None,"env":"ready"}
 r["lanes"]["api"]["progress"] = "e2e 12/40"
+r["cells"] = {"scout": {"role": "research", "model": "haiku", "state": "out", "out_since": "2026-01-01T00:00:00Z", "agent_id": "acell"}}
 json.dump(s, open(p, "w"))
 EOF
-# the hook's own record: both cells started this session; `gone` has stopped
-printf 'a1\tlive\ngone\tstopped\n' > "$dir/.agents/.cells-s1"
 : > "$DOCKER_LOG"
 ctx="$(context "$(fire UserPromptSubmit '')")"
-[[ "$ctx" == *"db's worker gone has stopped without submitting; reaped 1 docker resource(s)"* ]] || fail "dead claimant not reported/reaped: $ctx"
-grep -q 'rm -f dead1' "$DOCKER_LOG" || fail "the dead lane's container was not removed: $(cat "$DOCKER_LOG")"
+[[ "$ctx" == *"db's worker gone has stopped without submitting; reaped 1 docker resource(s)"* ]] || fail "a claimant that finished without submitting was not reported and reaped: $ctx"
+grep -q 'rm -f dead1' "$DOCKER_LOG" || fail "the finished claimant's container was not removed: $(cat "$DOCKER_LOG")"
+[[ "$ctx" == *"lost's worker adied died (computer_slept) without submitting: resume it, or release-stale r1 lost"* ]] || fail "a claimant that died was not named with its cause: $ctx"
+[[ "$ctx" == *"e6's worker await died (session ended) without submitting"* ]] || fail "a claimant that ended its turn waiting on its own command, then lost its session, did not read as died: $ctx"
+[[ "$ctx" == *"cell scout's agent died (usage_limit_reached): resume it, or brief r1 scout --again"* ]] || fail "a cell whose agent died was not named: $ctx"
+[[ "$ctx" == *'AGENT DIED: "task of adied" (implementer, adied) computer_slept at'*"it holds lane r1/lost"* ]] || fail "the dead claimant's AGENT DIED line is missing: $ctx"
 [[ "$ctx" == *"api"*"e2e 12/40"* ]] || fail "progress not shown beside the live lane: $ctx"
 [[ "$ctx" == *"Not ours, still running with no reaper: lonely_pg (20 minutes ago, testcontainers session abc12345 with no reaper)"* ]] || fail "foreign orphan not named: $ctx"
-[[ "$(grep -c 'rm -f' "$DOCKER_LOG")" -eq 1 ]] || fail "something other than the dead lane's resources was removed: $(cat "$DOCKER_LOG")"
-ok "a stopped claimant's lane is reaped by label and reported; a live one shows progress; foreign orphans are only named"
+[[ "$(grep -c 'rm -f' "$DOCKER_LOG")" -eq 1 ]] || fail "a dead claimant's lane resources were removed: $(cat "$DOCKER_LOG")"
+! grep -q 'colloid.lane=lost\|colloid.lane=e6' "$DOCKER_LOG" || fail "a dead claimant's lane was reaped: $(cat "$DOCKER_LOG")"
+ok "a finished claimant's lane is reaped; a dead one's, an E6 one's and a dead cell's are named with their cause and keep their resources"
+rm -rf "$dir/.git" "$dir/.agents/.readout/.agent-deaths-cache"
+python3 - "$state" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); r = s["runs"]["r1"]
+del r["lanes"]["lost"], r["lanes"]["e6"], r["cells"]
+json.dump(s, open(p, "w"))
+EOF
 
-# the record is kept by the hook itself: start lists a cell live, stop marks it
-rm -f "$dir/.agents/.cells-s1"
-fire SubagentStart c9 >/dev/null; [[ "$(cat "$dir/.agents/.cells-s1")" == $'c9\tlive' ]] || fail "start not recorded: $(cat "$dir/.agents/.cells-s1")"
-fire SubagentStop c9 >/dev/null; [[ "$(cat "$dir/.agents/.cells-s1")" == $'c9\tstopped' ]] || fail "stop not recorded: $(cat "$dir/.agents/.cells-s1")"
-mv "$state" "$state.off"; fire SubagentStart c10 >/dev/null; mv "$state.off" "$state"
-grep -q $'c10\tlive' "$dir/.agents/.cells-s1" || fail "a cell that started before any run existed was not recorded"
-ok "the hook records every subagent's start and stop, with or without a run in flight"
+# with no run and no state file, the lead's prompt still names a dead agent of
+# the checkout, here one launched from it that left an uncommitted edit
+norun="$scratch/norun"
+mkdir -p "$norun/.agents"; cp -R "$dir/.agents/hooks" "$dir/.agents/config.json" "$norun/.agents/"
+git -C "$norun" init -q; printf 'x\n' > "$norun/x.txt"
+git -C "$norun" add x.txt; git -C "$norun" -c user.name=t -c user.email=t@example.com commit -qm base; printf 'edited\n' > "$norun/x.txt"
+python3 - "$HOME" "$norun" <<'EOF'
+import json, os, sys, time
+home, repo = sys.argv[1:3]; now = time.time()
+folder = os.path.join(home, ".claude", "projects", "-norun", "s-gone", "subagents"); os.makedirs(folder)
+def iso(at): return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(at))
+records = [{"type": "user", "timestamp": iso(now - 3000), "cwd": repo, "message": {"role": "user", "content": "go"}},
+           {"type": "assistant", "timestamp": iso(now - 2900), "cwd": repo, "message": {"role": "assistant", "stop_reason": "tool_use",
+            "content": [{"type": "tool_use", "id": "e", "name": "Write", "input": {"file_path": os.path.join(repo, "x.txt"), "content": "edited"}}]}},
+           {"type": "assistant", "timestamp": iso(now - 2800), "cwd": repo, "isApiErrorMessage": True, "error": "server_error", "apiError": "connection_failed",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "API Error"}]}}]
+open(os.path.join(folder, "agent-anorun.jsonl"), "w").write("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in records))
+open(os.path.join(folder, "agent-anorun.meta.json"), "w").write(json.dumps(
+    {"agentType": "implementer", "description": "write x", "requestShape": "background", "toolUseId": "t", "finished": True}))
+open(os.path.join(home, ".claude", "projects", "-norun", "s-gone.jsonl"), "w").write("")
+EOF
+out="$(printf '{"project_dir":"%s","event":"UserPromptSubmit","session_id":"s1","agent_id":""}' "$norun" | bash "$norun/.agents/hooks/policy/workloop-inbox.sh")"
+ctx="$(context "$out")"
+[[ "$ctx" == *'AGENT DIED: "write x" (implementer, anorun) connection_failed at'*"session s-gone (ended); 1 of its 1 edited files uncommitted in"*"\`claude --resume s-gone\`"* ]] \
+  || fail "a dead agent of a checkout with no run was not shown at the prompt: $ctx"
+[[ ! -e "$norun/.agents/.workloop-state.json" ]] || fail "the prompt created a workloop state file"
+ok "with no run, the lead's prompt names a dead agent of the checkout with its leftovers and remedy"
 
 # all lanes reviewed on a multi-lane run: told to integrate
 python3 - "$state" <<'EOF'
@@ -553,7 +641,8 @@ put_cells out
 # the cell's transcript ends on a Read of plan.md; the action shown is the payload's call, not the transcript's
 fire_t PostToolBatch c1 Grep '{"pattern":"TODO","path":"/x"}'
 [[ "$(field cells scout activity)" == "Grep TODO" && -n "$(field cells scout activity_at)" ]] || fail "a cell was not stamped from its payload: $(field cells scout activity)"
-ok "a cell is bound by the brief header in its transcript and stamped with the batch's last tool call from the payload"
+[[ "$(field cells scout agent_id)" == "c1" ]] || fail "the bound cell did not take its agent's id: $(field cells scout agent_id)"
+ok "a cell is bound by the brief header in its transcript, takes its agent's id, and is stamped with the batch's last tool call from the payload"
 fire_t PostToolBatch a1 Bash '{"command":"pytest -q tests/test_api.py","description":"Run the api tests"}'
 [[ "$(field lanes api activity)" == "Bash Run the api tests" && -n "$(field lanes api activity_at)" ]] || fail "a lane was not stamped by its claim: $(field lanes api activity)"
 ok "a lane is bound by its claim and stamped with its last tool call"
@@ -665,6 +754,19 @@ import json, sys
 p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["lanes"]["api"]["state"] = "reviewed"; json.dump(s, open(p, "w"))
 PY
 ok "the readout counts an unstamped agent apart from the oldest silence"
+
+# the header may follow any first line the delegation guide sanctions, and no other
+for first in 'NOTES-ONLY — this cell writes notes.' 'WORKSPACE: /tmp/elsewhere' 'Please read this first.'; do
+  printf '{"type":"user","message":{"role":"user","content":"%s\\nWORKLOOP CELL BRIEF — r1/scout\\nRead the brief."}}\n' "$first" > "$tdir/s1/subagents/agent-c2.jsonl"
+  put_cells out; rm -f "$ledgers/.activity-s1-c2"
+  fire_t PostToolBatch c2 Grep '{"pattern":"x"}'
+  if [[ "$first" == Please* ]]; then
+    [[ -z "$(field cells scout agent_id)" ]] || fail "a header after an unsanctioned first line bound the cell"
+  else
+    [[ "$(field cells scout agent_id)" == "c2" ]] || fail "a header after '$first' did not bind the cell"
+  fi
+done
+ok "a header after a NOTES-ONLY or WORKSPACE line binds the cell, as one after READ-ONLY does; one after any other line does not"
 
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"

@@ -16,6 +16,8 @@
 .agents/.writers-lock-*
 .agents/.inbox-seen-*
 .agents/.cells-*
+.agents/.agents-dismissed
+.agents/.agents-dismissed.lock
 .agents/.cell-markers-*
 .agents/.outside-runs-*
 .agents/.kimi-pending-findings-*

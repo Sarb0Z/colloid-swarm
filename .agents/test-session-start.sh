@@ -13,6 +13,11 @@ export WORKTREE_HEAL_SECONDS=inf
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
+# A Claude Code start reads Claude Code's store under the home for dead agents
+# (hooks/lib/agent_deaths.py); every start here reads a fixture home instead.
+export HOME="$scratch/home"
+unset CLAUDE_CONFIG_DIR
+mkdir -p "$HOME"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -40,7 +45,8 @@ make_fixture() {
      "$repo/.agents/hooks/lib/worklog.py" "$repo/.agents/hooks/lib/write_targets.py" \
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
-     "$repo/.agents/hooks/lib/worktree_heal.py" "$repo/.agents/hooks/lib/readout.py" "$dir/.agents/hooks/lib/"
+     "$repo/.agents/hooks/lib/worktree_heal.py" "$repo/.agents/hooks/lib/readout.py" \
+     "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals}.py "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
@@ -412,7 +418,7 @@ rm "$broken_inbox/.agents/hooks/lib/agent_silence.py"
 broken_out="$(run_policy "$broken_inbox" startup 2>"$scratch/broken-inbox.err")" || fail "a failing inbox must not fail session start"
 broken_context="$(context_of "$broken_out")"
 [[ "$broken_context" != *"WORKLOOP r1"* ]] || fail "a failing inbox listed a run"
-[[ "$broken_context" == *"Workloop runs unknown: workloop-inbox.py failed"*"agent_silence"* ]] || fail "a failing inbox must be named in the context: $broken_context"
+[[ "$broken_context" == *"Workloop runs and dead agents unknown: workloop-inbox.py failed"*"agent_silence"* ]] || fail "a failing inbox must be named in the context: $broken_context"
 grep -q "workloop-inbox.py failed.*agent_silence" "$scratch/broken-inbox.err" || fail "a failing inbox must be named on stderr: $(cat "$scratch/broken-inbox.err")"
 run_policy "$inflight" startup >/dev/null 2>"$scratch/inflight.err"
 [[ ! -s "$scratch/inflight.err" ]] || fail "a working inbox must leave session start's stderr empty: $(cat "$scratch/inflight.err")"
@@ -430,6 +436,54 @@ inflight_context="$(context_of "$(run_policy "$inflight" compact)")"
 assert_contains "$inflight_context" "1 cell out (scout); returned r1 scout when it comes back"
 assert_not_contains "$inflight_context" "no cell outlives its session"
 printf 'ok: the session start gives the dead-cell remedy at a startup and the prompt remedy at a compaction\n'
+
+# A Claude Code start in a checkout with no run names a dead agent of the
+# checkout from Claude Code's own records; a start on another host reads none.
+deaths="$(make_fixture deaths)"
+write_config "$deaths" true false
+python3 - "$HOME" "$deaths" <<'PY'
+import json, os, sys, time
+home, repo = sys.argv[1:3]; now = time.time()
+folder = os.path.join(home, ".claude", "projects", "-deaths", "s-gone", "subagents"); os.makedirs(folder)
+def iso(at): return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(at))
+records = [{"type": "user", "timestamp": iso(now - 3000), "cwd": repo, "message": {"role": "user", "content": "go"}},
+           {"type": "assistant", "timestamp": iso(now - 2800), "cwd": repo, "isApiErrorMessage": True, "error": "rate_limit",
+            "apiError": "usage_limit_reached", "message": {"role": "assistant", "content": [{"type": "text", "text": "limit"}]}}]
+open(os.path.join(folder, "agent-adeath.jsonl"), "w").write("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in records))
+open(os.path.join(folder, "agent-adeath.meta.json"), "w").write(json.dumps(
+    {"agentType": "implementer", "description": "fixture writer", "requestShape": "background", "toolUseId": "t", "finished": True}))
+open(os.path.join(home, ".claude", "projects", "-deaths", "s-gone.jsonl"), "w").write("")
+PY
+# It left an uncommitted file it never edited, so it shows only when it holds something:
+# give it a lane to hold through a run that names it.
+printf '{"version":1,"runs":{"r9":{"objective":"o","lanes":{"w":{"state":"active","claimed_by":"adeath","claimed_at":"2026-01-01T00:00:00Z","attention":null}},"messages":[]}}}' \
+  > "$deaths/.agents/.workloop-state.json"
+deaths_context="$(context_of "$(run_claude_adapter "$deaths" startup)")"
+assert_contains "$deaths_context" "Workloop runs in flight and dead agents"
+assert_contains "$deaths_context" "w's worker adeath died (usage_limit_reached) without submitting"
+[[ "$deaths_context" == *'AGENT DIED: "fixture writer" (implementer, adeath) usage_limit_reached at'*"it holds lane r9/w"* ]] \
+  || fail "the dead claimant's AGENT DIED line is missing at a Claude Code start: $deaths_context"
+assert_contains "$deaths_context" "agent deaths: cannot tell live sessions on this host (no session registry entry names this session, claude-fixture)"
+rm "$deaths/.agents/.workloop-state.json"
+printf 'edited\n' > "$deaths/notes.txt"
+python3 - "$HOME" "$deaths" <<'PY'
+import json, os, sys, time
+home, repo = sys.argv[1:3]; now = time.time()
+path = os.path.join(home, ".claude", "projects", "-deaths", "s-gone", "subagents", "agent-adeath.jsonl")
+error = open(path).read().splitlines(keepends=True)[-1]
+write = {"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(now - 2700)), "cwd": repo,
+         "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "w", "name": "Write", "input": {"file_path": os.path.join(repo, "notes.txt")}}]}}
+# Its session resumed, writing its own transcript; the agent wrote a file, then hit the limit again.
+open(os.path.join(home, ".claude", "projects", "-deaths", "s-gone.jsonl"), "a").write('{"type":"last-prompt"}\n')
+open(path, "a").write(json.dumps(write, separators=(",", ":")) + "\n" + error)
+PY
+deaths_context="$(context_of "$(run_claude_adapter "$deaths" startup)")"
+assert_contains "$deaths_context" 'AGENT DIED: "fixture writer" (implementer, adeath) usage_limit_reached at'
+assert_contains "$deaths_context" "1 of its 1 edited files uncommitted in"
+assert_not_contains "$deaths_context" "WORKLOOP r9"
+other_context="$(context_of "$(run_policy "$deaths" startup)")"
+assert_not_contains "$other_context" "AGENT DIED"
+printf 'ok: a Claude Code start names a dead agent of the checkout, run or no run; a start on another host reads none\n'
 
 # Startup, resume, and compact starts each inject one teaching contract.
 resume="$(make_fixture resume)"
