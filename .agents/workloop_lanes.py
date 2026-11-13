@@ -295,7 +295,7 @@ def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str,
             *([f"Diff: {found[0][:12]}..{found[1][:12]} in the checkout; this lane's commits: {', '.join(sha[:12] for sha in found[2])} — build its diff with: git diff {found[0]}..{found[1]} -- {' '.join(lane['paths'] + shared_of(run))}"] if found else []),
             *([f"Mixed commits — {'; '.join(found[3])}: paths outside the lane's in its own commits; judge whether they are this lane's work or another writer's"] if found and found[3] else []),
             f"Provision: .agents/provision.sh {repo} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
-            "Commit on the checkout's current branch before submit, staging by path only (git add -- <path>..., never -A, . or commit -a): others may hold uncommitted work in this checkout. Review reads the commits, not the working tree.",
+            *(["Commit on the checkout's current branch before submit, staging by path only (git add -- <path>..., never -A, . or commit -a): others may hold uncommitted work in this checkout. Review reads the commits, not the working tree."] if role == "worker" else []),
         ]
     return [
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
@@ -303,7 +303,7 @@ def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str,
         *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {run_name} {lane_name} --also <dir>)"] if lane.get("sparse") else []),
         *([f"node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile with {LOCKFILE_ONLY}, then run .agents/provision.sh {lane['workspace']}, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
-        "Commit on the lane branch before submit; review and integration read the branch, not the working tree.",
+        *(["Commit on the lane branch before submit; review and integration read the branch, not the working tree."] if role == "worker" else []),
     ]
 
 

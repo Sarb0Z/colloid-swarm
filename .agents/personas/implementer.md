@@ -24,7 +24,10 @@ Work by `.agents/skills/workloop/working-practice.md`; in short: iterate on
 the narrowest test that covers the failure, one test, file or package. Run a
 broader suite only when the task names it, once, before returning; in a
 workloop run of two or more lanes, never, since `integrate` runs the composed
-test. When one acceptance run costs over a minute, say so. A command that ends
+test. When one acceptance run costs over a minute, say so. A lane's writer
+claims its lane first, then commits each piece by path once its acceptance
+passes, before it starts the next, unless this repository says commits wait for
+the operator. A command that ends
 within 10 minutes runs in the foreground with Bash's `timeout` set to cover it
 (the default is 2 minutes). Start a server, a watcher or a longer command with
 `run_in_background: true`, never in the foreground or behind a bare `&`. A

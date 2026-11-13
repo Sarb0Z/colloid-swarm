@@ -14,7 +14,10 @@ Work by `.agents/skills/workloop/working-practice.md`; in short: iterate on
 the narrowest test that covers the failure, one test, file or package. Run a
 broader suite only when the task names it, once, before returning; in a
 workloop run of two or more lanes, never, since `integrate` runs the composed
-test. When one acceptance run costs over a minute, say so. Start a server, a
+test. When one acceptance run costs over a minute, say so. A lane's writer
+claims its lane first, then commits each piece by path once its acceptance
+passes, before it starts the next, unless this repository says commits wait for
+the operator. Start a server, a
 watcher or a command longer than 10 minutes with
 `nohup sh -c '<cmd>; echo "exit=$?"' > <log> 2>&1 & echo $!`, keep its process
 number, and never run it in the foreground. Wait with a capped loop, such as

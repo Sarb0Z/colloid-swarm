@@ -586,6 +586,17 @@ grep -q 'WORKLOOP REVIEWER BRIEF' <<<"$reviewer_brief" || fail "the reviewer bri
 ! grep -q 'Working practice:' <<<"$reviewer_brief" || fail "a reviewer brief carries the working practice"
 ok "the brief exports the lane's environment, its lease, and the working practice for workers and QA only"
 
+# Only a lane's writer commits: the "Commit on" line is the worker's, and the working practice's commit line, which a QA
+# cell also reads, opens with the writer as its subject.
+qa_brief="$(full_brief res plain --role qa)"
+worker_brief="$(full_brief res plain)"
+grep -q '^Commit on the lane branch before submit' <<<"$worker_brief" || fail "a worktree lane's worker brief lacks its Commit on line"
+! grep -q '^Commit on' <<<"$reviewer_brief" || fail "a worktree lane's reviewer brief tells it to commit"
+! grep -q '^Commit on' <<<"$qa_brief" || fail "a worktree lane's QA brief tells it to commit"
+grep -q "^- Only a lane's writer commits; a reviewer, a QA cell and a cell with no lane never do\. As the writer, claim the lane first" <<<"$qa_brief" \
+  || fail "the working-practice commit line in a QA brief does not open with the writer as its subject"
+ok "a worktree lane's reviewer and QA briefs carry no Commit on line, and the QA brief's commit line names the writer"
+
 # ── the brief is a dispatch line over a file in the lane's worktree ──────────
 "${tool[@]}" init brf --objective 'brief file' --acceptance 'file holds the brief' --repo "$work" --verify 'true'
 bw="$scratch/lane-brf"
@@ -998,6 +1009,10 @@ for want in "Workspace: the checkout $real_work, on its current branch — no wo
   grep -qF -- "$want" <<<"$solo_brief" || fail "the main lane's worker brief lacks '$want'"
 done
 ! grep -q 'lane branch' <<<"$solo_brief" || fail "the main lane's brief speaks of a lane branch"
+for role in reviewer qa; do
+  ! full_brief ow solo --role "$role" | grep -q '^Commit on' || fail "the main lane's $role brief tells it to commit"
+done
+full_brief ow solo --role qa | grep -q "^- Only a lane's writer commits;" || fail "the main lane's QA brief lacks the writer-first commit line"
 [[ "$(gate_kind "$real_work" "$prompt")" == "plain" ]] || fail "the gate did not read the main lane's worker dispatch as a plain writer"
 [[ -z "$(git -C "$work" status --porcelain --untracked-files=all | grep -F .workloop || true)" ]] || fail "the main lane's brief dirties the checkout: $(git -C "$work" status --porcelain)"
 expect "a one-writer run's lane works in the main tree; start a new run for writers working at once" "${tool[@]}" add-lane ow second --worker implementer --path tests
