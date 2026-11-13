@@ -1862,6 +1862,36 @@ grep -q "WAITING ON THE OPERATOR — asks/asking: its cell's agent waits on a pe
 grep -q 'SILENT CELL — asks/hushed' <<<"$watch_out" || fail "watch stopped naming the silent cell beside the waiting one: $watch_out"
 ok "watch names a cell whose agent waits on a permission prompt as waiting on the operator, with its tool and command, not silent"
 
+# A cell whose agent is held on its very first call was never stamped, so it carries no
+# agent id; the brief header its transcript opens with binds it, as the stamp hook binds.
+"${wtool[@]}" add-cell asks first --role research --model haiku >/dev/null
+python3 - "$wait_state" "$wait_home" <<'EOF'
+import json, sys, time
+state, home = sys.argv[1:]
+s = json.load(open(state))
+s["runs"]["asks"]["cells"]["first"]["out_since"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 2400))
+json.dump(s, open(state, "w"))
+stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 60)) + ".000Z"
+brief = {"type": "user", "timestamp": stamp, "cwd": "/", "message": {"role": "user", "content": "WORKLOOP CELL BRIEF — asks/first\nRead the brief."}}
+call = {"type": "assistant", "timestamp": stamp, "cwd": "/", "message": {"role": "assistant", "stop_reason": "tool_use",
+        "content": [{"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "touch first.txt"}}]}}
+open(f"{home}/.claude/projects/-w/sw/subagents/agent-afirst.jsonl", "w").write(json.dumps(brief) + "\n" + json.dumps(call) + "\n")
+EOF
+printf '{"project_dir":"%s","agent_id":"afirst","agent_type":"general-purpose","session_id":"sw","transcript_path":"%s","tool_name":"Bash","tool_input":{"command":"touch first.txt"}}' \
+  "$wait_repo" "$wait_home/.claude/projects/-w/sw.jsonl" | HOME="$wait_home" python3 "$repo/.agents/hooks/lib/agent_waits.py" record "$wait_repo"
+watch_out="$(HOME="$wait_home" CLAUDE_CONFIG_DIR= "${wtool[@]}" watch asks --stale-seconds 900)"
+grep -q "WAITING ON THE OPERATOR — asks/first: .*Bash: touch first.txt" <<<"$watch_out" || fail "watch did not bind an unstamped cell to its waiting agent by the brief header: $watch_out"
+! grep -q 'UNSTAMPED CELL — asks/first' <<<"$watch_out" || fail "watch called a cell held on its first call unstamped: $watch_out"
+ok "watch binds a cell held on its first call to its waiting agent by the brief header, and names it waiting, not unstamped"
+
+# An unreadable waits record costs the waiting lines, never the silence check.
+printf 'not json' > "$wait_repo/.agents/.readout/.agent-waits"
+watch_err="$scratch/watch.err"
+watch_out="$(HOME="$wait_home" CLAUDE_CONFIG_DIR= "${wtool[@]}" watch asks --stale-seconds 900 2>"$watch_err")" || fail "watch failed on an unreadable waits record: $(cat "$watch_err")"
+grep -q 'SILENT CELL — asks/hushed' <<<"$watch_out" || fail "an unreadable waits record stopped the silence check: $watch_out"
+grep -q "watch: the agents waiting on a permission prompt could not be read" "$watch_err" || fail "watch did not name the unreadable waits record on stderr: $(cat "$watch_err")"
+ok "watch names an unreadable waits record on stderr and still reports the silent cells"
+
 # returned and teardown rewrite the workloop readout; a cell sent out again starts with no stamp
 readout_note() { python3 "$repo/.agents/hooks/lib/readout.py" show --repo "$work"; }
 "${tool[@]}" returned act busy --result reply >/dev/null
