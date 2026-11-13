@@ -19,8 +19,8 @@ past it, its strip segment and note carry its age: `(12m old)`, `(30h old)`,
 Only `*.json` files are readouts; any other file in the folder is the
 writing unit's own ledger. Lifetime: `prune` (run at session start) removes
 session-scoped readouts written over 7 days ago, `.write-*.tmp` files over an
-hour old, and any non-`*.json` file whose mtime is over 7 days old, so a unit
-that keeps a ledger here must touch it at least weekly. Repository-wide
+hour old, and any other file whose mtime is over 7 days old, except a `*.lock`
+file, so a unit that keeps a ledger here must touch it at least weekly. Repository-wide
 readouts are never pruned; their writer owns them.
 
 Strip text has every control character turned into a space. A note keeps its
@@ -183,29 +183,34 @@ def note_lines(note, limit, command):
 
 def death_segments(repo):
     """`<run>/<lane> died <cause>` or `<run>/<cell> parked` for each active lane whose claimant,
-    and each cell out whose agent, the death reader's cache judges dead or parked. The cache is
-    read as it stands: the strip runs at every refresh and never runs the reader."""
+    and each cell out whose agent, the death reader's cache judges dead or parked; a cell sent
+    out again ignores its earlier agent's death. The cache is read as it stands: the strip runs
+    at every refresh and never runs the reader. A missing cache shows nothing; one that cannot
+    be read shows `deaths: unreadable`."""
     state = Path(repo) / ".agents" / ".workloop-state.json"
     try:
         data = json.loads(state.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    import agent_deaths  # not at the top: write and show run from a copy of this file alone
-    dead = agent_deaths.judged_dead(Path(repo))
-    if not dead:
-        return []
+    # Not at the top: write and show run from a copy of this file alone.
+    import agent_deaths
+    import agent_silence
+    import agent_verdicts
+    try:
+        dead = agent_deaths.judged_dead(Path(repo))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return ["deaths: unreadable"]
     segments = []
     for run_name, run in (data.get("runs") or {}).items():
         if run.get("torn_down"):
             continue
-        held = [(name, lane.get("claimed_by")) for name, lane in (run.get("lanes") or {}).items()
+        held = [(name, lane.get("claimed_by"), None) for name, lane in (run.get("lanes") or {}).items()
                 if lane.get("state") == "active"]
-        held += [(name, cell.get("agent_id")) for name, cell in (run.get("cells") or {}).items()
-                 if cell.get("state") == "out"]
-        for name, agent in held:
-            if agent in dead:
-                verdict, cause = dead[agent]
-                segments.append(cut(f"{run_name}/{name} " + ("parked" if verdict == "parked" else f"died {cause}")))
+        held += [(name, cell.get("agent_id"), agent_silence.parse(cell.get("out_since")))
+                 for name, cell in (run.get("cells") or {}).items() if cell.get("state") == "out"]
+        for name, agent, since in held:
+            if verdict := agent_verdicts.dead_since(dead, agent, since):
+                segments.append(cut(f"{run_name}/{name} " + ("parked" if verdict.state == "parked" else f"died {verdict.cause}")))
     return segments
 
 
@@ -259,7 +264,8 @@ def prune(repo):
     if not directory.is_dir():
         return
     for path in directory.iterdir():
-        if not path.is_file() or path.suffix == ".json":
+        # A lock file's mtime never moves while it is in use, and a unit's writers lock on it.
+        if not path.is_file() or path.suffix in (".json", ".lock"):
             continue
         limit = PRUNE_TEMP_AFTER if path.name.startswith(".write-") and path.suffix == ".tmp" else PRUNE_FILE_AFTER
         if now - datetime.fromtimestamp(path.stat().st_mtime, timezone.utc) > limit:
