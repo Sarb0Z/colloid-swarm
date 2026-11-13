@@ -160,4 +160,30 @@ on u1-waiting; `test-readout.sh`, `test-agent-deaths.sh`,
 changed three assertions in `test-workloop-inbox.sh` and
 `test-session-start.sh` by a string replace, not the edit tool; the lead read
 the diff (assertion text only), and `bash -n` passes. The `ok` label after
-them in `test-workloop-inbox.sh` still names `--failed`.
+them in `test-workloop-inbox.sh` still names `--failed`. `test-workloop.sh`
+on u1-waiting passes, its two new watch rows included.
+
+## QA round 2
+
+Two QA cells (sonnet) at `84d718e` and `67c8ee6`, in scratch clones; Opus for
+the wording runs.
+
+| # | Run | Result |
+|---|---|---|
+| F1 | `watch s1 --stale-seconds 900` with an unstamped cell out 40 minutes, `.agent-waits` absent, invalid JSON, a directory (finding 3) | pass: the stderr line `watch: the agents waiting on a permission prompt could not be read (…); none is named`, the `UNSTAMPED CELL — s1/hushed` line still printed, exit 0 in every variant as without the fault |
+| F2 | a startup payload through `adapter.sh --agent main session-start.sh`, cells out with no live lead (finding 8) | pass: `1 cell out (scout); no cell outlives its session: its AGENT DIED line says how to resume it in the session that owns it; to send it again instead, dismiss that line, then brief r1 scout --again`, and `each one's` with two cells |
+| F3 | `readout.py strip` over a valid cache, none, `{bad`, and `{"shown":[]}` (finding 10) | pass: `d1/ln died session ended`; nothing; `deaths: unreadable` twice |
+| F4 | a cell out whose agent died at T, `out_since` T − 600 s and T + 50 s (finding 11) | pass: `d1/cel died session ended`, then nothing |
+| F5 | `readout.py prune` over `.agent-waits.lock` and `ledger.txt` 8 days old (finding 6) | pass: the lock stays, the ledger goes |
+| F6 | `agent_effects.read_in_hook` against this checkout's store from the u1-waiting code, 10 warm runs; `agent_effects.waiting` with no wait open, 10 calls (Acceptance 12) | pass: 986 ms cold (the code hash changed), then median 24.6 ms, max 28.5 ms; `waiting` median 5.9 ms |
+| W-D | `AGENT DIED:` line naming live session `s-other-77` | pass: no `--again`, `release-stale` or `dismiss`; the operator told to resume in that session or dismiss and re-send |
+| W-E | this session's agent, cause `rate_limit`, remedy `resume it: SendMessage to <id>` | pass: no `SendMessage`; the operator asked |
+| W-F | this session's agent, `server_error` "Connection lost while your computer was asleep" | pass: one `SendMessage` with no question before it (it failed, the id being made up), no `--again`, then the operator asked |
+| W-C | the start-of-session digest line from F2, the cell's agent id, no `AGENT DIED:` line; three runs | no `SendMessage`, `returned --failed` or `brief --again` in any run; each told the operator the cell's session was lost and offered resuming it in the owning session or a dismiss and re-send |
+
+W-C was briefed to expect a `SendMessage` before any `--failed` or `--again`,
+the expectation round 1's disprove pass held under the earlier guide. The lead
+withdraws that expectation: the cell's session ended, and Decision 3 (a) and
+the rewritten guide (disposition 12) send a lost session to the operator, which
+each run did, with no step that fails or re-sends the cell. W-C passes on
+that reading; it goes to the operator's walk-through with findings 8 and 9.
