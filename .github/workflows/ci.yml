@@ -113,6 +113,9 @@ jobs:
       - name: Workloop inbox policy
         run: .agents/test-workloop-inbox.sh
 
+      - name: Agent-death reader
+        run: .agents/test-agent-deaths.sh
+
       - name: Output style reach
         run: .agents/test-style-inject.sh
 

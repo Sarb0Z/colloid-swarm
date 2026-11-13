@@ -11,10 +11,12 @@ the hook payload, so an agent that is stuck or silent still shows an age.
 
 A lane is bound by its claim. A cell is bound by the brief header in the first
 record of its transcript, `<dirname(transcript-path)>/<session>/subagents/agent-<agent-id>.jsonl`:
-`WORKLOOP CELL BRIEF — <run>/<name>` on its first line, or on its second after
-`READ-ONLY`; the transcript is read for nothing else, and only when no lane is
-claimed by the agent. The stamp lands on `activity_at` and `activity` of the lane
-or cell, at most once a minute per agent (<agents-dir>/.readout/.activity-<session>-<agent>,
+`WORKLOOP CELL BRIEF — <run>/<name>` on its first line, or on its second after a
+`READ-ONLY`, `NOTES-ONLY` or `WORKSPACE: <path>` line; the transcript is read for
+nothing else, and only when no lane is claimed by the agent. The stamp lands on
+`activity_at` and `activity` of the lane or cell, and a bound cell takes the
+agent's id as `agent_id`, by which the death reader (agent_deaths.py) finds it.
+It lands at most once a minute per agent (<agents-dir>/.readout/.activity-<session>-<agent>,
 the gitignored folder the readout's own files live in; a batch that bound to
 nothing writes it too, so an unbound agent costs one lookup a minute), under the
 state file's lock and in the layout `workloop_state.Store` writes. It then
@@ -39,6 +41,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from agent_silence import silence, stamped
+from readout import CONTROL
 
 INTERVAL_SECONDS = 60
 ACTION_MAX = 70
@@ -46,7 +49,8 @@ READOUT_STALE_SECONDS = 600
 LOCK_TRIES = 20
 LOCK_WAIT = 0.05
 CELL_HEADER = re.compile(r"WORKLOOP CELL BRIEF — (\S+)/(\S+)")
-CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# The first prompt lines the delegation guide lets precede the header (.agents/claude/delegation.md).
+MARKER_LINE = re.compile(r"(READ-ONLY|NOTES-ONLY)\b|WORKSPACE:\s*\S")
 # The input field that says most about a tool call, in order of preference.
 DETAIL_KEYS = ("description", "file_path", "command", "pattern", "path", "url", "query", "prompt")
 
@@ -93,7 +97,7 @@ def cell_binding(path: Path) -> tuple[str, str] | None:
     lines = first_text(path).splitlines()
     for index in (0, 1):
         found = CELL_HEADER.fullmatch(lines[index].strip()) if index < len(lines) else None
-        if found and (index == 0 or lines[0].startswith("READ-ONLY")):
+        if found and (index == 0 or MARKER_LINE.match(lines[0].strip())):
             return found.group(1), found.group(2)
     return None
 
@@ -143,6 +147,9 @@ def stamp_state(state: Path, agent_id: str, cell: tuple[str, str] | None, action
         if target is None and cell:
             found = (data.get("runs", {}).get(cell[0]) or {}).get("cells", {}).get(cell[1])
             target = found if found and found.get("state") == "out" else None
+            if target is not None:
+                # The death reader finds the cell's agent by this id.
+                target["agent_id"] = agent_id
         if target is None:
             return False
         target["activity_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

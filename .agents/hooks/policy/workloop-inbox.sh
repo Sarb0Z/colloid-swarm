@@ -15,12 +15,14 @@
 #                        call (tool_name and tool_input of the payload), at
 #                        most once a minute (agent_activity.py).
 #   UserPromptSubmit   — for the lead: lanes awaiting review, carrying
-#                        attention, stale, or broken; cells still out;
-#                        messages awaiting acknowledgement; a run ready to
-#                        integrate; and, run or no run, a turn that dispatched
-#                        two or more cells outside any run, read from the
-#                        parallel-writers gate's .agents/.outside-runs-<session>
-#                        (ruling 36).
+#                        attention, stale, broken, or whose worker died; cells
+#                        still out or whose agent died; messages awaiting
+#                        acknowledgement; a run ready to integrate; and, run or
+#                        no run, each dead agent of this checkout read from
+#                        Claude Code's own records (agent_deaths.py), and a
+#                        turn that dispatched two or more cells outside any
+#                        run, read from the parallel-writers gate's
+#                        .agents/.outside-runs-<session> (ruling 36).
 #
 # A hook cannot start a turn for an idle agent, so this reaches a cell only
 # while it is working and a lead only when they next speak. Codex and Kimi
@@ -52,16 +54,10 @@ for k in ("project_dir", "event", "session_id", "agent_id", "transcript_path"):
 
 [[ -n "$proj" && -n "$session" ]] || exit 0
 state="$proj/.agents/.workloop-state.json"
-# The gate names its ledger by the session id reduced to [A-Za-z0-9_-].
-outside_runs="$proj/.agents/.outside-runs-$(printf '%s' "$session" | tr -cd 'A-Za-z0-9_-')"
-# Without state, an event costs the payload parse above and nothing more,
-# except a subagent's start or stop, which is recorded so a run begun
-# mid-session knows which cells it can trust as its own. The ledger of
-# dispatches outside any run lifts that exit at the lead's prompt alone, the
-# one event that reads it.
-if [[ ! -f "$state" ]] && ! [[ "$event" == "UserPromptSubmit" && -f "$outside_runs" ]]; then
-  [[ -n "$agent_id" && ( "$event" == "SubagentStart" || "$event" == "SubagentStop" ) ]] || exit 0
-fi
+# Without state, a subagent's event costs the payload parse above and nothing
+# more. The lead's prompt goes on, run or no run: it hears this checkout's dead
+# agents and the ledger of dispatches outside any run.
+[[ -z "$agent_id" || -f "$state" ]] || exit 0
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0
 
