@@ -115,6 +115,7 @@ read 2026-11-13.
 | P16 | `/bg` on a session with a background subagent out asks "1 local agent will be stopped"; going ahead kills it (exit 137), forks a new session id whose transcript copies the old one, and the new transcript gets `failed`, "didn't finish before the previous session ended". A background session runs in `default` permission mode: it waits `blocked` on every prompt, a Write and the publish guard's ask on `git push` included, until someone attaches and answers; the push did not leave the machine | spike S7 (`bg-spike-2`), a scratch clone with a local remote | observed |
 | P17 | A background subagent waiting on a permission prompt in an ordinary session is named only by the `PermissionRequest` hook payload (`agent_id`, `agent_type`, `tool_name`, `tool_input`, no `tool_use_id`), which fires as the prompt opens. Its transcript ends on the `tool_use` with no result, as a running command's does; `meta.json`, the parent's transcript and the `Notification` hook (`permission_prompt`, "Claude needs your permission", no agent) record nothing that names it. An answer fires no hook of its own; the agent's next `PostToolUse` or its `SubagentStop` follows | spike S8, two agents in a scratch repository with logging hooks | observed |
 | P18 | With the lid closed on battery the Mac dark-wakes every 15-20 minutes for a few seconds; three cells of this session stalled together over the two sleeps 01:40-01:56Z and 01:58-02:16Z, and each carried on at the next wake: Claude Code resent the cut-off turn with an `isMeta` user record "Your response above was cut off mid-stream…", four times in S8's transcript. None died; the run's watch flagged S8 silent 16 and 18 minutes | `pmset -g log`; the cells' transcripts | observed |
+| P19 | A background session held on a permission prompt reads `state: "working"`, `tempo: "blocked"`, with `needs` set, in its job's `state.json`, and `kind: "bg"`, `status: "waiting"` in the registry; this machine also holds older blocked jobs whose sessions are gone | lane `u1-waiting`'s live run, job `175e009d` | observed |
 | E1 | 88 agents in 30 days ended without completing: 40 session ended, 18 usage limit, 15 stopped by their parent, 10 sleep, 4 no network, 1 stall | cell scan of parent transcripts | observed |
 | E4 | A sleep death reaches the parent at a dark wake, up to 460 min after the agent's last work | U3 transcript; `pmset -g log` | observed |
 | E5 | U3's parent got the failure at 04:36Z, began a reply, its own turn died at 07:40Z, and it stayed open but idle | `2f0a4771-….jsonl:3675-3699` | observed |
@@ -272,15 +273,17 @@ Built in order; each works end to end before the next starts.
 - **Waiting on you** (operator's ruling after S7). An agent stuck on a
   permission prompt is alive and silent, and rules 1-3 read it `running`
   (P16; the first U4 spike sat 20 minutes on the publish guard's ask). A
-  background session whose job reads `blocked` is shown as `WAITING ON YOU:
-  "<description>" (<agent id>) <its needs text>; claude attach <id>`. For an
-  agent inside an ordinary session only the `PermissionRequest` hook names
-  it (P17), so lane 2 registers one that records the session, the agent, the
-  tool and its command in the gitignored `.agents/.readout/`. The agent shows
-  `WAITING ON YOU: "<description>" (<agent id>) <tool>: <command>` until the
-  same agent's next `PostToolUse`, `PostToolUseFailure` or `SubagentStop`, or
-  its session ends; the run's watch names such a cell waiting, not silent. A
-  session that started before the hook was registered shows nothing new.
+  live background session working in this checkout whose job is held on a
+  prompt (P19) is shown as `WAITING ON YOU: "<description>" (<job id>) <its
+  needs text, else its detail>; claude attach <id>`. For an agent inside an
+  ordinary session only the `PermissionRequest` hook names it (P17), so lane
+  `u1-waiting` registers one that records the session, the agent, the tool
+  and its command in the gitignored `.agents/.readout/`. The agent shows
+  `WAITING ON YOU: "<description>" (<agent id>) <tool>: <command>` until it
+  writes a message record newer than the request (its tool result after an
+  answer, its text after a deny) or its session ends; the run's watch names
+  such a lane or cell waiting on the operator, not silent. A session that
+  started before the hook was registered shows nothing new.
 - **Lanes.** The first (`u1-reader`, landed at `49eb623`) built the reader,
   its wiring at each start and prompt, and the `.cells` removal. Two more run
   at once on disjoint files: `u1-waiting` builds the waiting line with its
@@ -443,8 +446,9 @@ found:
     work", and whose session then ended, reads `lost`; a status-less "was
     restarted" notification gives no verdict; an agent of a session whose
     job reads `stopped` reads `parked`.
-17. A background session whose job reads `blocked` shows a `WAITING ON YOU:`
-    line with its needs text and `claude attach <id>`, and none once it is
+17. A live background session in this checkout held on a prompt (P19) shows
+    a `WAITING ON YOU:` line with its needs text and `claude attach <id>`, and
+    none once it is
     answered; a background subagent of an ordinary session waiting on a
     permission prompt (a Bash command outside the allow list) shows one
     naming its tool and command within one prompt, the watch names its cell
