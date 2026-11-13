@@ -40,7 +40,7 @@ jobs:
 
       # Every later step runs as suite.sh runs a check: a temporary home with
       # only a git identity, and no system git settings, where this runner
-      # image marks every folder safe. It stays above the first check.
+      # image marks every folder safe. lint-suite.py fails a check above it.
       - name: Check environment
         run: .agents/check-env.sh github
 

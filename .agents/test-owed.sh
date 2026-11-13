@@ -32,7 +32,7 @@ key=4242
 session=sess-owed
 mkdir -p "$fx/.agents/hooks/lib" "$fx/docs/reviews"
 cp "$repo"/.agents/hooks/lib/*.py "$fx/.agents/hooks/lib/"
-cp "$repo/.agents/suite.sh" "$fx/.agents/suite.sh"
+cp "$repo/.agents/suite.sh" "$repo/.agents/check-env.sh" "$fx/.agents/"
 cat > "$fx/.agents/policy.json" <<'JSON'
 {"owed": {"critical_paths": ["AGENTS.md", ".agents/hooks/**"], "suite": "bash .agents/fake-suite.sh"}}
 JSON
@@ -301,6 +301,8 @@ cat > "$scratch/ci.yml" <<'YML'
 jobs:
   x:
     steps:
+      - name: Check environment
+        run: .agents/check-env.sh github
       - name: A
         run: python3 .agents/a.py
       - name: B
@@ -318,6 +320,14 @@ jobs:
 YML
 out="$(lint "$scratch/check-all.sh" "$scratch/ci.yml")" || fail "agreeing lists must pass: $out"
 ok "lint-suite passes when the lists agree, with the CI-only steps named"
+
+cp "$scratch/ci.yml" "$scratch/ci-ordered.yml"
+printf 'jobs:\n  x:\n    steps:\n      - name: A first\n        run: python3 .agents/a.py\n' > "$scratch/ci.yml"
+sed '1,3d' "$scratch/ci-ordered.yml" >> "$scratch/ci.yml"
+out="$(lint "$scratch/check-all.sh" "$scratch/ci.yml")" && fail "a check before the environment step must fail"
+[[ "$out" == *".agents/a.py: runs before .agents/check-env.sh in ci.yml"* ]] || fail "wrong message: $out"
+cp "$scratch/ci-ordered.yml" "$scratch/ci.yml"
+ok "lint-suite fails a check CI runs before the step that gives it the checks' environment"
 
 sed -i.bak '/test-b.sh/d' "$scratch/ci.yml"
 out="$(lint "$scratch/check-all.sh" "$scratch/ci.yml")" && fail "a check missing from CI must fail"
@@ -347,7 +357,7 @@ for f in .agents/node_modules/p/test-n.sh .agents/worktrees/w/test-w.sh .agents/
 git -C "$tt" init -q -b main && git -C "$tt" add -A
 treelint() { python3 "$repo/.agents/lint-suite.py" --script "$tt/.agents/check-all.sh" --ci "$scratch/ci.yml" --root "$tt" 2>&1; }
 # the shared fixture ci.yml was edited above; give this check an agreeing one
-printf 'jobs:\n  x:\n    steps:\n      - run: .agents/test-b.sh\n      - run: .agents/check-clean-tree.sh\n      - run: python3 demo/embed-src.py\n' > "$scratch/ci.yml"
+printf 'jobs:\n  x:\n    steps:\n      - run: .agents/check-env.sh github\n      - run: .agents/test-b.sh\n      - run: .agents/check-clean-tree.sh\n      - run: python3 demo/embed-src.py\n' > "$scratch/ci.yml"
 out="$(treelint)" || fail "a listed test, tests called one and two levels down, and skipped folders must pass: $out"
 [[ "$out" == *"3 test files reached"* ]] || fail "the reached count must be 3: $out"
 ok "lint-suite reaches tests listed or called two levels down, and skips ignored and vendored folders"
@@ -395,7 +405,7 @@ printf '"""the lint"""\nUNLISTED_TESTS = {".agents/test-x.sh": "r"}\n' > "$ttl/.
 printf 'checks() {\n  cat <<'"'"'LIST'"'"'\n.agents/test-b.sh\npython3 .agents/lint-suite.py\nLIST\n}\n' > "$ttl/.agents/check-all.sh"
 printf '#!/usr/bin/env bash\n.agents/test-leaf.py\n' > "$ttl/.agents/sub/test-mid.sh"
 git -C "$ttl" add -A
-printf 'jobs:\n  x:\n    steps:\n      - run: .agents/test-b.sh\n      - run: python3 .agents/lint-suite.py\n      - run: .agents/check-clean-tree.sh\n      - run: python3 demo/embed-src.py\n' > "$scratch/ci-lint.yml"
+printf 'jobs:\n  x:\n    steps:\n      - run: .agents/check-env.sh github\n      - run: .agents/test-b.sh\n      - run: python3 .agents/lint-suite.py\n      - run: .agents/check-clean-tree.sh\n      - run: python3 demo/embed-src.py\n' > "$scratch/ci-lint.yml"
 out="$(allowlint '{".agents/test-x.sh": "r"}' --script "$ttl/.agents/check-all.sh" --ci "$scratch/ci-lint.yml" --root "$ttl")" || fail "the lint's own allowlist line must not read as a call to the test it names: $out"
 ok "lint-suite does not read its own file as a caller"
 

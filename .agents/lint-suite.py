@@ -15,7 +15,10 @@ workflow. Two named lists hold the differences that are meant:
              regeneration pair. A step that drops out of CI fails the lint.
   NOT_ON_CI  checks the runner cannot run, each with its reason.
 
-An entry that no longer describes a difference is itself a failure.
+An entry that no longer describes a difference is itself a failure. The first
+check CI runs is ENVIRONMENT_STEP, which gives the job's later steps the
+environment suite.sh gives each check; a check above it runs in the runner's
+own.
 
 The same list must also reach every test file. Every `test-*` file under
 `.agents/` that git tracks or could track (ignored files, and folders named
@@ -50,6 +53,7 @@ CI_ONLY = {
 }
 NOT_ON_CI = {}
 UNLISTED_TESTS = {}
+ENVIRONMENT_STEP = ".agents/check-env.sh"
 
 CHECK = re.compile(r"^(?:python3\s+)?((?:\.agents|demo)/\S+(?:\s+[A-Za-z][\w-]*)?)\s*(?:$|\|)")
 
@@ -110,6 +114,8 @@ def script_path(check):
 def problems(script, ci):
     in_script, in_ci = script_checks(script), ci_checks(ci)
     errors = []
+    if in_ci and script_path(in_ci[0]) != ENVIRONMENT_STEP:
+        errors.append(f"{in_ci[0]}: runs before {ENVIRONMENT_STEP} in {Path(ci).name}, in the runner's own environment")
     for check in in_script:
         if check not in in_ci and script_path(check) not in NOT_ON_CI:
             errors.append(f"{check}: in {Path(script).name} but not run by {Path(ci).name}")
