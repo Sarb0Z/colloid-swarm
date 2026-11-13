@@ -597,7 +597,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, what the worktree sweep removed or kept, and workloop runs with no recorded lead. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 407 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 409 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -638,9 +638,11 @@ detect:
 #     it removed or kept and what each kept one&#x27;s work is about, each `saved/`
 #     branch, and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
-#   - Workloop runs in flight, and on Claude Code each dead agent of this
-#     checkout read from Claude Code&#x27;s own records, run or no run
-#     (hooks/lib/workloop-inbox.py, hooks/lib/agent_deaths.py).
+#   - Workloop runs in flight, and on Claude Code each agent of this checkout
+#     waiting on the operator and each dead one, read from Claude Code&#x27;s own
+#     records and the PermissionRequest hook&#x27;s, run or no run
+#     (hooks/lib/workloop-inbox.py, hooks/lib/agent_waits.py,
+#     hooks/lib/agent_deaths.py).
 #   - Unit readouts: the note of each readout visible to this session, from
 #     .agents/.readout/ (hooks/lib/readout.py, which also prunes old session
 #     files here). Silent when .agents/.readout/ is missing or no readout
@@ -918,7 +920,7 @@ EOF
 
   if [[ -n &quot;$workloop_digest&quot; ]]; then
     section
-    echo &quot;Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; AGENT DIED lines from Claude Code&#x27;s own records, hooks/lib/agent_deaths.py):&quot;
+    echo &quot;Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; WAITING ON YOU lines for agents stuck on a permission prompt or a blocked background session, hooks/lib/agent_waits.py; AGENT DIED lines from Claude Code&#x27;s own records, hooks/lib/agent_deaths.py):&quot;
     printf &#x27;%s\n&#x27; &quot;$workloop_digest&quot;
   fi
 
@@ -1319,7 +1321,7 @@ exit 0
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
               <p class="what">Carries a parallel run&#x27;s messages without polling. Wired to SubagentStart, SubagentStop, UserPromptSubmit and PostToolBatch. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; each tool batch stamps the lane or cell with the time and the batch&#x27;s last call, so a silent cell shows an age, and binds a cell to its agent&#x27;s id. When a worker finishes without submitting, only the lane&#x27;s Docker resources are reaped; one that died keeps them for its resume. Either way the lane waits for the lead&#x27;s <code>release-stale</code>.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 296 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 299 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
 Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt; &lt;host&gt;]
@@ -1336,7 +1338,8 @@ that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
 awaiting review, lanes carrying attention, lanes whose heartbeat is stale,
 lanes and cells whose agent died. Run or no run, at every Claude Code start
-and prompt it hears the dead agents of this checkout (agent_deaths.py), and
+and prompt it hears the agents of this checkout waiting on the operator
+(agent_waits.py) and its dead agents (agent_deaths.py), and
 at a prompt, when the turn that just ended dispatched two or more cells
 outside any run, read once from the parallel-writers gate&#x27;s ledger
 &lt;seen-dir&gt;/.outside-runs-&lt;session&gt; (ruling 36).
@@ -1595,9 +1598,11 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     # Claude Code&#x27;s records are read at a prompt (a Claude Code hook) and at a Claude Code start.
     claude = event == &quot;UserPromptSubmit&quot; or host == &quot;claude&quot;
     report = agent_effects.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    waiting = agent_effects.waiting_in_hook(seen_dir) if claude else &quot;&quot;
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else &quot;&quot;
-    return &quot;\n&quot;.join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == &quot;SessionStart&quot;)) if part)
+    deaths = report.block(agent_deaths.SHOWN_MAX, event == &quot;SessionStart&quot;)
+    return &quot;\n&quot;.join(part for part in (outside, digest, waiting, deaths) if part)
 
 
 def main() -&gt; None:
@@ -12015,7 +12020,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 105 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 106 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -12045,6 +12050,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-parallel-writers.sh
 .agents/test-workloop-inbox.sh
 .agents/test-agent-deaths.sh
+.agents/test-agent-waits.sh
 .agents/test-style-inject.sh
 .agents/test-ui-gate.sh
 .agents/test-teardown-gate.sh
