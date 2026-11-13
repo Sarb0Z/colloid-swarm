@@ -375,6 +375,18 @@ line = r.lines[r.shown.index("aheadless")] if "aheadless" in r.shown else ""
 expect(r.verdicts["aheadless"].state == "lost" and r.verdicts["aheadless"].cause == "session ended" and "1 of its 1 edited files uncommitted" in line,
        "a headless agent whose final turn started a background command read completed", r)
 print("ok    a headless agent, with no toolUseResult on its records, waiting on its own background command is not completed")
+# A foreground Bash call that outlives its timeout is moved to the background: its call has no
+# run_in_background, and only the result's toolUseResult.backgroundTaskId says so.
+store.session("s-moved", repo); store.register("s-moved", NOW - 7200, live=False)
+moved = [prompt(NOW - 3000), call(NOW - 2950, "Write", {"file_path": str(repo / "c.txt"), "content": "hi\n"}, "m1"), result(NOW - 2940, "m1"),
+         call(NOW - 2930, "Bash", {"command": "linux-check.sh", "timeout": 120000}, "m2"),
+         background_result(NOW - 2920, "m2", "bmoved01"), answer(NOW - 2910, "the check runs in the background")]
+store.agent("s-moved", "amoved", moved, repo, description="writer whose command was moved to the background")
+(repo / "c.txt").write_text("hi\n")
+r = store.read(repo)
+expect(r.verdicts["amoved"].state == "lost" and r.verdicts["amoved"].cause == "session ended",
+       "an agent whose foreground command was moved to the background read completed", r)
+print("ok    an agent whose foreground command Claude Code moved to the background is not completed by its answer")
 # An answer after the background command reported back, in a later turn, is a completion.
 store.extend("s-waited", "awaits", [prompt(NOW - 2800, "<task-notification>the suite passed</task-notification>"), answer(NOW - 2790)], repo)
 expect(store.read(repo).verdicts["awaits"].state == "completed", "an answer in a turn after the background command finished was not completed")
