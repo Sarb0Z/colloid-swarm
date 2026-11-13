@@ -6,8 +6,9 @@ line injected into every cell).
 
 **Gate: closed for U1 to U3**, ruled by the operator on 2026-11-13: Decision
 1 (b), 2 (a), 3 (a), 4 (a); the decisions stood in for the `grill-me`
-interview. **Open for U4**: it stopped at its stop condition after spike S7
-and waits on the operator's ruling.
+interview. **U4 is out of this delivery**, ruled by the operator after spike
+S7: Acceptance 10's lid test adds one background session, and U4 returns as
+a new plan only if it survives.
 
 The ask, verbatim (2026-11-13), after background agent U3 in the tax-appeals-app
 console died when the Mac's lid closed and no one noticed for two days: "Just
@@ -264,6 +265,19 @@ Built in order; each works end to end before the next starts.
 - **Lead behaviour.** The workloop guide's cell lifecycle (`SKILL.md:152-160`)
   says to resume a dead cell by `SendMessage` first and, under Decision 3, that
   the lead resumes a transient failure once without asking.
+- **Waiting on you** (operator's ruling after S7). An agent stuck on a
+  permission prompt is alive and silent, and rules 1-3 read it `running`
+  (P16; the first U4 spike sat 20 minutes on the publish guard's ask). A
+  background session whose job reads `blocked` is shown as `WAITING ON YOU:
+  "<description>" (<agent id>) <its needs text>; claude attach <id>`. For an
+  agent inside an ordinary session, spike S8 first reads whether Claude
+  Code's `Notification` hook (`permission_prompt`) names the agent and
+  whether its transcript shows the pending prompt; the line follows what S8
+  finds.
+- **Two lanes.** The first (`u1-reader`) built the reader, its wiring at
+  each start and prompt, and the `.cells` removal. The second builds the
+  readout's `died <cause>`, the workloop guide's cell-lifecycle wording, the
+  `decisions.md` entry and the waiting line.
 - **Scope.** Claude Code only; Codex and Kimi keep today's behaviour.
 
 ### U2: writers commit as they go
@@ -304,7 +318,9 @@ Built in order; each works end to end before the next starts.
 
 ### U4: long unattended work runs as a background session
 
-**Stopped at its stop condition; waiting on the operator.** The design was:
+**Out of this delivery** (operator, after S7): Acceptance 10's lid test adds
+one background session with a writer out, and U4 returns as a new plan only
+if it survives. The design that met its stop condition was:
 the operator moves the lead to the background with `/bg` when its cells must
 outlive their attention, `worktree.bgIsolation: "none"` keeps it in the
 checkout, and the readout hints when to do it. Spikes S6 and S7 (P12-P16)
@@ -383,11 +399,15 @@ found:
 10. Operator, on the Mac: start a background writer on a long task, close the
     lid on battery for at least 20 minutes, open it and send a prompt. The
     `AGENT DIED:` line says it lost its connection while the computer slept,
-    and `SendMessage` to it continues its work.
+    and `SendMessage` to it continues its work. In the same lid closing, a
+    session started with `claude --bg` with a writer out: whether the writer
+    finishes with no resume is U4's evidence.
 11. In `ubuntu:24.04` the reader's tests, the touched hook tests,
     `test-workloop-inbox.sh` and `test-session-start.sh` pass.
 12. With an empty cache the reader takes at most 300 ms over this machine's
-    store, and at most 50 ms warm.
+    store, and at most 50 ms warm. Measured on lane `u1-reader`: 415 ms
+    cold, 1,221 ms with a cold disk cache, 36-43 ms warm; the lead accepts
+    the cold miss, since a checkout's cache is empty once.
 13. `.agents/suite.sh` passes on the landed tree, `port-public.py check`
     included.
 14. In the `ubuntu:24.04` container, the reader's self-check passes against a
@@ -411,6 +431,10 @@ found:
     work", and whose session then ended, reads `lost`; a status-less "was
     restarted" notification gives no verdict; an agent of a session whose
     job reads `stopped` reads `parked`.
+17. A background session whose job reads `blocked` shows a `WAITING ON YOU:`
+    line with its needs text and `claude attach <id>`, and none once it is
+    answered; an agent waiting on a prompt in an ordinary session shows one
+    if spike S8 finds a record that names it.
 
 ## Lenses
 
@@ -447,7 +471,8 @@ found:
 
 ## Decisions for the operator
 
-Ruled on 2026-11-13: 1 (b), 2 (a), 3 (a), 4 (a).
+Ruled on 2026-11-13: 1 (b), 2 (a), 3 (a), 4 (a). After spike S7: U4 out of
+this delivery and tested at the lid check; a waiting-on-you line added to U1.
 
 1. **Approval of the plan, and whether background sessions join it.**
    - (a) Recommended: approve U1 to U3; background sessions for long
@@ -485,8 +510,6 @@ Ruled on 2026-11-13: 1 (b), 2 (a), 3 (a), 4 (a).
 
 ## Out of scope, reported
 
-- A permission prompt left waiting reads as silence; Claude Code's
-  `Notification` hook sends `notification_type: permission_prompt`.
 - A dead session's background servers and processes are not listed to the next
   session.
 - The parallel-writers gate keeps its own liveness record (`.writers-live`);
