@@ -1,10 +1,12 @@
-"""The death reader's real effects, and the three ways in that wire them.
+"""The death and wait readers' real effects, and the ways in that wire them.
 
 agent_deaths.py judges from parameters; this module supplies the clock, the
 home folder, `ps`, Git and the cache's atomic write, for the hooks
 (`read_in_hook`, called by workloop-inbox.py), for `workloop.py dismiss`
 (`death_at`), and for `agent_deaths.py show`, which reads the workloop runs as
-the hooks do.
+the hooks do. agent_waits.py's agents waiting on the operator are read the
+same way, for the hooks (`waiting_in_hook`) and for `workloop.py watch`
+(`waiting`).
 """
 
 from __future__ import annotations
@@ -18,7 +20,10 @@ import time
 from pathlib import Path
 
 import agent_deaths as ad
+import agent_records as ar
+import agent_sessions as sessions
 import agent_verdicts as av
+import agent_waits as aw
 from workloop_size import GitBudget
 
 STATE = Path(".agents") / ".workloop-state.json"
@@ -68,6 +73,43 @@ def read_in_hook(repo: Path, session: str, runs: dict, git) -> ad.Report:
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"agent deaths: the reader failed: {error}", file=sys.stderr)
         return ad.Report(problems=[f"agent deaths: the reader failed ({error}), so no dead agent is listed"])
+
+
+def liveness(entries: list[dict]):
+    """`live(session)`: True while a registry entry names it with its process's start, False
+    otherwise, and None for every session while no entry passes that test, since then the test
+    itself may not hold on this host."""
+    hosts = sessions.Hosts(entries, "", proc_start)
+
+    def live(session: str) -> bool | None:
+        if hosts.live(session):
+            return True
+        return False if any(hosts.live(entry["session"]) for entry in entries) else None
+    return live
+
+
+def waiting(agents_dir: Path) -> tuple[dict, list[str], list[str]]:
+    """The agents waiting on the operator in the checkout whose `.agents` folder is `agents_dir`:
+    the open permission waits {agent id: wait}, every WAITING ON YOU line, the blocked background
+    sessions' after the agents', and a problem line for each record that could not be read."""
+    dirs = ar.config_dirs(Path.home(), os.environ.get("CLAUDE_CONFIG_DIR", ""))
+    entries, problems = sessions.registry(dirs)
+    live = liveness(entries)
+    waits = aw.open_waits(agents_dir, live)
+    jobs, unreadable = sessions.jobs(dirs)
+    return waits, aw.agent_lines(waits) + aw.job_lines(jobs, agents_dir.parent, live), problems + unreadable
+
+
+def waiting_in_hook(agents_dir: Path) -> str:
+    """`waiting`'s lines for a hook that must not block: a read that fails says so on stderr and
+    in the block, and the hook goes on. Its problem lines are left out: the death reader, run
+    in the same hook, reads the same registry and job files and names each unreadable one."""
+    try:
+        _, lines, _ = waiting(agents_dir)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"agent waits: the reader failed: {error}", file=sys.stderr)
+        return f"agent waits: the reader failed ({error}), so no agent waiting on you is listed"
+    return "\n".join(lines)
 
 
 def death_at(state: Path, agent_id: str, git) -> float | None:

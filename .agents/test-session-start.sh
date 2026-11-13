@@ -46,7 +46,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
      "$repo/.agents/hooks/lib/worktree_heal.py" "$repo/.agents/hooks/lib/readout.py" \
-     "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals}.py "$dir/.agents/hooks/lib/"
+     "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals,waits}.py "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"

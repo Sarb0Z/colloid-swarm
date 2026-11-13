@@ -189,6 +189,15 @@ def normalize(payload, policy, repo):
         out["cwd"] = payload.get("cwd") or ""
         out["tool_use_id"] = payload.get("tool_use_id") or ""
         out["agent_id"] = payload.get("agent_id") or ""
+    elif policy == "agent-waits.sh":
+        # PermissionRequest names the agent that waits on the prompt, and the
+        # session transcript its own sits beside; it carries no tool_use_id.
+        out["agent_id"] = payload.get("agent_id") or ""
+        out["agent_type"] = payload.get("agent_type") or ""
+        out["session_id"] = payload.get("session_id") or ""
+        out["transcript_path"] = payload.get("transcript_path") or ""
+        out["tool_name"] = payload.get("tool_name") or ""
+        out["tool_input"] = tool_input
     elif policy == "session-end.sh":
         # The reason separates an answered exit prompt from a closed terminal.
         out["session_id"] = payload.get("session_id", "")

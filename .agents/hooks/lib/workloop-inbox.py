@@ -15,7 +15,8 @@ that id; and, once it has claimed, every unread message addressed to its
 lane. The main agent hears a digest of every run not torn down: lanes
 awaiting review, lanes carrying attention, lanes whose heartbeat is stale,
 lanes and cells whose agent died. Run or no run, at every Claude Code start
-and prompt it hears the dead agents of this checkout (agent_deaths.py), and
+and prompt it hears the agents of this checkout waiting on the operator
+(agent_waits.py) and its dead agents (agent_deaths.py), and
 at a prompt, when the turn that just ended dispatched two or more cells
 outside any run, read once from the parallel-writers gate's ledger
 <seen-dir>/.outside-runs-<session> (ruling 36).
@@ -274,9 +275,11 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     # Claude Code's records are read at a prompt (a Claude Code hook) and at a Claude Code start.
     claude = event == "UserPromptSubmit" or host == "claude"
     report = agent_effects.read_in_hook(seen_dir.parent, session, runs, git.out) if claude else agent_deaths.Report()
+    waiting = agent_effects.waiting_in_hook(seen_dir) if claude else ""
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else ""
-    return "\n".join(part for part in (outside, digest, report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")) if part)
+    deaths = report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")
+    return "\n".join(part for part in (outside, digest, waiting, deaths) if part)
 
 
 def main() -> None:
