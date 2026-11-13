@@ -27,7 +27,7 @@ body="$(python3 "$lib/output_style.py" body "$style")" || { echo "style-inject: 
 [[ -z "$body" ]] && exit 0
 
 {
-  echo "The session's output style, which Claude Code sends to the main session only; it binds this cell as it binds the lead. In a cell, \"the user\" is still the operator: approval comes only from their messages, and a question or a human gate returns to the lead in the final report. Commits in the lead's tree are the lead's; a cell commits only in its own workloop worktree."
+  echo "The session's output style, which Claude Code sends to the main session only; it binds this cell as it binds the lead. In a cell, \"the user\" is still the operator: approval comes only from their messages, and a question or a human gate returns to the lead in the final report. Commits in the lead's tree are the lead's, except a lane's writer, which commits its lane's paths by path in the tree its lane names; a cell with no lane never commits."
   echo
   printf '%s\n' "$body"
 } | python3 "$lib/emit-context.py" SubagentStart

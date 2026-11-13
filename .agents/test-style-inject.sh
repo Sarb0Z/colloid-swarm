@@ -32,6 +32,8 @@ got="$(inject | context SubagentStart)"
 [[ "$got" == *"main session only"* && "$got" == *"- Fixture rule one."* ]] || fail "row 1: the body did not reach the subagent: $got"
 [[ "$got" != *"keep-coding-instructions"* ]] || fail "row 1: the frontmatter leaked into the context"
 ok "a subagent start carries the style's body without its frontmatter"
+[[ "$got" == *"Commits in the lead's tree are the lead's, except a lane's writer, which commits its lane's paths by path in the tree its lane names; a cell with no lane never commits."* ]] || fail "row 1: the commit rule did not reach the subagent: $got"
+ok "a subagent start carries the commit rule for a lane's writer and a cell with no lane"
 
 # 2. Through the Claude adapter, with the payload the host sends.
 got="$(printf '{"hook_event_name":"SubagentStart","session_id":"s1","agent_id":"a1","agent_type":"general-purpose","cwd":"%s"}' "$dir" \
