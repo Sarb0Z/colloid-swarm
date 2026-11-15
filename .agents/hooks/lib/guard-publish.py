@@ -131,6 +131,9 @@ READ_FLAG_VERBS = {
 # after `=` or as the next word: `--local false`, `--read-only=no`.
 BOOLEAN_TRUE = {"true", "yes", "on", "1", "y"}
 BOOLEAN_FALSE = {"false", "no", "off", "0", "n"}
+# The CLIs whose boolean flags take such a next word, so it is not the verb.
+# No Supabase verb is spelled as one.
+FLAG_LITERALS = {"supabase": BOOLEAN_TRUE | BOOLEAN_FALSE}
 # The read set is the allowlist, so an action this guard does not recognize asks:
 # a new Artifact action is likelier to mutate than to read. Nothing here keys on
 # the payload shape — a comment reply and an asset delete reach the published
@@ -216,11 +219,13 @@ FIREBASE_WRITES = {"delete", "set", "unset", "remove", "update", "push", "import
 # --config <path>` take a value; `--json`, `--debug` and the interactivity
 # switches do not. `--flag=value` carries its own value and needs no entry.
 #
-# wrangler's yargs globals (workers-sdk packages/wrangler/src/index.ts). flyctl
-# and the Supabase CLI are cobra programs, which find the verb past any flag
-# and its value and let the verb parse it, so a verb's own value flags count
-# too: flyctl's from internal/flag/flag.go, Supabase's globals from
-# `supabase --help` (2.119) plus `--project-ref` and `--db-url`. railway (clap)
+# wrangler's yargs globals (workers-sdk packages/wrangler/src/index.ts). flyctl,
+# a cobra program, and the Supabase CLI's own parser find the verb past any
+# flag and its value and let the verb parse it, so a verb's own value flags
+# count too: flyctl's from internal/flag/flag.go, Supabase's globals from
+# `supabase --help` (2.119; 3.1 adds none that take a value) plus
+# `--project-ref` and `--db-url`. Supabase's parser also lets a boolean flag
+# take the next word as its value (`FLAG_LITERALS`). railway (clap)
 # and netlify (commander) reject an option before the verb, so neither has a row.
 VALUE_FLAGS = {
     "firebase": {"-P", "--project", "--account", "--token", "-c", "--config"},
@@ -295,16 +300,22 @@ def vercel_reason(words):
     return None
 
 
-def positionals(words, value_flags=frozenset()):
-    """The words that are not options or the separate value of one."""
-    found, skip = [], False
+def positionals(words, value_flags=frozenset(), flag_literals=frozenset()):
+    """The words that are not options or the separate value of one. A word in
+    `flag_literals` directly after a flag that carries no `=` and is not in
+    `value_flags` is that flag's value: `--yes true`."""
+    found, skip, after_flag = [], False, False
     for word in words:
         if skip:
-            skip = False
+            skip = after_flag = False
         elif word.startswith("-"):
             skip = word in value_flags
+            after_flag = not skip and "=" not in word
+        elif after_flag and word.lower() in flag_literals:
+            after_flag = False
         else:
             found.append(word)
+            after_flag = False
     return found
 
 
@@ -423,7 +434,7 @@ def stays_local(name, rest):
 
 
 def supabase_storage_reason(rest):
-    path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS["supabase"])
+    path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS["supabase"], FLAG_LITERALS["supabase"])
     if path[:1] != ["storage"] or stays_local("supabase", rest):
         return None
     verb = path[1] if len(path) > 1 else None
@@ -636,7 +647,7 @@ def rule_bash(command, shell, place=None):
         return reason
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
-        positional = positionals(rest, VALUE_FLAGS.get(name, ()))
+        positional = positionals(rest, VALUE_FLAGS.get(name, ()), FLAG_LITERALS.get(name, frozenset()))
         phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
         for phrase in phrases:
             if phrase in DEPLOY_VERBS.get(name, set()):

@@ -928,6 +928,19 @@ with tempfile.TemporaryDirectory() as tmp:
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks when --read-only is off or the verb has no read form: {command}",
               reason is not None, "quiet")
+    # The Supabase CLI lets a boolean flag take the next word as its value
+    # (`--yes true`), so that word is not the verb. Catches a verb hidden
+    # behind such a literal; it misses a flag that takes a value the guard's
+    # table does not list.
+    for command in ("supabase seed --remote yes buckets", "supabase --yes true db push",
+                    "supabase --debug true functions deploy x",
+                    "supabase --debug false storage rm ss:///b/a"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a Supabase verb after a boolean flag's value: {command}", reason is not None, "quiet")
+    for command in ("supabase --debug true db reset", "supabase --yes true status"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a local Supabase verb after a boolean flag's value: {command}",
+              reason is None, reason or "")
 
     # A JavaScript repository reaches its scripts through a package manager, so
     # a list carrying only `node` leaves the documented invocation ungated.
