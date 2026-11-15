@@ -128,6 +128,9 @@ jobs:
       - name: Agents waiting on the operator
         run: .agents/test-agent-waits.sh
 
+      - name: iTerm2 sidebar attention
+        run: .agents/test-iterm-attention.sh
+
       - name: Output style reach
         run: .agents/test-style-inject.sh
 
@@ -264,6 +267,11 @@ jobs:
 
       - name: Showcase staleness rows
         run: .agents/test-showcase.sh
+
+      # The real-diffview run needs Neovim and diffview-plus, which the runner
+      # lacks; the suite says so and runs every other row.
+      - name: iTerm2 panes
+        run: .agents/iterm/tests/run.sh
 
       - name: Working tree is clean
         run: .agents/check-clean-tree.sh

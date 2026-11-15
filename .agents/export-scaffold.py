@@ -25,6 +25,7 @@ DROPPED_PATHS = (
     ".agents/hooks/lib/genome-exempt.py",
     ".agents/skills/panspermia-mutation",
     ".agents/eval",
+    ".agents/iterm",
     ".agents/fixtures",
     ".agents/export-scaffold.py",
     ".agents/test-export.sh",

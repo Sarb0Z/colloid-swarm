@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Print the commit that "not pushed" is measured from, for the repository in
+# the current folder. Stdout is the hash alone; stderr names the rule that
+# chose it. Local refs only: no network call.
+set -uo pipefail
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "pane-base: $PWD is not inside a git repository" >&2
+  exit 1
+fi
+
+if base=$(git merge-base HEAD '@{u}' 2>/dev/null); then
+  echo "pane-base: merge-base with upstream" >&2
+  echo "$base"
+  exit 0
+fi
+
+# The remote's default branch: origin/HEAD, else the first of main, master.
+for ref in refs/remotes/origin/HEAD refs/remotes/origin/main refs/remotes/origin/master; do
+  if git rev-parse --verify --quiet "$ref^{commit}" >/dev/null && base=$(git merge-base HEAD "$ref" 2>/dev/null); then
+    echo "pane-base: merge-base with ${ref#refs/remotes/}" >&2
+    echo "$base"
+    exit 0
+  fi
+done
+
+if base=$(git rev-parse --verify --quiet 'HEAD^{commit}'); then
+  echo "pane-base: no upstream and no remote default branch; using HEAD" >&2
+  echo "$base"
+  exit 0
+fi
+
+echo "pane-base: the repository has no commits" >&2
+exit 1

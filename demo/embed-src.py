@@ -51,6 +51,7 @@ MANIFEST = {
     "product-folder":    ".agents/hooks/lib/product_folder.py",
     "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
     "agent-waits":       ".agents/hooks/lib/agent_waits.py",
+    "iterm-attention":   ".agents/hooks/lib/iterm_attention.py",
     "style-inject":      ".agents/hooks/policy/style-inject.sh",
     "session-end":       ".agents/hooks/policy/session-end.sh",
     "proxy-file-guard":  ".agents/hooks/policy/proxy-file-guard.sh",

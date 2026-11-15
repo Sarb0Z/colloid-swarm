@@ -72,6 +72,9 @@
     "commit_nudge": {
       "enabled": true
     },
+    "iterm_attention": {
+      "enabled": true
+    },
     "sources_capture": {
       "enabled": true
     },
