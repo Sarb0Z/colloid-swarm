@@ -93,6 +93,74 @@ eq "pane-diff outside repo does not run nvim" "<not run>" "$(run_diff "$T/plain"
 msg=$(cd "$T/plain" && printf x | "$IT/bin/pane-diff" 2>&1 >/dev/null)
 [[ $msg == *"not inside a git repository"* ]] && ok "pane-diff outside repo: reason printed, key consumed" || bad "pane-diff outside repo message: $msg"
 
+# Revisions and path names reach diffview with only tokenizer syntax escaped.
+eq "pane-diff HEAD~2 unescaped" "-c${nl}DiffviewOpen HEAD~2" "$(run_diff "$T/up" 'HEAD~2')"
+eq "pane-diff @{u} unescaped" "-c${nl}DiffviewOpen @{u}" "$(run_diff "$T/up" '@{u}')"
+eq "pane-diff main^ unescaped" "-c${nl}DiffviewOpen main^" "$(run_diff "$T/up" 'main^')"
+eq "pane-diff % in file name" "-c${nl}DiffviewOpen $c1 -- a\\%b.txt" "$(run_diff "$T/up" HEAD -- 'a%b.txt')"
+eq "pane-diff # in file name" "-c${nl}DiffviewOpen $c1 -- c\\#d.txt" "$(run_diff "$T/up" HEAD -- 'c#d.txt')"
+eq "pane-diff [ ] in file name" "-c${nl}DiffviewOpen $c1 -- e\\[1\\].txt" "$(run_diff "$T/up" HEAD -- 'e[1].txt')"
+
+# Untracked files: a commit base gets a second tab, with tab 1 current and a message.
+repo "$T/ut"
+u1=$(commit "$T/ut" one)
+tail1="-c${nl}1tabclose${nl}-c${nl}tabfirst"
+printf 'x' >"$T/ut/new1.txt"
+eq "pane-diff one untracked file: second tab" \
+  "-c${nl}DiffviewOpen $u1${nl}-c${nl}DiffviewOpen${nl}$tail1${nl}-c${nl}echomsg '1 untracked file: see tab 2 (gt)'" "$(run_diff "$T/ut")"
+printf 'x' >"$T/ut/new2.txt"
+eq "pane-diff two untracked files: plural message" \
+  "-c${nl}DiffviewOpen $u1${nl}-c${nl}DiffviewOpen${nl}$tail1${nl}-c${nl}echomsg '2 untracked files: see tab 2 (gt)'" "$(run_diff "$T/ut")"
+eq "pane-diff @ with untracked files: one view" "-c${nl}DiffviewOpen" "$(run_diff "$T/ut" @)"
+eq "pane-diff untracked file named: both tabs carry the path" \
+  "-c${nl}DiffviewOpen $u1 -- new1.txt${nl}-c${nl}DiffviewOpen -- new1.txt${nl}$tail1${nl}-c${nl}echomsg '1 untracked file: see tab 2 (gt)'" "$(run_diff "$T/ut" HEAD -- new1.txt)"
+git -C "$T/ut" add new1.txt new2.txt
+eq "pane-diff nothing untracked: one view" "-c${nl}DiffviewOpen $u1" "$(run_diff "$T/ut")"
+
+# Through the link install.sh makes: pane-diff finds pane-base beside its target.
+mkdir -p "$T/linkhome"
+HOME=$T/linkhome "$IT/install.sh" >/dev/null
+rm -f "$T/argv"
+(cd "$T/up" && "$T/linkhome/.local/bin/pane-diff" </dev/null >/dev/null 2>&1)
+eq "pane-diff through the installed link" "-c${nl}DiffviewOpen $c1" "$(cat "$T/argv" 2>/dev/null)"
+
+# Failures hold the pane for a key and say why; nvim never runs.
+msg=$(cd "$T/up" && printf x | "$IT/bin/pane-diff" a b c 2>&1 >/dev/null); rc=$?
+[[ $rc -ne 0 && $msg == *usage:* && $msg == *"Press any key"* ]] && ok "pane-diff usage error holds the pane" || bad "pane-diff usage (rc=$rc): $msg"
+repo "$T/empty"
+msg=$(cd "$T/empty" && printf x | "$IT/bin/pane-diff" 2>&1 >/dev/null); rc=$?
+[[ $rc -ne 0 && $msg == *"no commits"* && $msg == *"Press any key"* ]] && ok "pane-diff shows pane-base's own reason" || bad "pane-diff pane-base reason (rc=$rc): $msg"
+
+# One real run: headless Neovim with diffview resolves the same arguments.
+DV=${PANE_DIFF_TEST_DIFFVIEW:-$HOME/.local/share/nvim/lazy/diffview-plus.nvim}
+NVIM_BIN=$(command -v nvim || echo /opt/homebrew/bin/nvim)
+if [[ -d $DV && -x $NVIM_BIN ]]; then
+  repo "$T/real"
+  printf 'one\n' >"$T/real/a%b.txt"
+  git -C "$T/real" add -A
+  commit "$T/real" first >/dev/null
+  printf 'two\n' >"$T/real/a%b.txt"
+  git -C "$T/real" commit -qam second
+  git -C "$T/real" commit -q --allow-empty -m third
+  cat >"$T/nvim-real" <<WRAP
+#!/usr/bin/env bash
+exec "$NVIM_BIN" --headless --clean --cmd 'set rtp+=$DV' "\$@" -c 'lua vim.wait(1000, function() return false end); local cur = vim.api.nvim_get_current_tabpage(); local tabs = vim.api.nvim_list_tabpages(); for _, t in ipairs(tabs) do vim.api.nvim_set_current_tabpage(t); vim.wait(800, function() return false end) end; vim.api.nvim_set_current_tabpage(cur); local out = {}; for i, t in ipairs(tabs) do local names = {}; for _, view in ipairs(require("diffview.lib").views) do if view.tabpage == t then for _, f in view.files:iter() do names[#names + 1] = f.path end end end; out[#out + 1] = "tab" .. i .. (t == cur and "*" or "") .. ": " .. table.concat(names, ",") end; out[#out + 1] = (vim.fn.execute("messages"):gsub("\\n", "")); vim.fn.writefile(out, vim.env.PANE_DIFF_REAL_OUT)' -c 'qa!'
+WRAP
+  chmod +x "$T/nvim-real"
+  real_diff() { # args...: prints one line per tab (* marks the current one) then the messages
+    rm -f "$T/real-out"
+    (cd "$T/real" && PANE_DIFF_NVIM=$T/nvim-real PANE_DIFF_REAL_OUT=$T/real-out "$IT/bin/pane-diff" "$@" </dev/null >/dev/null 2>&1)
+    cat "$T/real-out" 2>/dev/null
+  }
+  # With nothing untracked, a file named a%b.txt opens in the one view diffview makes after the empty startup tab.
+  eq "pane-diff real diffview: HEAD~2 and a file named a%b.txt" "tab1: ${nl}tab2*: a%b.txt" "$(real_diff 'HEAD~2' -- 'a%b.txt')"
+  printf 'x\n' >"$T/real/new.txt"
+  eq "pane-diff real diffview: untracked file gets tab 2, tab 1 stays current" \
+    "tab1*: a%b.txt${nl}tab2: new.txt${nl}1 untracked file: see tab 2 (gt)" "$(real_diff 'HEAD~2')"
+else
+  echo "skip pane-diff real diffview run (no diffview at $DV or no nvim)"
+fi
+
 # --- (c) install.sh in a temporary HOME ------------------------------------
 H=$T/home
 mkdir "$H"

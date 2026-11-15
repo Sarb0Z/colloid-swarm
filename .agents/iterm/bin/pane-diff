@@ -9,42 +9,63 @@ set -uo pipefail
 nvim=${PANE_DIFF_NVIM:-$(command -v nvim || echo /opt/homebrew/bin/nvim)}
 here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
+# The pane would close at once on an error, so every failure holds it for a key.
+fail() {
+  printf 'pane-diff: %s\n' "$1" >&2
+  echo "Press any key to close." >&2
+  read -rsn1 || true
+  exit 1
+}
+
 base=HEAD
 if [[ $# -gt 0 && $1 != -- ]]; then
   base=$1
   shift
 fi
 file=
-if [[ ${1:-} == -- ]]; then
-  [[ $# -eq 2 ]] || { echo "usage: pane-diff [<base>] [-- <file>]" >&2; exit 2; }
+if [[ $# -gt 0 ]]; then
+  [[ $# -eq 2 && $1 == -- ]] || fail "usage: pane-diff [<base>] [-- <file>]"
   file=$2
 fi
-
-# The pane would close at once on an error, so hold it for a key.
-fail() {
-  echo "pane-diff: $1" >&2
-  echo "Press any key to close." >&2
-  read -rsn1 || true
-  exit 1
-}
 
 git rev-parse --git-dir >/dev/null 2>&1 || fail "$PWD is not inside a git repository"
 
 if [[ $base == HEAD ]]; then
-  base=$("$here/pane-base" 2>/dev/null) || fail "cannot find the not-pushed base in $PWD"
+  # pane-base prints its reason on stderr, then the hash on stdout.
+  resolved=$("$here/pane-base" 2>&1) || fail "$resolved"
+  base=${resolved##*$'\n'}
 fi
 
-# Backslash-escape every character the Ex command line or diffview's argument
-# splitter would read as syntax.
-escape() {
-  printf '%s' "$1" | sed 's/[^A-Za-z0-9._\/:@+=,-]/\\&/g'
+# Backslash-escape what diffview's argument tokenizer reads as syntax:
+# whitespace, quotes and backslash. A path argument then goes through Vim's
+# expand(), which also reads % # [ ] * ? { } ~ $ and ` as syntax.
+escape_arg() {
+  printf '%s' "$1" | sed 's/[[:space:]"'"'"'\\]/\\&/g'
+}
+escape_path() {
+  printf '%s' "$1" | sed 's/[][[:space:]"'"'"'\\%#*?{}$`~]/\\&/g'
 }
 
-if [[ $base == @ ]]; then
-  cmd=DiffviewOpen
-else
-  cmd="DiffviewOpen $(escape "$base")"
-fi
-[[ -n $file ]] && cmd="$cmd -- $(escape "$file")"
+suffix=
+[[ -n $file ]] && suffix=" -- $(escape_path "$file")"
 
-exec "$nvim" -c "$cmd"
+if [[ $base == @ ]]; then
+  exec "$nvim" -c "DiffviewOpen$suffix"
+fi
+
+# Diffview lists untracked files only for index-against-working-tree, so a
+# commit base would hide them. When any exist, a second tab shows that view.
+untracked=$(git --literal-pathspecs ls-files -z --others --exclude-standard ${file:+-- "$file"} | tr -cd '\0' | wc -c | tr -d ' ')
+if ((untracked == 0)); then
+  exec "$nvim" -c "DiffviewOpen $(escape_arg "$base")$suffix"
+fi
+
+# Each DiffviewOpen opens its own tab after the empty startup tab, which is closed.
+noun=files
+((untracked == 1)) && noun=file
+exec "$nvim" \
+  -c "DiffviewOpen $(escape_arg "$base")$suffix" \
+  -c "DiffviewOpen$suffix" \
+  -c "1tabclose" \
+  -c "tabfirst" \
+  -c "echomsg '$untracked untracked $noun: see tab 2 (gt)'"
