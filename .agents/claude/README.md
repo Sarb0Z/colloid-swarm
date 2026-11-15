@@ -18,6 +18,7 @@ Claude hook payloads and passes JSON on stdin to engine-neutral policies under
 | `done-prime.sh` | `project_dir`, `prompt` |
 | `ui-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `files`, `stop_hook_active` |
 | `teardown-gate.sh` | `project_dir`, `event`, `session_id`, `tool_name`, `tool_input`, `stop_hook_active` |
+| `iterm-attention.sh` | `project_dir`, `event`, `notification_type`, `session_id`, `transcript_path`, `last_assistant_message` |
 | `pre-compact.sh` | `project_dir`, `trigger` |
 | `worktree-sessions.sh` | `project_dir`, `event`, `tool_name`, `tool_input`, `cwd` |
 | `style-inject.sh` | `project_dir` |

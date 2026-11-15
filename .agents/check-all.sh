@@ -30,6 +30,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-commit-nudge.sh
 .agents/test-agent-deaths.sh
 .agents/test-agent-waits.sh
+.agents/test-iterm-attention.sh
 .agents/test-style-inject.sh
 .agents/test-ui-gate.sh
 .agents/test-teardown-gate.sh

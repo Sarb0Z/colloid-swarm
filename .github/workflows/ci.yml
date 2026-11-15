@@ -128,6 +128,9 @@ jobs:
       - name: Agents waiting on the operator
         run: .agents/test-agent-waits.sh
 
+      - name: iTerm2 sidebar attention
+        run: .agents/test-iterm-attention.sh
+
       - name: Output style reach
         run: .agents/test-style-inject.sh
 

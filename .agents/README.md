@@ -507,6 +507,35 @@ status strip reads the reader's cache at each refresh and names a lane whose
 claimant, or a cell whose agent, died (`<run>/<lane> died <cause>`) or is
 parked; it runs no reader. See decision `agent-death-reader`.
 
+`iterm-attention.sh` shows in iTerm2's Session Status sidebar what waits on
+the operator in a tab when a turn ends. It runs async under Claude only, for
+the main agent, on Stop and Notification `idle_prompt`, and writes the first
+that applies: an open gate (a `needs_confirmation:` line of the turn's last
+message) as `waiting` with `decide: <first gate> (+N more)`; a background
+agent of this session that the death reader shows as dead, first seen in this
+turn, as `error` with `agent died: <description>`; what the session owes, as
+`owed: <items>` on `done`. Otherwise it writes nothing, and the next turn's
+`working` removes what it wrote. A death shows at the end of the turn in which
+the hook first sees it, a death found at `--resume` at the end of the resumed
+session's first turn, and never again; the hook keeps when it first saw each
+in `.agents/.readout/.iterm-deaths-<session>`. A pending question needs no
+write: Claude Code and iTerm2 already show it as `waiting`. The hook acts only
+for the tab's own interactive Claude: `ITERM_SESSION_ID` names the tab and
+`claude-tab-state`'s record of that tab names the session, so a headless run,
+a subagent and another tab's session stop before an interpreter starts or in
+Python's first check. iTerm2's hook writes the same tab's status, and in some
+sessions Claude Code itself does (OSC 21337), so the hook waits for neither:
+it reads `it2 session get-status` about every 0.2 s for 6 s at most, writes
+its status once a read shows the turn's end (`done`, `background`, or a status
+of its own from an earlier turn), writes it again each time a later read shows
+another writer covered it, and stops at the first `working`, question or
+`idle` after that, which is a new turn. A turn end that never shows gets no
+write. The write carries `--if-turn-open` where iTerm2 keeps a turn flag. A
+failure, a crash included,
+goes to one line of `.agents/.readout/.iterm-attention.log`. The toggle is
+`hooks.iterm_attention.enabled`. Design:
+`docs/notes/2026-11-15-iterm2-review-and-status-spec.md`, unit 2.
+
 `parallel-writers-gate.sh` is the rail that makes that the default rather than
 a choice, and it guards this checkout, not the session. On Claude it watches
 every `Agent` dispatch, lets the first writer of a turn through, and denies a

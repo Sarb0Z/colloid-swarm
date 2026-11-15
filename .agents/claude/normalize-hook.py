@@ -198,6 +198,16 @@ def normalize(payload, policy, repo):
         out["transcript_path"] = payload.get("transcript_path") or ""
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input
+    elif policy == "iterm-attention.sh":
+        # The event that ended the turn, the session the tab's record must name,
+        # and where its gate text is: the Stop message, or the transcript, which
+        # also dates the turn, at idle_prompt.
+        out["event"] = payload.get("hook_event_name", "")
+        out["notification_type"] = payload.get("notification_type") or ""
+        out["session_id"] = payload.get("session_id") or ""
+        out["transcript_path"] = payload.get("transcript_path") or ""
+        message = payload.get("last_assistant_message")
+        out["last_assistant_message"] = message if isinstance(message, str) else ""
     elif policy == "session-end.sh":
         # The reason separates an answered exit prompt from a closed terminal.
         out["session_id"] = payload.get("session_id", "")
