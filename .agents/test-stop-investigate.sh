@@ -175,6 +175,46 @@ say_turn "Fixed all six; the suite is green."
 [[ $rc -eq 0 ]] || fail "a request blob before the prompt must not block: $(cat "$scratch/err")"
 ok    "a request blob before the prompt is not read"
 
+# The fallback path: a Stop payload with no last_assistant_message, so the gate
+# reads the last reply from the transcript. The hedge check judges that reply
+# alone.
+say_fallback() {  # -> sets rc, using $scratch/transcript.jsonl
+  set +e
+  printf '{"transcript_path":"%s","stop_hook_active":false}' "$scratch/transcript.jsonl" \
+    | bash "$policy" >"$scratch/out" 2>"$scratch/err"
+  rc=$?
+  set -e
+}
+sidechain_row() { assistant_row "$1" | sed 's/^{/{"isSidechain":true,/'; }
+
+# Seam: which row is the last reply. An assistant-role blob after the real
+# reply repeats an older one and must not be read in its place, in either
+# direction. Misses: a reply whose last row holds no text.
+transcript "$(user_row 'continue please')" \
+  "$(assistant_row 'Raised the timeout to 30s; the suite is green.')" \
+  "$(blob_row assistant 'I am unable to determine which config the loader reads.')"
+say_fallback
+[[ $rc -eq 0 ]] || fail "an old hedge in a request blob must not be read as the last reply: $(cat "$scratch/err")"
+transcript "$(user_row 'continue please')" \
+  "$(assistant_row 'I am unable to determine which config the loader reads.')" \
+  "$(blob_row assistant 'Raised the timeout to 30s; the suite is green.')"
+say_fallback
+[[ $rc -eq 2 ]] || fail "a hedge must block when a request blob with an older reply follows it"
+ok    "an assistant-role request blob is not the last reply"
+
+# Seam: the same, for a spawned cell's rows, which carry isSidechain.
+transcript "$(user_row 'continue please')" \
+  "$(assistant_row 'Raised the timeout to 30s; the suite is green.')" \
+  "$(sidechain_row 'I am unable to determine which config the loader reads.')"
+say_fallback
+[[ $rc -eq 0 ]] || fail "a spawned cell's hedge must not be read as the last reply: $(cat "$scratch/err")"
+transcript "$(user_row 'continue please')" \
+  "$(assistant_row 'I am unable to determine which config the loader reads.')" \
+  "$(sidechain_row 'Raised the timeout to 30s; the suite is green.')"
+say_fallback
+[[ $rc -eq 2 ]] || fail "a hedge must block when a spawned cell's reply follows it"
+ok    "a sidechain row is not the last reply"
+
 # Declared systems add the access commands to the hedge message; a repository
 # with none keeps the message as it was. The sandbox has no policy.json until
 # a case writes one.

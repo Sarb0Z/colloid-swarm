@@ -6,6 +6,11 @@ Usage: last-message.py <transcript-path>
 The Stop payload carries `last_assistant_message` on most engines, but Codex
 declares it `string | null`, "if available". This is the fallback that covers
 the null: a transcript row the host has already written.
+
+Only rows whose type is "assistant" are replies. Claude Code also writes each
+API request into the transcript as api-request-blob rows, which repeat earlier
+replies under the assistant role, and sidechain rows belong to spawned cells;
+neither is what the session last said.
 """
 
 import json
@@ -35,6 +40,8 @@ def main():
                 try:
                     row = json.loads(line)
                 except ValueError:
+                    continue
+                if not isinstance(row, dict) or row.get("type") != "assistant" or row.get("isSidechain"):
                     continue
                 message = row.get("message") or {}
                 if not isinstance(message, dict) or message.get("role") != "assistant":
