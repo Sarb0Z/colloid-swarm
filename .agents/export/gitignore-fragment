@@ -4,6 +4,8 @@
 /.mcp.json
 /.kimi-code/mcp.json
 /.codex/config.toml
+/.opencode/opencode.json
+/.opencode/instructions/colloid.md
 .agents/config.json
 .agents/worklog/
 .agents/.playwright-reader.json

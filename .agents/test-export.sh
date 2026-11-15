@@ -102,13 +102,15 @@ import sys
 
 # Paths the export drops along with the state they leave behind.
 COLLOID_ONLY = {".agents/.genome-ledger", ".agents/.mutagen-ledger", ".agents/eval/*/runs.tsv"}
+# Host configuration `mcp.py` generates at the root, with absolute paths in it.
+GENERATED_HOST_CONFIG = ("/.mcp.json", "/.codex/", "/.kimi-code/", "/.opencode/")
 
 
 def transient(path):
     return {
         line.strip()
         for line in open(path, encoding="utf-8")
-        if line.strip().startswith(".agents/")
+        if line.strip().startswith((".agents/",) + GENERATED_HOST_CONFIG)
     }
 
 
