@@ -16,6 +16,12 @@ role (Stop-hook feedback, skill preambles) carry isMeta and are skipped too,
 as are sidechain rows, which belong to spawned cells. An interruption stays a
 boundary: the user acted.
 
+Only rows whose type is "user" or "assistant" are the conversation. Claude Code
+also writes each API request into the transcript as api-request-blob rows,
+which carry a message under the user, assistant or system role and no uuid:
+they repeat earlier prompts and replies, so reading one would end the turn at
+a prompt nobody just typed or put an old reply in this turn.
+
 A Stop payload carries only the last assistant message, and a long turn buries
 its claims dozens of messages earlier. This is what lets a policy judge the
 turn rather than its final sentence.
@@ -71,6 +77,7 @@ def lines_reversed(path):
 
 
 SEPARATOR = "\n\x1e\n"
+TURN_ROWS = ("user", "assistant")
 
 
 def main():
@@ -90,6 +97,8 @@ def main():
             try:
                 row = json.loads(raw)
             except ValueError:
+                continue
+            if not isinstance(row, dict) or row.get("type") not in TURN_ROWS:
                 continue
             if row.get("isSidechain") or row.get("isMeta"):
                 continue

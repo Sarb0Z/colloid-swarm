@@ -30,6 +30,11 @@ text() { printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.st
 user()      { row user "$(text "$1")"; }
 assistant() { row assistant "[{\"type\":\"text\",\"text\":$(text "$1")}]"; }
 result()    { row user '[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]'; }
+# One message of an API request as Claude Code writes it into the transcript:
+# a role and content, no uuid and no timestamp.
+blob() {  # <role> <text>
+  printf '{"type":"api-request-blob","hash":"h","sessionId":"s1","message":{"role":"%s","content":[{"type":"text","text":%s}]}}\n' "$1" "$(text "$2")"
+}
 
 run() {  # -> sets rc, out
   set +e
@@ -123,6 +128,64 @@ ok    "a filing disarms the gate"
 } > "$transcript"
 quiet "a claim in a previous turn"
 ok    "a previous turn's claim does not fire"
+
+# Claude Code writes each API request into the transcript as api-request-blob
+# rows. They repeat earlier prompts and replies under the user, assistant and
+# system roles and are not the conversation, so none of them is a turn row.
+#
+# Seam: the turn's start. A user-role blob after the prompt must not end the
+# turn, or the punt made before it is never read. Misses: a blob the host
+# would write with type "user".
+{ user "continue please"
+  assistant "The two typecheck errors were already failing before my change."
+  result
+  blob user "continue please"
+  blob system "SessionStart hook additional context"
+  assistant "Carrying on."
+} > "$transcript"
+denies "a punt behind a user-role request blob"
+ok    "a user-role request blob after the prompt does not end the turn"
+
+# Seam: the turn's identity. With a blob after each prompt, the turn id is
+# still the prompt row's uuid, so the same punt in the next turn is reported
+# again. Misses: nothing about the text read.
+{ user "run the suite"
+  blob user "run the suite"
+  assistant "Those four lint warnings were already failing before my change."
+} > "$transcript"
+prompt_uuid="row-$((seq - 1))"  # the assistant row took the latest number
+turn_id="$(python3 "$scratch/.agents/hooks/lib/turn-text.py" --turn-id "$transcript" | sed -n '1p')"
+[[ "$turn_id" == "$prompt_uuid" ]] || fail "the turn id must be the prompt row's uuid $prompt_uuid, got: $turn_id"
+denies "a punt in turn one, behind a request blob"
+{ user "ok, go on"
+  blob user "ok, go on"
+  assistant "Those four lint warnings were already failing before my change."
+} >> "$transcript"
+denies "the same punt in turn two, behind a request blob"
+ok    "a request blob after the prompt leaves the prompt's uuid as the turn id"
+
+# Seam: the turn's text. An assistant-role blob repeats a reply from an earlier
+# turn; it must add nothing to this one. Misses: nothing about the boundary.
+{ user "run the suite"
+  assistant "All six fail identically without my changes, so they are pre-existing."
+  user "ok, fix them"
+  blob user "ok, fix them"
+  blob assistant "All six fail identically without my changes, so they are pre-existing."
+  blob system "SessionStart hook additional context"
+  assistant "Fixing all six now."
+} > "$transcript"
+quiet "an old claim repeated in an assistant-role request blob"
+ok    "an assistant-role request blob adds no text to the turn"
+
+# Seam: none the reader can get wrong today, since it stops at the prompt. A
+# blob before the prompt holds the line if the reader ever walks further.
+{ blob user "run the suite"
+  blob assistant "All six fail identically without my changes, so they are pre-existing."
+  user "ok, fix them"
+  assistant "Fixing all six now."
+} > "$transcript"
+quiet "a request blob before the prompt"
+ok    "a request blob before the prompt is not read"
 
 # Ordinary work, and no transcript at all, stay quiet.
 { user "add the flag"; assistant "Added the flag and its test; both pass."; } > "$transcript"

@@ -132,6 +132,49 @@ say_turn "Filed the four lint errors in .agents/breadcrumbs.md; the change itsel
 [[ $rc -eq 0 ]] || fail "a filing later in the turn must disarm: $(cat "$scratch/err")"
 ok    "a filing later in the turn disarms"
 
+# Claude Code writes each API request into the transcript as api-request-blob
+# rows: a role and content, no uuid and no timestamp. They repeat earlier
+# prompts and replies and are not the conversation.
+blob_row() {  # <role> <text>
+  printf '{"type":"api-request-blob","hash":"h","sessionId":"s1","message":{"role":"%s","content":[{"type":"text","text":%s}]}}' "$1" "$(printf '%s' "$2" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+}
+
+# Seam: the turn's start. A user-role blob after the prompt must not end the
+# turn, or the punt made before it is never read. Misses: a blob the host
+# would write with type "user".
+transcript "$(user_row 'continue please')" \
+  "$(assistant_row 'All six fail identically without my changes, so they are pre-existing. Committing and pushing for the deploy.')" \
+  "$(result_row)" \
+  "$(blob_row user 'continue please')" \
+  "$(blob_row system 'SessionStart hook additional context')" \
+  "$(assistant_row "$final")"
+say_turn "$final"
+[[ $rc -eq 2 ]] || fail "a punt behind a user-role request blob must block at Stop"
+ok    "a user-role request blob after the prompt does not end the turn"
+
+# Seam: the turn's text. An assistant-role blob repeats a reply from an earlier
+# turn; it must add nothing to this one. Misses: nothing about the boundary.
+transcript "$(user_row 'run the suite')" \
+  "$(assistant_row 'All six fail identically without my changes, so they are pre-existing.')" \
+  "$(user_row 'ok, fix them')" \
+  "$(blob_row user 'ok, fix them')" \
+  "$(blob_row assistant 'All six fail identically without my changes, so they are pre-existing.')" \
+  "$(blob_row system 'SessionStart hook additional context')" \
+  "$(assistant_row 'Fixed all six; the suite is green.')"
+say_turn "Fixed all six; the suite is green."
+[[ $rc -eq 0 ]] || fail "an old claim in an assistant-role request blob must not block: $(cat "$scratch/err")"
+ok    "an assistant-role request blob adds no text to the turn"
+
+# Seam: none the reader can get wrong today, since it stops at the prompt. A
+# blob before the prompt holds the line if the reader ever walks further.
+transcript "$(blob_row user 'run the suite')" \
+  "$(blob_row assistant 'All six fail identically without my changes, so they are pre-existing.')" \
+  "$(user_row 'ok, fix them')" \
+  "$(assistant_row 'Fixed all six; the suite is green.')"
+say_turn "Fixed all six; the suite is green."
+[[ $rc -eq 0 ]] || fail "a request blob before the prompt must not block: $(cat "$scratch/err")"
+ok    "a request blob before the prompt is not read"
+
 # Declared systems add the access commands to the hedge message; a repository
 # with none keeps the message as it was. The sandbox has no policy.json until
 # a case writes one.
