@@ -33,3 +33,10 @@ Left as they are: a file name with a backslash does not open under
 `-- <file>`; with one view the empty startup tab stays as tab 1, diffview's
 own behaviour when started from a shell; `pane-diff` reads `pane-base`'s
 hash as the last line of its combined output, which the tests exercise.
+
+QA reran at `c8230be` with the operator's reading of Acceptance 1 (R20):
+Acceptance 1-5, P4, typed bases `HEAD~2`, `@{u}` and `main^`, files named
+`it's here.txt`, `a%b.txt`, `c#d.txt` and `e[1].txt`, the usage error, and a
+run through an `install.sh` link in a temporary HOME all passed, and
+`git status --porcelain` did not change. The colour scheme was checked at
+`cf9367c` (`tokyonight-night`); `c8230be` does not change it.
