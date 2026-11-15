@@ -43,7 +43,7 @@ run through an `install.sh` link in a temporary HOME all passed, and
 
 ## Lane `attention` (unit 2, critical)
 
-Covers: f108fb9..d8805c5
+Covers: f108fb9..5207150
 
 One reviewer (opus) read the lane whole and its seams with iTerm2's own hook,
 the death reader and the owed reader. QA (opus) ran Acceptance 6-13 and
@@ -98,3 +98,33 @@ have and others lack (spec E10).
 |---|---|---|---|
 | 12 | P1 | QA: Acceptance 6, 8 and 9 fail live; the landing rule waits for a write that sessions on the harness checkout never get | Returns to the plan: the write protocol is redesigned so that it holds whichever native writers a session has. The operator's OK comes first |
 | 13 | P1 | QA: `last_turn` reads `api-request-blob` rows (no uuid or timestamp; roles user, assistant and system) as turn rows. Observed: the resumed turn's death was recorded under "start", so later turns keyed "start" would show it again, against R22 | Adopted: read only `user` and `assistant` rows. `turn-text.py`'s `main`, which `provenance-gate.sh`, `stop-investigate.sh` and `ratchet-claim.sh` use, reads them the same way; that is outside the lane and goes to the operator as its own unit |
+
+The operator ruled R23 for finding 12, and run `transcript-reader` fixed
+`turn-text.py` and `last-message.py` (`2026-11-16-transcript-reader.md`).
+`5207150` folds the R23 watch and finding 13 into the lane's one commit. The
+lead read the watch (`iterm_attention.py` `watch`, `write_args`) against spec
+C3 steps 1-5. The writer's live tab at `5207150` showed `decide: X` 0.59 s
+after `done`, written again 0.52 s after iTerm2's idle write covered it, and
+gone at the next prompt; nine mutations of the new rules each turned the
+suite red.
+
+QA at `5207150`, live in a real tab on mains power with no sleep: Acceptance
+6-13 and the extra scenario passed.
+- 6: `decide: QA-gate-alpha` 0.5 s after the turn end, rewritten after the
+  idle `done | None`, still shown at 97 s, `working` at the next prompt.
+- 7: iTerm2's `waiting | Which QA colour?`, no write of ours.
+- 8: `done | owed: suite` 0.8 s after `done | edited`.
+- 9: after `--resume`, `error | agent died: qa death fixture` 2.7 s after
+  the first turn end, past its idle_prompt; the record keyed the prompt's
+  uuid; the next typed turn showed `owed: suite`.
+- Extra: a turn started by a background agent's notification showed and
+  kept `decide: QA-gate-beta` through idle_prompt.
+- 10, 11, 12: no write of ours. 13: a gate run lives the full 6 s; turn end
+  to our write 0.45-1.0 s, 2.7 s with the death reader.
+Every traced turn end left iTerm2's `done | <message>` in place; Claude
+Code's clear appeared only in the writer's run.
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 14 | P2 | QA: during a 5.8 s stall of iTerm2's API at idle_prompt, `get-status` timed out once and the watch stopped; a native write landing after the stall would have covered the status | Filed in `breadcrumbs.md`: retry a timed-out read within the 6 s watch |
+| 15 | — | QA: the owed detail is `owed: suite` alone, where the spec's table put it before iTerm2's detail | Accepted: Claude Code may clear iTerm2's detail (E10); the spec's table now says `owed: <items>` alone |
