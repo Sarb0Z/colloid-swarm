@@ -79,3 +79,22 @@ and each turned the suite red. A turn's start is its last prompt row, which
 counts a task notification as a prompt (`turn-text.py` `typed_by_user`).
 Deaths are recorded in `.agents/.readout/.iterm-deaths-<session>`, which
 `readout.prune` removes once idle. QA reruns Acceptance 6-13 at `d8805c5`.
+
+QA at `d8805c5`, in a real tab on a scratch checkout: 7 (on iTerm2's write,
+with no write of ours), 10, 11 and 12 passed; 6, 8 and 9 failed. Every run
+with something to show read get-status 9 times over about 3 s, waited for
+`done` with an empty detail, and wrote nothing: in a session on the harness
+checkout neither Claude Code's clear at Stop nor iTerm2's at idle_prompt
+came, and iTerm2's `done | <message>` stayed. In a plain repository, in the
+same tab with the same account and versions, Claude Code's writes appeared;
+the harness's `env` block did not suppress them, and the other settings were
+not bisected. The 2.1.325 binary writes the tab status only when the
+experimental setting `showStatusInTerminalTab` and the server flag
+`tengu_terminal_sidebar` are on, and the setting is unset in both accounts'
+`.claude.json`. So the landing rule rests on a writer that some sessions
+have and others lack (spec E10).
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 12 | P1 | QA: Acceptance 6, 8 and 9 fail live; the landing rule waits for a write that sessions on the harness checkout never get | Returns to the plan: the write protocol is redesigned so that it holds whichever native writers a session has. The operator's OK comes first |
+| 13 | P1 | QA: `last_turn` reads `api-request-blob` rows (no uuid or timestamp; roles user, assistant and system) as turn rows. Observed: the resumed turn's death was recorded under "start", so later turns keyed "start" would show it again, against R22 | Adopted: read only `user` and `assistant` rows. `turn-text.py`'s `main`, which `provenance-gate.sh`, `stop-investigate.sh` and `ratchet-claim.sh` use, reads them the same way; that is outside the lane and goes to the operator as its own unit |
