@@ -98,8 +98,9 @@ DEPLOY_VERBS = {
                   "workspace delete"},
 }
 DEPLOY_VERBS["tofu"] = DEPLOY_VERBS["terraform"]
-# `supabase storage` reaches the linked project unless `--local` says
-# otherwise, and `cp` writes there only when its destination is an `ss://` path.
+# `supabase storage` reaches a hosted project unless `--local` keeps it local
+# (`stays_local`), and `cp` writes there only when its destination is an
+# `ss://` path.
 SUPABASE_STORAGE_VALUED = {"--cache-control", "--content-type", "-j", "--jobs", "--project-ref"}
 # Verbs that are local by default and reach a hosted project only when a target
 # flag says so. Gating them unconditionally would ask on every `supabase db
@@ -111,9 +112,20 @@ SUPABASE_STORAGE_VALUED = {"--cache-control", "--content-type", "-j", "--jobs", 
 # alias of `test db`.
 REMOTE_FLAG_VERBS = {
     "supabase": ({"db reset", "migration up", "migration down", "migration squash",
-                  "migration repair", "db query", "test db", "db test", "db dump", "seed buckets"},
+                  "db query", "test db", "db test", "db dump", "seed buckets"},
                  {"--remote", "--linked", "--db-url", "--project-ref"}),
 }
+# Verbs that Supabase CLI 2 runs against the linked project unless `--local` is
+# given; 3.x runs them locally unless a target flag is given. One checkout can
+# meet both versions, so they ask unless `--local` keeps them local (`stays_local`).
+# `supabase storage` follows the same rule through `supabase_storage_reason`.
+LOCAL_FLAG_VERBS = {
+    "supabase": {"migration repair", "db pull"},
+}
+# The words the Supabase CLI's parser reads as the value of a boolean flag,
+# after `=` or as the next word: `--local false`, `--read-only=no`.
+BOOLEAN_TRUE = {"true", "yes", "on", "1", "y"}
+BOOLEAN_FALSE = {"false", "no", "off", "0", "n"}
 # The read set is the allowlist, so an action this guard does not recognize asks:
 # a new Artifact action is likelier to mutate than to read. Nothing here keys on
 # the payload shape — a comment reply and an asset delete reach the published
@@ -382,13 +394,36 @@ def unversioned(spec):
     return spec[:at] if at > 0 else spec
 
 
+def flag_on(words, flag):
+    """Whether the boolean `flag` ends up on. The last occurrence decides: a
+    bare one is on unless the next word is a false literal, and one with `=`
+    is on only for a true value."""
+    state = False
+    for index, word in enumerate(words):
+        name, equals, value = word.partition("=")
+        if name != flag:
+            continue
+        if equals:
+            state = value in BOOLEAN_TRUE
+        else:
+            state = not (index + 1 < len(words) and words[index + 1].lower() in BOOLEAN_FALSE)
+    return state
+
+
+def stays_local(name, rest):
+    """Whether `--local` keeps the command on the local stack: it is on, and
+    no target flag beside it sends the command to a hosted project."""
+    _, targets = REMOTE_FLAG_VERBS[name]
+    return flag_on(rest, "--local") and not any(word.split("=")[0] in targets for word in rest)
+
+
 def supabase_storage_reason(rest):
     path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS["supabase"])
-    if path[:1] != ["storage"] or "--local" in rest:
+    if path[:1] != ["storage"] or stays_local("supabase", rest):
         return None
     verb = path[1] if len(path) > 1 else None
     if verb in ("rm", "mv") or (verb == "cp" and path[-1].startswith("ss:")):
-        return f"supabase storage {verb} writes to the linked project's storage."
+        return f"supabase storage {verb} writes to a hosted project's storage."
     return None
 
 
@@ -601,6 +636,9 @@ def rule_bash(command, shell, place=None):
         for phrase in phrases:
             if phrase in DEPLOY_VERBS.get(name, set()):
                 return f"{name} {phrase} deploys or mutates the hosted project."
+        for phrase in phrases:
+            if phrase in LOCAL_FLAG_VERBS.get(name, set()) and not stays_local(name, rest):
+                return f"{name} {phrase} reaches a hosted project unless --local keeps it local."
         verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
         for phrase in phrases:
             if phrase in verbs and any(word.split("=")[0] in flags for word in rest):

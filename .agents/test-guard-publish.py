@@ -892,6 +892,25 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase migration squash", "supabase test db", "supabase db test"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on a Supabase verb with no target flag: {command}", reason is None, reason or "")
+    # Supabase CLI 2 runs `migration repair` and `db pull` against the linked
+    # project unless `--local` is given, and `storage` likewise; a target flag
+    # beside `--local` still sends the command to a hosted project, and so does
+    # a `--local` that a false value turns off. Catches a verb missing from the
+    # hosted-unless-local table and a `--local` read as local when it is not;
+    # it cannot tell which CLI version the command will meet.
+    for command in ("supabase migration repair --status reverted 1", "supabase db pull",
+                    "supabase db pull --local --remote", "supabase db pull --remote",
+                    "supabase db pull --local=false", "supabase db pull --local false",
+                    "supabase migration repair --local --linked --status reverted 1",
+                    "supabase storage rm --local --remote ss:///b/a",
+                    "supabase storage rm --local --project-ref abcdefghij ss:///b/a",
+                    "supabase storage rm --local=false ss:///b/a"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a Supabase verb that is hosted unless local: {command}", reason is not None, "quiet")
+    for command in ("supabase migration repair --local --status reverted 1", "supabase db pull --local",
+                    "supabase db pull --local=true", "supabase storage rm --local ss:///b/a"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a Supabase verb kept local: {command}", reason is None, reason or "")
 
     # A JavaScript repository reaches its scripts through a package manager, so
     # a list carrying only `node` leaves the documented invocation ungated.
