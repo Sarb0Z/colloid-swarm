@@ -3,9 +3,11 @@
 
 Usage: last-message.py <transcript-path>
 
-The Stop payload carries `last_assistant_message` on most engines, but Codex
-declares it `string | null`, "if available". This is the fallback that covers
-the null: a transcript row the host has already written.
+The Stop payload carries `last_assistant_message` on most engines; this is the
+fallback for a payload without one, read from a Claude Code transcript. Codex
+declares the field `string | null` too, but its transcripts keep replies under
+`payload` in `response_item` rows, which this does not read, so a null there
+prints nothing.
 
 Only rows whose type is "assistant" are replies. Claude Code also writes each
 API request into the transcript as api-request-blob rows, which repeat earlier
