@@ -892,6 +892,14 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase migration squash", "supabase test db", "supabase db test"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on a Supabase verb with no target flag: {command}", reason is None, reason or "")
+    # Supabase CLI 3's hosted-only writes ask whatever the flags; `feedback add`
+    # sends a message to the Supabase team. `pull --dry-run` asks too (the
+    # guard plan of 2026-11-16, step 5).
+    for command in ("supabase bootstrap", "supabase branches disable feature-x", "supabase pull",
+                    "supabase pull --dry-run", "supabase compute push", "supabase compute delete small",
+                    "supabase feedback add \"x\"", "supabase feedback delete 1"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a hosted-only Supabase CLI 3 verb: {command}", reason is not None, "quiet")
     # Supabase CLI 2 runs `migration repair` and `db pull` against the linked
     # project unless `--local` is given, and `storage` likewise; a target flag
     # beside `--local` still sends the command to a hosted project, and so does
