@@ -122,6 +122,11 @@ REMOTE_FLAG_VERBS = {
 LOCAL_FLAG_VERBS = {
     "supabase": {"migration repair", "db pull"},
 }
+# A target-flag verb with a boolean flag that makes it a read: `supabase db
+# query --read-only` runs its SQL in a read-only transaction.
+READ_FLAG_VERBS = {
+    "supabase": {"db query": "--read-only"},
+}
 # The words the Supabase CLI's parser reads as the value of a boolean flag,
 # after `=` or as the next word: `--local false`, `--read-only=no`.
 BOOLEAN_TRUE = {"true", "yes", "on", "1", "y"}
@@ -640,7 +645,10 @@ def rule_bash(command, shell, place=None):
             if phrase in LOCAL_FLAG_VERBS.get(name, set()) and not stays_local(name, rest):
                 return f"{name} {phrase} reaches a hosted project unless --local keeps it local."
         verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
+        reads = READ_FLAG_VERBS.get(name, {})
         for phrase in phrases:
+            if phrase in reads and flag_on(rest, reads[phrase]):
+                continue
             if phrase in verbs and any(word.split("=")[0] in flags for word in rest):
                 return f"{name} {phrase} with a target flag reaches a hosted project."
     return None

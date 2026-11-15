@@ -911,6 +911,23 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase db pull --local=true", "supabase storage rm --local ss:///b/a"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on a Supabase verb kept local: {command}", reason is None, reason or "")
+    # `db query --read-only` runs in a read-only transaction, the one hosted
+    # form that stays quiet; a false value turns the flag off and the query
+    # writes again. Catches an exemption granted to a `--read-only` that is
+    # off; it cannot tell whether the SQL itself would write.
+    for command in ("supabase db query --remote --read-only",
+                    "supabase db query --remote --read-only=true",
+                    "supabase db query --read-only --remote=abcdefghij 'select 1'"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a read-only Supabase query: {command}", reason is None, reason or "")
+    for command in ("supabase db query --remote --read-only=false",
+                    "supabase db query --remote --read-only no",
+                    "supabase db query --remote --read-only false",
+                    "supabase db query --remote --read-only --read-only=false",
+                    "supabase db reset --remote --read-only"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks when --read-only is off or the verb has no read form: {command}",
+              reason is not None, "quiet")
 
     # A JavaScript repository reaches its scripts through a package manager, so
     # a list carrying only `node` leaves the documented invocation ungated.
