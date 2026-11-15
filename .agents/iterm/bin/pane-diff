@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Open Neovim's diffview on the files not pushed yet.
+#   pane-diff [<base>] [-- <file>]
+# <base> HEAD (iTerm2's default) means pane-base's "not pushed" commit; @ means
+# uncommitted changes only; anything else is passed through as typed.
+set -uo pipefail
+
+# Neovim by path: a login shell's PATH may lack it. PANE_DIFF_NVIM overrides.
+nvim=${PANE_DIFF_NVIM:-$(command -v nvim || echo /opt/homebrew/bin/nvim)}
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+
+base=HEAD
+if [[ $# -gt 0 && $1 != -- ]]; then
+  base=$1
+  shift
+fi
+file=
+if [[ ${1:-} == -- ]]; then
+  [[ $# -eq 2 ]] || { echo "usage: pane-diff [<base>] [-- <file>]" >&2; exit 2; }
+  file=$2
+fi
+
+# The pane would close at once on an error, so hold it for a key.
+fail() {
+  echo "pane-diff: $1" >&2
+  echo "Press any key to close." >&2
+  read -rsn1 || true
+  exit 1
+}
+
+git rev-parse --git-dir >/dev/null 2>&1 || fail "$PWD is not inside a git repository"
+
+if [[ $base == HEAD ]]; then
+  base=$("$here/pane-base" 2>/dev/null) || fail "cannot find the not-pushed base in $PWD"
+fi
+
+# Backslash-escape every character the Ex command line or diffview's argument
+# splitter would read as syntax.
+escape() {
+  printf '%s' "$1" | sed 's/[^A-Za-z0-9._\/:@+=,-]/\\&/g'
+}
+
+if [[ $base == @ ]]; then
+  cmd=DiffviewOpen
+else
+  cmd="DiffviewOpen $(escape "$base")"
+fi
+[[ -n $file ]] && cmd="$cmd -- $(escape "$file")"
+
+exec "$nvim" -c "$cmd"
