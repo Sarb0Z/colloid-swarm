@@ -67,3 +67,21 @@ _Avoid_: session (which means an agent session), stealth session
 **Bounded run**:
 The pages one task reads from one walled site, one after another, within the page limit the rules set. Anything larger is a crawl.
 _Avoid_: crawl, scrape, batch
+
+## Terminal
+
+**Prompt pane**:
+The pane iTerm2 calls Code Review, kept beside a Claude tab with its Chat and Diff panes. The operator picks an entry from the prompt catalog there and starts it, and the pane sends the entry to the tab's own session as a message from another session.
+_Avoid_: Code Review pane, review pane, reviewer tab
+
+**Prompt catalog**:
+Everything the prompt pane offers to start: the operator's saved prompts, the skills, the workflows and the playbooks an operator starts on purpose. Each entry says whether the lead runs it in a background cell or in its own turn, and with which model.
+_Avoid_: prompt library, menu, snippets
+
+**Pane review**:
+A review the operator starts from the prompt pane. The tab's lead runs it as a background reviewer cell over a snapshot of everything not pushed, under the review contract. It is not the review the lead runs when a scope is delivered.
+_Avoid_: peer review, iTerm2 review, auto review
+
+**Open gate**:
+A gate or ruling a session leaves waiting on the operator: a `needs_confirmation:` line in its final message, or a question it asks through the host's question tool that is not yet answered.
+_Avoid_: open decision (an operator ruling a breadcrumb waits on), pending confirmation
