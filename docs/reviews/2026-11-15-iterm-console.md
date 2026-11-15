@@ -40,3 +40,34 @@ Acceptance 1-5, P4, typed bases `HEAD~2`, `@{u}` and `main^`, files named
 run through an `install.sh` link in a temporary HOME all passed, and
 `git status --porcelain` did not change. The colour scheme was checked at
 `cf9367c` (`tokyonight-night`); `c8230be` does not change it.
+
+## Lane `attention` (unit 2, critical)
+
+Covers: f108fb9..a9c2139
+
+One reviewer (opus) read the lane whole and its seams with iTerm2's own hook,
+the death reader and the owed reader. QA (opus) ran Acceptance 6-13 and
+probes P3 and P5 in a real iTerm2 3.7.7 tab: a Claude session on a scratch
+checkout of `a9c2139`, read with `it2 session get-status` every 200 ms.
+
+QA: Acceptance 6, 8, 9 (named), 10, 11 and 13 passed; 7 failed; 12 passed
+for the policy alone, 44-49 ms in a tab and 15-17 ms outside. The registered
+command, with the adapter's normalizer, takes 109-122 ms in a tab and
+74-81 ms outside. P3: our status showed every time, read by get-status; the
+operator confirms the sidebar by eye. P5: iTerm2's write wins (finding 1).
+Runs a day: about 1,040 at most on the busiest weekday (492 Stop, 53 question
+calls, up to 492 idle_prompt), over 466 transcripts.
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | P1 | At the question tool, `landed` accepts iTerm2's `working`, which every earlier tool event already left, so the hook writes at once (`iterm_attention.py:236-237`). iTerm2's own `waiting \| <question>` lands 1.77 s later and replaces `decide: <header>` | Adopted. QA reproduced it live (Acceptance 7, P5), which stands as the disprove pass. The writer probes which event carries iTerm2's `waiting` write, in default and bypass modes, registers the policy there and waits for that write |
+| 2 | P2 | At Stop and idle_prompt `landed` checks only the status class, so an earlier `done` counts as this event's write | Adopted: Stop also requires iTerm2's detail to match the last message, or `background`; idle_prompt requires iTerm2's idle write, as QA's trace shows it |
+| 3 | P2 | A death shows `error` at every later turn end until the agent is resumed or the death dismissed, and hides owed checks meanwhile | Escalated: the operator rules between that and the turn the death is found |
+| 4 | P2 | The `<N> read-only cells died` branch cannot fire: `agent_leftovers.leftovers` names every death of the reading session (`agent_leftovers.py:178-181`); QA could not produce it either | Adopted: the branch and its tests go, and every death of the session is named |
+| 5 | P2 | `GATE` accepts a line that opens with an inline-code `needs_confirmation:` token, such as prose about the marker | Adopted |
+| 6 | P2 | An exception other than `OSError`, `ValueError` or `RuntimeError` ends the policy with stderr only, which nobody sees for an async hook | Adopted: the shell logs a non-zero exit, and the Optional module spec and loader raise |
+| 7 | P2 | The failure log grows without bound under a lasting failure; `keychain-notice.sh:40` does the same | Filed in `breadcrumbs.md` for both logs |
+| 8 | P2 | The suite fails on wall-clock bounds under 100 ms, and CI runs it | Adopted: the suite asserts that no interpreter starts and reports the time |
+| 9 | P2 | Sizes over the measurement limits; `last_message` is a third copy of the transcript's last-text reader | The None guard is adopted under 6. Moving the reader into `turn-text.py` is filed in `breadcrumbs.md`: the file is outside the lane, which is at its widen limit |
+| 10 | — | QA: whether Acceptance 12's 100 ms covers the policy or the registered command | The policy, as the acceptance names it; the hook is async, so no turn waits on it. The command's time is recorded above |
+| 11 | — | QA: a `claude -p` started from a tab makes iTerm2's own hook overwrite the tab's status with the child's | Noted: iTerm2's behaviour; the parent's next Stop writes ours again |
