@@ -873,6 +873,25 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase gen types typescript --local"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on a local Supabase command: {command}", reason is None, reason or "")
+    # Supabase CLI 3 runs these verbs on the local stack unless a target flag
+    # names a hosted project: `--remote`, bare or with a ref, a branch or a
+    # URL, or `--project-ref` alone. Catches a target flag or a verb missing
+    # from the table; it cannot tell whether the CLI really declares the flag.
+    for command in ("supabase db reset --remote", "supabase db reset --remote=abcdefghij",
+                    "supabase --project-ref abcdefghij db reset"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a Supabase target flag and says where the command goes: {command}",
+              reason is not None and "reaches a hosted project" in reason, reason or "quiet")
+    for command in ("supabase migration down --remote", "supabase migration squash --linked",
+                    "supabase test db --remote", "supabase db test --remote",
+                    "supabase db query --remote", "supabase seed --remote buckets",
+                    "supabase -o json db reset --remote"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a Supabase verb sent to a hosted project: {command}", reason is not None, "quiet")
+    for command in ("supabase db query", "supabase migration down", "supabase db dump",
+                    "supabase migration squash", "supabase test db", "supabase db test"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a Supabase verb with no target flag: {command}", reason is None, reason or "")
 
     # A JavaScript repository reaches its scripts through a package manager, so
     # a list carrying only `node` leaves the documented invocation ungated.

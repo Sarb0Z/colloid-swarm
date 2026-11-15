@@ -101,13 +101,18 @@ DEPLOY_VERBS["tofu"] = DEPLOY_VERBS["terraform"]
 # `supabase storage` reaches the linked project unless `--local` says
 # otherwise, and `cp` writes there only when its destination is an `ss://` path.
 SUPABASE_STORAGE_VALUED = {"--cache-control", "--content-type", "-j", "--jobs", "--project-ref"}
-# Verbs that are local by default and reach the hosted project only when a flag
-# says so. Gating them unconditionally would ask on every `supabase db reset`,
-# which is how a developer rebuilds the Docker stack several times an hour; an
-# ask that fires on routine local work is one people learn to dismiss.
+# Verbs that are local by default and reach a hosted project only when a target
+# flag says so. Gating them unconditionally would ask on every `supabase db
+# reset`, which is how a developer rebuilds the Docker stack several times an
+# hour; an ask that fires on routine local work is one people learn to dismiss.
+# Supabase CLI 3 names the target with `--remote` (bare for the linked project,
+# or `--remote=<ref|branch|postgres-url>`); `--linked`, `--db-url` and
+# `--project-ref` are 2.x's spellings, which 3.x still reads. `db test` is an
+# alias of `test db`.
 REMOTE_FLAG_VERBS = {
-    "supabase": ({"db reset", "migration up", "migration repair", "db dump", "seed buckets"},
-                 {"--linked", "--db-url"}),
+    "supabase": ({"db reset", "migration up", "migration down", "migration squash",
+                  "migration repair", "db query", "test db", "db test", "db dump", "seed buckets"},
+                 {"--remote", "--linked", "--db-url", "--project-ref"}),
 }
 # The read set is the allowlist, so an action this guard does not recognize asks:
 # a new Artifact action is likelier to mutate than to read. Nothing here keys on
@@ -599,7 +604,7 @@ def rule_bash(command, shell, place=None):
         verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
         for phrase in phrases:
             if phrase in verbs and any(word.split("=")[0] in flags for word in rest):
-                return f"{name} {phrase} against the linked project mutates the hosted database."
+                return f"{name} {phrase} with a target flag reaches a hosted project."
     return None
 
 
