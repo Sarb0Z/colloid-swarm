@@ -43,7 +43,7 @@ run through an `install.sh` link in a temporary HOME all passed, and
 
 ## Lane `attention` (unit 2, critical)
 
-Covers: f108fb9..a9c2139
+Covers: f108fb9..d8805c5
 
 One reviewer (opus) read the lane whole and its seams with iTerm2's own hook,
 the death reader and the owed reader. QA (opus) ran Acceptance 6-13 and
@@ -71,3 +71,11 @@ calls, up to 492 idle_prompt), over 466 transcripts.
 | 9 | P2 | Sizes over the measurement limits; `last_message` is a third copy of the transcript's last-text reader | The None guard is adopted under 6. Moving the reader into `turn-text.py` is filed in `breadcrumbs.md`: the file is outside the lane, which is at its widen limit |
 | 10 | — | QA: whether Acceptance 12's 100 ms covers the policy or the registered command | The policy, as the acceptance names it; the hook is async, so no turn waits on it. The command's time is recorded above |
 | 11 | — | QA: a `claude -p` started from a tab makes iTerm2's own hook overwrite the tab's status with the child's | Noted: iTerm2's behaviour; the parent's next Stop writes ours again |
+
+`d8805c5` folds findings 1, 2, 4, 5, 6 and 8, the guard of 9, and R22 into
+`a9c2139`. The lead read the code diff and ran the suite (`PASS:
+iterm-attention`). The writer inverted ten of the new rules one at a time,
+and each turned the suite red. A turn's start is its last prompt row, which
+counts a task notification as a prompt (`turn-text.py` `typed_by_user`).
+Deaths are recorded in `.agents/.readout/.iterm-deaths-<session>`, which
+`readout.prune` removes once idle. QA reruns Acceptance 6-13 at `d8805c5`.
