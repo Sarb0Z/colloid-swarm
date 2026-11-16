@@ -133,7 +133,7 @@ GROUP_ALIASES = {
 # meet both versions, so they ask unless `--local` keeps them local (`stays_local`).
 # `supabase storage` follows the same rule through `supabase_storage_reason`.
 LOCAL_FLAG_VERBS = {
-    "supabase": {"migration repair", "db pull"},
+    "supabase": {"migration repair", "db pull", "db remote commit"},
 }
 # A target-flag verb with a boolean flag that makes it a read: `supabase db
 # query --read-only` runs its SQL in a read-only transaction.
@@ -475,8 +475,8 @@ def supabase_storage_reason(rest):
 def table_reason(name, rest, positional):
     """The ask for a deploy CLI whose positional words are `positional`, read
     from the verb tables; None when no table names its verb."""
-    # Longest phrase first, so a two-word verb is not shadowed by its noun.
-    phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
+    # Longest phrase first, so a longer verb is not shadowed by its noun.
+    phrases = [" ".join(positional[:width]) for width in (3, 2, 1) if len(positional) >= width]
     for phrase in phrases:
         if phrase in DEPLOY_VERBS.get(name, set()):
             return f"{name} {phrase} deploys or mutates the hosted project."

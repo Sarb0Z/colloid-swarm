@@ -928,6 +928,14 @@ with tempfile.TemporaryDirectory() as tmp:
     for command in ("supabase seed buckets", "supabase db reset"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on a Supabase verb with no --remote: {command}", reason is None, reason or "")
+    # CLI 2's `db remote commit` runs `db pull` against the linked project
+    # unless `--local` is given: a three-word verb. Catches a verb longer than
+    # the phrases the guard builds.
+    reason = guard.verdict("Bash", {"command": "supabase db remote commit"}, ())
+    check("asks on the three-word Supabase verb: supabase db remote commit", reason is not None, "quiet")
+    reason = guard.verdict("Bash", {"command": "supabase db remote commit --local"}, ())
+    check("quiet on the three-word Supabase verb kept local: supabase db remote commit --local",
+          reason is None, reason or "")
     # Supabase CLI 2 runs `migration repair` and `db pull` against the linked
     # project unless `--local` is given, and `storage` likewise; a target flag
     # beside `--local` still sends the command to a hosted project, and so does
