@@ -30,8 +30,11 @@
 .agents/worktrees/
 # Each lane's full brief, written by `workloop.py brief`.
 .workloop/
-# Type declarations Claude Code writes beside a mod each time it loads one.
+# Type declarations Claude Code writes beside a mod each time it loads one, and
+# the tsconfig.json it writes to extend them when a session loads the mod's
+# folder through CLAUDE_CODE_PLUGIN_DIRS.
 .agents/claude/mods/*/.claude-plugin/types/
+.agents/claude/mods/*/tsconfig.json
 
 # Per-operator local config and secrets (carry the framework, not the keys).
 **/settings.local.json
