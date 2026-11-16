@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Freeze what a pane review reads: everything not pushed, in a detached
+# worktree the reviewer can read while the checkout keeps changing.
+#   review-snapshot
+# Prints, one per line:
+#   base: <commit>         where "not pushed" starts (pane-base)
+#   tip: <commit>          the checkout's HEAD
+#   committed: yes|no      no when the checkout has uncommitted or untracked files
+#   uncommitted: <commit>  with committed: no, one commit on the tip that holds them
+#   snapshot: <path>       <main checkout>/.agents/worktrees/pane-review-<id>, detached
+#                          at the tip, or at the uncommitted commit
+#   registered: yes|no …   whether the session's end removes the snapshot
+# The checkout's index and files are not changed: the uncommitted commit is
+# built in a scratch index and is on no branch.
+set -euo pipefail
+
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+die() {
+  echo "review-snapshot: $1" >&2
+  exit 1
+}
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || die "$PWD is not inside a git checkout"
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+[[ $(basename "$common") == .git ]] || die "$common is a bare repository; a snapshot needs a main checkout"
+main=$(cd "$(dirname "$common")" && pwd -P)
+# pane-base names its rule, or its reason for failing, on stderr.
+base=$("$here/pane-base") || exit 1
+tip=$(git rev-parse --verify 'HEAD^{commit}')
+git -C "$main" check-ignore -q .agents/worktrees/pane-review || die "$main does not ignore .agents/worktrees/, so a snapshot there would show as an untracked file; add .agents/worktrees/ to its .gitignore"
+
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+
+# --no-optional-locks: a plain status would rewrite the index to refresh it.
+changes=$(git -C "$top" --no-optional-locks status --porcelain --untracked-files=all)
+shown=$tip
+if [[ -n $changes ]]; then
+  index=$(git -C "$top" rev-parse --path-format=absolute --git-path index)
+  # A copy of the index keeps its file times, so only changed files are hashed.
+  if [[ -f $index ]]; then
+    cp "$index" "$scratch/index"
+  else
+    GIT_INDEX_FILE=$scratch/index git -C "$top" read-tree "$tip"
+  fi
+  GIT_INDEX_FILE=$scratch/index git -C "$top" add -A
+  tree=$(GIT_INDEX_FILE=$scratch/index git -C "$top" write-tree)
+  shown=$(git -C "$top" -c user.name=review-snapshot -c user.email=review-snapshot@invalid \
+    commit-tree "$tree" -p "$tip" -m "Uncommitted changes and untracked files at a pane review of $tip")
+fi
+
+# git makes the folder, so a failed add leaves none behind.
+snap=$main/.agents/worktrees/pane-review-$(date +%Y%m%d-%H%M%S)-$$
+git -C "$top" worktree add --quiet --detach "$snap" "$shown" >&2
+
+# The session's end removes the worktrees in its record file. teardown-gate
+# records a `git worktree add` it sees in a tool call's command; this one runs
+# inside a script, so the script writes the record. -B: a bytecode folder
+# beside the module would be a new untracked file in the checkout.
+records=$top/.agents/hooks/lib/worktree_records.py
+if [[ ! -f $records ]]; then
+  registered="no (this repository has no .agents/hooks/lib/worktree_records.py): only step 5 removes the snapshot"
+elif [[ -z ${CLAUDE_CODE_SESSION_ID:-} ]]; then
+  registered="no (CLAUDE_CODE_SESSION_ID is not set, so no Claude session ran this): only step 5 removes the snapshot"
+elif python3 -B - "$records" "$top" "$CLAUDE_CODE_SESSION_ID" "$snap" >&2 <<'PY'; then
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("worktree_records", sys.argv[1])
+records = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(records)
+records.record(sys.argv[2], sys.argv[3], [{"type": "worktree", "path": sys.argv[4], "by": "review-snapshot"}])
+PY
+  registered="yes"
+else
+  registered="no ($records failed, see above): only step 5 removes the snapshot"
+fi
+
+echo "base: $base"
+echo "tip: $tip"
+if [[ -n $changes ]]; then
+  echo "committed: no"
+  echo "uncommitted: $shown"
+else
+  echo "committed: yes"
+fi
+echo "snapshot: $snap"
+echo "registered: $registered"
