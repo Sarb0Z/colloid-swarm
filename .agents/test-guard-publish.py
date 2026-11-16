@@ -896,7 +896,8 @@ with tempfile.TemporaryDirectory() as tmp:
     # sends a message to the Supabase team. `pull --dry-run` asks too (the
     # guard plan of 2026-11-16, step 5).
     for command in ("supabase bootstrap", "supabase branches disable feature-x", "supabase pull",
-                    "supabase pull --dry-run", "supabase compute push", "supabase compute delete small",
+                    "supabase pull --dry-run", "supabase compute push", "supabase compute deploy",
+                    "supabase compute delete small",
                     "supabase feedback add \"x\"", "supabase feedback delete 1"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted-only Supabase CLI 3 verb: {command}", reason is not None, "quiet")

@@ -134,6 +134,7 @@
       "Bash(supabase branches disable:*)",
       "Bash(supabase pull:*)",
       "Bash(supabase compute push:*)",
+      "Bash(supabase compute deploy:*)",
       "Bash(supabase compute delete:*)",
       "Bash(supabase feedback add:*)",
       "Bash(supabase feedback delete:*)",

@@ -93,7 +93,8 @@ DEPLOY_VERBS = {
                  "vanity-subdomains delete", "ssl-enforcement update", "network-bans remove",
                  "backups restore", "encryption update-root-key", "orgs create",
                  "notebooks push", "bootstrap", "branches disable", "pull",
-                 "compute push", "compute delete", "feedback add", "feedback delete"},
+                 "compute push", "compute deploy", "compute delete", "feedback add",
+                 "feedback delete"},
     "terraform": {"apply", "destroy", "import", "refresh", "taint", "untaint", "force-unlock",
                   "state rm", "state mv", "state push", "state replace-provider",
                   "workspace delete"},
@@ -110,6 +111,7 @@ DEPLOY_REASONS = {
         "pull": "reaches a hosted project",
         "compute push": "reaches a hosted project",
         "compute delete": "reaches a hosted project",
+        "compute deploy": "reaches a hosted project",
     },
 }
 # `supabase storage` reaches a hosted project unless `--local` keeps it local
