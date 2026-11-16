@@ -63,7 +63,7 @@ operator ran `apply` at bb31be3 on 2026-11-16. The first run stopped at the PPA,
 when `add-apt-repository` timed out reaching Launchpad's API (log in the
 backup folder). It left only the key step done. The rerun finished at
 13:36 +0100. Results, read-only:
-- A second `apply` prints "nothing to change": waits for the operator's `apply --check`.
+- A second run changes nothing: passed. The operator's `apply --check` printed `check: 0 change(s) to make; nothing was changed`.
 - `ssh contabo-dev id` logs in as `openclawops`: passed.
 - Port 2022 listens: passed. etserver is on IPv4 and IPv6, and a TCP connect from the Mac succeeds. `ufw` is outside the agent's ssh allowlist, so the agent compared the files ufw loads instead. `user.rules` and `user6.rules` differ from their backups only by the 2022 `allow` rule.
 - No restart of mail, nginx, the bakery, GitMu or Docker in the journal for 13:26-13:40: passed. The only service started was `et`, once, at 13:35:59, two seconds after `telemetry = false` was written. The bakery's system unit ran throughout (up since 2026-11-14, no restarts). The lines that say "Started bakery.service" every 5 seconds come from a stale user unit of the same name. It points at a removed folder, and it was failing long before the run (restart counter 476,143). The operator ruled to disable it (TERMINAL-SPEC Decision 13).
