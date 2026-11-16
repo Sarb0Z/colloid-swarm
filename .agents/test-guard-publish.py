@@ -948,6 +948,13 @@ with tempfile.TemporaryDirectory() as tmp:
     reason = guard.verdict("Bash", {"command": "supabase db remote commit --local"}, ())
     check("quiet on the three-word Supabase verb kept local: supabase db remote commit --local",
           reason is None, reason or "")
+    # The CLI stops reading flags at a bare `--`, so a `--local` or
+    # `--read-only` after it is an operand and turns nothing on. Catches a
+    # flag counted where the CLI does not read one.
+    for command in ("supabase db pull -- --local", "supabase db query --remote -- --read-only"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks when the quieting Supabase flag follows a bare --: {command}",
+              reason is not None, "quiet")
     # Supabase CLI 2 runs `migration repair` and `db pull` against the linked
     # project unless `--local` is given, and `storage` likewise; a target flag
     # beside `--local` still sends the command to a hosted project, and so does

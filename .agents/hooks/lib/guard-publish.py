@@ -439,9 +439,12 @@ def unversioned(spec):
 def flag_on(words, flag):
     """Whether the boolean `flag` ends up on. The last occurrence decides: a
     bare one is on unless the next word is a false literal, and one with `=`
-    is on only for a true value."""
+    is on only for a true value. A bare `--` ends the flags: what follows it
+    is an operand."""
     state = False
     for index, word in enumerate(words):
+        if word == "--":
+            break
         name, equals, value = word.partition("=")
         if name != flag:
             continue
