@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for .agents/iterm: pane-base over fixture repositories, pane-diff with a
-# stub nvim recording its argv, install.sh in a temporary HOME.
+# stub nvim recording its argv, install.sh in a temporary HOME, then every
+# test-*.sh beside this file, one per prompt-pane script.
 set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -166,15 +167,28 @@ H=$T/home
 mkdir "$H"
 out1=$(HOME=$H "$IT/install.sh" 2>&1); rc=$?
 eq "install first run exits 0" 0 "$rc"
-[[ -L $H/.local/bin/pane-base && -L $H/.local/bin/pane-diff ]] && ok "install links every bin script" || bad "install links every bin script"
+[[ -L $H/.local/bin/pane-base && -L $H/.local/bin/pane-diff ]] && ok "install links pane-base and pane-diff" || bad "install links pane-base and pane-diff"
+for script in "$IT"/bin/*; do
+  name=$(basename "$script")
+  [[ -x $script ]] && ok "$name is executable" || bad "$script is not executable"
+  eq "install links $name to its file here" "$script" "$(readlink "$H/.local/bin/$name")"
+done
+eq "install links nothing else" "$(ls "$IT/bin")" "$(ls "$H/.local/bin")"
 [[ $out1 == *linked:* ]] && ok "install reports what it did" || bad "install reports: $out1"
+links1=$(ls -l "$H/.local/bin")
 out2=$(HOME=$H "$IT/install.sh" 2>&1); rc=$?
 eq "install second run exits 0" 0 "$rc"
-[[ $out2 != *linked:* && $out2 == *unchanged:* ]] && ok "install second run changes nothing" || bad "install second run: $out2"
+[[ $out2 != *linked:* && $out2 == *unchanged:* ]] && ok "install second run reports nothing new" || bad "install second run: $out2"
+eq "install second run leaves every link as it was" "$links1" "$(ls -l "$H/.local/bin")"
 rm "$H/.local/bin/pane-diff"
 echo mine >"$H/.local/bin/pane-diff"
 err=$(HOME=$H "$IT/install.sh" 2>&1 >/dev/null); rc=$?
 [[ $rc -ne 0 && $err == *"$H/.local/bin/pane-diff"* ]] && ok "install refuses a foreign file, naming it" || bad "install foreign file (rc=$rc): $err"
 eq "install left the foreign file intact" mine "$(cat "$H/.local/bin/pane-diff")"
+
+# --- (d) the prompt pane: each script's own test file ------------------------
+for suite in "$IT"/tests/test-*.sh; do
+  "$suite" || bad "$(basename "$suite")"
+done
 
 ((fails == 0)) && echo "iterm tests passed" || { echo "$fails failed" >&2; exit 1; }
