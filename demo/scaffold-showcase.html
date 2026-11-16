@@ -12809,7 +12809,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 110 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 111 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -12889,6 +12889,7 @@ python3 .agents/port-public.py check
 python3 demo/check-inventory.py
 .agents/test-showcase.sh
 .agents/iterm/tests/run.sh
+.agents/iterm/server/test.sh
 # /colloid-only
 LIST
 }
@@ -16394,7 +16395,7 @@ if __name__ == &quot;__main__&quot;:
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>The committed defaults for every toggle and threshold above. <code>policy.json</code> is the tracked per-repository policy, and an ignored <code>config.json</code> overrides both for one operator. Only the <code>session_wrap</code> thresholds also read <code>WRAP_*</code> environment variables.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 146 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 149 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -16452,6 +16453,9 @@ if __name__ == &quot;__main__&quot;:
       &quot;enabled&quot;: true
     },
     &quot;worktree_sessions&quot;: {
+      &quot;enabled&quot;: false
+    },
+    &quot;inline_thinking&quot;: {
       &quot;enabled&quot;: false
     },
     &quot;worktree_provision&quot;: {
