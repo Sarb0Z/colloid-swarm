@@ -1,0 +1,20 @@
+{
+  "task_line": "<replace this line with the task>",
+  "workflows": ["Answer", "Ship", "Operate", "Build", "Fix", "Write", "Spec", "Scaffold", "Verify", "Merge"],
+  "playbooks": [
+    {"name": "breadcrumb-burndown"},
+    {"name": "learning-report"},
+    {"name": "report-investigation"},
+    {"name": "report-implementation"},
+    {"name": "recurring-correction-mining"},
+    {"name": "move-project-directory", "task": true}
+  ],
+  "reviews": [
+    {"name": "Opus", "model": "opus"},
+    {"name": "Sonnet", "model": "sonnet"}
+  ],
+  "background_skills": {
+    "review-animations": "sonnet",
+    "web-design-guidelines": "sonnet"
+  }
+}
