@@ -78,6 +78,7 @@ python3 .agents/port-public.py check
 python3 demo/check-inventory.py
 .agents/test-showcase.sh
 .agents/iterm/tests/run.sh
+.agents/iterm/server/test.sh
 # /colloid-only
 LIST
 }

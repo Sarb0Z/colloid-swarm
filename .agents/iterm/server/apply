@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Run setup-server.sh on contabo-hop as root, from the Mac (TERMINAL-SPEC.md Unit 5).
+# It sends this folder, the Mac's public key and the Mac's Claude Code version over
+# one ssh connection, runs the script in a scratch folder there, and removes it.
+#
+# Usage: apply [--check]
+#   --check  print each change a run would make; change nothing
+set -euo pipefail
+
+mode=
+case ${1:-} in
+  "") ;;
+  --check) mode=--check ;;
+  *)
+    echo "usage: apply [--check]" >&2
+    exit 2
+    ;;
+esac
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+key=$HOME/.ssh/id_ed25519.pub
+[[ -r $key ]] || {
+  echo "apply: no public key at $key" >&2
+  exit 1
+}
+version=$(command claude --version | awk '{ print $1 }')
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "apply: could not read the Mac's Claude Code version (got '$version')" >&2
+  exit 1
+}
+
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/settings.json" "$stage/"
+cp "$key" "$stage/mac.pub"
+printf '%s\n' "$version" >"$stage/claude-version"
+
+# COPYFILE_DISABLE and --no-mac-metadata keep macOS extended attributes out of
+# the archive, which GNU tar on the server would warn about.
+COPYFILE_DISABLE=1 tar --no-mac-metadata -cf - -C "$stage" . |
+  ssh contabo-hop 'd=$(mktemp -d) && tar -xf - -C "$d" && bash "$d/setup-server.sh" '"$mode"' "$d/mac.pub"; s=$?; rm -rf "$d"; exit $s'
