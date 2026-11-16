@@ -104,7 +104,8 @@ fresh() { # folder
   echo "22/tcp                     LIMIT       Anywhere" >"$STATE/ufw-rules"
   printf '%s\n' "$BASHRC" >"$h/.bashrc"
   echo '{"note": "uzair login, must stay"}' >"$h/.claude/settings.json"
-  printf '#!/usr/bin/env bash\ncase $1 in\n  --version) echo "$(cat "$STATE/claude-version" 2>/dev/null || echo 2.1.207) (Claude Code)" ;;\n  update) echo "claude update HOME=$HOME USER=$USER CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR" >>"$CALLS"; echo %s >"$STATE/claude-version" ;;\nesac\n' \
+  # The real update left an empty ~/.bash_profile on contabo-hop (2026-11-16), so the stand-in does too.
+  printf '#!/usr/bin/env bash\ncase $1 in\n  --version) echo "$(cat "$STATE/claude-version" 2>/dev/null || echo 2.1.207) (Claude Code)" ;;\n  update) echo "claude update HOME=$HOME USER=$USER CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR" >>"$CALLS"; echo %s >"$STATE/claude-version"; : >"$HOME/.bash_profile" ;;\nesac\n' \
     "$MAC_VERSION" >"$h/.local/bin/claude"
   chmod +x "$h/.local/bin/claude"
   : >"$CALLS"
@@ -181,6 +182,9 @@ cmp -s "$bk/home/openclawops/.bashrc" <(printf '%s\n' "$BASHRC") && ok "bashrc b
 [[ -f $bk/apt-get-install.log && -f $bk/add-apt-repository.log ]] && ok "apt's output is kept in the backup folder" ||
   bad "apt logs missing"
 has "run names the backup folder" "backups: /root/backups/unit5-" "$out"
+[[ ! -e $H/.bash_profile ]] && ok "run removes the empty ~/.bash_profile the update left" || bad "empty .bash_profile left"
+[[ -f $bk/home/openclawops/.bash_profile ]] && ok "the empty ~/.bash_profile is backed up" || bad ".bash_profile backup missing"
+has "run reports the removal" "do:    remove openclawops's empty ~/.bash_profile" "$out"
 
 # --- a second run changes nothing -----------------------------------------------
 after=$(tree "$R")
@@ -251,6 +255,22 @@ printf '#!/bin/sh\nexit 0\n' >"$R/usr/sbin/policy-rc.d"
 err=$(run "$B/mac.pub" 2>&1); rc=$?
 [[ $rc -eq 1 && $err == *"policy-rc.d already exists"* ]] && ok "refuses to replace a policy-rc.d" || bad "policy-rc.d (rc=$rc): $err"
 eq "the existing policy-rc.d stays" "exit 0" "$(tail -n 1 "$R/usr/sbin/policy-rc.d")"
+
+# --- a login file that bash reads before ~/.profile ---------------------------------
+# bash runs only the first of ~/.bash_profile, ~/.bash_login, ~/.profile, so the
+# launchers in ~/.bashrc load only if that first file reaches ~/.profile or ~/.bashrc.
+fresh "$R"
+echo 'export OWN=1' >"$H/.bash_login"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "a .bash_login that skips .profile fails the run" 1 "$rc"
+has "the failure names the file" "PROBLEM: $H/.bash_login" "$out"
+eq "that .bash_login is left as it was" "export OWN=1" "$(cat "$H/.bash_login")"
+fresh "$R"
+echo '[ -f ~/.profile ] && . ~/.profile' >"$H/.bash_login"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "a .bash_login that reads .profile passes" 0 "$rc"
+eq "that .bash_login is left as it was" '[ -f ~/.profile ] && . ~/.profile' "$(cat "$H/.bash_login")"
+lacks "and nothing is said about it" ".bash_login" "$out"
 
 # --- refusals ---------------------------------------------------------------------
 fresh "$R"

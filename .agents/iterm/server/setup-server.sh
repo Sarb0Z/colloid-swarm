@@ -341,6 +341,27 @@ else
   fi
 fi
 
+# A login shell (each tmux window, each et or ssh login) runs only the first of
+# ~/.bash_profile, ~/.bash_login and ~/.profile that exists, and only Ubuntu's
+# ~/.profile reads ~/.bashrc and puts ~/.local/bin on PATH. The update above left
+# an empty ~/.bash_profile on contabo-hop, which hid both. An empty one goes; one
+# with lines of its own is the user's, so it is named and left alone.
+for name in .bash_profile .bash_login; do
+  login=$home/$name
+  [[ -f $login ]] || continue
+  if ! grep -q '[^[:space:]]' "$login"; then
+    if change "remove $user's empty ~/$name, so a login shell reads ~/.profile and the launchers"; then
+      keep "$login"
+      rm "$login"
+    fi
+    continue
+  fi
+  if ! grep -qE '(\.|source)[[:space:]]+[^#]*\.(profile|bashrc)' "$login"; then
+    problem "$login runs before ~/.profile and reads neither ~/.profile nor ~/.bashrc, so a login shell gets no launchers; make it read ~/.profile, then run again"
+  fi
+  break
+done
+
 # ── Result ───────────────────────────────────────────────────────────────────
 if ((check)); then
   echo "check: $changes change(s) to make; nothing was changed"
