@@ -8,7 +8,7 @@ them with the operator's authority (R19).
 
 ## Lane `pane`
 
-Covers: 692df7e..17b1a85
+Covers: 692df7e..8fe1ad3
 
 A fable writer built `pane-run`, `review-snapshot`, `prompt-catalog` and
 `catalog.json` in three commits (b835c8b, 1142bf5, 8705fef), all under
@@ -90,6 +90,10 @@ the suite.
 | 15 | — | QA: a pane review in the default permission mode asks the operator about ten times | Noted for the operator: an allow rule for `review-snapshot` is the operator's decision |
 | 16 | — | QA: two of its split panes closed by themselves, and sessions in other tabs ended with reason `other` during the run | Not explained: the system log shows no memory-pressure kill; each ended session's tab record remains, so `claude-tab-state reopen` can resume it |
 | 17 | — | QA, for unit 2: while a background shell ran, a gate turn showed `working · 1 background task running` for 20 s instead of `decide:` | Filed in `breadcrumbs.md` |
+
+The second fix round landed findings 12-14 as 6f0f121 (12) and 8fe1ad3 (13
+and 14). The suite passed with 274 rows; the new tests gave 20 failures
+against the scripts at 17b1a85. The lead read the diff.
 
 The reviewer's readings: Acceptance 30's "Sent line" is the line after the
 post, and finding 2 settles which; R13's "iTerm2's own review prompt" is the
