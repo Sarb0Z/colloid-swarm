@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Hand the Code Review pane's entry to the tab's lead as a cross-session message.
 
-  pane-run <entry> [<system prompt file>]   iTerm2's Code Review command
-  pane-run --probe                          print what a workgroup peer sees, then wait
+  pane-run <entry>    iTerm2's Code Review command: pane-run \\(codeReviewPrompt)
+  pane-run --probe    print what a workgroup peer sees, then wait
 
 The lead is the Claude session of this tab's Chat pane. pane-run finds it
 through iTerm2's session list, or asks which live session of this folder it is,
@@ -16,6 +16,8 @@ An entry's first line may be a header:
 
 PANE_RUN_SETTLE is the wait in seconds between the post and the read of the
 lead's status (default 2). CLAUDE_TAB_STATE_DIR is claude-tab-state's folder.
+PANE_RUN_ITERM_DOMAIN is the defaults domain, or plist path, of iTerm2's
+preferences, read for its saved prompt "Default" and never written.
 Design: docs/notes/2026-11-15-iterm2-review-and-status-spec.md, unit 4.
 """
 
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import re
 import socket
 import subprocess
@@ -43,7 +46,11 @@ SENDER = "prompt-pane"
 # the envelope early or open one that claims a mode.
 ENVELOPE_TAG = re.compile(r"</?cross-session-message", re.I)
 MODE_LINE = b'{"type":"permission-mode"'
-SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL", re.I)
+# PAT only as a whole word of the name: PATH is no secret.
+SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL|AUTH|SESSION|COOKIE|(?:^|_)PAT(?:_|$)", re.I)
+URL_USERINFO = re.compile(r"://[^/\s@]*:[^/\s@]*@")
+ITERM_DOMAIN = os.environ.get("PANE_RUN_ITERM_DOMAIN", "com.googlecode.iterm2")
+SCAN_CHUNK = 262144
 MENU_KEYS = "123456789abcdefghijklmnopqrstuvwxyz"
 
 
@@ -121,28 +128,33 @@ def task_line() -> str:
     return json.loads((HERE.parent / "catalog.json").read_text())["task_line"]
 
 
+def review_steps(on: str) -> list[str]:
+    """What a pane review asks of a lead whose repository carries the harness; `on` names the model."""
+    return [
+        "This is a pane review of everything not pushed. Do these steps:",
+        f"1. Run {HERE / 'review-snapshot'} in this repository. It prints `base:`, `tip:`, "
+        "`committed: yes|no` and `snapshot:`, the path of a detached worktree. With `committed: no` the "
+        "snapshot's HEAD is `uncommitted:`, one commit on the tip that holds the uncommitted changes and "
+        "the untracked files.",
+        f"2. Send a background reviewer cell{on} over the snapshot under .agents/playbooks/hostile-review.md, "
+        "with the ask (the operator's own words for the work in the snapshot, quoted from this session) and "
+        "the plan file when one exists. A critical scope also gets the disprove pass. When you cannot quote "
+        "the ask, or a critical scope has no plan, say so in the brief and in the record; such a record "
+        "cannot stand in for the delivery review.",
+        "3. Keep working, then triage the report when it returns.",
+        "4. Write a review record only if the snapshot printed `committed: yes`, with `Covers: <base>..<tip>`. "
+        "The record stands in for the delivery review only if it covered the whole delivered scope, "
+        "unchanged since.",
+        "5. Remove the snapshot worktree: git worktree remove --force <snapshot>.",
+    ]
+
+
 def compose(entry: Entry, harness: bool, brief: str | None) -> str:
     """The message the lead reads: what the header asks, that the pane takes no reply, the entry."""
     on = f" on {entry.model}" if entry.model else ""
     tail = [entry.body] if entry.body else []
     if entry.review and harness:
-        how = [
-            "This is a pane review of everything not pushed. Do these steps:",
-            f"1. Run {HERE / 'review-snapshot'} in this repository. It prints `base:`, `tip:`, "
-            "`committed: yes|no` and `snapshot:`, the path of a detached worktree. With `committed: no` the "
-            "snapshot's HEAD is `uncommitted:`, one commit on the tip that holds the uncommitted changes and "
-            "the untracked files.",
-            f"2. Send a background reviewer cell{on} over the snapshot under .agents/playbooks/hostile-review.md, "
-            "with the ask (the operator's own words for the work in the snapshot, quoted from this session) and "
-            "the plan file when one exists. A critical scope also gets the disprove pass. When you cannot quote "
-            "the ask, or a critical scope has no plan, say so in the brief and in the record; such a record "
-            "cannot stand in for the delivery review.",
-            "3. Keep working, then triage the report when it returns.",
-            "4. Write a review record only if the snapshot printed `committed: yes`, with `Covers: <base>..<tip>`. "
-            "The record stands in for the delivery review only if it covered the whole delivered scope, "
-            "unchanged since.",
-            "5. Remove the snapshot worktree: git worktree remove --force <snapshot>.",
-        ]
+        how = review_steps(on)
     elif entry.review:
         how = [f"Run a review of everything not pushed (local commits and uncommitted changes) in a background "
                f"cell{on}. Give the cell the brief between the two marker lines below as its instructions."]
@@ -151,6 +163,11 @@ def compose(entry: Entry, harness: bool, brief: str | None) -> str:
         how = [f"Run it in a background cell{on}."]
     else:
         how = ["Do it in your turn."]
+    # The header's skill or playbook, by name: the entry's own text may not name it.
+    if entry.skill:
+        how.append(f"Use the {entry.skill} skill.")
+    if entry.playbook:
+        how.append(f"Follow .agents/playbooks/{entry.playbook}.md.")
     return "\n".join(["Request from this tab's prompt pane (the operator pressed Start):", *how,
                       "The pane takes no reply; report in this session.", *tail])
 
@@ -215,51 +232,75 @@ def same_place(a: str, b: str) -> bool:
     return bool(a) and os.path.realpath(a) == os.path.realpath(b)
 
 
+def own_session(sessions: list) -> dict | None:
+    """This pane's entry in iTerm2's session list."""
+    own = TAB_ID.fullmatch(os.environ.get("ITERM_SESSION_ID", ""))
+    return next((s for s in sessions if own and s["id"].upper() == own.group(1).upper()), None)
+
+
+def same_tab(me: dict, sessions: list) -> list:
+    """The other sessions of `me`'s iTerm2 tab. A session that lacks a window or tab id is in no tab."""
+    place = (me.get("window_id"), me.get("tab_id"))
+    if None in place:
+        return []
+    return [s for s in sessions if s is not me and (s.get("window_id"), s.get("tab_id")) == place]
+
+
+class Leads:
+    """The tab records, with each one's liveness read once."""
+
+    def __init__(self):
+        self.records, self.dead = tab_records(), {}
+
+    def live(self, guid: str) -> bool:
+        if guid not in self.records:
+            return False
+        if guid not in self.dead:
+            self.dead[guid] = not_live(self.records[guid])
+        return self.dead[guid] is None
+
+    def of_tab(self, sessions: list, why: str) -> tuple[str | None, str]:
+        """(the tab id of the one live session in this pane's iTerm2 tab, '') or (None, why not)."""
+        if not TAB_ID.fullmatch(os.environ.get("ITERM_SESSION_ID", "")):
+            return None, why or "ITERM_SESSION_ID is not set"
+        if why:
+            return None, why
+        me = own_session(sessions)
+        if me is None:
+            return None, "iTerm2's session list does not hold this pane"
+        found = [s["id"].upper() for s in same_tab(me, sessions) if self.live(s["id"].upper())]
+        return (found[0], "") if len(found) == 1 else (None, f"{len(found)} sessions of this tab have a live Claude record")
+
+    def picked(self, titles: dict, why: str) -> str:
+        """The tab id the operator picks among the live sessions of this folder."""
+        here = os.getcwd()
+        choices = [guid for guid, record in self.records.items()
+                   if same_place(record.get("cwd", ""), here) and self.live(guid)]
+        gone = [f"the session of tab {guid[:8]} is over: {reason}" for guid, reason in self.dead.items() if reason]
+        if not choices:
+            raise Refusal("; ".join([f"no live Claude session is recorded for {here}", *gone]))
+        say(f"pane-run: cannot tell which session is this tab's lead ({why}).")
+        for key, guid in zip(MENU_KEYS, choices):
+            record = self.records[guid]
+            say(f"  {key}  {titles.get(guid) or '(no title)'}  [{record.get('account')}, "
+                f"session {str(record.get('session_id'))[:8]}]")
+        say("Press the key of this tab's lead. Any other key sends nothing.")
+        choice = dict(zip(MENU_KEYS, choices)).get(read_key())
+        if not choice:
+            raise Refusal("no session was chosen")
+        return choice
+
+
 def find_lead() -> tuple[dict, str]:
     """(the lead's tab record, its tab title). The Chat session is the one session of this pane's
     iTerm2 tab with a live record; when that names none or several, the operator picks from the
     live sessions of this folder."""
-    records, (sessions, why) = tab_records(), iterm_sessions()
+    leads, (sessions, why) = Leads(), iterm_sessions()
     titles = {s["id"].upper(): str(s.get("title") or s.get("name") or "") for s in sessions}
-    dead = {}
-
-    def live(guid: str) -> bool:
-        if guid not in records:
-            return False
-        if guid not in dead:
-            dead[guid] = not_live(records[guid])
-        return dead[guid] is None
-
-    own = TAB_ID.fullmatch(os.environ.get("ITERM_SESSION_ID", ""))
-    if not own:
-        why = why or "ITERM_SESSION_ID is not set"
-    elif not why:
-        me = [s for s in sessions if s["id"].upper() == own.group(1).upper()]
-        if not me:
-            why = "iTerm2's session list does not hold this pane"
-        else:
-            tab = [s["id"].upper() for s in sessions if s is not me[0]
-                   and (s.get("window_id"), s.get("tab_id")) == (me[0].get("window_id"), me[0].get("tab_id"))]
-            found = [guid for guid in tab if live(guid)]
-            if len(found) == 1:
-                return records[found[0]], titles[found[0]]
-            why = f"{len(found)} sessions of this tab have a live Claude record"
-
-    here = os.getcwd()
-    choices = [guid for guid, record in records.items() if same_place(record.get("cwd", ""), here) and live(guid)]
-    gone = [f"the session of tab {guid[:8]} is over: {reason}" for guid, reason in dead.items() if reason]
-    if not choices:
-        raise Refusal("; ".join([f"no live Claude session is recorded for {here}", *gone]))
-    say(f"pane-run: cannot tell which session is this tab's lead ({why}).")
-    for key, guid in zip(MENU_KEYS, choices):
-        record = records[guid]
-        say(f"  {key}  {titles.get(guid) or '(no title)'}  [{record.get('account')}, "
-            f"session {str(record.get('session_id'))[:8]}]")
-    say("Press the key of this tab's lead. Any other key sends nothing.")
-    picked = dict(zip(MENU_KEYS, choices)).get(read_key())
-    if not picked:
-        raise Refusal("no session was chosen")
-    return records[picked], titles.get(picked, "")
+    guid, why = leads.of_tab(sessions, why)
+    if guid is None:
+        guid = leads.picked(titles, why)
+    return leads.records[guid], titles.get(guid, "")
 
 
 # --- the lead's session ------------------------------------------------------
@@ -300,20 +341,20 @@ def status_of(path: Path) -> str | None:
 def permission_mode(record: dict) -> str | None:
     """The permission mode Claude Code last wrote to the lead's transcript, or None. It is the
     mode at the lead's last turn: a later switch shows only after the next one."""
+    # Only at a line's start: the same text quoted or nested inside another line is no mode line.
+    needle = b"\n" + MODE_LINE
     try:
         with open(str(record.get("transcript_path", "")), "rb") as stream:
             start = stream.seek(0, os.SEEK_END)
-            tail = b""
             while start > 0:
-                size = min(start, 262144)
-                start -= size
+                start = max(0, start - SCAN_CHUNK)
                 stream.seek(start)
-                tail = stream.read(size) + tail
-                # Only at a line's start: the same text quoted inside a message is escaped there.
-                hay = b"\n" + tail if start == 0 else tail
-                at = hay.rfind(b"\n" + MODE_LINE)
+                # Each chunk once, read on by the needle's length so one across a boundary is seen.
+                chunk = stream.read(SCAN_CHUNK + len(needle) - 1)
+                at = (b"\n" + chunk if start == 0 else chunk).rfind(needle)
                 if at >= 0:
-                    return json.loads(hay[at + 1:].split(b"\n", 1)[0]).get("permissionMode")
+                    stream.seek(at if start == 0 else start + at + 1)
+                    return json.loads(stream.readline()).get("permissionMode")
     except (OSError, ValueError):
         return None
     return None
@@ -338,23 +379,56 @@ def post(path: str, text: str) -> None:
 
 
 def outcome(before: str | None, after: str | None, mode: str | None) -> str:
-    """What to tell the operator after the post. Claude Code holds a pane message only in a
-    session that bypasses permissions, and shows the hold as status `waiting`; a permission
-    prompt or a question reads `waiting` too, so the status alone does not prove a hold."""
+    """What to tell the operator after the post. Claude Code holds a pane message in a session
+    that bypasses permissions, whatever its status reads. In another mode status `waiting` is a
+    question or a permission prompt, so no line there asks for an approval: a line that did
+    could get a pending prompt approved in the request's place."""
+    if mode == "bypassPermissions":
+        return ("Claude Code holds the request for approval: answer any other question or permission prompt "
+                "in the Chat pane first, then approve the dialog that shows this request within five minutes.")
     if after is None:
         return "Sent, but the lead's session registry is gone now: the session may have ended."
     if after != "waiting":
         return "Sent."
-    if mode == "bypassPermissions" and before != "waiting":
-        return "Approve the message in the Chat pane within five minutes."
-    if before == "waiting" and mode not in (None, "plan", "bypassPermissions"):
-        return "Sent. The lead was already waiting for your answer in the Chat pane; it reads the request after that."
-    return ("Sent. The lead is waiting for you in the Chat pane: either it holds this message for approval "
-            "(approve it within five minutes, or it is dropped) or it waits for another answer and reads the "
-            "request after that.")
+    return (f"Sent. The lead {'was already' if before == 'waiting' else 'is'} waiting for an answer in the "
+            "Chat pane and reads the request after it.")
 
 
-def run(text: str, brief_file: str) -> None:
+def need_named(entry: Entry, repo: Path, record: dict) -> None:
+    """Refuse a header that names a skill or a playbook the lead does not have."""
+    if entry.skill and not any((base / entry.skill / "SKILL.md").is_file()
+                               for base in (repo / ".claude/skills", config_dir(record) / "skills")):
+        raise Refusal(f"the skill {entry.skill} is not in {repo} (.claude/skills/{entry.skill}/SKILL.md) "
+                      f"and not in the {record.get('account')} account's skills")
+    if entry.playbook and not (repo / ".agents/playbooks" / f"{entry.playbook}.md").is_file():
+        raise Refusal(f"the playbook {entry.playbook} is not in {repo} (.agents/playbooks/{entry.playbook}.md)")
+
+
+def iterm_review_prompt(repo: Path) -> str:
+    """iTerm2's own review prompt, its saved prompt "Default": the brief for a review in a
+    repository without the harness. Read from iTerm2's preferences, which are never written."""
+    without = (f'{repo} has no .agents/playbooks/hostile-review.md, so the brief is iTerm2\'s saved prompt '
+               f'"Default", and')
+    out = subprocess.run(["defaults", "export", ITERM_DOMAIN, "-"], capture_output=True)
+    if out.returncode:
+        raise Refusal(f"{without} `defaults export {ITERM_DOMAIN}` failed: "
+                      f"{out.stderr.decode(errors='replace').strip()}")
+    try:
+        prompts = json.loads(plistlib.loads(out.stdout).get("CodeReviewSavedPrompts") or b"[]")
+    except ValueError as error:
+        raise Refusal(f"{without} iTerm2's saved prompts in {ITERM_DOMAIN} cannot be read ({error})")
+    prompts = prompts if isinstance(prompts, list) else []
+    brief = next((str(p.get("text", "")) for p in prompts if isinstance(p, dict) and p.get("name") == "Default"), "")
+    if not brief.strip():
+        raise Refusal(f"{without} iTerm2 holds no prompt of that name, or an empty one; add it under "
+                      "Manage Prompts in the pane's Prompts menu")
+    if ENVELOPE_TAG.search(brief):
+        raise Refusal(f'{without} that prompt holds a cross-session-message tag, which would break the '
+                      "message's envelope")
+    return brief.strip("\n")
+
+
+def run(text: str) -> None:
     entry = Entry(text)
     unfilled = task_line()
     if unfilled in entry.body:
@@ -365,30 +439,9 @@ def run(text: str, brief_file: str) -> None:
 
     record, title = find_lead()
     repo = repository(str(record.get("cwd") or os.getcwd()))
-    if entry.skill and not any((base / entry.skill / "SKILL.md").is_file()
-                               for base in (repo / ".claude/skills", config_dir(record) / "skills")):
-        raise Refusal(f"the skill {entry.skill} is not in {repo} (.claude/skills/{entry.skill}/SKILL.md) "
-                      f"and not in the {record.get('account')} account's skills")
-    if entry.playbook and not (repo / ".agents/playbooks" / f"{entry.playbook}.md").is_file():
-        raise Refusal(f"the playbook {entry.playbook} is not in {repo} (.agents/playbooks/{entry.playbook}.md)")
-
+    need_named(entry, repo, record)
     harness = (repo / ".agents/playbooks/hostile-review.md").is_file()
-    brief = None
-    if entry.review and not harness:
-        # A repository without the harness is reviewed under iTerm2's own review prompt.
-        without = f"{repo} has no .agents/playbooks/hostile-review.md, and iTerm2's review prompt file"
-        if not brief_file:
-            raise Refusal(f"{without} was not given: the Code Review command must end with "
-                          "\\(codeReviewSystemPromptFile)")
-        try:
-            brief = Path(brief_file).read_text().strip("\n")
-        except OSError as error:
-            raise Refusal(f"{without} cannot be read ({error})")
-        if not brief.strip():
-            raise Refusal(f"{without} {brief_file} is empty")
-        if ENVELOPE_TAG.search(brief):
-            raise Refusal(f"{brief_file} holds a cross-session-message tag, which would break the message's "
-                          "envelope")
+    brief = iterm_review_prompt(repo) if entry.review and not harness else None
 
     registry_path, registry = registry_of(record)
     say(f"Lead: {title or '(no title)'} [{record.get('account')}, session {str(record.get('session_id'))[:8]}]")
@@ -407,32 +460,31 @@ def probe() -> None:
     say("environment:")
     for name in sorted(os.environ):
         value = os.environ[name]
-        say(f"  {name}={f'<{len(value)} characters, hidden>' if SECRET_NAME.search(name) else value}")
+        secret = SECRET_NAME.search(name) or URL_USERINFO.search(value)
+        say(f"  {name}={f'<{len(value)} characters, hidden>' if secret else value}")
     sessions, why = iterm_sessions()
     say("it2 session list --json:")
     say(json.dumps(sessions, indent=1) if not why else f"  {why}")
-    own = TAB_ID.fullmatch(os.environ.get("ITERM_SESSION_ID", ""))
-    me = [s for s in sessions if own and s["id"].upper() == own.group(1).upper()]
-    if not me:
+    me = own_session(sessions)
+    if me is None:
         say("This pane is not in that list under its ITERM_SESSION_ID.")
         return
     records = tab_records()
     say("Sessions with this pane's window_id and tab_id:")
-    for s in sessions:
-        if s is not me[0] and (s.get("window_id"), s.get("tab_id")) == (me[0].get("window_id"), me[0].get("tab_id")):
-            record = records.get(s["id"].upper())
-            state = "no Claude record" if record is None else (not_live(record) or "live Claude record")
-            say(f"  {s['id']}  {s.get('title')}  ({state})")
+    for s in same_tab(me, sessions):
+        record = records.get(s["id"].upper())
+        state = "no Claude record" if record is None else (not_live(record) or "live Claude record")
+        say(f"  {s['id']}  {s.get('title')}  ({state})")
 
 
 def main(argv: list[str]) -> int:
     try:
         if argv[1:] == ["--probe"]:
             probe()
-        elif len(argv) in (2, 3):
-            run(argv[1], argv[2] if len(argv) == 3 else "")
+        elif len(argv) == 2:
+            run(argv[1])
         else:
-            raise Refusal("usage: pane-run <entry> [<system prompt file>] | pane-run --probe")
+            raise Refusal("usage: pane-run <entry> | pane-run --probe")
     except Refusal as refusal:
         print(f"pane-run: {refusal}", file=sys.stderr)
         say("Nothing was sent.")

@@ -34,6 +34,11 @@ lacks() { # name needle haystack
 
 # --- the fixture -------------------------------------------------------------
 export HOME=$T/home CLAUDE_TAB_STATE_DIR=$T/tabs PANE_RUN_SETTLE=0
+# iTerm2's preferences are a plist file here, in every run: never the real domain.
+export PANE_RUN_ITERM_DOMAIN=$T/iterm-prefs.plist
+saved_prompts() { # the JSON list iTerm2 keeps as CodeReviewSavedPrompts
+  defaults write "$PANE_RUN_ITERM_DOMAIN" CodeReviewSavedPrompts -data "$(printf '%s' "$1" | xxd -p | tr -d '\n')"
+}
 unset CLAUDE_CONFIG_DIR
 CHAT=AAAAAAAA-0000-4000-8000-000000000001
 PANE=AAAAAAAA-0000-4000-8000-000000000002
@@ -110,7 +115,7 @@ reset() { # the plain case: one live lead in this pane's tab, idle, in default m
 }
 
 n=0
-# send <keys> <entry> [<system prompt file>]: run pane-run against a fresh inbox.
+# send <keys> <entry>: run pane-run against a fresh inbox.
 # Sets rc, out, err, posts (how many connections the inbox took) and msg (the
 # first post's message text, decoded from its JSON line).
 send() {
@@ -175,22 +180,29 @@ EOF
 eq "kind=review with the harness: the 4d steps and the script's absolute path" "$review" "$msg"
 [[ -x $IT/bin/review-snapshot ]] && ok "kind=review: the script the message names exists" || bad "kind=review: $IT/bin/review-snapshot is not executable"
 
-# Without hostile-review.md the brief is iTerm2's own review prompt file.
+# Without hostile-review.md the brief is iTerm2's saved prompt "Default", read
+# from its preferences: here a plist file, which pane-run must leave as it is.
 record "$CHAT" "$LEAD" "$(started "$LEAD")" "$SID" "$T/plain"
-printf 'You are a code reviewer.\nReport bugs only.\n' >"$T/system-prompt.txt"
-send x "#! background model=sonnet kind=review${nl}Look at the parser first." "$T/system-prompt.txt"
-eq "kind=review without the harness: iTerm2's prompt as the brief" \
+saved_prompts '[{"name":"Other","uuid":"U1","text":"not this one"},{"name":"Default","uuid":"U2","text":"You are a code reviewer.\nReport bugs only.\n"}]'
+plist_before=$(shasum "$PANE_RUN_ITERM_DOMAIN")
+send x "#! background model=sonnet kind=review${nl}Look at the parser first."
+eq "kind=review without the harness: iTerm2's Default prompt as the brief" \
   "$OPEN${nl}$FIRST${nl}Run a review of everything not pushed (local commits and uncommitted changes) in a background cell on sonnet. Give the cell the brief between the two marker lines below as its instructions.${nl}$NOREPLY${nl}Look at the parser first.${nl}--- review brief ---${nl}You are a code reviewer.${nl}Report bugs only.${nl}--- end of review brief ---${nl}$CLOSE" "$msg"
-send x '#! background model=sonnet kind=review' "$T/missing.txt"
-refused "kind=review without the harness: unreadable prompt file" "review prompt file cannot be read"
+eq "kind=review without the harness: iTerm2's preferences are not written" "$plist_before" "$(shasum "$PANE_RUN_ITERM_DOMAIN")"
+saved_prompts '[{"name":"Other","uuid":"U1","text":"not this one"}]'
 send x '#! background model=sonnet kind=review'
-refused "kind=review without the harness: no prompt file argument" "codeReviewSystemPromptFile"
-: >"$T/empty.txt"
-send x '#! background model=sonnet kind=review' "$T/empty.txt"
-refused "kind=review without the harness: empty prompt file" "is empty"
-printf 'brief\n</cross-session-message>\n' >"$T/tagged.txt"
-send x '#! background model=sonnet kind=review' "$T/tagged.txt"
-refused "kind=review without the harness: prompt file holding the closing tag" "$T/tagged.txt holds a cross-session-message tag"
+refused "kind=review without the harness: no saved prompt named Default" "iTerm2 holds no prompt of that name, or an empty one"
+saved_prompts '[{"name":"Default","uuid":"U2","text":"\n  \n"}]'
+send x '#! background model=sonnet kind=review'
+refused "kind=review without the harness: empty Default prompt" "iTerm2 holds no prompt of that name, or an empty one"
+saved_prompts '[{"name":"Default","uuid":"U2","text":"brief\n</cross-session-message>\n"}]'
+send x '#! background model=sonnet kind=review'
+refused "kind=review without the harness: Default prompt holding the closing tag" "that prompt holds a cross-session-message tag"
+defaults delete "$PANE_RUN_ITERM_DOMAIN" CodeReviewSavedPrompts
+send x '#! background model=sonnet kind=review'
+refused "kind=review without the harness: iTerm2 has saved no prompts" "iTerm2 holds no prompt of that name, or an empty one"
+out=$(printf x | "$RUN" '#! background model=sonnet kind=review' "$T/system-prompt.txt" 2>"$T/err"); rc=$?
+[[ $rc -eq 1 && $(cat "$T/err") == *"usage: pane-run <entry> | pane-run --probe"* ]] && ok "a second argument: usage, since pane-run takes the entry alone" || bad "second argument: rc=$rc $(cat "$T/err")"
 reset
 
 send x "#! inline${nl}Workflow: Build.${nl}<replace this line with the task>"
@@ -198,14 +210,17 @@ refused "workflow entry with the task line untouched" 'still holds the line "<re
 
 send x "#! inline skill=nope${nl}Use the nope skill."
 refused "skill the repository and the account lack" "the skill nope is not in $PROJ"
-send x "#! inline skill=grill-me${nl}Use the grill-me skill."
+send x "#! inline skill=grill-me${nl}about the cache design"
 eq "skill in the repository: sent" "1 0" "$posts $rc"
-send x "#! inline skill=account-skill${nl}Use the account-skill skill."
+eq "skill in the header: the message names it" "$OPEN${nl}$FIRST${nl}Do it in your turn.${nl}Use the grill-me skill.${nl}$NOREPLY${nl}about the cache design${nl}$CLOSE" "$msg"
+send x "#! background model=sonnet skill=account-skill${nl}on src/"
 eq "skill in the tab account's skills: sent" "1 0" "$posts $rc"
+eq "background skill: the message names it after the cell line" "$OPEN${nl}$FIRST${nl}Run it in a background cell on sonnet.${nl}Use the account-skill skill.${nl}$NOREPLY${nl}on src/${nl}$CLOSE" "$msg"
 send x "#! inline playbook=nope${nl}Follow .agents/playbooks/nope.md."
 refused "playbook the repository lacks" "the playbook nope is not in $PROJ"
-send x "#! inline playbook=learning-report${nl}Follow .agents/playbooks/learning-report.md."
+send x "#! inline playbook=learning-report${nl}for today's session"
 eq "playbook in the repository: sent" "1 0" "$posts $rc"
+eq "playbook in the header: the message names it" "$OPEN${nl}$FIRST${nl}Do it in your turn.${nl}Follow .agents/playbooks/learning-report.md.${nl}$NOREPLY${nl}for today's session${nl}$CLOSE" "$msg"
 
 send x "#! sideways${nl}do it"
 refused "header with no mode" 'must start with "#! background" or "#! inline"'
@@ -316,6 +331,16 @@ send 1x 'ping'
 has "no live session in the pane's tab: menu" "0 sessions of this tab have a live Claude record" "$out"
 eq "no live session in the pane's tab: the key sends" "1 0" "$posts $rc"
 
+# A list without tab ids places no session in the pane's tab.
+reset
+printf '[{"id":"%s","title":"Lead-tab"},{"id":"%s","title":"Code-Review"}]' "$CHAT" "$PANE" >"$IT2_LIST"
+send qx 'ping'
+has "sessions without window or tab ids: menu, not a match" "0 sessions of this tab have a live Claude record" "$out"
+refused "sessions without window or tab ids: nothing sent unless picked" "no session was chosen"
+printf '[{"id":"%s","title":"Lead-tab","window_id":"pty-W"},{"id":"%s","title":"Code-Review","window_id":"pty-W"}]' "$CHAT" "$PANE" >"$IT2_LIST"
+send qx 'ping'
+refused "sessions with a window id and no tab id: nothing sent unless picked" "no session was chosen"
+
 # Two live sessions in one tab, and a third in another folder.
 reset
 SID2=22222222-2222-4333-8444-555555555555
@@ -349,20 +374,24 @@ after() { # name before after-or-'' mode-or-'' expected-line
   eq "$1" "Lead: Lead-tab [personal, session 11111111]${nl}$5${nl}Claude Code drops a repeat of the same entry within 30 seconds.${nl}Press any key to close." "$out"
   eq "$1: posted" 1 "$posts"
 }
-HOLD='Approve the message in the Chat pane within five minutes.'
-ALREADY='Sent. The lead was already waiting for your answer in the Chat pane; it reads the request after that.'
-EITHER='Sent. The lead is waiting for you in the Chat pane: either it holds this message for approval (approve it within five minutes, or it is dropped) or it waits for another answer and reads the request after that.'
-after "idle then busy" idle busy default 'Sent.'
-after "busy then busy, bypass mode" busy busy bypassPermissions 'Sent.'
-after "idle then waiting, bypass mode: a hold" idle waiting bypassPermissions "$HOLD"
-after "busy then waiting, bypass mode: a hold" busy waiting bypassPermissions "$HOLD"
-after "waiting before and after, bypass mode: cannot tell" waiting waiting bypassPermissions "$EITHER"
-after "waiting before and after, default mode: no hold" waiting waiting default "$ALREADY"
-after "waiting before and after, auto mode: no hold" waiting waiting auto "$ALREADY"
-after "idle then waiting, default mode: cannot tell" idle waiting default "$EITHER"
-after "idle then waiting, plan mode: cannot tell" idle waiting plan "$EITHER"
-after "waiting before and after, plan mode: cannot tell" waiting waiting plan "$EITHER"
-after "idle then waiting, no transcript: cannot tell" idle waiting '' "$EITHER"
+# In bypass mode Claude Code holds the request whatever the status reads. In
+# every other mode no line asks for an approval: a waiting lead may show a
+# permission prompt, and the pane must not get that one approved instead.
+HOLD='Claude Code holds the request for approval: answer any other question or permission prompt in the Chat pane first, then approve the dialog that shows this request within five minutes.'
+ALREADY='Sent. The lead was already waiting for an answer in the Chat pane and reads the request after it.'
+WAITING='Sent. The lead is waiting for an answer in the Chat pane and reads the request after it.'
+after "bypass mode, idle then waiting: held" idle waiting bypassPermissions "$HOLD"
+after "bypass mode, busy then busy: held" busy busy bypassPermissions "$HOLD"
+after "bypass mode, idle then idle (a headless hold): held" idle idle bypassPermissions "$HOLD"
+after "bypass mode, waiting before and after: held" waiting waiting bypassPermissions "$HOLD"
+after "default mode, idle then busy" idle busy default 'Sent.'
+after "default mode, waiting before and after" waiting waiting default "$ALREADY"
+after "auto mode, waiting before and after" waiting waiting auto "$ALREADY"
+after "default mode, idle then waiting" idle waiting default "$WAITING"
+after "plan mode, idle then waiting" idle waiting plan "$WAITING"
+after "plan mode, waiting before and after" waiting waiting plan "$ALREADY"
+after "no transcript, idle then waiting" idle waiting '' "$WAITING"
+after "no transcript, idle then idle" idle idle '' 'Sent.'
 
 # The mode is the transcript's last permission-mode line, however far back.
 reset
@@ -374,6 +403,21 @@ reset
 } >"$CFG/projects/p/$SID.jsonl"
 AFTER=waiting send x 'ping'
 has "mode line 600 KB back, with a quoted and a nested copy after it: still the hold" "$HOLD" "$out"
+
+# The scan reads the transcript from its end in 262144-byte pieces; a mode line
+# that lies across the edge of the last piece is still read whole.
+reset
+python3 - "$CFG/projects/p/$SID.jsonl" <<'PY'
+import sys
+line = b'{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"s"}\n'
+# The last piece starts 10 bytes into the mode line.
+after = b'{"pad":"' + b"x" * (262144 - len(line) + 10 - 11) + b'"}\n'
+data = b'{"type":"assistant"}\n' * 100 + line + after
+assert len(data) - 262144 == data.index(line) + 10
+open(sys.argv[1], "wb").write(data)
+PY
+AFTER=waiting send x 'ping'
+has "mode line across a piece's edge: still the hold" "$HOLD" "$out"
 
 export PANE_RUN_SETTLE=0
 
@@ -387,6 +431,16 @@ has "probe: PATH" "PATH: $PATH" "$out"
 has "probe: environment" "  PROBE_PLAIN=visible" "$out"
 has "probe: a secret's value is hidden" "  MY_API_TOKEN=<7 characters, hidden>" "$out"
 lacks "probe: a secret's value is hidden (2)" hunter2 "$out"
+out2=$(printf x | REPO_URL=https://bob:s3cret@example.com/r.git PLAIN_URL=https://example.com/a:b@c \
+  BASIC_AUTH=aaa GH_PAT=bbb MY_PAT_OLD=ccc LOGIN_SESSION=ddd SITE_COOKIE=eee PATTERN=visible-pattern "$RUN" --probe 2>&1)
+has "probe: a URL with a user and password is hidden" "  REPO_URL=<36 characters, hidden>" "$out2"
+has "probe: a URL without them is shown" "  PLAIN_URL=https://example.com/a:b@c" "$out2"
+has "probe: AUTH in a name hides the value" "  BASIC_AUTH=<3 characters, hidden>" "$out2"
+has "probe: PAT as a word of a name hides the value" "  GH_PAT=<3 characters, hidden>${nl}" "$out2"
+has "probe: PAT as a middle word hides the value" "  MY_PAT_OLD=<3 characters, hidden>" "$out2"
+has "probe: SESSION in a name hides the value" "  LOGIN_SESSION=<3 characters, hidden>" "$out2"
+has "probe: COOKIE in a name hides the value" "  SITE_COOKIE=<3 characters, hidden>" "$out2"
+has "probe: PATH and PATTERN are not secrets" "  PATH=$PATH${nl}  PATTERN=visible-pattern" "$out2"
 has "probe: iTerm2's list" "\"id\": \"$CHAT\"" "$out"
 has "probe: the Chat session shares the pane's tab" "  $CHAT  Lead-tab  (live Claude record)" "$out"
 lacks "probe: another tab's session is not named" "  $OTHER" "$out"
