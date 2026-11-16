@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Write the prompt catalog into iTerm2's saved prompts, the Prompts menu of the Code Review pane.
+
+  prompt-catalog                  show the list --apply would write
+  prompt-catalog --apply          write it; only while iTerm2 is not running
+  prompt-catalog [--apply] --domain <defaults domain or plist path>
+
+The catalog is ../catalog.json (workflows, playbooks, reviews, the skills that
+may run in a background cell) plus every skill in this repository's
+.claude/skills and in ~/.claude/skills. The operator's own prompts stay first
+and unchanged; the entries this script made, whose ids start with ID_PREFIX,
+are replaced. iTerm2 reads the list once at launch and writes its own copy back
+on every change in the app, so a write while it runs would be lost. Before a
+write, the list as it was goes to ~/.local/state/iterm-prompts/<date>.json.
+Design: docs/notes/2026-11-15-iterm2-review-and-status-spec.md, 4e.
+"""
+
+from __future__ import annotations
+
+import json
+import plistlib
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[2]
+DOMAIN = "com.googlecode.iterm2"
+KEY = "CodeReviewSavedPrompts"
+ID_PREFIX = "colloid-prompt:"
+EXPORTS = Path.home() / ".local/state/iterm-prompts"
+
+
+class Refusal(Exception):
+    """A reason to write nothing, worded for the operator."""
+
+
+def skills() -> list[str]:
+    found = {path.parent.name for base in (REPO / ".claude/skills", Path.home() / ".claude/skills")
+             for path in base.glob("*/SKILL.md")}
+    return sorted(found)
+
+
+def generated() -> list[dict]:
+    """The catalog's entries in menu order: workflows, playbooks, reviews, skills."""
+    catalog = json.loads((HERE.parent / "catalog.json").read_text())
+    task = catalog["task_line"]
+    rows = [("Workflow", name, f"#! inline\nWorkflow: {name}.\n{task}") for name in catalog["workflows"]]
+    for playbook in catalog["playbooks"]:
+        name = playbook["name"]
+        rows.append(("Playbook", name, f"#! inline playbook={name}\nFollow .agents/playbooks/{name}.md."
+                     + (f"\n{task}" if playbook.get("task") else "")))
+    rows += [("Review", review["name"], f"#! background model={review['model']} kind=review")
+             for review in catalog["reviews"]]
+    for name in skills():
+        model = catalog["background_skills"].get(name)
+        header = f"#! background model={model} skill={name}" if model else f"#! inline skill={name}"
+        rows.append(("Skill", name, f"{header}\nUse the {name} skill: read its SKILL.md and follow it."))
+    return [{"name": f"{group} · {name}", "uuid": f"{ID_PREFIX}{group.lower()}:{name.lower()}", "text": text}
+            for group, name, text in rows]
+
+
+def saved(domain: str) -> tuple[bytes, list]:
+    """(the stored bytes, the list they decode to) of iTerm2's saved prompts."""
+    out = subprocess.run(["defaults", "export", domain, "-"], capture_output=True)
+    if out.returncode:
+        raise Refusal(f"`defaults export {domain}` failed: {out.stderr.decode(errors='replace').strip()}")
+    data = plistlib.loads(out.stdout).get(KEY)
+    if data is None:
+        # iTerm2 seeds its "Default" prompt only while the key is absent; a list written first would lose it.
+        raise Refusal(f"{domain} holds no {KEY}: open iTerm2's Code Review pane once so that it saves its "
+                      "list, quit iTerm2, then run this again")
+    try:
+        prompts = json.loads(data)
+    except (TypeError, ValueError) as error:
+        raise Refusal(f"{KEY} in {domain} is not the JSON list iTerm2 writes ({error})")
+    if not isinstance(prompts, list) or not all(isinstance(prompt, dict) for prompt in prompts):
+        raise Refusal(f"{KEY} in {domain} is not a list of prompts")
+    return bytes(data), prompts
+
+
+def iterm_runs() -> bool:
+    # -a: pgrep leaves out its own ancestors, and a shell in an iTerm2 tab descends from iTerm2.
+    out = subprocess.run(["pgrep", "-a", "-x", "iTerm2"], capture_output=True, text=True)
+    if out.returncode not in (0, 1):
+        raise Refusal(f"cannot tell whether iTerm2 runs: pgrep exited {out.returncode} {out.stderr.strip()}")
+    return out.returncode == 0
+
+
+def export(data: bytes) -> Path:
+    """Keep the list as it was, under today's date; a second, different list of one day gets -2, -3, …"""
+    EXPORTS.mkdir(parents=True, exist_ok=True)
+    day, count = time.strftime("%Y-%m-%d"), 1
+    while True:
+        path = EXPORTS / (f"{day}.json" if count == 1 else f"{day}-{count}.json")
+        if not path.exists():
+            path.write_bytes(data)
+            return path
+        if path.read_bytes() == data:
+            return path
+        count += 1
+
+
+def run(apply: bool, domain: str) -> None:
+    data, current = saved(domain)
+    kept = [prompt for prompt in current if not str(prompt.get("uuid", "")).startswith(ID_PREFIX)]
+    wanted = kept + generated()
+    for index, prompt in enumerate(wanted):
+        print(f"{'kept     ' if index < len(kept) else 'generated'}  {prompt.get('name')}")
+    if wanted == current:
+        print(f"unchanged: {domain} already holds these {len(wanted)} prompts")
+        return
+    if not apply:
+        print(f"{len(kept)} kept and {len(wanted) - len(kept)} generated prompts would be written to {domain}. "
+              "Quit iTerm2, then run `prompt-catalog --apply` from Terminal.app.")
+        return
+    if iterm_runs():
+        raise Refusal("iTerm2 is running: it would write its own list over this one at its next change. "
+                      "Quit iTerm2 and run this from Terminal.app")
+    kept_at = export(data)
+    fresh = json.dumps(wanted, ensure_ascii=False).encode()
+    out = subprocess.run(["defaults", "write", domain, KEY, "-data", fresh.hex()], capture_output=True, text=True)
+    if out.returncode:
+        raise Refusal(f"`defaults write {domain} {KEY}` failed: {out.stderr.strip()}")
+    if saved(domain)[0] != fresh:
+        sys.exit(f"prompt-catalog: {domain} does not hold the list just written; the list as it was is in {kept_at}")
+    print(f"wrote {len(wanted)} prompts to {domain} ({len(kept)} kept, {len(wanted) - len(kept)} generated)")
+    print(f"the list as it was: {kept_at}")
+    print(f"to restore it: defaults write {domain} {KEY} -data \"$(xxd -p '{kept_at}' | tr -d '\\n')\"")
+
+
+def main(argv: list[str]) -> int:
+    args, domain = argv[1:], DOMAIN
+    if "--domain" in args:
+        at = args.index("--domain")
+        if at + 1 >= len(args):
+            print("prompt-catalog: --domain needs a value", file=sys.stderr)
+            return 2
+        domain = args[at + 1]
+        del args[at:at + 2]
+    if args not in ([], ["--apply"]):
+        print(__doc__, file=sys.stderr)
+        return 2
+    try:
+        run(args == ["--apply"], domain)
+    except Refusal as refusal:
+        print(f"prompt-catalog: {refusal}", file=sys.stderr)
+        print("Nothing was written.", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
