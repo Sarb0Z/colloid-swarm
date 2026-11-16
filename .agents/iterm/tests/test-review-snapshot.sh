@@ -120,6 +120,20 @@ eq "all committed: the lines printed" \
   "base: $c1${nl}tip: $c3${nl}committed: yes${nl}snapshot: $S${nl}registered: yes" "$out"
 eq "all committed: snapshot HEAD is the tip" "$c3" "$(git -C "$S" rev-parse HEAD)"
 
+# --- arguments: help prints, anything else is refused; neither makes a snapshot
+trees_before=$(git -C "$C" worktree list)
+for flag in --help -h; do
+  out=$(cd "$C" && CLAUDE_CODE_SESSION_ID=sess-args "$SNAP" "$flag" 2>"$T/err"); rc=$?
+  [[ $rc -eq 0 && $out == "usage: review-snapshot (no arguments)"* && ! -s $T/err ]] && ok "$flag: prints the usage" || bad "$flag (rc=$rc): $out $(cat "$T/err")"
+done
+for args in "--frobnicate" "HEAD" "--help extra"; do
+  # shellcheck disable=SC2086
+  out=$(cd "$C" && CLAUDE_CODE_SESSION_ID=sess-args "$SNAP" $args 2>"$T/err"); rc=$?
+  [[ $rc -ne 0 && -z $out && $(cat "$T/err") == *"it takes no arguments, and got: $args"* ]] && ok "argument [$args]: usage error" || bad "argument [$args] (rc=$rc): $out $(cat "$T/err")"
+done
+eq "arguments: no worktree made" "$trees_before" "$(git -C "$C" worktree list)"
+[[ ! -e $C/.agents/worktrees/.records/sess-args.jsonl ]] && ok "arguments: nothing recorded" || bad "arguments: a record was written"
+
 # --- no upstream: the remote's default branch --------------------------------
 git -C "$C" push -q origin main 2>/dev/null
 git -C "$C" checkout -q -b topic

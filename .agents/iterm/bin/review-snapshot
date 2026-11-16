@@ -20,6 +20,13 @@ die() {
   exit 1
 }
 
+usage="usage: review-snapshot (no arguments), run inside the checkout to review. It prints base:, tip:, committed:, uncommitted:, snapshot: and registered:, and makes the snapshot worktree."
+if [[ $# -eq 1 && ($1 == -h || $1 == --help) ]]; then
+  echo "$usage"
+  exit 0
+fi
+[[ $# -eq 0 ]] || die "it takes no arguments, and got: $*. $usage"
+
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die "$PWD is not inside a git checkout"
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 [[ $(basename "$common") == .git ]] || die "$common is a bare repository; a snapshot needs a main checkout"
