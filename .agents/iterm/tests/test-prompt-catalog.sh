@@ -21,7 +21,7 @@ FX=$T/fx
 mkdir -p "$FX/.agents/iterm" "$T/home/.claude/skills" "$T/stub"
 cp -R "$IT/bin" "$FX/.agents/iterm/bin"
 cp "$IT/catalog.json" "$FX/.agents/iterm/catalog.json"
-for s in alpha security-audit; do
+for s in alpha review-animations security-audit; do
   mkdir -p "$FX/.claude/skills/$s"
   : >"$FX/.claude/skills/$s/SKILL.md"
 done
@@ -79,6 +79,7 @@ Playbook · move-project-directory
 Review · Opus
 Review · Sonnet
 Skill · alpha
+Skill · review-animations
 Skill · security-audit
 Skill · user-one"
 
@@ -110,14 +111,19 @@ eq "apply: names in menu order, the operator's first, the stale entry gone" "$EX
 eq "apply: the operator's prompts are unchanged, unknown field included" \
   '{"name": "Default", "uuid": "5B0C0E4E-0000-4000-8000-000000000001", "text": "Review this.\nBe terse."} {"name": "Mine · ünïcode", "uuid": "5B0C0E4E-0000-4000-8000-000000000002", "text": "#! inline\nmy own", "extra": 1}' \
   "$(stored | python3 -c 'import json,sys; p=json.load(sys.stdin); print(json.dumps(p[0], ensure_ascii=False), json.dumps(p[1], ensure_ascii=False))')"
-eq "apply: every other entry has name, uuid, text and a prefixed id of its own" "21 21 True" \
+eq "apply: every other entry has name, uuid, text and a prefixed id of its own" "22 22 True" \
   "$(stored | python3 -c 'import json,sys; g=json.load(sys.stdin)[2:]; ids=[p["uuid"] for p in g]; print(len(g), len(set(ids)), all(sorted(p)==["name","text","uuid"] and p["uuid"].startswith("colloid-prompt:") for p in g))')"
 eq "workflow entry: inline, ending with the task line" "#! inline${nl}Workflow: Build.${nl}<replace this line with the task>" "$(text_of 'Workflow · Build')"
 eq "playbook entry" "#! inline playbook=learning-report${nl}Follow .agents/playbooks/learning-report.md." "$(text_of 'Playbook · learning-report')"
 eq "playbook entry that needs a task" "#! inline playbook=move-project-directory${nl}Follow .agents/playbooks/move-project-directory.md.${nl}<replace this line with the task>" "$(text_of 'Playbook · move-project-directory')"
 eq "review entries" "#! background model=opus kind=review|#! background model=sonnet kind=review" "$(text_of 'Review · Opus')|$(text_of 'Review · Sonnet')"
 eq "skill outside catalog.json's background list: inline" "#! inline skill=alpha${nl}Use the alpha skill: read its SKILL.md and follow it." "$(text_of 'Skill · alpha')"
-eq "skill in catalog.json's background list: background on its model" "#! background model=opus skill=security-audit${nl}Use the security-audit skill: read its SKILL.md and follow it." "$(text_of 'Skill · security-audit')"
+eq "skill in catalog.json's background list: background on its model" "#! background model=sonnet skill=review-animations${nl}Use the review-animations skill: read its SKILL.md and follow it." "$(text_of 'Skill · review-animations')"
+# security-audit writes a report file, so it runs in the lead's turn: a background cell only reads.
+eq "skill that writes a report file: inline" "#! inline skill=security-audit${nl}Use the security-audit skill: read its SKILL.md and follow it." "$(text_of 'Skill · security-audit')"
+eq "catalog.json: the background skills are the two that only read and return findings" \
+  '{"review-animations": "sonnet", "web-design-guidelines": "sonnet"}' \
+  "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["background_skills"], sort_keys=True))' "$IT/catalog.json")"
 eq "user skill: inline" "#! inline skill=user-one${nl}Use the user-one skill: read its SKILL.md and follow it." "$(text_of 'Skill · user-one')"
 [[ $out == *"to restore it: defaults write $DOM CodeReviewSavedPrompts -data"*"$EXPORTS/$TODAY.json"* ]] && ok "apply: prints the restore command" || bad "apply output: $out"
 
@@ -148,7 +154,7 @@ out=$(catalog --apply 2>&1); rc=$?
 eq "new skill: rc" 0 "$rc"
 eq "new skill: the operator's prompts first in their own order, then the groups, the new skill in place" \
   "Mine · ünïcode${nl}Added in the app${nl}Default${nl}${EXPECTED#*ünïcode$nl}" "$(names | sed 's/^Skill · beta$//' | sed '/^$/d')"
-eq "new skill: listed between alpha and security-audit" "Skill · alpha${nl}Skill · beta${nl}Skill · security-audit" "$(names | grep -A2 '^Skill · alpha$')"
+eq "new skill: listed between alpha and review-animations" "Skill · alpha${nl}Skill · beta${nl}Skill · review-animations" "$(names | grep -A2 '^Skill · alpha$')"
 eq "new skill: a second export of the day holds the list as it then was" "$MIXED" "$(cat "$EXPORTS/$TODAY-2.json" 2>&1)"
 eq "new skill: the first export is untouched" "$BEFORE" "$(cat "$EXPORTS/$TODAY.json")"
 
