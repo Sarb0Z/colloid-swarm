@@ -3,6 +3,7 @@
 
   pane-run <entry>    iTerm2's Code Review command: pane-run \\(codeReviewPrompt)
   pane-run --probe    print what a workgroup peer sees, then wait
+  pane-run --help     print this text
 
 The lead is the Claude session of this tab's Chat pane. pane-run finds it
 through iTerm2's session list, or asks which live session of this folder it is,
@@ -142,9 +143,11 @@ def review_steps(on: str) -> list[str]:
         "the ask, or a critical scope has no plan, say so in the brief and in the record; such a record "
         "cannot stand in for the delivery review.",
         "3. Keep working, then triage the report when it returns.",
-        "4. Write a review record only if the snapshot printed `committed: yes`, with `Covers: <base>..<tip>`. "
-        "The record stands in for the delivery review only if it covered the whole delivered scope, "
-        "unchanged since.",
+        "4. Write a review record only if the snapshot printed `committed: yes`. Give it a "
+        "`Covers: <base>..<tip>` line only when the review ran under the full procedure: the ask quoted and, "
+        "for a critical scope, the plan and the disprove pass. Otherwise the record has no `Covers:` line and "
+        "says why, because that line clears an owed review. The record stands in for the delivery review only "
+        "if it covered the whole delivered scope, unchanged since.",
         "5. Remove the snapshot worktree: git worktree remove --force <snapshot>.",
     ]
 
@@ -478,13 +481,19 @@ def probe() -> None:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:] in (["-h"], ["--help"]):
+        say(__doc__.strip())
+        return 0
     try:
         if argv[1:] == ["--probe"]:
             probe()
+        elif len(argv) == 2 and argv[1].startswith("-") and not re.search(r"\s", argv[1]):
+            # One word that starts with a dash is a mistyped option, never posted as an entry.
+            raise Refusal(f'"{argv[1]}" is not an option of pane-run; its options are --probe and --help')
         elif len(argv) == 2:
             run(argv[1])
         else:
-            raise Refusal("usage: pane-run <entry> | pane-run --probe")
+            raise Refusal("usage: pane-run <entry> | pane-run --probe | pane-run --help")
     except Refusal as refusal:
         print(f"pane-run: {refusal}", file=sys.stderr)
         say("Nothing was sent.")

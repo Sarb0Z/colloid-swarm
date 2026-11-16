@@ -172,7 +172,7 @@ This is a pane review of everything not pushed. Do these steps:
 1. Run $IT/bin/review-snapshot in this repository. It prints \`base:\`, \`tip:\`, \`committed: yes|no\` and \`snapshot:\`, the path of a detached worktree. With \`committed: no\` the snapshot's HEAD is \`uncommitted:\`, one commit on the tip that holds the uncommitted changes and the untracked files.
 2. Send a background reviewer cell on opus over the snapshot under .agents/playbooks/hostile-review.md, with the ask (the operator's own words for the work in the snapshot, quoted from this session) and the plan file when one exists. A critical scope also gets the disprove pass. When you cannot quote the ask, or a critical scope has no plan, say so in the brief and in the record; such a record cannot stand in for the delivery review.
 3. Keep working, then triage the report when it returns.
-4. Write a review record only if the snapshot printed \`committed: yes\`, with \`Covers: <base>..<tip>\`. The record stands in for the delivery review only if it covered the whole delivered scope, unchanged since.
+4. Write a review record only if the snapshot printed \`committed: yes\`. Give it a \`Covers: <base>..<tip>\` line only when the review ran under the full procedure: the ask quoted and, for a critical scope, the plan and the disprove pass. Otherwise the record has no \`Covers:\` line and says why, because that line clears an owed review. The record stands in for the delivery review only if it covered the whole delivered scope, unchanged since.
 5. Remove the snapshot worktree: git worktree remove --force <snapshot>.
 $NOREPLY
 $CLOSE
@@ -240,6 +240,24 @@ send x ''
 refused "empty entry" "the entry is empty"
 out=$(printf x | "$RUN" 2>"$T/err"); rc=$?
 [[ $rc -eq 1 && $(cat "$T/err") == *usage:* && $out == *"Press any key to close."* ]] && ok "no arguments: usage, pane held" || bad "no arguments: rc=$rc out=[$out]"
+
+# An option is never an entry. it2 fails here, so a lead search would show the
+# menu, and the key 1 these runs feed would post.
+export IT2_FAIL=1
+for flag in --help -h; do
+  send 1x "$flag"
+  eq "$flag: exits 0 and posts nothing" "0 0" "$rc $posts"
+  has "$flag: prints the usage" "pane-run <entry>    iTerm2's Code Review command" "$out"
+  lacks "$flag: no menu" "Press the key" "$out"
+done
+for flag in --frobnicate -x --probe=1; do
+  send 1x "$flag"
+  refused "$flag: refused as an unknown option" "\"$flag\" is not an option of pane-run"
+  lacks "$flag: no menu" "Press the key" "$out"
+done
+unset IT2_FAIL
+send x '- fix the second list item'
+eq "an entry that starts with a dash and has words: sent" "1 0" "$posts $rc"
 
 # --- S2: the post ------------------------------------------------------------
 odd='say "hi" to $(whoami) and `id`; path C:\dir; naïve café ✓'"${nl}"'second line with a tab	and <b>tags</b>'
