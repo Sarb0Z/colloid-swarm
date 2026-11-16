@@ -15407,7 +15407,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 140 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 146 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -15547,6 +15547,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — every worktree record stamp keeps `host`, [pid, `ps` start text in the writer&#x27;s locale and zone], beside its zone-free `start` (`hooks/lib/worktree_records.py`), because a session started in a worktree or branch whose hooks predate `start` reads `host` alone against the main checkout&#x27;s shared records. A stamp with no `start`, written before it or by such hooks since, is read as before, its text exactly against `ps` in the reader&#x27;s locale and zone (`stamp_state`), and the first sweep that reads it live writes it again with `start` (`worktree_sweep.upgrade`). The same text reads live, and is written again, a stamp whose `start` reads gone: such hooks write one when a session resumes while their sweep holds its record, since their write-back replaces `host` and keeps the entry&#x27;s old `start`. Acceptable: a live session leaves the text-only form at its first sweep, so only a zone or locale change with no sweep between reads such a session gone, once.
 - **Trigger** — in one repository: its last sync names a base at or after the commit that added `start`, and no worktree or branch checked out there runs hooks from before it; for the carrier, `git worktree list` shows none.
 - **Rework** — drop the text branch of `stamp_state`, `upgrade` and the start text in `host`, keeping the pid; about 25 lines, and the test rows that write text-only stamps.
+
+### inline-thinking-full-reads
+
+- **Condition** — the `inline-thinking` mod rereads the whole main conversation (`$.session.messages({ as: &#x27;api&#x27; })`, up to 4096 messages with media inline) after every main-thread tool call and turn, and walks it again (`hooks/register.tsx` `refresh`, `hooks/anchors.ts` `collect`). Reads run one at a time with one more queued, only where a terminal draws, so a `claude -p` cell reads nothing. Acceptable: one walk is a pass over blocks with short string work, and the live sessions it was tested in showed no delay.
+- **Trigger** — a session where tool calls visibly lag with the mod loaded, a conversation past 4096 messages losing its early summaries before a compaction, or a debug log showing reads queued back to back.
+- **Rework** — keep the walk&#x27;s state (the pending summaries, the keys below the last row, the row counts) in `$.state` and advance it from `session.append`, which hands each main-thread row before it is stored; keep one full read at `session.start` for a resume. About 80 lines, and firing tests that raise rows through `session.append`.
 </code></pre></details>
             </article>
         <article class="card">
