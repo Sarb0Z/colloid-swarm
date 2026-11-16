@@ -1,0 +1,6 @@
+{
+  "name": "inline-thinking",
+  "version": "0.1.0",
+  "description": "Shows Claude's thinking summaries in the collapsed transcript, between the rows they came between; Ctrl+O still expands everything",
+  "types": "./types/index.d.ts"
+}

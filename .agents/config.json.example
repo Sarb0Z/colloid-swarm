@@ -58,6 +58,9 @@
     "worktree_sessions": {
       "enabled": false
     },
+    "inline_thinking": {
+      "enabled": false
+    },
     "worktree_provision": {
       "enabled": true,
       "allow_scripts": false,

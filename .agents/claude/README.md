@@ -217,12 +217,14 @@ into the session. The rule for what becomes one is
 `docs/handoff/2026-10-02-claude-code-mods.md`.
 
 Each mod lives in `mods/<name>/`: `.claude-plugin/plugin.json`,
-`hooks/hooks.json`, `hooks/register.ts`, and `tests/*.test.ts`.
+`hooks/hooks.json`, `hooks/register.ts` (`register.tsx` when it draws with
+JSX), and `tests/*.test.ts`.
 `.claude/skills/colloid-<name>` links to it, because Claude Code loads a
 plugin folder it finds under the project's `.claude/skills/`.
 `check-layout.py` derives that link from the folder. Claude Code writes type
-declarations into `.claude-plugin/types/` each time it loads a mod; they are
-gitignored.
+declarations into `.claude-plugin/types/` each time it loads a mod, and a
+`tsconfig.json` extending them when it loads the folder through
+`CLAUDE_CODE_PLUGIN_DIRS`; both are gitignored.
 
 A mod reads its switch at session start through `hooks/lib/config.py`, so
 `policy.json` and `config.json` switch it like a settings hook:
@@ -236,6 +238,60 @@ mod. Both run with no login. CI runs them against the Claude Code version that
 | Mod | What the user sees |
 | --- | --- |
 | `publish-approval` | A dialog before a push, deploy or publish, in every permission mode (see Gating outward mutations) |
+| `inline-thinking` | Claude's thinking summaries in the collapsed transcript, dim and marked `∴`, between the rows they came between; opt-in (below) |
+
+`inline-thinking` draws what Claude Code shows only in the expanded view
+(`Ctrl+O`, `--verbose`), which also expands every tool call. Each summary goes
+above the tool call that follows it, else below the previous call's result or
+the user's prompt, since those rows say which view they are in; under `Ctrl+O`
+the mod draws nothing and Claude Code's own copy shows. A summary between two
+replies or narration lines, or after a prompt with no typed text (an image
+alone, a slash command), has no such row, so it draws above the next reply or
+narration line and shows twice under `Ctrl+O`. The mod knows a row by its
+opening 160 characters, so a summary beside a row that repeats an earlier one
+("yes", "Done.") could belong to either and draws at neither; `Ctrl+O` still
+shows it. A repeated prompt hides the summary as it is sent. A repeated reply
+can show the older one above it until its next tool call or the end of the
+turn, because the event that would catch it earlier (`session.append`) goes to
+Claude Code's own security plugin first on a machine with managed settings,
+and that plugin does not pass it to user plugins. It needs `showThinkingSummaries: true` in settings, without which the
+API sends redacted thinking. It skips the narration lines Claude Code draws
+itself (`· summary`) by the kind each thinking block's signature carries,
+decoded as Claude Code 2.1.325 does; when a release changes that format,
+narration shows twice or not at all, and `test-mods.sh` does not notice, since
+its signatures are built to the old format.
+
+It changes what every session in a repository shows, so it is opt-in:
+`hooks.inline_thinking.enabled` defaults off and is read from the session
+repository (its main checkout, for a worktree), once for each folder a session
+runs in. As with `worktree-sessions.sh`, a `policy.json` or `config.json` there
+that does not parse turns it off, and the transcript says so once. Unlike that
+hook, it also runs outside git, where the session folder's own
+`.agents/config.json` decides. An operator who wants it in every repository
+adds these two entries to the `env` block of user settings, with `<checkout>`
+the absolute path of a scaffold checkout; where `CLAUDE_CODE_PLUGIN_DIRS`
+already names other folders, append this one after a `:`.
+
+```json
+"CLAUDE_CODE_PLUGIN_DIRS": "<checkout>/.agents/claude/mods/inline-thinking",
+"INLINE_THINKING_DEFAULT": "true"
+```
+
+The first loads the mod in every session. In a scaffolded repository its
+`.claude/skills/colloid-inline-thinking` link offers the same plugin name, and
+Claude Code keeps the `CLAUDE_CODE_PLUGIN_DIRS` copy, the session-only plugin
+taking precedence: the debug log records the link's copy as not loaded, and
+nothing draws twice. The second turns it on wherever a repository is silent; a
+repository that says `false` still wins, so a `config.json` copied whole from
+`config.json.example` turns it off there. A moved checkout leaves a path Claude
+Code skips with a warning in the debug log, and the session runs without it.
+
+The registration loads the mod from the checkout's working tree, not from a
+commit, and every interactive session watches that folder. An uncommitted edit
+or a branch switch there therefore changes the mod in every session on the
+machine at once, and a hook it breaks is reported in each transcript. A lane
+that edits the mod in a worktree runs the checkout's copy, not its own, in its
+sessions; `claude plugin test` on the worktree's folder tests its copy.
 
 ## Language servers
 
