@@ -58,11 +58,16 @@ failed one row.
 | 13 | — | Reviewer ambiguity: whether Claude Code's auto-updater or the script moves the shared install | The script does, since `DISABLE_AUTOUPDATER` stops the updater; the runbook's step 5 now says so |
 | 14 | — | Measurement: `setup-server.sh` is 360 lines, over 300 | Accepted: it runs straight through in the runbook's step order, with no function over 40 lines, and splitting it would add a layer between the runbook and its steps |
 
-QA comes after the operator's real `apply`, from the reviewer's handoff:
-- a second `apply` prints "nothing to change";
-- `ssh contabo-dev true` succeeds;
-- port 2022 listens, and `ufw status` equals `ufw-status.txt` plus the 2022 rule;
-- `journalctl` shows no restart of mail, nginx, the bakery, GitMu or Docker;
-- `openclawops`' `~/.claude` is unchanged;
-- the Claude Code update reached the Mac's version;
-- probe step 8 passes.
+QA comes after the operator's real `apply`, from the reviewer's handoff. The
+operator ran `apply` at bb31be3 on 2026-11-16. The first run stopped at the PPA,
+when `add-apt-repository` timed out reaching Launchpad's API (log in the
+backup folder). It left only the key step done. The rerun finished at
+13:36 +0100. Results, read-only:
+- A second `apply` prints "nothing to change": waits for the operator's `apply --check`.
+- `ssh contabo-dev id` logs in as `openclawops`: passed.
+- Port 2022 listens: passed. etserver is on IPv4 and IPv6, and a TCP connect from the Mac succeeds. `ufw` is outside the agent's ssh allowlist, so the agent compared the files ufw loads instead. `user.rules` and `user6.rules` differ from their backups only by the 2022 `allow` rule.
+- No restart of mail, nginx, the bakery, GitMu or Docker in the journal for 13:26-13:40: passed. The only service started was `et`, once, at 13:35:59, two seconds after `telemetry = false` was written. `bakery.service` fails every 5 seconds through the whole window and before it (restart counter 476,143), because it points at a missing folder. The running bakery is a separate process, started on 2026-11-14.
+- `openclawops`' `~/.claude` unchanged: failed, narrowly. `.claude.json` is untouched, last written 2026-07-12, but `claude update` created the empty folders `~/.claude/commands` and `~/.claude/agents` at 13:36:06, although it ran with `CLAUDE_CONFIG_DIR` set to `~/.claude-work`. The test stand-in for `claude` cannot show this, so the suite does not cover it.
+- The Claude Code update reached the Mac's version: passed (2.1.325).
+- `.tmux.conf` and the four `settings.json` files are byte-identical to the shipped files, and both plugins sit at their pinned commits: passed.
+- Probe step 8: waits for the operator.
