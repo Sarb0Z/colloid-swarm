@@ -8,8 +8,11 @@
 # /root/backups/unit5-<date>/ under its own path. --check prints each change a
 # run would make, and changes nothing.
 #
-# The server is live (mail, web, GitMu), so apt runs with needrestart suspended:
-# installing et restarts no running service.
+# The server is live (mail, web, GitMu):
+# - apt runs with needrestart suspended, so installing et restarts no service;
+# - the install stops before it would upgrade or remove an installed package;
+# - apt's output goes to a log in the backup folder, not to the ssh connection,
+#   so a dropped connection cannot kill dpkg in the middle of configuring.
 #
 # Usage: setup-server.sh [--check] <public key file>
 # Beside it: tmux.conf, launchers.bash, settings.json, claude-version.
@@ -42,11 +45,11 @@ cfg_changed=0
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=l
 
 die() {
-  echo "setup-server: $*" >&2
+  printf 'setup-server: %s\n' "$*" >&2
   exit 1
 }
 problem() {
-  echo "PROBLEM: $*" >&2
+  printf 'PROBLEM: %s\n' "$*" >&2
   problems=$((problems + 1))
 }
 
@@ -69,7 +72,21 @@ keep() {
   fi
 }
 
-as_user() { runuser -u "$user" -- env HOME="$home" "$@"; }
+# logged <log name> <command...>: run with its output in the backup folder.
+logged() {
+  local log=$backup/$1.log
+  shift
+  mkdir -p "$backup"
+  if ! "$@" >"$log" 2>&1; then
+    tail -n 20 "$log" >&2
+    die "$* failed; its full output is in ${log#"$R"}"
+  fi
+}
+
+# runuser -u keeps root's environment, so the user's own names are set here.
+as_user() {
+  runuser -u "$user" -- env -u XDG_RUNTIME_DIR HOME="$home" USER="$user" LOGNAME="$user" "$@"
+}
 own() { chown "$user:$user" "$@"; }
 
 # put <source> <destination> <mode> <what>: a file the server keeps as shipped.
@@ -88,28 +105,37 @@ put() {
 # A package dpkg does not know is reported on stderr; here that only means "absent".
 installed() { [[ $(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null) == ii* ]]; }
 have_ppa() { grep -rqF 'jgmath2000/et' "$R/etc/apt/sources.list.d"; }
+candidate() {
+  local found
+  found=$(apt-cache policy et | awk '/Candidate:/ { print $2 }')
+  [[ -n $found && $found != "(none)" ]]
+}
 older() { [[ $1 != "$2" && $(printf '%s\n' "$1" "$2" | sort -V | head -n 1) == "$1" ]]; }
 
 [[ $(id -u) == 0 ]] || die "run as root: apply logs in to contabo-hop as root"
 grep -qx 'VERSION_CODENAME=noble' "$R/etc/os-release" ||
   die "expected Ubuntu 24.04 (noble), the release this script picks ppa:jgmath2000/et for"
 [[ -d $home ]] || die "no home folder $home for $user"
+command -v jq >/dev/null || die "jq is needed to merge settings.json"
 for f in tmux.conf launchers.bash settings.json claude-version; do
   [[ -f $here/$f ]] || die "missing $here/$f"
 done
 pub=$(<"$keyfile")
 [[ $pub =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com)\ [A-Za-z0-9+/]+=*(\ [^[:cntrl:]]*)?$ ]] ||
   die "$keyfile is not one public key line"
+# git and claude run as openclawops, which cannot read root's /root.
+cd "$home"
 
 # The server's tmux is older than the Mac's, so tmux.conf is loaded into a
-# throwaway tmux server before anything changes. A plugin not cloned yet is the
-# one error that is not the config's.
-socket=unit5-check-$$
-loaded=$(tmux -L "$socket" -f /dev/null new-session -d -s check \; source-file "$here/tmux.conf" 2>&1) || true
+# throwaway tmux server, on a socket in a scratch folder, before anything
+# changes. A plugin not cloned yet is the one error that is not the config's.
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/unit5-check.XXXXXX")
+loaded=$(tmux -S "$scratch/check" -f /dev/null new-session -d -s check \; source-file "$here/tmux.conf" 2>&1) || true
 # has-session reports "no server" on stderr when new-session itself failed.
-if tmux -L "$socket" has-session 2>/dev/null; then
-  tmux -L "$socket" kill-server
+if tmux -S "$scratch/check" has-session 2>/dev/null; then
+  tmux -S "$scratch/check" kill-server
 fi
+rm -rf "$scratch"
 rejected=$(grep -vE "^'[^']*/\.tmux/plugins/tmux-(resurrect|continuum)/[a-z]+\.tmux' returned 127$" <<<"$loaded" || true)
 [[ -z $rejected ]] || die "$(tmux -V) rejects tmux.conf: $rejected"
 
@@ -130,20 +156,45 @@ if ! [[ -f $ak ]] || ! grep -qxF -- "$pub" "$ak"; then
 fi
 
 # ── 3. Eternal Terminal: package, telemetry off, service, firewall ───────────
-if ! have_ppa; then
-  if change "add ppa:jgmath2000/et (Eternal Terminal for noble)"; then
-    keep "$R/etc/apt/sources.list.d"
-    add-apt-repository -y ppa:jgmath2000/et
-  fi
-fi
-
 if ! installed et; then
-  if change "install et (etserver runs as the systemd service et); needrestart restarts nothing"; then
-    apt-get install -y et
-  elif have_ppa; then
-    apt-get -s install et | { grep -E '^Inst ' || true; } | sed 's/^/         /'
-  else
+  if ! have_ppa; then
+    if change "add ppa:jgmath2000/et (Eternal Terminal for noble)"; then
+      keep "$R/etc/apt/sources.list.d"
+      logged add-apt-repository add-apt-repository -y ppa:jgmath2000/et
+    fi
+  elif ! candidate; then
+    if change "apt-get update: ppa:jgmath2000/et is listed but apt has no et to install"; then
+      logged apt-get-update apt-get update
+    fi
+  fi
+  if have_ppa && candidate; then
+    simulated=$(apt-get -s install et)
+    grep -E '^Inst ' <<<"$simulated" | sed 's/^/         /' || true
+    # "Inst name [installed version] (new version)" is an upgrade.
+    touched=$(grep -E '^(Inst [^ ]+ \[|Remv )' <<<"$simulated" || true)
+    if [[ -n $touched ]]; then
+      if ((check)); then
+        problem "installing et would upgrade or remove installed packages: $touched"
+      else
+        die "installing et would upgrade or remove installed packages, so nothing is installed: $touched"
+      fi
+    fi
+  elif ((check)); then
     echo "         (apt-get -s can list et's packages once the PPA is added)"
+  fi
+  if change "install et (etserver runs as the systemd service et); needrestart restarts nothing"; then
+    # The package's postinst starts et while /etc/et.cfg still says telemetry =
+    # true. A policy-rc.d answering 101 stops that start, so the first start is
+    # this script's, with telemetry off; the unit is still enabled.
+    gate=$R/usr/sbin/policy-rc.d
+    [[ ! -e $gate ]] || die "$gate already exists; this script will not replace it"
+    trap 'rm -f "$gate"' EXIT
+    printf '#!/bin/sh\nexit 101\n' >"$gate"
+    chmod 755 "$gate"
+    logged apt-get-install apt-get install -y et
+    rm -f "$gate"
+    trap - EXIT
+    grep -E '^Setting up ' "$backup/apt-get-install.log" | sed 's/^/         /' || true
   fi
 fi
 
@@ -181,16 +232,18 @@ elif change "enable and start the et service (etserver on TCP 2022)"; then
   systemctl enable --now et
 fi
 
+# allow, not limit: ufw's limit rules count every port in one list per address,
+# so et retrying a stopped etserver once a second would lock the Mac out of 22.
 firewall=$(ufw status)
-if ! grep -qE '^2022/tcp[[:space:]]+LIMIT' <<<"$firewall"; then
-  if change "ufw limit 2022/tcp, rate-limited as 22 is"; then
+if ! grep -qE '^2022/tcp[[:space:]]+ALLOW' <<<"$firewall"; then
+  if change "ufw allow 2022/tcp"; then
     keep "$R/etc/ufw/user.rules"
     keep "$R/etc/ufw/user6.rules"
     mkdir -p "$backup"
     if [[ ! -e $backup/ufw-status.txt ]]; then
       ufw status numbered >"$backup/ufw-status.txt"
     fi
-    ufw limit 2022/tcp
+    ufw allow 2022/tcp
   fi
 fi
 
@@ -219,6 +272,9 @@ end=$(tail -n 1 "$here/launchers.bash")
 block=$(<"$here/launchers.bash")
 current=
 if [[ -f $rc ]]; then
+  if grep -qxF -- "$begin" "$rc" && ! grep -qxF -- "$end" "$rc"; then
+    die "$rc has the launcher block's first line but not its last; mend it by hand, then run again"
+  fi
   current=$(awk -v b="$begin" -v e="$end" '$0 == b { on = 1 } on { print } $0 == e { on = 0 }' "$rc")
 fi
 if [[ $current != "$block" ]]; then
@@ -242,6 +298,8 @@ if [[ $current != "$block" ]]; then
   fi
 fi
 
+# A settings.json Claude Code has written to since keeps its own keys: only the
+# shipped env keys are merged in.
 for account in "${accounts[@]}"; do
   folder=$home/.claude-$account
   if [[ ! -d $folder ]]; then
@@ -250,12 +308,22 @@ for account in "${accounts[@]}"; do
       own "$folder"
     fi
   fi
-  put "$here/settings.json" "$folder/settings.json" 600 \
-    "write ~/.claude-$account/settings.json, the Mac's privacy settings"
+  settings=$folder/settings.json
+  if [[ ! -f $settings ]]; then
+    put "$here/settings.json" "$settings" 600 "write ~/.claude-$account/settings.json, the Mac's privacy settings"
+    continue
+  fi
+  merged=$(jq -S --slurpfile ship "$here/settings.json" '.env = ((.env // {}) + $ship[0].env)' "$settings")
+  if [[ $merged != "$(jq -S . "$settings")" ]]; then
+    if change "merge the Mac's privacy settings into ~/.claude-$account/settings.json, keeping its other keys"; then
+      keep "$settings"
+      printf '%s\n' "$merged" >"$settings"
+    fi
+  fi
 done
 
 # The install is shared by every login of openclawops, and DISABLE_AUTOUPDATER
-# keeps it where it is, so it is brought up to the Mac's version here.
+# keeps it where it is, so this script brings it up to the Mac's version.
 claude=$home/.local/bin/claude
 want=$(<"$here/claude-version")
 if [[ ! -x $claude ]]; then

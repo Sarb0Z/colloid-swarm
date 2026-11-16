@@ -17,6 +17,7 @@ bad() {
 }
 eq() { if [[ $2 == "$3" ]]; then ok "$1"; else bad "$1: expected [$2] got [$3]"; fi; }
 has() { if [[ $3 == *"$2"* ]]; then ok "$1"; else bad "$1: no [$2] in: $3"; fi; }
+lacks() { if [[ $3 != *"$2"* ]]; then ok "$1"; else bad "$1: unexpected [$2] in: $3"; fi; }
 mode() { ls -ld "$1" | cut -c1-10; }
 tree() { (cd "$1" && find . | LC_ALL=C sort && find . -type f -exec cksum {} + | LC_ALL=C sort); }
 count() { grep -cxF -- "$1" "$2"; }
@@ -27,6 +28,8 @@ KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBl4w1YqQ0dTn0f8dYw0mJc9yJ2m3Y8w0q6V5o3
 MAC_VERSION=2.1.325
 
 # --- stand-ins ----------------------------------------------------------------
+# The package's postinst starts et unless policy-rc.d answers 101, as Debian's
+# deb-systemd-invoke does; the unit is enabled either way.
 export STATE=$T/state CALLS=$T/calls
 mkdir -p "$T/bin" "$STATE"
 stub() { # name body
@@ -37,11 +40,25 @@ stub id '[[ $1 == -u ]] && echo "${FAKE_UID:-0}"'
 stub chown 'echo "chown $*" >>"$CALLS"'
 stub runuser 'while [[ $1 != -- ]]; do shift; done; shift; exec "$@"'
 stub add-apt-repository 'echo "add-apt-repository $*" >>"$CALLS"
-printf "URIs: https://ppa.launchpadcontent.net/jgmath2000/et/ubuntu/\n" >"$SETUP_ROOT/etc/apt/sources.list.d/jgmath2000-ubuntu-et-noble.sources"'
-stub apt-get 'if [[ $1 == -s ]]; then echo "Inst et (7.1.1-noble1 Eternal Terminal)"; echo "Conf et"; exit 0; fi
-echo "apt-get $* NEEDRESTART_SUSPEND=${NEEDRESTART_SUSPEND:-} DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-}" >>"$CALLS"
-touch "$STATE/et-installed"
-printf "[Networking]\nport = 2022\n\n[Debug]\nverbose = 0\ntelemetry = true\nlogdirectory = /tmp\n" >"$SETUP_ROOT/etc/et.cfg"'
+printf "URIs: https://ppa.launchpadcontent.net/jgmath2000/et/ubuntu/\n" >"$SETUP_ROOT/etc/apt/sources.list.d/jgmath2000-ubuntu-et-noble.sources"
+touch "$STATE/lists"'
+stub apt-cache '[[ $1 == policy && -e $STATE/lists ]] && printf "et:\n  Installed: (none)\n  Candidate: 7.1.1-noble1\n"; true'
+stub apt-get 'case $1 in
+  -s)
+    echo "Inst libprotobuf32t64 (3.21.12-8.2build1 Ubuntu:24.04/noble [amd64])"
+    [[ -e $STATE/sim-upgrade ]] && echo "Inst libc6 [2.39-0ubuntu8.6] (2.39-0ubuntu8.7 Ubuntu:24.04/noble-updates [amd64])"
+    echo "Inst et (7.1.1-noble1 jgmath2000/et [amd64])"; echo "Conf et" ;;
+  update) echo "apt-get update" >>"$CALLS"; touch "$STATE/lists" ;;
+  install)
+    gate=$SETUP_ROOT/usr/sbin/policy-rc.d; answer=none
+    [[ -x $gate ]] && { "$gate"; answer=$?; }
+    echo "apt-get $* policy-rc.d=$answer NEEDRESTART_SUSPEND=${NEEDRESTART_SUSPEND:-} DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-}" >>"$CALLS"
+    touch "$STATE/et-installed" "$STATE/et-enabled"
+    [[ $answer == 101 ]] || touch "$STATE/et-active"
+    printf "[Networking]\nport = 2022\n\n[Debug]\nverbose = 0\ntelemetry = true\nlogdirectory = /tmp\n" >"$SETUP_ROOT/etc/et.cfg"
+    echo "Setting up et (7.1.1-noble1) ..." ;;
+  *) echo "apt-get stand-in: unexpected $*" >&2; exit 3 ;;
+esac'
 stub dpkg-query '[[ -e $STATE/et-installed ]] && { printf "ii "; exit 0; }; echo "dpkg-query: no packages found matching et" >&2; exit 1'
 stub systemctl 'case $1 in
   is-enabled) [[ -e $STATE/et-enabled ]] ;;
@@ -52,12 +69,12 @@ stub systemctl 'case $1 in
 esac'
 stub ufw 'case $1 in
   status) echo "Status: active"; echo; echo "To Action From"; cat "$STATE/ufw-rules" 2>/dev/null ;;
-  limit) echo "ufw $*" >>"$CALLS"; echo "2022/tcp                   LIMIT       Anywhere" >>"$STATE/ufw-rules" ;;
+  allow) echo "ufw $*" >>"$CALLS"; echo "2022/tcp                   ALLOW       Anywhere" >>"$STATE/ufw-rules" ;;
   *) echo "ufw stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
 stub git 'dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
 case $1 in
-  clone) echo "git clone ${*: -1}" >>"$CALLS"; mkdir -p "${*: -1}/.git"; echo none >"${*: -1}/.git/sha" ;;
+  clone) echo "git clone ${*: -1} USER=$USER LOGNAME=$LOGNAME PWD=$PWD XDG=${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"; mkdir -p "${*: -1}/.git"; echo none >"${*: -1}/.git/sha" ;;
   rev-parse) cat "$dir/.git/sha" ;;
   checkout) echo "git -C $dir checkout ${*: -1}" >>"$CALLS"; echo "${*: -1}" >"$dir/.git/sha" ;;
   *) echo "git stand-in: unexpected $*" >&2; exit 3 ;;
@@ -70,31 +87,36 @@ fi
 export PATH=$T/bin:$PATH
 
 # A pretend server: what contabo-hop held on 2026-11-16, reduced to what the script reads.
+BASHRC='# ~/.bashrc
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+export KEEP_ME=1'
 fresh() { # folder
   local r=$1 h=$1/home/openclawops
   rm -rf "$r" "$STATE"
-  mkdir -p "$STATE" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/root" "$h/.ssh" "$h/.claude" "$h/.local/bin"
+  mkdir -p "$STATE" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin"
   printf 'PRETTY_NAME="Ubuntu 24.04.4 LTS"\nVERSION_CODENAME=noble\n' >"$r/etc/os-release"
   echo "Types: deb" >"$r/etc/apt/sources.list.d/ubuntu.sources"
   echo "### tuple ### limit tcp 22 0.0.0.0/0 any 0.0.0.0/0 in" >"$r/etc/ufw/user.rules"
   echo "### tuple ### limit tcp 22 ::/0 any ::/0 in" >"$r/etc/ufw/user6.rules"
   echo "22/tcp                     LIMIT       Anywhere" >"$STATE/ufw-rules"
-  printf '# ~/.bashrc\ncase $- in\n    *i*) ;;\n      *) return;;\nesac\nexport KEEP_ME=1\n' >"$h/.bashrc"
+  printf '%s\n' "$BASHRC" >"$h/.bashrc"
   echo '{"note": "uzair login, must stay"}' >"$h/.claude/settings.json"
-  printf '#!/usr/bin/env bash\ncase $1 in\n  --version) echo "$(cat "$STATE/claude-version" 2>/dev/null || echo 2.1.207) (Claude Code)" ;;\n  update) echo "claude update HOME=$HOME CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR" >>"$CALLS"; echo %s >"$STATE/claude-version" ;;\nesac\n' \
+  printf '#!/usr/bin/env bash\ncase $1 in\n  --version) echo "$(cat "$STATE/claude-version" 2>/dev/null || echo 2.1.207) (Claude Code)" ;;\n  update) echo "claude update HOME=$HOME USER=$USER CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR" >>"$CALLS"; echo %s >"$STATE/claude-version" ;;\nesac\n' \
     "$MAC_VERSION" >"$h/.local/bin/claude"
   chmod +x "$h/.local/bin/claude"
   : >"$CALLS"
 }
 B=$T/bundle
-mkdir -p "$B"
+mkdir -p "$B" "$T/roothome" "$T/tmpd"
 cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$B/"
 echo "$MAC_VERSION" >"$B/claude-version"
 echo "$KEY" >"$B/mac.pub"
 R=$T/root
 H=$R/home/openclawops
-run() { (cd / && SETUP_ROOT=$R HOME=$T/roothome bash "$B/setup-server.sh" "$@"); }
-mkdir -p "$T/roothome"
+run() { (cd / && SETUP_ROOT=$R HOME=$T/roothome TMPDIR=$T/tmpd bash "$B/setup-server.sh" "$@"); }
 
 # --- syntax -------------------------------------------------------------------
 for f in setup-server.sh apply launchers.bash test.sh; do
@@ -107,7 +129,7 @@ before=$(tree "$R")
 out=$(run --check "$B/mac.pub" 2>&1); rc=$?
 eq "check exits 0" 0 "$rc"
 for line in "add the Mac's key" "add ppa:jgmath2000/et" "install et" "set telemetry = false" \
-  "enable and start the et service" "ufw limit 2022/tcp" "write openclawops's ~/.tmux.conf" \
+  "enable and start the et service" "ufw allow 2022/tcp" "write openclawops's ~/.tmux.conf" \
   "check out tmux-resurrect at e87d7d592cac" "check out tmux-continuum at 46e0e0023476" \
   "write the account launchers" "make ~/.claude-work" "make ~/.claude-guest" \
   "write ~/.claude-family/settings.json" "update Claude Code from 2.1.207 to at least the Mac's $MAC_VERSION"; do
@@ -116,35 +138,48 @@ done
 has "check counts every change" "check: 19 change(s) to make; nothing was changed" "$out"
 eq "check leaves the server unchanged" "$before" "$(tree "$R")"
 eq "check calls nothing that changes state" "" "$(cat "$CALLS")"
+eq "check leaves no tmux socket or scratch folder" "" "$(find "$T/tmpd" -mindepth 1)"
 
 # --- a run makes every change ---------------------------------------------------
 out=$(run "$B/mac.pub" 2>&1); rc=$?
 eq "run exits 0" 0 "$rc"
 calls=$(cat "$CALLS")
 has "run adds the PPA" "add-apt-repository -y ppa:jgmath2000/et" "$calls"
-has "run installs et with needrestart suspended" "apt-get install -y et NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive" "$calls"
-has "run enables et" "systemctl enable --now et" "$calls"
-has "run rate-limits 2022" "ufw limit 2022/tcp" "$calls"
+has "run installs et with its start held and needrestart suspended" \
+  "apt-get install -y et policy-rc.d=101 NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive" "$calls"
+[[ ! -e $R/usr/sbin/policy-rc.d ]] && ok "run removes its policy-rc.d" || bad "policy-rc.d left behind"
+has "run starts et itself, after telemetry is off" "systemctl enable --now et" "$calls"
+lacks "run does not restart et" "systemctl restart" "$calls"
+has "run opens 2022 without a rate limit" "ufw allow 2022/tcp" "$calls"
+has "run shows the packages before installing" "Inst libprotobuf32t64" "$out"
+has "run shows what apt set up" "Setting up et (7.1.1-noble1)" "$out"
 eq "authorized_keys holds the key" "$KEY" "$(cat "$H/.ssh/authorized_keys")"
 eq "authorized_keys mode" "-rw-------" "$(mode "$H/.ssh/authorized_keys")"
 eq "et.cfg telemetry off" "telemetry = false" "$(grep telemetry "$R/etc/et.cfg")"
 cmp -s "$HERE/tmux.conf" "$H/.tmux.conf" && ok "tmux.conf installed as shipped" || bad "tmux.conf differs"
 eq "resurrect pinned" "$PIN_RESURRECT" "$(cat "$H/.tmux/plugins/tmux-resurrect/.git/sha")"
 eq "continuum pinned" "$PIN_CONTINUUM" "$(cat "$H/.tmux/plugins/tmux-continuum/.git/sha")"
+has "git runs as openclawops, from its home, without root's runtime folder" \
+  "USER=openclawops LOGNAME=openclawops PWD=$H XDG=unset" "$calls"
 eq "bashrc keeps its own lines" "export KEEP_ME=1" "$(grep KEEP_ME "$H/.bashrc")"
 eq "bashrc holds the launcher block once" 1 "$(count "$(head -n 1 "$HERE/launchers.bash")" "$H/.bashrc")"
 for a in work personal family guest; do
-  cmp -s "$HERE/settings.json" "$H/.claude-$a/settings.json" && eq "settings for $a, mode" "-rw-------" "$(mode "$H/.claude-$a/settings.json")" ||
+  if cmp -s "$HERE/settings.json" "$H/.claude-$a/settings.json"; then
+    eq "settings for $a, mode" "-rw-------" "$(mode "$H/.claude-$a/settings.json")"
+  else
     bad "settings for $a differ"
+  fi
   eq "folder for $a, mode" "drwx------" "$(mode "$H/.claude-$a")"
 done
 eq "the login in ~/.claude is untouched" '{"note": "uzair login, must stay"}' "$(cat "$H/.claude/settings.json")"
-has "update runs in the work folder with openclawops' home" "claude update HOME=$H CLAUDE_CONFIG_DIR=$H/.claude-work" "$calls"
+has "update runs in the work folder as openclawops" \
+  "claude update HOME=$H USER=openclawops CLAUDE_CONFIG_DIR=$H/.claude-work" "$calls"
 bk=$R/root/backups/unit5-$(date +%Y%m%d)
-cmp -s "$bk/home/openclawops/.bashrc" <(printf '# ~/.bashrc\ncase $- in\n    *i*) ;;\n      *) return;;\nesac\nexport KEEP_ME=1\n') &&
-  ok "bashrc backed up before its change" || bad "bashrc backup"
+cmp -s "$bk/home/openclawops/.bashrc" <(printf '%s\n' "$BASHRC") && ok "bashrc backed up before its change" || bad "bashrc backup"
 [[ -f $bk/etc/ufw/user.rules && -f $bk/ufw-status.txt && -d $bk/etc/apt/sources.list.d ]] &&
   ok "firewall and apt sources backed up" || bad "firewall or apt backup missing"
+[[ -f $bk/apt-get-install.log && -f $bk/add-apt-repository.log ]] && ok "apt's output is kept in the backup folder" ||
+  bad "apt logs missing"
 has "run names the backup folder" "backups: /root/backups/unit5-" "$out"
 
 # --- a second run changes nothing -----------------------------------------------
@@ -156,6 +191,16 @@ has "second run has nothing to change" "nothing to change" "$out"
 eq "second run calls nothing that changes state" "" "$(cat "$CALLS")"
 eq "second run leaves the server unchanged" "$after" "$(tree "$R")"
 
+# --- settings Claude Code wrote since keep their keys ------------------------------
+printf '{"model": "opus", "env": {"FOO": "1", "DISABLE_TELEMETRY": "0"}}\n' >"$H/.claude-work/settings.json"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "merge run exits 0" 0 "$rc"
+has "merge is reported" "merge the Mac's privacy settings into ~/.claude-work/settings.json" "$out"
+eq "merge keeps other keys" "opus 1" "$(jq -r '"\(.model) \(.env.FOO)"' "$H/.claude-work/settings.json")"
+eq "merge sets the privacy keys" "1 1" "$(jq -r '"\(.env.DISABLE_TELEMETRY) \(.env.DO_NOT_TRACK)"' "$H/.claude-work/settings.json")"
+out=$(run "$B/mac.pub" 2>&1)
+has "a merged file is left alone next time" "nothing to change" "$out"
+
 # --- the launcher block is replaced in place --------------------------------------
 cp "$HERE/launchers.bash" "$T/launchers.orig"
 awk 'NR == 2 { print "# a changed line" } { print }' "$T/launchers.orig" >"$B/launchers.bash"
@@ -165,6 +210,11 @@ eq "changed block written once" 1 "$(count "# a changed line" "$H/.bashrc")"
 eq "still one block" 1 "$(count "$(head -n 1 "$HERE/launchers.bash")" "$H/.bashrc")"
 eq "lines after the block stay" "export AFTER_BLOCK=1" "$(tail -n 1 "$H/.bashrc")"
 cp "$T/launchers.orig" "$B/launchers.bash"
+grep -vxF -- "$(tail -n 1 "$HERE/launchers.bash")" "$H/.bashrc" >"$T/rc" && cp "$T/rc" "$H/.bashrc"
+before=$(cat "$H/.bashrc")
+err=$(run "$B/mac.pub" 2>&1); rc=$?
+[[ $rc -eq 1 && $err == *"first line but not its last"* ]] && ok "refuses a block without its last line" || bad "half block (rc=$rc): $err"
+eq "a half block is left as it was" "$before" "$(cat "$H/.bashrc")"
 
 # --- a key file without a final newline ------------------------------------------
 fresh "$R"
@@ -172,6 +222,35 @@ printf 'ssh-ed25519 AAAAexisting other@host' >"$H/.ssh/authorized_keys"
 run "$B/mac.pub" >/dev/null 2>&1
 eq "an existing key line stays whole" 2 "$(wc -l <"$H/.ssh/authorized_keys" | tr -d ' ')"
 eq "the Mac's key on its own line" "$KEY" "$(tail -n 1 "$H/.ssh/authorized_keys")"
+
+# --- the PPA is listed but apt never fetched it ------------------------------------
+fresh "$R"
+echo "URIs: https://ppa.launchpadcontent.net/jgmath2000/et/ubuntu/" >"$R/etc/apt/sources.list.d/jgmath2000-ubuntu-et-noble.sources"
+out=$(run --check "$B/mac.pub" 2>&1)
+has "check sees the missing lists" "would: apt-get update" "$out"
+run "$B/mac.pub" >/dev/null 2>&1
+calls=$(cat "$CALLS")
+has "run fetches the lists" "apt-get update" "$calls"
+lacks "run does not add the PPA twice" "add-apt-repository" "$calls"
+has "run then installs" "apt-get install -y et" "$calls"
+
+# --- an install that would upgrade a package stops --------------------------------
+fresh "$R"
+touch "$STATE/sim-upgrade"
+err=$(run "$B/mac.pub" 2>&1); rc=$?
+[[ $rc -eq 1 && $err == *"would upgrade or remove installed packages"*"libc6"* ]] &&
+  ok "refuses an install that upgrades libc6" || bad "upgrade refusal (rc=$rc): $err"
+lacks "nothing installed" "apt-get install" "$(cat "$CALLS")"
+out=$(run --check "$B/mac.pub" 2>&1); rc=$?
+[[ $rc -eq 1 && $out == *"PROBLEM: installing et would upgrade"* ]] && ok "check reports the upgrade as a problem" ||
+  bad "check upgrade (rc=$rc): $out"
+
+# --- an existing policy-rc.d is not replaced ---------------------------------------
+fresh "$R"
+printf '#!/bin/sh\nexit 0\n' >"$R/usr/sbin/policy-rc.d"
+err=$(run "$B/mac.pub" 2>&1); rc=$?
+[[ $rc -eq 1 && $err == *"policy-rc.d already exists"* ]] && ok "refuses to replace a policy-rc.d" || bad "policy-rc.d (rc=$rc): $err"
+eq "the existing policy-rc.d stays" "exit 0" "$(tail -n 1 "$R/usr/sbin/policy-rc.d")"
 
 # --- refusals ---------------------------------------------------------------------
 fresh "$R"
@@ -219,7 +298,7 @@ if [[ $(uname) == Darwin ]]; then
   stub ssh '[[ $1 == contabo-hop ]] || { echo "ssh stand-in: host $1" >&2; exit 3; }; echo "ssh $1" >>"$CALLS"; tee "$STATE/sent.tar" | bash -c "$2"'
   fresh "$R"
   before=$(tree "$R")
-  out=$(HOME=$AH SETUP_ROOT=$R "$HERE/apply" --check 2>&1); rc=$?
+  out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" --check 2>&1); rc=$?
   eq "apply --check exits 0" 0 "$rc"
   has "apply --check runs the check on the server" "check: 19 change(s) to make; nothing was changed" "$out"
   has "apply sends the Mac's version" "to at least the Mac's $MAC_VERSION" "$out"
