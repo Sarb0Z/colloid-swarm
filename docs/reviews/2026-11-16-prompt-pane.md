@@ -8,7 +8,7 @@ them with the operator's authority (R19).
 
 ## Lane `pane`
 
-Covers: 692df7e..8705fef
+Covers: 692df7e..17b1a85
 
 A fable writer built `pane-run`, `review-snapshot`, `prompt-catalog` and
 `catalog.json` in three commits (b835c8b, 1142bf5, 8705fef), all under
@@ -41,6 +41,20 @@ beside it.
 | 9 | P2 | `--probe` hides values by variable name only, so a URL's userinfo and names such as `*_AUTH` or `*_PAT` print | Adopted before the operator runs P1 |
 | 10 | P2 | `pane-run` is 452 lines with 23 public names, two functions over 40 lines, and the third copy of the tab liveness check | Accepted: one script per pane command; the copies are recorded as `debt: iterm-tab-liveness-copies`, since `claude-tab-state` lives outside the repository. The fix round keeps the functions it touches within 40 lines |
 | 11 | P2 | Runs per day of `pane-run` are not stated | Accepted: Starts are the operator's own presses; spec 4h.7 states the per-Start cost |
+
+The fix round landed findings 1-9 as trailing commits: eb0df95 (1), 8c965d6
+(4) and 17b1a85 (2, 3, 5, 6, 7, 8, 9, whose hunks interleave in one script).
+The suite passed with 254 rows. The new tests run against the three scripts
+and `catalog.json` at 8705fef gave 35 failures; finding 6 changes no
+behaviour, so its boundary test passes on both. The lead read the diff: the
+background list is `review-animations` and `web-design-guidelines`; a
+bypass-mode lead always gets the line that names this request's dialog; the
+R13 brief is read with `defaults export` and never written; the size cap is the
+repository's own `SAVE_CAP`, 200 MB here. One case stays open for QA: Claude
+Code also holds a message for a lead in plan mode while bypass is available
+(spec E9), and there the pane prints "Sent." without the five-minute limit.
+The device policy does not disable bypass, so QA's Acceptance 30 rerun tries a
+plan-mode lead, and the line changes only if a hold shows.
 
 The reviewer's readings: Acceptance 30's "Sent line" is the line after the
 post, and finding 2 settles which; R13's "iTerm2's own review prompt" is the
