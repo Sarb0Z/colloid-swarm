@@ -3106,7 +3106,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-publish</span><span class="badge gate">gate</span></div>
               <p class="what">Forces the permission prompt on an outward mutation &mdash; publish, deploy, push, package release, a hosted migration, an Artifact action, many <code>gh</code> writes. It asks in the modes that prompt (default, acceptEdits, plan) and denies in the rest, since a prompt nobody saw is no approval; the push prompt names critical-path files the push carries without a review record. Wired for Claude only. Two pieces beside it: the publish-approval mod asks in Claude&#x27;s own question dialog in every mode, and its &ldquo;Run it&rdquo; leaves a token that turns the ask or deny into allow for that one call; the device policy (<code>.agents/claude/device/</code>) installs the same outward-mutation rules for every session on the machine, and the operator runs it once with <code>sudo</code>.</p>
               <div class="io"><b>in</b> {tool_name, tool_input, permission_mode} &nbsp;→&nbsp; <b>out</b> permissionDecision "ask" | "deny" | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1153 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-publish.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1273 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-publish.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a tool call is an outward mutation that needs user approval.
 
 Input  (stdin JSON): {&quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...},
@@ -3150,6 +3150,7 @@ import re
 import shlex
 import sys
 import time
+from collections.abc import Collection
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -3200,23 +3201,76 @@ DEPLOY_VERBS = {
                  &quot;network-restrictions update&quot;, &quot;vanity-subdomains activate&quot;,
                  &quot;vanity-subdomains delete&quot;, &quot;ssl-enforcement update&quot;, &quot;network-bans remove&quot;,
                  &quot;backups restore&quot;, &quot;encryption update-root-key&quot;, &quot;orgs create&quot;,
-                 &quot;notebooks push&quot;},
+                 &quot;notebooks push&quot;, &quot;bootstrap&quot;, &quot;branches disable&quot;, &quot;pull&quot;,
+                 &quot;compute push&quot;, &quot;compute deploy&quot;, &quot;compute delete&quot;, &quot;feedback add&quot;,
+                 &quot;feedback delete&quot;},
     &quot;terraform&quot;: {&quot;apply&quot;, &quot;destroy&quot;, &quot;import&quot;, &quot;refresh&quot;, &quot;taint&quot;, &quot;untaint&quot;, &quot;force-unlock&quot;,
                   &quot;state rm&quot;, &quot;state mv&quot;, &quot;state push&quot;, &quot;state replace-provider&quot;,
                   &quot;workspace delete&quot;},
 }
 DEPLOY_VERBS[&quot;tofu&quot;] = DEPLOY_VERBS[&quot;terraform&quot;]
-# `supabase storage` reaches the linked project unless `--local` says
-# otherwise, and `cp` writes there only when its destination is an `ss://` path.
-SUPABASE_STORAGE_VALUED = {&quot;--cache-control&quot;, &quot;--content-type&quot;, &quot;-j&quot;, &quot;--jobs&quot;, &quot;--project-ref&quot;}
-# Verbs that are local by default and reach the hosted project only when a flag
-# says so. Gating them unconditionally would ask on every `supabase db reset`,
-# which is how a developer rebuilds the Docker stack several times an hour; an
-# ask that fires on routine local work is one people learn to dismiss.
-REMOTE_FLAG_VERBS = {
-    &quot;supabase&quot;: ({&quot;db reset&quot;, &quot;migration up&quot;, &quot;migration repair&quot;, &quot;db dump&quot;, &quot;seed buckets&quot;},
-                 {&quot;--linked&quot;, &quot;--db-url&quot;}),
+# What the ask says a deploy verb does, where &quot;deploys or mutates the hosted
+# project&quot; would claim more than the verb does or name the wrong target.
+DEPLOY_REASONS = {
+    &quot;supabase&quot;: {
+        &quot;feedback add&quot;: &quot;sends a message to the Supabase team&quot;,
+        &quot;feedback delete&quot;: &quot;deletes feedback previously submitted to Supabase&quot;,
+        &quot;bootstrap&quot;: &quot;reaches a hosted project&quot;,
+        &quot;branches disable&quot;: &quot;reaches a hosted project&quot;,
+        &quot;pull&quot;: &quot;reaches a hosted project&quot;,
+        &quot;compute push&quot;: &quot;reaches a hosted project&quot;,
+        &quot;compute deploy&quot;: &quot;reaches a hosted project&quot;,
+        &quot;compute delete&quot;: &quot;reaches a hosted project&quot;,
+    },
 }
+# `supabase storage` reaches a hosted project unless `--local` keeps it local
+# (`stays_local`), and `cp` writes there only when its destination is an
+# `ss://` path.
+SUPABASE_STORAGE_VALUED = {&quot;--cache-control&quot;, &quot;--content-type&quot;, &quot;-j&quot;, &quot;--jobs&quot;, &quot;--project-ref&quot;}
+# Verbs that are local by default and reach a hosted project only when a target
+# flag says so. Gating them unconditionally would ask on every `supabase db
+# reset`, which is how a developer rebuilds the Docker stack several times an
+# hour; an ask that fires on routine local work is one people learn to dismiss.
+# Supabase CLI 3 names the target with `--remote`: bare for the linked project,
+# `--remote=&lt;ref|branch|postgres-url&gt;`, or `--remote &lt;ref|branch|postgres-url&gt;`
+# when the command takes no operands. `--linked`, `--db-url` and
+# `--project-ref` are 2.x&#x27;s spellings, which 3.x still reads. `db test` is an
+# alias of `test db`.
+REMOTE_FLAG_VERBS = {
+    &quot;supabase&quot;: ({&quot;db reset&quot;, &quot;migration up&quot;, &quot;migration down&quot;, &quot;migration squash&quot;,
+                  &quot;db query&quot;, &quot;test db&quot;, &quot;db test&quot;, &quot;db dump&quot;, &quot;seed buckets&quot;},
+                 {&quot;--remote&quot;, &quot;--linked&quot;, &quot;--db-url&quot;, &quot;--project-ref&quot;}),
+}
+# Flags whose next word is their value in some commands and a positional in
+# others. The guard cannot tell which, so it reads the command both ways
+# (`verb_readings`) and asks when either names a gated verb.
+OPTIONAL_VALUE_FLAGS = {
+    &quot;supabase&quot;: {&quot;--remote&quot;},
+}
+# A second spelling the CLI accepts for a verb group, read as the first before
+# any table is consulted: `supabase migrations up` is `supabase migration up`.
+GROUP_ALIASES = {
+    &quot;supabase&quot;: {&quot;migrations&quot;: &quot;migration&quot;},
+}
+# Verbs that Supabase CLI 2 runs against the linked project unless `--local` is
+# given; 3.x runs them locally unless a target flag is given. One checkout can
+# meet both versions, so they ask unless `--local` keeps them local (`stays_local`).
+# `supabase storage` follows the same rule through `supabase_storage_reason`.
+LOCAL_FLAG_VERBS = {
+    &quot;supabase&quot;: {&quot;migration repair&quot;, &quot;db pull&quot;, &quot;db remote commit&quot;},
+}
+# A target-flag verb with a boolean flag that makes it a read: `supabase db
+# query --read-only` runs its SQL in a read-only transaction.
+READ_FLAG_VERBS = {
+    &quot;supabase&quot;: {&quot;db query&quot;: &quot;--read-only&quot;},
+}
+# The words the Supabase CLI&#x27;s parser reads as the value of a boolean flag,
+# after `=` or as the next word: `--local false`, `--read-only=no`.
+BOOLEAN_TRUE = {&quot;true&quot;, &quot;yes&quot;, &quot;on&quot;, &quot;1&quot;, &quot;y&quot;}
+BOOLEAN_FALSE = {&quot;false&quot;, &quot;no&quot;, &quot;off&quot;, &quot;0&quot;, &quot;n&quot;}
+# The CLIs whose boolean flags take such a next word, so it is not the verb.
+# No Supabase verb is spelled as one.
+FLAG_LITERALS = {&quot;supabase&quot;: BOOLEAN_TRUE | BOOLEAN_FALSE}
 # The read set is the allowlist, so an action this guard does not recognize asks:
 # a new Artifact action is likelier to mutate than to read. Nothing here keys on
 # the payload shape — a comment reply and an asset delete reach the published
@@ -3302,11 +3356,13 @@ FIREBASE_WRITES = {&quot;delete&quot;, &quot;set&quot;, &quot;unset&quot;, &quot
 # --config &lt;path&gt;` take a value; `--json`, `--debug` and the interactivity
 # switches do not. `--flag=value` carries its own value and needs no entry.
 #
-# wrangler&#x27;s yargs globals (workers-sdk packages/wrangler/src/index.ts). flyctl
-# and the Supabase CLI are cobra programs, which find the verb past any flag
-# and its value and let the verb parse it, so a verb&#x27;s own value flags count
-# too: flyctl&#x27;s from internal/flag/flag.go, Supabase&#x27;s globals from
-# `supabase --help` (2.119) plus `--project-ref` and `--db-url`. railway (clap)
+# wrangler&#x27;s yargs globals (workers-sdk packages/wrangler/src/index.ts). flyctl,
+# a cobra program, and the Supabase CLI&#x27;s own parser find the verb past any
+# flag and its value and let the verb parse it, so a verb&#x27;s own value flags
+# count too: flyctl&#x27;s from internal/flag/flag.go, Supabase&#x27;s globals from
+# `supabase --help` (2.119; 3.1 adds none that take a value) plus
+# `--project-ref` and `--db-url`. Supabase&#x27;s parser also lets a boolean flag
+# take the next word as its value (`FLAG_LITERALS`). railway (clap)
 # and netlify (commander) reject an option before the verb, so neither has a row.
 VALUE_FLAGS = {
     &quot;firebase&quot;: {&quot;-P&quot;, &quot;--project&quot;, &quot;--account&quot;, &quot;--token&quot;, &quot;-c&quot;, &quot;--config&quot;},
@@ -3381,16 +3437,23 @@ def vercel_reason(words):
     return None
 
 
-def positionals(words, value_flags=frozenset()):
-    &quot;&quot;&quot;The words that are not options or the separate value of one.&quot;&quot;&quot;
-    found, skip = [], False
+def positionals(words, value_flags: Collection[str] = frozenset(),
+                flag_literals: Collection[str] = frozenset()):
+    &quot;&quot;&quot;The words that are not options or the separate value of one. A word in
+    `flag_literals` directly after a flag that carries no `=` and is not in
+    `value_flags` is that flag&#x27;s value: `--yes true`.&quot;&quot;&quot;
+    found, skip, after_flag = [], False, False
     for word in words:
         if skip:
-            skip = False
+            skip = after_flag = False
         elif word.startswith(&quot;-&quot;):
             skip = word in value_flags
+            after_flag = not skip and &quot;=&quot; not in word
+        elif after_flag and word.lower() in flag_literals:
+            after_flag = False
         else:
             found.append(word)
+            after_flag = False
     return found
 
 
@@ -3485,13 +3548,77 @@ def unversioned(spec):
     return spec[:at] if at &gt; 0 else spec
 
 
+def flag_on(words, flag):
+    &quot;&quot;&quot;Whether the boolean `flag` ends up on. The last occurrence decides: a
+    bare one is on unless the next word is a false literal, and one with `=`
+    is on only for a true value. A bare `--` ends the flags: what follows it
+    is an operand.&quot;&quot;&quot;
+    state = False
+    for index, word in enumerate(words):
+        if word == &quot;--&quot;:
+            break
+        name, equals, value = word.partition(&quot;=&quot;)
+        if name != flag:
+            continue
+        if equals:
+            state = value in BOOLEAN_TRUE
+        else:
+            state = not (index + 1 &lt; len(words) and words[index + 1].lower() in BOOLEAN_FALSE)
+    return state
+
+
+def stays_local(name, rest):
+    &quot;&quot;&quot;Whether `--local` keeps the command on the local stack: it is on, and
+    no target flag beside it sends the command to a hosted project.&quot;&quot;&quot;
+    _, targets = REMOTE_FLAG_VERBS[name]
+    return flag_on(rest, &quot;--local&quot;) and not any(word.split(&quot;=&quot;)[0] in targets for word in rest)
+
+
+def verb_readings(name, rest, value_flags):
+    &quot;&quot;&quot;The positional words of `rest`, once for each way the CLI may read
+    them: with each of the CLI&#x27;s `OPTIONAL_VALUE_FLAGS` standing alone, and
+    with it taking the next word. A group alias is replaced by its group.&quot;&quot;&quot;
+    literals = FLAG_LITERALS.get(name, frozenset())
+    aliases = GROUP_ALIASES.get(name, {})
+    readings = []
+    for valued in (set(value_flags), set(value_flags) | OPTIONAL_VALUE_FLAGS.get(name, set())):
+        found = positionals(rest, valued, literals)
+        found[:1] = [aliases.get(word, word) for word in found[:1]]
+        if found not in readings:
+            readings.append(found)
+    return readings
+
+
 def supabase_storage_reason(rest):
-    path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS[&quot;supabase&quot;])
-    if path[:1] != [&quot;storage&quot;] or &quot;--local&quot; in rest:
+    if stays_local(&quot;supabase&quot;, rest):
         return None
-    verb = path[1] if len(path) &gt; 1 else None
-    if verb in (&quot;rm&quot;, &quot;mv&quot;) or (verb == &quot;cp&quot; and path[-1].startswith(&quot;ss:&quot;)):
-        return f&quot;supabase storage {verb} writes to the linked project&#x27;s storage.&quot;
+    for path in verb_readings(&quot;supabase&quot;, rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS[&quot;supabase&quot;]):
+        verb = path[1] if len(path) &gt; 1 else None
+        if path[0:1] == [&quot;storage&quot;] and (
+                verb in (&quot;rm&quot;, &quot;mv&quot;) or (verb == &quot;cp&quot; and path[-1].startswith(&quot;ss:&quot;))):
+            return f&quot;supabase storage {verb} writes to a hosted project&#x27;s storage.&quot;
+    return None
+
+
+def table_reason(name, rest, positional):
+    &quot;&quot;&quot;The ask for a deploy CLI whose positional words are `positional`, read
+    from the verb tables; None when no table names its verb.&quot;&quot;&quot;
+    # Longest phrase first, so a longer verb is not shadowed by its noun.
+    phrases = [&quot; &quot;.join(positional[:width]) for width in (3, 2, 1) if len(positional) &gt;= width]
+    for phrase in phrases:
+        if phrase in DEPLOY_VERBS.get(name, set()):
+            does = DEPLOY_REASONS.get(name, {}).get(phrase, &quot;deploys or mutates the hosted project&quot;)
+            return f&quot;{name} {phrase} {does}.&quot;
+    for phrase in phrases:
+        if phrase in LOCAL_FLAG_VERBS.get(name, set()) and not stays_local(name, rest):
+            return f&quot;{name} {phrase} reaches a hosted project unless --local keeps it local.&quot;
+    verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
+    reads = READ_FLAG_VERBS.get(name, {})
+    for phrase in phrases:
+        if phrase in reads and flag_on(rest, reads[phrase]):
+            continue
+        if phrase in verbs and any(word.split(&quot;=&quot;)[0] in flags for word in rest):
+            return f&quot;{name} {phrase} with a target flag reaches a hosted project.&quot;
     return None
 
 
@@ -3698,16 +3825,9 @@ def rule_bash(command, shell, place=None):
     if (name, tuple(rest[:1])) in PLATFORM_KEYS and (reason := platform_reason(name, rest, shell, place)):
         return reason
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
-        # Longest phrase first, so a two-word verb is not shadowed by its noun.
-        positional = positionals(rest, VALUE_FLAGS.get(name, ()))
-        phrases = [&quot; &quot;.join(positional[:width]) for width in (2, 1) if positional[:width]]
-        for phrase in phrases:
-            if phrase in DEPLOY_VERBS.get(name, set()):
-                return f&quot;{name} {phrase} deploys or mutates the hosted project.&quot;
-        verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
-        for phrase in phrases:
-            if phrase in verbs and any(word.split(&quot;=&quot;)[0] in flags for word in rest):
-                return f&quot;{name} {phrase} against the linked project mutates the hosted database.&quot;
+        for positional in verb_readings(name, rest, VALUE_FLAGS.get(name, ())):
+            if reason := table_reason(name, rest, positional):
+                return reason
     return None
 
 
