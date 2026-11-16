@@ -56,6 +56,41 @@ Code also holds a message for a lead in plan mode while bypass is available
 The device policy does not disable bypass, so QA's Acceptance 30 rerun tries a
 plan-mode lead, and the line changes only if a hold shows.
 
+QA (opus) ran Acceptance 18-33 live at 8705fef, from a frozen copy once the
+fix round started. Each test lead ran in a tab QA opened, with the pane
+simulated by a split of that tab and `it2 session run`. Passed: 18-24, 26-29,
+31-33, 4h.1 and 4h.4.
+- 18: a background reviewer cell on opus, account unchanged.
+- 19: a pending `git push` prompt stayed pending until QA answered it.
+- 20: a half-typed draft stayed in the input line.
+- 21: the snapshot and the index stayed apart, and `/exit` removed the snapshot.
+- 22: `committed: yes` wrote `Covers: 692df7e..1606c64`, and `owed.py` cleared
+  the file; `committed: no` wrote nothing.
+- 23: a plain repository, with QA's own brief file at 8705fef.
+- 26: on a copy of the preferences, "Default" first and unchanged, then the
+  groups in order.
+- 27: two messages in order; an identical third within 30 s was dropped.
+- 31: claims-app.
+- 32: six stale records, each named.
+- 33: 2 of 2, no `git push` and no SendMessage.
+
+25 failed once: a lead with a long history asked two questions before its
+first edit, both raised by conflicts in QA's own entry (a passive line against
+the documentation rule, and a commit without the suite). A fresh lead passed.
+30 cannot run here: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` forces every session
+to the default mode, so no lead bypasses permissions and no message is held.
+That also closes the plan-mode case above. The bypass line stays covered by
+the suite.
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 12 | P2 | QA: `review-snapshot --help` makes a real snapshot: it made `.agents/worktrees/pane-review-20261116-165204-47194` in the main checkout, recorded under the lead's session | Adopted: `-h` and `--help` print the usage, and any other argument is a usage error. The stray snapshot is clean, and the session's end removes it |
+| 13 | P2 | QA: `pane-run --help` takes `--help` as an entry and shows the one-key menu of live sessions; a key press would post it | Adopted: `-h` and `--help` print the usage; a single argument that starts with `-` and holds no space is refused as an unknown option |
+| 14 | P2 | QA, raised by the test lead in 22: step 4 writes `Covers:` even when step 2 says the record cannot stand in for the delivery review, and `owed.py` clears an owed review by that line | Adopted on R18 and C2: the record has a `Covers:` line only under the full procedure, and otherwise says why (spec 4d step 4) |
+| 15 | — | QA: a pane review in the default permission mode asks the operator about ten times | Noted for the operator: an allow rule for `review-snapshot` is the operator's decision |
+| 16 | — | QA: two of its split panes closed by themselves, and sessions in other tabs ended with reason `other` during the run | Not explained: the system log shows no memory-pressure kill; each ended session's tab record remains, so `claude-tab-state reopen` can resume it |
+| 17 | — | QA, for unit 2: while a background shell ran, a gate turn showed `working · 1 background task running` for 20 s instead of `decide:` | Filed in `breadcrumbs.md` |
+
 The reviewer's readings: Acceptance 30's "Sent line" is the line after the
 post, and finding 2 settles which; R13's "iTerm2's own review prompt" is the
 saved review prompt, as finding 3 rules; 4h.2's "reports" means returning
