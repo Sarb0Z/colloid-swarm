@@ -99,6 +99,19 @@ DEPLOY_VERBS = {
                   "workspace delete"},
 }
 DEPLOY_VERBS["tofu"] = DEPLOY_VERBS["terraform"]
+# What the ask says a deploy verb does, where "deploys or mutates the hosted
+# project" would claim more than the verb does or name the wrong target.
+DEPLOY_REASONS = {
+    "supabase": {
+        "feedback add": "sends a message to the Supabase team",
+        "feedback delete": "deletes feedback previously submitted to Supabase",
+        "bootstrap": "reaches a hosted project",
+        "branches disable": "reaches a hosted project",
+        "pull": "reaches a hosted project",
+        "compute push": "reaches a hosted project",
+        "compute delete": "reaches a hosted project",
+    },
+}
 # `supabase storage` reaches a hosted project unless `--local` keeps it local
 # (`stays_local`), and `cp` writes there only when its destination is an
 # `ss://` path.
@@ -479,7 +492,8 @@ def table_reason(name, rest, positional):
     phrases = [" ".join(positional[:width]) for width in (3, 2, 1) if len(positional) >= width]
     for phrase in phrases:
         if phrase in DEPLOY_VERBS.get(name, set()):
-            return f"{name} {phrase} deploys or mutates the hosted project."
+            does = DEPLOY_REASONS.get(name, {}).get(phrase, "deploys or mutates the hosted project")
+            return f"{name} {phrase} {does}."
     for phrase in phrases:
         if phrase in LOCAL_FLAG_VERBS.get(name, set()) and not stays_local(name, rest):
             return f"{name} {phrase} reaches a hosted project unless --local keeps it local."

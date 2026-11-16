@@ -900,6 +900,18 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase feedback add \"x\"", "supabase feedback delete 1"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted-only Supabase CLI 3 verb: {command}", reason is not None, "quiet")
+    # The ask says what the verb does: `feedback add` sends a message and
+    # mutates no project, and `pull --dry-run` reads one. Catches a reason
+    # that claims a deploy; it cannot check the claim against the CLI.
+    reason = guard.verdict("Bash", {"command": 'supabase feedback add "x"'}, ())
+    check("the ask for supabase feedback add says it messages the Supabase team",
+          reason == "supabase feedback add sends a message to the Supabase team.", reason or "quiet")
+    reason = guard.verdict("Bash", {"command": "supabase pull --dry-run"}, ())
+    check("the ask for supabase pull --dry-run says it reaches a hosted project",
+          reason == "supabase pull reaches a hosted project.", reason or "quiet")
+    reason = guard.verdict("Bash", {"command": "supabase db push"}, ())
+    check("the ask for supabase db push keeps the deploy sentence",
+          reason == "supabase db push deploys or mutates the hosted project.", reason or "quiet")
     # The CLI reads the plural group `migrations` as `migration`, in 2.x and
     # 3.x alike, so every rule for the singular holds for the plural. Catches
     # a rule that knows one spelling only; it misses an alias the guard's
