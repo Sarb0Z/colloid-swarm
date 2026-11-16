@@ -913,6 +913,21 @@ with tempfile.TemporaryDirectory() as tmp:
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"quiet on the plural Supabase migrations group kept local: {command}",
               reason is None, reason or "")
+    # CLI 3 reads the word after a bare `--remote` as its target when the
+    # command takes no operands, so `seed --remote staging buckets` is `seed
+    # buckets` on the project `staging`; the guard asks when either reading of
+    # that word, a target or a verb, names a gated verb. Catches a verb hidden
+    # behind the target; it cannot tell which reading the CLI will take.
+    for command in ("supabase seed --remote staging buckets",
+                    "supabase seed --remote abcdefghijklmnopqrst buckets",
+                    "supabase storage --remote abcdefghijklmnopqrst rm ss:///b/a",
+                    "supabase --remote db reset"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on a Supabase verb beside a bare --remote and its word: {command}",
+              reason is not None, "quiet")
+    for command in ("supabase seed buckets", "supabase db reset"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on a Supabase verb with no --remote: {command}", reason is None, reason or "")
     # Supabase CLI 2 runs `migration repair` and `db pull` against the linked
     # project unless `--local` is given, and `storage` likewise; a target flag
     # beside `--local` still sends the command to a hosted project, and so does

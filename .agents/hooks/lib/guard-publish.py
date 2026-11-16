@@ -107,14 +107,21 @@ SUPABASE_STORAGE_VALUED = {"--cache-control", "--content-type", "-j", "--jobs", 
 # flag says so. Gating them unconditionally would ask on every `supabase db
 # reset`, which is how a developer rebuilds the Docker stack several times an
 # hour; an ask that fires on routine local work is one people learn to dismiss.
-# Supabase CLI 3 names the target with `--remote` (bare for the linked project,
-# or `--remote=<ref|branch|postgres-url>`); `--linked`, `--db-url` and
+# Supabase CLI 3 names the target with `--remote`: bare for the linked project,
+# `--remote=<ref|branch|postgres-url>`, or `--remote <ref|branch|postgres-url>`
+# when the command takes no operands. `--linked`, `--db-url` and
 # `--project-ref` are 2.x's spellings, which 3.x still reads. `db test` is an
 # alias of `test db`.
 REMOTE_FLAG_VERBS = {
     "supabase": ({"db reset", "migration up", "migration down", "migration squash",
                   "db query", "test db", "db test", "db dump", "seed buckets"},
                  {"--remote", "--linked", "--db-url", "--project-ref"}),
+}
+# Flags whose next word is their value in some commands and a positional in
+# others. The guard cannot tell which, so it reads the command both ways
+# (`verb_readings`) and asks when either names a gated verb.
+OPTIONAL_VALUE_FLAGS = {
+    "supabase": {"--remote"},
 }
 # A second spelling the CLI accepts for a verb group, read as the first before
 # any table is consulted: `supabase migrations up` is `supabase migration up`.
@@ -439,13 +446,50 @@ def stays_local(name, rest):
     return flag_on(rest, "--local") and not any(word.split("=")[0] in targets for word in rest)
 
 
+def verb_readings(name, rest, value_flags):
+    """The positional words of `rest`, once for each way the CLI may read
+    them: with each of the CLI's `OPTIONAL_VALUE_FLAGS` standing alone, and
+    with it taking the next word. A group alias is replaced by its group."""
+    literals = FLAG_LITERALS.get(name, frozenset())
+    aliases = GROUP_ALIASES.get(name, {})
+    readings = []
+    for valued in (set(value_flags), set(value_flags) | OPTIONAL_VALUE_FLAGS.get(name, set())):
+        found = positionals(rest, valued, literals)
+        found[:1] = [aliases.get(word, word) for word in found[:1]]
+        if found not in readings:
+            readings.append(found)
+    return readings
+
+
 def supabase_storage_reason(rest):
-    path = positionals(rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS["supabase"], FLAG_LITERALS["supabase"])
-    if path[:1] != ["storage"] or stays_local("supabase", rest):
+    if stays_local("supabase", rest):
         return None
-    verb = path[1] if len(path) > 1 else None
-    if verb in ("rm", "mv") or (verb == "cp" and path[-1].startswith("ss:")):
-        return f"supabase storage {verb} writes to a hosted project's storage."
+    for path in verb_readings("supabase", rest, SUPABASE_STORAGE_VALUED | VALUE_FLAGS["supabase"]):
+        verb = path[1] if len(path) > 1 else None
+        if path[0:1] == ["storage"] and (
+                verb in ("rm", "mv") or (verb == "cp" and path[-1].startswith("ss:"))):
+            return f"supabase storage {verb} writes to a hosted project's storage."
+    return None
+
+
+def table_reason(name, rest, positional):
+    """The ask for a deploy CLI whose positional words are `positional`, read
+    from the verb tables; None when no table names its verb."""
+    # Longest phrase first, so a two-word verb is not shadowed by its noun.
+    phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
+    for phrase in phrases:
+        if phrase in DEPLOY_VERBS.get(name, set()):
+            return f"{name} {phrase} deploys or mutates the hosted project."
+    for phrase in phrases:
+        if phrase in LOCAL_FLAG_VERBS.get(name, set()) and not stays_local(name, rest):
+            return f"{name} {phrase} reaches a hosted project unless --local keeps it local."
+    verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
+    reads = READ_FLAG_VERBS.get(name, {})
+    for phrase in phrases:
+        if phrase in reads and flag_on(rest, reads[phrase]):
+            continue
+        if phrase in verbs and any(word.split("=")[0] in flags for word in rest):
+            return f"{name} {phrase} with a target flag reaches a hosted project."
     return None
 
 
@@ -652,24 +696,9 @@ def rule_bash(command, shell, place=None):
     if (name, tuple(rest[:1])) in PLATFORM_KEYS and (reason := platform_reason(name, rest, shell, place)):
         return reason
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
-        # Longest phrase first, so a two-word verb is not shadowed by its noun.
-        positional = positionals(rest, VALUE_FLAGS.get(name, ()), FLAG_LITERALS.get(name, frozenset()))
-        aliases = GROUP_ALIASES.get(name, {})
-        positional[:1] = [aliases.get(word, word) for word in positional[:1]]
-        phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
-        for phrase in phrases:
-            if phrase in DEPLOY_VERBS.get(name, set()):
-                return f"{name} {phrase} deploys or mutates the hosted project."
-        for phrase in phrases:
-            if phrase in LOCAL_FLAG_VERBS.get(name, set()) and not stays_local(name, rest):
-                return f"{name} {phrase} reaches a hosted project unless --local keeps it local."
-        verbs, flags = REMOTE_FLAG_VERBS.get(name, (set(), set()))
-        reads = READ_FLAG_VERBS.get(name, {})
-        for phrase in phrases:
-            if phrase in reads and flag_on(rest, reads[phrase]):
-                continue
-            if phrase in verbs and any(word.split("=")[0] in flags for word in rest):
-                return f"{name} {phrase} with a target flag reaches a hosted project."
+        for positional in verb_readings(name, rest, VALUE_FLAGS.get(name, ())):
+            if reason := table_reason(name, rest, positional):
+                return reason
     return None
 
 
