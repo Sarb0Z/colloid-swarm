@@ -42,6 +42,7 @@ import re
 import shlex
 import sys
 import time
+from collections.abc import Collection
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -110,8 +111,8 @@ DEPLOY_REASONS = {
         "branches disable": "reaches a hosted project",
         "pull": "reaches a hosted project",
         "compute push": "reaches a hosted project",
-        "compute delete": "reaches a hosted project",
         "compute deploy": "reaches a hosted project",
+        "compute delete": "reaches a hosted project",
     },
 }
 # `supabase storage` reaches a hosted project unless `--local` keeps it local
@@ -328,7 +329,8 @@ def vercel_reason(words):
     return None
 
 
-def positionals(words, value_flags=frozenset(), flag_literals=frozenset()):
+def positionals(words, value_flags: Collection[str] = frozenset(),
+                flag_literals: Collection[str] = frozenset()):
     """The words that are not options or the separate value of one. A word in
     `flag_literals` directly after a flag that carries no `=` and is not in
     `value_flags` is that flag's value: `--yes true`."""
