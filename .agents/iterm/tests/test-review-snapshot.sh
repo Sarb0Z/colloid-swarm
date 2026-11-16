@@ -163,6 +163,32 @@ git init -q -b main "$E" 2>/dev/null
 out=$(cd "$E" && "$SNAP" 2>"$T/err"); rc=$?
 [[ $rc -ne 0 && -z $out && $(cat "$T/err") == *"no commits"* ]] && ok "repository with no commits: pane-base's reason" || bad "no commits (rc=$rc): $(cat "$T/err")"
 
+# Untracked files past the save cap: refused with the size, nothing made. The
+# cap is the repository's own SAVE_CAP when its worktree_removal.py gives one.
+K=$T/capped
+git init -q -b main "$K" 2>/dev/null
+mkdir -p "$K/.agents/hooks/lib"
+printf '.agents/worktrees/\n' >"$K/.gitignore"
+printf 'SAVE_CAP = 10\n' >"$K/.agents/hooks/lib/worktree_removal.py"
+printf 'tracked file, larger than the cap\n' >"$K/tracked.txt"
+git -C "$K" add -A
+git -C "$K" commit -q -m one
+printf 'tracked file, edited, larger than the cap\n' >"$K/tracked.txt"
+printf '1234567' >"$K/seven.txt"
+printf '1234' >"$K/four.txt"
+out=$(cd "$K" && "$SNAP" 2>"$T/err"); rc=$?
+[[ $rc -ne 0 && -z $out && $(cat "$T/err") == *"hold 11 bytes (0 MB), more than the 10 bytes"* ]] && ok "untracked files past the repository's cap: refused with the size" || bad "past the cap (rc=$rc): $out $(cat "$T/err")"
+eq "past the cap: no worktree made" 1 "$(git -C "$K" worktree list | wc -l | tr -d ' ')"
+printf '123' >"$K/four.txt"
+out=$(cd "$K" && "$SNAP" 2>/dev/null); rc=$?
+eq "untracked files at the cap, a larger tracked edit beside them: snapshot made" "0 no" "$rc $(field committed)"
+
+# Without worktree_removal.py the cap is 200 MB. The file is sparse: its size counts, its blocks do not exist.
+dd if=/dev/zero of="$N/big.bin" bs=1 count=0 seek=210763776 2>/dev/null
+out=$(cd "$N" && "$SNAP" 2>"$T/err"); rc=$?
+[[ $rc -ne 0 && -z $out && $(cat "$T/err") == *"hold 210763776 bytes (201 MB), more than the 209715200 bytes (200 MB)"* ]] && ok "201 MB untracked without worktree_removal.py: refused at 200 MB" || bad "201 MB (rc=$rc): $out $(cat "$T/err")"
+rm "$N/big.bin"
+
 # A worktree_records.py that fails: the snapshot stands, and the script says who removes it.
 B=$T/broken
 git init -q -b main "$B" 2>/dev/null

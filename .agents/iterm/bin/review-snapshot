@@ -36,6 +36,34 @@ trap 'rm -rf "$scratch"' EXIT
 changes=$(git -C "$top" --no-optional-locks status --porcelain --untracked-files=all)
 shown=$tip
 if [[ -n $changes ]]; then
+  # The snapshot copies every untracked file into the repository's objects, so
+  # it takes no more of them than the session-end save does: the repository's
+  # own SAVE_CAP when its worktree_removal.py gives one, else the same 200 MB.
+  sized=$(python3 -B - "$top" <<'PY'
+import importlib.util
+import os
+import subprocess
+import sys
+
+top = sys.argv[1]
+SAVE_CAP = 200 * 1024 * 1024
+removal = os.path.join(top, ".agents/hooks/lib/worktree_removal.py")
+if os.path.isfile(removal):
+    try:
+        spec = importlib.util.spec_from_file_location("worktree_removal", removal)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        SAVE_CAP = int(module.SAVE_CAP)
+    except Exception as error:
+        print(f"review-snapshot: {removal} gives no SAVE_CAP ({error!r}); using 200 MB", file=sys.stderr)
+listed = subprocess.run(["git", "-C", top, "ls-files", "-z", "--others", "--exclude-standard"],
+                        capture_output=True, check=True).stdout
+paths = [os.path.join(os.fsencode(top), name) for name in listed.split(b"\0") if name]
+print(SAVE_CAP, sum(os.lstat(path).st_size for path in paths if os.path.lexists(path)))
+PY
+  ) || die "cannot add up the untracked files of $top"
+  read -r cap size <<<"$sized"
+  ((size <= cap)) || die "the untracked files of $top hold $size bytes ($((size / 1048576)) MB), more than the $cap bytes ($((cap / 1048576)) MB) a snapshot copies; commit, ignore or remove the large ones, then run this again"
   index=$(git -C "$top" rev-parse --path-format=absolute --git-path index)
   # A copy of the index keeps its file times, so only changed files are hashed.
   if [[ -f $index ]]; then
