@@ -216,7 +216,7 @@ if [[ $(uname) == Darwin ]]; then
   mkdir -p "$AH/.ssh"
   echo "$KEY" >"$AH/.ssh/id_ed25519.pub"
   stub claude "echo '$MAC_VERSION (Claude Code)'"
-  stub ssh '[[ $1 == contabo-hop ]] || { echo "ssh stand-in: host $1" >&2; exit 3; }; echo "ssh $1" >>"$CALLS"; exec bash -c "$2"'
+  stub ssh '[[ $1 == contabo-hop ]] || { echo "ssh stand-in: host $1" >&2; exit 3; }; echo "ssh $1" >>"$CALLS"; tee "$STATE/sent.tar" | bash -c "$2"'
   fresh "$R"
   before=$(tree "$R")
   out=$(HOME=$AH SETUP_ROOT=$R "$HERE/apply" --check 2>&1); rc=$?
@@ -225,6 +225,8 @@ if [[ $(uname) == Darwin ]]; then
   has "apply sends the Mac's version" "to at least the Mac's $MAC_VERSION" "$out"
   eq "apply --check changes nothing" "$before" "$(tree "$R")"
   eq "apply logs in once, to contabo-hop" "ssh contabo-hop" "$(cat "$CALLS")"
+  eq "apply sends no macOS file tags, which GNU tar warns about" 0 \
+    "$(LC_ALL=C grep -a -c 'LIBARCHIVE\.xattr' "$STATE/sent.tar")"
   err=$(HOME=$AH "$HERE/apply" --bogus 2>&1); rc=$?
   eq "apply refuses an unknown option" 2 "$rc"
   rm "$T/bin/claude" "$T/bin/ssh"

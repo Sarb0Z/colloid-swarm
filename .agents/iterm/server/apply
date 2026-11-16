@@ -34,7 +34,7 @@ cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/setti
 cp "$key" "$stage/mac.pub"
 printf '%s\n' "$version" >"$stage/claude-version"
 
-# COPYFILE_DISABLE and --no-mac-metadata keep macOS extended attributes out of
-# the archive, which GNU tar on the server would warn about.
-COPYFILE_DISABLE=1 tar --no-mac-metadata -cf - -C "$stage" . |
+# GNU tar on the server warns on each macOS file tag (com.apple.provenance) it
+# finds; --no-xattrs keeps the tags out, and the other two the AppleDouble copies.
+COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - -C "$stage" . |
   ssh contabo-hop 'd=$(mktemp -d) && tar -xf - -C "$d" && bash "$d/setup-server.sh" '"$mode"' "$d/mac.pub"; s=$?; rm -rf "$d"; exit $s'
