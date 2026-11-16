@@ -900,6 +900,19 @@ with tempfile.TemporaryDirectory() as tmp:
                     "supabase feedback add \"x\"", "supabase feedback delete 1"):
         reason = guard.verdict("Bash", {"command": command}, ())
         check(f"asks on a hosted-only Supabase CLI 3 verb: {command}", reason is not None, "quiet")
+    # The CLI reads the plural group `migrations` as `migration`, in 2.x and
+    # 3.x alike, so every rule for the singular holds for the plural. Catches
+    # a rule that knows one spelling only; it misses an alias the guard's
+    # table does not list.
+    for command in ("supabase migrations repair --status reverted 20240101000000",
+                    "supabase migrations up --remote", "supabase migrations down --remote --last 1",
+                    "supabase migrations squash --linked", "supabase migrations up --db-url postgres://x"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"asks on the plural Supabase migrations group: {command}", reason is not None, "quiet")
+    for command in ("supabase migrations up", "supabase migrations repair --local --status reverted 1"):
+        reason = guard.verdict("Bash", {"command": command}, ())
+        check(f"quiet on the plural Supabase migrations group kept local: {command}",
+              reason is None, reason or "")
     # Supabase CLI 2 runs `migration repair` and `db pull` against the linked
     # project unless `--local` is given, and `storage` likewise; a target flag
     # beside `--local` still sends the command to a hosted project, and so does

@@ -116,6 +116,11 @@ REMOTE_FLAG_VERBS = {
                   "db query", "test db", "db test", "db dump", "seed buckets"},
                  {"--remote", "--linked", "--db-url", "--project-ref"}),
 }
+# A second spelling the CLI accepts for a verb group, read as the first before
+# any table is consulted: `supabase migrations up` is `supabase migration up`.
+GROUP_ALIASES = {
+    "supabase": {"migrations": "migration"},
+}
 # Verbs that Supabase CLI 2 runs against the linked project unless `--local` is
 # given; 3.x runs them locally unless a target flag is given. One checkout can
 # meet both versions, so they ask unless `--local` keeps them local (`stays_local`).
@@ -649,6 +654,8 @@ def rule_bash(command, shell, place=None):
     if name in DEPLOY_VERBS or name in REMOTE_FLAG_VERBS:
         # Longest phrase first, so a two-word verb is not shadowed by its noun.
         positional = positionals(rest, VALUE_FLAGS.get(name, ()), FLAG_LITERALS.get(name, frozenset()))
+        aliases = GROUP_ALIASES.get(name, {})
+        positional[:1] = [aliases.get(word, word) for word in positional[:1]]
         phrases = [" ".join(positional[:width]) for width in (2, 1) if positional[:width]]
         for phrase in phrases:
             if phrase in DEPLOY_VERBS.get(name, set()):
