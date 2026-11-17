@@ -273,6 +273,11 @@ jobs:
       - name: iTerm2 panes
         run: .agents/iterm/tests/run.sh
 
+      # Every server command is a stand-in; without tmux on the runner the
+      # test skips loading tmux.conf into a real tmux and says so.
+      - name: contabo-hop setup
+        run: .agents/iterm/server/test.sh
+
       - name: Working tree is clean
         run: .agents/check-clean-tree.sh
 

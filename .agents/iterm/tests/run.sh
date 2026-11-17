@@ -187,8 +187,13 @@ err=$(HOME=$H "$IT/install.sh" 2>&1 >/dev/null); rc=$?
 eq "install left the foreign file intact" mine "$(cat "$H/.local/bin/pane-diff")"
 
 # --- (d) the prompt pane: each script's own test file ------------------------
-for suite in "$IT"/tests/test-*.sh; do
-  "$suite" || bad "$(basename "$suite")"
+# Named, not globbed: lint-suite.py reaches a test only by its file name, and
+# the count check fails a test file added here without a line below.
+suites=(test-pane-run.sh test-prompt-catalog.sh test-review-snapshot.sh)
+on_disk=$(cd "$IT/tests" && ls test-*.sh | LC_ALL=C sort | tr '\n' ' ')
+eq "every test file here is run" "$(printf '%s\n' "${suites[@]}" | LC_ALL=C sort | tr '\n' ' ')" "$on_disk"
+for suite in "${suites[@]}"; do
+  "$IT/tests/$suite" || bad "$suite"
 done
 
 ((fails == 0)) && echo "iterm tests passed" || { echo "$fails failed" >&2; exit 1; }
