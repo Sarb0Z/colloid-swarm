@@ -77,12 +77,12 @@ stub ufw 'case $1 in
   allow) echo "ufw $*" >>"$CALLS"; echo "2022/tcp                   ALLOW       Anywhere" >>"$STATE/ufw-rules" ;;
   *) echo "ufw stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
-# apply reads the Mac checkout's own origin; that one call reaches the real git.
-export REAL_GIT
-REAL_GIT=$(command -v git)
-stub git 'all=("$@"); dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
+# apply reads the Mac checkout's origin. The stand-in answers with a fixed one in
+# the checkout's https form, since suite.sh runs the checks in a copy with no remote.
+stub git 'dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
 case $1 in
-  remote) exec "$REAL_GIT" "${all[@]}" ;;
+  remote) [[ $* == "remote get-url origin" ]] || { echo "git stand-in: unexpected $*" >&2; exit 3; }
+    echo "https://github.com/Sarb0Z/colloid-swarm.git" ;;
   clone) echo "git clone ${*: -1} USER=$USER LOGNAME=$LOGNAME PWD=$PWD XDG=${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"; mkdir -p "${*: -1}/.git"; echo none >"${*: -1}/.git/sha" ;;
   rev-parse) cat "$dir/.git/sha" ;;
   checkout) echo "git -C $dir checkout ${*: -1}" >>"$CALLS"; echo "${*: -1}" >"$dir/.git/sha" ;;
@@ -400,7 +400,7 @@ if [[ $(uname) == Darwin ]]; then
 esac'
   stub ssh-agent 'if [[ $1 == -k ]]; then echo "ssh-agent -k" >>"$CALLS"; else echo "SSH_AUTH_SOCK=/agent.sock; export SSH_AUTH_SOCK; SSH_AGENT_PID=1; export SSH_AGENT_PID;"; fi'
   stub ssh-add 'echo "ssh-add $*" >>"$CALLS"'
-  slug=$(git -C "$HERE" remote get-url origin | sed -e 's#^git@github.com:##' -e 's#^https://.*github.com/##' -e 's#\.git$##')
+  slug=Sarb0Z/colloid-swarm
   fresh "$R"
   before=$(tree "$R")
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" --check 2>&1); rc=$?
