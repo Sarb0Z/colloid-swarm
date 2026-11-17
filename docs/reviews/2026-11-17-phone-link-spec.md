@@ -70,3 +70,35 @@ new design rests on (probes 7 and 8 in
 | A1 | — | Which "gate text" | Decided by the lead: the alert carries the whole line; the typed label is the part before ` — ` |
 | A2 | — | R12 for sessions that have ended | Ruled R35: an information alert |
 | A3 | — | Which "turn" R34 means | Decided by the lead: from one prompt (`prompt_id`) to the `Stop` that no hook continues |
+
+## Round 3 (`a12d460`, spec sha256 `1a4dffdb…`, reviewer on `fable`)
+
+`CONFORMANCE: no`. 6 `P1`, 13 `P2`, 2 ambiguities. Class verdict: the
+recorded-fact class is gone from permission prompts, questions and requests,
+and came back for the third time in typed gate answers (findings 5, 7, 8). The
+playbook's stop-patching rule applied; the lead brought the choice to the
+operator, who ruled to keep typed answers and fix the findings (R36).
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | P1 | A Note to Self message from a linked device may not notify a locked iPhone | Adopted: probe Q11 before the 3a build, the send mode it proves, acceptance 1 needs a lock-screen notification; if neither mode notifies, the operator rules the route again |
+| 2 | P1 | Lead decision A3 made every machine turn re-alert and void the id being answered (counts in L23) | Ruled R37: the event stays open through machine turns; acceptance 21 |
+| 3 | P1 | A subagent's call is in its own transcript, so its hook could not settle and held a cap slot | Adopted: the agent's file under `subagents/`, a bounded search, an unbound branch with a 10-minute limit; Q7 before 3a; acceptance 7 |
+| 4 | P1 | A failed Signal send left a session waiting an hour for an alert nobody received | Adopted: the hook exits at once on a failed send; `errors.log` and the sidebar; gate alerts retried; acceptance 11 |
+| 5 | P1 | Typing acted on the gate text read at `Stop` (recorded-fact class) | Adopted under R36: the event is bound to its row; a second `Stop` of the same turn replaces it; the last assistant row is re-read before typing |
+| 6 | P1 | A live session that is not a terminal got the R35 `ended` alert | Adopted: `ended` separated from "not a terminal"; an `ended` state; acceptance 27, 29 |
+| 7 | P2 | After a failed read-back the link sent clearing keys | Adopted: it sends nothing more; acceptance 30 |
+| 8 | P2 | A restart closed gates that still waited | Adopted: open gates rebuilt from each live session's last row; acceptance 31 |
+| 9 | P2 | The leading-character rule guarded nothing, `@` mid-text, conflicting limits, no wait limit for `done` | Adopted: `@` refused anywhere, 300 and 500 limits, 30 s for `done` |
+| 10 | P2 | Transition holes: a `no` after a Mac allow, plan approvals, a question settled at the Mac with no watcher | Adopted: Q12 classifies how a call ended; a `plan` kind; question rows close on the next hook line |
+| 11 | P2 | Alerts past the rate limit, and unmasked gate text | Adopted: a queue, nothing dropped; every outgoing text masked and cut; acceptance 18 |
+| 12 | P2 | Refused messages left no replay record | Adopted: `messages.jsonl` holds every phone message's timestamp and result |
+| 13 | P2 | Installers outside the critical paths | Adopted: both added; `normalize-hook.py` is not used, since the hooks are not repository hooks (R39) |
+| 14 | P2 | "Exits when stdin closes" would end the hook at once under the adapter | Adopted: the hook watches the registered `claude` pid and start time |
+| 15 | P2 | `it2` from a launchd agent may need a consent step; the tty source was unnamed | Adopted: Q3 runs from the agent; the tty from `it2 session get-var` |
+| 16 | P2 | The combined exposure was not laid out | Ruled R38: accepted; one paragraph in the high-stakes block; L17's evidence corrected |
+| 17 | P2 | The handle followed a mutable name | Adopted: fixed for the session's life |
+| 18 | P2 | Cost of the gate-answer scan and the 21st session | Adopted: the scan reads only rows after the gate's row; a 50-session cap |
+| 19 | P2 | Server changes left to a runbook; no server containment or undo | Adopted: `setup-server.sh` and `apply` own the packages and forwarding; server containment and undo |
+| A1 | — | Which sessions the link covers | Ruled R39: sessions whose folder carries the harness, colloid-swarm included, through hooks installed once for each machine |
+| A2 | — | When a permission prompt alerts | Ruled R40: at once |
