@@ -5,6 +5,10 @@ Critical stakes. One reviewer per round, a fresh cell that read the plan whole
 against the repository, the machine files it cites and the external sources it
 could reach. No code exists yet, so this record carries no `Covers:` line.
 
+Tip: `fd2aac2`, with every finding of rounds 1–3 dispositioned. No round found
+a `P0`, and round 3 covered every subsystem its fixes touch, so the fixes do
+not reopen review (`hostile-review.md`).
+
 ## Round 1 (`99fd4e6`, spec sha256 `e4378a15…`, reviewer on `fable`)
 
 `CONFORMANCE: no`. 9 `P1`, 14 `P2`, 2 ambiguities.
