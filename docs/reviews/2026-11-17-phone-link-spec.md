@@ -36,3 +36,37 @@ could reach. No code exists yet, so this record carries no `Covers:` line.
 | 23 | P2 | The R30 shape was asserted, not shown | Adopted: one worked example for each feature |
 | A1 | — | A gate restated in a later turn | Ruled R34 |
 | A2 | — | Whether background cells' prompts count | Ruled R32 |
+
+## Round 2 (`256fefe`, spec sha256 `d4e3f8b3…`, reviewer on `fable`)
+
+`CONFORMANCE: no`. 4 `P1`, 15 `P2`, 3 ambiguities. The reviewer named one
+class behind round 1's findings 2, 6, 7 and 10 and this round's 2, 3 and 4: the
+link acted on a fact recorded earlier instead of the live state. The spec now
+states a design principle against it, and the lead probed the two claims the
+new design rests on (probes 7 and 8 in
+`.agents/knowledge/research/2026-11-17-permission-request-hook-timing.md`).
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | P1 | The log kept raw, unmasked tool input, and no file modes were stated | Adopted: no raw input kept; `0700` folder and `0600` files; acceptance 11 |
+| 2 | P1 | The Mac's terminal test read a record written at session start, so Ctrl+Z or a reused pid passed it | Adopted: a live test at each use (process, start time, not stopped, foreground group, tty); acceptance 24 |
+| 3 | P1 | One registry status field for each session settled several prompts | Adopted: each hook finds its own call in the transcript and watches that call's result (probes 7, 8); acceptance 6 |
+| 4 | P1 | A question event could stay `open` for ever and block gate answers | Adopted: closed on the next `Stop`, `UserPromptSubmit` or `SessionStart`, on a drop and on a restart; a reply for each closed state |
+| 5 | P2 | `UserPromptSubmit` settled gates that nobody answered | Adopted: the row is gone; `UserPromptSubmit` with the typed answer marks the gate answered |
+| 6 | P2 | The gate text in the typed line was not checked | Adopted: a cleaned label of at most 120 characters, and the whole line checked again |
+| 7 | P2 | `done` was sent before the effect was seen | Adopted: type, read back, then Return; `done` when `UserPromptSubmit` shows the prompt |
+| 8 | P2 | A stop of the hook might not reach a grandchild process | Probed (probe 7): Esc stopped a Python grandchild behind `bash -c '… \| cat'`; the client also exits when its parent ends |
+| 9 | P2 | "Still idle" after 5 s was not "the same turn" | Adopted: compare the transcript's last assistant message |
+| 10 | P2 | No matcher; `ExitPlanMode` and `AskUserQuestion` need `updatedInput`; sandbox network prompts fire no hook | Adopted: both tools excluded; plan approvals alert only; the network gap is out of scope; Q1 covers both tools |
+| 11 | P2 | `delivered` was not observable, and the envelope check stayed in `pane-run` | Adopted: reply `sent` with the hold notes; the check moves into `inbox.py`; L9 corrected |
+| 12 | P2 | The phone-only device check waited until unit 3d | Adopted: `sourceDevice` checked from 3a (Q2); the two-daemon check stays in 3d (Q10) |
+| 13 | P2 | Declining the R28 proposal would void R32 and R33 | Asked; the operator ruled the hook decision |
+| 14 | P2 | No alert or waiting-hook cap, and loop values missing | Adopted: 6 alerts a minute, 20 waiting hooks, and a cost table |
+| 15 | P2 | Handles could collide, and differed from the terminal's name | Adopted: the registry `name`, read at each use, checked against every live handle |
+| 16 | P2 | Hook paths, the flag source and review coverage | Adopted: `hooks/policy/`, the flag from `config.json` only, new critical paths |
+| 17 | P2 | A closed socket was read as an answer at the Mac; deadline races; no time zone | Adopted: `closed` state, a deadline 60 s before the timeout, minutes left and a configured zone |
+| 18 | P2 | Acceptance gaps | Adopted: lines 6, 8, 9, 11, 15, 16, 19, 24, 25, 27, 28 |
+| 19 | P2 | One module with seven jobs | Adopted: seven modules named |
+| A1 | — | Which "gate text" | Decided by the lead: the alert carries the whole line; the typed label is the part before ` — ` |
+| A2 | — | R12 for sessions that have ended | Ruled R35: an information alert |
+| A3 | — | Which "turn" R34 means | Decided by the lead: from one prompt (`prompt_id`) to the `Stop` that no hook continues |
