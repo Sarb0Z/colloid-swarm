@@ -111,6 +111,10 @@ case $- in
       *) return;;
 esac
 export KEEP_ME=1'
+# Ubuntu's ~/.profile, reduced to the line that reads ~/.bashrc.
+PROFILE='if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi'
+LOADER='# bash reads this file instead of ~/.profile at login, so it loads ~/.profile
+[ -f ~/.profile ] && . ~/.profile'
 fresh() { # folder
   local r=$1 h=$1/home/openclawops
   rm -rf "$r" "$STATE"
@@ -121,9 +125,12 @@ fresh() { # folder
   echo "### tuple ### limit tcp 22 ::/0 any ::/0 in" >"$r/etc/ufw/user6.rules"
   echo "22/tcp                     LIMIT       Anywhere" >"$STATE/ufw-rules"
   printf '%s\n' "$BASHRC" >"$h/.bashrc"
+  printf '%s\n' "$PROFILE" >"$h/.profile"
   echo '{"note": "uzair login, must stay"}' >"$h/.claude/settings.json"
-  # The real update left an empty ~/.bash_profile on contabo-hop (2026-11-16), so the stand-in does too.
-  printf '#!/usr/bin/env bash\ncase $1 in\n  --version) echo "$(cat "$STATE/claude-version" 2>/dev/null || echo 2.1.207) (Claude Code)" ;;\n  update) echo "claude update HOME=$HOME USER=$USER CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR" >>"$CALLS"; echo %s >"$STATE/claude-version"; : >"$HOME/.bash_profile" ;;\nesac\n' \
+  # Claude Code made an empty ~/.bash_profile where none existed on contabo-hop, at
+  # the update (2026-11-16) and again at a first sign-in after it was removed
+  # (2026-11-17), so the stand-in does too.
+  printf '#!/usr/bin/env bash\ncase $1 in\n  --version) echo "$(cat "$STATE/claude-version" 2>/dev/null || echo 2.1.207) (Claude Code)" ;;\n  update) echo "claude update HOME=$HOME USER=$USER CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR" >>"$CALLS"; echo %s >"$STATE/claude-version"; [ -e "$HOME/.bash_profile" ] || : >"$HOME/.bash_profile" ;;\nesac\n' \
     "$MAC_VERSION" >"$h/.local/bin/claude"
   chmod +x "$h/.local/bin/claude"
   : >"$CALLS"
@@ -156,7 +163,7 @@ for line in "add the Mac's key" "add ppa:jgmath2000/et" "install et" "set teleme
   "add GitHub's published host key" "make openclawops's ~/Projects"; do
   has "check lists: $line" "would: $line" "$out"
 done
-has "check counts every change" "check: 24 change(s) to make; nothing was changed" "$out"
+has "check counts every change" "check: 25 change(s) to make; nothing was changed" "$out"
 eq "check leaves the server unchanged" "$before" "$(tree "$R")"
 eq "check calls nothing that changes state" "" "$(cat "$CALLS")"
 eq "check leaves no tmux socket or scratch folder" "" "$(find "$T/tmpd" -mindepth 1)"
@@ -202,9 +209,12 @@ cmp -s "$bk/home/openclawops/.bashrc" <(printf '%s\n' "$BASHRC") && ok "bashrc b
 [[ -f $bk/apt-get-install.log && -f $bk/add-apt-repository.log ]] && ok "apt's output is kept in the backup folder" ||
   bad "apt logs missing"
 has "run names the backup folder" "backups: /root/backups/unit5-" "$out"
-[[ ! -e $H/.bash_profile ]] && ok "run removes the empty ~/.bash_profile the update left" || bad "empty .bash_profile left"
+eq "run makes the empty ~/.bash_profile the update left load ~/.profile" \
+  "$(printf '%s\n' "$LOADER")" "$(cat "$H/.bash_profile")"
 [[ -f $bk/home/openclawops/.bash_profile ]] && ok "the empty ~/.bash_profile is backed up" || bad ".bash_profile backup missing"
-has "run reports the removal" "do:    remove openclawops's empty ~/.bash_profile" "$out"
+has "run reports it" "do:    make openclawops's ~/.bash_profile load ~/.profile" "$out"
+eq "a login shell then has the launchers" "claudef" \
+  "$(env -i HOME="$H" PATH=/usr/bin:/bin bash --login -i -c 'type -t claudef >/dev/null && echo claudef' 2>/dev/null </dev/null)"
 has "run installs the tools with needrestart suspended" \
   "apt-get install -y ripgrep fd-find neovim policy-rc.d=none NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive" "$calls"
 [[ -f $bk/apt-get-install-tools.log ]] && ok "the tools' apt output is kept in the backup folder" || bad "tools apt log missing"
@@ -301,21 +311,27 @@ err=$(run "$B/mac.pub" 2>&1); rc=$?
 [[ $rc -eq 1 && $err == *"policy-rc.d already exists"* ]] && ok "refuses to replace a policy-rc.d" || bad "policy-rc.d (rc=$rc): $err"
 eq "the existing policy-rc.d stays" "exit 0" "$(tail -n 1 "$R/usr/sbin/policy-rc.d")"
 
-# --- a login file that bash reads before ~/.profile ---------------------------------
+# --- ~/.bash_profile, which bash reads before ~/.profile ------------------------------
 # bash runs only the first of ~/.bash_profile, ~/.bash_login, ~/.profile, so the
-# launchers in ~/.bashrc load only if that first file reaches ~/.profile or ~/.bashrc.
+# launchers in ~/.bashrc load only if ~/.bash_profile reaches ~/.profile or ~/.bashrc.
 fresh "$R"
-echo 'export OWN=1' >"$H/.bash_login"
+echo 'export OWN=1' >"$H/.bash_profile"
 out=$(run "$B/mac.pub" 2>&1); rc=$?
-eq "a .bash_login that skips .profile fails the run" 1 "$rc"
-has "the failure names the file" "PROBLEM: $H/.bash_login" "$out"
-eq "that .bash_login is left as it was" "export OWN=1" "$(cat "$H/.bash_login")"
+eq "a .bash_profile that skips .profile fails the run" 1 "$rc"
+has "the failure names the file" "PROBLEM: $H/.bash_profile" "$out"
+eq "that .bash_profile is left as it was" "export OWN=1" "$(cat "$H/.bash_profile")"
 fresh "$R"
-echo '[ -f ~/.profile ] && . ~/.profile' >"$H/.bash_login"
+echo '[ -f ~/.profile ] && . ~/.profile' >"$H/.bash_profile"
 out=$(run "$B/mac.pub" 2>&1); rc=$?
-eq "a .bash_login that reads .profile passes" 0 "$rc"
-eq "that .bash_login is left as it was" '[ -f ~/.profile ] && . ~/.profile' "$(cat "$H/.bash_login")"
-lacks "and nothing is said about it" ".bash_login" "$out"
+eq "a .bash_profile that reads .profile passes" 0 "$rc"
+eq "that .bash_profile is left as it was" '[ -f ~/.profile ] && . ~/.profile' "$(cat "$H/.bash_profile")"
+lacks "and nothing is said about it" ".bash_profile" "$out"
+# The same two lines written by hand pass as they stand.
+fresh "$R"
+printf '%s\n' "$LOADER" >"$H/.bash_profile"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "the shipped loader passes unchanged" "$(printf '%s\n' "$LOADER")" "$(cat "$H/.bash_profile")"
+lacks "and is not rewritten" "~/.bash_profile load" "$out"
 
 # --- refusals ---------------------------------------------------------------------
 fresh "$R"
@@ -389,7 +405,7 @@ esac'
   before=$(tree "$R")
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" --check 2>&1); rc=$?
   eq "apply --check exits 0" 0 "$rc"
-  has "apply --check runs the check on the server" "check: 24 change(s) to make; nothing was changed" "$out"
+  has "apply --check runs the check on the server" "check: 25 change(s) to make; nothing was changed" "$out"
   has "apply sends the Mac's version" "to at least the Mac's $MAC_VERSION" "$out"
   has "apply --check names the clone" "would: clone git@github.com:$slug.git into openclawops' ~/Projects/colloid-swarm" "$out"
   eq "apply --check changes nothing" "$before" "$(tree "$R")"

@@ -352,24 +352,21 @@ fi
 
 # A login shell (each tmux window, each et or ssh login) runs only the first of
 # ~/.bash_profile, ~/.bash_login and ~/.profile that exists, and only Ubuntu's
-# ~/.profile reads ~/.bashrc and puts ~/.local/bin on PATH. The update above left
-# an empty ~/.bash_profile on contabo-hop, which hid both. An empty one goes; one
-# with lines of its own is the user's, so it is named and left alone.
-for name in .bash_profile .bash_login; do
-  login=$home/$name
-  [[ -f $login ]] || continue
-  if ! grep -q '[^[:space:]]' "$login"; then
-    if change "remove $user's empty ~/$name, so a login shell reads ~/.profile and the launchers"; then
-      keep "$login"
-      rm "$login"
-    fi
-    continue
+# ~/.profile reads ~/.bashrc and puts ~/.local/bin on PATH. Claude Code makes an
+# empty ~/.bash_profile wherever none exists, which hides both, so a missing or
+# empty one becomes a loader of ~/.profile. One with lines of its own is the
+# user's: it is named when it reads neither file, and left alone.
+login=$home/.bash_profile
+if [[ ! -f $login ]] || ! grep -q '[^[:space:]]' "$login"; then
+  if change "make $user's ~/.bash_profile load ~/.profile, so a login shell has the launchers"; then
+    keep "$login"
+    printf '%s\n' '# bash reads this file instead of ~/.profile at login, so it loads ~/.profile' \
+      '[ -f ~/.profile ] && . ~/.profile' >"$login"
+    own "$login"
   fi
-  if ! grep -qE '(\.|source)[[:space:]]+[^#]*\.(profile|bashrc)' "$login"; then
-    problem "$login runs before ~/.profile and reads neither ~/.profile nor ~/.bashrc, so a login shell gets no launchers; make it read ~/.profile, then run again"
-  fi
-  break
-done
+elif ! grep -qE '(\.|source)[[:space:]]+[^#]*\.(profile|bashrc)' "$login"; then
+  problem "$login runs before ~/.profile and reads neither ~/.profile nor ~/.bashrc, so a login shell gets no launchers; make it read ~/.profile, then run again"
+fi
 
 # ── 6. Development: tools, git identity, GitHub's host key, ~/Projects ─────────
 # Clones and pushes use the Mac's key, forwarded by et while the Mac is attached
