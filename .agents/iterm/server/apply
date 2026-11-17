@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run setup-server.sh on contabo-hop as root, from the Mac (TERMINAL-SPEC.md Unit 5).
 # It sends this folder, the Mac's public key and the Mac's Claude Code version over
-# one ssh connection, runs the script in a scratch folder there, and removes it.
+# one ssh connection, runs the script in a scratch folder there, and removes it;
+# then, logged in as openclawops (contabo-dev), it clones colloid-swarm if absent.
 #
 # Usage: apply [--check]
 #   --check  print each change a run would make; change nothing
@@ -30,7 +31,7 @@ version=$(command claude --version | awk '{ print $1 }')
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/settings.json" "$stage/"
+cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/settings.json" "$here/github-known-hosts" "$stage/"
 cp "$key" "$stage/mac.pub"
 printf '%s\n' "$version" >"$stage/claude-version"
 
@@ -38,3 +39,34 @@ printf '%s\n' "$version" >"$stage/claude-version"
 # finds; --no-xattrs keeps the tags out, and the other two the AppleDouble copies.
 COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - -C "$stage" . |
   ssh contabo-hop 'd=$(mktemp -d) && tar -xf - -C "$d" && bash "$d/setup-server.sh" '"$mode"' "$d/mac.pub"; s=$?; rm -rf "$d"; exit $s'
+
+# colloid-swarm in openclawops' ~/Projects, cloned over ssh with the Mac's key,
+# which a throwaway agent forwards for this one login; nothing stays on the server.
+origin=$(git -C "$here" remote get-url origin)
+slug=${origin#git@github.com:}
+slug=${slug#https://*github.com/}
+slug=${slug%.git}
+[[ $slug =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "apply: the checkout's origin ($origin) names no GitHub repository" >&2
+  exit 1
+}
+clone=Projects/colloid-swarm
+present=0
+ssh contabo-dev "test -d ~/$clone/.git" || present=$?
+if ((present == 0)); then
+  echo "colloid-swarm is already in ~/$clone"
+elif ((present != 1)); then
+  echo "apply: could not log in to contabo-dev to look for ~/$clone (ssh exit $present)" >&2
+  exit 1
+elif [[ $mode == --check ]]; then
+  echo "would: clone git@github.com:$slug.git into openclawops' ~/$clone with the Mac's forwarded key"
+else
+  echo "do:    clone git@github.com:$slug.git into openclawops' ~/$clone with the Mac's forwarded key"
+  eval "$(ssh-agent -s)" >/dev/null
+  trap 'ssh-agent -k >/dev/null; rm -rf "$stage"' EXIT
+  ssh-add -q "${key%.pub}"
+  ssh -A contabo-dev "git clone -q git@github.com:$slug.git ~/$clone" || {
+    echo "apply: GitHub refused the clone; add the Mac's key to the account that owns $slug: gh ssh-key add $key" >&2
+    exit 1
+  }
+fi

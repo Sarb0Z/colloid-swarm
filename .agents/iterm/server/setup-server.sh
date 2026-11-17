@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Make contabo-hop the development server: TERMINAL-SPEC.md Unit 5, runbook steps
-# 1-5. It runs as root on the server; `apply` on the Mac sends it this folder, the
+# 1-5, and the development tools beside them. It runs as root on the server; `apply` on the Mac sends it this folder, the
 # Mac's public key and the Mac's Claude Code version over ssh, and runs it.
 #
 # Each step reads the current state and changes only what differs, so a second
@@ -15,7 +15,7 @@
 #   so a dropped connection cannot kill dpkg in the middle of configuring.
 #
 # Usage: setup-server.sh [--check] <public key file>
-# Beside it: tmux.conf, launchers.bash, settings.json, claude-version.
+# Beside it: tmux.conf, launchers.bash, settings.json, github-known-hosts, claude-version.
 # SETUP_ROOT puts a folder in front of every absolute path; only the tests set it.
 set -euo pipefail
 
@@ -39,6 +39,9 @@ plugins=(
   tmux-resurrect:e87d7d592cac97fa38c12395ebec042c154a1844   # v4.0.0
   tmux-continuum:46e0e0023476018ddb4cc0d44783eede27e5a8ec   # v3.1.0
 )
+tools=(ripgrep fd-find neovim)
+git_name=Sarb0z
+git_email=93070907+Sarb0Z@users.noreply.github.com
 changes=0
 problems=0
 cfg_changed=0
@@ -112,12 +115,28 @@ candidate() {
 }
 older() { [[ $1 != "$2" && $(printf '%s\n' "$1" "$2" | sort -V | head -n 1) == "$1" ]]; }
 
+# refuse_upgrades <package...>: show what apt would install, and stop (a problem
+# under --check) when it would upgrade or remove an installed package.
+refuse_upgrades() {
+  local simulated touched
+  simulated=$(apt-get -s install "$@" 2>&1) || die "apt cannot install $*: $simulated"
+  grep -E '^Inst ' <<<"$simulated" | sed 's/^/         /' || true
+  # "Inst name [installed version] (new version)" is an upgrade.
+  touched=$(grep -E '^(Inst [^ ]+ \[|Remv )' <<<"$simulated" || true)
+  [[ -n $touched ]] || return 0
+  if ((check)); then
+    problem "installing $* would upgrade or remove installed packages: $touched"
+  else
+    die "installing $* would upgrade or remove installed packages, so nothing is installed: $touched"
+  fi
+}
+
 [[ $(id -u) == 0 ]] || die "run as root: apply logs in to contabo-hop as root"
 grep -qx 'VERSION_CODENAME=noble' "$R/etc/os-release" ||
   die "expected Ubuntu 24.04 (noble), the release this script picks ppa:jgmath2000/et for"
 [[ -d $home ]] || die "no home folder $home for $user"
 command -v jq >/dev/null || die "jq is needed to merge settings.json"
-for f in tmux.conf launchers.bash settings.json claude-version; do
+for f in tmux.conf launchers.bash settings.json claude-version github-known-hosts; do
   [[ -f $here/$f ]] || die "missing $here/$f"
 done
 pub=$(<"$keyfile")
@@ -168,17 +187,7 @@ if ! installed et; then
     fi
   fi
   if have_ppa && candidate; then
-    simulated=$(apt-get -s install et)
-    grep -E '^Inst ' <<<"$simulated" | sed 's/^/         /' || true
-    # "Inst name [installed version] (new version)" is an upgrade.
-    touched=$(grep -E '^(Inst [^ ]+ \[|Remv )' <<<"$simulated" || true)
-    if [[ -n $touched ]]; then
-      if ((check)); then
-        problem "installing et would upgrade or remove installed packages: $touched"
-      else
-        die "installing et would upgrade or remove installed packages, so nothing is installed: $touched"
-      fi
-    fi
+    refuse_upgrades et
   elif ((check)); then
     echo "         (apt-get -s can list et's packages once the PPA is added)"
   fi
@@ -361,6 +370,61 @@ for name in .bash_profile .bash_login; do
   fi
   break
 done
+
+# ── 6. Development: tools, git identity, GitHub's host key, ~/Projects ─────────
+# Clones and pushes use the Mac's key, forwarded by et while the Mac is attached
+# (the Dev server profile's --forward-ssh-agent), so no GitHub login is stored here.
+missing=()
+for package in "${tools[@]}"; do
+  installed "$package" || missing+=("$package")
+done
+if ((${#missing[@]})); then
+  refuse_upgrades "${missing[@]}"
+  if change "install ${missing[*]}; needrestart restarts nothing"; then
+    logged apt-get-install-tools apt-get install -y "${missing[@]}"
+  fi
+fi
+
+# Ubuntu names fd's command fdfind, as another package owns /usr/bin/fd.
+fd=$home/.local/bin/fd
+if [[ $(readlink "$fd" 2>/dev/null) != /usr/bin/fdfind ]]; then
+  if [[ -e $fd || -L $fd ]]; then
+    problem "$fd exists and is not a link to /usr/bin/fdfind; left alone"
+  elif change "link fd to fdfind in $user's ~/.local/bin"; then
+    as_user mkdir -p "$home/.local/bin"
+    as_user ln -s /usr/bin/fdfind "$fd"
+  fi
+fi
+
+if [[ $(as_user git config --global --get user.name || true) != "$git_name" ||
+  $(as_user git config --global --get user.email || true) != "$git_email" ]]; then
+  if change "set $user's git identity to $git_name <$git_email>"; then
+    keep "$home/.gitconfig"
+    as_user git config --global user.name "$git_name"
+    as_user git config --global user.email "$git_email"
+  fi
+fi
+
+# GitHub's key from api.github.com/meta, so the first clone asks nothing.
+kh=$home/.ssh/known_hosts
+github_key=$(<"$here/github-known-hosts")
+if ! [[ -f $kh ]] || ! ssh-keygen -F github.com -f "$kh" 2>/dev/null | grep -qF -- "${github_key#github.com }"; then
+  if change "add GitHub's published host key to $user's ~/.ssh/known_hosts"; then
+    keep "$kh"
+    if [[ -s $kh && -n $(tail -c 1 "$kh") ]]; then
+      echo >>"$kh"
+    fi
+    printf '%s\n' "$github_key" >>"$kh"
+    chmod 600 "$kh"
+    own "$kh"
+  fi
+fi
+
+if [[ ! -d $home/Projects ]]; then
+  if change "make $user's ~/Projects"; then
+    as_user mkdir "$home/Projects"
+  fi
+fi
 
 # ── Result ───────────────────────────────────────────────────────────────────
 if ((check)); then

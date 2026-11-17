@@ -26,4 +26,10 @@ claude() {
     "The login already in ~/.claude, once: command claude" >&2
   return 1
 }
+
+# The Mac's key, forwarded by et: tmux windows read ~/.ssh/agent.sock (tmux.conf),
+# so a login holding a live agent socket of its own points that path at it.
+if [[ -S ${SSH_AUTH_SOCK:-} && $SSH_AUTH_SOCK != "$HOME/.ssh/agent.sock" ]]; then
+  ln -sfn "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"
+fi
 # <<< claude account launchers (colloid-swarm .agents/iterm/server) <<<

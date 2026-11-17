@@ -45,21 +45,26 @@ touch "$STATE/lists"'
 stub apt-cache '[[ $1 == policy && -e $STATE/lists ]] && printf "et:\n  Installed: (none)\n  Candidate: 7.1.1-noble1\n"; true'
 stub apt-get 'case $1 in
   -s)
-    echo "Inst libprotobuf32t64 (3.21.12-8.2build1 Ubuntu:24.04/noble [amd64])"
     [[ -e $STATE/sim-upgrade ]] && echo "Inst libc6 [2.39-0ubuntu8.6] (2.39-0ubuntu8.7 Ubuntu:24.04/noble-updates [amd64])"
-    echo "Inst et (7.1.1-noble1 jgmath2000/et [amd64])"; echo "Conf et" ;;
+    for p in "${@:3}"; do
+      [[ $p == et ]] && echo "Inst libprotobuf32t64 (3.21.12-8.2build1 Ubuntu:24.04/noble [amd64])"
+      echo "Inst $p (1.0-1 Ubuntu:24.04/noble [amd64])"; echo "Conf $p"
+    done ;;
   update) echo "apt-get update" >>"$CALLS"; touch "$STATE/lists" ;;
   install)
     gate=$SETUP_ROOT/usr/sbin/policy-rc.d; answer=none
     [[ -x $gate ]] && { "$gate"; answer=$?; }
     echo "apt-get $* policy-rc.d=$answer NEEDRESTART_SUSPEND=${NEEDRESTART_SUSPEND:-} DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-}" >>"$CALLS"
-    touch "$STATE/et-installed" "$STATE/et-enabled"
-    [[ $answer == 101 ]] || touch "$STATE/et-active"
-    printf "[Networking]\nport = 2022\n\n[Debug]\nverbose = 0\ntelemetry = true\nlogdirectory = /tmp\n" >"$SETUP_ROOT/etc/et.cfg"
-    echo "Setting up et (7.1.1-noble1) ..." ;;
+    for p in "${@:3}"; do touch "$STATE/installed-$p"; done
+    if [[ $3 == et ]]; then
+      touch "$STATE/et-enabled"
+      [[ $answer == 101 ]] || touch "$STATE/et-active"
+      printf "[Networking]\nport = 2022\n\n[Debug]\nverbose = 0\ntelemetry = true\nlogdirectory = /tmp\n" >"$SETUP_ROOT/etc/et.cfg"
+      echo "Setting up et (7.1.1-noble1) ..."
+    fi ;;
   *) echo "apt-get stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
-stub dpkg-query '[[ -e $STATE/et-installed ]] && { printf "ii "; exit 0; }; echo "dpkg-query: no packages found matching et" >&2; exit 1'
+stub dpkg-query '[[ -e $STATE/installed-${*: -1} ]] && { printf "ii "; exit 0; }; echo "dpkg-query: no packages found matching ${*: -1}" >&2; exit 1'
 stub systemctl 'case $1 in
   is-enabled) [[ -e $STATE/et-enabled ]] ;;
   is-active) [[ -e $STATE/et-active ]] ;;
@@ -72,11 +77,24 @@ stub ufw 'case $1 in
   allow) echo "ufw $*" >>"$CALLS"; echo "2022/tcp                   ALLOW       Anywhere" >>"$STATE/ufw-rules" ;;
   *) echo "ufw stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
-stub git 'dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
+# apply reads the Mac checkout's own origin; that one call reaches the real git.
+export REAL_GIT
+REAL_GIT=$(command -v git)
+stub git 'all=("$@"); dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
 case $1 in
+  remote) exec "$REAL_GIT" "${all[@]}" ;;
   clone) echo "git clone ${*: -1} USER=$USER LOGNAME=$LOGNAME PWD=$PWD XDG=${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"; mkdir -p "${*: -1}/.git"; echo none >"${*: -1}/.git/sha" ;;
   rev-parse) cat "$dir/.git/sha" ;;
   checkout) echo "git -C $dir checkout ${*: -1}" >>"$CALLS"; echo "${*: -1}" >"$dir/.git/sha" ;;
+  config)
+    [[ $2 == --global ]] || { echo "git stand-in: unexpected $*" >&2; exit 3; }
+    if [[ $3 == --get ]]; then
+      sed -n "s/^$4=//p" "$HOME/.gitconfig" 2>/dev/null | grep . || exit 1
+    else
+      echo "git config --global $3 $4 HOME=$HOME USER=$USER" >>"$CALLS"
+      { grep -v "^$3=" "$HOME/.gitconfig" 2>/dev/null; echo "$3=$4"; } >"$HOME/.gitconfig.new"
+      mv "$HOME/.gitconfig.new" "$HOME/.gitconfig"
+    fi ;;
   *) echo "git stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
 stub ss '[[ -e $STATE/et-active ]] && echo "LISTEN 0 4096 0.0.0.0:2022 0.0.0.0:*"; true'
@@ -112,7 +130,7 @@ fresh() { # folder
 }
 B=$T/bundle
 mkdir -p "$B" "$T/roothome" "$T/tmpd"
-cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$B/"
+cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$HERE/github-known-hosts" "$B/"
 echo "$MAC_VERSION" >"$B/claude-version"
 echo "$KEY" >"$B/mac.pub"
 R=$T/root
@@ -133,10 +151,12 @@ for line in "add the Mac's key" "add ppa:jgmath2000/et" "install et" "set teleme
   "enable and start the et service" "ufw allow 2022/tcp" "write openclawops's ~/.tmux.conf" \
   "check out tmux-resurrect at e87d7d592cac" "check out tmux-continuum at 46e0e0023476" \
   "write the account launchers" "make ~/.claude-work" "make ~/.claude-guest" \
-  "write ~/.claude-family/settings.json" "update Claude Code from 2.1.207 to at least the Mac's $MAC_VERSION"; do
+  "write ~/.claude-family/settings.json" "update Claude Code from 2.1.207 to at least the Mac's $MAC_VERSION" \
+  "install ripgrep fd-find neovim" "link fd to fdfind" "set openclawops's git identity to Sarb0z <93070907+Sarb0Z@users.noreply.github.com>" \
+  "add GitHub's published host key" "make openclawops's ~/Projects"; do
   has "check lists: $line" "would: $line" "$out"
 done
-has "check counts every change" "check: 19 change(s) to make; nothing was changed" "$out"
+has "check counts every change" "check: 24 change(s) to make; nothing was changed" "$out"
 eq "check leaves the server unchanged" "$before" "$(tree "$R")"
 eq "check calls nothing that changes state" "" "$(cat "$CALLS")"
 eq "check leaves no tmux socket or scratch folder" "" "$(find "$T/tmpd" -mindepth 1)"
@@ -185,6 +205,16 @@ has "run names the backup folder" "backups: /root/backups/unit5-" "$out"
 [[ ! -e $H/.bash_profile ]] && ok "run removes the empty ~/.bash_profile the update left" || bad "empty .bash_profile left"
 [[ -f $bk/home/openclawops/.bash_profile ]] && ok "the empty ~/.bash_profile is backed up" || bad ".bash_profile backup missing"
 has "run reports the removal" "do:    remove openclawops's empty ~/.bash_profile" "$out"
+has "run installs the tools with needrestart suspended" \
+  "apt-get install -y ripgrep fd-find neovim policy-rc.d=none NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive" "$calls"
+[[ -f $bk/apt-get-install-tools.log ]] && ok "the tools' apt output is kept in the backup folder" || bad "tools apt log missing"
+eq "fd names fdfind" /usr/bin/fdfind "$(readlink "$H/.local/bin/fd")"
+has "git identity is set as openclawops, in its home" \
+  "git config --global user.email 93070907+Sarb0Z@users.noreply.github.com HOME=$H USER=openclawops" "$calls"
+eq "git identity" "user.name=Sarb0z user.email=93070907+Sarb0Z@users.noreply.github.com" "$(tr '\n' ' ' <"$H/.gitconfig" | sed 's/ $//')"
+eq "known_hosts pins GitHub's key" "$(cat "$HERE/github-known-hosts")" "$(cat "$H/.ssh/known_hosts")"
+eq "known_hosts mode" "-rw-------" "$(mode "$H/.ssh/known_hosts")"
+[[ -d $H/Projects ]] && ok "the Projects folder exists" || bad "the Projects folder is missing"
 
 # --- a second run changes nothing -----------------------------------------------
 after=$(tree "$R")
@@ -226,6 +256,21 @@ printf 'ssh-ed25519 AAAAexisting other@host' >"$H/.ssh/authorized_keys"
 run "$B/mac.pub" >/dev/null 2>&1
 eq "an existing key line stays whole" 2 "$(wc -l <"$H/.ssh/authorized_keys" | tr -d ' ')"
 eq "the Mac's key on its own line" "$KEY" "$(tail -n 1 "$H/.ssh/authorized_keys")"
+
+# --- what the server already has for development is left alone ---------------------
+fresh "$R"
+touch "$STATE/installed-ripgrep" "$STATE/installed-neovim"
+cp "$HERE/github-known-hosts" "$T/kh" && ssh-keygen -H -f "$T/kh" >/dev/null 2>&1 && cp "$T/kh" "$H/.ssh/known_hosts"
+printf 'user.name=Sarb0z\nuser.email=93070907+Sarb0Z@users.noreply.github.com\n' >"$H/.gitconfig"
+out=$(run --check "$B/mac.pub" 2>&1)
+has "only the missing tool is installed" "would: install fd-find;" "$out"
+lacks "a hashed GitHub entry counts as present" "GitHub's published host key" "$out"
+lacks "a matching git identity is kept" "git identity" "$out"
+echo "#!/bin/sh" >"$H/.local/bin/fd"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "an fd that is not the link fails the run" 1 "$rc"
+has "and is named" "PROBLEM: $H/.local/bin/fd exists and is not a link" "$out"
+eq "that fd is left as it was" "#!/bin/sh" "$(cat "$H/.local/bin/fd")"
 
 # --- the PPA is listed but apt never fetched it ------------------------------------
 fresh "$R"
@@ -308,6 +353,18 @@ err=$(bash -c "source '$L'; claude --resume x" 2>&1); rc=$?
 eq "claude --version passes through" "profile= dir= args=--version" \
   "$(env -u CLAUDE_PROFILE -u CLAUDE_CONFIG_DIR bash -c "source '$L'; claude --version")"
 rm "$T/bin/claude"
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$T/et-agent"
+mkdir -p "$T/lh/.ssh"
+HOME=$T/lh SSH_AUTH_SOCK=$T/et-agent bash -c "source '$L'"
+eq "a login with et's agent socket points ~/.ssh/agent.sock at it" "$T/et-agent" "$(readlink "$T/lh/.ssh/agent.sock")"
+HOME=$T/lh SSH_AUTH_SOCK=$T/lh/.ssh/agent.sock bash -c "source '$L'"
+eq "a tmux window, already on the fixed path, leaves it" "$T/et-agent" "$(readlink "$T/lh/.ssh/agent.sock")"
+rm "$T/lh/.ssh/agent.sock"
+HOME=$T/lh bash -c "unset SSH_AUTH_SOCK; source '$L'"
+[[ ! -e $T/lh/.ssh/agent.sock && ! -L $T/lh/.ssh/agent.sock ]] && ok "a login with no agent links nothing" || bad "agent link without an agent"
+grep -qx 'set-environment -g SSH_AUTH_SOCK "$HOME/.ssh/agent.sock"' "$HERE/tmux.conf" &&
+  ! grep -E '^set -g update-environment' "$HERE/tmux.conf" | grep -q SSH_AUTH_SOCK &&
+  ok "tmux windows read the fixed agent path, and an attach does not replace it" || bad "tmux agent path"
 
 # --- apply, end to end with ssh replaced by a local shell --------------------------
 if [[ $(uname) == Darwin ]]; then
@@ -315,20 +372,52 @@ if [[ $(uname) == Darwin ]]; then
   mkdir -p "$AH/.ssh"
   echo "$KEY" >"$AH/.ssh/id_ed25519.pub"
   stub claude "echo '$MAC_VERSION (Claude Code)'"
-  stub ssh '[[ $1 == contabo-hop ]] || { echo "ssh stand-in: host $1" >&2; exit 3; }; echo "ssh $1" >>"$CALLS"; tee "$STATE/sent.tar" | bash -c "$2"'
+  # contabo-dev answers "test -d" from $STATE/cloned; a clone needs a forwarded
+  # agent (-A) and GitHub's yes, which $STATE/github-refuses withholds.
+  stub ssh 'case $1 in
+  contabo-hop) echo "ssh $1" >>"$CALLS"; tee "$STATE/sent.tar" | bash -c "$2" ;;
+  contabo-dev) echo "ssh $1 ${2%% *}" >>"$CALLS"; [[ -e $STATE/cloned ]] ;;
+  -A) echo "ssh -A $2 $3 SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-unset}" >>"$CALLS"
+    [[ -e $STATE/github-refuses ]] && { echo "git@github.com: Permission denied (publickey)." >&2; exit 128; }
+    touch "$STATE/cloned" ;;
+  *) echo "ssh stand-in: unexpected $*" >&2; exit 3 ;;
+esac'
+  stub ssh-agent 'if [[ $1 == -k ]]; then echo "ssh-agent -k" >>"$CALLS"; else echo "SSH_AUTH_SOCK=/agent.sock; export SSH_AUTH_SOCK; SSH_AGENT_PID=1; export SSH_AGENT_PID;"; fi'
+  stub ssh-add 'echo "ssh-add $*" >>"$CALLS"'
+  slug=$(git -C "$HERE" remote get-url origin | sed -e 's#^git@github.com:##' -e 's#^https://.*github.com/##' -e 's#\.git$##')
   fresh "$R"
   before=$(tree "$R")
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" --check 2>&1); rc=$?
   eq "apply --check exits 0" 0 "$rc"
-  has "apply --check runs the check on the server" "check: 19 change(s) to make; nothing was changed" "$out"
+  has "apply --check runs the check on the server" "check: 24 change(s) to make; nothing was changed" "$out"
   has "apply sends the Mac's version" "to at least the Mac's $MAC_VERSION" "$out"
+  has "apply --check names the clone" "would: clone git@github.com:$slug.git into openclawops' ~/Projects/colloid-swarm" "$out"
   eq "apply --check changes nothing" "$before" "$(tree "$R")"
-  eq "apply logs in once, to contabo-hop" "ssh contabo-hop" "$(cat "$CALLS")"
+  eq "apply --check logs in to contabo-hop, then only looks on contabo-dev" \
+    "ssh contabo-hop|ssh contabo-dev test" "$(paste -sd'|' "$CALLS")"
   eq "apply sends no macOS file tags, which GNU tar warns about" 0 \
     "$(LC_ALL=C grep -a -c 'LIBARCHIVE\.xattr' "$STATE/sent.tar")"
+  : >"$CALLS"
+  out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" 2>&1); rc=$?
+  eq "apply exits 0" 0 "$rc"
+  calls=$(cat "$CALLS")
+  has "apply adds the Mac's private key to a throwaway agent" "ssh-add -q $AH/.ssh/id_ed25519" "$calls"
+  has "apply clones as openclawops with that agent forwarded" \
+    "ssh -A contabo-dev git clone -q git@github.com:$slug.git ~/Projects/colloid-swarm SSH_AUTH_SOCK=/agent.sock" "$calls"
+  has "apply stops the agent" "ssh-agent -k" "$calls"
+  : >"$CALLS"
+  out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" 2>&1); rc=$?
+  eq "a second apply exits 0" 0 "$rc"
+  has "a second apply finds the clone" "colloid-swarm is already in ~/Projects/colloid-swarm" "$out"
+  lacks "and clones nothing" "ssh -A" "$(cat "$CALLS")"
+  rm "$STATE/cloned"
+  touch "$STATE/github-refuses"
+  err=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" 2>&1); rc=$?
+  [[ $rc -eq 1 && $err == *"GitHub refused the clone"*"gh ssh-key add $AH/.ssh/id_ed25519.pub"* ]] &&
+    ok "a clone GitHub refuses says which key to add" || bad "refused clone (rc=$rc): $err"
   err=$(HOME=$AH "$HERE/apply" --bogus 2>&1); rc=$?
   eq "apply refuses an unknown option" 2 "$rc"
-  rm "$T/bin/claude" "$T/bin/ssh"
+  rm "$T/bin/claude" "$T/bin/ssh" "$T/bin/ssh-agent" "$T/bin/ssh-add"
 else
   echo "skip apply end to end (macOS tar flags; apply runs on the Mac)"
 fi
