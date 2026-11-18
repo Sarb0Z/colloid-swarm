@@ -558,7 +558,7 @@ class RealSocket(unittest.TestCase):
         link.start()
         listener = phone_link.listen(self.state / "hook.sock")
         stop = threading.Event()
-        thread = threading.Thread(target=phone_link.serve, args=(link, listener, errors, stop.is_set), daemon=True)
+        thread = threading.Thread(target=phone_link.serve, args=(link, listener, errors, stop.is_set, ()), daemon=True)
         thread.start()
 
         def shut():

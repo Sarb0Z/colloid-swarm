@@ -1323,7 +1323,7 @@ class Loop(unittest.TestCase):
         self.listener = phone_link.listen(self.state / "hook.sock")
         os.umask(before)
         self.thread = threading.Thread(target=phone_link.serve,
-                                       args=(self.link, self.listener, errors, self.stop.is_set), daemon=True)
+                                       args=(self.link, self.listener, errors, self.stop.is_set, ()), daemon=True)
         self.thread.start()
         self.addCleanup(self.shut)
 
@@ -1410,7 +1410,7 @@ class Loop(unittest.TestCase):
         batches = iter((False, False, True))
         errors = log.Errors(self.state / "errors.log")
         with mock.patch.object(phone_link.selectors, "DefaultSelector", SignalFirst):
-            phone_link.serve(self.link, listener, errors, lambda: next(batches))
+            phone_link.serve(self.link, listener, errors, lambda: next(batches), ())
         self.assertIsNone(signal.connection.socket)
         self.assertEqual(json.loads(lines.readline())["type"], "registered")
         self.assertEqual(hook_fds, [old_fd])

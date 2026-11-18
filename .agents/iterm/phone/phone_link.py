@@ -50,6 +50,10 @@ Messages on the hook socket are JSON lines. From a hook: `permission` (its
 registration), `bind`, `deadline`, `settled`, `expired`, `gone`. To a hook:
 `registered`, `bound`, `decision`, `failed`, `dropped`, `refused`.
 
+While a Signal TLS proxy is set (`install.sh --tls-proxy`), `proxy_check.py`
+reads the proxy's certificate once a day and warns in errors.log and on Signal
+when less than 48 h are left.
+
 A failure goes to `<state>/errors.log`. Nothing of a message that is not the
 operator's Note to Self is logged or kept (`signal_client.phone_text`).
 """
@@ -65,7 +69,9 @@ import selectors
 import signal
 import socket
 import subprocess
+import ssl
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -75,6 +81,7 @@ import adapters
 import grammar
 import log
 import mask
+import proxy_check
 import sessions as session_list
 import signal_client
 import transcript
@@ -645,9 +652,9 @@ def listen(path: Path):
     return listener
 
 
-def serve(link: Link, listener, errors, stopped) -> None:
+def serve(link: Link, listener, errors, stopped, timers) -> None:
     """The socket loop: hook connections and signal-cli's socket in, `link` out, until
-    `stopped()` holds."""
+    `stopped()` holds. Each of `timers` (`tick()`, `next_due()`) ticks beside the link."""
     selector = selectors.DefaultSelector()
     selector.register(listener, selectors.EVENT_READ, "listener")
     conns, signal_socket = set(), None
@@ -671,8 +678,11 @@ def serve(link: Link, listener, errors, stopped) -> None:
 
     while not stopped():
         link.tick()
+        for timer in timers:
+            timer.tick()
         follow_signal()
-        for key, _events in selector.select(max(0.0, min(link.next_due() - link.clock(), SESSION_CHECK_SECONDS))):
+        due = min([link.next_due(), *(timer.next_due() for timer in timers)])
+        for key, _events in selector.select(max(0.0, min(due - link.clock(), SESSION_CHECK_SECONDS))):
             follow_signal()
             if key.data == "listener":
                 accepted, _address = listener.accept()
@@ -736,13 +746,18 @@ def main(argv) -> int:
                 errors=errors, sessions=session_list.Sessions(state / "sessions.json", errors),
                 signal=Signal(signal_client.Connection(str(state / "signal" / "socket")), errors),
                 zone=zone)
+    context = ssl.create_default_context()
+    proxy = proxy_check.ProxyCheck(
+        state=state, read_expiry=lambda host, port: proxy_check.certificate_expiry(host, port, context),
+        start=lambda run: threading.Thread(target=run, daemon=True).start(),
+        signal=link.signal, errors=errors, zone=zone, clock=time.time)
     # A handler that only set a flag would leave the loop asleep until its next timer:
     # Python retries an interrupted wait. Leaving through SystemExit ends it now, and
     # each waiting hook reads its end of file as the process ends.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         link.start()
-        serve(link, listener, errors, lambda: False)
+        serve(link, listener, errors, lambda: False, (proxy,))
     except Exception:
         errors.write("phone-link stopped on an error: " + traceback.format_exc())
         raise
