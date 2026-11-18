@@ -11,12 +11,12 @@ a test makes messages arrive with `phone_says` and `push`.
 
 As a command, for `.agents/test-phone-hooks.sh`:
 
-    fake_signal_cli.py <socket> <record file> [--send ok|error|silent] [--answer <text>]
+    fake_signal_cli.py <socket> <record file> <control folder>
 
-It appends each request to the record file as a JSON line. With `--answer`,
-each alert it is asked to send is answered from the "phone" one moment later:
-`--answer yes` sends `yes <id of the alert>`, `--answer 'no too risky'` sends
-`no <id> too risky`.
+It appends each request to the record file as a JSON line, and the test steers
+it through two files of the control folder: `send` holds how sends end from
+then on (`ok`, `error`, `failure` or `silent`), and a file `say` is sent as a
+message the operator typed on the phone, then removed.
 """
 
 from __future__ import annotations
@@ -177,20 +177,20 @@ def main(argv) -> int:
     parser = argparse.ArgumentParser(description="A stand-in for signal-cli's daemon socket.")
     parser.add_argument("socket")
     parser.add_argument("record")
-    parser.add_argument("--send", choices=("ok", "error", "failure", "silent"), default="ok")
-    parser.add_argument("--answer", default="", help="what the phone answers to each alert, without the id")
+    parser.add_argument("control")
     args = parser.parse_args(argv[1:])
-
-    def answer(text: str) -> None:
-        found = ALERT.match(text)
-        if found and args.answer:
-            verb, _, rest = args.answer.partition(" ")
-            fake.phone_says(" ".join(part for part in (verb, found.group(1), rest) if part))
-
-    fake = FakeSignalCli(args.socket, send=args.send, on_send=answer, record=args.record)
-    print("ready", flush=True)
-    threading.Event().wait()
-    return 0
+    fake = FakeSignalCli(args.socket, record=args.record)
+    say, send = os.path.join(args.control, "say"), os.path.join(args.control, "send")
+    while True:
+        if os.path.exists(send):
+            with open(send, encoding="utf-8") as stream:
+                fake.send = stream.read().strip() or "ok"
+        if os.path.exists(say):
+            with open(say, encoding="utf-8") as stream:
+                text = stream.read().strip()
+            os.unlink(say)
+            fake.phone_says(text)
+        time.sleep(0.05)
 
 
 if __name__ == "__main__":
