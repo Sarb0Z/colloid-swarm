@@ -23,6 +23,7 @@ Seams:
 import itertools
 import json
 import os
+import selectors
 import shutil
 import socket
 import stat
@@ -32,6 +33,7 @@ import time
 import unittest
 from datetime import timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import fake_signal_cli as fake
 import log
@@ -913,6 +915,44 @@ class Loop(unittest.TestCase):
         link.close()
         self.wait_for(lambda: len(self.daemon.sent()) == 2, seconds=8)
         self.assertEqual(self.daemon.sent()[1], f"[{registered['id']}] done")
+
+    def test_a_hook_that_takes_signal_clis_closed_descriptor_in_one_batch_is_served(self):
+        # serve() in this thread, for one batch in which signal-cli's socket ends first and a
+        # hook connects next: the hook's socket then gets the descriptor signal-cli's had.
+        self.shut()
+        signal = self.link.signal
+        # A new connection, read until its listAccounts answer is in, so nothing else is unread.
+        signal.retry_at, signal.account = 0.0, None
+        signal.tick()
+        self.wait_for(lambda: signal.connection.readable() is not None and signal.account)
+        listener = phone_link.listen(self.state / "hook.sock")
+        self.addCleanup(listener.close)
+        old_fd = signal.connection.fileno()
+        self.daemon.drop_clients()
+        # signal-cli's end of file has arrived before the batch starts.
+        self.wait_for(lambda: signal.connection.socket.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b"")
+        link, lines = self.hook()
+        link.sendall(json.dumps(self.registration()).encode() + b"\n")
+        time.sleep(0.2)
+
+        hook_fds = []
+
+        class SignalFirst(selectors.DefaultSelector):
+            def select(self, timeout=None):
+                return sorted(super().select(timeout), key=lambda pair: pair[0].data != "signal")
+
+            def register(self, fileobj, events, data=None):
+                if isinstance(data, phone_link.HookConn):
+                    hook_fds.append(fileobj.fileno())
+                return super().register(fileobj, events, data)
+
+        batches = iter((False, False, True))
+        errors = log.Errors(self.state / "errors.log")
+        with mock.patch.object(phone_link.selectors, "DefaultSelector", SignalFirst):
+            phone_link.serve(self.link, listener, errors, lambda: next(batches))
+        self.assertIsNone(signal.connection.socket)
+        self.assertEqual(json.loads(lines.readline())["type"], "registered")
+        self.assertEqual(hook_fds, [old_fd])
 
     def test_acceptance_13_the_hook_socket_is_0600(self):
         self.assertEqual(stat.S_IMODE(os.stat(self.state / "hook.sock").st_mode), 0o600)

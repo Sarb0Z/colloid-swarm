@@ -527,8 +527,10 @@ def serve(link: Link, listener, errors, stopped) -> None:
         selector.unregister(conn.socket)
         conn.socket.close()
 
-    while not stopped():
-        link.tick()
+    def follow_signal() -> None:
+        """Watch signal-cli's socket of now. Run after anything that may close it: its
+        descriptor is free at once, and a hook accepted next in the same batch may get it."""
+        nonlocal signal_socket
         now_socket = link.signal.connection.socket
         if now_socket is not signal_socket:
             if signal_socket is not None:
@@ -536,7 +538,12 @@ def serve(link: Link, listener, errors, stopped) -> None:
             if now_socket is not None:
                 selector.register(now_socket, selectors.EVENT_READ, "signal")
             signal_socket = now_socket
+
+    while not stopped():
+        link.tick()
+        follow_signal()
         for key, _events in selector.select(max(0.0, min(link.next_due() - link.clock(), SESSION_CHECK_SECONDS))):
+            follow_signal()
             if key.data == "listener":
                 accepted, _address = listener.accept()
                 accepted.settimeout(1)
@@ -544,6 +551,8 @@ def serve(link: Link, listener, errors, stopped) -> None:
                 conns.add(conn)
                 selector.register(accepted, selectors.EVENT_READ, conn)
             elif key.data == "signal":
+                if key.fileobj is not signal_socket:
+                    continue  # The socket this event was for closed earlier in the batch.
                 for params in link.signal.connection.readable():
                     link.received(params)
             elif key.data in conns:
