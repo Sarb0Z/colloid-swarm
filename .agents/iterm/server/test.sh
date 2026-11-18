@@ -42,41 +42,68 @@ stub runuser 'while [[ $1 != -- ]]; do shift; done; shift; exec "$@"'
 stub add-apt-repository 'echo "add-apt-repository $*" >>"$CALLS"
 printf "URIs: https://ppa.launchpadcontent.net/jgmath2000/et/ubuntu/\n" >"$SETUP_ROOT/etc/apt/sources.list.d/jgmath2000-ubuntu-et-noble.sources"
 touch "$STATE/lists"'
-stub apt-cache '[[ $1 == policy && -e $STATE/lists ]] && printf "et:\n  Installed: (none)\n  Candidate: 7.1.1-noble1\n"; true'
-stub apt-get 'case $1 in
+# et's candidate needs any fetched lists; tailscale's needs lists fetched while
+# its repository was listed.
+stub apt-cache '[[ $1 == policy ]] || exit 0
+case $2 in
+  et) [[ -e $STATE/lists ]] && printf "et:\n  Installed: (none)\n  Candidate: 7.1.1-noble1\n" ;;
+  tailscale) [[ -e $STATE/ts-lists ]] && printf "tailscale:\n  Installed: (none)\n  Candidate: 1.90.6\n" ;;
+esac; true'
+# The real tailscale postinst enables tailscaled only on a reinstall of a unit
+# that was enabled ($STATE/tailscaled-was-enabled), and starts only an enabled one.
+stub apt-get 'packages=(); for a in "${@:2}"; do [[ $a == -* ]] || packages+=("$a"); done
+case $1 in
   -s)
     [[ -e $STATE/sim-upgrade ]] && echo "Inst libc6 [2.39-0ubuntu8.6] (2.39-0ubuntu8.7 Ubuntu:24.04/noble-updates [amd64])"
-    for p in "${@:3}"; do
+    for p in "${packages[@]:1}"; do
       [[ $p == et ]] && echo "Inst libprotobuf32t64 (3.21.12-8.2build1 Ubuntu:24.04/noble [amd64])"
       echo "Inst $p (1.0-1 Ubuntu:24.04/noble [amd64])"; echo "Conf $p"
     done ;;
-  update) echo "apt-get update" >>"$CALLS"; touch "$STATE/lists" ;;
+  update) echo "apt-get update" >>"$CALLS"; touch "$STATE/lists"
+    [[ -e $SETUP_ROOT/etc/apt/sources.list.d/tailscale.list ]] && touch "$STATE/ts-lists"; true ;;
   install)
     gate=$SETUP_ROOT/usr/sbin/policy-rc.d; answer=none
     [[ -x $gate ]] && { "$gate"; answer=$?; }
     echo "apt-get $* policy-rc.d=$answer NEEDRESTART_SUSPEND=${NEEDRESTART_SUSPEND:-} DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-}" >>"$CALLS"
-    for p in "${@:3}"; do touch "$STATE/installed-$p"; done
+    for p in "${packages[@]}"; do touch "$STATE/installed-$p"; done
+    set -- "$1" "$2" "${packages[@]}"
     if [[ $3 == et ]]; then
       touch "$STATE/et-enabled"
       [[ $answer == 101 ]] || touch "$STATE/et-active"
       printf "[Networking]\nport = 2022\n\n[Debug]\nverbose = 0\ntelemetry = true\nlogdirectory = /tmp\n" >"$SETUP_ROOT/etc/et.cfg"
       echo "Setting up et (7.1.1-noble1) ..."
+    fi
+    if [[ $3 == tailscale ]]; then
+      if [[ -e $STATE/tailscaled-was-enabled ]]; then
+        touch "$STATE/tailscaled-enabled"
+        [[ $answer == 101 ]] || touch "$STATE/tailscaled-active"
+      fi
+      mkdir -p "$SETUP_ROOT/etc/default"
+      printf "# Set the port to listen on for incoming VPN packets.\nPORT=\"41641\"\n\n# Extra flags you might want to pass to tailscaled.\nFLAGS=\"\"\n" >"$SETUP_ROOT/etc/default/tailscaled"
+      echo "Setting up tailscale (1.90.6) ..."
     fi ;;
   *) echo "apt-get stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
 stub dpkg-query '[[ -e $STATE/installed-${*: -1} ]] && { printf "ii "; exit 0; }; echo "dpkg-query: no packages found matching ${*: -1}" >&2; exit 1'
-stub systemctl 'case $1 in
-  is-enabled) [[ -e $STATE/et-enabled ]] ;;
-  is-active) [[ -e $STATE/et-active ]] ;;
-  enable) echo "systemctl $*" >>"$CALLS"; touch "$STATE/et-enabled" "$STATE/et-active" ;;
-  restart) echo "systemctl $*" >>"$CALLS" ;;
+stub systemctl 'unit=${*: -1}
+case $1 in
+  is-enabled) [[ -e $STATE/$unit-enabled ]] ;;
+  is-active) [[ -e $STATE/$unit-active ]] ;;
+  enable|restart) echo "systemctl $*" >>"$CALLS"; touch "$STATE/$unit-enabled" "$STATE/$unit-active"
+    [[ $unit == tailscaled ]] && echo "tailscaled starts with $(grep FLAGS= "$SETUP_ROOT/etc/default/tailscaled")" >>"$CALLS"; true ;;
   *) echo "systemctl stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
 stub ufw 'case $1 in
   status) echo "Status: active"; echo; echo "To Action From"; cat "$STATE/ufw-rules" 2>/dev/null ;;
-  allow) echo "ufw $*" >>"$CALLS"; echo "2022/tcp                   ALLOW       Anywhere" >>"$STATE/ufw-rules" ;;
+  allow) echo "ufw $*" >>"$CALLS"; printf "%-27s%-12sAnywhere\n" "$2" ALLOW >>"$STATE/ufw-rules" ;;
   *) echo "ufw stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
+# sysctl -p <file> loads the file's keys into the pretend /proc.
+stub sysctl '[[ $1 == -p ]] || { echo "sysctl stand-in: unexpected $*" >&2; exit 3; }
+echo "sysctl $*" >>"$CALLS"
+while IFS=" =" read -r key value; do
+  [[ -n $key ]] && echo "$value" >"$SETUP_ROOT/proc/sys/${key//.//}"
+done <"$SETUP_ROOT$2"'
 # apply reads the Mac checkout's origin. The stand-in answers with a fixed one in
 # the checkout's https form, since suite.sh runs the checks in a copy with no remote.
 stub git 'dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
@@ -118,7 +145,13 @@ LOADER='# bash reads this file instead of ~/.profile at login, so it loads ~/.pr
 fresh() { # folder
   local r=$1 h=$1/home/openclawops
   rm -rf "$r" "$STATE"
-  mkdir -p "$STATE" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin"
+  mkdir -p "$STATE" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/etc/sysctl.d" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin" \
+    "$r/proc/sys/net/ipv4" "$r/proc/sys/net/ipv6/conf/all"
+  # contabo-hop on 2026-11-18: Docker's IPv4 forwarding on, IPv6 forwarding off.
+  echo 1 >"$r/proc/sys/net/ipv4/ip_forward"
+  echo 0 >"$r/proc/sys/net/ipv6/conf/all/forwarding"
+  mkdir -p "$r/etc/default"
+  printf 'IPV6=yes\nDEFAULT_INPUT_POLICY="DROP"\nDEFAULT_FORWARD_POLICY="DROP"\n' >"$r/etc/default/ufw"
   printf 'PRETTY_NAME="Ubuntu 24.04.4 LTS"\nVERSION_CODENAME=noble\n' >"$r/etc/os-release"
   echo "Types: deb" >"$r/etc/apt/sources.list.d/ubuntu.sources"
   echo "### tuple ### limit tcp 22 0.0.0.0/0 any 0.0.0.0/0 in" >"$r/etc/ufw/user.rules"
@@ -137,7 +170,7 @@ fresh() { # folder
 }
 B=$T/bundle
 mkdir -p "$B" "$T/roothome" "$T/tmpd"
-cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$HERE/github-known-hosts" "$B/"
+cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$HERE/github-known-hosts" "$HERE/tailscale-archive-keyring.asc" "$B/"
 echo "$MAC_VERSION" >"$B/claude-version"
 echo "$KEY" >"$B/mac.pub"
 R=$T/root
@@ -160,10 +193,13 @@ for line in "add the Mac's key" "add ppa:jgmath2000/et" "install et" "set teleme
   "write the account launchers" "make ~/.claude-work" "make ~/.claude-guest" \
   "write ~/.claude-family/settings.json" "update Claude Code from 2.1.207 to at least the Mac's $MAC_VERSION" \
   "install ripgrep fd-find neovim" "link fd to fdfind" "set openclawops's git identity to Sarb0z <93070907+Sarb0Z@users.noreply.github.com>" \
-  "add GitHub's published host key" "make openclawops's ~/Projects"; do
+  "add GitHub's published host key" "make openclawops's ~/Projects" \
+  "install Tailscale's apt signing key" "list Tailscale's apt repository" "apt-get update, to fetch Tailscale's package list" \
+  "install tailscale" "set FLAGS=\"--no-logs-no-support\"" "enable and start the tailscaled service" \
+  "write /etc/sysctl.d/99-tailscale.conf" "ufw allow 41641/udp"; do
   has "check lists: $line" "would: $line" "$out"
 done
-has "check counts every change" "check: 25 change(s) to make; nothing was changed" "$out"
+has "check counts every change" "check: 33 change(s) to make; nothing was changed" "$out"
 eq "check leaves the server unchanged" "$before" "$(tree "$R")"
 eq "check calls nothing that changes state" "" "$(cat "$CALLS")"
 eq "check leaves no tmux socket or scratch folder" "" "$(find "$T/tmpd" -mindepth 1)"
@@ -225,6 +261,29 @@ eq "git identity" "user.name=Sarb0z user.email=93070907+Sarb0Z@users.noreply.git
 eq "known_hosts pins GitHub's key" "$(cat "$HERE/github-known-hosts")" "$(cat "$H/.ssh/known_hosts")"
 eq "known_hosts mode" "-rw-------" "$(mode "$H/.ssh/known_hosts")"
 [[ -d $H/Projects ]] && ok "the Projects folder exists" || bad "the Projects folder is missing"
+cmp -s "$HERE/tailscale-archive-keyring.asc" "$R/usr/share/keyrings/tailscale-archive-keyring.asc" &&
+  ok "Tailscale's key is installed as shipped" || bad "Tailscale's key differs"
+eq "Tailscale's repository is listed, signed by that key" \
+  "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.asc] https://pkgs.tailscale.com/stable/ubuntu noble main" \
+  "$(cat "$R/etc/apt/sources.list.d/tailscale.list")"
+has "run fetches Tailscale's lists after listing the repository" "apt-get update" "$calls"
+has "run installs tailscale without the keyring package, its start held and needrestart suspended" \
+  "apt-get install -y --no-install-recommends tailscale policy-rc.d=101 NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive" "$calls"
+[[ ! -e $R/usr/sbin/policy-rc.d ]] && ok "run removes its policy-rc.d after both installs" || bad "policy-rc.d left behind"
+eq "the list is written before the update that makes tailscale installable" 1 \
+  "$(grep -c 'apt-get install -y --no-install-recommends tailscale' "$CALLS")"
+has "tailscaled first starts with its logs off" "tailscaled starts with FLAGS=\"--no-logs-no-support\"" "$calls"
+has "run shows what apt set up for tailscale" "Setting up tailscale (1.90.6)" "$out"
+eq "tailscaled uploads no logs" 'FLAGS="--no-logs-no-support"' "$(grep '^FLAGS=' "$R/etc/default/tailscaled")"
+eq "tailscaled keeps its port line" 'PORT="41641"' "$(grep '^PORT=' "$R/etc/default/tailscaled")"
+has "run starts tailscaled itself, after its flags are set" "systemctl enable --now tailscaled" "$calls"
+eq "forwarding is kept across reboots" "$(printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1')" \
+  "$(cat "$R/etc/sysctl.d/99-tailscale.conf")"
+has "run loads the forwarding file" "sysctl -p /etc/sysctl.d/99-tailscale.conf" "$calls"
+eq "IPv6 forwarding is on" 1 "$(cat "$R/proc/sys/net/ipv6/conf/all/forwarding")"
+has "run opens Tailscale's port" "ufw allow 41641/udp" "$calls"
+[[ -f $bk/apt-get-install-tailscale.log && -f $bk/etc/default/tailscaled ]] &&
+  ok "tailscale's apt output and its first settings are kept in the backup folder" || bad "tailscale backups missing"
 
 # --- a second run changes nothing -----------------------------------------------
 after=$(tree "$R")
@@ -303,6 +362,66 @@ lacks "nothing installed" "apt-get install" "$(cat "$CALLS")"
 out=$(run --check "$B/mac.pub" 2>&1); rc=$?
 [[ $rc -eq 1 && $out == *"PROBLEM: installing et would upgrade"* ]] && ok "check reports the upgrade as a problem" ||
   bad "check upgrade (rc=$rc): $out"
+
+# --- Tailscale's settings and forwarding on a server that already has some ---------
+for line in 'FLAGS="--state=/var/lib/x"' 'FLAGS=--state=/var/lib/x' "FLAGS='--x'" 'FLAGS="" # mine'; do
+  fresh "$R"
+  touch "$STATE/installed-tailscale" "$STATE/tailscaled-enabled" "$STATE/tailscaled-active"
+  printf 'PORT="41641"\n%s\n' "$line" >"$R/etc/default/tailscaled"
+  out=$(run "$B/mac.pub" 2>&1); rc=$?
+  eq "a FLAGS line the operator filled fails the run: $line" 1 "$rc"
+  has "and is named: $line" "PROBLEM: /etc/default/tailscaled has $line" "$out"
+  eq "and is left as it was: $line" "$line" "$(grep 'FLAGS=' "$R/etc/default/tailscaled")"
+  lacks "and tailscaled is not restarted: $line" "restart tailscaled" "$(cat "$CALLS")"
+done
+lacks "an installed tailscale is not installed again" "tailscale policy-rc.d" "$(cat "$CALLS")"
+# A stopped tailscaled with the operator's FLAGS is not started with logs on.
+fresh "$R"
+touch "$STATE/installed-tailscale"
+printf 'PORT="41641"\nFLAGS="--x"\n' >"$R/etc/default/tailscaled"
+out=$(run "$B/mac.pub" 2>&1)
+lacks "a stopped tailscaled with the operator's FLAGS is not started" "enable --now tailscaled" "$(cat "$CALLS")"
+lacks "and no start is reported" "enable and start the tailscaled service" "$out"
+# The package's FLAGS="" on a running tailscaled: the check names the restart.
+fresh "$R"
+touch "$STATE/installed-tailscale" "$STATE/tailscaled-enabled" "$STATE/tailscaled-active"
+printf 'PORT="41641"\nFLAGS=""\n' >"$R/etc/default/tailscaled"
+out=$(run --check "$B/mac.pub" 2>&1)
+has "check names the restart a FLAGS change brings" "would: restart tailscaled to read the new /etc/default/tailscaled" "$out"
+run "$B/mac.pub" >/dev/null 2>&1
+has "and the run restarts it" "systemctl restart tailscaled" "$(cat "$CALLS")"
+# The same for et's telemetry line.
+fresh "$R"
+touch "$STATE/installed-et" "$STATE/et-enabled" "$STATE/et-active"
+printf '[Debug]\ntelemetry = true\n' >"$R/etc/et.cfg"
+out=$(run --check "$B/mac.pub" 2>&1)
+has "check names the restart a telemetry change brings" "would: restart et to read the new /etc/et.cfg" "$out"
+# Forwarding switched off at runtime is loaded again, and an older file is backed up.
+fresh "$R"
+echo 'net.ipv4.ip_forward = 1' >"$R/etc/sysctl.d/99-tailscale.conf"
+run "$B/mac.pub" >/dev/null 2>&1
+eq "an older forwarding file is backed up" 'net.ipv4.ip_forward = 1' "$(cat "$bk/etc/sysctl.d/99-tailscale.conf")"
+eq "the forwarding before the change is kept for the rollback" \
+  "$(printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 0')" "$(cat "$bk/forwarding-before.txt")"
+echo 0 >"$R/proc/sys/net/ipv4/ip_forward"
+out=$(run --check "$B/mac.pub" 2>&1)
+has "forwarding switched off at runtime is loaded again" "would: write /etc/sysctl.d/99-tailscale.conf" "$out"
+# A firewall that would let forwarded packets through stops the forwarding change.
+for ufwdefaults in 'IPV6=yes\nDEFAULT_FORWARD_POLICY="ACCEPT"\n' 'IPV6=no\nDEFAULT_FORWARD_POLICY="DROP"\n'; do
+  fresh "$R"
+  printf "$ufwdefaults" >"$R/etc/default/ufw"
+  out=$(run "$B/mac.pub" 2>&1); rc=$?
+  eq "forwarding refused under ufw defaults $(printf "$ufwdefaults" | tr '\n' ' ')" 1 "$rc"
+  has "and named" "PROBLEM: /etc/default/ufw must hold" "$out"
+  lacks "and nothing forwards" "sysctl -p" "$(cat "$CALLS")"
+  eq "and IPv6 forwarding stays off" 0 "$(cat "$R/proc/sys/net/ipv6/conf/all/forwarding")"
+done
+# A reinstall of an enabled tailscaled: its start is still held until FLAGS is set.
+fresh "$R"
+touch "$STATE/tailscaled-was-enabled"
+run "$B/mac.pub" >/dev/null 2>&1
+has "a reinstall's start is held" "apt-get install -y --no-install-recommends tailscale policy-rc.d=101" "$(cat "$CALLS")"
+has "and the script starts it only after FLAGS is set" "tailscaled starts with FLAGS=\"--no-logs-no-support\"" "$(cat "$CALLS")"
 
 # --- an existing policy-rc.d is not replaced ---------------------------------------
 fresh "$R"
@@ -405,7 +524,7 @@ esac'
   before=$(tree "$R")
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" --check 2>&1); rc=$?
   eq "apply --check exits 0" 0 "$rc"
-  has "apply --check runs the check on the server" "check: 25 change(s) to make; nothing was changed" "$out"
+  has "apply --check runs the check on the server" "check: 33 change(s) to make; nothing was changed" "$out"
   has "apply sends the Mac's version" "to at least the Mac's $MAC_VERSION" "$out"
   has "apply --check names the clone" "would: clone git@github.com:$slug.git into openclawops' ~/Projects/colloid-swarm" "$out"
   eq "apply --check changes nothing" "$before" "$(tree "$R")"

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Make contabo-hop the development server: TERMINAL-SPEC.md Unit 5, runbook steps
-# 1-5, and the development tools beside them. It runs as root on the server; `apply` on the Mac sends it this folder, the
+# 1-5, and the development tools beside them; and the Mac's Tailscale exit node
+# for the phone link (docs/notes/2026-11-17-phone-link-spec.md, Setup). It runs
+# as root on the server; `apply` on the Mac sends it this folder, the
 # Mac's public key and the Mac's Claude Code version over ssh, and runs it.
 #
 # Each step reads the current state and changes only what differs, so a second
@@ -9,13 +11,14 @@
 # run would make, and changes nothing.
 #
 # The server is live (mail, web, GitMu):
-# - apt runs with needrestart suspended, so installing et restarts no service;
+# - apt runs with needrestart suspended, so an install restarts no service;
 # - the install stops before it would upgrade or remove an installed package;
 # - apt's output goes to a log in the backup folder, not to the ssh connection,
 #   so a dropped connection cannot kill dpkg in the middle of configuring.
 #
 # Usage: setup-server.sh [--check] <public key file>
-# Beside it: tmux.conf, launchers.bash, settings.json, github-known-hosts, claude-version.
+# Beside it: tmux.conf, launchers.bash, settings.json, github-known-hosts,
+# tailscale-archive-keyring.asc, claude-version.
 # SETUP_ROOT puts a folder in front of every absolute path; only the tests set it.
 set -euo pipefail
 
@@ -108,9 +111,10 @@ put() {
 # A package dpkg does not know is reported on stderr; here that only means "absent".
 installed() { [[ $(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null) == ii* ]]; }
 have_ppa() { grep -rqF 'jgmath2000/et' "$R/etc/apt/sources.list.d"; }
+# candidate <package>: apt has a version of it to install.
 candidate() {
   local found
-  found=$(apt-cache policy et | awk '/Candidate:/ { print $2 }')
+  found=$(apt-cache policy "$1" | awk '/Candidate:/ { print $2 }')
   [[ -n $found && $found != "(none)" ]]
 }
 older() { [[ $1 != "$2" && $(printf '%s\n' "$1" "$2" | sort -V | head -n 1) == "$1" ]]; }
@@ -131,12 +135,63 @@ refuse_upgrades() {
   fi
 }
 
+# install_held <log name> <package> [apt option...]: install a package whose
+# postinst may start its service: et's does, and tailscale's does on a reinstall
+# of a unit that was enabled. A policy-rc.d answering 101 stops that start, as
+# Debian's deb-systemd-invoke reads it, so the first start is this script's,
+# after the service's settings are written.
+gate=$R/usr/sbin/policy-rc.d
+install_held() {
+  [[ ! -e $gate ]] || die "$gate already exists; this script will not replace it"
+  trap 'rm -f "$gate"' EXIT
+  printf '#!/bin/sh\nexit 101\n' >"$gate"
+  chmod 755 "$gate"
+  logged "$1" apt-get install -y "${@:3}" "$2"
+  rm -f "$gate"
+  trap - EXIT
+  grep -E '^Setting up ' "$backup/$1.log" | sed 's/^/         /' || true
+}
+
+# service_up <unit> <settings changed: 0 or 1> <settings file> <what it runs>:
+# start an enabled-and-running unit again only when its settings changed, and
+# enable and start any other. systemctl reports a unit it does not know on
+# stderr; here that only means "not enabled".
+service_up() {
+  if systemctl is-enabled --quiet "$1" 2>/dev/null && systemctl is-active --quiet "$1"; then
+    if (($2)); then
+      if change "restart $1 to read the new $3"; then
+        systemctl restart "$1"
+      fi
+    fi
+  elif change "enable and start the $1 service ($4)"; then
+    systemctl enable --now "$1"
+  fi
+}
+
+# ufw_allow <port/protocol> <why>: open a port once, the firewall backed up first.
+# allow, not limit: ufw's limit rules count every port in one list per address,
+# so a client retrying once a second would lock the Mac out of 22.
+ufw_allow() {
+  if grep -qE "^$1[[:space:]]+ALLOW" <<<"$(ufw status)"; then
+    return 0
+  fi
+  if change "ufw allow $1 ($2)"; then
+    keep "$R/etc/ufw/user.rules"
+    keep "$R/etc/ufw/user6.rules"
+    mkdir -p "$backup"
+    if [[ ! -e $backup/ufw-status.txt ]]; then
+      ufw status numbered >"$backup/ufw-status.txt"
+    fi
+    ufw allow "$1"
+  fi
+}
+
 [[ $(id -u) == 0 ]] || die "run as root: apply logs in to contabo-hop as root"
 grep -qx 'VERSION_CODENAME=noble' "$R/etc/os-release" ||
   die "expected Ubuntu 24.04 (noble), the release this script picks ppa:jgmath2000/et for"
 [[ -d $home ]] || die "no home folder $home for $user"
 command -v jq >/dev/null || die "jq is needed to merge settings.json"
-for f in tmux.conf launchers.bash settings.json claude-version github-known-hosts; do
+for f in tmux.conf launchers.bash settings.json claude-version github-known-hosts tailscale-archive-keyring.asc; do
   [[ -f $here/$f ]] || die "missing $here/$f"
 done
 pub=$(<"$keyfile")
@@ -181,35 +236,26 @@ if ! installed et; then
       keep "$R/etc/apt/sources.list.d"
       logged add-apt-repository add-apt-repository -y ppa:jgmath2000/et
     fi
-  elif ! candidate; then
+  elif ! candidate et; then
     if change "apt-get update: ppa:jgmath2000/et is listed but apt has no et to install"; then
       logged apt-get-update apt-get update
     fi
   fi
-  if have_ppa && candidate; then
+  if have_ppa && candidate et; then
     refuse_upgrades et
   elif ((check)); then
     echo "         (apt-get -s can list et's packages once the PPA is added)"
   fi
+  # The package's postinst would start et while /etc/et.cfg still says telemetry = true.
   if change "install et (etserver runs as the systemd service et); needrestart restarts nothing"; then
-    # The package's postinst starts et while /etc/et.cfg still says telemetry =
-    # true. A policy-rc.d answering 101 stops that start, so the first start is
-    # this script's, with telemetry off; the unit is still enabled.
-    gate=$R/usr/sbin/policy-rc.d
-    [[ ! -e $gate ]] || die "$gate already exists; this script will not replace it"
-    trap 'rm -f "$gate"' EXIT
-    printf '#!/bin/sh\nexit 101\n' >"$gate"
-    chmod 755 "$gate"
-    logged apt-get-install apt-get install -y et
-    rm -f "$gate"
-    trap - EXIT
-    grep -E '^Setting up ' "$backup/apt-get-install.log" | sed 's/^/         /' || true
+    install_held apt-get-install et
   fi
 fi
 
 cfg=$R/etc/et.cfg
 if [[ -f $cfg ]]; then
   if ! grep -qE '^[[:space:]]*telemetry[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$cfg"; then
+    cfg_changed=1
     if change "set telemetry = false in /etc/et.cfg"; then
       keep "$cfg"
       if grep -qE '^[[:space:]]*telemetry[[:space:]]*=' "$cfg"; then
@@ -221,7 +267,6 @@ if [[ -f $cfg ]]; then
       fi
       cat "$cfg.unit5" >"$cfg"
       rm "$cfg.unit5"
-      cfg_changed=1
     fi
   fi
 elif ((check)); then
@@ -230,31 +275,9 @@ else
   die "et is installed but $cfg is missing"
 fi
 
-# systemctl reports a unit it does not know on stderr; here that only means "not enabled".
-if systemctl is-enabled --quiet et 2>/dev/null && systemctl is-active --quiet et; then
-  if ((cfg_changed)); then
-    if change "restart et to read the new /etc/et.cfg"; then
-      systemctl restart et
-    fi
-  fi
-elif change "enable and start the et service (etserver on TCP 2022)"; then
-  systemctl enable --now et
-fi
+service_up et "$cfg_changed" /etc/et.cfg "etserver on TCP 2022"
 
-# allow, not limit: ufw's limit rules count every port in one list per address,
-# so et retrying a stopped etserver once a second would lock the Mac out of 22.
-firewall=$(ufw status)
-if ! grep -qE '^2022/tcp[[:space:]]+ALLOW' <<<"$firewall"; then
-  if change "ufw allow 2022/tcp"; then
-    keep "$R/etc/ufw/user.rules"
-    keep "$R/etc/ufw/user6.rules"
-    mkdir -p "$backup"
-    if [[ ! -e $backup/ufw-status.txt ]]; then
-      ufw status numbered >"$backup/ufw-status.txt"
-    fi
-    ufw allow 2022/tcp
-  fi
-fi
+ufw_allow 2022/tcp "Eternal Terminal"
 
 # ── 4. tmux for openclawops ──────────────────────────────────────────────────
 put "$here/tmux.conf" "$home/.tmux.conf" 644 "write $user's ~/.tmux.conf"
@@ -422,6 +445,111 @@ if [[ ! -d $home/Projects ]]; then
     as_user mkdir "$home/Projects"
   fi
 fi
+
+# ── 7. Tailscale, the Mac's exit node for the phone link ───────────────────────
+# The Mac's own network blocks Signal's hosts, so the Mac reaches Signal through
+# this server. This step installs and prepares; the operator signs in with
+# `tailscale up --advertise-exit-node` and approves the exit node. The package
+# comes from Tailscale's apt repository, signed by the key shipped beside this
+# script (fingerprint 2596A99EAAB33821893C0A79458CA832957F5868).
+ts_key=$R/usr/share/keyrings/tailscale-archive-keyring.asc
+ts_list=$R/etc/apt/sources.list.d/tailscale.list
+ts_source="deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.asc] https://pkgs.tailscale.com/stable/ubuntu noble main"
+if ! cmp -s "$here/tailscale-archive-keyring.asc" "$ts_key"; then
+  if change "install Tailscale's apt signing key in /usr/share/keyrings"; then
+    keep "$ts_key"
+    mkdir -p "$(dirname "$ts_key")"
+    cp "$here/tailscale-archive-keyring.asc" "$ts_key"
+    chmod 644 "$ts_key"
+  fi
+fi
+if [[ $(cat "$ts_list" 2>/dev/null) != "$ts_source" ]]; then
+  if change "list Tailscale's apt repository in /etc/apt/sources.list.d/tailscale.list"; then
+    keep "$R/etc/apt/sources.list.d"
+    printf '%s\n' "$ts_source" >"$ts_list"
+  fi
+fi
+if ! installed tailscale; then
+  if ! candidate tailscale; then
+    if change "apt-get update, to fetch Tailscale's package list"; then
+      logged apt-get-update-tailscale apt-get update
+    fi
+  fi
+  # The package Recommends tailscale-archive-keyring, whose own copy of the key
+  # this list would not read, so it is left out. debt: tailscale-key-rotation
+  if candidate tailscale; then
+    refuse_upgrades --no-install-recommends tailscale
+  elif ((check)); then
+    echo "         (apt-get -s can list tailscale's packages once its repository is fetched)"
+  fi
+  if change "install tailscale (tailscaled runs as the systemd service tailscaled); needrestart restarts nothing"; then
+    install_held apt-get-install-tailscale tailscale --no-install-recommends
+  fi
+fi
+
+# --no-logs-no-support stops tailscaled uploading its logs to Tailscale, in line
+# with the telemetry opt-outs on the Mac. The package ships FLAGS=""; any other
+# FLAGS line is the operator's, named rather than rewritten, and tailscaled is
+# then not started by this script.
+tsd=$R/etc/default/tailscaled
+ts_changed=0
+ts_flags_ok=1
+if [[ -f $tsd ]]; then
+  flags=$(grep -E '^[[:space:]]*FLAGS=' "$tsd" || true)
+  if [[ $flags != *--no-logs-no-support* ]]; then
+    if [[ -n $flags && $flags != 'FLAGS=""' ]]; then
+      ts_flags_ok=0
+      problem "/etc/default/tailscaled has $flags; add --no-logs-no-support to it by hand, then run again"
+    else
+      ts_changed=1
+      if change "set FLAGS=\"--no-logs-no-support\" in /etc/default/tailscaled, so tailscaled uploads no logs"; then
+        keep "$tsd"
+        if [[ -n $flags ]]; then
+          awk '$0 == "FLAGS=\"\"" { print "FLAGS=\"--no-logs-no-support\""; next } { print }' "$tsd" >"$tsd.phone"
+        else
+          { cat "$tsd"; echo 'FLAGS="--no-logs-no-support"'; } >"$tsd.phone"
+        fi
+        cat "$tsd.phone" >"$tsd"
+        rm "$tsd.phone"
+      fi
+    fi
+  fi
+elif ((check)); then
+  change "set FLAGS=\"--no-logs-no-support\" in /etc/default/tailscaled, which the install writes" || true
+else
+  die "tailscale is installed but $tsd is missing"
+fi
+if ((ts_flags_ok)); then
+  service_up tailscaled "$ts_changed" /etc/default/tailscaled "Tailscale, signed in by the operator"
+fi
+
+# An exit node forwards the Mac's packets. Docker turned IPv4 forwarding on, but
+# only until a reboot; IPv6 forwarding is off. The server's IPv6 address never
+# expires and its default route is netplan's (proto static, 2026-11-18), so
+# forwarding drops no route that router advertisements gave it. Forwarding is
+# safe only while ufw drops forwarded packets by default, for IPv4 and IPv6, so
+# that is required first. The values before the change go to the backup folder,
+# which the rollback in the phone link spec's Setup restores.
+fwd=$R/etc/sysctl.d/99-tailscale.conf
+fwd_text=$'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1'
+v4=$R/proc/sys/net/ipv4/ip_forward
+v6=$R/proc/sys/net/ipv6/conf/all/forwarding
+if [[ $(cat "$fwd" 2>/dev/null) != "$fwd_text" || $(<"$v4") != 1 || $(<"$v6") != 1 ]]; then
+  if ! grep -qx 'DEFAULT_FORWARD_POLICY="DROP"' "$R/etc/default/ufw" || ! grep -qx 'IPV6=yes' "$R/etc/default/ufw"; then
+    problem "/etc/default/ufw must hold DEFAULT_FORWARD_POLICY=\"DROP\" and IPV6=yes before this server forwards packets; forwarding is left as it is"
+  elif change "write /etc/sysctl.d/99-tailscale.conf (IPv4 and IPv6 forwarding, kept across reboots) and load it"; then
+    keep "$fwd"
+    mkdir -p "$backup"
+    if [[ ! -e $backup/forwarding-before.txt ]]; then
+      printf 'net.ipv4.ip_forward = %s\nnet.ipv6.conf.all.forwarding = %s\n' "$(<"$v4")" "$(<"$v6")" >"$backup/forwarding-before.txt"
+    fi
+    printf '%s\n' "$fwd_text" >"$fwd"
+    logged sysctl sysctl -p "${fwd#"$R"}"
+  fi
+fi
+
+# Without it the Mac still connects, through Tailscale's relays, more slowly.
+ufw_allow 41641/udp "Tailscale direct connections"
 
 # ── Result ───────────────────────────────────────────────────────────────────
 if ((check)); then

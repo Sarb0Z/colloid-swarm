@@ -31,7 +31,7 @@ version=$(command claude --version | awk '{ print $1 }')
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/settings.json" "$here/github-known-hosts" "$stage/"
+cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/settings.json" "$here/github-known-hosts" "$here/tailscale-archive-keyring.asc" "$stage/"
 cp "$key" "$stage/mac.pub"
 printf '%s\n' "$version" >"$stage/claude-version"
 
