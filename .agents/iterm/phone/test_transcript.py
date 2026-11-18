@@ -74,12 +74,21 @@ class Waiting(Files):
         self.written.hook_decided("toolu_1", "allow")
         self.assertEqual(self.calls(("Bash", PUSH)).waiting(), [])
 
-    def test_of_two_equal_calls_the_latest_is_first_and_a_settled_one_is_left_out(self):
+    def test_of_two_equal_calls_the_earliest_is_first_and_a_settled_one_is_left_out(self):
+        # Probe 9: Claude Code shows the dialogs of one turn in call order.
         self.written.use("toolu_1", "Bash", PUSH)
         self.written.allowed_at_mac("toolu_1")
         self.written.use("toolu_2", "Bash", PUSH)
         self.written.use("toolu_3", "Bash", PUSH)
-        self.assertEqual(self.calls(("Bash", PUSH)).waiting(), ["toolu_3", "toolu_2"])
+        self.assertEqual(self.calls(("Bash", PUSH)).waiting(), ["toolu_2", "toolu_3"])
+
+    def test_only_the_latest_turns_calls_wait(self):
+        self.written.prompt("push it")
+        self.written.use("toolu_old", "Bash", PUSH)
+        self.written.prompt("push it again")
+        self.written.use("toolu_2", "Bash", PUSH)
+        self.written.use("toolu_3", "Bash", PUSH)
+        self.assertEqual(self.calls(("Bash", PUSH)).waiting(), ["toolu_2", "toolu_3"])
 
     def test_only_the_last_200_rows_are_read(self):
         self.written.use("toolu_old", "Bash", PUSH)

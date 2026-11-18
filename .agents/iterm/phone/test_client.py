@@ -106,7 +106,7 @@ class Hook(unittest.TestCase):
 
     def effects(self, script):
         test = self
-        self.service = Service(self, script)
+        self.service = getattr(self, "service_class", Service)(self, script)
 
         class Fakes:
             @staticmethod
@@ -209,13 +209,33 @@ class Registration(Hook):
         self.assertEqual(self.connected_to, "/tmp/pl-state/hook.sock")
         self.assertEqual(self.registration()["session"]["account"], "family")
 
-    def test_of_equal_calls_the_latest_is_offered_first_and_settled_ones_not_at_all(self):
+    def test_of_equal_calls_the_earliest_is_offered_first_and_settled_ones_not_at_all(self):
         self.written.use("toolu_1", "Bash", PUSH)
         self.written.allowed_at_mac("toolu_1")
         self.written.use("toolu_2", "Bash", PUSH)
         self.written.use("toolu_3", "Bash", PUSH)
         self.run_hook({T0 + 0.01: [{"type": "dropped"}]})
-        self.assertEqual(self.registration()["calls"], ["toolu_3", "toolu_2"])
+        self.assertEqual(self.registration()["calls"], ["toolu_2", "toolu_3"])
+
+    def test_two_equal_calls_in_one_turn_the_first_hook_binds_the_first_and_ends_on_its_mac_allow(self):
+        # The service binds the first offered call no other hook holds (`Link._claim`).
+        test = self
+
+        class Binding(Service):
+            def send(self, message):
+                super().send(message)
+                if message["type"] == "permission":
+                    self.script[T0 + 0.01] = [{"type": "registered", "id": "m-abcde", "call": message["calls"][0]}]
+
+        self.service_class = Binding
+        self.written.prompt("push twice")
+        self.written.use("toolu_1", "Bash", PUSH)
+        self.written.use("toolu_2", "Bash", PUSH)
+        self.at[T0 + 2.5] = lambda: test.written.allowed_at_mac("toolu_1")
+        ended = self.run_hook({})
+        self.assertEqual(self.registration()["calls"], ["toolu_1", "toolu_2"])
+        self.assertEqual(self.service.of("settled"), [(4.0, {"type": "settled", "by": "mac", "decision": "allow"})])
+        self.assertLessEqual(ended, 5)
 
     def test_a_subagents_call_is_sought_in_the_agents_own_file(self):
         agent_file = transcript.call_file(self.path, "a1b2")

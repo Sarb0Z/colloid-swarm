@@ -15,8 +15,9 @@ with no dialog denies the call.
      write one line to stderr and exit.
   3. The call. The payload has no id for its call, so read the last 200 rows
      of the transcript that holds it (the session's, or the agent's own file
-     for a payload with `agent_id`) for the calls of this tool and input that
-     have not ended, the latest first. The service binds the event to the
+     for a payload with `agent_id`) for the calls of this tool and input in
+     the latest turn that have not ended, the earliest first: one turn's
+     dialogs come in call order. The service binds the event to the
      first that no other waiting hook holds.
   4. Register. One line: the session, the `claude` process and its start, the
      tool, and a preview that is masked and cut before it leaves this process,

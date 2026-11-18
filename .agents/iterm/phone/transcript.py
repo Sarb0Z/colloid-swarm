@@ -15,6 +15,8 @@ session: the probe sessions of
 `.agents/knowledge/research/2026-11-17-permission-request-hook-timing.md`, and
 three headless runs of 2026-11-18 (a hook's allow, a hook's deny, no decision):
 
+  a turn starts        a `user` row whose content is a string: the operator's
+                       prompt, or a meta row Claude Code writes with it
   the pending call     an `assistant` row whose content holds
                        `{"type": "tool_use", "id", "name", "input"}`
   a hook decided       an `attachment` row `{"type": "hook_permission_decision",
@@ -48,7 +50,8 @@ CHUNK = 1 << 20
 INTERRUPT = "[Request interrupted by user"
 # Rows are parsed only when they can hold one of these; a transcript also holds
 # request copies of hundreds of kilobytes that the reader has no use for.
-WANTED = (b'"tool_use"', b'"tool_result"', b'"hook_permission_decision"', INTERRUPT.encode())
+# A `user` row also marks where a turn starts, when its content is the operator's prompt.
+WANTED = (b'"tool_use"', b'"tool_result"', b'"hook_permission_decision"', INTERRUPT.encode(), b'"user"')
 
 
 class Ending(NamedTuple):
@@ -147,6 +150,7 @@ class Calls:
         self.wanted = wanted
         self.names: dict = {}
         self.matching: list = []
+        self.turn_start = 0  # the index in `matching` of the latest turn's first match
         self.results: dict = {}
         self.hook_decisions: dict = {}
         self.interrupts: list = []
@@ -163,6 +167,10 @@ class Calls:
                 continue
             message = row.get("message")
             content = message.get("content") if isinstance(message, dict) else None
+            if kind == "user" and isinstance(content, str):
+                # The operator's prompt: the calls before it belong to an earlier turn.
+                self.turn_start = len(self.matching)
+                continue
             if kind not in ("assistant", "user") or not isinstance(content, list):
                 continue
             for block in content:
@@ -190,8 +198,10 @@ class Calls:
         return {call: self.ending(call) for call in {*self.results, *self.hook_decisions}}
 
     def waiting(self) -> list:
-        """The ids of the wanted call's matches that have not ended, the latest first."""
-        return [call for call in reversed(self.matching) if self.ending(call) is None]
+        """The ids of the wanted call's matches in the latest turn that have not ended, the
+        earliest first: Claude Code shows one turn's dialogs in call order (the hook-timing
+        note's probe 9), so of equal calls the earliest is the one a dialog shows."""
+        return [call for call in self.matching[self.turn_start:] if self.ending(call) is None]
 
     def interrupted_since(self, epoch: float) -> bool:
         """Whether the operator interrupted a tool call at or after `epoch`."""
