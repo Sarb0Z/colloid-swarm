@@ -10,8 +10,10 @@ Which file: the session's transcript, or for a subagent's call
 `<session>/subagents/agent-<agent id>.jsonl` beside it. A subagent's call and
 its result are written there only (`call_file`).
 
-What Claude Code 2.1.325 writes, each observed in a real session
-(`.agents/knowledge/research/2026-11-17-permission-request-hook-timing.md`):
+What Claude Code 2.1.325 writes, each read from the transcript of a real
+session: the probe sessions of
+`.agents/knowledge/research/2026-11-17-permission-request-hook-timing.md`, and
+three headless runs of 2026-11-18 (a hook's allow, a hook's deny, no decision):
 
   the pending call     an `assistant` row whose content holds
                        `{"type": "tool_use", "id", "name", "input"}`
