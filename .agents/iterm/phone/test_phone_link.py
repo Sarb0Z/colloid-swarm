@@ -940,6 +940,36 @@ class NewestAlert(Service):
         self.assertEqual((first.of("decision"), second.of("decision")),
                          ([{"type": "decision", "behavior": "allow"}], []))
 
+    def test_the_id_in_brackets_as_the_alert_writes_it_names_that_event_and_not_the_newest(self):
+        first = self.waiting_hook()
+        self.later(10)
+        second = self.second_hook()
+        self.later(6)
+        self.phone("[m-abcde] no", age=0)
+        self.assertEqual((first.of("decision"), second.of("decision")),
+                         ([{"type": "decision", "behavior": "deny", "message": "no"}], []))
+
+    def test_a_word_shaped_like_an_id_of_no_machine_answers_the_newest_alert_and_is_not_dropped(self):
+        conn = self.waiting_hook()
+        self.later(1)
+        self.phone("a t-shirt, not a push", age=0)
+        self.assertEqual(conn.of("decision"),
+                         [{"type": "decision", "behavior": "deny", "message": "a t-shirt, not a push"}])
+
+    def test_an_id_with_nothing_but_punctuation_after_it_denies_with_where_the_denial_came_from(self):
+        conn = self.waiting_hook()
+        self.phone("m-abcde !!", age=0)
+        self.assertEqual(conn.of("decision"),
+                         [{"type": "decision", "behavior": "deny", "message": "Denied from the operator's phone."}])
+
+    def test_help_or_a_reserved_word_with_trailing_punctuation_answers_no_event(self):
+        conn = self.waiting_hook()
+        self.later(6)
+        self.phone("Help.", age=1)
+        self.phone("status?", age=0)
+        self.assertEqual(self.signal.texts[1:], [phone_link.grammar.HELP, "refused: not built yet"])
+        self.assertEqual(conn.of("decision"), [])
+
     def test_acceptance_6_when_the_newest_alert_is_settled_its_state_answers_and_no_older_event(self):
         first = self.waiting_hook()
         self.later(10)

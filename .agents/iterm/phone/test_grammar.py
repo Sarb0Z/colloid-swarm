@@ -29,6 +29,13 @@ class Parse(unittest.TestCase):
         self.assertEqual(grammar.parse("help"), Message("help"))
         self.assertEqual(grammar.parse("  Help \n"), Message("help"))
 
+    def test_trailing_punctuation_does_not_count_against_alone(self):
+        for text in ("Help.", "help?", "HELP!!"):
+            self.assertEqual(grammar.parse(text), Message("help"), text)
+        for text in ("status?", "Status.", "mute!", "unmute..."):
+            self.assertEqual(grammar.parse(text), Message("unbuilt"), text)
+        self.assertEqual(grammar.parse(".help"), Message("answer", "", ".help"))
+
     def test_reserved_words_alone_and_a_request_to_a_handle_are_not_built(self):
         for text in ("status", "Start", "mute", "unmute", "@colloid-swarm-c1 run the suite"):
             self.assertEqual(grammar.parse(text), Message("unbuilt"), text)
@@ -57,8 +64,25 @@ class Parse(unittest.TestCase):
 
     def test_an_id_past_the_second_word_or_not_an_id_names_no_event(self):
         for text in ("yes please m-qhvkz", "yes m-qhvk", "yes m-qhvkzz", "yes mqhvkz", "yes m-qh1kz",
-                     "yes (m-qhvkz)"):
+                     "yes,m-qhvkz", "yes [m-qhvkz]x"):
             self.assertEqual(grammar.parse(text), Message("answer", "", text), text)
+
+    def test_an_id_inside_brackets_or_punctuation_names_its_event_and_goes_with_them(self):
+        # The link writes the id in brackets, so a copied header line names its event.
+        self.assertEqual(grammar.parse("[m-abcde] no"), Message("answer", "m-abcde", "no"))
+        self.assertEqual(grammar.parse("yes (m-qhvkz)"), Message("answer", "m-qhvkz", "yes"))
+        self.assertEqual(grammar.parse("no \"M-QHVKZ\": not now"), Message("answer", "m-qhvkz", "no not now"))
+        self.assertEqual(grammar.parse("[s-tbnaw]"), Message("answer", "s-tbnaw", ""))
+
+    def test_only_a_machine_letter_and_the_id_alphabet_make_an_id(self):
+        # `m` is the Mac's letter and `s` the server's; the five letters after the hyphen never hold `l`.
+        for text in ("yes t-shirt", "E-mails are fine", "x-rayed it", "no m-hello", "s-ballot ok", "a-bcdef"):
+            self.assertEqual(grammar.parse(text), Message("answer", "", text), text)
+
+    def test_removing_the_id_keeps_the_line_breaks_after_it(self):
+        self.assertEqual(grammar.parse("no m-abcde\ntoo risky"), Message("answer", "m-abcde", "no \ntoo risky"))
+        self.assertEqual(grammar.parse("m-abcde \t\nno\nnot now"), Message("answer", "m-abcde", "no\nnot now"))
+        self.assertEqual(grammar.parse("m-abcde  \tno"), Message("answer", "m-abcde", "no"))
 
     def test_a_reserved_word_or_help_with_more_words_is_an_answer(self):
         self.assertEqual(grammar.parse("help m-qhvkz"), Message("answer", "m-qhvkz", "help"))

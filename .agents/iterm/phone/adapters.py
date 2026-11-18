@@ -14,9 +14,9 @@ what the transcript must then show the hook decided. `ADAPTERS` maps an event's
 `kind` to its adapter.
 
 The operator's words go to the session's model (spec "Messages from the
-phone"): a permission answer that is only an approval allows the call, and any
-other text denies it with that text as typed as the hook's deny message, which
-Claude reads as the call's result.
+phone"): a permission answer whose every word is an approval, with no question
+mark, allows the call, and any other text denies it with that text as typed as
+the hook's deny message, which Claude reads as the call's result.
 
 An alert's preview is already masked and cut by the hook that built it
 (`mask.outbound`): this module composes, it does not mask. An alert whose
@@ -41,6 +41,8 @@ VARIATION_SELECTORS = ("\N{VARIATION SELECTOR-15}", "\N{VARIATION SELECTOR-16}")
 # A skin tone on a thumbs up; a skin tone anywhere else is a character of the text.
 THUMB_SKIN = re.compile(f"{THUMB}[\N{EMOJI MODIFIER FITZPATRICK TYPE-1-2}-\N{EMOJI MODIFIER FITZPATRICK TYPE-6}]")
 DENIED_BLANK = "Denied from the operator's phone."
+# A question mark, as a phone keyboard may type it, makes an answer a question.
+QUESTION_MARKS = ("?", "\N{FULLWIDTH QUESTION MARK}", "\N{INVERTED QUESTION MARK}")
 
 
 def _within(event: dict, now: float, zone) -> str:
@@ -64,18 +66,31 @@ def _not_shown(detail: dict) -> list:
     return [said] if said else []
 
 
-def is_approval(text: str) -> bool:
-    """Whether `text` is one approval word or a thumbs up, once case, punctuation, emoji
-    variation selectors, a thumbs up's skin tone and invisible format characters are dropped."""
+def words_of(text: str) -> list:
+    """The words of `text` once case, punctuation, emoji variation selectors, a thumbs up's
+    skin tone and invisible format characters are dropped."""
     kept = "".join(char for char in text.lower()
                    if char not in VARIATION_SELECTORS and unicodedata.category(char)[0] != "P"
                    and unicodedata.category(char) != "Cf")
-    words = THUMB_SKIN.sub(THUMB, kept).split()
-    return len(words) == 1 and words[0] in APPROVALS
+    return THUMB_SKIN.sub(THUMB, kept).split()
+
+
+def is_question(text: str) -> bool:
+    return any(mark in text for mark in QUESTION_MARKS)
+
+
+def is_approval(text: str) -> bool:
+    """Whether every word of `text` is an approval word or a thumbs up, with no question mark
+    anywhere: `yes?` asks, it does not approve."""
+    words = words_of(text)
+    return bool(words) and not is_question(text) and all(word in APPROVALS for word in words)
 
 
 class Permission:
-    """A permission prompt: the hook's `PermissionRequest` decision."""
+    """A permission prompt: the hook's `PermissionRequest` decision. An answer of approvals
+    alone allows; one with no words and no question mark left denies with `DENIED_BLANK`,
+    so Claude reads where the denial came from; any other answer denies with the
+    operator's text as typed."""
 
     @staticmethod
     def alert(event: dict, now: float, zone) -> str:
@@ -94,7 +109,7 @@ class Permission:
     def answer(event: dict, text: str) -> dict:
         if is_approval(text):
             return {"type": "decision", "behavior": "allow"}
-        return {"type": "decision", "behavior": "deny", "message": text or DENIED_BLANK}
+        return {"type": "decision", "behavior": "deny", "message": text if is_question(text) or words_of(text) else DENIED_BLANK}
 
 
 def new_deadline(event: dict, now: float, zone) -> str:

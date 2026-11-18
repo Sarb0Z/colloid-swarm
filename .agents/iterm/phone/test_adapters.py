@@ -103,13 +103,23 @@ class Answer(unittest.TestCase):
             self.assertEqual(PERMISSION.answer(EVENT, text), ALLOW, repr(text))
 
     def test_acceptance_2_and_3_any_other_text_denies_with_the_text_as_typed(self):
-        for text in ("no", "No.", "no, push to main instead", "yes but skip the tests", "yes yes",
-                     f"ok {THUMB}", f"{THUMB}{THUMB}", THUMB_DOWN, "nope", "yess", "yes please", "go ahead",
+        for text in ("no", "No.", "no, push to main instead", "yes but skip the tests", "yes no",
+                     f"{THUMB}{THUMB}", THUMB_DOWN, "nope", "yess", "yes please", "go ahead",
                      "help", "y es", f"ok{MEDIUM_SKIN}", MEDIUM_SKIN, "?"):
             self.assertEqual(PERMISSION.answer(EVENT, text), deny(text), repr(text))
 
+    def test_a_message_whose_every_word_is_an_approval_allows(self):
+        for text in (f"ok {THUMB}", "yes yes", "Yes, ok.", f"sure {THUMB}{MEDIUM_SKIN} go"):
+            self.assertEqual(PERMISSION.answer(EVENT, text), ALLOW, repr(text))
+
+    def test_a_question_mark_anywhere_makes_a_question_that_denies_with_the_text(self):
+        for text in ("yes?", "ok?", f"{THUMB}?", "?yes", "y?es", "yes ?", "ok\N{FULLWIDTH QUESTION MARK}",
+                     "\N{INVERTED QUESTION MARK}ok"):
+            self.assertEqual(PERMISSION.answer(EVENT, text), deny(text), repr(text))
+
     def test_a_message_with_no_words_left_after_the_id_denies_and_says_where_the_denial_came_from(self):
-        self.assertEqual(PERMISSION.answer(EVENT, ""), deny("Denied from the operator's phone."))
+        for text in ("", "!!!", "...", f"{ZERO_WIDTH}.", f"{ISOLATE}{ISOLATE_END}", f"- {BYTE_ORDER} ,"):
+            self.assertEqual(PERMISSION.answer(EVENT, text), deny("Denied from the operator's phone."), repr(text))
 
 
 if __name__ == "__main__":

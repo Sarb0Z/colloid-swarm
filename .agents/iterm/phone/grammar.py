@@ -10,9 +10,12 @@ no word list (spec "Messages from the phone"). `parse` tells only these apart:
     @<handle> <text>     a request (unit 3d), `refused: not built yet`
     anything else        an answer, with the event id it names, if any
 
-An answer names an event when its first or second word is an event id, in any
-case and with trailing punctuation. The answer's text is the message as typed,
-outer space trimmed, without that one word. What the text does to the event is
+"Alone" allows trailing punctuation: `Help.`, `status?`. An answer names an
+event when its first or second word is an event id — a machine letter, a
+hyphen and five letters of the id alphabet — in any case, alone or inside
+brackets or other punctuation (`[m-qhvkz]`). The answer's text is the message
+as typed, outer space trimmed, without that one word and the spaces and tabs
+after it. What the text does to the event is
 its adapter's (`adapters.py`); which event it answers is `phone_link.py`'s.
 
 To the phone, every message about an event starts with its id in brackets
@@ -26,7 +29,11 @@ import re
 import unicodedata
 from typing import NamedTuple
 
-EVENT_ID = re.compile(r"[a-z]-[a-z]{5}")
+import log
+
+# The Mac's letter `m` and the server's `s`, then five letters of the alphabet `log` draws ids from.
+MACHINE_LETTERS = "ms"
+EVENT_ID = re.compile(f"[{MACHINE_LETTERS}]-[{log.ID_LETTERS}]{{5}}")
 RESERVED = ("status", "start", "mute", "unmute")
 HELP = ("yes, ok or \N{THUMBS UP SIGN} — allow the call\n"
         "any other words — deny it; Claude reads them as you typed them\n"
@@ -48,16 +55,25 @@ class Message(NamedTuple):
     text: str = ""  # for "answer": the text as typed, without the id
 
 
+def _is_punctuation(char: str) -> bool:
+    return unicodedata.category(char)[0] == "P"
+
+
 def _event_id(word: str) -> str:
+    """The event id that `word` is, alone or inside brackets or other punctuation, or ''."""
     found = word.lower()
-    while found and unicodedata.category(found[-1])[0] == "P":
+    while found and _is_punctuation(found[-1]):
         found = found[:-1]
+    while found and _is_punctuation(found[0]):
+        found = found[1:]
     return found if EVENT_ID.fullmatch(found) else ""
 
 
 def parse(text: str) -> Message:
     words = text.split()
     alone = words[0].lower() if len(words) == 1 else ""
+    while alone and _is_punctuation(alone[-1]):
+        alone = alone[:-1]
     if alone == "help":
         return Message("help")
     if alone in RESERVED:
@@ -67,8 +83,9 @@ def parse(text: str) -> Message:
     for word in itertools.islice(re.finditer(r"\S+", text), 2):
         event = _event_id(word.group())
         if event:
-            # The id goes with the space after it, so `no <id> too risky` reads `no too risky`.
-            return Message("answer", event, (text[:word.start()] + text[word.end():].lstrip()).strip())
+            # The id goes with the spaces and tabs after it, so `no <id> too risky` reads
+            # `no too risky`; a line break after it is the operator's and stays.
+            return Message("answer", event, (text[:word.start()] + text[word.end():].lstrip(" \t")).strip())
     return Message("answer", "", text.strip())
 
 
