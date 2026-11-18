@@ -10,7 +10,7 @@
 # /root/backups/unit5-<date>/ under its own path. --check prints each change a
 # run would make, and changes nothing.
 #
-# The server is live (mail, web, GitMu):
+# The server is live (web, Docker, GitMu):
 # - apt runs with needrestart suspended, so an install restarts no service;
 # - the install stops before it would upgrade or remove an installed package;
 # - apt's output goes to a log in the backup folder, not to the ssh connection,
