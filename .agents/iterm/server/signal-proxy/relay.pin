@@ -1,0 +1,4 @@
+repository=https://github.com/signalapp/Signal-TLS-Proxy
+commit=cf25c783a32a0a2e7adb5a27082360beaaea8bce
+path=data/nginx-relay/nginx.conf
+sha256=f7403781e7ab07b495610d3a7d7526944b60923187d9e3bc429b662df9ade4c0
