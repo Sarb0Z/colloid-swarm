@@ -189,8 +189,14 @@ for script in "$IT"/bin/*; do
   [[ -x $script ]] && ok "$name is executable" || bad "$script is not executable"
   eq "install links $name to its file here" "$script" "$(readlink "$H/.local/bin/$name")"
 done
-eq "install links the pane commands, the phone link's hooks and nothing else" \
-  "$({ ls "$IT/bin"; ls "$IT/phone/hooks"; } | LC_ALL=C sort)" "$(ls "$H/.local/bin" | LC_ALL=C sort)"
+eq "install links the pane commands, dev-server, the phone link's hooks and nothing else" \
+  "$({ ls "$IT/bin"; echo dev-server; ls "$IT/phone/hooks"; } | LC_ALL=C sort)" "$(ls "$H/.local/bin" | LC_ALL=C sort)"
+eq "install links dev-server to the connect script" "$IT/connect/dev-server" "$(readlink "$H/.local/bin/dev-server")"
+eq "the dynamic profile's Command is that link" "$H/.local/bin/dev-server" \
+  "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["Profiles"][0]["Command"].replace("/Users/alice", sys.argv[2]))' "$IT/connect/dev-server.json" "$H")"
+mkdir -p "$T/checkhome/.claude"
+[[ $(HOME=$T/checkhome "$IT/install.sh" --check 2>&1) == *"linked: $T/checkhome/.local/bin/dev-server -> $IT/connect/dev-server"* ]] \
+  && ok "install --check shows the dev-server link" || bad "install --check shows the dev-server link"
 [[ $out1 == *linked:* ]] && ok "install reports what it did" || bad "install reports: $out1"
 links1=$(ls -l "$H/.local/bin")
 out2=$(HOME=$H "$IT/install.sh" 2>&1); rc=$?
