@@ -1,0 +1,29 @@
+# The Signal TLS proxy on contabo-hop: `docker compose -p signal-proxy -f
+# /opt/signal-proxy/compose.yaml up -d`, which setup-proxy.sh runs. Only
+# `terminate` publishes a port, 8443; nginx on the host keeps 80 and 443.
+# Docker's published port bypasses ufw, so the port is the control: `down`
+# closes it. Both containers reload nginx every 6 hours, as upstream's do: nginx
+# resolves Signal's hosts and the relay's address only when it loads.
+name: signal-proxy
+
+services:
+  terminate:
+    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
+    restart: unless-stopped
+    depends_on:
+      - relay
+    # !override replaces the list where Compose would append to it, so no
+    # merged file can add a port beside 8443.
+    ports: !override
+      - "8443:443"
+    volumes:
+      - ./terminate.conf:/etc/nginx/nginx.conf:ro
+      - /var/lib/lego/certificates:/certs:ro
+    command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g 'daemon off;'"]
+
+  relay:
+    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
+    restart: unless-stopped
+    volumes:
+      - ./relay.conf:/etc/nginx/nginx.conf:ro
+    command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g 'daemon off;'"]

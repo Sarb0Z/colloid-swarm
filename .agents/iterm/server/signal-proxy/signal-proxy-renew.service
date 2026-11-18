@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew the Signal TLS proxy's certificate and reload the proxy when it changed
+Documentation=file:///opt/signal-proxy/lego.sh
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/signal-proxy/lego.sh
+# lego sleeps up to 8 minutes before a renewal it was not started for by hand.
+TimeoutStartSec=30min

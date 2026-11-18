@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Run setup-proxy.sh on contabo-hop as root, from the Mac: it sends this folder
+# over one ssh connection, runs the script in a scratch folder there, and
+# removes the folder. README.md beside it is the operator's runbook.
+#
+# Usage: apply-proxy [--check] [--staging]
+#   --check    print each change a run would make; change nothing
+#   --staging  use Let's Encrypt's staging directory (run this first)
+set -euo pipefail
+
+arguments=()
+for argument in "$@"; do
+  case $argument in
+    --check | --staging) arguments+=("$argument") ;;
+    *)
+      echo "usage: apply-proxy [--check] [--staging]" >&2
+      exit 2
+      ;;
+  esac
+done
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+cp "$here/setup-proxy.sh" "$here/compose.yaml" "$here/terminate.conf" "$here/relay.conf" "$here/relay.pin" \
+  "$here/lego.sh" "$here/signal-proxy-renew.service" "$here/signal-proxy-renew.timer" "$stage/"
+
+# GNU tar on the server warns on each macOS file tag; --no-xattrs keeps them out,
+# and the other two the AppleDouble copies.
+COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - -C "$stage" . |
+  ssh contabo-hop 'd=$(mktemp -d) && tar -xf - -C "$d" && bash "$d/setup-proxy.sh" '"${arguments[*]-}"'; s=$?; rm -rf "$d"; exit $s'
