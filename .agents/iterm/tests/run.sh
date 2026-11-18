@@ -118,6 +118,13 @@ rm -f "$T/argv"
 (cd "$T/up" && env -u PANE_DIFF_NVIM PATH="$T/fakebin:$PATH" "$IT/bin/pane-diff" </dev/null >/dev/null 2>&1)
 eq "pane-diff finds nvim on PATH without PANE_DIFF_NVIM" "-c${nl}DiffviewOpen $c1" "$(cat "$T/argv" 2>/dev/null)"
 
+# PATH without nvim: the /usr/bin location is tried next.
+mkdir "$T/nonvim"
+for tool in git sed tr wc dirname readlink cat bash; do ln -s "$(command -v "$tool")" "$T/nonvim/$tool"; done
+rm -f "$T/argv"
+(cd "$T/up" && env -u PANE_DIFF_NVIM PATH="$T/nonvim" PANE_DIFF_SYSTEM_NVIM="$T/nvim-stub" "$IT/bin/pane-diff" </dev/null >/dev/null 2>&1)
+eq "pane-diff falls back to the /usr/bin location when PATH has no nvim" "-c${nl}DiffviewOpen $c1" "$(cat "$T/argv" 2>/dev/null)"
+
 # Untracked files: a commit base gets a second tab, with tab 1 current and a message.
 repo "$T/ut"
 u1=$(commit "$T/ut" one)
