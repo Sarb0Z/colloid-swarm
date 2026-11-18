@@ -190,6 +190,8 @@ else
     echo "nothing to change"
   fi
   "${compose[@]}" exec -T terminate nginx -t >/dev/null 2>&1 || problem "nginx -t fails in the terminate container"
+  bash "$dir/lego.sh" --served ||
+    problem "the proxy on 8443 does not serve /var/lib/lego/certificates/$ip.crt (lego.sh's line above names both); recreate it: docker compose -p signal-proxy -f /opt/signal-proxy/compose.yaml up -d --force-recreate terminate"
   grep -E '[:.]8443[[:space:]].*"docker-proxy"' <<<"$(ss -tlnp)" >/dev/null || problem "docker-proxy does not hold port 8443"
   grep -E '[:.]443[[:space:]].*"nginx"' <<<"$(ss -tlnp)" >/dev/null || problem "nginx no longer holds port 443"
   if [[ -d $backup ]]; then

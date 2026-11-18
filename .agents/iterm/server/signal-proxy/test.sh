@@ -40,12 +40,24 @@ stub() { # name body
   chmod +x "$T/bin/$1"
 }
 stub id '[[ $1 == -u ]] && echo 0'
+# s_client hands on the certificate the proxy last loaded ($STATE/served), as nginx
+# in the terminate container would present it on 127.0.0.1:8443.
 stub openssl 'case "$1 $2" in
   "x509 -checkend") end=$(sed -n "s/^notAfter=//p" "${*: -1}"); (( end - $(date +%s) > $3 )) ;;
   "x509 -enddate") grep "^notAfter=" "${*: -1}" ;;
+  "x509 -noout")
+    [[ $* == "x509 -noout -fingerprint -sha256"* ]] || { echo "openssl stand-in: unexpected $*" >&2; exit 3; }
+    if [[ $5 == -in ]]; then pem=$(cat "$6"); else pem=$(cat); fi
+    [[ -n $pem ]] || { echo "unable to load certificate" >&2; exit 1; }
+    echo "sha256 Fingerprint=$(cksum <<<"$pem" | cut -d" " -f1)" ;;
+  "s_client -connect")
+    [[ $* == "s_client -connect 127.0.0.1:8443 -servername 62.171.166.213" ]] || { echo "openssl stand-in: unexpected $*" >&2; exit 3; }
+    [[ -s $STATE/served ]] || { echo "connect:errno=111" >&2; exit 1; }
+    cat "$STATE/served" ;;
   "rand -hex") echo 00112233aabbccdd ;;
   *) echo "openssl stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
+stub sleep 'true'
 # curl GETs the webroot's file through the host's nginx, unless that is broken.
 stub curl 'echo "curl $*" >>"$CALLS"
 [[ -e $STATE/webroot-broken ]] && { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
@@ -71,7 +83,23 @@ esac'
 # lego renews as v5.6.0 does: when there is no certificate, at half the life of a
 # short-lived one (80 h left), or with --renew-force; $STATE/lego-noop makes it
 # write nothing, as when Let's Encrypt refuses.
+# Compose binds terminate to the certificates folder as `up` finds it: a folder
+# renamed later stays the one mounted ($STATE/mounted holds its inode), as a
+# bind mount does, so nginx loads the chain from that folder on each start and
+# reload. $STATE/serve-stale makes a reload load nothing; $STATE/ps-fails makes
+# `compose ps` fail.
 stub docker 'certs=$SETUP_ROOT/var/lib/lego/certificates
+inode() { ls -di "$1" | awk "{print \$1}"; }
+load() {
+  [[ -e $STATE/serve-stale ]] && return 0
+  for d in "$certs" "$certs"-*; do
+    if [[ -d $d && $(inode "$d") == "$(cat "$STATE/mounted")" ]]; then
+      cp "$d/62.171.166.213.crt" "$STATE/served" 2>/dev/null || rm -f "$STATE/served"
+      return 0
+    fi
+  done
+  rm -f "$STATE/served"
+}
 case "$1 $2" in
   "compose version") echo 2.40.3 ;;
   "ps -a") echo "backup: docker ps -a" >>"$CALLS"; echo "CONTAINER ID   IMAGE" ;;
@@ -89,9 +117,12 @@ case "$1 $2" in
   compose\ -p)
     shift 5
     case $1 in
-      ps) cat "$STATE/running" 2>/dev/null; true ;;
-      up) echo "docker compose $*" >>"$CALLS"; printf "relay\nterminate\n" >"$STATE/running" ;;
-      exec) [[ $* == "exec -T terminate nginx -t" && ! -e $STATE/log-nginx-t ]] || echo "docker compose $*" >>"$CALLS" ;;
+      ps) [[ -e $STATE/ps-fails ]] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+        cat "$STATE/running" 2>/dev/null; true ;;
+      up) echo "docker compose $*" >>"$CALLS"; printf "relay\nterminate\n" >"$STATE/running"
+        mkdir -p "$certs"; inode "$certs" >"$STATE/mounted"; rm -f "$STATE/serve-stale"; load ;;
+      exec) [[ $* == "exec -T terminate nginx -t" && ! -e $STATE/log-nginx-t ]] || echo "docker compose $*" >>"$CALLS"
+        [[ $* != "exec -T terminate nginx -s reload" ]] || load ;;
       *) echo "docker stand-in: unexpected compose $*" >&2; exit 3 ;;
     esac ;;
   *) echo "docker stand-in: unexpected $*" >&2; exit 3 ;;
@@ -208,6 +239,18 @@ eq "50 h left: lego runs, then nginx -t, then the reload" \
   "curl|$(lego_line "$STAGING")|docker compose exec -T terminate nginx -t|docker compose exec -T terminate nginx -s reload|" \
   "$(sed 's/^curl .*/curl/' "$CALLS" | tr '\n' '|')"
 has "50 h left: names the new notAfter" "lego wrote a new certificate: notAfter=" "$out"
+has "50 h left: the proxy is read back serving the new certificate" "the proxy serves the new certificate" "$out"
+
+: >"$CALLS"
+cert_left 50 "$STAGING"
+touch "$STATE/serve-stale"
+out=$(renew 2>&1); rc=$?
+eq "a reload that leaves the old certificate served: exits 1" 1 "$rc"
+has "a reload that leaves the old certificate served: says so" \
+  "lego.sh: the proxy on 127.0.0.1:8443 serves sha256 Fingerprint=" "$out"
+has "a reload that leaves the old certificate served: names the file" \
+  "not the one in /var/lib/lego/certificates (sha256 Fingerprint=" "$out"
+rm "$STATE/serve-stale"
 
 : >"$CALLS"
 cert_left 50 "$STAGING"
@@ -234,6 +277,7 @@ eq "a forced renewal adds --renew-force alone" "$(lego_line "$STAGING") --renew-
 
 # --- then production: the staging certificate is put aside ---------------------------
 : >"$CALLS"
+certs_inode=$(ls -di "$R/var/lib/lego/certificates" | awk '{print $1}')
 out=$(run 2>&1); rc=$?
 eq "production run exits 0" 0 "$rc"
 has "production run: names why it issues" "issue the certificate for 62.171.166.213 from $PRODUCTION with lego.sh (the one there is not from $PRODUCTION)" "$out"
@@ -241,7 +285,11 @@ eq "the lego command line, against production" "$(lego_line "$PRODUCTION")" "$(g
 compgen -G "$R/var/lib/lego/certificates-*/62.171.166.213.crt" >/dev/null && ok "the staging certificate is kept aside" || bad "the staging certificate is gone"
 eq "the certificate is from production now" "$PRODUCTION" "$(cat "$R/var/lib/lego/signal-proxy-server")"
 lacks "production run: the running proxy is not recreated" "up -d" "$(cat "$CALLS")"
+eq "production run: the certificates folder terminate mounts is the same folder" "$certs_inode" \
+  "$(ls -di "$R/var/lib/lego/certificates" | awk '{print $1}')"
 has "production run: the running proxy reloads the new certificate" "docker compose exec -T terminate nginx -s reload" "$(cat "$CALLS")"
+eq "production run: the proxy serves the production certificate" "$(cat "$cert")" "$(cat "$STATE/served")"
+lacks "production run: no problem reported" "PROBLEM" "$out"
 : >"$CALLS"
 out=$(SIGNAL_PROXY_FORCE=1 renew 2>&1); rc=$?
 eq "a forced renewal against production: refused" 1 "$rc"
@@ -254,6 +302,15 @@ out=$(run 2>&1); rc=$?
 eq "changed config: exits 0" 0 "$rc"
 eq "changed config: one recreate, nothing else changing" "docker compose up -d --force-recreate|" "$(grep -v '^docker compose exec -T terminate nginx -t$' "$CALLS" | tr '\n' '|')"
 [[ -f $R/root/backups/signal-proxy-$(date +%Y%m%d)/opt/signal-proxy/terminate.conf ]] && ok "changed config: the old file is backed up" || bad "changed config: no backup of the old file"
+
+# --- a run reads back the certificate the proxy serves --------------------------------
+served_before=$(cat "$STATE/served")
+echo "an older certificate" >"$STATE/served"
+out=$(run 2>&1); rc=$?
+eq "a proxy serving another certificate than the file: the run exits 1" 1 "$rc"
+has "a proxy serving another certificate than the file: reported" \
+  "PROBLEM: the proxy on 8443 does not serve /var/lib/lego/certificates/62.171.166.213.crt" "$out"
+printf '%s\n' "$served_before" >"$STATE/served"
 
 # --- refusals change nothing ---------------------------------------------------------
 fresh

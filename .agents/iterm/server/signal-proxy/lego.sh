@@ -13,6 +13,10 @@
 # its staging one), as setup-proxy.sh wrote it. A certificate from another
 # directory than that one is moved aside, so lego issues a new one.
 #
+# After each reload it reads the certificate the proxy serves on 127.0.0.1:8443
+# and exits 1 when it is not the file's. `lego.sh --served` does only that read;
+# setup-proxy.sh runs it at the end of every run.
+#
 # SIGNAL_PROXY_FORCE=1 renews whatever the time left (lego's --renew-force),
 # against staging only. With systemd: `systemctl set-environment
 # SIGNAL_PROXY_FORCE=1`, `systemctl start signal-proxy-renew`, then
@@ -39,6 +43,33 @@ die() {
   exit 1
 }
 
+# served: true when the proxy on 127.0.0.1:8443 presents the certificate in the
+# file. `nginx -s reload` returns before the new workers have it, and a container
+# just started needs a moment, so it asks up to 10 times, a second apart.
+served() {
+  local want got=
+  want=$(openssl x509 -noout -fingerprint -sha256 -in "$cert") || {
+    printf 'lego.sh: %s is not a certificate openssl reads\n' "${cert#"$R"}" >&2
+    return 1
+  }
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    got=$(openssl s_client -connect 127.0.0.1:8443 -servername "$ip" </dev/null 2>/dev/null |
+      openssl x509 -noout -fingerprint -sha256 2>/dev/null) || got=
+    [[ $got == "$want" ]] && return 0
+    sleep 1
+  done
+  printf 'lego.sh: the proxy on 127.0.0.1:8443 serves %s, not the one in %s (%s)\n' \
+    "${got:-no certificate}" "${store}/certificates" "$want" >&2
+  return 1
+}
+
+case ${1-} in
+  --served)
+    served
+    exit
+    ;;
+esac
+
 server=$(cat "$R$dir/acme-server" 2>/dev/null) || die "no $dir/acme-server; run setup-proxy.sh first"
 [[ $server == "$production" || $server == "$staging" ]] || die "$dir/acme-server names $server, neither Let's Encrypt's directory nor its staging one"
 force=0
@@ -48,9 +79,16 @@ if [[ ${SIGNAL_PROXY_FORCE:-} == 1 ]]; then
 fi
 
 if [[ -f $cert && $(cat "$issued_by" 2>/dev/null) != "$server" ]]; then
+  # The running terminate container bind-mounts the certificates folder itself,
+  # and a renamed folder stays the mounted one, so the files move and the folder
+  # stays where it is.
   aside=$R$store/certificates-$(date +%Y%m%d%H%M%S)
-  mv "$R$store/certificates" "$aside"
-  echo "the certificate is not from $server; moved aside to ${aside#"$R"}"
+  mkdir "$aside"
+  shopt -s dotglob nullglob
+  files=("$R$store/certificates"/*)
+  shopt -u dotglob nullglob
+  mv -- "${files[@]}" "$aside/"
+  echo "the certificate is not from $server; its files are moved aside to ${aside#"$R"}"
 fi
 
 if ((!force)) && [[ -f $cert ]] && openssl x509 -checkend $((80 * 3600)) -noout -in "$cert" >/dev/null; then
@@ -89,5 +127,6 @@ echo "lego wrote a new certificate: $(openssl x509 -enddate -noout -in "$cert")"
 if "${compose[@]}" ps --status running --services | grep -qx terminate; then
   "${compose[@]}" exec -T terminate nginx -t
   "${compose[@]}" exec -T terminate nginx -s reload
-  echo "the proxy reloaded the new certificate"
+  served || exit 1
+  echo "the proxy serves the new certificate"
 fi
