@@ -22,6 +22,7 @@ message the operator typed on the phone, then removed.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -164,7 +165,9 @@ class FakeSignalCli:
                 # A shutdown reaches the peer at once; a close alone waits for the reading thread.
                 client.shutdown(socket.SHUT_RDWR)
             except OSError as error:
-                print(f"fake signal-cli: a client was already gone ({error})", file=sys.stderr)
+                # A client that closed first has nothing left to drop; anything else is worth a line.
+                if error.errno != errno.ENOTCONN:
+                    print(f"fake signal-cli: a client could not be dropped ({error})", file=sys.stderr)
 
     def stop(self) -> None:
         self.listener.close()
