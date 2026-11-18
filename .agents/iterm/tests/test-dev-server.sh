@@ -22,7 +22,8 @@ n=$(($(cat "$FAKE_CALLS" 2>/dev/null || echo 0) + 1))
 echo "$n" >"$FAKE_CALLS"
 line=$(sed -n "${n}p" "$FAKE_PLAN")
 [[ -z $line ]] && line=$(tail -n 1 "$FAKE_PLAN")
-read -r status seconds <<<"$line"
+read -r status seconds message <<<"$line"
+[[ -n $message ]] && echo "$message" >&2
 echo $(($(cat "$FAKE_CLOCK") + seconds)) >"$FAKE_CLOCK"
 exit "$status"
 STUB
@@ -63,7 +64,19 @@ play "1 1" "0 1"
 eq "status 1 stops: one try" 1 "$calls"
 eq "status 1 stops: no sleep" "" "$delays"
 eq "status 1 stops: its status is the exit status" 1 "$rc"
-has "status 1 says why" "stopped with status 1:" "$out"
+has "status 1 says why" "stopped with status 1: ssh or the remote command failed." "$out"
+
+for refusal in "Permission denied (publickey)." "Host key verification failed." \
+  "Received disconnect: Too many authentication failures" "ssh: Could not resolve hostname testhost: nodename nor servname provided"; do
+  play "255 1 $refusal"
+  eq "255 with [$refusal]: one try, no retry" 1 "$calls"
+  eq "255 with [$refusal]: status 255" 255 "$rc"
+  has "255 with [$refusal]: ssh's own words stay visible" "$refusal" "$out"
+  has "255 with [$refusal]: says retrying cannot help" "will not retry" "$out"
+  has "255 with [$refusal]: waits for a key" "Press any key to close." "$out"
+done
+play "255 1 Connection timed out" "0 1"
+eq "255 with another message still retries" 2 "$calls"
 
 play "255 1" "255 1" "255 1" "255 1" "255 1" "255 1" "255 1" "255 1"
 eq "backoff doubles and holds at 30" "2 4 8 16 30 30 30 " "$(printf '%s' "$delays" | head -c 18)"
