@@ -18,7 +18,10 @@
       ".agents/claude/*.py",
       ".agents/codex/**",
       ".kimi/hooks/**",
-      ".kimi/config.toml.example"
+      ".kimi/config.toml.example",
+      ".agents/iterm/phone/**",
+      ".agents/iterm/install.sh",
+      ".agents/iterm/server/**"
     ],
     "suite": ".agents/check-all.sh"
   }
