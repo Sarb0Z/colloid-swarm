@@ -84,7 +84,8 @@ def _changed(old: str, new: str) -> list:
 
 def preview(tool: str, tool_input) -> str:
     """What the alert shows of a call, before masking: a Bash command; for Edit, Write and
-    NotebookEdit the path and the first 10 changed lines; any other input as JSON."""
+    NotebookEdit the path and the first 10 changed lines, then how many more changed; any
+    other input as JSON."""
     given = tool_input if isinstance(tool_input, dict) else {}
     if tool == "Bash" and isinstance(given.get("command"), str):
         return given["command"]
@@ -92,7 +93,13 @@ def preview(tool: str, tool_input) -> str:
              "NotebookEdit": ("notebook_path", None, "new_source")}.get(tool)
     if shown and isinstance(given.get(shown[0]), str) and isinstance(given.get(shown[2]), str):
         old = given.get(shown[1]) if shown[1] and isinstance(given.get(shown[1]), str) else ""
-        return "\n".join([given[shown[0]], *_changed(old, given[shown[2]])[:PREVIEW_LINES]])
+        changed = _changed(old, given[shown[2]])
+        lines = [given[shown[0]], *changed[:PREVIEW_LINES]]
+        if len(changed) > PREVIEW_LINES:
+            # Only the first DIFFED_LINES of each text are compared, so past them the count is a floor.
+            diffed_all = max(len(old.splitlines()), len(given[shown[2]].splitlines())) <= DIFFED_LINES
+            lines.append(f"[… {'' if diffed_all else 'at least '}{len(changed) - PREVIEW_LINES} more changed lines]")
+        return "\n".join(lines)
     return json.dumps(tool_input, ensure_ascii=False)
 
 

@@ -424,7 +424,18 @@ class Previews(unittest.TestCase):
     def test_a_write_shows_its_path_and_its_first_10_lines(self):
         content = "\n".join(f"line {n}" for n in range(1, 31))
         self.assertEqual(client.preview("Write", {"file_path": "/repo/new.txt", "content": content}),
+                         "/repo/new.txt\n" + "\n".join(f"+ line {n}" for n in range(1, 11))
+                         + "\n[… 20 more changed lines]")
+
+    def test_ten_changed_lines_show_whole_with_no_mark(self):
+        content = "\n".join(f"line {n}" for n in range(1, 11))
+        self.assertEqual(client.preview("Write", {"file_path": "/repo/new.txt", "content": content}),
                          "/repo/new.txt\n" + "\n".join(f"+ line {n}" for n in range(1, 11)))
+
+    def test_a_change_past_the_diffed_lines_says_at_least(self):
+        content = "\n".join(f"line {n}" for n in range(1, 501))
+        shown = client.preview("Write", {"file_path": "/repo/big.txt", "content": content})
+        self.assertTrue(shown.endswith("\n+ line 10\n[… at least 190 more changed lines]"), shown[-60:])
 
     def test_a_notebook_edit_shows_its_path_and_its_new_source(self):
         cell = {"notebook_path": "/repo/n.ipynb", "new_source": "import os\nprint(1)", "cell_id": "c1"}
