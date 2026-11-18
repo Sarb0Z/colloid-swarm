@@ -584,12 +584,13 @@ def main(argv) -> int:
                 errors=errors, sessions=session_list.Sessions(state / "sessions.json"),
                 signal=Signal(signal_client.Connection(str(state / "signal" / "socket")), errors),
                 zone=zone)
-    stop = []
-    for number in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(number, lambda *_: stop.append(True))
+    # A handler that only set a flag would leave the loop asleep until its next timer:
+    # Python retries an interrupted wait. Leaving through SystemExit ends it now, and
+    # each waiting hook reads its end of file as the process ends.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         link.start()
-        serve(link, listener, errors, lambda: bool(stop))
+        serve(link, listener, errors, lambda: False)
     except Exception:
         errors.write("phone-link stopped on an error: " + traceback.format_exc())
         raise
