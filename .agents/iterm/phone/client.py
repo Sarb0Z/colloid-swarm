@@ -276,6 +276,8 @@ def main(argv) -> int:
         if not isinstance(payload, dict):
             raise ValueError("the payload is not a JSON object")
         return run(payload, os.environ, Effects, out, err)
+    except KeyboardInterrupt:
+        return 0  # The operator's own Ctrl+C in a session without a dialog: nothing to say.
     except Exception:  # A hook that fails must not block the tool call: say why, and let the dialog decide.
         err("failed, and the permission prompt goes on without the phone:\n" + traceback.format_exc())
         return 0

@@ -18,16 +18,20 @@ Seams:
       wrong lines or more than ten.
 """
 
+import contextlib
+import io
 import json
 import os
 import shutil
 import socket
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from datetime import timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import client
 import fake_signal_cli as fake
@@ -409,6 +413,50 @@ class Previews(unittest.TestCase):
         self.assertEqual(client.preview("WebFetch", fetch), '{"url": "https://example.com/é", "prompt": "summarise"}')
         self.assertEqual(client.preview("Bash", {"cmd": 1}), '{"cmd": 1}')
         self.assertEqual(client.preview("Edit", {"file_path": "/a"}), '{"file_path": "/a"}')
+
+
+class Entry(unittest.TestCase):
+    """`main`, which must end with 0 whatever happens inside: a hook that fails must not block the call."""
+
+    def ended(self, stdin, run=None, argv=("client.py", "permission")):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, "stdin", io.StringIO(stdin)), contextlib.redirect_stdout(stdout), \
+                contextlib.redirect_stderr(stderr), mock.patch.object(client, "run", run or client.run):
+            code = client.main(list(argv))
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_a_decision_goes_to_stdout_as_one_line(self):
+        def decided(payload, environ, effects, out, err):
+            out(client.decision_output("allow", None))
+            return 0
+        code, stdout, stderr = self.ended('{"tool_name": "Bash"}', decided)
+        self.assertEqual((code, stderr), (0, ""))
+        self.assertEqual(stdout, '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", '
+                                 '"decision": {"behavior": "allow"}}}\n')
+
+    def test_a_failure_inside_the_hook_is_reported_on_stderr_and_ends_with_0(self):
+        def broken(*_arguments):
+            raise RuntimeError("boom")
+        code, stdout, stderr = self.ended("{}", broken)
+        self.assertEqual((code, stdout), (0, ""))
+        self.assertIn("phone-permission: failed, and the permission prompt goes on without the phone", stderr)
+        self.assertIn("RuntimeError: boom", stderr)
+
+    def test_a_payload_that_is_not_a_json_object_is_reported_and_ends_with_0(self):
+        for stdin in ("", "not json", "[1, 2]"):
+            code, stdout, stderr = self.ended(stdin)
+            self.assertEqual((code, stdout), (0, ""), stdin)
+            self.assertIn("phone-permission: failed", stderr)
+
+    def test_the_operators_ctrl_c_ends_the_hook_with_0_and_no_word(self):
+        def interrupted(*_arguments):
+            raise KeyboardInterrupt
+        self.assertEqual(self.ended("{}", interrupted), (0, "", ""))
+
+    def test_another_argument_is_a_usage_line_and_0(self):
+        code, stdout, stderr = self.ended("{}", argv=("client.py", "gate"))
+        self.assertEqual((code, stdout), (0, ""))
+        self.assertIn("usage: client.py permission", stderr)
 
 
 class RealSocket(unittest.TestCase):
