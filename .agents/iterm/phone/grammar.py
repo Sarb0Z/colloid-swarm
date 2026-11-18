@@ -82,16 +82,22 @@ def parse(text: str) -> Command:
     return Command("unknown")
 
 
-def alert(event: dict, now: float, zone) -> str:
-    """The alert of a permission event, composed when it is sent, so the minutes are those left."""
-    session, deadline = event["session"], log.epoch_of(event["deadline"])
+def _within(event: dict, now: float, zone) -> str:
+    """`answer within <n> min (by HH:MM <zone>)` for the event's deadline."""
+    deadline = log.epoch_of(event["deadline"])
     # To the nearest minute: an alert sent half a second into a 59-minute wait says 59.
     minutes = max(0, math.floor((deadline - now) / 60 + 0.5))
     by = datetime.fromtimestamp(deadline, zone).strftime("%H:%M %Z")
+    return f"answer within {minutes} min (by {by})"
+
+
+def alert(event: dict, now: float, zone) -> str:
+    """The alert of a permission event, composed when it is sent, so the minutes are those left."""
+    session = event["session"]
     return "\n".join([
         f"[{event['id']}] {session['project']} · {MACHINE_NAMES[event['machine']]} · "
         f"{session['account']} · {session['handle']}",
-        f"Permission: {event['detail']['tool']} · answer within {minutes} min (by {by})",
+        f"Permission: {event['detail']['tool']} · {_within(event, now, zone)}",
         event["detail"]["preview"],
         *_not_shown(event["detail"]),
         f"Reply: yes {event['id']}   or   no {event['id']} <reason>",
@@ -108,6 +114,11 @@ def _not_shown(detail: dict) -> list:
              f"cut: {_plural(detail['cut'], 'more character')}" if detail["cut"] else ""]
     said = " · ".join(part for part in parts if part)
     return [said] if said else []
+
+
+def new_deadline(event: dict, now: float, zone) -> str:
+    """The line that follows an alert when its hook's deadline moved closer."""
+    return reply(event["id"], _within(event, now, zone))
 
 
 def reply(event_id: str, text: str) -> str:

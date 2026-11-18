@@ -511,6 +511,13 @@ class Unbound(Service):
         self.link.hook_line(conn, {"type": "deadline", "deadline": self.now + 600})
         self.assertEqual(self.event()["deadline"], "2026-11-18T13:53:00Z")
 
+    def test_an_alert_already_sent_is_followed_by_the_shorter_deadline(self):
+        conn = self.hook(calls=())
+        self.now += 10
+        self.link.hook_line(conn, {"type": "deadline", "deadline": NOW + 600})
+        self.assertEqual(len(self.signal.texts), 2)
+        self.assertEqual(self.signal.texts[1], "[m-abcde] answer within 10 min (by 18:53 PKT)")
+
     def test_yes_to_an_unbound_event_is_done_when_a_hook_decision_lands_on_a_call_of_that_tool(self):
         self.written.use("toolu_old", "Bash", PUSH)
         self.written.allowed_by_hook("toolu_old")  # an earlier call's decision is not this one's
@@ -693,6 +700,17 @@ class RateLimit(Service):
         self.later(60)  # six more go out, two wait
         self.assertEqual([text for text in self.firsts() if text.endswith("waiting")],
                          ["7 more waiting", "8 more waiting"])
+
+    def test_a_shorter_deadline_before_the_alert_went_out_goes_into_the_alert_and_no_line_of_its_own(self):
+        conns = self.hooks(7)
+        waiting = conns[6].of("registered")[0]["id"]
+        self.now += 10
+        self.link.hook_line(conns[6], {"type": "deadline", "deadline": NOW + 600})
+        self.assertEqual(len(self.signal.texts), 6)
+        self.later(50)
+        self.assertEqual(len(self.signal.texts), 7)
+        self.assertTrue(self.signal.texts[6].startswith(f"[{waiting}] "), self.signal.texts[6])
+        self.assertIn("answer within 9 min (by 18:53 PKT)", self.signal.texts[6])
 
     def test_the_alert_minutes_are_those_left_when_it_goes_out(self):
         self.hooks(7)

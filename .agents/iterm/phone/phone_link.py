@@ -16,6 +16,8 @@ What it does with a permission prompt (spec `docs/notes/2026-11-17-phone-link-sp
      alert to Note to Self at once, six a minute at most; the rest wait their
      turn and none is dropped. An alert that cannot be sent ends the hook
      with no decision, so the dialog on the Mac behaves as without the link.
+     A hook that does not find its call waits 10 minutes, not 59: when its
+     alert already went out, one line tells the phone the new deadline.
   2. `yes <id>` or `no <id> <reason>` from the phone goes to the hook that
      holds the id. The reply waits until the transcript shows how the call
      ended: `done` when it ended by this decision, `refused: settled at the
@@ -211,7 +213,10 @@ class Link:
                 self.events.amend(event_id, call=call)
             conn.send({"type": "bound", "call": call})
         elif kind == "deadline" and isinstance(message.get("deadline"), (int, float)):
-            self.events.amend(event_id, deadline=log.iso(message["deadline"]))
+            event = self.events.amend(event_id, deadline=log.iso(message["deadline"]))
+            # An alert still in the queue states the new deadline when it goes out.
+            if event_id not in self.queue:
+                self._say(grammar.new_deadline(event, now, self.zone))
         elif kind == "settled" and message.get("decision") in ("allow", "deny"):
             self._end(event_id, "settled_at_mac", "mac", message["decision"], now)
         elif kind == "expired":
