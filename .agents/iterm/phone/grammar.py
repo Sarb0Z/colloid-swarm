@@ -7,14 +7,18 @@ From the phone, the grammar is closed. This unit builds its permission part:
     no <id> [<reason>]  deny it; Claude reads the reason
     help                list the grammar
 
+`yes`, `no` and `no <reason>` without an id parse too, with no event: only a
+Signal reply to a message about an event may say them, and the link binds it
+by the quoted message, not here.
+
 `status`, `start`, `mute` and `unmute` are reserved, and `<id> <text>` (a gate
 answer) and `@<handle> <text>` (a request) belong to later units: `parse` knows
 each as `unbuilt`, and the link answers `refused: not built yet`. Anything else
 is `unknown`.
 
 A phone keyboard capitalises the first word and may end a line with a period,
-so the verb and the id match in any case and the id may carry one trailing
-`.`, `,` or `!`. Nothing else is forgiven.
+so the verb and the id match in any case, and the id, or a `yes` or `no` with
+no id, may carry one trailing `.`, `,` or `!`. Nothing else is forgiven.
 
 To the phone, every message about an event starts with its id in brackets
 (`alert`, `reply`). An alert's preview is already masked and cut by the hook
@@ -38,6 +42,7 @@ RESERVED = ("status", "start", "mute", "unmute")
 MACHINE_NAMES = {"mac": "Mac"}
 HELP = ("yes <id> — allow the tool call of that alert\n"
         "no <id> <reason> — deny it; Claude reads the reason\n"
+        "a Signal reply to an alert needs no id: yes, or no <reason>\n"
         "help — this list")
 # What a phone answer to an event that is not open is told, by the event's state.
 REFUSALS = {
@@ -54,10 +59,13 @@ class Command(NamedTuple):
     reason: str = ""  # for "no"
 
 
-def _event_id(word: str) -> str:
+def _unpunctuated(word: str) -> str:
     found = word.lower()
-    if found[-1:] in (".", ",", "!"):
-        found = found[:-1]
+    return found[:-1] if found[-1:] in (".", ",", "!") else found
+
+
+def _event_id(word: str) -> str:
+    found = _unpunctuated(word)
     return found if EVENT_ID.fullmatch(found) else ""
 
 
@@ -75,6 +83,11 @@ def parse(text: str) -> Command:
     if verb == "no" and len(words) >= 2 and _event_id(words[1]):
         # The reason as typed: only the id may have lost a period.
         return Command("no", _event_id(words[1]), " ".join(words[2:]))
+    answer = _unpunctuated(words[0])
+    if answer == "yes" and len(words) == 1:
+        return Command("yes")
+    if answer == "no" and not (len(words) >= 2 and _event_id(words[1])):
+        return Command("no", "", " ".join(words[1:]))
     if len(words) >= 2 and EVENT_ID.fullmatch(verb):
         return Command("unbuilt", verb)
     if len(verb) > 1 and verb.startswith("@") and len(words) >= 2:
@@ -100,7 +113,7 @@ def alert(event: dict, now: float, zone) -> str:
         f"Permission: {event['detail']['tool']} · {_within(event, now, zone)}",
         event["detail"]["preview"],
         *_not_shown(event["detail"]),
-        f"Reply: yes {event['id']}   or   no {event['id']} <reason>",
+        "Reply to this: yes   or   no <reason>",
     ])
 
 

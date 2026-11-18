@@ -112,6 +112,8 @@ last_sent() { sends | tail -1 | python3 -c 'import json,sys; print(json.loads(sy
 has_sent() { [[ $(sent_count) -ge $1 ]]; }
 last_id() { last_sent | head -1 | sed -E 's/^\[([a-z]-[a-z]{5})\].*/\1/'; }
 phone_says() { printf '%s\n' "$1" >"$T/control/say.tmp" && mv "$T/control/say.tmp" "$T/control/say"; }
+# A message typed as a Signal reply to the last message the phone got.
+phone_replies() { printf '%s\n' "$1" >"$T/control/reply.tmp" && mv "$T/control/reply.tmp" "$T/control/reply"; }
 state_of() { python3 - "$S/events.jsonl" "$1" <<'PY'
 import json, sys
 last = [json.loads(line) for line in open(sys.argv[1]) if json.loads(line)["id"] == sys.argv[2]][-1]
@@ -141,7 +143,8 @@ eq "outside the harness: exit 0, no stdout, no stderr" "0||" "$(cat "$T/o1/code"
 eq "outside the harness: no alert" 0 "$(sent_count)"
 [[ ! -s $S/events.jsonl ]] && ok "outside the harness: no event" || bad "outside the harness: an event was written"
 
-# 2. Acceptance 2 and 13: yes from the phone is printed as allow; done follows the transcript.
+# 2. Acceptance 2 and 13: yes from the phone, sent as a Signal reply to the alert with no id,
+#    is printed as allow; done follows the transcript.
 command_2="git push https://$token@github.com/o/r"
 input_2=$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1], "description": "Push"}))' "$command_2")
 writes use toolu_2 Bash "$input_2"
@@ -150,8 +153,8 @@ wait_for 10 has_sent 1 || bad "yes: no alert was sent"
 id_2=$(last_id)
 eq "yes: the alert's first line" "[$id_2] repo · Mac · claude · repo" "$(last_sent | head -1)"
 eq "yes: the alert shows the command with its token masked" 'git push https://[REDACTED]@github.com/o/r' "$(last_sent | sed -n 3p)"
-eq "yes: the alert says how to answer" "Reply: yes $id_2   or   no $id_2 <reason>" "$(last_sent | tail -1)"
-phone_says "Yes $id_2"
+eq "yes: the alert says how to answer" "Reply to this: yes   or   no <reason>" "$(last_sent | tail -1)"
+phone_replies "Yes"
 wait "$job"
 eq "yes: the hook prints allow" '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}' "$(cat "$T/o2/stdout")"
 eq "yes: exit 0, no stderr" "0|" "$(cat "$T/o2/code")|$(cat "$T/o2/stderr")"

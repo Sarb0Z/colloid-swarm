@@ -53,8 +53,16 @@ class Parse(unittest.TestCase):
         self.assertEqual(grammar.parse("m-qhvkz yes"), Command("unbuilt", "m-qhvkz"))
         self.assertEqual(grammar.parse("s-tbnaw push it"), Command("unbuilt", "s-tbnaw"))
 
+    def test_yes_and_no_without_an_id_name_no_event(self):
+        # Only a Signal reply may say these; the link binds it by the quoted message.
+        self.assertEqual(grammar.parse("yes"), Command("yes"))
+        self.assertEqual(grammar.parse("Yes."), Command("yes"))
+        self.assertEqual(grammar.parse("no"), Command("no"))
+        self.assertEqual(grammar.parse("No too risky"), Command("no", "", "too risky"))
+        self.assertEqual(grammar.parse("No, too risky. Use --dry-run"), Command("no", "", "too risky. Use --dry-run"))
+
     def test_anything_else_is_not_understood(self):
-        for text in ("", "   ", "yes", "no", "yes please", "yes m-qhvk", "yes m-qhvkzz", "yes mqhvkz",
+        for text in ("", "   ", "yes!!", "no, m-qhvkz", "yesno", "yes please", "yes m-qhvk", "yes m-qhvkzz", "yes mqhvkz",
                      "yes m-qhvkz now", "yes m-qhvkz..", "yes m-qh1kz", "ok m-qhvkz", "help me", "m-qhvkz",
                      "@", "@handle", "yes, m-qhvkz", "approve m-qhvkz"):
             self.assertEqual(grammar.parse(text), Command("unknown"), repr(text))
@@ -68,7 +76,7 @@ class Alert(unittest.TestCase):
             "[m-qhvkz] colloid-swarm · Mac · work · colloid-swarm-c1",
             "Permission: Bash · answer within 59 min (by 19:42 PKT)",
             "git push origin main",
-            "Reply: yes m-qhvkz   or   no m-qhvkz <reason>",
+            "Reply to this: yes   or   no <reason>",
         ]))
 
     def test_the_minutes_are_those_left_when_the_alert_goes_out(self):
@@ -89,7 +97,7 @@ class Alert(unittest.TestCase):
         lines = grammar.alert(event, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")).split("\n")
         self.assertEqual(lines[1][:16], "Permission: Edit")
         self.assertEqual(lines[2:5], ["/repo/a.py", "- old", "+ new"])
-        self.assertEqual(lines[-1], "Reply: yes m-qhvkz   or   no m-qhvkz <reason>")
+        self.assertEqual(lines[-1], "Reply to this: yes   or   no <reason>")
 
 
     def test_an_alert_that_masked_or_cut_its_preview_says_so_above_the_reply_line(self):
@@ -99,7 +107,7 @@ class Alert(unittest.TestCase):
             event = {**EVENT, "detail": {**EVENT["detail"], "masked": masked, "cut": cut}}
             lines = grammar.alert(event, at, zone).split("\n")
             self.assertEqual(lines[2:], ["git push origin main", said,
-                                         "Reply: yes m-qhvkz   or   no m-qhvkz <reason>"], (masked, cut))
+                                         "Reply to this: yes   or   no <reason>"], (masked, cut))
 
     def test_an_alert_that_shows_the_whole_call_has_no_such_line(self):
         lines = grammar.alert(EVENT, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")).split("\n")
@@ -137,6 +145,7 @@ class Replies(unittest.TestCase):
         self.assertEqual(grammar.HELP.split("\n"), [
             "yes <id> — allow the tool call of that alert",
             "no <id> <reason> — deny it; Claude reads the reason",
+            "a Signal reply to an alert needs no id: yes, or no <reason>",
             "help — this list",
         ])
 

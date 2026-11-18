@@ -19,7 +19,11 @@ What it does with a permission prompt (spec `docs/notes/2026-11-17-phone-link-sp
      A hook that does not find its call waits 10 minutes, not 59: when its
      alert already went out, one line tells the phone the new deadline.
   2. `yes <id>` or `no <id> <reason>` from the phone goes to the hook that
-     holds the id. The reply waits until the transcript shows how the call
+     holds the id. A Signal reply needs no id: the link keeps the Signal
+     timestamp of every message it sends about an event, in memory, and a
+     `yes`, `no` or `no <reason>` that quotes one answers that event; a
+     quote it does not know is refused, and so is an id other than the
+     quoted event's. The reply waits until the transcript shows how the call
      ended: `done` when it ended by this decision, `refused: settled at the
      Mac` when the Mac's dialog answered first, and `refused: the Mac allowed
      it first` for a `no` to a call that ran. A message that answers no
@@ -159,14 +163,21 @@ class Signal:
             self.errors.write(str(problem))
 
     def send(self, text: str, done) -> None:
-        """Send `text` to Note to Self; `done(error)` gets '' when signal-cli delivered it."""
+        """Send `text` to Note to Self; `done(error, timestamp)` gets error '' when signal-cli
+        delivered it, with the message's Signal timestamp, or None when its result had none."""
         if self.account is None:
-            done("signal-cli's account is not known: its socket has not answered")
+            done("signal-cli's account is not known: its socket has not answered", None)
             return
         target = self.account["number"] or self.account["aci"]
-        self.connection.call("send", signal_client.send_params(target, text),
-                             lambda result, error: done(error or signal_client.send_failure(result)),
-                             SEND_SECONDS)
+
+        def answered(result, error: str) -> None:
+            error = error or signal_client.send_failure(result)
+            stamp = None if error else signal_client.sent_timestamp(result)
+            if not error and stamp is None:
+                self.errors.write(f"signal-cli sent a message ({text.splitlines()[0]}) and gave no timestamp; "
+                                  "a Signal reply to it cannot answer")
+            done(error, stamp)
+        self.connection.call("send", signal_client.send_params(target, text), answered, SEND_SECONDS)
 
     def next_due(self):
         return self.retry_at if self.connection.socket is None else self.connection.next_limit()
@@ -183,6 +194,9 @@ class Link:
         self.waits: dict = {}  # event id -> Wait
         self.by_conn: dict = {}  # conn -> event id
         self.watches: dict = {}  # event id -> Watch
+        # Signal timestamp of each message sent about an event -> that event's id, by which a
+        # Signal reply binds. In memory only: a restart forgets it and closes the events.
+        self.sent_about: dict = {}
         self.queue = collections.deque()  # event ids whose alert waits for the rate limit
         self.sent_at = collections.deque()  # when each alert of the last minute went out
         self.noticed_at = float("-inf")
@@ -222,7 +236,7 @@ class Link:
             event = self.events.amend(event_id, deadline=log.iso(message["deadline"]))
             # An alert still in the queue states the new deadline when it goes out.
             if event_id not in self.queue:
-                self._say(grammar.new_deadline(event, now, self.zone))
+                self._say(grammar.new_deadline(event, now, self.zone), about=event_id)
         elif kind == "settled" and message.get("decision") in ("allow", "deny"):
             self._end(event_id, "settled_at_mac", "mac", message["decision"], now)
         elif kind == "expired":
@@ -315,7 +329,29 @@ class Link:
             # Another machine's event: that machine's link answers.
             self.messages.record(taken.timestamp, "ignored: another machine's event", now)
             return
-        self.messages.record(taken.timestamp, self._act(command, now), now)
+        if command.kind in ("yes", "no") and taken.reply:
+            result = self._reply(command, taken.quote, now)
+        elif command.kind in ("yes", "no") and not command.event:
+            result = self._not_understood(now)
+        else:
+            result = self._act(command, now)
+        self.messages.record(taken.timestamp, result, now)
+
+    def _reply(self, command, quote, now: float) -> str:
+        """A `yes` or `no` sent as a Signal reply: it answers the event of the quoted message,
+        and an id it names must be that event's."""
+        quoted = self.sent_about.get(quote)
+        if quoted is None:
+            reason = "not a reply to an open alert"
+            self._refuse_message(grammar.refused(reason), reason, now)
+            return f"refused: {reason}"
+        if command.event and command.event != quoted:
+            return self._refuse(quoted, f"the reply quotes {quoted}")
+        return self._act(command._replace(event=quoted), now)
+
+    def _not_understood(self, now: float) -> str:
+        self._refuse_message(grammar.refused("not understood") + "\n" + grammar.HELP, "not understood", now)
+        return "refused: not understood"
 
     def _act(self, command, now: float) -> str:
         """Do what the phone asked, and return the result for the message record."""
@@ -326,8 +362,7 @@ class Link:
             self._refuse_message(grammar.refused("not built yet"), "not built yet", now)
             return "refused: not built yet"
         if command.kind == "unknown":
-            self._refuse_message(grammar.refused("not understood") + "\n" + grammar.HELP, "not understood", now)
-            return "refused: not understood"
+            return self._not_understood(now)
         event = self.events.events.get(command.event)
         if event is None:
             reason = f"no event {command.event}"
@@ -372,7 +407,7 @@ class Link:
             self.held_refusals = []
 
     def _refuse(self, event_id: str, reason: str) -> str:
-        self._say(grammar.reply(event_id, grammar.refused(reason)))
+        self._say(grammar.reply(event_id, grammar.refused(reason)), about=event_id)
         return f"refused: {reason}"
 
     # --- how a call ended ---------------------------------------------------
@@ -388,7 +423,7 @@ class Link:
                 ending = self._late_call(event, watch, wait)
             if ending is not None and ending.by == "hook" and ending.decision == wait.decision.behavior:
                 self._end(event_id, "answered", "phone", wait.decision.text, now)
-                self._say(grammar.reply(event_id, "done"))
+                self._say(grammar.reply(event_id, "done"), about=event_id)
             elif ending is not None:
                 self._end(event_id, "settled_at_mac", "mac", ending.decision, now)
                 self._refuse(event_id, grammar.refusal_for(self.events.events[event_id], wait.decision.command))
@@ -425,10 +460,14 @@ class Link:
 
     # --- to the phone -------------------------------------------------------
 
-    def _say(self, text: str) -> None:
-        def sent(error: str) -> None:
+    def _say(self, text: str, about=None) -> None:
+        """Send `text`; `about` is the id of the event it concerns, which a Signal reply to it
+        then answers."""
+        def sent(error: str, stamp) -> None:
             if error:
                 self.errors.write(f"a reply was not sent ({text.splitlines()[0]}): {error}")
+            elif about is not None and stamp is not None:
+                self.sent_about[stamp] = about
         self.signal.send(text, sent)
 
     def _send_alerts(self, now: float) -> None:
@@ -442,13 +481,15 @@ class Link:
                 continue  # Settled while it waited its turn: its alert would ask about nothing.
             self.sent_at.append(now)
             self.signal.send(grammar.alert(self.events.events[event_id], now, self.zone),
-                             lambda error, event_id=event_id: self._alert_sent(event_id, error))
+                             lambda error, stamp, event_id=event_id: self._alert_sent(event_id, error, stamp))
         if len(self.queue) > ALERTS_A_MINUTE and now - self.noticed_at >= MINUTE:
             self.noticed_at = now
             self._say(grammar.waiting_notice(len(self.queue)))
 
-    def _alert_sent(self, event_id: str, error: str) -> None:
+    def _alert_sent(self, event_id: str, error: str, stamp) -> None:
         if not error:
+            if stamp is not None:
+                self.sent_about[stamp] = event_id
             return
         self.errors.write(f"the alert of {event_id} was not sent: {error}")
         wait = self.waits.get(event_id)
