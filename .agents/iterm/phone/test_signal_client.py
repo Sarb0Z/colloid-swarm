@@ -35,7 +35,7 @@ STAMP = int(NOW * 1000) - 2000
 
 class PhoneText(unittest.TestCase):
     def test_a_message_typed_in_note_to_self_on_the_phone_passes(self):
-        self.assertEqual(phone_text(fake.phone_message("yes m-qhvkz", STAMP), ME), (STAMP, "yes m-qhvkz"))
+        self.assertEqual(phone_text(fake.phone_message("yes m-qhvkz", STAMP), ME), (STAMP, "yes m-qhvkz", False, None))
 
     def test_signal_desktop_and_every_other_device_do_not_pass(self):
         for device in (2, 3, 0, "1", True, None, 1.0):
@@ -82,6 +82,24 @@ class PhoneText(unittest.TestCase):
         for params in (receipt, read_sync, no_stamp, {}, {"envelope": None}, None, "text", []):
             self.assertIsNone(phone_text(params, ME), repr(params)[:60])
 
+    def test_a_signal_reply_passes_with_the_timestamp_its_quote_names_and_not_its_text(self):
+        quoted = STAMP - 60000
+        found = phone_text(fake.phone_message("yes", STAMP, quote=quoted), ME)
+        self.assertEqual(found, (STAMP, "yes", True, quoted))
+        self.assertNotIn("the phone's copy", repr(found))
+
+    def test_a_reply_whose_quote_names_no_message_passes_as_a_reply_to_nothing(self):
+        for bad in ("1794992400000", None, 1.5, True):
+            params = fake.phone_message("yes", STAMP, quote=1)
+            params["envelope"]["syncMessage"]["sentMessage"]["quote"]["id"] = bad
+            self.assertEqual(phone_text(params, ME), (STAMP, "yes", True, None), repr(bad))
+        params = fake.phone_message("yes", STAMP)
+        params["envelope"]["syncMessage"]["sentMessage"]["quote"] = None
+        self.assertEqual(phone_text(params, ME), (STAMP, "yes", True, None))
+
+    def test_a_reply_from_signal_desktop_does_not_pass(self):
+        self.assertIsNone(phone_text(fake.phone_message("yes", STAMP, device=2, quote=STAMP - 1), ME))
+
     def test_an_account_without_a_number_is_matched_by_its_account_id(self):
         params = fake.phone_message("yes m-qhvkz", STAMP)
         params["account"] = fake.ACI
@@ -89,7 +107,7 @@ class PhoneText(unittest.TestCase):
             params["envelope"][key] = None
         for key in ("destination", "destinationNumber"):
             params["envelope"]["syncMessage"]["sentMessage"][key] = None
-        self.assertEqual(phone_text(params, {"number": None, "aci": fake.ACI}), (STAMP, "yes m-qhvkz"))
+        self.assertEqual(phone_text(params, {"number": None, "aci": fake.ACI}), (STAMP, "yes m-qhvkz", False, None))
         self.assertIsNone(phone_text(params, {"number": None, "aci": "3333"}))
 
 
@@ -103,7 +121,7 @@ class InboxFilters(unittest.TestCase):
 
     def test_a_fresh_message_is_taken(self):
         self.assertEqual(self.inbox.take(fake.phone_message("yes m-qhvkz", STAMP), ME, NOW),
-                         Taken("message", STAMP, "yes m-qhvkz"))
+                         Taken("message", STAMP, "yes m-qhvkz", False, None))
 
     def test_acceptance_16_a_message_received_twice_acts_once(self):
         params = fake.phone_message("yes m-qhvkz", STAMP)
@@ -115,7 +133,7 @@ class InboxFilters(unittest.TestCase):
     def test_acceptance_16_a_message_older_than_15_minutes_is_refused_once(self):
         old = int((NOW - 15 * 60 - 1) * 1000)
         params = fake.phone_message("yes m-qhvkz", old)
-        self.assertEqual(self.inbox.take(params, ME, NOW), Taken("too_old", old, "yes m-qhvkz"))
+        self.assertEqual(self.inbox.take(params, ME, NOW), Taken("too_old", old, "yes m-qhvkz", False, None))
         self.assertIsNone(self.inbox.take(params, ME, NOW + 1))
         self.assertEqual(json.loads((self.folder / "messages.jsonl").read_text()),
                          {"ts": old, "at": "2026-11-18T09:00:00Z", "result": "refused: too old"})
@@ -143,6 +161,11 @@ class Requests(unittest.TestCase):
         self.assertEqual(signal_client.send_failure({"timestamp": 9}), "")
         bad = {"timestamp": 9, "results": [{"type": "SUCCESS"}, {"type": "NETWORK_FAILURE"}]}
         self.assertEqual(signal_client.send_failure(bad), "signal-cli reports NETWORK_FAILURE")
+
+    def test_a_send_result_gives_the_sent_messages_timestamp(self):
+        self.assertEqual(signal_client.sent_timestamp({"timestamp": 1794992400123, "results": []}), 1794992400123)
+        for result in ({}, {"timestamp": "1794992400123"}, {"timestamp": 1.5}, {"timestamp": True}, None, []):
+            self.assertIsNone(signal_client.sent_timestamp(result), repr(result))
 
     def test_the_account_is_the_one_signal_cli_lists(self):
         self.assertEqual(signal_client.account_of([{"number": fake.NUMBER, "aci": fake.ACI}]), ME)
@@ -198,6 +221,7 @@ class Wire(unittest.TestCase):
         self.pump(connection, lambda: self.answers)
         result, error = self.answers[0]
         self.assertEqual((error, signal_client.send_failure(result)), ("", ""))
+        self.assertEqual(signal_client.sent_timestamp(result), daemon.stamps[0])
         self.assertEqual(daemon.requests, [{"jsonrpc": "2.0", "method": "send", "id": 1, "params": {
             "account": fake.NUMBER, "message": "[m-qhvkz] done", "noteToSelf": True, "notifySelf": True}}])
 
@@ -222,6 +246,16 @@ class Wire(unittest.TestCase):
         connection.expire()
         self.assertEqual(self.answers, [(None, "signal-cli did not answer in time")])
         self.assertIsNone(connection.next_limit())
+
+    def test_two_sends_in_one_moment_get_timestamps_of_their_own(self):
+        daemon = self.daemon()
+        connection = self.connected()
+        for text in ("one", "two", "three"):
+            connection.call("send", signal_client.send_params(fake.NUMBER, text), self.done, 5)
+        self.pump(connection, lambda: len(self.answers) == 3)
+        stamps = [signal_client.sent_timestamp(result) for result, _error in self.answers]
+        self.assertEqual(len(set(stamps)), 3)
+        self.assertEqual(stamps, daemon.stamps)
 
     def test_two_calls_get_their_own_answers(self):
         self.daemon()
@@ -256,8 +290,11 @@ class Wire(unittest.TestCase):
         self.pump(connection, lambda: self.answers)
         daemon.phone_says("yes m-qhvkz", STAMP)
         self.pump(connection, lambda: self.received)
-        self.assertEqual(phone_text(self.received[0], ME), (STAMP, "yes m-qhvkz"))
+        self.assertEqual(phone_text(self.received[0], ME), (STAMP, "yes m-qhvkz", False, None))
         self.assertEqual(len(self.answers), 1)
+        daemon.phone_says("no", STAMP + 1, quote=STAMP - 5)
+        self.pump(connection, lambda: len(self.received) == 2)
+        self.assertEqual(phone_text(self.received[1], ME), (STAMP + 1, "no", True, STAMP - 5))
         # A wake-up with nothing to read is not a failure of the connection.
         self.assertEqual(connection.readable(), [])
         self.assertIsNotNone(connection.socket)

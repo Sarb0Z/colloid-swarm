@@ -11,13 +11,15 @@ mode shows on the operator's own side and cannot notify
 (`.agents/knowledge/research/2026-11-18-signal-note-to-self-send-modes.md`).
 A send failed when signal-cli answers with an error, reports a recipient result
 other than SUCCESS, does not answer within the caller's limit, or its socket is
-not connected.
+not connected. A delivered send's result carries the message's Signal timestamp
+(`sent_timestamp`), by which a reply on the phone quotes it.
 
 Receiving. A linked device gets every message of the account. `phone_text`
 passes only what the operator typed in Note to Self on the phone: a sync
 "sent" message from the account to itself, with text, whose `sourceDevice` is
 the phone's, 1. Signal Desktop is another device and does not pass. Everything
-else is dropped here, unlogged: no caller sees it. `Inbox.take` then refuses a
+else is dropped here, unlogged: no caller sees it. A Signal reply passes with
+the timestamp its quote names. `Inbox.take` then refuses a
 timestamp it has seen (a redelivery acts once) and a message older than 15
 minutes.
 """
@@ -48,6 +50,13 @@ def send_failure(result) -> str:
     return f"signal-cli reports {', '.join(failed)}" if failed else ""
 
 
+def sent_timestamp(result):
+    """The Signal timestamp of a message signal-cli sent, or None when its result has none.
+    A reply on the phone quotes the message by this timestamp."""
+    stamp = result.get("timestamp") if isinstance(result, dict) else None
+    return stamp if type(stamp) is int else None
+
+
 def account_of(result) -> dict:
     """The one local account from a `listAccounts` result, as {"number", "aci"}."""
     accounts = [entry for entry in result if isinstance(entry, dict)] if isinstance(result, list) else []
@@ -59,9 +68,19 @@ def account_of(result) -> dict:
     return account
 
 
+class PhoneText(NamedTuple):
+    timestamp: int
+    text: str
+    # A Signal reply carries a quote; `quote` is the Signal timestamp of the message it
+    # replies to (signal-cli's `quote.id`), or None when the quote names none. The quoted
+    # text is never read: it is the phone's copy, not what the link sent.
+    reply: bool
+    quote: int | None
+
+
 def phone_text(params, account: dict):
-    """(Signal timestamp, text) when `params` of a `receive` notification is a message the
-    operator typed in Note to Self on the phone; None for everything else."""
+    """A PhoneText when `params` of a `receive` notification is a message the operator typed
+    in Note to Self on the phone; None for everything else."""
     mine = {account.get("number"), account.get("aci")} - {None}
     envelope = params.get("envelope") if isinstance(params, dict) else None
     if not isinstance(envelope, dict) or params.get("account") not in (None, *mine):
@@ -76,13 +95,17 @@ def phone_text(params, account: dict):
     if not (from_me and to_me and type(device) is int and device == PHONE_DEVICE
             and type(stamp) is int and isinstance(text, str) and text.strip()):
         return None
-    return stamp, text
+    quote = sent.get("quote")
+    quoted = quote.get("id") if isinstance(quote, dict) else None
+    return PhoneText(stamp, text, "quote" in sent, quoted if type(quoted) is int else None)
 
 
 class Taken(NamedTuple):
     kind: str  # "message", or "too_old" for one the link must refuse
     timestamp: int
     text: str
+    reply: bool
+    quote: int | None
 
 
 class Inbox:

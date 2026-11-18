@@ -3,20 +3,24 @@
 
 It listens on a Unix socket and speaks the JSON-RPC lines of signal-cli's
 manual page (`signal-cli-jsonrpc(5)`, 0.14.10): `listAccounts` answers one
-account, `send` answers a timestamp, and `receive` notifications go to every
-connected client. The account's number is in the range reserved for fiction.
+account, `send` answers a timestamp of its own for each message, and `receive`
+notifications go to every connected client. The account's number is in the
+range reserved for fiction.
 
-As a library, `FakeSignalCli(path)` records every request in `requests`, and
-a test makes messages arrive with `phone_says` and `push`.
+As a library, `FakeSignalCli(path)` records every request in `requests` and
+the timestamp of each delivered send in `stamps`, and a test makes messages
+arrive with `phone_says` (with `quote`, a Signal reply), `phone_replies` and
+`push`.
 
 As a command, for `.agents/test-phone-hooks.sh`:
 
     fake_signal_cli.py <socket> <record file> <control folder>
 
 It appends each request to the record file as a JSON line, and the test steers
-it through two files of the control folder: `send` holds how sends end from
-then on (`ok`, `error`, `failure` or `silent`), and a file `say` is sent as a
-message the operator typed on the phone, then removed.
+it through files of the control folder: `send` holds how sends end from then
+on (`ok`, `error`, `failure` or `silent`); a file `say` is sent as a message
+the operator typed on the phone, and a file `reply` as one typed as a Signal
+reply to the last message delivered; each is removed once sent.
 """
 
 from __future__ import annotations
@@ -37,14 +41,18 @@ OTHER = "+15555550199"
 ALERT = re.compile(r"^\[([a-z]-[a-z]{5})\] [^\n]*\nPermission: ")
 
 
-def phone_message(text: str, timestamp: int, device: int = 1) -> dict:
-    """The `receive` params of a message typed in Note to Self: a sync "sent to self" (probe Q2)."""
+def phone_message(text: str, timestamp: int, device: int = 1, quote=None) -> dict:
+    """The `receive` params of a message typed in Note to Self: a sync "sent to self" (probe Q2).
+    `quote` makes it a Signal reply to the message of that Signal timestamp, its `quote` in
+    the fields of signal-cli's JsonQuote."""
+    sent = {"destination": NUMBER, "destinationNumber": NUMBER, "destinationUuid": ACI,
+            "timestamp": timestamp, "message": text, "expiresInSeconds": 0, "viewOnce": False}
+    if quote is not None:
+        sent["quote"] = {"id": quote, "author": NUMBER, "authorNumber": NUMBER, "authorUuid": ACI,
+                         "text": "the phone's copy of the quoted message", "attachments": []}
     return {"envelope": {
         "source": NUMBER, "sourceNumber": NUMBER, "sourceUuid": ACI, "sourceName": "Operator",
-        "sourceDevice": device, "timestamp": timestamp,
-        "syncMessage": {"sentMessage": {
-            "destination": NUMBER, "destinationNumber": NUMBER, "destinationUuid": ACI,
-            "timestamp": timestamp, "message": text, "expiresInSeconds": 0, "viewOnce": False}},
+        "sourceDevice": device, "timestamp": timestamp, "syncMessage": {"sentMessage": sent},
     }, "account": NUMBER}
 
 
@@ -67,12 +75,13 @@ def sent_to_other_chat(text: str, timestamp: int) -> dict:
 
 class FakeSignalCli:
     """`send` is how a send ends: "ok", "error" (signal-cli answers with an error), "failure"
-    (a recipient result other than SUCCESS) or "silent" (no answer). `on_send(text)` runs
-    after each answered send."""
+    (a recipient result other than SUCCESS), "untimed" (SUCCESS with no timestamp) or
+    "silent" (no answer). `on_send(text)` runs after each answered send."""
 
     def __init__(self, path: str, send: str = "ok", on_send=None, record=None):
         self.path, self.send, self.on_send, self.record = path, send, on_send, record
         self.requests: list = []
+        self.stamps: list = []  # the timestamp each answered send got, in order
         self.clients: list = []
         self.lock = threading.Lock()
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -118,18 +127,25 @@ class FakeSignalCli:
             if self.record:
                 with open(self.record, "a", encoding="utf-8") as stream:
                     stream.write(json.dumps(request) + "\n")
-        method, answer = request.get("method"), None
+            method, answer, sending = request.get("method"), None, self.send
+            # Signal gives each message its own timestamp: two sends in one millisecond still differ.
+            stamp = max(int(time.time() * 1000), self.stamps[-1] + 1 if self.stamps else 0)
+            if method == "send" and sending == "ok":
+                self.stamps.append(stamp)
         if method == "listAccounts":
             answer = {"result": [{"number": NUMBER, "aci": ACI}]}
-        elif method == "send" and self.send == "ok":
-            answer = {"result": {"timestamp": int(time.time() * 1000),
+        elif method == "send" and sending == "ok":
+            answer = {"result": {"timestamp": stamp,
                                  "results": [{"recipientAddress": {"uuid": ACI, "number": NUMBER},
                                               "type": "SUCCESS"}]}}
-        elif method == "send" and self.send == "failure":
-            answer = {"result": {"timestamp": int(time.time() * 1000),
+        elif method == "send" and sending == "failure":
+            answer = {"result": {"timestamp": stamp,
                                  "results": [{"recipientAddress": {"uuid": ACI, "number": NUMBER},
                                               "type": "NETWORK_FAILURE"}]}}
-        elif method == "send" and self.send == "error":
+        elif method == "send" and sending == "untimed":
+            answer = {"result": {"results": [{"recipientAddress": {"uuid": ACI, "number": NUMBER},
+                                              "type": "SUCCESS"}]}}
+        elif method == "send" and sending == "error":
             answer = {"error": {"code": -1, "message": "Failed to send message: Connection reset", "data": None}}
         elif method != "send":
             answer = {"error": {"code": -32601, "message": "Method not implemented", "data": None}}
@@ -151,10 +167,17 @@ class FakeSignalCli:
         for client in clients:
             self._write(client, {"jsonrpc": "2.0", "method": "receive", "params": params})
 
-    def phone_says(self, text: str, timestamp=None, device: int = 1) -> int:
+    def phone_says(self, text: str, timestamp=None, device: int = 1, quote=None) -> int:
+        """A message typed on the phone; with `quote`, a reply to the message of that timestamp."""
         timestamp = timestamp if timestamp is not None else int(time.time() * 1000)
-        self.push(phone_message(text, timestamp, device))
+        self.push(phone_message(text, timestamp, device, quote))
         return timestamp
+
+    def phone_replies(self, text: str) -> int:
+        """A message typed on the phone as a Signal reply to the last message sent to it."""
+        with self.lock:
+            last = self.stamps[-1]
+        return self.phone_says(text, quote=last)
 
     def drop_clients(self) -> None:
         """Close every connection, as a daemon that stops does."""
@@ -183,16 +206,19 @@ def main(argv) -> int:
     parser.add_argument("control")
     args = parser.parse_args(argv[1:])
     fake = FakeSignalCli(args.socket, record=args.record)
-    say, send = os.path.join(args.control, "say"), os.path.join(args.control, "send")
+    send = os.path.join(args.control, "send")
+    phone = {os.path.join(args.control, "say"): fake.phone_says,
+             os.path.join(args.control, "reply"): fake.phone_replies}
     while True:
         if os.path.exists(send):
             with open(send, encoding="utf-8") as stream:
                 fake.send = stream.read().strip() or "ok"
-        if os.path.exists(say):
-            with open(say, encoding="utf-8") as stream:
-                text = stream.read().strip()
-            os.unlink(say)
-            fake.phone_says(text)
+        for path, says in phone.items():
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as stream:
+                    text = stream.read().strip()
+                os.unlink(path)
+                says(text)
         time.sleep(0.05)
 
 
