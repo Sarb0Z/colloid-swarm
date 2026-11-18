@@ -123,6 +123,13 @@ class Replies(unittest.TestCase):
         self.assertEqual(grammar.refusal_for(event, Command("no", "m-qhvkz", "x")), "the Mac allowed it first")
         self.assertEqual(grammar.refusal_for(event, Command("yes", "m-qhvkz")), "settled at the Mac")
 
+    def test_the_summary_of_held_refusals(self):
+        self.assertEqual(grammar.refusal_summary(["too old"] * 5 + ["not understood"] * 2),
+                         "refused: 7 more messages (5 too old, 2 not understood)")
+        self.assertEqual(grammar.refusal_summary(["not understood", "too old", "not understood"]),
+                         "refused: 3 more messages (2 not understood, 1 too old)")
+        self.assertEqual(grammar.refusal_summary(["too old"]), "refused: 1 more message (1 too old)")
+
     def test_the_queue_notice(self):
         self.assertEqual(grammar.waiting_notice(7), "7 more waiting")
 

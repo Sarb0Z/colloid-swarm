@@ -137,5 +137,16 @@ def refusal_for(event: dict, command: Command) -> str:
     return REFUSALS[event["state"]]
 
 
+def refusal_summary(reasons: list) -> str:
+    """One reply for the refusals held back by the one-a-minute limit: how many, and how many
+    of each reason, the reasons in the order they first came."""
+    counts: dict = {}
+    for reason in reasons:
+        counts[reason] = counts.get(reason, 0) + 1
+    each = ", ".join(f"{count} {reason}" for reason, count in counts.items())
+    noun = "message" if len(reasons) == 1 else "messages"
+    return refused(f"{len(reasons)} more {noun} ({each})")
+
+
 def waiting_notice(count: int) -> str:
     return f"{count} more waiting"

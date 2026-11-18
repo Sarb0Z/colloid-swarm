@@ -22,7 +22,10 @@ What it does with a permission prompt (spec `docs/notes/2026-11-17-phone-link-sp
      holds the id. The reply waits until the transcript shows how the call
      ended: `done` when it ended by this decision, `refused: settled at the
      Mac` when the Mac's dialog answered first, and `refused: the Mac allowed
-     it first` for a `no` to a call that ran.
+     it first` for a `no` to a call that ran. A message that answers no
+     known event (too old, not understood, not built, no such event) gets one
+     refusal a minute; the rest of that minute fold into one summary reply
+     at the next, and each is still recorded.
   3. A hook that ends by itself says why (the Mac settled its call, its
      deadline passed, its session's process is gone). A hook that goes away
      without a word was stopped: the link reads the transcript for a No or an
@@ -183,6 +186,8 @@ class Link:
         self.queue = collections.deque()  # event ids whose alert waits for the rate limit
         self.sent_at = collections.deque()  # when each alert of the last minute went out
         self.noticed_at = float("-inf")
+        self.refused_at = float("-inf")  # when the last refusal of a message went out
+        self.held_refusals: list = []  # the reasons of the refusals the limit held since then
         self.next_check = 0.0
 
     def start(self) -> None:
@@ -303,7 +308,7 @@ class Link:
         if taken is None:
             return
         if taken.kind == "too_old":
-            self._say(grammar.refused("too old"))
+            self._refuse_message(grammar.refused("too old"), "too old", now)
             return
         command = grammar.parse(taken.text)
         if command.event and command.event[0] != log.MACHINE_LETTER:
@@ -318,14 +323,16 @@ class Link:
             self._say(grammar.HELP)
             return "accepted"
         if command.kind == "unbuilt":
-            self._say(grammar.refused("not built yet"))
+            self._refuse_message(grammar.refused("not built yet"), "not built yet", now)
             return "refused: not built yet"
         if command.kind == "unknown":
-            self._say(grammar.refused("not understood") + "\n" + grammar.HELP)
+            self._refuse_message(grammar.refused("not understood") + "\n" + grammar.HELP, "not understood", now)
             return "refused: not understood"
         event = self.events.events.get(command.event)
         if event is None:
-            return self._refuse(command.event, f"no event {command.event}")
+            reason = f"no event {command.event}"
+            self._refuse_message(grammar.reply(command.event, grammar.refused(reason)), "no such event", now)
+            return f"refused: {reason}"
         if event["state"] != "open":
             return self._refuse(event["id"], grammar.refusal_for(event, command))
         wait, decision = self.waits[event["id"]], Decision(command)
@@ -346,6 +353,23 @@ class Link:
         self.watches[event["id"]] = Watch(wait.file, until)
         self._look(event["id"], now)
         return "accepted"
+
+    def _refuse_message(self, text: str, reason: str, now: float) -> None:
+        """Refuse a message that answers no open or known event: one such reply a minute, and
+        the rest of that minute fold into one summary at the next (`_send_held_refusals`).
+        A backlog of old messages after a restart then costs one reply a minute."""
+        self._send_held_refusals(now)
+        if self.held_refusals or now - self.refused_at < MINUTE:
+            self.held_refusals.append(reason)
+            return
+        self.refused_at = now
+        self._say(text)
+
+    def _send_held_refusals(self, now: float) -> None:
+        if self.held_refusals and now - self.refused_at >= MINUTE:
+            self.refused_at = now
+            self._say(grammar.refusal_summary(self.held_refusals))
+            self.held_refusals = []
 
     def _refuse(self, event_id: str, reason: str) -> str:
         self._say(grammar.reply(event_id, grammar.refused(reason)))
@@ -439,6 +463,7 @@ class Link:
         now = self.clock()
         self.signal.tick()
         self._send_alerts(now)
+        self._send_held_refusals(now)
         for event_id in list(self.watches):
             if event_id in self.watches:
                 self._look(event_id, now)
@@ -472,6 +497,8 @@ class Link:
             due.append(self.sent_at[0] + MINUTE)
         if len(self.queue) > ALERTS_A_MINUTE:
             due.append(self.noticed_at + MINUTE)
+        if self.held_refusals:
+            due.append(self.refused_at + MINUTE)
         if self.signal.next_due() is not None:
             due.append(self.signal.next_due())
         return min(due)

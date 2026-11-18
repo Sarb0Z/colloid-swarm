@@ -628,6 +628,7 @@ class FromThePhone(Service):
     def test_acceptance_16_a_refused_message_received_twice_is_refused_once(self):
         stamp = self.phone("yes m-zzzzz")
         self.phone("yes m-zzzzz", stamp=stamp)
+        self.later(60)
         old = self.phone("help", age=1000)
         self.phone("help", stamp=old)
         self.assertEqual(self.signal.texts, ["[m-zzzzz] refused: no event m-zzzzz", "refused: too old"])
@@ -658,7 +659,40 @@ class FromThePhone(Service):
         for age, text in enumerate(("status", "mute colloid-swarm-c1", "@colloid-swarm-c1 run the suite",
                                     "m-abcde yes")):
             self.phone(text, age=age + 1)
-        self.assertEqual(self.signal.texts, ["refused: not built yet"] * 4)
+        self.assertEqual(self.signal.texts, ["refused: not built yet"])
+        self.later(60)
+        self.assertEqual(self.signal.texts[1:], ["refused: 3 more messages (3 not built yet)"])
+        self.assertEqual([record["result"] for record in self.records()], ["refused: not built yet"] * 4)
+
+    def test_a_backlog_of_20_old_messages_after_a_restart_gets_one_reply_a_minute(self):
+        for number in range(20):
+            self.phone(f"yes m-{'abcdefghijkmnopqrstu'[number]}bcde", age=3600 + number)
+        self.assertEqual(self.signal.texts, ["refused: too old"])
+        self.later(59)
+        self.assertEqual(len(self.signal.texts), 1)
+        self.later(1)
+        self.assertEqual(self.signal.texts[1:], ["refused: 19 more messages (19 too old)"])
+        self.later(60)
+        self.assertEqual(len(self.signal.texts), 2)
+        self.assertEqual([record["result"] for record in self.records()], ["refused: too old"] * 20)
+
+    def test_refusals_fold_in_order_and_answers_to_open_events_are_not_held(self):
+        conn = self.waiting_hook()
+        self.phone("yes m-abcde", age=1000)
+        self.phone("approve it", age=10)
+        self.phone("yes m-abcde", age=9)
+        self.phone("status", age=8)
+        self.phone("yes m-zzzzz", age=7)
+        self.phone("whatever", age=6)
+        self.assertEqual(len(conn.of("decision")), 1)
+        self.assertEqual(self.signal.texts[1:], ["refused: too old"])
+        self.later(1)
+        self.written.allowed_by_hook("toolu_1")
+        self.later(1)
+        self.assertEqual(self.signal.texts[2:], ["[m-abcde] done"])
+        self.later(58)
+        self.assertEqual(self.signal.texts[3:], [
+            "refused: 4 more messages (2 not understood, 1 not built yet, 1 no such event)"])
 
     def test_an_answer_to_another_machines_event_gets_no_reply_from_this_one(self):
         stamp = self.phone("yes s-tbnaw")
