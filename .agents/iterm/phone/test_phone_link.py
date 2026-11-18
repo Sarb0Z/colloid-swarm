@@ -148,9 +148,11 @@ class Service(unittest.TestCase):
         self.written.use(call, "Bash", PUSH)
         return self.hook(calls=(call,), **fields)
 
-    def phone(self, text, age=1.0, device=1, stamp=None):
+    def phone(self, text, age=1.0, device=1, stamp=None, quote=None):
+        """`text` typed on the phone `age` seconds ago; with `quote`, as a Signal reply to the
+        message of that Signal timestamp."""
         stamp = stamp if stamp is not None else int((self.now - age) * 1000)
-        self.link.received(fake.phone_message(text, stamp, device))
+        self.link.received(fake.phone_message(text, stamp, device, quote=quote))
         return stamp
 
     def later(self, seconds):
@@ -176,7 +178,7 @@ class Alerts(Service):
             "[m-abcde] colloid-swarm · Mac · work · colloid-swarm-c1",
             "Permission: Bash · answer within 59 min (by 19:42 PKT)",
             "git push origin main",
-            "Reply to this: yes   or   no <reason>",
+            "Reply: yes, or tell Claude what to do instead",
         ])])
 
     def test_the_event_holds_the_session_the_turn_the_call_and_the_masked_preview(self):
@@ -248,20 +250,25 @@ class Answers(Service):
         self.later(1)
         self.assertEqual(self.signal.texts[1:], ["[m-abcde] done"])
 
-    def test_acceptance_3_no_with_a_reason_denies_with_that_reason(self):
+    def test_acceptance_3_text_with_an_id_denies_with_the_text_as_typed_without_the_id(self):
         conn = self.waiting_hook()
         self.phone("no m-abcde too risky")
-        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "too risky"}])
-        self.written.denied_by_hook("toolu_1", "too risky")
+        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "no too risky"}])
+        self.written.denied_by_hook("toolu_1", "no too risky")
         self.later(1)
         self.assertEqual(self.signal.texts[1:], ["[m-abcde] done"])
         self.assertEqual((self.event()["state"], self.event()["answer"]["text"]), ("answered", "no too risky"))
 
-    def test_no_without_a_reason_tells_claude_where_the_denial_came_from(self):
+    def test_an_id_alone_tells_claude_where_the_denial_came_from(self):
         conn = self.waiting_hook()
-        self.phone("No m-abcde")
+        self.phone("M-abcde.")
         self.assertEqual(conn.of("decision"),
                          [{"type": "decision", "behavior": "deny", "message": "Denied from the operator's phone."}])
+
+    def test_a_bare_no_with_an_id_denies_with_that_word(self):
+        conn = self.waiting_hook()
+        self.phone("No m-abcde")
+        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "No"}])
 
     def test_a_second_answer_while_the_first_waits_for_its_ending_is_refused(self):
         conn = self.waiting_hook()
@@ -646,27 +653,40 @@ class FromThePhone(Service):
         stamp = self.phone("no m-abcde the reason stays out of the record")
         self.assertEqual(self.records(), [{"ts": stamp, "at": "2026-11-18T13:43:00Z", "result": "accepted"}])
 
-    def test_help_lists_the_grammar(self):
-        self.phone("help")
-        self.assertEqual(self.signal.texts, ["yes <id> — allow the tool call of that alert\n"
-                                             "no <id> <reason> — deny it; Claude reads the reason\n"
-                                             "a Signal reply to an alert needs no id: yes, or no <reason>\n"
-                                             "help — this list"])
+    def test_acceptance_9_help_lists_how_an_answer_is_read(self):
+        conn = self.waiting_hook()
+        self.phone("Help")
+        self.assertEqual(self.signal.texts[1:], [phone_link.grammar.HELP])
+        self.assertEqual(conn.of("decision"), [])
 
-    def test_anything_else_is_not_understood_and_gets_the_grammar(self):
+    def test_acceptance_8_text_with_no_alert_sent_since_the_start_is_refused_as_no_open_alert(self):
         self.phone("approve it")
-        self.assertEqual(self.signal.texts[0].split("\n")[0], "refused: not understood")
-        self.assertEqual(self.signal.texts[0].split("\n")[1:], phone_link.grammar.HELP.split("\n"))
-        self.assertEqual(self.records()[0]["result"], "refused: not understood")
+        self.assertEqual(self.signal.texts, ["refused: no open alert"])
+        self.assertEqual(self.records()[0]["result"], "refused: no open alert")
 
-    def test_reserved_words_and_later_units_are_not_built_yet(self):
-        for age, text in enumerate(("status", "mute colloid-swarm-c1", "@colloid-swarm-c1 run the suite",
-                                    "m-abcde yes")):
+    def test_acceptance_8_an_alert_sent_before_a_restart_is_not_the_newest_alert(self):
+        self.waiting_hook()
+        self.later(5)
+        self.link = self.new_link()
+        self.phone("yes")
+        self.assertEqual(self.signal.texts[1:], ["refused: no open alert"])
+
+    def test_acceptance_9_reserved_words_alone_and_a_request_to_a_handle_are_not_built_yet(self):
+        conn = self.waiting_hook()
+        for age, text in enumerate(("status", "Mute", "@colloid-swarm-c1 run the suite", "unmute", "start")):
             self.phone(text, age=age + 1)
-        self.assertEqual(self.signal.texts, ["refused: not built yet"])
+        self.assertEqual(self.signal.texts[1:], ["refused: not built yet"])
         self.later(60)
-        self.assertEqual(self.signal.texts[1:], ["refused: 3 more messages (3 not built yet)"])
-        self.assertEqual([record["result"] for record in self.records()], ["refused: not built yet"] * 4)
+        self.assertEqual(self.signal.texts[2:], ["refused: 4 more messages (4 not built yet)"])
+        self.assertEqual([record["result"] for record in self.records()], ["refused: not built yet"] * 5)
+        self.assertEqual(conn.of("decision"), [])
+
+    def test_acceptance_10_no_message_is_refused_as_not_understood(self):
+        conn = self.waiting_hook()
+        self.phone("mute colloid-swarm-c1 please")
+        self.assertEqual(conn.of("decision"),
+                         [{"type": "decision", "behavior": "deny", "message": "mute colloid-swarm-c1 please"}])
+        self.assertNotIn("not understood", "".join(self.signal.texts))
 
     def test_a_backlog_of_20_old_messages_after_a_restart_gets_one_reply_a_minute(self):
         for number in range(20):
@@ -683,11 +703,11 @@ class FromThePhone(Service):
     def test_refusals_fold_in_order_and_answers_to_open_events_are_not_held(self):
         conn = self.waiting_hook()
         self.phone("yes m-abcde", age=1000)
-        self.phone("approve it", age=10)
+        self.phone("mute", age=10)
         self.phone("yes m-abcde", age=9)
         self.phone("status", age=8)
         self.phone("yes m-zzzzz", age=7)
-        self.phone("whatever", age=6)
+        self.phone("whatever", age=6, quote=1794992399999)
         self.assertEqual(len(conn.of("decision")), 1)
         self.assertEqual(self.signal.texts[1:], ["refused: too old"])
         self.later(1)
@@ -696,7 +716,7 @@ class FromThePhone(Service):
         self.assertEqual(self.signal.texts[2:], ["[m-abcde] done"])
         self.later(58)
         self.assertEqual(self.signal.texts[3:], [
-            "refused: 4 more messages (2 not understood, 1 not built yet, 1 no such event)"])
+            "refused: 4 more messages (2 not built yet, 1 no such event, 1 not a reply to an open alert)"])
 
     def test_an_answer_to_another_machines_event_gets_no_reply_from_this_one(self):
         stamp = self.phone("yes s-tbnaw")
@@ -729,22 +749,30 @@ class SignalReplies(Service):
         self.written.allowed_by_hook("toolu_1")
         self.later(1)
         self.assertEqual(self.signal.texts[1:], ["[m-abcde] done"])
-        self.assertEqual((self.event()["state"], self.event()["answer"]["text"]), ("answered", "yes"))
+        self.assertEqual((self.event()["state"], self.event()["answer"]["text"]), ("answered", "Yes"))
         self.assertEqual(self.records()[0]["result"], "accepted")
 
-    def test_acceptance_2_no_with_a_reason_as_a_reply_denies_with_that_reason(self):
+    def test_acceptance_2_text_as_a_reply_denies_with_the_text_as_typed(self):
         conn = self.waiting_hook()
         self.reply("no too risky", to=0)
-        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "too risky"}])
-        self.written.denied_by_hook("toolu_1", "too risky")
+        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "no too risky"}])
+        self.written.denied_by_hook("toolu_1", "no too risky")
         self.later(1)
         self.assertEqual((self.event()["state"], self.event()["answer"]["text"]), ("answered", "no too risky"))
 
-    def test_a_bare_no_as_a_reply_denies_and_says_where_the_denial_came_from(self):
+    def test_a_bare_no_as_a_reply_denies_with_that_word(self):
         conn = self.waiting_hook()
         self.reply("No.", to=0)
-        self.assertEqual(conn.of("decision"),
-                         [{"type": "decision", "behavior": "deny", "message": "Denied from the operator's phone."}])
+        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "No."}])
+
+    def test_acceptance_4_a_reply_binds_to_the_quoted_alert_when_a_newer_alert_exists(self):
+        first = self.waiting_hook()
+        second = self.waiting_hook(call="toolu_2", session="s2", pid=502, name="other")
+        self.later(10)
+        self.reply("no, push to main instead", to=0)
+        self.assertEqual(first.of("decision"),
+                         [{"type": "decision", "behavior": "deny", "message": "no, push to main instead"}])
+        self.assertEqual(second.of("decision"), [])
 
     def test_a_reply_answers_the_hook_of_the_alert_it_quotes_and_no_other(self):
         first = self.waiting_hook()
@@ -819,15 +847,7 @@ class SignalReplies(Service):
     def test_a_reply_naming_the_quoted_events_own_id_answers_it(self):
         conn = self.waiting_hook()
         self.reply("no m-abcde not now", to=0)
-        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "not now"}])
-
-    def test_acceptance_6_yes_with_an_id_and_no_quote_still_answers_and_a_bare_yes_does_not(self):
-        conn = self.waiting_hook()
-        self.phone("yes", age=2)
-        self.assertEqual(self.signal.texts[1].split("\n")[0], "refused: not understood")
-        self.assertEqual(conn.of("decision"), [])
-        self.phone("yes m-abcde", age=1)
-        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "allow"}])
+        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "deny", "message": "no not now"}])
 
     def test_acceptance_7_after_a_restart_a_reply_to_an_old_alert_is_refused(self):
         self.waiting_hook()
@@ -871,6 +891,115 @@ class SignalReplies(Service):
         self.signal.ending = ""
         self.reply("yes", to=0)
         self.assertEqual(self.signal.texts[1:], ["refused: not a reply to an open alert"])
+
+
+class NewestAlert(Service):
+    """A message that quotes nothing and names no id answers the newest alert the link sent."""
+
+    def second_hook(self):
+        return self.waiting_hook(call="toolu_2", session="s2", pid=502, name="other")
+
+    def test_acceptance_1_an_approval_typed_plainly_allows_the_newest_alert(self):
+        texts = ("ok", "Yes", "\N{THUMBS UP SIGN}",
+                 "yes.\N{ZERO WIDTH SPACE}\N{VARIATION SELECTOR-16}\N{POP DIRECTIONAL ISOLATE}")
+        for number, text in enumerate(texts):
+            conn = self.waiting_hook(call=f"toolu_{number}", session=f"s{number}", pid=700 + number, name=f"n{number}")
+            self.later(6)
+            self.phone(text, age=0)
+            self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "allow"}], repr(text))
+
+    def test_acceptance_2_a_plain_no_with_words_denies_with_exactly_that_message(self):
+        conn = self.waiting_hook()
+        self.phone("no, push to main instead")
+        self.assertEqual(conn.of("decision"),
+                         [{"type": "decision", "behavior": "deny", "message": "no, push to main instead"}])
+
+    def test_acceptance_3_an_approval_with_more_words_denies_with_the_text(self):
+        conn = self.waiting_hook()
+        self.phone("yes but skip the tests")
+        self.assertEqual(conn.of("decision"),
+                         [{"type": "decision", "behavior": "deny", "message": "yes but skip the tests"}])
+        self.written.denied_by_hook("toolu_1", "yes but skip the tests")
+        self.later(1)
+        self.assertEqual(self.signal.texts[1:], ["[m-abcde] done"])
+
+    def test_the_newest_alert_is_answered_and_not_an_older_open_one(self):
+        first = self.waiting_hook()
+        self.later(10)
+        second = self.second_hook()
+        self.later(6)
+        self.phone("ok", age=0)
+        self.assertEqual((first.of("decision"), second.of("decision")),
+                         ([], [{"type": "decision", "behavior": "allow"}]))
+
+    def test_acceptance_5_a_message_naming_an_id_binds_that_event_even_just_after_a_newer_alert(self):
+        first = self.waiting_hook()
+        self.later(10)
+        second = self.second_hook()
+        self.phone("M-abcde ok", age=0)
+        self.assertEqual((first.of("decision"), second.of("decision")),
+                         ([{"type": "decision", "behavior": "allow"}], []))
+
+    def test_acceptance_6_when_the_newest_alert_is_settled_its_state_answers_and_no_older_event(self):
+        first = self.waiting_hook()
+        self.later(10)
+        second = self.second_hook()
+        self.written.allowed_at_mac("toolu_2")
+        self.link.hook_line(second, {"type": "settled", "by": "mac", "decision": "allow"})
+        self.later(6)
+        self.phone("yes", age=0)
+        self.assertEqual(self.signal.texts[2:], ["[m-fghij] refused: settled at the Mac"])
+        self.phone("stop, that was the wrong one", age=-0.5)
+        self.assertEqual(self.signal.texts[3:], ["[m-fghij] refused: the Mac allowed it first"])
+        self.assertEqual(first.of("decision"), [])
+        self.assertEqual(self.event(IDS[0])["state"], "open")
+
+    def test_acceptance_6_when_the_newest_alert_was_answered_a_second_plain_answer_is_refused(self):
+        conn = self.waiting_hook()
+        self.phone("yes", age=2)
+        self.phone("no wait", age=1)
+        self.assertEqual(len(conn.of("decision")), 1)
+        self.assertEqual(self.signal.texts[1:], ["[m-abcde] refused: already answered"])
+
+    def test_acceptance_7_plain_text_within_5_s_of_a_newer_alert_while_an_older_is_open_is_refused(self):
+        first = self.waiting_hook()
+        self.later(10)
+        second = self.second_hook()
+        self.later(4)
+        stamp = self.phone("yes", age=0)
+        self.assertEqual(self.signal.texts[2:],
+                         ["refused: a newer alert just arrived — reply to the one you mean"])
+        self.assertEqual((first.of("decision"), second.of("decision")), ([], []))
+        self.assertEqual(self.records(), [{"ts": stamp, "at": log.iso(self.now),
+                                           "result": "refused: a newer alert just arrived — reply to the one you mean"}])
+        # Typed before the newer alert reached the phone: the same refusal.
+        self.phone("no", age=6)
+        self.assertEqual(self.signal.texts[3:],
+                         ["refused: a newer alert just arrived — reply to the one you mean"])
+
+    def test_acceptance_7_five_seconds_after_the_newer_alert_plain_text_answers_it(self):
+        first = self.waiting_hook()
+        self.later(10)
+        second = self.second_hook()
+        self.later(5)
+        self.phone("yes", age=0)
+        self.assertEqual((first.of("decision"), second.of("decision")),
+                         ([], [{"type": "decision", "behavior": "allow"}]))
+
+    def test_acceptance_7_with_no_older_event_open_a_fresh_alert_takes_a_plain_answer_at_once(self):
+        conn = self.waiting_hook()
+        self.phone("yes", age=0)
+        self.assertEqual(conn.of("decision"), [{"type": "decision", "behavior": "allow"}])
+
+    def test_the_newest_alert_is_the_one_signal_cli_delivered_last(self):
+        first = self.waiting_hook()
+        self.signal.ending = "signal-cli: Failed to send message: Connection reset"
+        self.later(10)
+        self.second_hook()
+        self.signal.ending = ""
+        self.later(6)
+        self.phone("yes", age=0)
+        self.assertEqual(first.of("decision"), [{"type": "decision", "behavior": "allow"}])
 
 
 class RateLimit(Service):

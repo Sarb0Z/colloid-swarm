@@ -1,48 +1,37 @@
 #!/usr/bin/env python3
-"""What the phone may say to the link, and what the link says to the phone.
+"""What a phone message is, and the link's own texts to the phone.
 
-From the phone, the grammar is closed. This unit builds its permission part:
+The operator's words go to the session's model, so the link holds an answer to
+no word list (spec "Messages from the phone"). `parse` tells only these apart:
 
-    yes <id>            allow the tool call of the alert <id>
-    no <id> [<reason>]  deny it; Claude reads the reason
-    help                list the grammar
+    help                 alone: list how an answer is read
+    status, start,       alone: reserved for R30, `refused: not built yet`
+    mute, unmute
+    @<handle> <text>     a request (unit 3d), `refused: not built yet`
+    anything else        an answer, with the event id it names, if any
 
-`yes`, `no` and `no <reason>` without an id parse too, with no event: only a
-Signal reply to a message about an event may say them, and the link binds it
-by the quoted message, not here.
-
-`status`, `start`, `mute` and `unmute` are reserved, and `<id> <text>` (a gate
-answer) and `@<handle> <text>` (a request) belong to later units: `parse` knows
-each as `unbuilt`, and the link answers `refused: not built yet`. Anything else
-is `unknown`.
-
-A phone keyboard capitalises the first word and may end a line with a period,
-so the verb and the id match in any case, and the id, or a `yes` or `no` with
-no id, may carry one trailing `.`, `,` or `!`. Nothing else is forgiven.
+An answer names an event when its first or second word is an event id, in any
+case and with trailing punctuation. The answer's text is the message as typed,
+outer space trimmed, without that one word. What the text does to the event is
+its adapter's (`adapters.py`); which event it answers is `phone_link.py`'s.
 
 To the phone, every message about an event starts with its id in brackets
-(`alert`, `reply`). An alert's preview is already masked and cut by the hook
-that built it (`mask.outbound`): this module composes, it does not mask. An
-alert whose preview lost values to the mask or characters to the cut says so
-on a line of its own, `masked: <n> values · cut: <n> more characters`; it
-still takes `yes`.
+(`reply`).
 """
 
 from __future__ import annotations
 
-import math
+import itertools
 import re
-from datetime import datetime
+import unicodedata
 from typing import NamedTuple
-
-import log
 
 EVENT_ID = re.compile(r"[a-z]-[a-z]{5}")
 RESERVED = ("status", "start", "mute", "unmute")
-MACHINE_NAMES = {"mac": "Mac"}
-HELP = ("yes <id> — allow the tool call of that alert\n"
-        "no <id> <reason> — deny it; Claude reads the reason\n"
-        "a Signal reply to an alert needs no id: yes, or no <reason>\n"
+HELP = ("yes, ok or \N{THUMBS UP SIGN} — allow the call\n"
+        "any other words — deny it; Claude reads them as you typed them\n"
+        "a reply answers the alert it quotes; an id in the first two words answers that alert; "
+        "otherwise the newest alert\n"
         "help — this list")
 # What a phone answer to an event that is not open is told, by the event's state.
 REFUSALS = {
@@ -53,85 +42,34 @@ REFUSALS = {
 }
 
 
-class Command(NamedTuple):
-    kind: str  # "yes", "no", "help", "unbuilt" or "unknown"
-    event: str = ""  # the event id the message names, when it names one
-    reason: str = ""  # for "no"
-
-
-def _unpunctuated(word: str) -> str:
-    found = word.lower()
-    return found[:-1] if found[-1:] in (".", ",", "!") else found
+class Message(NamedTuple):
+    kind: str  # "help", "unbuilt" or "answer"
+    event: str = ""  # for "answer": the event id it names, or ''
+    text: str = ""  # for "answer": the text as typed, without the id
 
 
 def _event_id(word: str) -> str:
-    found = _unpunctuated(word)
+    found = word.lower()
+    while found and unicodedata.category(found[-1])[0] == "P":
+        found = found[:-1]
     return found if EVENT_ID.fullmatch(found) else ""
 
 
-def parse(text: str) -> Command:
+def parse(text: str) -> Message:
     words = text.split()
-    if not words:
-        return Command("unknown")
-    verb = words[0].lower()
-    if verb == "help" and len(words) == 1:
-        return Command("help")
-    if verb in RESERVED:
-        return Command("unbuilt")
-    if verb == "yes" and len(words) == 2 and _event_id(words[1]):
-        return Command("yes", _event_id(words[1]))
-    if verb == "no" and len(words) >= 2 and _event_id(words[1]):
-        # The reason as typed: only the id may have lost a period.
-        return Command("no", _event_id(words[1]), " ".join(words[2:]))
-    answer = _unpunctuated(words[0])
-    if answer == "yes" and len(words) == 1:
-        return Command("yes")
-    if answer == "no" and not (len(words) >= 2 and _event_id(words[1])):
-        return Command("no", "", " ".join(words[1:]))
-    if len(words) >= 2 and EVENT_ID.fullmatch(verb):
-        return Command("unbuilt", verb)
-    if len(verb) > 1 and verb.startswith("@") and len(words) >= 2:
-        return Command("unbuilt")
-    return Command("unknown")
-
-
-def _within(event: dict, now: float, zone) -> str:
-    """`answer within <n> min (by HH:MM <zone>)` for the event's deadline."""
-    deadline = log.epoch_of(event["deadline"])
-    # To the nearest minute: an alert sent half a second into a 59-minute wait says 59.
-    minutes = max(0, math.floor((deadline - now) / 60 + 0.5))
-    by = datetime.fromtimestamp(deadline, zone).strftime("%H:%M %Z")
-    return f"answer within {minutes} min (by {by})"
-
-
-def alert(event: dict, now: float, zone) -> str:
-    """The alert of a permission event, composed when it is sent, so the minutes are those left."""
-    session = event["session"]
-    return "\n".join([
-        f"[{event['id']}] {session['project']} · {MACHINE_NAMES[event['machine']]} · "
-        f"{session['account']} · {session['handle']}",
-        f"Permission: {event['detail']['tool']} · {_within(event, now, zone)}",
-        event["detail"]["preview"],
-        *_not_shown(event["detail"]),
-        "Reply to this: yes   or   no <reason>",
-    ])
-
-
-def _plural(count: int, word: str) -> str:
-    return f"{count} {word}" if count == 1 else f"{count} {word}s"
-
-
-def _not_shown(detail: dict) -> list:
-    """The line that says the preview is not the whole call, or no line when it is."""
-    parts = [f"masked: {_plural(detail['masked'], 'value')}" if detail["masked"] else "",
-             f"cut: {_plural(detail['cut'], 'more character')}" if detail["cut"] else ""]
-    said = " · ".join(part for part in parts if part)
-    return [said] if said else []
-
-
-def new_deadline(event: dict, now: float, zone) -> str:
-    """The line that follows an alert when its hook's deadline moved closer."""
-    return reply(event["id"], _within(event, now, zone))
+    alone = words[0].lower() if len(words) == 1 else ""
+    if alone == "help":
+        return Message("help")
+    if alone in RESERVED:
+        return Message("unbuilt")
+    if len(words) >= 2 and len(words[0]) > 1 and words[0].startswith("@"):
+        return Message("unbuilt")
+    for word in itertools.islice(re.finditer(r"\S+", text), 2):
+        event = _event_id(word.group())
+        if event:
+            # The id goes with the space after it, so `no <id> too risky` reads `no too risky`.
+            return Message("answer", event, (text[:word.start()] + text[word.end():].lstrip()).strip())
+    return Message("answer", "", text.strip())
 
 
 def reply(event_id: str, text: str) -> str:
@@ -142,10 +80,11 @@ def refused(reason: str) -> str:
     return f"refused: {reason}"
 
 
-def refusal_for(event: dict, command: Command) -> str:
-    """Why an answer to an event that is not open is refused. A `no` to a call the Mac allowed
-    says so in its own words, because that call ran."""
-    if command.kind == "no" and event["state"] == "settled_at_mac" and (event.get("answer") or {}).get("text") == "allow":
+def refusal_for(event: dict, behavior: str) -> str:
+    """Why an answer to an event that is not open is refused; `behavior` is what the answer
+    would have told the hook. A denial of a call the Mac allowed says so in its own words,
+    because that call ran."""
+    if behavior == "deny" and event["state"] == "settled_at_mac" and (event.get("answer") or {}).get("text") == "allow":
         return "the Mac allowed it first"
     return REFUSALS[event["state"]]
 

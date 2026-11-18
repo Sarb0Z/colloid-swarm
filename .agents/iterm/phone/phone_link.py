@@ -18,18 +18,22 @@ What it does with a permission prompt (spec `docs/notes/2026-11-17-phone-link-sp
      with no decision, so the dialog on the Mac behaves as without the link.
      A hook that does not find its call waits 10 minutes, not 59: when its
      alert already went out, one line tells the phone the new deadline.
-  2. `yes <id>` or `no <id> <reason>` from the phone goes to the hook that
-     holds the id. A Signal reply needs no id: the link keeps the Signal
-     timestamp of every message it sends about an event, in memory, and a
-     `yes`, `no` or `no <reason>` that quotes one answers that event; a
-     quote it does not know is refused, and so is an id other than the
-     quoted event's. The reply waits until the transcript shows how the call
-     ended: `done` when it ended by this decision, `refused: settled at the
-     Mac` when the Mac's dialog answered first, and `refused: the Mac allowed
-     it first` for a `no` to a call that ran. A message that answers no
-     known event (too old, not understood, not built, no such event) gets one
-     refusal a minute; the rest of that minute fold into one summary reply
-     at the next, and each is still recorded.
+  2. A message from the phone answers one event: the one whose message it
+     quotes as a Signal reply (the link keeps the Signal timestamp of every
+     message it sends about an event, in memory), else the one whose id is
+     its first or second word, else the newest alert's. A quote it does not
+     know is refused, and so is an id other than the quoted event's; an
+     answer typed within 5 s of the newest alert while an older event is
+     open is refused, since it may mean the older one. It never falls back
+     to an older event. The event's adapter (`adapters.py`) turns the text
+     into the hook's line: an approval allows, any other text denies with
+     the text as typed. The reply waits until the transcript shows how the
+     call ended: `done` when it ended by this decision, `refused: settled at
+     the Mac` when the Mac's dialog answered first, and `refused: the Mac
+     allowed it first` for a denial of a call that ran. A message that
+     answers no known event (too old, not built, no such event, no open
+     alert) gets one refusal a minute; the rest of that minute fold into one
+     summary reply at the next, and each is still recorded.
   3. A hook that ends by itself says why (the Mac settled its call, its
      deadline passed, its session's process is gone). A hook that goes away
      without a word was stopped: the link reads the transcript for a No or an
@@ -64,6 +68,7 @@ import traceback
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import adapters
 import grammar
 import log
 import mask
@@ -85,17 +90,19 @@ STOPPED_GRACE_SECONDS = 3
 # decision row on a call of the same tool.
 UNBOUND_CONFIRM_SECONDS = 30
 RECONNECT_SECONDS = 5
+# A message that quotes nothing and names no id, typed this soon after the newest alert
+# went out, may mean an older alert that is still open.
+NEWER_ALERT_SECONDS = 5
 READ_BYTES = 65536
 SESSION_KEYS = ("id", "start", "config_dir", "cwd", "project", "account", "transcript")
 
 
 class Decision:
-    """The phone's answer that was given to a hook."""
+    """The phone's answer that was given to a hook: the operator's text, and the hook line its
+    adapter made of it, whose `behavior` the transcript must then show the hook decided."""
 
-    def __init__(self, command):
-        self.command = command
-        self.behavior = "allow" if command.kind == "yes" else "deny"
-        self.text = "yes" if command.kind == "yes" else f"no {command.reason}".strip()
+    def __init__(self, text: str, line: dict):
+        self.text, self.line, self.behavior = text, line, line["behavior"]
 
 
 class Wait:
@@ -199,6 +206,9 @@ class Link:
         # the events. `clashed` holds the timestamps signal-cli gave to two messages (`_bind`).
         self.sent_about: dict = {}
         self.clashed: set = set()
+        # The event of the alert signal-cli delivered last, and when (the clock's epoch
+        # seconds), which a message that quotes nothing and names no id answers.
+        self.newest = None
         self.queue = collections.deque()  # event ids whose alert waits for the rate limit
         self.sent_at = collections.deque()  # when each alert of the last minute went out
         self.noticed_at = float("-inf")
@@ -238,7 +248,7 @@ class Link:
             event = self.events.amend(event_id, deadline=log.iso(message["deadline"]))
             # An alert still in the queue states the new deadline when it goes out.
             if event_id not in self.queue:
-                self._say(grammar.new_deadline(event, now, self.zone), about=event_id)
+                self._say(adapters.new_deadline(event, now, self.zone), about=event_id)
         elif kind == "settled" and message.get("decision") in ("allow", "deny"):
             self._end(event_id, "settled_at_mac", "mac", message["decision"], now)
         elif kind == "expired":
@@ -326,65 +336,72 @@ class Link:
         if taken.kind == "too_old":
             self._refuse_message(grammar.refused("too old"), "too old", now)
             return
-        command = grammar.parse(taken.text)
-        if command.event and command.event[0] != log.MACHINE_LETTER:
+        message = grammar.parse(taken.text)
+        if message.event and message.event[0] != log.MACHINE_LETTER:
             # Another machine's event: that machine's link answers.
             self.messages.record(taken.timestamp, "ignored: another machine's event", now)
             return
-        if command.kind in ("yes", "no") and taken.reply:
-            result = self._reply(command, taken.quote, now)
-        elif command.kind in ("yes", "no") and not command.event:
-            result = self._not_understood(now)
+        if message.kind == "help":
+            self._say(grammar.HELP)
+            result = "accepted"
+        elif message.kind == "unbuilt":
+            self._refuse_message(grammar.refused("not built yet"), "not built yet", now)
+            result = "refused: not built yet"
         else:
-            result = self._act(command, now)
+            event_id, result = self._which(message, taken, now)
+            if event_id is not None:
+                result = self._answer(event_id, message.text, now)
         self.messages.record(taken.timestamp, result, now)
 
-    def _reply(self, command, quote, now: float) -> str:
-        """A `yes` or `no` sent as a Signal reply: it answers the event of the quoted message,
-        and an id it names must be that event's."""
-        quoted = self.sent_about.get(quote)
-        if quoted is None:
-            reason = "not a reply to an open alert"
+    def _which(self, message, taken, now: float):
+        """`(event id, '')` for the event an answer answers — the quoted alert's, else the one
+        it names, else the newest alert's — or `(None, result)` when it was refused."""
+        if taken.reply:
+            quoted = self.sent_about.get(taken.quote)
+            if quoted is None:
+                reason = "not a reply to an open alert"
+                self._refuse_message(grammar.refused(reason), reason, now)
+                return None, f"refused: {reason}"
+            if message.event and message.event != quoted:
+                return None, self._refuse(quoted, f"the reply quotes {quoted}")
+            return quoted, ""
+        if message.event:
+            return message.event, ""
+        if self.newest is None:
+            reason = "no open alert"
             self._refuse_message(grammar.refused(reason), reason, now)
-            return f"refused: {reason}"
-        if command.event and command.event != quoted:
-            return self._refuse(quoted, f"the reply quotes {quoted}")
-        return self._act(command._replace(event=quoted), now)
+            return None, f"refused: {reason}"
+        newest, sent = self.newest
+        older_open = any(event_id != newest and self.events.events[event_id]["state"] == "open"
+                         for event_id in self.waits)
+        if taken.timestamp / 1000 - sent < NEWER_ALERT_SECONDS and older_open:
+            # The operator may have typed it about the older alert before this one arrived.
+            reason = "a newer alert just arrived — reply to the one you mean"
+            self._say(grammar.refused(reason))
+            return None, f"refused: {reason}"
+        return newest, ""
 
-    def _not_understood(self, now: float) -> str:
-        self._refuse_message(grammar.refused("not understood") + "\n" + grammar.HELP, "not understood", now)
-        return "refused: not understood"
-
-    def _act(self, command, now: float) -> str:
-        """Do what the phone asked, and return the result for the message record."""
-        if command.kind == "help":
-            self._say(grammar.HELP)
-            return "accepted"
-        if command.kind == "unbuilt":
-            self._refuse_message(grammar.refused("not built yet"), "not built yet", now)
-            return "refused: not built yet"
-        if command.kind == "unknown":
-            return self._not_understood(now)
-        event = self.events.events.get(command.event)
+    def _answer(self, event_id: str, text: str, now: float) -> str:
+        """Give the operator's text to the event's hook as its adapter reads it, and return
+        the result for the message record."""
+        event = self.events.events.get(event_id)
         if event is None:
-            reason = f"no event {command.event}"
-            self._refuse_message(grammar.reply(command.event, grammar.refused(reason)), "no such event", now)
+            reason = f"no event {event_id}"
+            self._refuse_message(grammar.reply(event_id, grammar.refused(reason)), "no such event", now)
             return f"refused: {reason}"
+        decision = Decision(text, adapters.ADAPTERS[event["kind"]].answer(event, text))
         if event["state"] != "open":
-            return self._refuse(event["id"], grammar.refusal_for(event, command))
-        wait, decision = self.waits[event["id"]], Decision(command)
+            return self._refuse(event_id, grammar.refusal_for(event, decision.behavior))
+        wait = self.waits[event_id]
         if wait.decision is not None:
-            return self._refuse(event["id"], "already answered")
-        line = {"type": "decision", "behavior": decision.behavior}
-        if decision.behavior == "deny":
-            line["message"] = command.reason or "Denied from the operator's phone."
-        if wait.conn is None or not wait.conn.send(line):
+            return self._refuse(event_id, "already answered")
+        if wait.conn is None or not wait.conn.send(decision.line):
             # Its hook went away before the answer could reach it: settle what the
             # transcript shows now, and tell the phone that.
             self.hook_closed(wait.conn)
-            if event["id"] in self.watches:
-                self._look(event["id"], now, last=True)
-            return self._refuse(event["id"], grammar.refusal_for(self.events.events[event["id"]], command))
+            if event_id in self.watches:
+                self._look(event_id, now, last=True)
+            return self._refuse(event_id, grammar.refusal_for(self.events.events[event_id], decision.behavior))
         wait.decision = decision
         until = log.epoch_of(event["deadline"]) if event["call"] else now + UNBOUND_CONFIRM_SECONDS
         self.watches[event["id"]] = Watch(wait.file, until)
@@ -428,7 +445,7 @@ class Link:
                 self._say(grammar.reply(event_id, "done"), about=event_id)
             elif ending is not None:
                 self._end(event_id, "settled_at_mac", "mac", ending.decision, now)
-                self._refuse(event_id, grammar.refusal_for(self.events.events[event_id], wait.decision.command))
+                self._refuse(event_id, grammar.refusal_for(self.events.events[event_id], wait.decision.behavior))
             elif last or now >= watch.until:
                 self._end(event_id, "closed", "none", "the transcript did not show how the call ended", now)
                 self._refuse(event_id, "closed" if event["call"] else "not confirmed — check the Mac")
@@ -497,7 +514,8 @@ class Link:
             if wait is None or wait.conn is None:
                 continue  # Settled while it waited its turn: its alert would ask about nothing.
             self.sent_at.append(now)
-            self.signal.send(grammar.alert(self.events.events[event_id], now, self.zone),
+            event = self.events.events[event_id]
+            self.signal.send(adapters.ADAPTERS[event["kind"]].alert(event, now, self.zone),
                              lambda error, stamp, event_id=event_id: self._alert_sent(event_id, error, stamp))
         if len(self.queue) > ALERTS_A_MINUTE and now - self.noticed_at >= MINUTE:
             self.noticed_at = now
@@ -506,6 +524,7 @@ class Link:
     def _alert_sent(self, event_id: str, error: str, stamp) -> None:
         if not error:
             self._bind(stamp, event_id)
+            self.newest = (event_id, self.clock())
             return
         self.errors.write(f"the alert of {event_id} was not sent: {error}")
         wait = self.waits.get(event_id)

@@ -153,7 +153,7 @@ wait_for 10 has_sent 1 || bad "yes: no alert was sent"
 id_2=$(last_id)
 eq "yes: the alert's first line" "[$id_2] repo · Mac · claude · repo" "$(last_sent | head -1)"
 eq "yes: the alert shows the command with its token masked" 'git push https://[REDACTED]@github.com/o/r' "$(last_sent | sed -n 3p)"
-eq "yes: the alert says how to answer" "Reply to this: yes   or   no <reason>" "$(last_sent | tail -1)"
+eq "yes: the alert says how to answer" "Reply: yes, or tell Claude what to do instead" "$(last_sent | tail -1)"
 phone_replies "Yes"
 wait "$job"
 eq "yes: the hook prints allow" '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}' "$(cat "$T/o2/stdout")"
@@ -163,19 +163,20 @@ eq "yes: no reply before the transcript shows the call's ending" 1 "$(sent_count
 writes allowed-by-hook toolu_2
 wait_for 5 has_sent 2 || bad "yes: no reply after the call's result"
 eq "yes: the reply" "[$id_2] done" "$(last_sent)"
-eq "yes: the event" "answered | yes" "$(state_of "$id_2")"
+eq "yes: the event" "answered | Yes" "$(state_of "$id_2")"
 if grep -rqs "$token" "$S" "$T/requests.jsonl"; then bad "the token reached the state folder or Signal"; else ok "acceptance 13: the log and the alert hold no raw tool input"; fi
 
-# 3. Acceptance 3: no <id> <reason> is printed as deny with the reason.
+# 3. Acceptance 3: text with no quote and no id answers the newest alert, printed as deny
+#    with the text as typed.
 input_3='{"command":"rm -rf build","description":"Clean"}'
 writes use toolu_3 Bash "$input_3"
 CLAUDE_PROFILE=personal prompt "$T/o3" "$T/repo" "$input_3"
 wait_for 10 has_sent 3 || bad "no: no alert was sent"
 id_3=$(last_id)
 eq "acceptance 19: the alert names the session's account" "[$id_3] repo · Mac · personal · repo" "$(last_sent | head -1)"
-phone_says "no $id_3 too risky"
+phone_says "no, clean only dist"
 wait "$job"
-eq "no: the hook prints deny with the reason" '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": "too risky"}}}' "$(cat "$T/o3/stdout")"
+eq "no: the hook prints deny with the text as typed" '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": "no, clean only dist"}}}' "$(cat "$T/o3/stdout")"
 writes denied-by-hook toolu_3
 wait_for 5 has_sent 4 || bad "no: no reply after the call's result"
 eq "no: the reply" "[$id_3] done" "$(last_sent)"

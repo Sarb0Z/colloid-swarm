@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""Tests for grammar.py: what a phone message means, and the texts sent to the phone.
+"""Tests for grammar.py: what a phone message is, and the link's own texts to the phone.
 
-Seam: `parse`, `alert`, `reply` and `refusal_for` over literal messages and one
-literal event. Catches a message taken for an answer it is not, an answer bound
-to the wrong id, an alert whose first line, minutes or zone differ from the
-spec's example, and a `no` after a Mac allow told anything but that the call
-ran. Misses how a real phone keyboard rewrites what the operator types.
+Seam: `parse`, `reply` and `refusal_for` over literal messages and one literal
+event. Catches a command taken for an answer or an answer for a command, an id
+read from the wrong word or left in the answer's text, a text changed on its
+way to Claude, and a denial after a Mac allow told anything but that the call
+ran. Misses what an answer does to a hook, which `adapters.py` decides.
 """
 
 import unittest
-from datetime import timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import grammar
-import log
-from grammar import Command
+from grammar import Message
 
 EVENT = {
     "v": 1, "id": "m-qhvkz", "machine": "mac", "kind": "permission",
@@ -28,90 +25,44 @@ EVENT = {
 
 
 class Parse(unittest.TestCase):
-    def test_yes_with_an_id(self):
-        self.assertEqual(grammar.parse("yes m-qhvkz"), Command("yes", "m-qhvkz"))
+    def test_help_alone(self):
+        self.assertEqual(grammar.parse("help"), Message("help"))
+        self.assertEqual(grammar.parse("  Help \n"), Message("help"))
 
-    def test_no_with_an_id_and_no_reason(self):
-        self.assertEqual(grammar.parse("no m-qhvkz"), Command("no", "m-qhvkz", ""))
+    def test_reserved_words_alone_and_a_request_to_a_handle_are_not_built(self):
+        for text in ("status", "Start", "mute", "unmute", "@colloid-swarm-c1 run the suite"):
+            self.assertEqual(grammar.parse(text), Message("unbuilt"), text)
 
-    def test_no_with_a_reason_keeps_the_reason_as_typed(self):
+    def test_acceptance_10_any_other_text_is_an_answer_as_typed(self):
+        for text in ("yes", "approve it", "no, push to main instead", "yes but skip the tests", "help me",
+                     "status of the build?", "start over with a smaller change", "@", "@handle", "Yes."):
+            self.assertEqual(grammar.parse(text), Message("answer", "", text), text)
+
+    def test_the_text_keeps_its_case_punctuation_and_lines_and_loses_only_its_outer_space(self):
+        self.assertEqual(grammar.parse("  No, Too risky.\nUse --dry-run!  "),
+                         Message("answer", "", "No, Too risky.\nUse --dry-run!"))
+
+    def test_acceptance_5_an_id_in_the_first_or_second_word_names_its_event_and_leaves_the_text(self):
+        self.assertEqual(grammar.parse("yes m-qhvkz"), Message("answer", "m-qhvkz", "yes"))
+        self.assertEqual(grammar.parse("m-qhvkz yes"), Message("answer", "m-qhvkz", "yes"))
         self.assertEqual(grammar.parse("no m-qhvkz too risky, Use --dry-run."),
-                         Command("no", "m-qhvkz", "too risky, Use --dry-run."))
+                         Message("answer", "m-qhvkz", "no too risky, Use --dry-run."))
+        self.assertEqual(grammar.parse("m-qhvkz"), Message("answer", "m-qhvkz", ""))
+        self.assertEqual(grammar.parse("s-tbnaw push it"), Message("answer", "s-tbnaw", "push it"))
 
-    def test_what_a_phone_keyboard_does_to_a_message(self):
-        self.assertEqual(grammar.parse("Yes m-qhvkz"), Command("yes", "m-qhvkz"))
-        self.assertEqual(grammar.parse("  YES  M-QHVKZ. \n"), Command("yes", "m-qhvkz"))
-        self.assertEqual(grammar.parse("No m-qhvkz. Too risky"), Command("no", "m-qhvkz", "Too risky"))
+    def test_the_id_matches_in_any_case_with_trailing_punctuation(self):
+        self.assertEqual(grammar.parse("Yes M-QHVKZ."), Message("answer", "m-qhvkz", "Yes"))
+        self.assertEqual(grammar.parse("M-qhvkz: no, not now"), Message("answer", "m-qhvkz", "no, not now"))
+        self.assertEqual(grammar.parse("ok m-qhvkz!!"), Message("answer", "m-qhvkz", "ok"))
 
-    def test_help(self):
-        self.assertEqual(grammar.parse("Help"), Command("help"))
+    def test_an_id_past_the_second_word_or_not_an_id_names_no_event(self):
+        for text in ("yes please m-qhvkz", "yes m-qhvk", "yes m-qhvkzz", "yes mqhvkz", "yes m-qh1kz",
+                     "yes (m-qhvkz)"):
+            self.assertEqual(grammar.parse(text), Message("answer", "", text), text)
 
-    def test_reserved_words_and_later_units_are_known_and_not_built(self):
-        for text in ("status", "start colloid-swarm mac w", "mute colloid-swarm-c1", "unmute x",
-                     "@colloid-swarm-c1 run the suite"):
-            self.assertEqual(grammar.parse(text), Command("unbuilt"), text)
-        self.assertEqual(grammar.parse("m-qhvkz yes"), Command("unbuilt", "m-qhvkz"))
-        self.assertEqual(grammar.parse("s-tbnaw push it"), Command("unbuilt", "s-tbnaw"))
-
-    def test_yes_and_no_without_an_id_name_no_event(self):
-        # Only a Signal reply may say these; the link binds it by the quoted message.
-        self.assertEqual(grammar.parse("yes"), Command("yes"))
-        self.assertEqual(grammar.parse("Yes."), Command("yes"))
-        self.assertEqual(grammar.parse("no"), Command("no"))
-        self.assertEqual(grammar.parse("No too risky"), Command("no", "", "too risky"))
-        self.assertEqual(grammar.parse("No, too risky. Use --dry-run"), Command("no", "", "too risky. Use --dry-run"))
-
-    def test_anything_else_is_not_understood(self):
-        for text in ("", "   ", "yes!!", "no, m-qhvkz", "yesno", "yes please", "yes m-qhvk", "yes m-qhvkzz", "yes mqhvkz",
-                     "yes m-qhvkz now", "yes m-qhvkz..", "yes m-qh1kz", "ok m-qhvkz", "help me", "m-qhvkz",
-                     "@", "@handle", "yes, m-qhvkz", "approve m-qhvkz"):
-            self.assertEqual(grammar.parse(text), Command("unknown"), repr(text))
-
-
-class Alert(unittest.TestCase):
-    def test_acceptance_1_the_alert_of_the_specs_example(self):
-        zone = timezone(timedelta(hours=5), "PKT")
-        sent_at = log.epoch_of("2026-11-18T13:43:00Z") + 0.4
-        self.assertEqual(grammar.alert(EVENT, sent_at, zone), "\n".join([
-            "[m-qhvkz] colloid-swarm · Mac · work · colloid-swarm-c1",
-            "Permission: Bash · answer within 59 min (by 19:42 PKT)",
-            "git push origin main",
-            "Reply to this: yes   or   no <reason>",
-        ]))
-
-    def test_the_minutes_are_those_left_when_the_alert_goes_out(self):
-        zone = ZoneInfo("UTC")
-        # 3540 s from creation to deadline; the minutes left, to the nearest minute.
-        for seconds_late, minutes in ((0, 59), (29, 59), (31, 58), (60, 58), (3509, 1), (3511, 0), (4000, 0)):
-            sent_at = log.epoch_of("2026-11-18T13:43:00Z") + seconds_late
-            self.assertIn(f"answer within {minutes} min (by 14:42 UTC)", grammar.alert(EVENT, sent_at, zone))
-
-    def test_the_time_is_in_the_configured_zone(self):
-        line = grammar.alert(EVENT, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("Europe/Lisbon")).split("\n")[1]
-        self.assertEqual(line, "Permission: Bash · answer within 59 min (by 14:42 WET)")
-        line = grammar.alert(EVENT, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("America/New_York")).split("\n")[1]
-        self.assertEqual(line, "Permission: Bash · answer within 59 min (by 09:42 EST)")
-
-    def test_a_preview_of_several_lines_stays_between_the_header_and_the_reply_line(self):
-        event = {**EVENT, "detail": {"tool": "Edit", "preview": "/repo/a.py\n- old\n+ new", "masked": 0, "cut": 0}}
-        lines = grammar.alert(event, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")).split("\n")
-        self.assertEqual(lines[1][:16], "Permission: Edit")
-        self.assertEqual(lines[2:5], ["/repo/a.py", "- old", "+ new"])
-        self.assertEqual(lines[-1], "Reply to this: yes   or   no <reason>")
-
-
-    def test_an_alert_that_masked_or_cut_its_preview_says_so_above_the_reply_line(self):
-        at, zone = log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")
-        for masked, cut, said in ((2, 147, "masked: 2 values · cut: 147 more characters"),
-                                  (1, 0, "masked: 1 value"), (0, 1, "cut: 1 more character")):
-            event = {**EVENT, "detail": {**EVENT["detail"], "masked": masked, "cut": cut}}
-            lines = grammar.alert(event, at, zone).split("\n")
-            self.assertEqual(lines[2:], ["git push origin main", said,
-                                         "Reply to this: yes   or   no <reason>"], (masked, cut))
-
-    def test_an_alert_that_shows_the_whole_call_has_no_such_line(self):
-        lines = grammar.alert(EVENT, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")).split("\n")
-        self.assertEqual(len(lines), 4)
+    def test_a_reserved_word_or_help_with_more_words_is_an_answer(self):
+        self.assertEqual(grammar.parse("help m-qhvkz"), Message("answer", "m-qhvkz", "help"))
+        self.assertEqual(grammar.parse("mute colloid-swarm-c1"), Message("answer", "", "mute colloid-swarm-c1"))
 
 
 class Replies(unittest.TestCase):
@@ -123,29 +74,30 @@ class Replies(unittest.TestCase):
         for state, reason in (("answered", "already answered"), ("settled_at_mac", "settled at the Mac"),
                               ("expired", "expired"), ("closed", "closed")):
             event = {**EVENT, "state": state, "answer": {"via": "mac", "text": "deny", "at": "x"}}
-            self.assertEqual(grammar.refusal_for(event, Command("yes", "m-qhvkz")), reason)
-            self.assertEqual(grammar.refusal_for(event, Command("no", "m-qhvkz", "x")), reason)
+            self.assertEqual(grammar.refusal_for(event, "allow"), reason)
+            self.assertEqual(grammar.refusal_for(event, "deny"), reason)
 
-    def test_a_no_after_the_mac_allowed_the_call_says_that_it_ran(self):
+    def test_a_denial_after_the_mac_allowed_the_call_says_that_it_ran(self):
         event = {**EVENT, "state": "settled_at_mac", "answer": {"via": "mac", "text": "allow", "at": "x"}}
-        self.assertEqual(grammar.refusal_for(event, Command("no", "m-qhvkz", "x")), "the Mac allowed it first")
-        self.assertEqual(grammar.refusal_for(event, Command("yes", "m-qhvkz")), "settled at the Mac")
+        self.assertEqual(grammar.refusal_for(event, "deny"), "the Mac allowed it first")
+        self.assertEqual(grammar.refusal_for(event, "allow"), "settled at the Mac")
 
     def test_the_summary_of_held_refusals(self):
-        self.assertEqual(grammar.refusal_summary(["too old"] * 5 + ["not understood"] * 2),
-                         "refused: 7 more messages (5 too old, 2 not understood)")
-        self.assertEqual(grammar.refusal_summary(["not understood", "too old", "not understood"]),
-                         "refused: 3 more messages (2 not understood, 1 too old)")
+        self.assertEqual(grammar.refusal_summary(["too old"] * 5 + ["no open alert"] * 2),
+                         "refused: 7 more messages (5 too old, 2 no open alert)")
+        self.assertEqual(grammar.refusal_summary(["no open alert", "too old", "no open alert"]),
+                         "refused: 3 more messages (2 no open alert, 1 too old)")
         self.assertEqual(grammar.refusal_summary(["too old"]), "refused: 1 more message (1 too old)")
 
     def test_the_queue_notice(self):
         self.assertEqual(grammar.waiting_notice(7), "7 more waiting")
 
-    def test_help_lists_what_this_unit_answers(self):
+    def test_help_lists_how_an_answer_is_read(self):
         self.assertEqual(grammar.HELP.split("\n"), [
-            "yes <id> — allow the tool call of that alert",
-            "no <id> <reason> — deny it; Claude reads the reason",
-            "a Signal reply to an alert needs no id: yes, or no <reason>",
+            "yes, ok or \N{THUMBS UP SIGN} — allow the call",
+            "any other words — deny it; Claude reads them as you typed them",
+            "a reply answers the alert it quotes; an id in the first two words answers that alert; "
+            "otherwise the newest alert",
             "help — this list",
         ])
 
