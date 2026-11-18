@@ -231,6 +231,15 @@ class Modes(Scratch):
         log.prepare(folder)
         self.assertEqual(mode(folder), 0o700)
 
+    def test_prepare_under_the_services_umask_makes_parents_it_can_enter(self):
+        before = os.umask(0o177)
+        self.addCleanup(os.umask, before)
+        folder = self.folder / "local" / "state" / "phone-link"
+        log.prepare(folder)
+        self.assertEqual([oct(mode(path)) for path in (folder, folder.parent, folder.parent.parent)],
+                         ["0o700", "0o700", "0o700"])
+        self.assertEqual(os.umask(0o177), 0o177)  # the umask is as the caller left it
+
 
 class ErrorFile(Scratch):
     def test_one_failure_is_one_line_with_its_time(self):

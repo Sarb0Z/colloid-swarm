@@ -54,8 +54,13 @@ def state_dir(environ) -> Path:
 
 
 def prepare(folder: Path) -> None:
-    """Make `folder` and set mode 0700, whatever the umask or its mode before."""
-    folder.mkdir(parents=True, exist_ok=True)
+    """Make `folder` and set mode 0700, whatever the umask or its mode before. A parent it has
+    to make is 0700 too: the service's own umask would make one that nothing can enter."""
+    before = os.umask(0o077)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    finally:
+        os.umask(before)
     os.chmod(folder, 0o700)
 
 
