@@ -36,13 +36,13 @@ Run each step from the Mac, in this folder.
    Check acceptance 1, 2 and 4 to 6 of the plan. For acceptance 5, on the server:
 
    ```
-   systemctl set-environment SIGNAL_PROXY_FORCE=1
-   systemctl start signal-proxy-renew
-   systemctl unset-environment SIGNAL_PROXY_FORCE
-   journalctl -u signal-proxy-renew -n 30
+   systemd-run --wait --collect --unit signal-proxy-force-renew /opt/signal-proxy/lego.sh --force
+   journalctl -u signal-proxy-force-renew -n 30
    ```
 
-   `lego.sh` refuses `SIGNAL_PROXY_FORCE` against production.
+   `--force` belongs to that one run, so the timer's renewals never inherit
+   it, and `lego.sh` refuses it against production. `--collect` lets a
+   failed run be repeated under the same unit name.
 3. `./apply-proxy`: the staging certificate is moved aside and a production
    certificate is issued. Check acceptance 3, then 7.
 4. `../../install.sh --tls-proxy 62.171.166.213:8443`: the phone link's

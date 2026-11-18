@@ -137,7 +137,7 @@ fresh() {
   : >"$CALLS"
 }
 run() { (cd / && SETUP_ROOT=$R bash "$HERE/setup-proxy.sh" "$@"); }
-renew() { (cd / && SETUP_ROOT=$R bash "$R/opt/signal-proxy/lego.sh"); }
+renew() { (cd / && SETUP_ROOT=$R bash "$R/opt/signal-proxy/lego.sh" "$@"); }
 cert=$R/var/lib/lego/certificates/62.171.166.213.crt
 # A certificate from <server> with <hours> left.
 cert_left() { # hours server
@@ -281,9 +281,11 @@ rm "$STATE/webroot-broken"
 
 : >"$CALLS"
 cert_left 100 "$STAGING"
-out=$(SIGNAL_PROXY_FORCE=1 renew 2>&1); rc=$?
+out=$(renew --force 2>&1); rc=$?
 eq "a forced renewal against staging: exits 0" 0 "$rc"
 eq "a forced renewal adds --renew-force alone" "$(lego_line "$STAGING") --renew-force" "$(grep '^docker run' "$CALLS")"
+out=$(renew --bogus 2>&1); rc=$?
+eq "lego.sh: an unknown option, usage, exit 2" "2 usage: lego.sh [--force | --served]" "$rc $out"
 
 # --- then production: the staging certificate is put aside ---------------------------
 : >"$CALLS"
@@ -311,9 +313,14 @@ has "production run: the running proxy reloads the new certificate" "docker comp
 eq "production run: the proxy serves the production certificate" "$(cat "$cert")" "$(cat "$STATE/served")"
 lacks "production run: no problem reported" "PROBLEM" "$out"
 : >"$CALLS"
-out=$(SIGNAL_PROXY_FORCE=1 renew 2>&1); rc=$?
+out=$(renew --force 2>&1); rc=$?
 eq "a forced renewal against production: refused" 1 "$rc"
+has "a forced renewal against production: says why" "--force renews against staging only" "$out"
 eq "a forced renewal against production: no call" "" "$(cat "$CALLS")"
+# A force left in systemd's environment by an earlier run reaches every renewal.
+out=$(SIGNAL_PROXY_FORCE=1 renew 2>&1); rc=$?
+eq "SIGNAL_PROXY_FORCE in the environment: a production renewal runs as usual" \
+  "0 the certificate is valid for more than 80 h; lego is not run" "$rc $out"
 
 # --- a changed config recreates the containers -------------------------------------
 : >"$CALLS"

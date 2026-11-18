@@ -17,10 +17,12 @@
 # and exits 1 when it is not the file's. `lego.sh --served` does only that read;
 # setup-proxy.sh runs it at the end of every run.
 #
-# SIGNAL_PROXY_FORCE=1 renews whatever the time left (lego's --renew-force),
-# against staging only. With systemd: `systemctl set-environment
-# SIGNAL_PROXY_FORCE=1`, `systemctl start signal-proxy-renew`, then
-# `systemctl unset-environment SIGNAL_PROXY_FORCE`.
+# Usage: lego.sh [--force | --served]
+#   --force   renew whatever the time left (lego's --renew-force), against
+#             staging only. It is an argument of one run, never environment, so
+#             no later renewal inherits it: `systemd-run --wait --collect --unit
+#             signal-proxy-force-renew /opt/signal-proxy/lego.sh --force`.
+#   --served  only compare the certificate served on 8443 with the file.
 # SETUP_ROOT puts a folder in front of every path this script reads or writes;
 # only the tests set it. The paths given to docker are the server's.
 set -euo pipefail
@@ -63,19 +65,24 @@ served() {
   return 1
 }
 
-case ${1-} in
+force=0
+case $* in
+  "") ;;
+  --force) force=1 ;;
   --served)
     served
     exit
+    ;;
+  *)
+    echo "usage: lego.sh [--force | --served]" >&2
+    exit 2
     ;;
 esac
 
 server=$(cat "$R$dir/acme-server" 2>/dev/null) || die "no $dir/acme-server; run setup-proxy.sh first"
 [[ $server == "$production" || $server == "$staging" ]] || die "$dir/acme-server names $server, neither Let's Encrypt's directory nor its staging one"
-force=0
-if [[ ${SIGNAL_PROXY_FORCE:-} == 1 ]]; then
-  [[ $server == "$staging" ]] || die "SIGNAL_PROXY_FORCE renews against staging only: Let's Encrypt allows 5 certificates for one IP in 7 days"
-  force=1
+if ((force)) && [[ $server != "$staging" ]]; then
+  die "--force renews against staging only: Let's Encrypt allows 5 certificates for one IP in 7 days"
 fi
 
 foreign=0
