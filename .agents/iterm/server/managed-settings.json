@@ -1,0 +1,7 @@
+{
+  "policyHelper": {
+    "path": "/etc/claude-code/policy-helper.sh",
+    "timeoutMs": 5000,
+    "refreshIntervalMs": 3600000
+  }
+}

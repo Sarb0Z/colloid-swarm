@@ -164,9 +164,10 @@ def adapters(here: Path) -> list:
 
 
 def pane_commands(here: Path) -> list:
-    """The iTerm2 pane commands of `.agents/iterm/bin`, which an install links beside the hooks
-    and an uninstall leaves."""
-    return sorted(path for path in (here.parent / "bin").iterdir() if path.is_file())
+    """The iTerm2 pane commands of `.agents/iterm/bin` and the Dev server tab's `connect/dev-server`,
+    which an install links beside the hooks and an uninstall leaves."""
+    return sorted([*(path for path in (here.parent / "bin").iterdir() if path.is_file()),
+                   here.parent / "connect" / "dev-server"])
 
 
 def links(run: Run, home: Path, sources: list, remove: bool) -> None:
