@@ -634,7 +634,7 @@ fresh "$R"
 out=$(run "$B/mac.pub" 2>&1)
 has "no clone: the links are skipped with a message" "skip:  no colloid-swarm clone in ~/Projects yet" "$out"
 eq "no clone: nothing is linked" "" "$(find "$H/.local/bin" -name 'pane-*')"
-eq "diffview is at the Mac's pin" 2a2d89a07f5d5d3cef7f542b99c3e28050ca205c \
+eq "diffview is at the upstream pin" 4516612fe98ff56ae0415a259ff6361a89419b0a \
   "$(cat "$H/.local/share/nvim/site/pack/colloid/start/diffview.nvim/.git/sha")"
 cmp -s "$HERE/colloid-diffview.lua" "$H/.config/nvim/plugin/colloid-diffview.lua" && ok "diffview's keys are installed where nvim has no config" || bad "diffview keys missing"
 eq "the diffview folder is owned by the user" 1 "$(grep -c "^git clone $H/.local/share/nvim/site/pack/colloid/start/diffview.nvim USER=openclawops" "$CALLS")"

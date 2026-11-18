@@ -603,10 +603,12 @@ else
   echo "skip:  no colloid-swarm clone in ~/Projects yet, so no pane-* links; apply again once it exists"
 fi
 
-# diffview, the Mac's pin (nvim's lazy-lock.json), loaded from nvim's own pack folder.
+# diffview, loaded from nvim's own pack folder. The Mac runs the diffview-plus
+# fork, which needs Neovim 0.10; Ubuntu 24.04 ships 0.9.5, so the server takes
+# upstream diffview.nvim (Neovim 0.7 or later), whose DiffviewOpen pane-diff uses.
 pin_clone "$home/.local/share/nvim/site/pack/colloid/start/diffview.nvim" \
-  https://github.com/dlyongemallo/diffview-plus.nvim.git 2a2d89a07f5d5d3cef7f542b99c3e28050ca205c \
-  "diffview at 2a2d89a07f5d in $user's nvim packages"
+  https://github.com/sindrets/diffview.nvim.git 4516612fe98ff56ae0415a259ff6361a89419b0a \
+  "diffview at 4516612fe98f in $user's nvim packages"
 nvdv=$home/.config/nvim/plugin/colloid-diffview.lua
 if [[ -f $nvdv ]] && cmp -s "$here/colloid-diffview.lua" "$nvdv"; then
   :
