@@ -3,7 +3,7 @@
 # rerun: what is in place is left alone, and nothing that is not this script's
 # own link is replaced.
 #
-#   install.sh [--zone <IANA zone>]   Link bin/* into ~/.local/bin, and install the
+#   install.sh [--zone <IANA zone>]   Link bin/* and connect/dev-server into ~/.local/bin, and install the
 #                                     phone link (phone/install.py does both and
 #                                     says what the phone link is): its hook in
 #                                     each Claude account's settings.json and its

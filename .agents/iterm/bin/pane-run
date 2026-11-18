@@ -19,6 +19,17 @@ PANE_RUN_SETTLE is the wait in seconds between the post and the read of the
 lead's status (default 2). CLAUDE_TAB_STATE_DIR is claude-tab-state's folder.
 PANE_RUN_ITERM_DOMAIN is the defaults domain, or plist path, of iTerm2's
 preferences, read for its saved prompt "Default" and never written.
+
+On a server (Linux, over iTerm2's SSH integration; PANE_RUN_PLATFORM stands in for the platform in tests)
+`it2` is ~/.iterm2/bin/it2 when ~/.config/iterm2/it2 is missing. The lead is
+found in Claude Code's session registry of every account folder
+($CLAUDE_CONFIG_DIR, else ~/.claude-{work,personal,family,guest}):
+the live sessions whose folder is this pane's. Inside tmux, a session whose
+terminal is a pane of this pane's window, or of the leader pane in the pane
+option @iterm2_wg, is the only kind used automatically. One such session is
+used; several, or none, give a menu of the folder's sessions, and no session of
+the folder is a refusal. On a server the saved
+prompt "Default" is the catalog's default_review_prompt, from ../catalog.json.
 Design: docs/notes/2026-11-15-iterm2-review-and-status-spec.md, unit 4.
 """
 
@@ -28,6 +39,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -37,7 +49,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 STATE = Path(os.environ.get("CLAUDE_TAB_STATE_DIR", Path.home() / ".local/state/iterm-tabs"))
-IT2 = Path.home() / ".config/iterm2/it2"
+IT2 = next((p for p in (Path.home() / ".config/iterm2/it2", Path.home() / ".iterm2/bin/it2") if p.exists()),
+           Path.home() / ".config/iterm2/it2")
+# The server's launchers; its plain ~/.claude is another person's login, so it is not searched.
+ACCOUNT_DIRS = (".claude-work", ".claude-personal", ".claude-family", ".claude-guest")
+# The server path is for Linux, whether or not a tab-state folder exists. PANE_RUN_PLATFORM stands in
+# for sys.platform in tests.
+SERVER = os.environ.get("PANE_RUN_PLATFORM", sys.platform).startswith("linux")
 UUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
 TAB_ID = re.compile(rf"w\d+t\d+p\d+:({UUID})")
 MODELS = ("opus", "sonnet", "haiku", "fable")
@@ -193,6 +211,8 @@ def not_live(record: dict) -> str | None:
     command = os.path.basename(ps(pid, "comm"))
     if command != "claude":
         return f"process {pid} " + (f"runs {command}, not claude" if command else "does not run any more")
+    if record.get("source") == "registry":
+        return None  # the registry's start time is in the session's own zone; ps's is not comparable
     started = ps(pid, "lstart")
     if started != record.get("lstart"):
         return (f"process {pid} started at {started}, not at the recorded {record.get('lstart')}: "
@@ -212,6 +232,61 @@ def tab_records() -> dict:
         if isinstance(record, dict):
             records[path.name.split(".")[0].upper()] = record
     return records
+
+
+def account_folders() -> list[Path]:
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        return [Path(os.environ["CLAUDE_CONFIG_DIR"])]
+    return [Path.home() / name for name in ACCOUNT_DIRS]
+
+
+def registry_records() -> dict:
+    """Key -> a tab-record-shaped dict, for every interactive session in every account folder's
+    registry that takes messages. The server has no claude-tab-state, so the registry is the
+    only list of sessions."""
+    records = {}
+    for folder in account_folders():
+        for path in sorted((folder / "sessions").glob("*.json")):
+            try:
+                entry = json.loads(path.read_text())
+            except (OSError, ValueError) as error:
+                print(f"pane-run: {path} is unreadable ({error}); skipped", file=sys.stderr)
+                continue
+            if not (isinstance(entry, dict) and isinstance(entry.get("pid"), int) and entry.get("sessionId")
+                    and entry.get("cwd") and entry.get("messagingSocketPath")):
+                continue
+            sid = entry["sessionId"]
+            transcript = next(iter(sorted((folder / "projects").glob(f"*/{sid}.jsonl"))),
+                              folder / "projects" / f"{sid}.jsonl")
+            records[f"{folder}:{entry['pid']}"] = {
+                "source": "registry", "account": folder.name.removeprefix(".claude-").removeprefix(".claude") or "default",
+                "session_id": sid, "pid": entry["pid"], "cwd": entry["cwd"], "transcript_path": str(transcript),
+                "title": str(entry.get("name") or "")}
+    return records
+
+
+def tmux(*args: str) -> str | None:
+    try:
+        out = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def window_ttys() -> set[str] | None:
+    """The terminals of every pane in this pane's tmux window, and in the window of the leader
+    pane its @iterm2_wg option names (a workgroup's peers sit in a hidden window); None outside tmux."""
+    pane = os.environ.get("TMUX_PANE")
+    if not (os.environ.get("TMUX") and pane):
+        return None
+    listing = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_tty} #{window_id}")
+    if listing is None:
+        return None
+    rows = [line.split() for line in listing.splitlines() if len(line.split()) == 3]
+    windows = {window for p, _, window in rows if p == pane}
+    leaders = set(re.findall(r"%\d+", tmux("show-options", "-p", "-t", pane, "-v", "@iterm2_wg") or ""))
+    windows |= {window for p, _, window in rows if p in leaders}
+    return {tty for _, tty, window in rows if window in windows}
 
 
 def iterm_sessions() -> tuple[list, str]:
@@ -253,7 +328,28 @@ class Leads:
     """The tab records, with each one's liveness read once."""
 
     def __init__(self):
-        self.records, self.dead = tab_records(), {}
+        self.server = SERVER
+        self.records, self.dead = (registry_records() if self.server else tab_records()), {}
+        self.only: list | None = None
+
+    def of_folder(self) -> tuple[str | None, str]:
+        """(the one live registry session of this folder, preferring one on a terminal of this
+        pane's tmux window, '') or (None, why not); `only` then holds the narrowed choices."""
+        here = os.getcwd()
+        found = [guid for guid, record in self.records.items() if same_place(record.get("cwd", ""), here) and self.live(guid)]
+        ttys = window_ttys()
+        if ttys is not None:
+            # A session on no terminal of this window or its leader's is another tab's, however alone it is.
+            found_here = [g for g in found if "/dev/" + ps(self.records[g]["pid"], "tty") in ttys]
+            if len(found_here) == 1:
+                return found_here[0], ""
+            if found_here:
+                self.only = found_here
+            return None, (f"{len(found)} live sessions of this folder, "
+                          f"{len(found_here) or 'none'} on a terminal of this tmux window")
+        if len(found) == 1:
+            return found[0], ""
+        return None, f"{len(found)} live sessions of this folder"
 
     def live(self, guid: str) -> bool:
         if guid not in self.records:
@@ -274,12 +370,15 @@ class Leads:
         found = [s["id"].upper() for s in same_tab(me, sessions) if self.live(s["id"].upper())]
         return (found[0], "") if len(found) == 1 else (None, f"{len(found)} sessions of this tab have a live Claude record")
 
+    def label(self, guid: str) -> str:
+        return f"process {self.records[guid]['pid']}" if self.server else f"tab {guid[:8]}"
+
     def picked(self, titles: dict, why: str) -> str:
         """The tab id the operator picks among the live sessions of this folder."""
         here = os.getcwd()
-        choices = [guid for guid, record in self.records.items()
-                   if same_place(record.get("cwd", ""), here) and self.live(guid)]
-        gone = [f"the session of tab {guid[:8]} is over: {reason}" for guid, reason in self.dead.items() if reason]
+        choices = self.only or [guid for guid, record in self.records.items()
+                                if same_place(record.get("cwd", ""), here) and self.live(guid)]
+        gone = [f"the session of {self.label(guid)} is over: {reason}" for guid, reason in self.dead.items() if reason]
         if not choices:
             raise Refusal("; ".join([f"no live Claude session is recorded for {here}", *gone]))
         say(f"pane-run: cannot tell which session is this tab's lead ({why}).")
@@ -298,7 +397,14 @@ def find_lead() -> tuple[dict, str]:
     """(the lead's tab record, its tab title). The Chat session is the one session of this pane's
     iTerm2 tab with a live record; when that names none or several, the operator picks from the
     live sessions of this folder."""
-    leads, (sessions, why) = Leads(), iterm_sessions()
+    leads = Leads()
+    if leads.server:
+        titles = {guid: record["title"] for guid, record in leads.records.items()}
+        guid, why = leads.of_folder()
+        if guid is None:
+            guid = leads.picked(titles, why)
+        return leads.records[guid], titles.get(guid, "")
+    sessions, why = iterm_sessions()
     titles = {s["id"].upper(): str(s.get("title") or s.get("name") or "") for s in sessions}
     guid, why = leads.of_tab(sessions, why)
     if guid is None:
@@ -412,6 +518,11 @@ def iterm_review_prompt(repo: Path) -> str:
     repository without the harness. Read from iTerm2's preferences, which are never written."""
     without = (f'{repo} has no .agents/playbooks/hostile-review.md, so the brief is iTerm2\'s saved prompt '
                f'"Default", and')
+    if SERVER:
+        brief = json.loads((HERE.parent / "catalog.json").read_text())["default_review_prompt"]
+        if ENVELOPE_TAG.search(brief):
+            raise Refusal(f"{without} the catalog's default_review_prompt holds a cross-session-message tag")
+        return brief.strip("\n")
     out = subprocess.run(["defaults", "export", ITERM_DOMAIN, "-"], capture_output=True)
     if out.returncode:
         raise Refusal(f"{without} `defaults export {ITERM_DOMAIN}` failed: "

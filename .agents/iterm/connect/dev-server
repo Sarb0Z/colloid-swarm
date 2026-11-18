@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# The Dev server profile's command: iTerm2's SSH integration to the server,
+# attached to its tmux session main in control mode, and reconnected when the
+# link drops.
+#
+# Only exit status 255 (ssh's own "connection failed or lost") retries, and not
+# when ssh's message says retrying cannot help: ssh exits 255 for a refused key,
+# a changed host key and an unresolvable name too, and a retry loop would hit
+# the server's rate-limited port 22 forty times. A clean exit, a detach or the
+# remote command's own status stops the loop as well. A stop prints the status
+# and why, and waits for a key so the tab stays readable. The delay starts at 2 s, doubles up to 30 s, and returns to
+# 2 s after a connection that lasted over 60 s. Forty failed tries in a row end
+# the loop.
+#
+# Environment, for tests: IT2SSH (the it2ssh script), DEV_SERVER_HOST (the
+# ssh host name), DEV_SERVER_SLEEP (the sleep command), DEV_SERVER_NOW (a
+# command printing the time in seconds).
+set -uo pipefail
+
+it2ssh=${IT2SSH:-/Applications/iTerm.app/Contents/Resources/utilities/it2ssh}
+host=${DEV_SERVER_HOST:-contabo-dev}
+nap=${DEV_SERVER_SLEEP:-sleep}
+now=${DEV_SERVER_NOW:-"date +%s"}
+# ssh's messages for a failure that a retry cannot mend.
+no_retry='Permission denied|Host key verification failed|Too many authentication failures|Could not resolve hostname'
+max_tries=40
+long_connection=60
+min_delay=2
+max_delay=30
+
+# -A forwards the agent for ssh beyond GitHub. The words after the host are
+# it2ssh's remote command. ssh's stderr goes through tee to a log, still shown
+# in the tab, so a 255 can be told apart by its message.
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+exec 3>&1
+delay=$min_delay
+failed=0
+while true; do
+  started=$($now)
+  : >"$log"
+  "$it2ssh" -A "$host" tmux -CC new -A -s main 2>&1 >&3 3>&- | tee "$log" >&2
+  status=${PIPESTATUS[0]}
+  lasted=$(($($now) - started))
+
+  if ((status != 255)); then
+    case $status in
+      0) why="the session ended or was detached" ;;
+      1) why="ssh or the remote command failed" ;;
+      *) why="ssh or the remote command exited with this status" ;;
+    esac
+    break
+  fi
+
+  if grep -Eq "$no_retry" "$log"; then
+    why="ssh refused the connection (its message is above); a retry cannot mend that, so dev-server will not retry"
+    break
+  fi
+
+  # A connection that ended within 60 s counts as a failed try and keeps the
+  # delay doubling: a link that flaps must not hammer the server's port 22.
+  if ((lasted > long_connection)); then
+    delay=$min_delay
+    failed=0
+  fi
+  failed=$((failed + 1))
+  if ((failed >= max_tries)); then
+    why="$max_tries failed tries in a row"
+    break
+  fi
+  echo "dev-server: connection to $host lost (status 255, try $failed of $max_tries); retrying in $delay s"
+  "$nap" "$delay"
+  delay=$((delay * 2))
+  ((delay > max_delay)) && delay=$max_delay
+done
+
+echo "dev-server: stopped with status $status: $why."
+echo "Press any key to close."
+read -rsn1 || true
+exit "$status"

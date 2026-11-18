@@ -110,6 +110,21 @@ eq "pane-diff % in file name" "-c${nl}DiffviewOpen $c1 -- a\\%b.txt" "$(run_diff
 eq "pane-diff # in file name" "-c${nl}DiffviewOpen $c1 -- c\\#d.txt" "$(run_diff "$T/up" HEAD -- 'c#d.txt')"
 eq "pane-diff [ ] in file name" "-c${nl}DiffviewOpen $c1 -- e\\[1\\].txt" "$(run_diff "$T/up" HEAD -- 'e[1].txt')"
 
+# Without PANE_DIFF_NVIM, nvim comes from PATH (the Linux server's tmux PATH
+# included).
+mkdir "$T/fakebin"
+cp "$T/nvim-stub" "$T/fakebin/nvim"
+rm -f "$T/argv"
+(cd "$T/up" && env -u PANE_DIFF_NVIM PATH="$T/fakebin:$PATH" "$IT/bin/pane-diff" </dev/null >/dev/null 2>&1)
+eq "pane-diff finds nvim on PATH without PANE_DIFF_NVIM" "-c${nl}DiffviewOpen $c1" "$(cat "$T/argv" 2>/dev/null)"
+
+# PATH without nvim: the /usr/bin location is tried next.
+mkdir "$T/nonvim"
+for tool in git sed tr wc dirname readlink cat bash; do ln -s "$(command -v "$tool")" "$T/nonvim/$tool"; done
+rm -f "$T/argv"
+(cd "$T/up" && env -u PANE_DIFF_NVIM PATH="$T/nonvim" PANE_DIFF_SYSTEM_NVIM="$T/nvim-stub" "$IT/bin/pane-diff" </dev/null >/dev/null 2>&1)
+eq "pane-diff falls back to the /usr/bin location when PATH has no nvim" "-c${nl}DiffviewOpen $c1" "$(cat "$T/argv" 2>/dev/null)"
+
 # Untracked files: a commit base gets a second tab, with tab 1 current and a message.
 repo "$T/ut"
 u1=$(commit "$T/ut" one)
@@ -181,8 +196,14 @@ for script in "$IT"/bin/*; do
   [[ -x $script ]] && ok "$name is executable" || bad "$script is not executable"
   eq "install links $name to its file here" "$script" "$(readlink "$H/.local/bin/$name")"
 done
-eq "install links the pane commands, the phone link's hooks and nothing else" \
-  "$({ ls "$IT/bin"; ls "$IT/phone/hooks"; } | LC_ALL=C sort)" "$(ls "$H/.local/bin" | LC_ALL=C sort)"
+eq "install links the pane commands, dev-server, the phone link's hooks and nothing else" \
+  "$({ ls "$IT/bin"; echo dev-server; ls "$IT/phone/hooks"; } | LC_ALL=C sort)" "$(ls "$H/.local/bin" | LC_ALL=C sort)"
+eq "install links dev-server to the connect script" "$IT/connect/dev-server" "$(readlink "$H/.local/bin/dev-server")"
+eq "the dynamic profile's Command is that link" "$H/.local/bin/dev-server" \
+  "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["Profiles"][0]["Command"].replace("/Users/alice", sys.argv[2]))' "$IT/connect/dev-server.json" "$H")"
+mkdir -p "$T/checkhome/.claude"
+[[ $(HOME=$T/checkhome "$IT/install.sh" --check 2>&1) == *"linked: $T/checkhome/.local/bin/dev-server -> $IT/connect/dev-server"* ]] \
+  && ok "install --check shows the dev-server link" || bad "install --check shows the dev-server link"
 [[ $out1 == *linked:* ]] && ok "install reports what it did" || bad "install reports: $out1"
 links1=$(ls -l "$H/.local/bin")
 out2=$(HOME=$H "$IT/install.sh" 2>&1); rc=$?
@@ -198,7 +219,7 @@ eq "install left the foreign file intact" mine "$(cat "$H/.local/bin/pane-diff")
 # --- (d) the prompt pane and the phone link's install: each one's own test file
 # Named, not globbed: lint-suite.py reaches a test only by its file name, and
 # the count check fails a test file added here without a line below.
-suites=(test-pane-run.sh test-phone-install.sh test-prompt-catalog.sh test-review-snapshot.sh)
+suites=(test-dev-server.sh test-pane-run.sh test-pane-run-server.sh test-phone-install.sh test-prompt-catalog.sh test-review-snapshot.sh)
 on_disk=$(cd "$IT/tests" && ls test-*.sh | LC_ALL=C sort | tr '\n' ' ')
 eq "every test file here is run" "$(printf '%s\n' "${suites[@]}" | LC_ALL=C sort | tr '\n' ' ')" "$on_disk"
 for suite in "${suites[@]}"; do
