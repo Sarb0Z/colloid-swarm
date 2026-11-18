@@ -21,11 +21,13 @@ What it does with a permission prompt (spec `docs/notes/2026-11-17-phone-link-sp
   2. A message from the phone answers one event: the one whose message it
      quotes as a Signal reply (the link keeps the Signal timestamp of every
      message it sends about an event, in memory), else the one whose id is
-     its first or second word, else the newest alert's. A quote it does not
-     know is refused, and so is an id other than the quoted event's; an
-     answer typed within 5 s of the newest alert while an older event is
-     open is refused, since it may mean the older one. It never falls back
-     to an older event. The event's adapter (`adapters.py`) turns the text
+     its first or second word, else that of the newest message the link sent
+     about an event (alert, deadline line or reply), by Signal timestamp and
+     counted from the send's attempt. A quote it does not know is refused,
+     and so is an id other than the quoted event's; a plain answer typed
+     before the newest message, or within 5 s after it while another event
+     is open, is refused, since it may mean another event. It never falls
+     back to an older event. The event's adapter (`adapters.py`) turns the text
      into the hook's line: an approval allows, any other text denies with
      the text as typed. The reply waits until the transcript shows how the
      call ended: `done` when it ended by this decision, `refused: settled at
@@ -56,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import itertools
 import json
 import os
 import selectors
@@ -90,8 +93,8 @@ STOPPED_GRACE_SECONDS = 3
 # decision row on a call of the same tool.
 UNBOUND_CONFIRM_SECONDS = 30
 RECONNECT_SECONDS = 5
-# A message that quotes nothing and names no id, typed this soon after the newest alert
-# went out, may mean an older alert that is still open.
+# A message that quotes nothing and names no id, typed this soon after the newest message
+# about an event, may mean another event that is still open.
 NEWER_ALERT_SECONDS = 5
 READ_BYTES = 65536
 SESSION_KEYS = ("id", "start", "config_dir", "cwd", "project", "account", "transcript")
@@ -206,8 +209,14 @@ class Link:
         # the events. `clashed` holds the timestamps signal-cli gave to two messages (`_bind`).
         self.sent_about: dict = {}
         self.clashed: set = set()
-        # The event of the alert signal-cli delivered last, and when (the clock's epoch
-        # seconds), which a message that quotes nothing and names no id answers.
+        # "Newest": the message about an event — alert, deadline line or reply — of the highest
+        # Signal timestamp, which a message that quotes nothing and names no id answers. A send
+        # counts from its attempt, at the clock's milliseconds, and takes signal-cli's timestamp
+        # when one comes; a send whose outcome is unknown keeps the attempt's. `in_flight`
+        # holds the sends not yet answered; `newest` the highest of those answered, as
+        # `(timestamp, attempt number, event id)`, the attempt number ordering a tie.
+        self.attempts = itertools.count()
+        self.in_flight: dict = {}  # attempt number -> (timestamp, attempt number, event id)
         self.newest = None
         self.queue = collections.deque()  # event ids whose alert waits for the rate limit
         self.sent_at = collections.deque()  # when each alert of the last minute went out
@@ -367,15 +376,17 @@ class Link:
             return quoted, ""
         if message.event:
             return message.event, ""
-        if self.newest is None:
+        found = max([*self.in_flight.values(), *([self.newest] if self.newest else [])], default=None)
+        if found is None:
             reason = "no open alert"
             self._refuse_message(grammar.refused(reason), reason, now)
             return None, f"refused: {reason}"
-        newest, sent = self.newest
-        older_open = any(event_id != newest and self.events.events[event_id]["state"] == "open"
+        sent, _attempt, newest = found
+        other_open = any(event_id != newest and self.events.events[event_id]["state"] == "open"
                          for event_id in self.waits)
-        if taken.timestamp / 1000 - sent < NEWER_ALERT_SECONDS and older_open:
-            # The operator may have typed it about the older alert before this one arrived.
+        # Both timestamps are Signal's: typed before the newest message, or so soon after it
+        # that the operator may not have read it, the text may mean another event.
+        if taken.timestamp < sent or (taken.timestamp - sent < NEWER_ALERT_SECONDS * 1000 and other_open):
             reason = "a newer alert just arrived — reply to the one you mean"
             self._say(grammar.refused(reason))
             return None, f"refused: {reason}"
@@ -487,7 +498,24 @@ class Link:
                 self.errors.write(f"a reply was not sent ({text.splitlines()[0]}): {error}")
             else:
                 self._bind(stamp, about)
-        self.signal.send(text, sent)
+        self._send(text, about, sent)
+
+    def _send(self, text: str, about, done) -> None:
+        """Send `text` with `done(error, stamp)` at its end. A message about an event (`about`)
+        is the newest from its attempt on (`__init__`)."""
+        if about is None:
+            self.signal.send(text, done)
+            return
+        attempt = next(self.attempts)
+        self.in_flight[attempt] = (int(self.clock() * 1000), attempt, about)
+
+        def ended(error: str, stamp) -> None:
+            attempted, _attempt, _about = self.in_flight.pop(attempt)
+            # A failed send may still have reached the phone, so it keeps counting.
+            mark = (attempted if stamp is None else stamp, attempt, about)
+            self.newest = max(self.newest, mark) if self.newest else mark
+            done(error, stamp)
+        self.signal.send(text, ended)
 
     def _bind(self, stamp, about) -> None:
         """Keep the Signal timestamp of a delivered send with the event it concerns (`about`,
@@ -515,8 +543,8 @@ class Link:
                 continue  # Settled while it waited its turn: its alert would ask about nothing.
             self.sent_at.append(now)
             event = self.events.events[event_id]
-            self.signal.send(adapters.ADAPTERS[event["kind"]].alert(event, now, self.zone),
-                             lambda error, stamp, event_id=event_id: self._alert_sent(event_id, error, stamp))
+            self._send(adapters.ADAPTERS[event["kind"]].alert(event, now, self.zone), event_id,
+                       lambda error, stamp, event_id=event_id: self._alert_sent(event_id, error, stamp))
         if len(self.queue) > ALERTS_A_MINUTE and now - self.noticed_at >= MINUTE:
             self.noticed_at = now
             self._say(grammar.waiting_notice(len(self.queue)))
@@ -524,7 +552,6 @@ class Link:
     def _alert_sent(self, event_id: str, error: str, stamp) -> None:
         if not error:
             self._bind(stamp, event_id)
-            self.newest = (event_id, self.clock())
             return
         self.errors.write(f"the alert of {event_id} was not sent: {error}")
         wait = self.waits.get(event_id)
