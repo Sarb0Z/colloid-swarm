@@ -12,7 +12,8 @@ is first registered: in lowercase, with every character other than `a-z`, `0-9`
 and `-` changed to `-`. It stays for the session's life, so a later rename by
 Claude Code does not move it. A handle that a listed session already has gets
 `-2`, then `-3`. A session with no registry name (the file is absent, or names
-another session) takes its project folder's name.
+another session) takes its project folder's name. A registry file that exists
+and does not read counts as absent and writes one line to the error log.
 
 Liveness. `check()` runs one `ps` for the whole list and drops a session whose
 pid is gone, whose process started at another time (the pid went to another
@@ -45,17 +46,27 @@ class Full(Exception):
     """The list already holds LIMIT sessions."""
 
 
+class Unreadable(Exception):
+    """A registry file exists and does not read as an entry."""
+
+
 def handle_of(name: str) -> str:
     return re.sub(r"[^a-z0-9-]", "-", name.lower())
 
 
 def read_registry(config_dir: str, pid: int):
-    """Claude Code's registry entry of the process, or None when it has none that reads."""
+    """Claude Code's registry entry of the process, or None when it has no file. A file
+    that exists and does not read raises Unreadable."""
+    path = Path(config_dir) / "sessions" / f"{pid}.json"
     try:
-        entry = json.loads((Path(config_dir) / "sessions" / f"{pid}.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        entry = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return None
-    return entry if isinstance(entry, dict) else None
+    except (OSError, ValueError) as error:
+        raise Unreadable(f"{path}: {error}") from error
+    if not isinstance(entry, dict):
+        raise Unreadable(f"{path}: not a JSON object")
+    return entry
 
 
 def _ps(fields: str, pids) -> list:
@@ -86,9 +97,26 @@ def claude_process(pid: int):
 
 
 class Sessions:
-    def __init__(self, path: Path, starts=process_starts, registry=read_registry):
-        self.path, self.starts, self.registry = path, starts, registry
+    """`errors` takes one line for a registry file that exists and does not read, while it
+    stays so; such a file counts as absent."""
+
+    def __init__(self, path: Path, errors, starts=process_starts, registry=read_registry):
+        self.path, self.errors, self.starts, self.registry = path, errors, starts, registry
         self.sessions: dict = {}
+        self.unreadable: set = set()  # (config_dir, pid) of each registry file reported, until it reads
+
+    def _entry(self, session: dict):
+        where = (session["config_dir"], session["pid"])
+        try:
+            entry = self.registry(*where)
+        except Unreadable as error:
+            # One line while it stays unreadable, not one for each check every 30 s.
+            if where not in self.unreadable:
+                self.unreadable.add(where)
+                self.errors.write(f"Claude Code's registry file does not read, so it counts as absent: {error}")
+            return None
+        self.unreadable.discard(where)
+        return entry
 
     def load(self) -> None:
         """Read sessions.json. No file is an empty list; one that does not read raises ValueError."""
@@ -113,7 +141,7 @@ class Sessions:
         os.replace(temporary, self.path)
 
     def _handle(self, session: dict) -> str:
-        entry = self.registry(session["config_dir"], session["pid"])
+        entry = self._entry(session)
         named = entry and entry.get("sessionId") == session["id"] and isinstance(entry.get("name"), str)
         base = handle_of(entry["name"] if named and entry["name"].strip() else session["project"])
         taken = {listed["handle"] for listed in self.sessions.values()}
@@ -143,7 +171,7 @@ class Sessions:
         starts = self.starts([session["pid"] for session in self.sessions.values()])
         dropped = []
         for session in list(self.sessions.values()):
-            entry = self.registry(session["config_dir"], session["pid"])
+            entry = self._entry(session)
             if (session["pid"] not in starts
                     or not process_start.same_start(session["start"], starts[session["pid"]])
                     or (entry is not None and entry.get("sessionId") != session["id"])):

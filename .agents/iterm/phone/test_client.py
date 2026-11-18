@@ -552,7 +552,7 @@ class RealSocket(unittest.TestCase):
         link = phone_link.Link(
             events=log.Events(self.state / "events.jsonl", errors),
             messages=log.Messages(self.state / "messages.jsonl", errors), errors=errors,
-            sessions=sessions.Sessions(self.state / "sessions.json"),
+            sessions=sessions.Sessions(self.state / "sessions.json", errors),
             signal=phone_link.Signal(signal_client.Connection(str(self.state / "signal" / "socket")), errors),
             zone=timezone(timedelta(0), "UTC"))
         link.start()

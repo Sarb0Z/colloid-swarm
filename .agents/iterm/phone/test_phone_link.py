@@ -115,7 +115,7 @@ class Service(unittest.TestCase):
         link = phone_link.Link(
             events=log.Events(self.state / "events.jsonl", errors, choose=lambda _letters: next(letters)),
             messages=log.Messages(self.state / "messages.jsonl", errors), errors=errors,
-            sessions=sessions.Sessions(self.state / "sessions.json",
+            sessions=sessions.Sessions(self.state / "sessions.json", errors,
                                        starts=lambda pids: {p: self.running[p] for p in pids if p in self.running},
                                        registry=lambda config, pid: self.registry.get(pid)),
             signal=self.signal, zone=PKT, clock=lambda: self.now)
@@ -853,7 +853,7 @@ class Loop(unittest.TestCase):
         self.link = phone_link.Link(
             events=log.Events(self.state / "events.jsonl", errors),
             messages=log.Messages(self.state / "messages.jsonl", errors), errors=errors,
-            sessions=sessions.Sessions(self.state / "sessions.json", starts=lambda pids: {p: START for p in pids},
+            sessions=sessions.Sessions(self.state / "sessions.json", errors, starts=lambda pids: {p: START for p in pids},
                                        registry=lambda config, pid: None),
             signal=phone_link.Signal(signal_client.Connection(str(self.state / "signal" / "socket")), errors),
             zone=PKT)
@@ -953,6 +953,37 @@ class Loop(unittest.TestCase):
         self.assertIsNone(signal.connection.socket)
         self.assertEqual(json.loads(lines.readline())["type"], "registered")
         self.assertEqual(hook_fds, [old_fd])
+
+    def test_a_read_error_on_a_hooks_connection_writes_one_error_line_and_closes_it(self):
+        class Resetting:
+            """A hook's socket whose every read fails as a reset connection does."""
+
+            def __init__(self, inner):
+                self.inner = inner
+
+            def fileno(self):
+                return self.inner.fileno()
+
+            def recv(self, _size):
+                raise ConnectionResetError(54, "Connection reset by peer")
+
+            def sendall(self, data):
+                self.inner.sendall(data)
+
+            def close(self):
+                self.inner.close()
+
+        class ResettingConn(phone_link.HookConn):
+            def __init__(self, link_socket):
+                super().__init__(Resetting(link_socket))
+
+        errors_log = self.state / "errors.log"
+        with mock.patch.object(phone_link, "HookConn", ResettingConn):
+            link, lines = self.hook()
+            link.sendall(b"{")
+            self.assertEqual(lines.readline(), "")
+        self.wait_for(lambda: errors_log.exists() and "Connection reset by peer" in errors_log.read_text())
+        self.assertEqual(len([line for line in errors_log.read_text().splitlines() if "reset" in line]), 1)
 
     def test_acceptance_13_the_hook_socket_is_0600(self):
         self.assertEqual(stat.S_IMODE(os.stat(self.state / "hook.sock").st_mode), 0o600)

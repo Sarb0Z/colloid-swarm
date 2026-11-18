@@ -23,6 +23,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import log
 import sessions
 from sessions import Sessions
 
@@ -47,8 +48,18 @@ class Listed(unittest.TestCase):
         return {pid: self.running[pid] for pid in pids if pid in self.running}
 
     def listing(self):
-        return Sessions(self.folder / "sessions.json", starts=self.starts,
-                        registry=lambda config, pid: self.registry.get((config, pid)))
+        return Sessions(self.folder / "sessions.json", log.Errors(self.folder / "errors.log"), starts=self.starts,
+                        registry=self.entry)
+
+    def entry(self, config, pid):
+        found = self.registry.get((config, pid))
+        if isinstance(found, Exception):
+            raise found
+        return found
+
+    def error_lines(self):
+        path = self.folder / "errors.log"
+        return path.read_text().splitlines() if path.exists() else []
 
     def run_claude(self, session, name=None):
         self.running[session["pid"]] = session["start"]
@@ -165,6 +176,22 @@ class Liveness(Listed):
         listing = self.three()
         del self.registry[("/c/.claude", 700)]
         self.assertEqual(listing.check(), [])
+        self.assertEqual(self.error_lines(), [])
+
+    def test_a_registry_file_that_does_not_read_drops_nothing_and_writes_one_error_line(self):
+        listing = self.three()
+        self.registry[("/c/.claude", 700)] = sessions.Unreadable("/c/.claude/sessions/700.json: not JSON")
+        self.assertEqual(listing.check(), [])
+        self.assertEqual(listing.check(), [])  # the next check, 30 s later, adds no second line
+        self.assertEqual(len(self.error_lines()), 1)
+        self.assertIn("/c/.claude/sessions/700.json: not JSON", self.error_lines()[0])
+
+    def test_a_registry_file_that_does_not_read_gives_the_project_handle_and_an_error_line(self):
+        session = self.run_claude(hook_session(pid=900))
+        self.registry[("/c/.claude", 900)] = sessions.Unreadable("/c/.claude/sessions/900.json: not JSON")
+        self.assertEqual(self.listing().register(session)["handle"], "colloid-swarm")
+        self.assertEqual(len(self.error_lines()), 1)
+
 
     def test_ps_failing_drops_nothing_and_the_error_reaches_the_caller(self):
         listing = self.three()
@@ -217,6 +244,27 @@ class Kept(Listed):
         (self.folder / "sessions.json").write_text("{not json")
         with self.assertRaises(ValueError):
             listing.load()
+
+
+class ReadRegistry(unittest.TestCase):
+    def setUp(self):
+        self.config = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.config)
+        (self.config / "sessions").mkdir()
+
+    def test_an_absent_file_is_no_entry(self):
+        self.assertIsNone(sessions.read_registry(str(self.config), 77))
+
+    def test_a_file_that_reads_is_its_entry(self):
+        (self.config / "sessions" / "77.json").write_text('{"sessionId": "s", "name": "n"}')
+        self.assertEqual(sessions.read_registry(str(self.config), 77), {"sessionId": "s", "name": "n"})
+
+    def test_a_file_that_exists_and_does_not_read_raises_unreadable_naming_it(self):
+        for content in ("{not json", "[1, 2]"):
+            (self.config / "sessions" / "77.json").write_text(content)
+            with self.assertRaises(sessions.Unreadable) as raised:
+                sessions.read_registry(str(self.config), 77)
+            self.assertIn("77.json", str(raised.exception))
 
 
 class RealProcesses(unittest.TestCase):

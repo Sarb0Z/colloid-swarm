@@ -559,7 +559,9 @@ def serve(link: Link, listener, errors, stopped) -> None:
                 conn = key.data
                 try:
                     data = conn.socket.recv(READ_BYTES)
-                except OSError:
+                except OSError as error:
+                    # Handled as a hook that went away; the line says it was not an ordinary end.
+                    errors.write(f"a hook's connection failed on read ({error}); handled as a hook that went away")
                     data = b""
                 if not data:
                     link.hook_closed(conn)
@@ -601,7 +603,7 @@ def main(argv) -> int:
     listener = listen(state / "hook.sock")
     link = Link(events=log.Events(state / "events.jsonl", errors),
                 messages=log.Messages(state / "messages.jsonl", errors),
-                errors=errors, sessions=session_list.Sessions(state / "sessions.json"),
+                errors=errors, sessions=session_list.Sessions(state / "sessions.json", errors),
                 signal=Signal(signal_client.Connection(str(state / "signal" / "socket")), errors),
                 zone=zone)
     # A handler that only set a flag would leave the loop asleep until its next timer:
