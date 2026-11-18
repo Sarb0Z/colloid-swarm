@@ -200,7 +200,7 @@ def _wait(payload, environ, effects, out, err, link, started, root, cwd) -> int:
                     "start": start, "config_dir": config_dir, "cwd": cwd, "project": os.path.basename(root),
                     "account": environ.get("CLAUDE_PROFILE") or os.path.basename(config_dir).lstrip("."),
                     "transcript": transcript_path},
-        "turn": payload.get("prompt_id"), "tool": tool, "preview": mask.outbound(preview(tool, tool_input)),
+        "turn": payload.get("prompt_id"), "tool": tool, "preview": mask.outbound(preview(tool, tool_input)).text,
         "calls": offered, "file": file, "deadline": deadline,
     })
     registered, call, unbound_limit_told = False, None, False
