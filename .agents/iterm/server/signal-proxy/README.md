@@ -45,6 +45,11 @@ Run each step from the Mac, in this folder.
    failed run be repeated under the same unit name.
 3. `./apply-proxy`: the staging certificate is moved aside and a production
    certificate is issued. Check acceptance 3, then 7.
+
+After step 3, `./apply-proxy --staging` is refused while the production
+certificate is valid for more than 80 h. A return to staging and back issues a
+new production certificate, and Let's Encrypt issues at most 5 for one IP in 7
+days. To go back to staging all the same, add `--staging-over-production`.
 4. `../../install.sh --tls-proxy 62.171.166.213:8443`: the phone link's
    signal-cli uses the proxy. Check acceptance 8 to 10.
 

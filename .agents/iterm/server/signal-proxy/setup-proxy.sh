@@ -19,25 +19,35 @@
 # and a file is copied there before it is replaced. No ufw rule is added: Docker's
 # published port bypasses ufw, and `docker compose -p signal-proxy down` closes it.
 #
-# Usage: setup-proxy.sh [--check] [--staging]
+# Usage: setup-proxy.sh [--check] [--staging [--staging-over-production]]
 #   --check    print each change a run would make; change nothing, ask no one
 #              (no Let's Encrypt, no image pull, no container started)
 #   --staging  use Let's Encrypt's staging directory; a run without it moves
-#              the proxy to the production directory
+#              the proxy to the production directory. Refused while a
+#              production certificate is valid for more than 80 h: the way back
+#              issues a new one, and Let's Encrypt allows 5 for one IP in 7 days.
+#   --staging-over-production  replace that production certificate all the same
 # SETUP_ROOT puts a folder in front of every absolute path; only the tests set it.
 set -euo pipefail
 
-check=0 server=https://acme-v02.api.letsencrypt.org/directory
+usage="usage: setup-proxy.sh [--check] [--staging [--staging-over-production]]"
+production=https://acme-v02.api.letsencrypt.org/directory
+check=0 server=$production over_production=0
 for argument in "$@"; do
   case $argument in
     --check) check=1 ;;
     --staging) server=https://acme-staging-v02.api.letsencrypt.org/directory ;;
+    --staging-over-production) over_production=1 ;;
     *)
-      echo "usage: setup-proxy.sh [--check] [--staging]" >&2
+      echo "$usage" >&2
       exit 2
       ;;
   esac
 done
+if ((over_production)) && [[ $server == "$production" ]]; then
+  echo "$usage" >&2
+  exit 2
+fi
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 R=${SETUP_ROOT:-}
 ip=62.171.166.213
@@ -121,6 +131,11 @@ grep -E '[:.]80[[:space:]].*"nginx"' <<<"$listening" >/dev/null ||
   die "nginx does not hold port 80 here; lego's challenge is served by it, so nothing was changed"
 holder=$(grep -E '[:.]8443[[:space:]]' <<<"$listening" | grep -v '"docker-proxy"' || true)
 [[ -z $holder ]] || die "port 8443 is held by another program: $holder"
+issued_by=$(cat "$R/var/lib/lego/signal-proxy-server" 2>/dev/null || true)
+if [[ $server != "$production" && $issued_by == "$production" ]] && ((!over_production)) &&
+  [[ -f $cert ]] && openssl x509 -checkend $((80 * 3600)) -noout -in "$cert" >/dev/null; then
+  die "the production certificate here is valid for more than 80 h; --staging would replace it, and the way back issues a new one (Let's Encrypt allows 5 for one IP in 7 days). Add --staging-over-production to replace it all the same; nothing was changed"
+fi
 
 # ── 1. The module's files ─────────────────────────────────────────────────────
 config_changed=0
@@ -146,7 +161,6 @@ if ((units_changed)) && change "systemctl daemon-reload, to read the renew units
 fi
 
 # ── 3. The certificate ───────────────────────────────────────────────────────
-issued_by=$(cat "$R/var/lib/lego/signal-proxy-server" 2>/dev/null || true)
 if [[ ! -f $cert ]]; then
   why="there is none"
 elif [[ $issued_by != "$server" ]]; then

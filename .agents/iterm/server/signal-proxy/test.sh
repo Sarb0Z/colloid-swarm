@@ -345,6 +345,31 @@ eq "a run whose compose ps fails: exits 1" 1 "$rc"
 has "a run whose compose ps fails: says so" "setup-proxy: docker compose ps failed" "$out"
 rm "$STATE/ps-fails"
 
+# --- back to staging over a production certificate ------------------------------------
+# Each switch issues a new production certificate on the way back, and Let's
+# Encrypt allows 5 for one IP in 7 days.
+: >"$CALLS"
+before=$(tree "$R")
+for flags in "--staging" "--staging --check"; do
+  # shellcheck disable=SC2086 # the flags are split on purpose
+  out=$(run $flags 2>&1); rc=$?
+  eq "$flags over a production certificate with 160 h left: exits 1" 1 "$rc"
+  has "$flags over a production certificate with 160 h left: names the flag that allows it" \
+    "the production certificate here is valid for more than 80 h; --staging would replace it" "$out"
+done
+eq "--staging over a production certificate: nothing changed" "$before" "$(tree "$R")$(cat "$CALLS")"
+out=$(run --staging-over-production 2>&1); rc=$?
+eq "--staging-over-production without --staging: usage, exit 2" \
+  "2 usage: setup-proxy.sh [--check] [--staging [--staging-over-production]]" "$rc $out"
+out=$(run --staging --staging-over-production 2>&1); rc=$?
+eq "--staging --staging-over-production: exits 0" 0 "$rc"
+eq "--staging --staging-over-production: lego issues from staging" "$(lego_line "$STAGING")" "$(grep '^docker run' "$CALLS")"
+eq "--staging --staging-over-production: the proxy serves the staging certificate" "$(cat "$cert")" "$(cat "$STATE/served")"
+cert_left 50 "$PRODUCTION"
+echo "$PRODUCTION" >"$R/opt/signal-proxy/acme-server"
+out=$(run --staging --check 2>&1); rc=$?
+eq "--staging over a production certificate with 50 h left: allowed" 0 "$rc"
+
 # --- refusals change nothing ---------------------------------------------------------
 fresh
 cp -R "$HERE" "$T/module"
@@ -363,7 +388,7 @@ eq "8443 held by another program: nothing changed" "$before" "$(tree "$R")$(cat 
 rm "$STATE/ss-extra"
 
 out=$(run --bogus 2>&1); rc=$?
-eq "an unknown option: usage, exit 2" "2 usage: setup-proxy.sh [--check] [--staging]" "$rc $out"
+eq "an unknown option: usage, exit 2" "2 usage: setup-proxy.sh [--check] [--staging [--staging-over-production]]" "$rc $out"
 
 # --- apply-proxy end to end, ssh replaced by a local shell ------------------------------
 fresh
@@ -380,8 +405,13 @@ eq "apply-proxy --staging exits 0" 0 "$rc"
 eq "apply-proxy --staging issues from staging" "$(lego_line "$STAGING")" "$(grep '^docker run' "$CALLS")"
 out=$(SETUP_ROOT=$R bash "$HERE/apply-proxy" --staging 2>&1); rc=$?
 has "a second apply-proxy changes nothing" "nothing to change" "$out"
+out=$(SETUP_ROOT=$R bash "$HERE/apply-proxy" --staging-over-production 2>&1); rc=$?
+eq "apply-proxy hands --staging-over-production on to setup-proxy.sh" \
+  "2 usage: setup-proxy.sh [--check] [--staging [--staging-over-production]]" "$rc $out"
+out=$(SETUP_ROOT=$R bash "$HERE/apply-proxy" --staging --staging-over-production 2>&1); rc=$?
+has "apply-proxy --staging --staging-over-production runs setup-proxy.sh with both" "nothing to change" "$rc $out"
 out=$(bash "$HERE/apply-proxy" --bogus 2>&1); rc=$?
-eq "apply-proxy: an unknown option" "2 usage: apply-proxy [--check] [--staging]" "$rc $out"
+eq "apply-proxy: an unknown option" "2 usage: apply-proxy [--check] [--staging [--staging-over-production]]" "$rc $out"
 
 ((fails == 0)) && echo "signal-proxy tests passed" || {
   echo "$fails failed" >&2

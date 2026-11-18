@@ -3,17 +3,19 @@
 # over one ssh connection, runs the script in a scratch folder there, and
 # removes the folder. README.md beside it is the operator's runbook.
 #
-# Usage: apply-proxy [--check] [--staging]
+# Usage: apply-proxy [--check] [--staging [--staging-over-production]]
 #   --check    print each change a run would make; change nothing
-#   --staging  use Let's Encrypt's staging directory (run this first)
+#   --staging  use Let's Encrypt's staging directory (run this first); refused
+#              while a production certificate is valid for more than 80 h
+#   --staging-over-production  replace that production certificate all the same
 set -euo pipefail
 
 arguments=()
 for argument in "$@"; do
   case $argument in
-    --check | --staging) arguments+=("$argument") ;;
+    --check | --staging | --staging-over-production) arguments+=("$argument") ;;
     *)
-      echo "usage: apply-proxy [--check] [--staging]" >&2
+      echo "usage: apply-proxy [--check] [--staging [--staging-over-production]]" >&2
       exit 2
       ;;
   esac
