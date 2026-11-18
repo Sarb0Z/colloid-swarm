@@ -22,7 +22,7 @@ EVENT = {
                 "account": "work", "cwd": "/Users/x/Projects/colloid-swarm"},
     "turn": "p1", "row": None, "call": "toolu_1", "created": "2026-11-18T13:43:00Z",
     "deadline": "2026-11-18T14:42:00Z", "text": None,
-    "detail": {"tool": "Bash", "preview": "git push origin main"}, "attachments": [], "source": None,
+    "detail": {"tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0}, "attachments": [], "source": None,
     "state": "open", "answer": None,
 }
 
@@ -85,11 +85,25 @@ class Alert(unittest.TestCase):
         self.assertEqual(line, "Permission: Bash · answer within 59 min (by 09:42 EST)")
 
     def test_a_preview_of_several_lines_stays_between_the_header_and_the_reply_line(self):
-        event = {**EVENT, "detail": {"tool": "Edit", "preview": "/repo/a.py\n- old\n+ new"}}
+        event = {**EVENT, "detail": {"tool": "Edit", "preview": "/repo/a.py\n- old\n+ new", "masked": 0, "cut": 0}}
         lines = grammar.alert(event, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")).split("\n")
         self.assertEqual(lines[1][:16], "Permission: Edit")
         self.assertEqual(lines[2:5], ["/repo/a.py", "- old", "+ new"])
         self.assertEqual(lines[-1], "Reply: yes m-qhvkz   or   no m-qhvkz <reason>")
+
+
+    def test_an_alert_that_masked_or_cut_its_preview_says_so_above_the_reply_line(self):
+        at, zone = log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")
+        for masked, cut, said in ((2, 147, "masked: 2 values · cut: 147 more characters"),
+                                  (1, 0, "masked: 1 value"), (0, 1, "cut: 1 more character")):
+            event = {**EVENT, "detail": {**EVENT["detail"], "masked": masked, "cut": cut}}
+            lines = grammar.alert(event, at, zone).split("\n")
+            self.assertEqual(lines[2:], ["git push origin main", said,
+                                         "Reply: yes m-qhvkz   or   no m-qhvkz <reason>"], (masked, cut))
+
+    def test_an_alert_that_shows_the_whole_call_has_no_such_line(self):
+        lines = grammar.alert(EVENT, log.epoch_of("2026-11-18T13:43:00Z"), ZoneInfo("UTC")).split("\n")
+        self.assertEqual(len(lines), 4)
 
 
 class Replies(unittest.TestCase):

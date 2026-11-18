@@ -129,7 +129,7 @@ class Service(unittest.TestCase):
                 "session": {"id": session, "agent": agent, "pid": pid, "start": START, "config_dir": "/c/.claude",
                             "cwd": "/p/colloid-swarm", "project": "colloid-swarm", "account": "work",
                             "transcript": self.path},
-                "turn": "prompt-1", "tool": tool, "preview": preview, "calls": list(calls),
+                "turn": "prompt-1", "tool": tool, "preview": preview, "masked": 0, "cut": 0, "calls": list(calls),
                 "file": file or self.path, "deadline": self.now + 3540}
 
     def hook(self, **fields):
@@ -181,7 +181,7 @@ class Alerts(Service):
                         "account": "work", "cwd": "/p/colloid-swarm"},
             "turn": "prompt-1", "row": None, "call": "toolu_1", "created": "2026-11-18T13:43:00Z",
             "deadline": "2026-11-18T14:42:00Z", "text": None,
-            "detail": {"tool": "Bash", "preview": "git push origin main"}, "attachments": [], "source": None,
+            "detail": {"tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0}, "attachments": [], "source": None,
             "state": "open", "answer": None,
         })
 
@@ -192,6 +192,14 @@ class Alerts(Service):
         self.assertNotIn(token, self.signal.texts[0])
         self.assertEqual(self.event()["detail"]["preview"], "git push https://[REDACTED]@github.com/o/r")
 
+    def test_the_alert_says_how_many_values_the_hook_and_the_link_masked_and_what_was_cut(self):
+        token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+        line = {**self.registration(preview=f"deploy [REDACTED] {token} nnn[… 40 more characters]"),
+                "masked": 1, "cut": 40}
+        self.link.hook_line(Conn(), line)
+        self.assertEqual((self.event()["detail"]["masked"], self.event()["detail"]["cut"]), (2, 40))
+        self.assertEqual(self.signal.texts[0].split("\n")[3], "masked: 2 values · cut: 40 more characters")
+
     def test_acceptance_19_the_alert_names_the_sessions_account(self):
         for number, account in enumerate(("work", "personal", "family", "guest")):
             line = self.registration(session=f"s{number}", pid=600 + number, name=f"n{number}")
@@ -201,13 +209,15 @@ class Alerts(Service):
                              f"[{IDS[number]}] colloid-swarm · Mac · {account} · n{number}")
 
     def test_a_malformed_registration_is_refused_and_reported(self):
-        for broken in ({"session": None}, {"calls": "toolu_1"}, {"deadline": None}, {"preview": None}):
+        broken_lines = ({"session": None}, {"calls": "toolu_1"}, {"deadline": None}, {"preview": None},
+                        {"masked": None}, {"cut": -1}, {"masked": True})
+        for broken in broken_lines:
             conn = Conn()
             self.link.hook_line(conn, {**self.registration(), **broken})
             self.assertEqual([line["type"] for line in conn.lines], ["refused"], broken)
         self.assertEqual(self.signal.texts, [])
         self.assertEqual(self.file("events.jsonl"), "")
-        self.assertEqual(len(self.file("errors.log").splitlines()), 4)
+        self.assertEqual(len(self.file("errors.log").splitlines()), len(broken_lines))
 
 
 class Answers(Service):
@@ -845,7 +855,7 @@ class Loop(unittest.TestCase):
                 "session": {"id": "s1", "agent": None, "pid": 501, "start": START, "config_dir": "/c/.claude",
                             "cwd": "/p/colloid-swarm", "project": "colloid-swarm", "account": "work",
                             "transcript": self.path},
-                "turn": "prompt-1", "tool": "Bash", "preview": "git push origin main", "calls": ["toolu_1"],
+                "turn": "prompt-1", "tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0, "calls": ["toolu_1"],
                 "file": self.path, "deadline": time.time() + 3540}
 
     def wait_for(self, condition, seconds=5.0):

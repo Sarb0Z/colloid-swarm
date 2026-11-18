@@ -19,7 +19,8 @@ with no dialog denies the call.
      have not ended, the latest first. The service binds the event to the
      first that no other waiting hook holds.
   4. Register. One line: the session, the `claude` process and its start, the
-     tool, and a preview that is masked and cut before it leaves this process.
+     tool, and a preview that is masked and cut before it leaves this process,
+     with how many values it masked and characters it cut.
      The raw tool input goes nowhere.
   5. Wait, until the hook's own deadline, 60 s before Claude Code's timeout:
        - a decision from the service: print it and exit;
@@ -194,13 +195,15 @@ def _wait(payload, environ, effects, out, err, link, started, root, cwd) -> int:
     config_dir = (transcript_path.split("/projects/")[0] if "/projects/" in transcript_path
                   else environ.get("CLAUDE_CONFIG_DIR") or str(Path(environ["HOME"]) / ".claude"))
     deadline = started + OWN_DEADLINE
+    shown = mask.outbound(preview(tool, tool_input))
     link.send({
         "type": "permission",
         "session": {"id": str(payload.get("session_id")), "agent": payload.get("agent_id"), "pid": pid,
                     "start": start, "config_dir": config_dir, "cwd": cwd, "project": os.path.basename(root),
                     "account": environ.get("CLAUDE_PROFILE") or os.path.basename(config_dir).lstrip("."),
                     "transcript": transcript_path},
-        "turn": payload.get("prompt_id"), "tool": tool, "preview": mask.outbound(preview(tool, tool_input)).text,
+        "turn": payload.get("prompt_id"), "tool": tool, "preview": shown.text,
+        "masked": shown.masked, "cut": shown.cut,
         "calls": offered, "file": file, "deadline": deadline,
     })
     registered, call, unbound_limit_told = False, None, False

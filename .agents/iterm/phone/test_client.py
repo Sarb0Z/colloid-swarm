@@ -182,7 +182,7 @@ class Registration(Hook):
             "session": {"id": "5e55", "agent": None, "pid": 4242, "start": START, "config_dir": str(self.config),
                         "cwd": str(self.repo), "project": "colloid-swarm", "account": "guest",
                         "transcript": self.path},
-            "turn": "prompt-1", "tool": "Bash", "preview": "git push origin main", "calls": ["toolu_1"],
+            "turn": "prompt-1", "tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0, "calls": ["toolu_1"],
             "file": self.path, "deadline": T0 + 3540,
         })
 
@@ -200,6 +200,7 @@ class Registration(Hook):
         # Acceptance 15: both credentials masked, 600 characters kept, the rest counted.
         self.assertTrue(line["preview"].startswith("deploy --gh [REDACTED] --aws [REDACTED] --note nnn"))
         self.assertTrue(line["preview"].endswith("[… 147 more characters]"), line["preview"][-40:])
+        self.assertEqual((line["masked"], line["cut"]), (2, 147))
         self.assertEqual(line["calls"], ["toolu_1"])
 
     def test_the_state_folder_and_the_account_come_from_the_environment(self):

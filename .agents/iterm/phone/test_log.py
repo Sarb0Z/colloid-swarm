@@ -43,7 +43,7 @@ class Scratch(unittest.TestCase):
 
     def open_one(self, events, now=NOW):
         return events.open_permission(session=SESSION, turn="p1", call="toolu_1", tool="Bash",
-                                      preview="git push origin main", deadline=now + 3540, now=now)
+                                      preview="git push origin main", masked=0, cut=0, deadline=now + 3540, now=now)
 
 
 class EventFile(Scratch):
@@ -53,7 +53,7 @@ class EventFile(Scratch):
             "v": 1, "id": "m-abcde", "machine": "mac", "kind": "permission", "session": SESSION,
             "turn": "p1", "row": None, "call": "toolu_1", "created": "2026-11-18T09:00:00Z",
             "deadline": "2026-11-18T09:59:00Z", "text": None,
-            "detail": {"tool": "Bash", "preview": "git push origin main"}, "attachments": [],
+            "detail": {"tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0}, "attachments": [],
             "source": None, "state": "open", "answer": None,
         })
         self.assertEqual(self.lines("events.jsonl"), [event])

@@ -22,7 +22,8 @@ An event (version 1) holds `v`, `id`, `machine`, `kind`, `session`, `turn`,
 `row`, `call`, `created`, `deadline`, `text`, `detail`, `attachments`, `source`,
 `state` and `answer`; the spec (`docs/notes/2026-11-17-phone-link-spec.md`,
 "Events") says what each carries. A permission event's `detail` is `{tool,
-preview}`, masked: the raw tool input never reaches this module.
+preview, masked, cut}`: the preview masked and cut, with how many values were
+masked and characters cut; the raw tool input never reaches this module.
 
 `TRANSITIONS` is the closed table of state changes, and `Events.move` refuses
 any other.
@@ -171,13 +172,13 @@ class Events:
         _append(self.path, json.dumps(event, ensure_ascii=False))
         return event
 
-    def open_permission(self, *, session: dict, turn, call, tool: str, preview: str,
-                        deadline: float, now: float) -> dict:
+    def open_permission(self, *, session: dict, turn, call, tool: str, preview: str, masked: int,
+                        cut: int, deadline: float, now: float) -> dict:
         return self._write({
             "v": VERSION, "id": self._new_id(), "machine": MACHINE, "kind": "permission",
             "session": session, "turn": turn, "row": None, "call": call,
             "created": iso(now), "deadline": iso(deadline), "text": None,
-            "detail": {"tool": tool, "preview": preview}, "attachments": [], "source": None,
+            "detail": {"tool": tool, "preview": preview, "masked": masked, "cut": cut}, "attachments": [], "source": None,
             "state": "open", "answer": None,
         })
 

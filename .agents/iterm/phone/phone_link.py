@@ -239,11 +239,13 @@ class Link:
             return
         now = self.clock()
         call = self._claim(message["calls"])
+        # The hook masked already; a value it let through is masked here and counted too.
+        preview, masked_here = mask.masked(message["preview"])
         event = self.events.open_permission(
             session={"id": listed["id"], "agent": asked.get("agent"), "handle": listed["handle"],
                      "project": listed["project"], "account": listed["account"], "cwd": listed["cwd"]},
-            turn=message.get("turn"), call=call, tool=message["tool"], preview=mask.mask(message["preview"]),
-            deadline=message["deadline"], now=now)
+            turn=message.get("turn"), call=call, tool=message["tool"], preview=preview,
+            masked=message["masked"] + masked_here, cut=message["cut"], deadline=message["deadline"], now=now)
         self.waits[event["id"]] = Wait(conn, message["file"])
         self.by_conn[conn] = event["id"]
         conn.send({"type": "registered", "id": event["id"], "call": call})
@@ -263,6 +265,8 @@ class Link:
             return "its calls are not a list of ids"
         if not isinstance(message.get("deadline"), (int, float)):
             return "its deadline is missing"
+        if not all(type(message.get(key)) is int and message[key] >= 0 for key in ("masked", "cut")):
+            return "its masked or cut count is not a whole number"
         return ""
 
     def _claim(self, calls):

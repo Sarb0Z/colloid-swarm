@@ -18,7 +18,10 @@ so the verb and the id match in any case and the id may carry one trailing
 
 To the phone, every message about an event starts with its id in brackets
 (`alert`, `reply`). An alert's preview is already masked and cut by the hook
-that built it (`mask.outbound`): this module composes, it does not mask.
+that built it (`mask.outbound`): this module composes, it does not mask. An
+alert whose preview lost values to the mask or characters to the cut says so
+on a line of its own, `masked: <n> values · cut: <n> more characters`; it
+still takes `yes`.
 """
 
 from __future__ import annotations
@@ -90,8 +93,21 @@ def alert(event: dict, now: float, zone) -> str:
         f"{session['account']} · {session['handle']}",
         f"Permission: {event['detail']['tool']} · answer within {minutes} min (by {by})",
         event["detail"]["preview"],
+        *_not_shown(event["detail"]),
         f"Reply: yes {event['id']}   or   no {event['id']} <reason>",
     ])
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def _not_shown(detail: dict) -> list:
+    """The line that says the preview is not the whole call, or no line when it is."""
+    parts = [f"masked: {_plural(detail['masked'], 'value')}" if detail["masked"] else "",
+             f"cut: {_plural(detail['cut'], 'more character')}" if detail["cut"] else ""]
+    said = " · ".join(part for part in parts if part)
+    return [said] if said else []
 
 
 def reply(event_id: str, text: str) -> str:
