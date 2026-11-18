@@ -21,6 +21,7 @@ lacks() { if [[ $3 != *"$2"* ]]; then ok "$1"; else bad "$1: unexpected [$2] in:
 mode() { ls -ld "$1" | cut -c1-10; }
 tree() { (cd "$1" && find . | LC_ALL=C sort && find . -type f -exec cksum {} + | LC_ALL=C sort); }
 count() { grep -cxF -- "$1" "$2"; }
+gl() { "$REAL_GIT" config --file "$H/.gitconfig" --get "user.$1"; }
 
 PIN_RESURRECT=e87d7d592cac97fa38c12395ebec042c154a1844
 PIN_CONTINUUM=46e0e0023476018ddb4cc0d44783eede27e5a8ec
@@ -106,7 +107,11 @@ while IFS=" =" read -r key value; do
 done <"$SETUP_ROOT$2"'
 # apply reads the Mac checkout's origin. The stand-in answers with a fixed one in
 # the checkout's https form, since suite.sh runs the checks in a copy with no remote.
-stub git 'dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
+# A folder made by a real `git init` (it has .git/HEAD) goes to the real git.
+export REAL_GIT
+REAL_GIT=$(command -v git)
+stub git 'orig=("$@"); dir=; while [[ $1 == -C || $1 == -c ]]; do [[ $1 == -C ]] && dir=$2; shift 2; done
+if [[ -n $dir && -f $dir/.git/HEAD ]]; then exec "$REAL_GIT" "${orig[@]}"; fi
 case $1 in
   remote) [[ $* == "remote get-url origin" ]] || { echo "git stand-in: unexpected $*" >&2; exit 3; }
     echo "https://github.com/Sarb0Z/colloid-swarm.git" ;;
@@ -116,11 +121,10 @@ case $1 in
   config)
     [[ $2 == --global ]] || { echo "git stand-in: unexpected $*" >&2; exit 3; }
     if [[ $3 == --get ]]; then
-      sed -n "s/^$4=//p" "$HOME/.gitconfig" 2>/dev/null | grep . || exit 1
+      "$REAL_GIT" config --file "$HOME/.gitconfig" --get "$4"
     else
       echo "git config --global $3 $4 HOME=$HOME USER=$USER" >>"$CALLS"
-      { grep -v "^$3=" "$HOME/.gitconfig" 2>/dev/null; echo "$3=$4"; } >"$HOME/.gitconfig.new"
-      mv "$HOME/.gitconfig.new" "$HOME/.gitconfig"
+      "$REAL_GIT" config --file "$HOME/.gitconfig" "$3" "$4"
     fi ;;
   *) echo "git stand-in: unexpected $*" >&2; exit 3 ;;
 esac'
@@ -145,7 +149,7 @@ LOADER='# bash reads this file instead of ~/.profile at login, so it loads ~/.pr
 fresh() { # folder
   local r=$1 h=$1/home/openclawops
   rm -rf "$r" "$STATE"
-  mkdir -p "$STATE" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/etc/sysctl.d" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin" \
+  mkdir -p "$STATE" "$r/usr/bin" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/etc/sysctl.d" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin" \
     "$r/proc/sys/net/ipv4" "$r/proc/sys/net/ipv6/conf/all"
   # contabo-hop on 2026-11-18: Docker's IPv4 forwarding on, IPv6 forwarding off.
   echo 1 >"$r/proc/sys/net/ipv4/ip_forward"
@@ -160,6 +164,18 @@ fresh() { # folder
   printf '%s\n' "$BASHRC" >"$h/.bashrc"
   printf '%s\n' "$PROFILE" >"$h/.profile"
   echo '{"note": "uzair login, must stay"}' >"$h/.claude/settings.json"
+  # A service's checkout under ~/apps, with an ssh remote the script must not touch.
+  mkdir -p "$h/apps/svc"
+  "$REAL_GIT" -C "$h/apps/svc" init -q
+  "$REAL_GIT" -C "$h/apps/svc" remote add origin git@github.com:OwnerOne/svc.git
+  echo "service code" >"$h/apps/svc/app.js"
+  # The helper's tools and gh, present where the script looks for them; gh is
+  # logged in only while $STATE/gh-login exists.
+  : >"$r/usr/bin/jq"
+  : >"$r/usr/bin/getent"
+  chmod +x "$r/usr/bin/jq" "$r/usr/bin/getent"
+  printf '#!/bin/sh\n[ "$1 $2" = "auth status" ] && [ -e "%s/gh-login" ]\n' "$STATE" >"$r/usr/bin/gh"
+  chmod +x "$r/usr/bin/gh"
   # Claude Code made an empty ~/.bash_profile where none existed on contabo-hop, at
   # the update (2026-11-16) and again at a first sign-in after it was removed
   # (2026-11-17), so the stand-in does too.
@@ -168,9 +184,30 @@ fresh() { # folder
   chmod +x "$h/.local/bin/claude"
   : >"$CALLS"
 }
+# What only the Mac has, as a fixture: the device policy folder, one limited
+# account's payload (named by a fixture email), the git identity registry and a
+# skills folder. No real address is written here.
+ACCT=someone@example.com
+MACDEV=$T/macdev
+MACSKILLS=$T/macskills
+MACREG=$T/mac-git-identities.json
+mkdir -p "$MACDEV/accounts" "$MACSKILLS/alpha/ref"
+printf '%s\n' '{"appendSystemPrompt":"shared text","managedSettings":{"permissions":{"ask":["Artifact","Bash(git push:*)","Bash(gh pr create:*)"]}}}' >"$MACDEV/policy.json"
+printf '%s\n' '{"appendSystemPrompt":"account text","managedSettings":{"deniedModels":["fable"],"permissions":{"ask":["Bash(git push:*)","Artifact"]}}}' >"$MACDEV/accounts/$ACCT.json"
+printf '%s\n' '{"identities":{"Alpha":{"name":"Alpha","email":"someone@example.com","github_org":["OwnerOne","ownertwo"],"ssh_keys":["~/.ssh/k"]},"Beta":{"name":"Beta","email":"other@example.com","github_org":["Org3"],"ssh_keys":[]}}}' >"$MACREG"
+printf '# alpha skill\n' >"$MACSKILLS/alpha/SKILL.md"
+printf 'reference\n' >"$MACSKILLS/alpha/ref/notes.md"
+
 B=$T/bundle
-mkdir -p "$B" "$T/roothome" "$T/tmpd"
-cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$HERE/github-known-hosts" "$HERE/tailscale-archive-keyring.asc" "$B/"
+mkdir -p "$B/accounts" "$B/skills" "$T/roothome" "$T/tmpd"
+cp "$HERE/setup-server.sh" "$HERE/tmux.conf" "$HERE/launchers.bash" "$HERE/settings.json" "$HERE/github-known-hosts" "$HERE/tailscale-archive-keyring.asc" \
+  "$HERE/managed-settings.json" "$HERE/policy-helper.sh" "$HERE/server-asks.json" "$HERE/claude-statusline.sh" "$HERE/CLAUDE.md" \
+  "$HERE/gitconfig-projects" "$HERE/colloid-diffview.lua" "$B/"
+cp "$MACDEV/policy.json" "$B/policy.json"
+cp "$MACDEV/accounts/$ACCT.json" "$B/accounts/"
+cp "$HERE/../../claude/output-style.md" "$B/output-style.md"
+jq '{identities: (.identities | map_values({name, email, github_org}))}' "$MACREG" >"$B/git-identities.json"
+cp -R "$MACSKILLS/alpha" "$B/skills/alpha"
 echo "$MAC_VERSION" >"$B/claude-version"
 echo "$KEY" >"$B/mac.pub"
 R=$T/root
@@ -178,13 +215,21 @@ H=$R/home/openclawops
 run() { (cd / && SETUP_ROOT=$R HOME=$T/roothome TMPDIR=$T/tmpd bash "$B/setup-server.sh" "$@"); }
 
 # --- syntax -------------------------------------------------------------------
-for f in setup-server.sh apply launchers.bash test.sh; do
+for f in setup-server.sh apply launchers.bash test.sh claude-statusline.sh; do
   bash -n "$HERE/$f" && ok "bash -n $f" || bad "bash -n $f"
 done
+sh -n "$HERE/policy-helper.sh" && ok "sh -n policy-helper.sh" || bad "sh -n policy-helper.sh"
+if command -v shellcheck >/dev/null; then
+  shellcheck -S warning "$HERE/policy-helper.sh" >"$T/shellcheck.out" 2>&1 &&
+    ok "shellcheck on the policy helper" || bad "shellcheck: $(cat "$T/shellcheck.out")"
+fi
 
 # --- --check changes nothing --------------------------------------------------
 fresh "$R"
 before=$(tree "$R")
+apps_before=$(tree "$H/apps")
+uzair_before=$(tree "$H/.claude")
+remotes_before=$("$REAL_GIT" -C "$H/apps/svc" remote -v)
 out=$(run --check "$B/mac.pub" 2>&1); rc=$?
 eq "check exits 0" 0 "$rc"
 for line in "add the Mac's key" "add ppa:jgmath2000/et" "install et" "set telemetry = false" \
@@ -199,7 +244,7 @@ for line in "add the Mac's key" "add ppa:jgmath2000/et" "install et" "set teleme
   "write /etc/sysctl.d/99-tailscale.conf" "ufw allow 41641/udp"; do
   has "check lists: $line" "would: $line" "$out"
 done
-has "check counts every change" "check: 33 change(s) to make; nothing was changed" "$out"
+has "check counts every change" "check: 54 change(s) to make; nothing was changed" "$out"
 eq "check leaves the server unchanged" "$before" "$(tree "$R")"
 eq "check calls nothing that changes state" "" "$(cat "$CALLS")"
 eq "check leaves no tmux socket or scratch folder" "" "$(find "$T/tmpd" -mindepth 1)"
@@ -257,7 +302,7 @@ has "run installs the tools with needrestart suspended" \
 eq "fd names fdfind" /usr/bin/fdfind "$(readlink "$H/.local/bin/fd")"
 has "git identity is set as openclawops, in its home" \
   "git config --global user.email 93070907+Sarb0Z@users.noreply.github.com HOME=$H USER=openclawops" "$calls"
-eq "git identity" "user.name=Sarb0z user.email=93070907+Sarb0Z@users.noreply.github.com" "$(tr '\n' ' ' <"$H/.gitconfig" | sed 's/ $//')"
+eq "git identity" "Sarb0z 93070907+Sarb0Z@users.noreply.github.com" "$(gl name) $(gl email)"
 eq "known_hosts pins GitHub's key" "$(cat "$HERE/github-known-hosts")" "$(cat "$H/.ssh/known_hosts")"
 eq "known_hosts mode" "-rw-------" "$(mode "$H/.ssh/known_hosts")"
 [[ -d $H/Projects ]] && ok "the Projects folder exists" || bad "the Projects folder is missing"
@@ -285,6 +330,97 @@ has "run opens Tailscale's port" "ufw allow 41641/udp" "$calls"
 [[ -f $bk/apt-get-install-tailscale.log && -f $bk/etc/default/tailscaled ]] &&
   ok "tailscale's apt output and its first settings are kept in the backup folder" || bad "tailscale backups missing"
 
+# --- unit 2: policy, account settings, output style, status line, skills, CLAUDE.md ----
+CC=$R/etc/claude-code
+REPO_STYLE=$HERE/../../claude/output-style.md
+cmp -s "$HERE/managed-settings.json" "$CC/managed-settings.json" && ok "managed-settings.json installed as shipped" || bad "managed-settings.json differs"
+eq "managed-settings.json holds only the policy helper" '{"policyHelper":{"path":"/etc/claude-code/policy-helper.sh","timeoutMs":5000,"refreshIntervalMs":3600000}}' \
+  "$(jq -c . "$CC/managed-settings.json")"
+cmp -s "$HERE/policy-helper.sh" "$CC/policy-helper.sh" && ok "policy-helper.sh installed as shipped" || bad "policy-helper.sh differs"
+eq "managed-settings.json mode" "-rw-r--r--" "$(mode "$CC/managed-settings.json")"
+eq "policy-helper.sh mode" "-rwxr-xr-x" "$(mode "$CC/policy-helper.sh")"
+eq "/etc/claude-code mode" "drwxr-xr-x" "$(mode "$CC")"
+for f in "$CC" "$CC/managed-settings.json" "$CC/policy-helper.sh" "$CC/policy.json" "$CC/accounts/$ACCT.json"; do
+  grep -qxF "chown root:root $f" "$CALLS" && ok "root owns ${f#"$R"}" || bad "root does not own ${f#"$R"}"
+done
+lacks "the user owns nothing under /etc/claude-code" "openclawops:openclawops $CC" "$calls"
+# Acceptance 8: the helper's asks minus the Mac's are exactly the server-only asks.
+asks_server=$(jq -r '.managedSettings.permissions.ask[]' "$CC/policy.json" | LC_ALL=C sort)
+asks_mac=$(jq -r '.managedSettings.permissions.ask[]' "$MACDEV/policy.json" | LC_ALL=C sort)
+eq "the server's asks minus the Mac's are the server-only list" "$(jq -r '.[]' "$HERE/server-asks.json" | LC_ALL=C sort)" \
+  "$(comm -13 <(printf '%s\n' "$asks_mac") <(printf '%s\n' "$asks_server"))"
+eq "the server's asks drop none of the Mac's" "" "$(comm -23 <(printf '%s\n' "$asks_mac") <(printf '%s\n' "$asks_server"))"
+asks_acct=$(jq -r '.managedSettings.permissions.ask[]' "$CC/accounts/$ACCT.json" | LC_ALL=C sort)
+eq "the account payload gets the server-only asks once" "$(jq -r '.[]' "$HERE/server-asks.json" | LC_ALL=C sort)" \
+  "$(comm -13 <(jq -r '.managedSettings.permissions.ask[]' "$MACDEV/accounts/$ACCT.json" | LC_ALL=C sort) <(printf '%s\n' "$asks_acct"))"
+eq "the account payload keeps its denied models" '["fable"]' "$(jq -c '.managedSettings.deniedModels' "$CC/accounts/$ACCT.json")"
+eq "the policy keeps the system prompt text" "shared text" "$(jq -r .appendSystemPrompt "$CC/policy.json")"
+for a in work personal family guest; do
+  s=$H/.claude-$a/settings.json
+  eq "settings for $a: model, effort, style, theme" "fable high colloid dark" "$(jq -r '"\(.model) \(.effortLevel) \(.outputStyle) \(.theme)"' "$s")"
+  eq "settings for $a: fable 5.1 effort" xhigh "$(jq -r '.modelSettings["claude-fable-5-1"].effortLevel' "$s")"
+  eq "settings for $a: ten hook events, each the iTerm2 hook with a 5 s timeout" "10 5" \
+    "$(jq -r '"\(.hooks | length) \([.hooks[][0].hooks[0].timeout] | unique | join(","))"' "$s")"
+  eq "settings for $a: status line" "bash ~/.local/bin/claude-statusline.sh" "$(jq -r .statusLine.command "$s")"
+  eq "settings for $a: no plugins" null "$(jq -c '.enabledPlugins' "$s")"
+  cmp -s "$REPO_STYLE" "$H/.claude-$a/output-styles/colloid.md" && ok "colloid output style in $a" || bad "output style differs in $a"
+  cmp -s "$HERE/CLAUDE.md" "$H/.claude-$a/CLAUDE.md" && ok "server CLAUDE.md in $a" || bad "CLAUDE.md differs in $a"
+  diff -r "$B/skills/alpha" "$H/.claude-$a/skills/alpha" >/dev/null && ok "skill alpha in $a" || bad "skill differs in $a"
+done
+cmp -s "$HERE/claude-statusline.sh" "$H/.local/bin/claude-statusline.sh" && ok "status line script installed" || bad "status line script differs"
+eq "status line script mode" "-rwxr-xr-x" "$(mode "$H/.local/bin/claude-statusline.sh")"
+eq "the status line labels the account from CLAUDE_PROFILE" GUEST \
+  "$(echo '{"workspace":{"current_dir":"/"}}' | CLAUDE_PROFILE=guest bash "$H/.local/bin/claude-statusline.sh" | sed 's/\x1b\[[0-9;]*m//g' | head -n 1 | awk '{ print $2 }')"
+eq "the status line reads the account from the transcript folder otherwise" FAMILY \
+  "$(echo "{\"workspace\":{\"current_dir\":\"/\"},\"transcript_path\":\"$HOME/.claude-family/p/x.jsonl\"}" | env -u CLAUDE_PROFILE bash "$H/.local/bin/claude-statusline.sh" | sed 's/\x1b\[[0-9;]*m//g' | head -n 1 | awk '{ print $2 }')"
+grep -E -q '[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$HERE/CLAUDE.md" &&
+  ! grep -E -o '[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$HERE/CLAUDE.md" | grep -qvE '@users\.noreply\.github\.com$|^git@github\.com$' &&
+  ok "CLAUDE.md names only the noreply address" || bad "CLAUDE.md carries another address"
+# The shipped asks file is one array of strings.
+eq "server-asks.json is an array of strings" true "$(jq 'type == "array" and all(.[]; type == "string")' "$HERE/server-asks.json")"
+
+# Claude Code reads a single leading slash as relative to the settings source, so a
+# path rule is absolute only with //, or starts at ~/ or **.
+eq "every path rule in server-asks.json is absolute, home-relative or a glob" 0 \
+  "$(jq -r '.[] | select(test("^(Read|Edit|Write)\\(")) | sub("^[A-Za-z]+\\("; "")' "$HERE/server-asks.json" | grep -cvE '^(//|~/|\*\*)')"
+
+# --- the policy helper picks the account's payload ---------------------------------
+HP=$T/hp
+mkdir -p "$HP/accounts" "$T/hphome/.claude-guest" "$T/hphome/.claude-work" "$T/hpother"
+cp "$CC/policy.json" "$HP/policy.json"
+cp "$CC/accounts/$ACCT.json" "$HP/accounts/"
+stub getent "echo \"openclawops:x:1000:1000::$T/hphome:/bin/bash\""
+# The helper names /usr/bin/jq and /usr/bin/getent; the test machine's own stand in.
+sed "s#/usr/bin/jq#$(command -v jq)#; s#/usr/bin/getent#$T/bin/getent#" "$HERE/policy-helper.sh" >"$HP/policy-helper.sh"
+chmod +x "$HP/policy-helper.sh"
+signin() { printf '{"oauthAccount":{"emailAddress":"%s"}}\n' "$2" >"$1/.claude.json"; }
+helper() { env -i PATH=/usr/bin:/bin "$@" "$HP/policy-helper.sh"; }
+signin "$T/hphome/.claude-guest" "Someone@Example.com"
+signin "$T/hphome/.claude-work" "work@example.com"
+signin "$T/hpother" "$ACCT"
+eq "CLAUDE_CONFIG_DIR picks the account's payload, whatever the email's case" "account text" \
+  "$(helper CLAUDE_CONFIG_DIR="$T/hphome/.claude-guest" | jq -r .appendSystemPrompt)"
+eq "CLAUDE_PROFILE picks the profile folder from HOME" "account text" \
+  "$(helper HOME="$T/hphome" CLAUDE_PROFILE=guest | jq -r .appendSystemPrompt)"
+eq "without HOME the passwd entry's home is used" "account text" \
+  "$(helper CLAUDE_PROFILE=guest | jq -r .appendSystemPrompt)"
+eq "another account gets the shared policy" "shared text" \
+  "$(helper HOME="$T/hphome" CLAUDE_PROFILE=work | jq -r .appendSystemPrompt)"
+eq "a profile with no sign-in gets the shared policy" "shared text" \
+  "$(helper HOME="$T/hphome" CLAUDE_PROFILE=family | jq -r .appendSystemPrompt)"
+eq "an unknown profile name reads the home folder and gets the shared policy" "shared text" \
+  "$(helper HOME="$T/hphome" CLAUDE_PROFILE=bogus | jq -r .appendSystemPrompt)"
+signin "$T/hpother" "../$ACCT"
+eq "an email with a slash is ignored" "shared text" "$(helper CLAUDE_CONFIG_DIR="$T/hpother" | jq -r .appendSystemPrompt)"
+eq "a guest session's payload denies fable" '["fable"]' "$(helper CLAUDE_CONFIG_DIR="$T/hphome/.claude-guest" | jq -c .managedSettings.deniedModels)"
+rm -f "$HP/policy.json"
+helper CLAUDE_CONFIG_DIR="$T/hpother" >/dev/null 2>&1 && bad "a missing payload must fail the helper" || ok "a missing payload fails the helper"
+
+# --- the server's checkout under ~/apps and uzair's login are untouched -----------------
+eq "~/apps files and remotes are unchanged" "$apps_before" "$(tree "$H/apps")"
+eq "~/apps remote is unchanged" "$remotes_before" "$("$REAL_GIT" -C "$H/apps/svc" remote -v)"
+eq "the ~/.claude login is unchanged" "$uzair_before" "$(tree "$H/.claude")"
+
 # --- a second run changes nothing -----------------------------------------------
 after=$(tree "$R")
 : >"$CALLS"
@@ -298,11 +434,48 @@ eq "second run leaves the server unchanged" "$after" "$(tree "$R")"
 printf '{"model": "opus", "env": {"FOO": "1", "DISABLE_TELEMETRY": "0"}}\n' >"$H/.claude-work/settings.json"
 out=$(run "$B/mac.pub" 2>&1); rc=$?
 eq "merge run exits 0" 0 "$rc"
-has "merge is reported" "merge the Mac's privacy settings into ~/.claude-work/settings.json" "$out"
+has "merge is reported" "merge the Mac's settings into ~/.claude-work/settings.json" "$out"
 eq "merge keeps other keys" "opus 1" "$(jq -r '"\(.model) \(.env.FOO)"' "$H/.claude-work/settings.json")"
 eq "merge sets the privacy keys" "1 1" "$(jq -r '"\(.env.DISABLE_TELEMETRY) \(.env.DO_NOT_TRACK)"' "$H/.claude-work/settings.json")"
 out=$(run "$B/mac.pub" 2>&1)
 has "a merged file is left alone next time" "nothing to change" "$out"
+eq "merge keeps the model Claude Code wrote" opus "$(jq -r .model "$H/.claude-work/settings.json")"
+eq "merge adds the keys the file lacked" "high colloid" "$(jq -r '"\(.effortLevel) \(.outputStyle)"' "$H/.claude-work/settings.json")"
+
+# --- the shipped hook replaces its own entries and keeps the others ---------------------
+OLDHOOK='"$HOME/.iterm2/bin/it2" handle-agent-hook'
+HANDHOOK='~/.iterm2/bin/it2 handle-agent-hook'
+NEWHOOK=$(jq -r '.hooks.Stop[0].hooks[0].command' "$HERE/settings.json")
+jq -n --arg h "$OLDHOOK" --arg g "$HANDHOOK" '{hooks: {Stop: [
+    {hooks: [{type: "command", command: $h, timeout: 1}]},
+    {hooks: [{type: "command", command: "mine"}]},
+    {hooks: [{type: "command", command: $g}]}], Custom: [{matcher: "x"}],
+    PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "first"}, {type: "command", command: $h}, {type: "command", command: "last"}]}]},
+    extraKey: 7}' >"$H/.claude-work/settings.json"
+run "$B/mac.pub" >/dev/null 2>&1
+s=$H/.claude-work/settings.json
+eq "the older spellings collapse to one shipped hook, in place, with the shipped timeout" "$NEWHOOK#5|mine#0" \
+  "$(jq -r '[.hooks.Stop[].hooks[0] | "\(.command)#\(.timeout // 0)"] | join("|")' "$s")"
+eq "that Stop has two entries" 2 "$(jq '.hooks.Stop | length' "$s")"
+eq "an entry with a matcher keeps its matcher and its other hooks, the shipped hook in the old one's place" \
+  "Bash|first|$NEWHOOK|last" "$(jq -r '.hooks.PreToolUse[0] | "\(.matcher)|\(.hooks | map(.command) | join("|"))"' "$s")"
+eq "and PreToolUse has no second entry" 1 "$(jq '.hooks.PreToolUse | length' "$s")"
+eq "another event's own entries stay" '[{"matcher":"x"}]' "$(jq -c .hooks.Custom "$s")"
+eq "a key of its own stays" 7 "$(jq .extraKey "$s")"
+eq "the other eight events got the shipped hook once" "8" "$(jq '[.hooks | to_entries[] | select(.key != "Stop" and .key != "Custom" and .key != "PreToolUse") | .value | length] | add' "$s")"
+before_hooks=$(jq -S . "$s")
+out=$(run "$B/mac.pub" 2>&1)
+has "a merged hook file is left alone next time" "nothing to change" "$out"
+eq "and is byte for byte the same" "$before_hooks" "$(jq -S . "$s")"
+# The shipped hook command never blocks or errors Claude Code.
+mkdir -p "$T/hk/.iterm2/bin"
+eq "without it2 the hook exits 0 quietly" "rc=0 err=" "$(HOME=$T/hk bash -c "$NEWHOOK" </dev/null 2>"$T/hk.err"; echo "rc=$? err=$(cat "$T/hk.err")")"
+printf '#!/bin/sh\nexit 7\n' >"$T/hk/.iterm2/bin/it2"
+chmod +x "$T/hk/.iterm2/bin/it2"
+eq "an it2 that fails is reported on stderr and exits 0" "rc=0 err=it2 hook exit 7" "$(HOME=$T/hk bash -c "$NEWHOOK" </dev/null 2>"$T/hk.err"; echo "rc=$? err=$(cat "$T/hk.err")")"
+printf '#!/bin/sh\ncat >"%s/hk.in"\n' "$T" >"$T/hk/.iterm2/bin/it2"
+echo '{"x":1}' | HOME=$T/hk bash -c "$NEWHOOK"
+eq "a working it2 gets the hook's input" '{"x":1}' "$(cat "$T/hk.in")"
 
 # --- the launcher block is replaced in place --------------------------------------
 cp "$HERE/launchers.bash" "$T/launchers.orig"
@@ -330,7 +503,7 @@ eq "the Mac's key on its own line" "$KEY" "$(tail -n 1 "$H/.ssh/authorized_keys"
 fresh "$R"
 touch "$STATE/installed-ripgrep" "$STATE/installed-neovim"
 cp "$HERE/github-known-hosts" "$T/kh" && ssh-keygen -H -f "$T/kh" >/dev/null 2>&1 && cp "$T/kh" "$H/.ssh/known_hosts"
-printf 'user.name=Sarb0z\nuser.email=93070907+Sarb0Z@users.noreply.github.com\n' >"$H/.gitconfig"
+printf '[user]\n\tname = Sarb0z\n\temail = 93070907+Sarb0Z@users.noreply.github.com\n' >"$H/.gitconfig"
 out=$(run --check "$B/mac.pub" 2>&1)
 has "only the missing tool is installed" "would: install fd-find;" "$out"
 lacks "a hashed GitHub entry counts as present" "GitHub's published host key" "$out"
@@ -423,6 +596,102 @@ run "$B/mac.pub" >/dev/null 2>&1
 has "a reinstall's start is held" "apt-get install -y --no-install-recommends tailscale policy-rc.d=101" "$(cat "$CALLS")"
 has "and the script starts it only after FLAGS is set" "tailscaled starts with FLAGS=\"--no-logs-no-support\"" "$(cat "$CALLS")"
 
+# --- unit 4: git under ~/Projects, by owner ------------------------------------------
+fresh "$R"
+clone_of() { # folder origin
+  mkdir -p "$1"
+  "$REAL_GIT" -C "$1" init -q
+  "$REAL_GIT" -C "$1" remote add origin "$2"
+}
+clone_of "$H/Projects/one" https://github.com/ownerone/x.git
+clone_of "$H/Projects/Group/two" git@github.com:Org3/y.git
+clone_of "$H/Projects/three" git@github.com:Unlisted/z.git
+clone_of "$H/Projects/four" https://token@github.com/OwnerOne/w.git
+"$REAL_GIT" -C "$H/Projects/four" config --local user.name Custom
+clone_of "$H/Projects/five" ssh://git@github.com/ownertwo/v.git
+"$REAL_GIT" -C "$H/Projects/five" config --local user.name Alpha
+"$REAL_GIT" -C "$H/Projects/five" config --local user.email someone@example.com
+clone_of "$H/Projects/six" https://example.org/OwnerOne/q.git
+apps_before=$(tree "$H/apps")
+remotes_before=$("$REAL_GIT" -C "$H/apps/svc" remote -v)
+before=$(tree "$R")
+out=$(run --check "$B/mac.pub" 2>&1)
+has "check names a clone's identity change" "would: set the local git identity of /home/openclawops/Projects/one (name email)" "$out"
+lacks "check leaves a clone whose identity matches" "Projects/five" "$out"
+lacks "check leaves an owner the registry lacks" "Projects/three" "$out"
+lacks "check leaves a remote that is not GitHub" "Projects/six" "$out"
+eq "check left every clone unchanged" "$before" "$(tree "$R")"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "the run exits 0" 0 "$rc"
+gitc() { "$REAL_GIT" -C "$H/Projects/$1" config --local --get "user.$2" || echo unset; }
+eq "owner matched whatever its case: name" Alpha "$(gitc one name)"
+eq "owner matched whatever its case: email" someone@example.com "$(gitc one email)"
+eq "an owner in a nested folder: name and email" "Beta other@example.com" "$(gitc Group/two name) $(gitc Group/two email)"
+eq "an owner the registry lacks keeps the global identity" "unset unset" "$(gitc three name) $(gitc three email)"
+eq "a different local name stays" Custom "$(gitc four name)"
+has "and is named" "note: /home/openclawops/Projects/four keeps its own local user.name" "$out"
+eq "its missing email is filled in" someone@example.com "$(gitc four email)"
+eq "a matching local identity stays" "Alpha someone@example.com" "$(gitc five name) $(gitc five email)"
+eq "a remote that is not GitHub is left alone" "unset" "$(gitc six name)"
+eq "~/apps files and remotes are unchanged by unit 4" "$apps_before" "$(tree "$H/apps")"
+eq "~/apps remote is unchanged by unit 4" "$remotes_before" "$("$REAL_GIT" -C "$H/apps/svc" remote -v)"
+cmp -s "$HERE/gitconfig-projects" "$H/.gitconfig-projects" && ok "~/.gitconfig-projects installed as shipped" || bad ".gitconfig-projects differs"
+gp=$(<"$H/.gitconfig-projects")
+has "gh is the credential helper, after a reset" $'helper =\n\thelper = !/usr/bin/gh auth git-credential' "$gp"
+has "scp-style remotes become https" "insteadOf = git@github.com:" "$gp"
+has "ssh:// remotes become https" "insteadOf = ssh://git@github.com/" "$gp"
+eq "the include is in ~/.gitconfig once" 1 "$(count '[includeIf "gitdir:~/Projects/"]' "$H/.gitconfig")"
+eq "and points at the file" 1 "$(grep -c $'^\tpath = ~/.gitconfig-projects$' "$H/.gitconfig")"
+eq "the global identity is unchanged" "Sarb0z 93070907+Sarb0Z@users.noreply.github.com" "$(gl name) $(gl email)"
+eq "the include comes after the user block" '[includeIf "gitdir:~/Projects/"]' "$(grep -n . "$H/.gitconfig" | tail -n 2 | head -n 1 | cut -d: -f2-)"
+after=$(tree "$R")
+: >"$CALLS"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "a second run exits 0" 0 "$rc"
+has "a second run has nothing to change" "nothing to change" "$out"
+eq "a second run leaves every clone and config as it was" "$after" "$(tree "$R")"
+eq "the real git can read the include" "$H/.gitconfig" "$(HOME=$H "$REAL_GIT" config --show-origin --get-all includeif.gitdir:~/Projects/.path | cut -f1 | sed 's/^file://' | head -n 1)"
+# Inside ~/Projects the credential helper and the rewrite apply; outside they do not.
+eq "inside ~/Projects the https rewrite applies" "git@github.com:" \
+  "$(cd "$H/Projects/one" && HOME=$H "$REAL_GIT" config --get-all url.https://github.com/.insteadof | head -n 1)"
+eq "outside ~/Projects (the service checkout) it does not" "" \
+  "$(cd "$H/apps/svc" && HOME=$H "$REAL_GIT" config --get-all url.https://github.com/.insteadof)"
+
+# --- unit 3: pane scripts and diffview ----------------------------------------------
+fresh "$R"
+out=$(run "$B/mac.pub" 2>&1)
+has "no clone: the links are skipped with a message" "skip:  no colloid-swarm clone in ~/Projects yet" "$out"
+eq "no clone: nothing is linked" "" "$(find "$H/.local/bin" -name 'pane-*')"
+eq "diffview is at the upstream pin" 4516612fe98ff56ae0415a259ff6361a89419b0a \
+  "$(cat "$H/.local/share/nvim/site/pack/colloid/start/diffview.nvim/.git/sha")"
+cmp -s "$HERE/colloid-diffview.lua" "$H/.config/nvim/plugin/colloid-diffview.lua" && ok "diffview's keys are installed where nvim has no config" || bad "diffview keys missing"
+eq "the diffview folder is owned by the user" 1 "$(grep -c "^git clone $H/.local/share/nvim/site/pack/colloid/start/diffview.nvim USER=openclawops" "$CALLS")"
+fresh "$R"
+mkdir -p "$H/.config/nvim"
+echo '-- my config' >"$H/.config/nvim/init.lua"
+out=$(run "$B/mac.pub" 2>&1)
+has "an nvim config of its own is named" "note: openclawops has a ~/.config/nvim of its own" "$out"
+[[ ! -e $H/.config/nvim/plugin ]] && ok "and gets no file from the script" || bad "plugin file written into the user's nvim config"
+eq "its init.lua is untouched" "-- my config" "$(cat "$H/.config/nvim/init.lua")"
+fresh "$R"
+mkdir -p "$H/Projects/colloid-swarm/.agents/iterm/bin"
+printf '#!/bin/sh\n' >"$H/Projects/colloid-swarm/.agents/iterm/bin/pane-a"
+printf '#!/bin/sh\n' >"$H/Projects/colloid-swarm/.agents/iterm/bin/pane-b"
+chmod +x "$H/Projects/colloid-swarm/.agents/iterm/bin"/pane-*
+printf 'mine\n' >"$H/.local/bin/pane-b"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "a name that is not the script's link fails the run" 1 "$rc"
+has "and is named" "PROBLEM: $H/.local/bin/pane-b exists and is not a link to /home/openclawops/Projects/colloid-swarm/.agents/iterm/bin/pane-b" "$out"
+eq "that file is left as it was" mine "$(cat "$H/.local/bin/pane-b")"
+eq "the other script is linked to the clone, by its server path" /home/openclawops/Projects/colloid-swarm/.agents/iterm/bin/pane-a \
+  "$(readlink "$H/.local/bin/pane-a")"
+rm "$H/.local/bin/pane-b"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "with the name free the run passes" 0 "$rc"
+eq "and links it" /home/openclawops/Projects/colloid-swarm/.agents/iterm/bin/pane-b "$(readlink "$H/.local/bin/pane-b")"
+out=$(run "$B/mac.pub" 2>&1)
+has "a rerun has nothing to change" "nothing to change" "$out"
+
 # --- an existing policy-rc.d is not replaced ---------------------------------------
 fresh "$R"
 printf '#!/bin/sh\nexit 0\n' >"$R/usr/sbin/policy-rc.d"
@@ -466,6 +735,37 @@ err=$(run "$T/bad.pub" 2>&1); rc=$?
 err=$(run 2>&1); rc=$?
 eq "usage without a key file" 2 "$rc"
 eq "refusals change nothing" "" "$(cat "$CALLS")"
+# A staged file that is not JSON stops the run before anything is written.
+for broken in policy.json accounts/$ACCT.json settings.json; do
+  fresh "$R"
+  cp "$B/$broken" "$T/keep.json"
+  printf '{' >"$B/$broken"
+  before=$(tree "$R")
+  err=$(run "$B/mac.pub" 2>&1); rc=$?
+  [[ $rc -eq 1 && $err == *"$broken is not valid JSON"* ]] && ok "a staged $broken that is not JSON stops the run" || bad "broken $broken (rc=$rc): $err"
+  eq "and nothing under $R changed for $broken" "$before" "$(tree "$R")"
+  [[ ! -e $R/etc/claude-code ]] && ok "and no /etc/claude-code exists for $broken" || bad "/etc/claude-code written for $broken"
+  cp "$T/keep.json" "$B/$broken"
+done
+# The helper runs jq and getent by path.
+fresh "$R"
+rm "$R/usr/bin/getent"
+err=$(run "$B/mac.pub" 2>&1); rc=$?
+[[ $rc -eq 1 && $err == *"/usr/bin/jq and /usr/bin/getent must exist"* ]] && ok "a server without /usr/bin/getent is refused" || bad "getent (rc=$rc): $err"
+# gh: a problem when missing, a note either way when present.
+fresh "$R"
+rm "$R/usr/bin/gh"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "a missing gh fails the run" 1 "$rc"
+has "and is named" "PROBLEM: /usr/bin/gh is missing" "$out"
+fresh "$R"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "gh present but logged out passes" 0 "$rc"
+has "and says the operator logs in" "note: gh is not logged in for openclawops" "$out"
+fresh "$R"
+touch "$STATE/gh-login"
+out=$(run "$B/mac.pub" 2>&1)
+has "a logged-in gh is noted" "note: gh is logged in for openclawops" "$out"
 if [[ ! -e $T/bin/tmux ]]; then
   echo 'set -g no-such-option on' >>"$B/tmux.conf"
   err=$(run --check "$B/mac.pub" 2>&1); rc=$?
@@ -506,6 +806,14 @@ if [[ $(uname) == Darwin ]]; then
   AH=$T/machome
   mkdir -p "$AH/.ssh"
   echo "$KEY" >"$AH/.ssh/id_ed25519.pub"
+  # A skill over 5 MB and one that links into a repository are not sent.
+  head -c 5300000 /dev/zero >"$T/big.bin"
+  mkdir -p "$MACSKILLS/big" "$T/skillrepo"
+  mv "$T/big.bin" "$MACSKILLS/big/data.bin"
+  "$REAL_GIT" -C "$T/skillrepo" init -q
+  ln -s "$T/skillrepo" "$MACSKILLS/linked"
+  ln -s ref/notes.md "$MACSKILLS/alpha/notes-link.md"
+  export CLAUDE_DEVICE_DIR=$MACDEV GIT_IDENTITIES=$MACREG CLAUDE_SKILLS_DIR=$MACSKILLS
   stub claude "echo '$MAC_VERSION (Claude Code)'"
   # contabo-dev answers "test -d" from $STATE/cloned; a clone needs a forwarded
   # agent (-A) and GitHub's yes, which $STATE/github-refuses withholds.
@@ -524,7 +832,7 @@ esac'
   before=$(tree "$R")
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" --check 2>&1); rc=$?
   eq "apply --check exits 0" 0 "$rc"
-  has "apply --check runs the check on the server" "check: 33 change(s) to make; nothing was changed" "$out"
+  has "apply --check runs the check on the server" "check: 54 change(s) to make; nothing was changed" "$out"
   has "apply sends the Mac's version" "to at least the Mac's $MAC_VERSION" "$out"
   has "apply --check names the clone" "would: clone git@github.com:$slug.git into openclawops' ~/Projects/colloid-swarm" "$out"
   eq "apply --check changes nothing" "$before" "$(tree "$R")"
@@ -532,13 +840,27 @@ esac'
     "ssh contabo-hop|ssh contabo-dev test" "$(paste -sd'|' "$CALLS")"
   eq "apply sends no macOS file tags, which GNU tar warns about" 0 \
     "$(LC_ALL=C grep -a -c 'LIBARCHIVE\.xattr' "$STATE/sent.tar")"
+  sent=$(tar -tf "$STATE/sent.tar" | sed 's#^\./##' | LC_ALL=C sort)
+  for f in policy.json "accounts/$ACCT.json" output-style.md git-identities.json skills/alpha/SKILL.md skills/alpha/ref/notes.md \
+    managed-settings.json policy-helper.sh server-asks.json claude-statusline.sh CLAUDE.md gitconfig-projects colloid-diffview.lua; do
+    has "apply stages $f" "$f" "$sent"
+  done
+  lacks "apply sends no skill over 5 MB" "skills/big" "$sent"
+  lacks "apply sends no skill that links into a repository" "skills/linked" "$sent"
+  has "apply names the skill it skipped for size" "apply: skill big is" "$out"
+  has "apply names the linked skill it skipped" "apply: skill linked is a link into a repository" "$out"
+  eq "apply follows links inside a skill, sending the file" 0 "$(tar -tvf "$STATE/sent.tar" | grep 'notes-link.md' | grep -c '^l')"
+  eq "apply sends the registry without key paths" 0 "$(tar -xOf "$STATE/sent.tar" ./git-identities.json | grep -c ssh_keys)"
+  eq "apply sends the registry's names, emails and orgs" "2 2" \
+    "$(tar -xOf "$STATE/sent.tar" ./git-identities.json | jq -r '"\(.identities | length) \([.identities[] | select(.email and .name and .github_org)] | length)"')"
+  eq "apply sends the output style the repository holds" "$(cksum <"$REPO_STYLE")" "$(tar -xOf "$STATE/sent.tar" ./output-style.md | cksum)"
   : >"$CALLS"
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" 2>&1); rc=$?
   eq "apply exits 0" 0 "$rc"
   calls=$(cat "$CALLS")
   has "apply adds the Mac's private key to a throwaway agent" "ssh-add -q $AH/.ssh/id_ed25519" "$calls"
   has "apply clones as openclawops with that agent forwarded" \
-    "ssh -A contabo-dev git clone -q git@github.com:$slug.git ~/Projects/colloid-swarm SSH_AUTH_SOCK=/agent.sock" "$calls"
+    "ssh -A contabo-dev GIT_CONFIG_GLOBAL=/dev/null git clone -q git@github.com:$slug.git ~/Projects/colloid-swarm SSH_AUTH_SOCK=/agent.sock" "$calls"
   has "apply stops the agent" "ssh-agent -k" "$calls"
   : >"$CALLS"
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" 2>&1); rc=$?

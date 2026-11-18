@@ -1,4 +1,13 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "cleanupPeriodDays": 36500,
+  "disableClaudeAiConnectors": true,
+  "effortLevel": "high",
+  "enableArtifact": false,
   "env": {
     "CLAUDE_CODE_DISABLE_ARTIFACT": "1",
     "CLAUDE_CODE_DISABLE_FEATURE_FLAGS": "1",
@@ -14,5 +23,53 @@
     "DISABLE_TELEMETRY": "1",
     "DO_NOT_TRACK": "1",
     "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
-  }
+  },
+  "hooks": {
+    "Notification": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "PermissionRequest": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "PostToolUse": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "PreToolUse": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "SessionEnd": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "StopFailure": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "SubagentStop": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$HOME/.iterm2/bin/it2\" ] || exit 0; \"$HOME/.iterm2/bin/it2\" handle-agent-hook || { echo \"it2 hook exit $?\" >&2; exit 0; }", "timeout": 5}]}
+    ]
+  },
+  "idleCompaction": false,
+  "model": "fable",
+  "modelSettings": {
+    "claude-fable-5": {"effortLevel": "low"},
+    "claude-fable-5-1": {"effortLevel": "xhigh"},
+    "claude-fable-5-2": {"effortLevel": "xhigh"},
+    "claude-opus-5": {"effortLevel": "high"},
+    "claude-opus-5-5": {"effortLevel": "high"}
+  },
+  "outputStyle": "colloid",
+  "showThinkingSummaries": true,
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.local/bin/claude-statusline.sh"
+  },
+  "theme": "dark"
 }
