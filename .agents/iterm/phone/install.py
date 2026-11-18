@@ -6,7 +6,8 @@
 
 `install` puts in place, and leaves alone what already is:
 
-  1. A link `~/.local/bin/<name>` to each hook adapter of `hooks/`.
+  1. A link `~/.local/bin/<name>` to each iTerm2 pane command of `../bin` and
+     each hook adapter of `hooks/`.
   2. The hook's entry in the user settings of each Claude account that exists
      here (`~/.claude`, `~/.claude-personal`, `~/.claude-family`,
      `~/.claude-guest`): one `PermissionRequest` entry, for every tool except
@@ -22,15 +23,23 @@
      printed, and `phone_link.py`, with the phone's time zone (`--zone`,
      default this Mac's).
 
-`uninstall` removes exactly the links, the settings entries and the two agents.
-It keeps the state folder and signal-cli's own data, which hold the event log
-and the account keys: the spec's Undo section says how to remove them.
+`uninstall` removes exactly the hook links, the settings entries and the two
+agents, in that order, so no session calls the hook while its agents go. Each
+step runs whatever became of the ones before, and every failure is reported at
+the end, with exit 1. It keeps the pane commands, the state folder and
+signal-cli's own data, which hold the event log and the account keys: the
+spec's Undo section says how to remove them.
 
 `--check` prints each change it would make and makes none.
 
 Before the first change, the run reads everything it will touch. A settings
 file that is not a JSON object, a file in the way of a link, a missing
 signal-cli or a zone the system does not know stops it with nothing changed.
+A settings file that changed after the run read it is not written. When an
+install's change fails (that, or a launchctl call), the run takes back the
+links and settings entries it made, names what it leaves (the state folder,
+the agents' files, an agent it started) and the uninstall that removes it, and
+exits 1.
 launchd agents belong to the user's real home: with HOME set to another folder
 the run refuses, unless `PHONE_LINK_LAUNCHCTL` names a stand-in, as the tests
 do. `PHONE_LINK_SIGNAL_CLI` names signal-cli where it is not on PATH.
@@ -72,27 +81,80 @@ class Refusal(Exception):
     """A reason to change nothing, worded for the operator."""
 
 
+class Failed(Exception):
+    """A change that could not be made, worded for the operator. Changes before it stand
+    until the run takes them back."""
+
+
 class Run:
-    """The changes of one run, collected first and made after, so a refusal changes nothing."""
+    """The changes of one run, collected first and made after, so a refusal changes nothing.
+    `undo` takes a change back, for a change that has a way back."""
 
-    def __init__(self, check: bool):
-        self.check, self.changes = check, []
+    def __init__(self, check: bool, script: str):
+        self.check, self.script, self.changes = check, script, []
 
-    def change(self, text: str, do) -> None:
-        self.changes.append((text, do))
+    def change(self, text: str, do, undo=None) -> None:
+        self.changes.append((text, do, undo))
 
     def same(self, text: str) -> None:
         print(f"unchanged: {text}")
 
-    def finish(self) -> None:
-        for text, do in self.changes:
-            if self.check:
+    def _preview(self) -> bool:
+        """Under --check, or with nothing to change: say so, and True."""
+        if self.check:
+            for text, _do, _undo in self.changes:
                 print(f"would: {text}")
-            else:
-                do()
-                print(text)
         if not self.changes:
             print("nothing to change")
+        return self.check or not self.changes
+
+    def finish_whole(self) -> None:
+        """Make every change in order. On a failure, take back each change made that has a
+        way back, newest first, and raise Failed naming what was taken back, what is left
+        and the command that removes what is left."""
+        if self._preview():
+            return
+        made = []
+        for text, do, undo in self.changes:
+            try:
+                do()
+            except (Failed, OSError) as failure:
+                said = f"{text} failed: {failure}" if isinstance(failure, OSError) else str(failure)
+                raise Failed("\n".join([said, *self._take_back(made)])) from failure
+            print(text)
+            made.append((text, undo))
+
+    def _take_back(self, made: list) -> list:
+        lines, left = [], []
+        for text, undo in reversed(made):
+            if undo is None:
+                left.append(text)
+                continue
+            try:
+                undo()
+                lines.append(f"taken back: {text}")
+            except (Failed, OSError) as failure:
+                left.append(f"{text} (not taken back: {failure})")
+        if left:
+            lines.extend(f"left in place: {text}" for text in reversed(left))
+            lines.append(f"remove it with: {self.script} --uninstall")
+        return lines
+
+    def finish_each(self) -> None:
+        """Make every change in order, each whatever became of the ones before, and raise
+        Failed naming every failure at the end."""
+        if self._preview():
+            return
+        failures = []
+        for text, do, _undo in self.changes:
+            try:
+                do()
+            except (Failed, OSError) as failure:
+                failures.append(f"{text} failed: {failure}" if isinstance(failure, OSError) else str(failure))
+                continue
+            print(text)
+        if failures:
+            raise Failed("\n".join(failures))
 
 
 # --- links -------------------------------------------------------------------
@@ -101,8 +163,14 @@ def adapters(here: Path) -> list:
     return sorted((here / "hooks").glob("phone-*.sh"))
 
 
-def links(run: Run, home: Path, here: Path, remove: bool) -> None:
-    for adapter in adapters(here):
+def pane_commands(here: Path) -> list:
+    """The iTerm2 pane commands of `.agents/iterm/bin`, which an install links beside the hooks
+    and an uninstall leaves."""
+    return sorted(path for path in (here.parent / "bin").iterdir() if path.is_file())
+
+
+def links(run: Run, home: Path, sources: list, remove: bool) -> None:
+    for adapter in sources:
         target = home / ".local" / "bin" / adapter.name
         ours = target.is_symlink() and os.readlink(target) == str(adapter)
         if remove:
@@ -115,7 +183,8 @@ def links(run: Run, home: Path, here: Path, remove: bool) -> None:
         else:
             run.change(f"linked: {target} -> {adapter}",
                        lambda target=target, adapter=adapter: (target.parent.mkdir(parents=True, exist_ok=True),
-                                                               target.symlink_to(adapter)))
+                                                               target.symlink_to(adapter)),
+                       target.unlink)
 
 
 # --- the settings of each account --------------------------------------------
@@ -178,15 +247,52 @@ def with_entry(settings: dict, command: str, path) -> dict:
     return result
 
 
-def _write_settings(path: Path, settings: dict, before) -> None:
-    backup = path.with_name(path.name + BACKUP_SUFFIX)
-    if before is not None and not backup.exists():
-        shutil.copy2(path, backup)
+def _bytes_of(path: Path):
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def _replace(path: Path, content, read) -> None:
+    """Put `content` (bytes, or None for no file) at `path`, when the file there is still
+    `read` (the bytes this run read, or None for no file); otherwise raise Failed and write
+    nothing. Another writer's change between the read and the replace is not lost."""
     temporary = path.with_name(f".{path.name}.phone-link.tmp")
-    temporary.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    if before is not None:
-        shutil.copymode(path, temporary)
-    os.replace(temporary, path)
+    if content is not None:
+        temporary.write_bytes(content)
+        if read is not None:
+            shutil.copymode(path, temporary)
+    # A window remains between this read and the replace; it is as short as a check can make it.
+    if _bytes_of(path) != read:
+        temporary.unlink(missing_ok=True)
+        raise Failed(f"{path} changed after this run read it; it was left as the other writer made it. "
+                     "Run the install again")
+    if content is None:
+        path.unlink()
+    else:
+        os.replace(temporary, path)
+
+
+class SettingsWrite:
+    """One settings.json written from the bytes read to `after`, with its way back."""
+
+    def __init__(self, path: Path, read, after: dict):
+        self.path, self.read = path, read
+        self.after = (json.dumps(after, indent=2, ensure_ascii=False) + "\n").encode()
+        self.backup = path.with_name(path.name + BACKUP_SUFFIX)
+        self.made_backup = False
+
+    def do(self) -> None:
+        if self.read is not None and not self.backup.exists():
+            shutil.copy2(self.path, self.backup)
+            self.made_backup = True
+        _replace(self.path, self.after, self.read)
+
+    def undo(self) -> None:
+        _replace(self.path, self.read, self.after)
+        if self.made_backup:
+            self.backup.unlink()
 
 
 def settings(run: Run, home: Path, remove: bool) -> None:
@@ -199,24 +305,21 @@ def settings(run: Run, home: Path, remove: bool) -> None:
     command = hook_command(home)
     for path, accounts in files.items():
         named = f"{path} (the settings of {', '.join(accounts)})"
+        read = _bytes_of(path)
         try:
-            text = path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            text = None
-        try:
-            before = json.loads(text) if text is not None else {}
-        except ValueError as error:
+            before = json.loads(read.decode("utf-8")) if read is not None else {}
+        except ValueError as error:  # UnicodeDecodeError is a ValueError too
             raise Refusal(f"{path} is not JSON ({error}); not changing it")
         if not isinstance(before, dict):
             raise Refusal(f"{path} does not hold a JSON object; not changing it")
         after = without_entry(before, command, path) if remove else with_entry(before, command, path)
         if after == before:
-            if not remove or text is not None:
+            if not remove or read is not None:
                 run.same(f"{named}{'' if remove else ' holds the hook'}")
             continue
         verb = "the phone link's hook removed from" if remove else "the phone link's hook added to"
-        run.change(f"{verb} {named}",
-                   lambda path=path, after=after, text=text: _write_settings(path, after, text))
+        write = SettingsWrite(path, read, after)
+        run.change(f"{verb} {named}", write.do, write.undo)
 
 
 # --- the state folder -----------------------------------------------------------
@@ -252,12 +355,12 @@ class Launchd:
     def start(self, plist: Path) -> None:
         done = self._call("bootstrap", self.domain, str(plist))
         if done.returncode:
-            raise Refusal(f"launchctl bootstrap {self.domain} {plist} failed: {done.stderr.strip() or done.returncode}")
+            raise Failed(f"launchctl bootstrap {self.domain} {plist} failed: {done.stderr.strip() or done.returncode}")
 
     def stop(self, label: str) -> None:
         done = self._call("bootout", f"{self.domain}/{label}")
         if done.returncode:
-            raise Refusal(f"launchctl bootout {self.domain}/{label} failed: {done.stderr.strip() or done.returncode}")
+            raise Failed(f"launchctl bootout {self.domain}/{label} failed: {done.stderr.strip() or done.returncode}")
         # launchd unloads after it answers; a start before that fails.
         limit = time.time() + UNLOAD_SECONDS
         while self.loaded(label) and time.time() < limit:
@@ -365,15 +468,18 @@ def main(argv, environ) -> int:
     args = parser.parse_args(argv[1:])
     home, here = Path(environ["HOME"]), Path(__file__).resolve().parent
     state = home / ".local" / "state" / "phone-link"
-    run = Run(args.check)
+    run = Run(args.check, str(here.parent / "install.sh"))
     try:
         launchd = launchctl(environ, home)
         if args.mode == "uninstall":
             if args.zone:
                 raise Refusal("--zone belongs to an install")
-            remove_agents(run, home, launchd)
+            # What makes a session call the hook goes first, so a launchctl step that fails
+            # leaves no session waiting on a service that is going.
             settings(run, home, remove=True)
-            links(run, home, here, remove=True)
+            links(run, home, adapters(here), remove=True)
+            remove_agents(run, home, launchd)
+            run.finish_each()
         else:
             zone = args.zone or local_zone()
             try:
@@ -387,13 +493,13 @@ def main(argv, environ) -> int:
             python = shutil.which("python3")
             if not python:
                 raise Refusal("python3 is not on PATH")
-            links(run, home, here, remove=False)
+            links(run, home, [*pane_commands(here), *adapters(here)], remove=False)
             settings(run, home, remove=False)
             state_folder(run, state)
             agents(run, home, launchd, agent_plists(here, state, signal_cli, python, zone))
-        run.finish()
-    except Refusal as refusal:
-        print(f"install.sh: {refusal}", file=sys.stderr)
+            run.finish_whole()
+    except (Refusal, Failed) as problem:
+        print(f"install.sh: {problem}", file=sys.stderr)
         return 1
     return 0
 

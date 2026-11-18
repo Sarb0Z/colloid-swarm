@@ -3,11 +3,13 @@
 # rerun: what is in place is left alone, and nothing that is not this script's
 # own link is replaced.
 #
-#   install.sh [--zone <IANA zone>]   Link bin/* into ~/.local/bin. Then the phone
-#                                     link (phone/install.py says what it is): its
-#                                     hook in each Claude account's settings.json
-#                                     and its two launchd agents. --zone is the
-#                                     phone's time zone, by default this Mac's.
+#   install.sh [--zone <IANA zone>]   Link bin/* into ~/.local/bin, and install the
+#                                     phone link (phone/install.py does both and
+#                                     says what the phone link is): its hook in
+#                                     each Claude account's settings.json and its
+#                                     two launchd agents. --zone is the phone's
+#                                     time zone, by default this Mac's. A refusal
+#                                     changes nothing, the pane links included.
 #   install.sh --check                Print what an install would change, and
 #                                     change nothing.
 #   install.sh --uninstall [--check]  Remove the phone link's parts, and only
@@ -32,26 +34,6 @@ while (($#)); do
   esac
   shift
 done
-
-if [[ $mode == install ]]; then
-  dest=$HOME/.local/bin
-  [[ -n $check ]] || mkdir -p "$dest"
-  for f in "$here"/bin/*; do
-    name=$(basename "$f")
-    target=$dest/$name
-    if [[ -L $target && $(readlink "$target") == "$f" ]]; then
-      echo "unchanged: $target"
-    elif [[ -e $target || -L $target ]]; then
-      echo "install.sh: $target exists and is not a link to $f; not replacing it" >&2
-      exit 1
-    elif [[ -n $check ]]; then
-      echo "would: linked: $target -> $f"
-    else
-      ln -s "$f" "$target"
-      echo "linked: $target -> $f"
-    fi
-  done
-fi
 
 arguments=("$mode")
 [[ -z $check ]] || arguments+=("$check")

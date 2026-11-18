@@ -247,7 +247,8 @@ refused() { # name, expected text, home, then the command
   eq "$name: nothing changed" "$before" "$(tree "$home"; cat "$home"/.claude*/settings.json 2>/dev/null)"
   eq "$name: no agent was started or stopped" "" "$(changing_calls)"
 }
-fresh() { rm -rf "$T/r"; new_home "$T/r"; mkdir -p "$T/r/.local/bin"; for f in "$IT"/bin/*; do ln -s "$f" "$T/r/.local/bin/$(basename "$f")"; done; }
+# No pane command is linked yet, so a run that links them before it refuses shows in the tree.
+fresh() { rm -rf "$T/r" "$FAKE_LAUNCHCTL_STATE"; new_home "$T/r"; mkdir -p "$T/r/.local/bin"; }
 
 fresh
 rm "$T/r/.claude-guest/settings.json"
@@ -271,6 +272,51 @@ fresh
 refused "a home that is not the user's, with the real launchctl" "launchd agents are the user's" "$T/r" env -u PHONE_LINK_LAUNCHCTL "$IT/install.sh"
 refused "the same for an uninstall" "launchd agents are the user's" "$T/r" env -u PHONE_LINK_LAUNCHCTL "$IT/install.sh" --uninstall
 refused "the same under --check" "launchd agents are the user's" "$T/r" env -u PHONE_LINK_LAUNCHCTL "$IT/install.sh" --check
+
+# --- a launchctl step that fails ---------------------------------------------------
+# Install: phone-link's agent does not start. The settings entry and every link this
+# run made are taken back; what stays is named, with the command that removes it.
+fresh
+export FAKE_LAUNCHCTL_STATE=$T/launchd-fail
+cp "$T/r/.claude/settings.json" "$T/r-original.json"
+out=$(HOME=$T/r FAKE_LAUNCHCTL_FAIL="bootstrap com.colloid.phone-link" "$IT/install.sh" 2>&1); rc=$?
+eq "failed start: exits 1" 1 "$rc"
+cmp -s "$T/r-original.json" "$T/r/.claude/settings.json" && ok "failed start: settings.json is as it was" || bad "failed start: settings.json keeps a change: $(diff "$T/r-original.json" "$T/r/.claude/settings.json" | head -5)"
+[[ ! -e $T/r/.claude/settings.json.pre-phone-link ]] && ok "failed start: no backup is left" || bad "failed start: the backup is left"
+eq "failed start: no link is left in ~/.local/bin" "" "$(ls "$T/r/.local/bin")"
+has "failed start: names the failure" "launchctl bootstrap gui/$(id -u) $T/r/Library/LaunchAgents/com.colloid.phone-link.plist failed" "$out"
+has "failed start: says what was taken back" "taken back: the phone link's hook added to $T/r/.claude/settings.json" "$out"
+has "failed start: names what is left" "left in place: started: com.colloid.phone-link-signal" "$out"
+has "failed start: names the command that removes it" "remove it with: $IT/install.sh --uninstall" "$out"
+out=$(HOME=$T/r "$IT/install.sh" --uninstall 2>&1); rc=$?
+eq "failed start: the uninstall it names removes the rest" "0 " "$rc $(ls "$T/r/Library/LaunchAgents"; ls "$FAKE_LAUNCHCTL_STATE/loaded")"
+
+# Uninstall: phone-link's agent does not stop. The settings entry and the hook link go
+# first, signal-cli's agent and both agent files still go, and the failure is reported.
+fresh
+export FAKE_LAUNCHCTL_STATE=$T/launchd-fail2
+HOME=$T/r "$IT/install.sh" >/dev/null 2>&1
+: >"$FAKE_LAUNCHCTL_STATE/calls"
+out=$(HOME=$T/r FAKE_LAUNCHCTL_FAIL="bootout com.colloid.phone-link" "$IT/install.sh" --uninstall 2>&1); rc=$?
+eq "failed stop: exits 1" 1 "$rc"
+cmp -s "$T/r-original.json" "$T/r/.claude/settings.json" && ok "failed stop: the settings entry is gone" || bad "failed stop: settings.json keeps the entry"
+[[ ! -e $(hook_link "$T/r") && ! -L $(hook_link "$T/r") ]] && ok "failed stop: the hook link is gone" || bad "failed stop: the hook link is left"
+eq "failed stop: signal-cli's agent is stopped, phone-link's is still loaded" "com.colloid.phone-link" "$(ls "$FAKE_LAUNCHCTL_STATE/loaded")"
+eq "failed stop: signal-cli's agent is still asked to stop after phone-link's failed" \
+  "bootout gui/UID/com.colloid.phone-link|bootout gui/UID/com.colloid.phone-link-signal|" "$(changing_calls | tr '\n' '|')"
+eq "failed stop: both agent files are removed" "" "$(ls "$T/r/Library/LaunchAgents")"
+has "failed stop: names the failure" "launchctl bootout gui/$(id -u)/com.colloid.phone-link failed" "$out"
+
+# --- another writer changes settings.json while the install runs -----------------
+fresh
+export FAKE_LAUNCHCTL_STATE=$T/launchd-race
+other='{"theme": "light"}'
+out=$(HOME=$T/r FAKE_LAUNCHCTL_ON_PRINT="printf '%s\n' '$other' >'$T/r/.claude/settings.json'" "$IT/install.sh" 2>&1); rc=$?
+eq "changed while read: exits 1" 1 "$rc"
+eq "changed while read: the other writer's settings.json stays" "$other" "$(cat "$T/r/.claude/settings.json")"
+has "changed while read: names the file" "$T/r/.claude/settings.json changed after this run read it" "$out"
+eq "changed while read: no link is left" "" "$(ls "$T/r/.local/bin")"
+eq "changed while read: no agent was started" "" "$(changing_calls)"
 
 out=$(HOME=$H "$IT/install.sh" --bogus 2>&1); rc=$?
 eq "an unknown option: usage, exit 2" "2 usage: install.sh [--check] [--uninstall] [--zone <IANA zone>]" "$rc $out"

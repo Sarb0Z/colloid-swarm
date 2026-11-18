@@ -3,10 +3,23 @@
 # PHONE_LINK_LAUNCHCTL. It answers the three calls phone/install.py makes,
 # keeps which agents are loaded as files of $FAKE_LAUNCHCTL_STATE/loaded, and
 # appends every call to $FAKE_LAUNCHCTL_STATE/calls. No real launchd is reached.
+#   FAKE_LAUNCHCTL_FAIL="<verb> <label>"  that call fails as launchd's does.
+#   FAKE_LAUNCHCTL_ON_PRINT=<command>     runs once, at the first print: another
+#                                         writer acting while the install reads.
 set -euo pipefail
 state=${FAKE_LAUNCHCTL_STATE:?fake-launchctl: FAKE_LAUNCHCTL_STATE names no folder}
 mkdir -p "$state/loaded"
 echo "$*" >>"$state/calls"
+
+label_of() { case $1 in bootstrap) basename "$3" .plist ;; *) echo "${2##*/}" ;; esac; }
+if [[ -n ${FAKE_LAUNCHCTL_FAIL:-} && $FAKE_LAUNCHCTL_FAIL == "${1:-} $(label_of "$@")" ]]; then
+  echo "fake-launchctl: $1 failed: 5: Input/output error" >&2
+  exit 5
+fi
+if [[ ${1:-} == print && -n ${FAKE_LAUNCHCTL_ON_PRINT:-} && ! -e $state/on-print-done ]]; then
+  : >"$state/on-print-done"
+  bash -c "$FAKE_LAUNCHCTL_ON_PRINT"
+fi
 
 case ${1:-} in
   print) # print gui/<uid>/<label>
