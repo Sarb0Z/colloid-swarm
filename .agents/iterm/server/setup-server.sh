@@ -18,7 +18,11 @@
 #
 # Usage: setup-server.sh [--check] <public key file>
 # Beside it: tmux.conf, launchers.bash, settings.json, github-known-hosts,
-# tailscale-archive-keyring.asc, claude-version.
+# tailscale-archive-keyring.asc, claude-version, managed-settings.json,
+# policy-helper.sh, server-asks.json, claude-statusline.sh, CLAUDE.md,
+# gitconfig-projects, colloid-diffview.lua, and what `apply` stages from the
+# Mac: policy.json, accounts/*.json, output-style.md, git-identities.json
+# (names, emails and orgs only) and skills/.
 # SETUP_ROOT puts a folder in front of every absolute path; only the tests set it.
 set -euo pipefail
 
@@ -95,16 +99,63 @@ as_user() {
 }
 own() { chown "$user:$user" "$@"; }
 
-# put <source> <destination> <mode> <what>: a file the server keeps as shipped.
+# make_parent <path> <owner>: the folder a new file goes in, made when missing,
+# owned by the user for the user's files and by root (0755) for the system's.
+make_parent() {
+  local dir
+  dir=$(dirname "$1")
+  [[ -d $dir ]] && return 0
+  if [[ $2 == "$user:$user" ]]; then
+    as_user mkdir -p "$dir"
+  else
+    mkdir -p "$dir"
+    chmod 755 "$dir"
+    chown "$2" "$dir"
+  fi
+}
+
+# put <source> <destination> <mode> <what> [owner]: a file the server keeps as shipped.
 put() {
+  local owner=${5:-$user:$user}
   if [[ -f $2 ]] && cmp -s "$1" "$2"; then
     return 0
   fi
   if change "$4"; then
     keep "$2"
+    make_parent "$2" "$owner"
     cp "$1" "$2"
     chmod "$3" "$2"
-    own "$2"
+    chown "$owner" "$2"
+  fi
+}
+
+# put_text <content> <destination> <mode> <what> [owner]: the same for text
+# worked out in this script.
+put_text() {
+  local owner=${5:-$user:$user}
+  if [[ -f $2 && $(<"$2") == "$1" ]]; then
+    return 0
+  fi
+  if change "$4"; then
+    keep "$2"
+    make_parent "$2" "$owner"
+    printf '%s\n' "$1" >"$2"
+    chmod "$3" "$2"
+    chown "$owner" "$2"
+  fi
+}
+
+# pin_clone <folder> <url> <commit> <what>: a git checkout at one commit, as the user.
+pin_clone() {
+  if [[ -d $1/.git && $(as_user git -C "$1" rev-parse HEAD) == "$3" ]]; then
+    return 0
+  fi
+  if change "check out $4"; then
+    as_user mkdir -p "$(dirname "$1")"
+    if [[ ! -d $1/.git ]]; then
+      as_user git clone -q "$2" "$1"
+    fi
+    as_user git -C "$1" -c advice.detachedHead=false checkout -q "$3"
   fi
 }
 
@@ -191,7 +242,9 @@ grep -qx 'VERSION_CODENAME=noble' "$R/etc/os-release" ||
   die "expected Ubuntu 24.04 (noble), the release this script picks ppa:jgmath2000/et for"
 [[ -d $home ]] || die "no home folder $home for $user"
 command -v jq >/dev/null || die "jq is needed to merge settings.json"
-for f in tmux.conf launchers.bash settings.json claude-version github-known-hosts tailscale-archive-keyring.asc; do
+for f in tmux.conf launchers.bash settings.json claude-version github-known-hosts tailscale-archive-keyring.asc \
+  managed-settings.json policy-helper.sh policy.json server-asks.json claude-statusline.sh CLAUDE.md output-style.md \
+  gitconfig-projects git-identities.json colloid-diffview.lua; do
   [[ -f $here/$f ]] || die "missing $here/$f"
 done
 pub=$(<"$keyfile")
@@ -284,17 +337,8 @@ put "$here/tmux.conf" "$home/.tmux.conf" 644 "write $user's ~/.tmux.conf"
 for entry in "${plugins[@]}"; do
   name=${entry%%:*}
   pin=${entry#*:}
-  dir=$home/.tmux/plugins/$name
-  if [[ -d $dir/.git && $(as_user git -C "$dir" rev-parse HEAD) == "$pin" ]]; then
-    continue
-  fi
-  if change "check out $name at ${pin:0:12} in $user's ~/.tmux/plugins"; then
-    as_user mkdir -p "$home/.tmux/plugins"
-    if [[ ! -d $dir/.git ]]; then
-      as_user git clone -q "https://github.com/tmux-plugins/$name.git" "$dir"
-    fi
-    as_user git -C "$dir" -c advice.detachedHead=false checkout -q "$pin"
-  fi
+  pin_clone "$home/.tmux/plugins/$name" "https://github.com/tmux-plugins/$name.git" "$pin" \
+    "$name at ${pin:0:12} in $user's ~/.tmux/plugins"
 done
 
 # ── 5. Claude Code: four account launchers and folders ───────────────────────
@@ -330,8 +374,23 @@ if [[ $current != "$block" ]]; then
   fi
 fi
 
-# A settings.json Claude Code has written to since keeps its own keys: only the
-# shipped env keys are merged in.
+# A settings.json Claude Code has written to since keeps its own keys. The
+# shipped env keys are forced (they are privacy settings); every other shipped key
+# is a default, used only where the file has none, so a model picked on the server
+# stays. Each event's hook entry carrying a shipped command is replaced in place,
+# and added when absent, so a rerun adds no second copy.
+merge_settings='. as $cur | $ship[0] as $s
+  | (($s | del(.env, .hooks)) * $cur)
+  | .env = (($cur.env // {}) + $s.env)
+  | .hooks = reduce ($s.hooks | keys[]) as $ev (($cur.hooks // {});
+      ($s.hooks[$ev] | map(.hooks[].command)) as $cmds
+      | $s.hooks[$ev] as $mine
+      | (.[$ev] // []) as $arr
+      | ($arr | map(any(.hooks[]?; .command as $c | any($cmds[]; . == $c)))) as $own
+      | if ($own | any) then
+          .[$ev] = ([range(0; $arr | length)] | map(
+            if $own[.] then (if . == ($own | index(true)) then $mine[] else empty end) else $arr[.] end))
+        else .[$ev] = $arr + $mine end)'
 for account in "${accounts[@]}"; do
   folder=$home/.claude-$account
   if [[ ! -d $folder ]]; then
@@ -342,17 +401,38 @@ for account in "${accounts[@]}"; do
   fi
   settings=$folder/settings.json
   if [[ ! -f $settings ]]; then
-    put "$here/settings.json" "$settings" 600 "write ~/.claude-$account/settings.json, the Mac's privacy settings"
-    continue
-  fi
-  merged=$(jq -S --slurpfile ship "$here/settings.json" '.env = ((.env // {}) + $ship[0].env)' "$settings")
-  if [[ $merged != "$(jq -S . "$settings")" ]]; then
-    if change "merge the Mac's privacy settings into ~/.claude-$account/settings.json, keeping its other keys"; then
-      keep "$settings"
-      printf '%s\n' "$merged" >"$settings"
+    put "$here/settings.json" "$settings" 600 "write ~/.claude-$account/settings.json, the Mac's settings"
+  else
+    merged=$(jq -S --slurpfile ship "$here/settings.json" "$merge_settings" "$settings")
+    if [[ $merged != "$(jq -S . "$settings")" ]]; then
+      if change "merge the Mac's settings into ~/.claude-$account/settings.json, keeping its other keys"; then
+        keep "$settings"
+        printf '%s\n' "$merged" >"$settings"
+      fi
     fi
   fi
+  put "$here/output-style.md" "$folder/output-styles/colloid.md" 644 "install the colloid output style in ~/.claude-$account"
+  put "$here/CLAUDE.md" "$folder/CLAUDE.md" 644 "write ~/.claude-$account/CLAUDE.md, the server's instructions"
+  if [[ -d $here/skills ]]; then
+    for skill in "$here"/skills/*/; do
+      [[ -d $skill ]] || continue
+      name=$(basename "$skill")
+      dest=$folder/skills/$name
+      if [[ -d $dest ]] && diff -rq "$skill" "$dest" >/dev/null; then
+        continue
+      fi
+      if change "install the $name skill in ~/.claude-$account/skills"; then
+        keep "$dest"
+        make_parent "$dest" "$user:$user"
+        rm -rf "$dest"
+        cp -R "${skill%/}" "$dest"
+        chown -R "$user:$user" "$dest"
+      fi
+    done
+  fi
 done
+
+put "$here/claude-statusline.sh" "$home/.local/bin/claude-statusline.sh" 755 "install the status line script in $user's ~/.local/bin"
 
 # The install is shared by every login of openclawops, and DISABLE_AUTOUPDATER
 # keeps it where it is, so this script brings it up to the Mac's version.
@@ -425,6 +505,58 @@ if [[ $(as_user git config --global --get user.name || true) != "$git_name" ||
   fi
 fi
 
+# Clones under ~/Projects reach GitHub over https with the operator's gh login
+# (which the operator makes with `gh auth login --with-token`); the services'
+# clones under ~/apps keep their own transport, as only ~/Projects reads the file.
+put "$here/gitconfig-projects" "$home/.gitconfig-projects" 644 "write $user's ~/.gitconfig-projects, gh as the credential helper for GitHub"
+gc=$home/.gitconfig
+include_head='[includeIf "gitdir:~/Projects/"]'
+if ! grep -qxF -- "$include_head" "$gc" 2>/dev/null; then
+  if change "include ~/.gitconfig-projects for clones under ~/Projects in $user's ~/.gitconfig"; then
+    keep "$gc"
+    if [[ -s $gc && -n $(tail -c 1 "$gc") ]]; then
+      echo >>"$gc"
+    fi
+    printf '%s\n\tpath = ~/.gitconfig-projects\n' "$include_head" >>"$gc"
+    own "$gc"
+  fi
+fi
+
+# Each clone authors as the identity the Mac's registry gives its origin's owner;
+# an owner the registry does not list keeps the global identity, and a local
+# identity that differs is named, not changed.
+owner_of() {
+  sed -E 's#^(ssh://|https?://)?([^@/]+@)?github\.com[:/]+##; s#/.*##' <<<"$1"
+}
+for gitdir in "$home"/Projects/*/.git "$home"/Projects/*/*/.git; do
+  [[ -e $gitdir ]] || continue
+  clone=$(dirname "$gitdir")
+  url=$(as_user git -C "$clone" remote get-url origin 2>/dev/null || true)
+  [[ $url == *github.com* ]] || continue
+  owner=$(owner_of "$url")
+  want=$(jq -r --arg o "$owner" '.identities[] | select(any(.github_org[]; ascii_downcase == ($o | ascii_downcase))) | [.name, .email] | @tsv' "$here/git-identities.json" | head -n 1)
+  [[ -n $want ]] || continue
+  IFS=$'\t' read -r want_name want_email <<<"$want"
+  todo=()
+  for key in name email; do
+    wanted=want_$key
+    have=$(as_user git -C "$clone" config --local --get "user.$key" || true)
+    if [[ -z $have ]]; then
+      todo+=("$key")
+    elif [[ $have != "${!wanted}" ]]; then
+      echo "note: ${clone#"$R"} keeps its own local user.$key; the registry's differs for owner $owner" >&2
+    fi
+  done
+  if ((${#todo[@]})); then
+    if change "set the local git identity of ${clone#"$R"} (${todo[*]}) from the Mac's registry for owner $owner"; then
+      for key in "${todo[@]}"; do
+        wanted=want_$key
+        as_user git -C "$clone" config --local "user.$key" "${!wanted}"
+      done
+    fi
+  fi
+done
+
 # GitHub's key from api.github.com/meta, so the first clone asks nothing.
 kh=$home/.ssh/known_hosts
 github_key=$(<"$here/github-known-hosts")
@@ -445,6 +577,62 @@ if [[ ! -d $home/Projects ]]; then
     as_user mkdir "$home/Projects"
   fi
 fi
+
+# ── The iTerm2 panes' side of the server: pane-* scripts and diffview ──────────
+# The scripts come from the colloid-swarm clone `apply` makes after this script
+# runs, so the first apply finds no clone and the second links them. A name in
+# ~/.local/bin that is not this script's own link is named and left alone.
+clone=$home/Projects/colloid-swarm
+if [[ -d $clone/.agents/iterm/bin ]]; then
+  for script in "$clone"/.agents/iterm/bin/*; do
+    [[ -f $script ]] || continue
+    link=$home/.local/bin/$(basename "$script")
+    target=${script#"$R"}
+    if [[ $(readlink "$link" 2>/dev/null) == "$target" ]]; then
+      continue
+    elif [[ -e $link || -L $link ]]; then
+      problem "$link exists and is not a link to $target; left alone"
+    elif change "link $(basename "$script") from the colloid-swarm clone into $user's ~/.local/bin"; then
+      as_user mkdir -p "$home/.local/bin"
+      as_user ln -s "$target" "$link"
+    fi
+  done
+else
+  echo "skip:  no colloid-swarm clone in ~/Projects yet, so no pane-* links; apply again once it exists"
+fi
+
+# diffview, the Mac's pin (nvim's lazy-lock.json), loaded from nvim's own pack folder.
+pin_clone "$home/.local/share/nvim/site/pack/colloid/start/diffview.nvim" \
+  https://github.com/dlyongemallo/diffview-plus.nvim.git 2a2d89a07f5d5d3cef7f542b99c3e28050ca205c \
+  "diffview at 2a2d89a07f5d in $user's nvim packages"
+nvdv=$home/.config/nvim/plugin/colloid-diffview.lua
+if [[ -f $nvdv ]] && cmp -s "$here/colloid-diffview.lua" "$nvdv"; then
+  :
+elif [[ -e $home/.config/nvim ]]; then
+  echo "note: $user has a ~/.config/nvim of its own, so the Mac's diffview keys are not installed; copy colloid-diffview.lua by hand if wanted" >&2
+else
+  put "$here/colloid-diffview.lua" "$nvdv" 644 "write $user's ~/.config/nvim/plugin/colloid-diffview.lua, the Mac's diffview keys"
+fi
+
+# ── Claude Code's managed policy on the server ────────────────────────────────
+# The Mac's device policy and per-account payloads, with the asks that hold only
+# on the server added to each, reach Claude Code through the policy helper
+# /etc/claude-code/managed-settings.json names. All of it is root's: the user
+# whose sessions it governs cannot edit it.
+cc=$R/etc/claude-code
+server_asks=$(jq -c . "$here/server-asks.json")
+with_server_asks() {
+  jq --argjson asks "$server_asks" '.managedSettings.permissions.ask = (((.managedSettings.permissions.ask // []) + $asks) | unique)' "$1"
+}
+put "$here/managed-settings.json" "$cc/managed-settings.json" 644 "write /etc/claude-code/managed-settings.json, naming the policy helper" root:root
+put "$here/policy-helper.sh" "$cc/policy-helper.sh" 755 "install /etc/claude-code/policy-helper.sh" root:root
+put_text "$(with_server_asks "$here/policy.json")" "$cc/policy.json" 644 "write /etc/claude-code/policy.json, the Mac's policy with the server's own asks" root:root
+payloads=("$here"/accounts/*.json)
+for payload in "${payloads[@]}"; do
+  [[ -f $payload ]] || continue
+  put_text "$(with_server_asks "$payload")" "$cc/accounts/$(basename "$payload")" 644 \
+    "write the policy payload of one limited account in /etc/claude-code/accounts, with the server's own asks" root:root
+done
 
 # ── 7. Tailscale, the Mac's exit node for the phone link ───────────────────────
 # The Mac's own network blocks Signal's hosts, so the Mac reaches Signal through

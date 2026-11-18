@@ -4,6 +4,12 @@
 # one ssh connection, runs the script in a scratch folder there, and removes it;
 # then, logged in as openclawops (contabo-dev), it clones colloid-swarm if absent.
 #
+# Besides this folder it stages what only the Mac has (never committed): the device
+# policy and account payloads from /Library/Application Support/ClaudeCode, the
+# colloid output style, the git identity registry and ~/.claude/skills.
+# CLAUDE_DEVICE_DIR, GIT_IDENTITIES and CLAUDE_SKILLS_DIR move those sources; only
+# the tests set them.
+#
 # Usage: apply [--check]
 #   --check  print each change a run would make; change nothing
 set -euo pipefail
@@ -34,6 +40,49 @@ trap 'rm -rf "$stage"' EXIT
 cp "$here/setup-server.sh" "$here/tmux.conf" "$here/launchers.bash" "$here/settings.json" "$here/github-known-hosts" "$here/tailscale-archive-keyring.asc" "$stage/"
 cp "$key" "$stage/mac.pub"
 printf '%s\n' "$version" >"$stage/claude-version"
+cp "$here/managed-settings.json" "$here/policy-helper.sh" "$here/server-asks.json" "$here/claude-statusline.sh" \
+  "$here/CLAUDE.md" "$here/gitconfig-projects" "$here/colloid-diffview.lua" "$stage/"
+
+# What only the Mac has, copied at apply time and never committed: the device
+# policy and its per-account payloads (named by email), the colloid output style,
+# the git identity registry without its key paths, and the skills.
+device=${CLAUDE_DEVICE_DIR:-/Library/Application Support/ClaudeCode}
+[[ -f $device/policy.json ]] || {
+  echo "apply: no device policy at $device/policy.json" >&2
+  exit 1
+}
+cp "$device/policy.json" "$stage/policy.json"
+if [[ -d $device/accounts ]]; then
+  mkdir "$stage/accounts"
+  cp "$device"/accounts/*.json "$stage/accounts/"
+fi
+# cp follows the link, so the style is the repository's file, not the link.
+cp "$here/../../claude/output-style.md" "$stage/output-style.md"
+registry=${GIT_IDENTITIES:-$HOME/.config/git-identities.json}
+[[ -f $registry ]] || {
+  echo "apply: no git identity registry at $registry" >&2
+  exit 1
+}
+jq '{identities: (.identities | map_values({name, email, github_org}))}' "$registry" >"$stage/git-identities.json"
+
+# Skills: each folder of ~/.claude/skills that is not a link into a repository,
+# links inside it followed, and none over 5 MB.
+skills=${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}
+mkdir "$stage/skills"
+for skill in "$skills"/*/; do
+  [[ -d $skill ]] || continue
+  name=$(basename "$skill")
+  if [[ -L ${skill%/} ]] && git -C "$skill" rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "apply: skill $name is a link into a repository; not sent"
+    continue
+  fi
+  kb=$(du -skL "$skill" | awk '{ print $1 }')
+  if ((kb > 5120)); then
+    echo "apply: skill $name is ${kb} KB, over 5 MB; not sent"
+    continue
+  fi
+  cp -RL "${skill%/}" "$stage/skills/$name"
+done
 
 # GNU tar on the server warns on each macOS file tag (com.apple.provenance) it
 # finds; --no-xattrs keeps the tags out, and the other two the AppleDouble copies.
