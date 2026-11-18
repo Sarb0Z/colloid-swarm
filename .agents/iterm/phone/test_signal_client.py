@@ -247,14 +247,15 @@ class Wire(unittest.TestCase):
         self.assertEqual(self.answers, [(None, "signal-cli did not answer in time")])
         self.assertIsNone(connection.next_limit())
 
-    def test_two_sends_in_one_moment_get_timestamps_of_their_own(self):
+    def test_each_send_result_gives_the_timestamp_the_daemon_sent_it_with(self):
+        # Whether real signal-cli can give two sends one timestamp is not known; the link does
+        # not rely on it (test_phone_link's one-timestamp test).
         daemon = self.daemon()
         connection = self.connected()
         for text in ("one", "two", "three"):
             connection.call("send", signal_client.send_params(fake.NUMBER, text), self.done, 5)
         self.pump(connection, lambda: len(self.answers) == 3)
         stamps = [signal_client.sent_timestamp(result) for result, _error in self.answers]
-        self.assertEqual(len(set(stamps)), 3)
         self.assertEqual(stamps, daemon.stamps)
 
     def test_two_calls_get_their_own_answers(self):

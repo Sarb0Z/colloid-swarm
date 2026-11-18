@@ -753,6 +753,21 @@ class SignalReplies(Service):
         self.assertEqual((first.of("decision"), second.of("decision")),
                          ([], [{"type": "decision", "behavior": "allow"}]))
 
+    def test_two_sends_that_signal_cli_gives_one_timestamp_answer_neither_event(self):
+        given = self.signal.send
+
+        def one_timestamp(text, done):
+            given(text, lambda error, stamp: done(error, None if error else 1794992400000))
+        self.signal.send = one_timestamp
+        first = self.waiting_hook()
+        second = self.waiting_hook(call="toolu_2", session="s2", pid=502, name="other")
+        self.link.received(fake.phone_message("yes", int((self.now - 1) * 1000), quote=1794992400000))
+        self.assertEqual((first.of("decision"), second.of("decision")), ([], []))
+        self.assertEqual(self.signal.texts[2:], ["refused: not a reply to an open alert"])
+        self.assertEqual(self.file("errors.log"),
+                         "2026-11-18T13:43:00Z signal-cli gave timestamp 1794992400000 to messages "
+                         "about m-abcde and m-fghij; a reply to it answers neither\n")
+
     def test_acceptance_3_a_reply_to_the_deadline_line_answers_the_same_event(self):
         conn = self.hook(calls=())
         self.now += 10

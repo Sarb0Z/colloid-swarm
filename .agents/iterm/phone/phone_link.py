@@ -194,9 +194,11 @@ class Link:
         self.waits: dict = {}  # event id -> Wait
         self.by_conn: dict = {}  # conn -> event id
         self.watches: dict = {}  # event id -> Watch
-        # Signal timestamp of each message sent about an event -> that event's id, by which a
-        # Signal reply binds. In memory only: a restart forgets it and closes the events.
+        # Signal timestamp of each delivered send -> the id of the event it concerns (None for
+        # none), by which a Signal reply binds. In memory only: a restart forgets it and closes
+        # the events. `clashed` holds the timestamps signal-cli gave to two messages (`_bind`).
         self.sent_about: dict = {}
+        self.clashed: set = set()
         self.queue = collections.deque()  # event ids whose alert waits for the rate limit
         self.sent_at = collections.deque()  # when each alert of the last minute went out
         self.noticed_at = float("-inf")
@@ -466,9 +468,24 @@ class Link:
         def sent(error: str, stamp) -> None:
             if error:
                 self.errors.write(f"a reply was not sent ({text.splitlines()[0]}): {error}")
-            elif about is not None and stamp is not None:
-                self.sent_about[stamp] = about
+            else:
+                self._bind(stamp, about)
         self.signal.send(text, sent)
+
+    def _bind(self, stamp, about) -> None:
+        """Keep the Signal timestamp of a delivered send with the event it concerns (`about`,
+        None for none). signal-cli is trusted for unique timestamps nowhere: a timestamp two
+        messages share answers no event, since a reply to it cannot say which it quotes."""
+        if stamp is None or stamp in self.clashed:
+            return
+        if stamp in self.sent_about and self.sent_about[stamp] != about:
+            self.errors.write(f"signal-cli gave timestamp {stamp} to messages about "
+                              f"{self.sent_about[stamp] or 'no event'} and {about or 'no event'}; "
+                              "a reply to it answers neither")
+            self.clashed.add(stamp)
+            self.sent_about[stamp] = None
+            return
+        self.sent_about[stamp] = about
 
     def _send_alerts(self, now: float) -> None:
         """Send the queued alerts the rate limit admits now, in order."""
@@ -488,8 +505,7 @@ class Link:
 
     def _alert_sent(self, event_id: str, error: str, stamp) -> None:
         if not error:
-            if stamp is not None:
-                self.sent_about[stamp] = event_id
+            self._bind(stamp, event_id)
             return
         self.errors.write(f"the alert of {event_id} was not sent: {error}")
         wait = self.waits.get(event_id)
