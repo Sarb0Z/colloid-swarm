@@ -162,6 +162,22 @@ prompt without a command-line flag. Claude Code accepts this key from helper
 stdout only, and rejects it in a static managed payload. `device/` holds that
 kit and `install-device-policy.sh` installs it.
 
+One machine can limit one signed-in account more than the others. A
+machine-local file, `~/.config/claude-policy/account-limits.json` by default
+(`CLAUDE_ACCOUNT_LIMITS` names another), maps an account email to the managed
+settings it adds; only `deniedModels` is accepted, for example
+`{"guest@example.com": {"deniedModels": ["fable"]}}`. The file is never
+committed, because the accounts belong to the machine, not the scaffold.
+`build.py` writes one full payload per account under `accounts/`, and the
+helper serves it when the profile Claude Code starts with is signed in to that
+account. It finds the profile through `CLAUDE_CONFIG_DIR`, or through
+`CLAUDE_PROFILE` when Claude Code's environment scrub removed the first. To
+lift a limit, delete the account's entry and install again; the installer
+replaces the whole `accounts/` folder. The limit holds against normal use, not
+against the account's user: anyone who can edit the profile's `.claude.json`
+can change the email the helper reads, and a sign-in after start takes effect
+at the next hourly refresh.
+
 The adapter fails closed on an unknown or non-executable policy. Policies own
 their behavior and exit contract; do not duplicate that logic here.
 

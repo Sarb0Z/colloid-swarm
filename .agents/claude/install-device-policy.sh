@@ -16,7 +16,14 @@ target="/Library/Application Support/ClaudeCode"
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 
-python3 "$here/device/build.py" "$staging"
+# Per-account limits, such as models one signed-in account may not use, live in
+# a machine-local file: the accounts on this machine are not the scaffold's.
+limits="${CLAUDE_ACCOUNT_LIMITS:-$HOME/.config/claude-policy/account-limits.json}"
+if [ -f "$limits" ]; then
+  python3 "$here/device/build.py" "$staging" "$limits"
+else
+  python3 "$here/device/build.py" "$staging"
+fi
 cp "$here/device/policy-helper.sh" "$here/device/managed-settings.json" "$staging/"
 
 # A malformed payload stops Claude Code from starting, so prove the helper runs
@@ -30,6 +37,21 @@ assert document["appendSystemPrompt"].strip()
 assert "Artifact" in document["managedSettings"]["permissions"]["ask"]
 print("verified: helper emits a valid policy envelope")
 '
+# The helper serves an account's payload to that account alone, so each one
+# is checked here too: a broken one would stop only that account's sessions.
+for account in "$staging/accounts/"*.json; do
+  [ -e "$account" ] || continue
+  python3 - "$account" "$staging/policy.json" <<'PY'
+import json, sys
+document = json.load(open(sys.argv[1], encoding="utf-8"))
+shared = json.load(open(sys.argv[2], encoding="utf-8"))
+assert set(document) <= {"managedSettings", "claudeMd", "appendSystemPrompt"}, document.keys()
+assert document["appendSystemPrompt"] == shared["appendSystemPrompt"]
+assert document["managedSettings"]["permissions"] == shared["managedSettings"]["permissions"]
+print(f"verified: {sys.argv[1].rsplit('/', 1)[1]} keeps the shared policy and adds "
+      f"{sorted(set(document['managedSettings']) - set(shared['managedSettings']))}")
+PY
+done
 
 # The user-tier output style is the fallback that covers every launch surface
 # when the managed policy is absent, and it needs no sudo. It is the same file
@@ -53,7 +75,14 @@ sudo cp "$staging/policy-helper.sh" "$staging/policy.json" \
         "$staging/managed-settings.json" "$target/"
 sudo chmod 755 "$target/policy-helper.sh"
 sudo chmod 644 "$target/policy.json" "$target/managed-settings.json"
-ls -l "$target"
+# An account taken off the limits file loses its payload here.
+sudo rm -rf "$target/accounts"
+if [ -d "$staging/accounts" ]; then
+  sudo cp -R "$staging/accounts" "$target/accounts"
+  sudo chmod 755 "$target/accounts"
+  sudo chmod 644 "$target/accounts/"*.json
+fi
+ls -lR "$target"
 echo
 echo "Start a new Claude Code session and check /status for policy warnings."
 echo "Revert with: sudo rm -rf \"$target\""
