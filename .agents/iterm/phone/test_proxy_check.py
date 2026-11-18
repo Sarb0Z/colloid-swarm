@@ -153,6 +153,43 @@ class Check(unittest.TestCase):
         self.assertEqual(len(self.lines()), 1)
         self.assertIn("holds 'not a proxy', not HOST:PORT", self.lines()[0])
 
+    def test_an_expired_certificate_reads_expired_hours_ago(self):
+        self.set_proxy()
+        self.expiry = NOW - 8 * HOUR
+        self.check().tick()
+        self.assertIn("expires 2026-11-18T01:00:00Z, expired 8 h ago;", self.lines()[0])
+        self.assertIn("expires Wed 18 Nov 06:00, expired 8 h ago.", self.signal.texts[0])
+
+    def test_an_unexpected_error_in_the_read_is_written_and_the_next_day_reads_again(self):
+        self.set_proxy()
+        self.expiry = RuntimeError("the reader broke")
+        check = self.check(start=self.deferred.append)
+        check.tick()
+        self.deferred.pop()()
+        check.tick()
+        self.assertEqual(check.running, None)
+        self.assertEqual(len(self.lines()), 1)
+        self.assertIn("the TLS proxy 62.171.166.213:8443's certificate was not read: RuntimeError: the reader broke",
+                      self.lines()[0])
+        self.assertEqual(self.signal.texts, [])
+        self.expiry = NOW + DAY + 30 * HOUR
+        self.now = NOW + DAY
+        check.tick()
+        self.deferred.pop()()
+        check.tick()
+        self.assertEqual((len(self.reads), len(self.signal.texts)), (2, 1))
+
+    def test_a_stamp_that_cannot_be_written_is_logged_and_the_check_goes_on(self):
+        self.set_proxy()
+        (self.state / proxy_check.STAMP).mkdir()
+        check = self.check()
+        check.tick()
+        self.assertEqual(len(self.reads), 1)
+        self.assertIn(f"{self.state / proxy_check.STAMP} was not read", self.lines()[0])
+        self.assertIn(f"{self.state / proxy_check.STAMP} was not written", self.lines()[1])
+        self.assertEqual(len(self.signal.texts), 1)
+        self.assertEqual(check.next_due(), NOW + DAY)
+
     def test_the_read_runs_off_the_loop_and_one_at_a_time(self):
         self.set_proxy()
         check = self.check(start=self.deferred.append)

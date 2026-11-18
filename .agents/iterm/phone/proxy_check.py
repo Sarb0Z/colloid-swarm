@@ -62,6 +62,9 @@ class ProxyCheck:
         except ValueError:
             self.errors.write(f"{self.state / STAMP} is not a time; the proxy's certificate is checked now")
             return float("-inf")
+        except OSError as error:
+            self.errors.write(f"{self.state / STAMP} was not read ({error}); the proxy's certificate is checked now")
+            return float("-inf")
 
     def tick(self) -> None:
         self._begin(self.clock())
@@ -89,13 +92,21 @@ class ProxyCheck:
 
     def _checked(self, now: float) -> None:
         self.next_at = now + DAY_SECONDS
-        (self.state / STAMP).write_text(f"{now}\n", encoding="utf-8")
+        try:
+            (self.state / STAMP).write_text(f"{now}\n", encoding="utf-8")
+        except OSError as error:
+            self.errors.write(f"{self.state / STAMP} was not written ({error}); a restart checks the proxy's "
+                              "certificate again")
 
     def _read(self, host: str, port: int) -> None:
+        """Runs off the loop. Every way it ends sets `result`, so `tick` clears `running` and the
+        next day's read starts."""
         try:
             self.result = (self.read_expiry(host, port), None)
         except (OSError, ValueError) as error:
             self.result = (None, error)
+        except Exception as error:  # a defect in the reader; tick() writes it to errors.log
+            self.result = (None, f"{type(error).__name__}: {error}")
 
     def _handle(self, proxy: str, expiry, error, now: float) -> None:
         if error is not None:
@@ -104,11 +115,11 @@ class ProxyCheck:
         left = expiry - now
         if left >= WARN_SECONDS:
             return
-        hours = int(left // 3600)
-        self.errors.write(f"the TLS proxy {proxy}'s certificate expires {log.iso(expiry)}, in {hours} h; "
+        hours = f"in {int(left // 3600)} h" if left >= 0 else f"expired {int(-left // 3600)} h ago"
+        self.errors.write(f"the TLS proxy {proxy}'s certificate expires {log.iso(expiry)}, {hours}; "
                           "the renewal on the server has not replaced it (journalctl -u signal-proxy-renew)")
         when = datetime.fromtimestamp(expiry, self.zone).strftime("%a %d %b %H:%M")
-        text = (f"Signal proxy: its certificate expires {when}, in {hours} h. The renewal on the server has not "
+        text = (f"Signal proxy: its certificate expires {when}, {hours}. The renewal on the server has not "
                 "replaced it: journalctl -u signal-proxy-renew")
 
         def sent(failure: str, _stamp) -> None:
