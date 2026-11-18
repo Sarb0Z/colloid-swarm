@@ -2,7 +2,8 @@
 # Tests for .agents/iterm: pane-base over fixture repositories, pane-diff with a
 # stub nvim recording its argv, install.sh in a temporary HOME, then every
 # test-*.sh beside this file, one per prompt-pane script and one for the phone
-# link's install, then the phone link's own tests (.agents/test-phone-hooks.sh).
+# link's install, then the phone link's own tests (.agents/test-phone-hooks.sh),
+# then the Signal TLS proxy's server module (server/signal-proxy/test.sh).
 set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -228,5 +229,8 @@ done
 
 # --- (e) the phone link: its modules and its hook, fired as Claude Code fires it
 "$IT/../test-phone-hooks.sh" || bad "test-phone-hooks.sh"
+
+# --- (f) the Signal TLS proxy's server module, under a pretend root -----------
+"$IT/server/signal-proxy/test.sh" || bad "signal-proxy/test.sh"
 
 ((fails == 0)) && echo "iterm tests passed" || { echo "$fails failed" >&2; exit 1; }
