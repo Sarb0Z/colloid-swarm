@@ -206,7 +206,7 @@ eq "install left the foreign file intact" mine "$(cat "$H/.local/bin/pane-diff")
 # --- (d) the prompt pane and the phone link's install: each one's own test file
 # Named, not globbed: lint-suite.py reaches a test only by its file name, and
 # the count check fails a test file added here without a line below.
-suites=(test-pane-run.sh test-pane-run-server.sh test-phone-install.sh test-prompt-catalog.sh test-review-snapshot.sh)
+suites=(test-dev-server.sh test-pane-run.sh test-pane-run-server.sh test-phone-install.sh test-prompt-catalog.sh test-review-snapshot.sh)
 on_disk=$(cd "$IT/tests" && ls test-*.sh | LC_ALL=C sort | tr '\n' ' ')
 eq "every test file here is run" "$(printf '%s\n' "${suites[@]}" | LC_ALL=C sort | tr '\n' ' ')" "$on_disk"
 for suite in "${suites[@]}"; do

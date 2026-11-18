@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# The Dev server profile's command: iTerm2's SSH integration to the server,
+# attached to its tmux session main in control mode, and reconnected when the
+# link drops.
+#
+# Only exit status 255 (ssh's own "connection failed or lost") retries. A clean
+# exit, a detach, an authentication failure or the remote command's own status
+# stops the loop, prints the status and why, and waits for a key so the tab
+# stays readable. The delay starts at 2 s, doubles up to 30 s, and returns to
+# 2 s after a connection that lasted over 60 s. Forty failed tries in a row end
+# the loop.
+#
+# Environment, for tests: IT2SSH (the it2ssh script), DEV_SERVER_HOST (the
+# ssh host name), DEV_SERVER_SLEEP (the sleep command), DEV_SERVER_NOW (a
+# command printing the time in seconds).
+set -uo pipefail
+
+it2ssh=${IT2SSH:-/Applications/iTerm.app/Contents/Resources/utilities/it2ssh}
+host=${DEV_SERVER_HOST:-contabo-dev}
+nap=${DEV_SERVER_SLEEP:-sleep}
+now=${DEV_SERVER_NOW:-"date +%s"}
+max_tries=40
+long_connection=60
+min_delay=2
+max_delay=30
+
+# -A forwards the agent for ssh beyond GitHub. The words after the host are
+# it2ssh's remote command.
+delay=$min_delay
+failed=0
+while true; do
+  started=$($now)
+  "$it2ssh" -A "$host" tmux -CC new -A -s main
+  status=$?
+  lasted=$(($($now) - started))
+
+  if ((status != 255)); then
+    case $status in
+      0) why="the session ended or was detached" ;;
+      1) why="the remote command or ssh failed (an authentication failure shows here too)" ;;
+      *) why="ssh or the remote command exited with this status" ;;
+    esac
+    break
+  fi
+
+  if ((lasted > long_connection)); then
+    delay=$min_delay
+    failed=0
+  fi
+  failed=$((failed + 1))
+  if ((failed >= max_tries)); then
+    why="$max_tries failed tries in a row"
+    break
+  fi
+  echo "dev-server: connection to $host lost (status 255, try $failed of $max_tries); retrying in $delay s"
+  "$nap" "$delay"
+  delay=$((delay * 2))
+  ((delay > max_delay)) && delay=$max_delay
+done
+
+echo "dev-server: stopped with status $status: $why."
+echo "Press any key to close."
+read -rsn1 || true
+exit "$status"
