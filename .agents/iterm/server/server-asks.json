@@ -2,8 +2,8 @@
   "Bash(docker:*)",
   "Bash(sudo:*)",
   "Bash(systemctl:*)",
-  "Edit(/home/openclawops/apps/**)",
+  "Edit(//home/openclawops/apps/**)",
   "Read(**/.env)",
   "Read(**/.env.*)",
-  "Write(/home/openclawops/apps/**)"
+  "Write(//home/openclawops/apps/**)"
 ]
