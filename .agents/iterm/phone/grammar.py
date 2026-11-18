@@ -59,12 +59,19 @@ def _is_punctuation(char: str) -> bool:
     return unicodedata.category(char)[0] == "P"
 
 
+def _is_around_an_id(char: str) -> bool:
+    """Punctuation, an invisible format character (a zero-width space or joiner, a
+    direction isolate) or an emoji variation mark: what a phone may put around a word."""
+    return _is_punctuation(char) or unicodedata.category(char) == "Cf" or char in "︎️"
+
+
 def _event_id(word: str) -> str:
-    """The event id that `word` is, alone or inside brackets or other punctuation, or ''."""
+    """The event id that `word` is, alone or inside brackets, other punctuation or invisible
+    characters, or ''."""
     found = word.lower()
-    while found and _is_punctuation(found[-1]):
+    while found and _is_around_an_id(found[-1]):
         found = found[:-1]
-    while found and _is_punctuation(found[0]):
+    while found and _is_around_an_id(found[0]):
         found = found[1:]
     return found if EVENT_ID.fullmatch(found) else ""
 

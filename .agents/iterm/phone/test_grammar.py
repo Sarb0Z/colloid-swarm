@@ -84,6 +84,13 @@ class Parse(unittest.TestCase):
         self.assertEqual(grammar.parse("m-abcde \t\nno\nnot now"), Message("answer", "m-abcde", "no\nnot now"))
         self.assertEqual(grammar.parse("m-abcde  \tno"), Message("answer", "m-abcde", "no"))
 
+    def test_invisible_characters_glued_to_the_id_do_not_hide_it(self):
+        # A phone keyboard can glue a zero-width space, joiner or word joiner, or an emoji
+        # variation mark, to the word it ends.
+        for glued in ("​", "‍", "⁠", "​‍", "️", "⁨"):
+            self.assertEqual(grammar.parse(f"m-abcde{glued}"), Message("answer", "m-abcde", ""), repr(glued))
+            self.assertEqual(grammar.parse(f"{glued}[m-abcde]{glued} no"), Message("answer", "m-abcde", "no"), repr(glued))
+
     def test_a_reserved_word_or_help_with_more_words_is_an_answer(self):
         self.assertEqual(grammar.parse("help m-qhvkz"), Message("answer", "m-qhvkz", "help"))
         self.assertEqual(grammar.parse("mute colloid-swarm-c1"), Message("answer", "", "mute colloid-swarm-c1"))
