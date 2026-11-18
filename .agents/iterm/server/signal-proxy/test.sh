@@ -277,6 +277,16 @@ eq "a forced renewal adds --renew-force alone" "$(lego_line "$STAGING") --renew-
 
 # --- then production: the staging certificate is put aside ---------------------------
 : >"$CALLS"
+echo "$PRODUCTION" >"$R/opt/signal-proxy/acme-server"
+touch "$STATE/webroot-broken"
+staging_cert=$(cat "$cert")
+out=$(renew 2>&1); rc=$?
+eq "to production with a webroot that is not served: exits 1" 1 "$rc"
+eq "to production with a webroot that is not served: the staging certificate stays in place" "$staging_cert" "$(cat "$cert" 2>&1)"
+compgen -G "$R/var/lib/lego/certificates-*" >/dev/null && bad "to production with a webroot that is not served: a folder was put aside" ||
+  ok "to production with a webroot that is not served: nothing is put aside"
+rm "$STATE/webroot-broken"
+: >"$CALLS"
 certs_inode=$(ls -di "$R/var/lib/lego/certificates" | awk '{print $1}')
 out=$(run 2>&1); rc=$?
 eq "production run exits 0" 0 "$rc"

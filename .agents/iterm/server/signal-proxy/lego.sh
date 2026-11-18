@@ -78,20 +78,12 @@ if [[ ${SIGNAL_PROXY_FORCE:-} == 1 ]]; then
   force=1
 fi
 
+foreign=0
 if [[ -f $cert && $(cat "$issued_by" 2>/dev/null) != "$server" ]]; then
-  # The running terminate container bind-mounts the certificates folder itself,
-  # and a renamed folder stays the mounted one, so the files move and the folder
-  # stays where it is.
-  aside=$R$store/certificates-$(date +%Y%m%d%H%M%S)
-  mkdir "$aside"
-  shopt -s dotglob nullglob
-  files=("$R$store/certificates"/*)
-  shopt -u dotglob nullglob
-  mv -- "${files[@]}" "$aside/"
-  echo "the certificate is not from $server; its files are moved aside to ${aside#"$R"}"
+  foreign=1
 fi
 
-if ((!force)) && [[ -f $cert ]] && openssl x509 -checkend $((80 * 3600)) -noout -in "$cert" >/dev/null; then
+if ((!force && !foreign)) && [[ -f $cert ]] && openssl x509 -checkend $((80 * 3600)) -noout -in "$cert" >/dev/null; then
   echo "the certificate is valid for more than 80 h; lego is not run"
   exit 0
 fi
@@ -105,6 +97,20 @@ printf '%s\n' "$name" >"$challenges/$name"
 got=$(curl -fsS -m 10 "http://$ip/.well-known/acme-challenge/$name" 2>&1) || got="curl failed: $got"
 rm -f "$challenges/$name"
 [[ $got == "$name" ]] || die "http://$ip/.well-known/acme-challenge/ does not serve $webroot ($got); Let's Encrypt was not asked"
+
+# Only now, with the webroot served, is a certificate from the other directory
+# moved aside: a run refused above leaves the proxy its certificate. The running
+# terminate container bind-mounts the certificates folder itself, and a renamed
+# folder stays the mounted one, so the files move and the folder stays.
+if ((foreign)); then
+  aside=$R$store/certificates-$(date +%Y%m%d%H%M%S)
+  mkdir "$aside"
+  shopt -s dotglob nullglob
+  files=("$R$store/certificates"/*)
+  shopt -u dotglob nullglob
+  mv -- "${files[@]}" "$aside/"
+  echo "the certificate is not from $server; its files are moved aside to ${aside#"$R"}"
+fi
 
 # fingerprint: the chain and the key as one checksum; empty when there is none.
 fingerprint() { [[ ! -f $cert ]] || cat "$cert" "$key" | cksum; }
