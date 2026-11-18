@@ -539,19 +539,21 @@ for gitdir in "$home"/Projects/*/.git "$home"/Projects/*/*/.git; do
   IFS=$'\t' read -r want_name want_email <<<"$want"
   todo=()
   for key in name email; do
-    wanted=want_$key
+    wanted=$want_name
+    [[ $key == email ]] && wanted=$want_email
     have=$(as_user git -C "$clone" config --local --get "user.$key" || true)
     if [[ -z $have ]]; then
       todo+=("$key")
-    elif [[ $have != "${!wanted}" ]]; then
+    elif [[ $have != "$wanted" ]]; then
       echo "note: ${clone#"$R"} keeps its own local user.$key; the registry's differs for owner $owner" >&2
     fi
   done
   if ((${#todo[@]})); then
     if change "set the local git identity of ${clone#"$R"} (${todo[*]}) from the Mac's registry for owner $owner"; then
       for key in "${todo[@]}"; do
-        wanted=want_$key
-        as_user git -C "$clone" config --local "user.$key" "${!wanted}"
+        wanted=$want_name
+        [[ $key == email ]] && wanted=$want_email
+        as_user git -C "$clone" config --local "user.$key" "$wanted"
       done
     fi
   fi
