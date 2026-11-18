@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install or remove the phone link's parts for this user. `.agents/iterm/install.sh` runs it.
 
-  install.py install [--check] [--zone <IANA zone>]
+  install.py install [--check] [--zone <IANA zone>] [--tls-proxy HOST:PORT|none]
   install.py uninstall [--check]
 
 `install` puts in place, and leaves alone what already is:
@@ -18,17 +18,21 @@
      before the first change is kept beside it as `settings.json.pre-phone-link`.
   3. The state folder `~/.local/state/phone-link` and its `signal` folder,
      mode 0700, and an empty `errors.log`, mode 0600.
-  4. Two launchd agents of this user: `signal-cli daemon` on a Unix socket in
+  4. The Signal TLS proxy setting, `<state>/tls-proxy` (`tls_proxy.py`):
+     written by `--tls-proxy HOST:PORT`, removed by `--tls-proxy none`, and
+     kept as it is by an install without the flag.
+  5. Two launchd agents of this user: `signal-cli daemon` on a Unix socket in
      the state folder, with no TCP or HTTP port and nothing downloaded or
-     printed, and `phone_link.py`, with the phone's time zone (`--zone`,
+     printed, and with `--tls-proxy HOST:PORT` before `daemon` while a proxy
+     is set; and `phone_link.py`, with the phone's time zone (`--zone`,
      default this Mac's).
 
 `uninstall` removes exactly the hook links, the settings entries and the two
 agents, in that order, so no session calls the hook while its agents go. Each
 step runs whatever became of the ones before, and every failure is reported at
 the end, with exit 1. It keeps the pane commands, the state folder and
-signal-cli's own data, which hold the event log and the account keys: the
-spec's Undo section says how to remove them.
+signal-cli's own data, which hold the event log and the account keys (and the
+saved proxy setting): the spec's Undo section says how to remove them.
 
 `--check` prints each change it would make and makes none.
 
@@ -63,6 +67,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import client
 import log
+import tls_proxy
 
 ACCOUNTS = (".claude", ".claude-personal", ".claude-family", ".claude-guest")
 EVENT = "PermissionRequest"
@@ -341,6 +346,48 @@ def state_folder(run: Run, state: Path) -> None:
         run.change(f"state folder made: {state} (0700), with signal/ (0700) and errors.log (0600)", make)
 
 
+# --- the TLS proxy setting -------------------------------------------------------
+
+def _write_setting(path: Path, content: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        os.fchmod(descriptor, 0o600)
+        stream.write(content)
+
+
+def proxy_setting(run: Run, state: Path, asked):
+    """The TLS proxy signal-cli's agent gets, `HOST:PORT` or None: `asked` (`HOST:PORT`, or
+    `none` for no proxy), else the saved one. Saving or clearing it is a change of this run."""
+    path = state / tls_proxy.FILE
+    if asked is None:
+        try:
+            return tls_proxy.read(state)
+        except ValueError as error:
+            raise Refusal(f"{error}; set it again with --tls-proxy HOST:PORT, or none")
+    wanted = None if asked == "none" else asked
+    if wanted is not None:
+        try:
+            tls_proxy.parse(wanted)
+        except ValueError:
+            raise Refusal(f"--tls-proxy takes HOST:PORT or none, for example 62.171.166.213:8443; not {asked!r}")
+    read = _bytes_of(path)
+    content = None if wanted is None else f"{wanted}\n".encode()
+    if read == content:
+        run.same(f"TLS proxy: {wanted or 'none'}")
+        return wanted
+
+    def back() -> None:
+        if read is None:
+            path.unlink(missing_ok=True)
+        else:
+            _write_setting(path, read)
+    if wanted is None:
+        run.change(f"TLS proxy cleared: {path} removed", path.unlink, back)
+    else:
+        run.change(f"TLS proxy saved: {wanted} in {path}", lambda: _write_setting(path, content), back)
+    return wanted
+
+
 # --- launchd --------------------------------------------------------------------
 
 class Launchd:
@@ -382,13 +429,16 @@ def launchctl(environ, home: Path) -> Launchd:
     return Launchd(program)
 
 
-def agent_plists(here: Path, state: Path, signal_cli: str, python: str, zone: str) -> dict:
-    """label -> the launchd agent's property list."""
+def agent_plists(here: Path, state: Path, signal_cli: str, python: str, zone: str, proxy) -> dict:
+    """label -> the launchd agent's property list. `proxy` is the TLS proxy's `HOST:PORT`, or
+    None; signal-cli takes it as a global option, before the command."""
     path = f"{os.path.dirname(signal_cli)}:{AGENT_PATH}"
+    global_options = ["--tls-proxy", proxy] if proxy else []
     return {
         SIGNAL_LABEL: {
             "Label": SIGNAL_LABEL,
-            "ProgramArguments": [signal_cli, "daemon", "--socket", str(state / "signal" / "socket"), *SIGNAL_FLAGS],
+            "ProgramArguments": [signal_cli, *global_options, "daemon", "--socket", str(state / "signal" / "socket"),
+                                 *SIGNAL_FLAGS],
             "EnvironmentVariables": {"PATH": path},
             # Its socket and its data are the owner's alone.
             "Umask": 0o077,
@@ -466,6 +516,7 @@ def main(argv, environ) -> int:
     parser.add_argument("mode", choices=("install", "uninstall"))
     parser.add_argument("--check", action="store_true", help="print the changes and make none")
     parser.add_argument("--zone", help="the phone's time zone (default: this machine's)")
+    parser.add_argument("--tls-proxy", help="the Signal TLS proxy as HOST:PORT, or none (default: the saved one)")
     args = parser.parse_args(argv[1:])
     home, here = Path(environ["HOME"]), Path(__file__).resolve().parent
     state = home / ".local" / "state" / "phone-link"
@@ -475,6 +526,8 @@ def main(argv, environ) -> int:
         if args.mode == "uninstall":
             if args.zone:
                 raise Refusal("--zone belongs to an install")
+            if args.tls_proxy:
+                raise Refusal("--tls-proxy belongs to an install")
             # What makes a session call the hook goes first, so a launchctl step that fails
             # leaves no session waiting on a service that is going.
             settings(run, home, remove=True)
@@ -497,7 +550,8 @@ def main(argv, environ) -> int:
             links(run, home, [*pane_commands(here), *adapters(here)], remove=False)
             settings(run, home, remove=False)
             state_folder(run, state)
-            agents(run, home, launchd, agent_plists(here, state, signal_cli, python, zone))
+            proxy = proxy_setting(run, state, args.tls_proxy)
+            agents(run, home, launchd, agent_plists(here, state, signal_cli, python, zone, proxy))
             run.finish_whole()
     except (Refusal, Failed) as problem:
         print(f"install.sh: {problem}", file=sys.stderr)

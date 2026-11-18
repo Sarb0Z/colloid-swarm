@@ -10,6 +10,11 @@
 #                                     two launchd agents. --zone is the phone's
 #                                     time zone, by default this Mac's. A refusal
 #                                     changes nothing, the pane links included.
+#   install.sh --tls-proxy HOST:PORT  The same, with the phone link's signal-cli
+#                                     reaching Signal through the Signal TLS
+#                                     proxy at HOST:PORT. The setting is saved,
+#                                     so a later install without the flag keeps
+#                                     it; --tls-proxy none clears it.
 #   install.sh --check                Print what an install would change, and
 #                                     change nothing.
 #   install.sh --uninstall [--check]  Remove the phone link's parts, and only
@@ -17,7 +22,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-mode=install check="" zone=""
+mode=install check="" zone="" proxy=""
 while (($#)); do
   case $1 in
     --check) check=--check ;;
@@ -27,8 +32,13 @@ while (($#)); do
       zone=$2
       shift
       ;;
+    --tls-proxy)
+      [[ $# -ge 2 ]] || { echo "install.sh: --tls-proxy needs HOST:PORT, for example 62.171.166.213:8443, or none" >&2; exit 2; }
+      proxy=$2
+      shift
+      ;;
     *)
-      echo "usage: install.sh [--check] [--uninstall] [--zone <IANA zone>]" >&2
+      echo "usage: install.sh [--check] [--uninstall] [--zone <IANA zone>] [--tls-proxy HOST:PORT|none]" >&2
       exit 2
       ;;
   esac
@@ -38,4 +48,5 @@ done
 arguments=("$mode")
 [[ -z $check ]] || arguments+=("$check")
 [[ -z $zone ]] || arguments+=(--zone "$zone")
+[[ -z $proxy ]] || arguments+=(--tls-proxy "$proxy")
 exec python3 "$here/phone/install.py" "${arguments[@]}"

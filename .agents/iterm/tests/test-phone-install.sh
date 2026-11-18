@@ -174,6 +174,53 @@ out=$(HOME=$H "$IT/install.sh" --zone Mars/Olympus 2>&1); rc=$?
 eq "a zone the system does not know: refused" 1 "$rc"
 has "a zone the system does not know: named" "--zone 'Mars/Olympus' is not a time zone this system knows" "$out"
 
+# --- the TLS proxy: set, kept by a run without the flag, cleared by none -----------
+daemon_args() { python3 -c 'import plistlib, sys; print(" ".join(plistlib.load(open(sys.argv[1], "rb"))["ProgramArguments"][1:4]))' "$agents/com.colloid.phone-link-signal.plist"; }
+saved=$H/.local/state/phone-link/tls-proxy
+: >"$FAKE_LAUNCHCTL_STATE/calls"
+before=$(tree "$H")
+out=$(HOME=$H "$IT/install.sh" --check --zone Asia/Karachi --tls-proxy 62.171.166.213:8443 2>&1); rc=$?
+eq "proxy --check: exits 0" 0 "$rc"
+has "proxy --check: names the saved setting" "would: TLS proxy saved: 62.171.166.213:8443 in $saved" "$out"
+eq "proxy --check: nothing changed" "$before" "$(tree "$H")"
+eq "proxy --check: launchctl was only asked what is loaded" "" "$(changing_calls)"
+out=$(HOME=$H "$IT/install.sh" --zone Asia/Karachi --tls-proxy 62.171.166.213:8443 2>&1); rc=$?
+eq "proxy set: exits 0" 0 "$rc"
+eq "proxy set: --tls-proxy comes before daemon" "--tls-proxy 62.171.166.213:8443 daemon" "$(daemon_args)"
+eq "proxy set: saved in the state folder, mode 600" "62.171.166.213:8443 600" "$(cat "$saved") $(mode_of "$saved")"
+eq "proxy set: signal-cli's agent restarts, phone-link's is left" \
+  "bootout gui/UID/com.colloid.phone-link-signal|bootstrap gui/UID $agents/com.colloid.phone-link-signal.plist|" "$(changing_calls | tr '\n' '|')"
+: >"$FAKE_LAUNCHCTL_STATE/calls"
+out=$(HOME=$H "$IT/install.sh" --zone Asia/Karachi 2>&1); rc=$?
+eq "a run without the flag: exits 0" 0 "$rc"
+eq "a run without the flag: keeps --tls-proxy before daemon" "--tls-proxy 62.171.166.213:8443 daemon" "$(daemon_args)"
+eq "a run without the flag: changes nothing" "nothing to change" "$(grep -v '^unchanged: ' <<<"$out")"
+eq "a run without the flag: launchctl was only asked what is loaded" "" "$(changing_calls)"
+for bad_proxy in 62.171.166.213 62.171.166.213:0 62.171.166.213:65536 'host name:8443' :8443; do
+  before=$(tree "$H"; cat "$saved")
+  out=$(HOME=$H "$IT/install.sh" --zone Asia/Karachi --tls-proxy "$bad_proxy" 2>&1); rc=$?
+  eq "proxy '$bad_proxy': refused" 1 "$rc"
+  has "proxy '$bad_proxy': says what it takes" "--tls-proxy takes HOST:PORT or none" "$out"
+  eq "proxy '$bad_proxy': nothing changed" "$before" "$(tree "$H"; cat "$saved")"
+done
+out=$(HOME=$H "$IT/install.sh" --uninstall --tls-proxy none 2>&1); rc=$?
+eq "an uninstall with --tls-proxy: refused" "1" "$rc"
+has "an uninstall with --tls-proxy: says why" "--tls-proxy belongs to an install" "$out"
+: >"$FAKE_LAUNCHCTL_STATE/calls"
+out=$(HOME=$H "$IT/install.sh" --zone Asia/Karachi --tls-proxy none 2>&1); rc=$?
+eq "proxy none: exits 0" 0 "$rc"
+eq "proxy none: daemon is the first argument again" "daemon --socket $H/.local/state/phone-link/signal/socket" "$(daemon_args)"
+[[ ! -e $saved ]] && ok "proxy none: the saved setting is removed" || bad "proxy none: the saved setting stays"
+eq "proxy none: signal-cli's agent restarts" \
+  "bootout gui/UID/com.colloid.phone-link-signal|bootstrap gui/UID $agents/com.colloid.phone-link-signal.plist|" "$(changing_calls | tr '\n' '|')"
+out=$(HOME=$H "$IT/install.sh" --zone Asia/Karachi --tls-proxy none 2>&1); rc=$?
+eq "proxy none again: changes nothing" "0 nothing to change" "$rc $(grep -v '^unchanged: ' <<<"$out")"
+printf 'not a proxy\n' >"$saved"
+out=$(HOME=$H "$IT/install.sh" --zone Asia/Karachi 2>&1); rc=$?
+eq "a saved setting that is not HOST:PORT: refused" 1 "$rc"
+has "a saved setting that is not HOST:PORT: names the file" "$saved holds 'not a proxy'" "$out"
+rm "$saved"
+
 # --- an entry of an earlier install is replaced, not doubled ---------------------
 python3 - "$H/.claude/settings.json" <<'PY'
 import json, sys
@@ -319,6 +366,6 @@ eq "changed while read: no link is left" "" "$(ls "$T/r/.local/bin")"
 eq "changed while read: no agent was started" "" "$(changing_calls)"
 
 out=$(HOME=$H "$IT/install.sh" --bogus 2>&1); rc=$?
-eq "an unknown option: usage, exit 2" "2 usage: install.sh [--check] [--uninstall] [--zone <IANA zone>]" "$rc $out"
+eq "an unknown option: usage, exit 2" "2 usage: install.sh [--check] [--uninstall] [--zone <IANA zone>] [--tls-proxy HOST:PORT|none]" "$rc $out"
 
 ((fails == 0)) && echo "phone install tests passed" || { echo "$fails failed" >&2; exit 1; }
