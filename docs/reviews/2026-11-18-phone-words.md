@@ -1,6 +1,6 @@
 # Review: phone messages answered in the operator's own words
 
-Covers: 97ae800..2f5c704
+Covers: 97ae800..9c4296c
 
 Scope: commits `8927ae7` and `2f5c704` under `.agents/iterm/phone` and
 `.agents/test-phone-hooks.sh`: one adapter per alert kind (`adapters.py`), and
@@ -32,3 +32,13 @@ Round 1 found three `P1` and seven `P2` items and no `P0`.
 The reviewer's ambiguities are settled in the spec: `ok 👍` and `yes yes` allow
 (every word an approval), and a `?` anywhere makes the message a question that
 denies with its text.
+
+The fixes landed in `c597916` (findings 3, 6–9 and the two ambiguities) and
+`9c4296c` (findings 1, 2, 4, 5 and 10), each with a test that failed at
+`2f5c704`; the review's delayed-`yes` case is
+`test_a_plain_yes_typed_before_the_newest_alert_and_delivered_late_does_not_allow_it`.
+Any failed send, a definite signal-cli rejection included, still counts as
+newest, so a plain answer reaches the closed new event and never the older
+one. The round has no `P0`, so the fixes do not re-enter review. The run's
+verify command passed at `9c4296c` (330 unit tests, the hook firing test, the
+iTerm2 tests), rerun by the lead.
