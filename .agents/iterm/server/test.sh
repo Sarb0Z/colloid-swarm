@@ -149,7 +149,7 @@ LOADER='# bash reads this file instead of ~/.profile at login, so it loads ~/.pr
 fresh() { # folder
   local r=$1 h=$1/home/openclawops
   rm -rf "$r" "$STATE"
-  mkdir -p "$STATE" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/etc/sysctl.d" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin" \
+  mkdir -p "$STATE" "$r/usr/bin" "$r/etc/apt/sources.list.d" "$r/etc/ufw" "$r/etc/sysctl.d" "$r/root" "$r/usr/sbin" "$h/.ssh" "$h/.claude" "$h/.local/bin" \
     "$r/proc/sys/net/ipv4" "$r/proc/sys/net/ipv6/conf/all"
   # contabo-hop on 2026-11-18: Docker's IPv4 forwarding on, IPv6 forwarding off.
   echo 1 >"$r/proc/sys/net/ipv4/ip_forward"
@@ -169,6 +169,13 @@ fresh() { # folder
   "$REAL_GIT" -C "$h/apps/svc" init -q
   "$REAL_GIT" -C "$h/apps/svc" remote add origin git@github.com:OwnerOne/svc.git
   echo "service code" >"$h/apps/svc/app.js"
+  # The helper's tools and gh, present where the script looks for them; gh is
+  # logged in only while $STATE/gh-login exists.
+  : >"$r/usr/bin/jq"
+  : >"$r/usr/bin/getent"
+  chmod +x "$r/usr/bin/jq" "$r/usr/bin/getent"
+  printf '#!/bin/sh\n[ "$1 $2" = "auth status" ] && [ -e "%s/gh-login" ]\n' "$STATE" >"$r/usr/bin/gh"
+  chmod +x "$r/usr/bin/gh"
   # Claude Code made an empty ~/.bash_profile where none existed on contabo-hop, at
   # the update (2026-11-16) and again at a first sign-in after it was removed
   # (2026-11-17), so the stand-in does too.
@@ -372,6 +379,11 @@ grep -E -q '[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$HERE/CLAUDE.md" &&
 # The shipped asks file is one array of strings.
 eq "server-asks.json is an array of strings" true "$(jq 'type == "array" and all(.[]; type == "string")' "$HERE/server-asks.json")"
 
+# Claude Code reads a single leading slash as relative to the settings source, so a
+# path rule is absolute only with //, or starts at ~/ or **.
+eq "every path rule in server-asks.json is absolute, home-relative or a glob" 0 \
+  "$(jq -r '.[] | select(test("^(Read|Edit|Write)\\(")) | sub("^[A-Za-z]+\\("; "")' "$HERE/server-asks.json" | grep -cvE '^(//|~/|\*\*)')"
+
 # --- the policy helper picks the account's payload ---------------------------------
 HP=$T/hp
 mkdir -p "$HP/accounts" "$T/hphome/.claude-guest" "$T/hphome/.claude-work" "$T/hpother"
@@ -431,23 +443,39 @@ eq "merge keeps the model Claude Code wrote" opus "$(jq -r .model "$H/.claude-wo
 eq "merge adds the keys the file lacked" "high colloid" "$(jq -r '"\(.effortLevel) \(.outputStyle)"' "$H/.claude-work/settings.json")"
 
 # --- the shipped hook replaces its own entries and keeps the others ---------------------
-HOOK='"$HOME/.iterm2/bin/it2" handle-agent-hook'
-jq -n --arg h "$HOOK" '{hooks: {Stop: [
+OLDHOOK='"$HOME/.iterm2/bin/it2" handle-agent-hook'
+HANDHOOK='~/.iterm2/bin/it2 handle-agent-hook'
+NEWHOOK=$(jq -r '.hooks.Stop[0].hooks[0].command' "$HERE/settings.json")
+jq -n --arg h "$OLDHOOK" --arg g "$HANDHOOK" '{hooks: {Stop: [
     {hooks: [{type: "command", command: $h, timeout: 1}]},
     {hooks: [{type: "command", command: "mine"}]},
-    {hooks: [{type: "command", command: $h}]}], Custom: [{matcher: "x"}]}, extraKey: 7}' >"$H/.claude-work/settings.json"
+    {hooks: [{type: "command", command: $g}]}], Custom: [{matcher: "x"}],
+    PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "first"}, {type: "command", command: $h}, {type: "command", command: "last"}]}]},
+    extraKey: 7}' >"$H/.claude-work/settings.json"
 run "$B/mac.pub" >/dev/null 2>&1
 s=$H/.claude-work/settings.json
-eq "a duplicated shipped hook entry collapses to one, in place, with the shipped timeout" "$HOOK#5|mine#0" \
+eq "the older spellings collapse to one shipped hook, in place, with the shipped timeout" "$NEWHOOK#5|mine#0" \
   "$(jq -r '[.hooks.Stop[].hooks[0] | "\(.command)#\(.timeout // 0)"] | join("|")' "$s")"
 eq "that Stop has two entries" 2 "$(jq '.hooks.Stop | length' "$s")"
+eq "an entry with a matcher keeps its matcher and its other hooks, the shipped hook in the old one's place" \
+  "Bash|first|$NEWHOOK|last" "$(jq -r '.hooks.PreToolUse[0] | "\(.matcher)|\(.hooks | map(.command) | join("|"))"' "$s")"
+eq "and PreToolUse has no second entry" 1 "$(jq '.hooks.PreToolUse | length' "$s")"
 eq "another event's own entries stay" '[{"matcher":"x"}]' "$(jq -c .hooks.Custom "$s")"
 eq "a key of its own stays" 7 "$(jq .extraKey "$s")"
-eq "the other nine events got the shipped hook once" "9" "$(jq '[.hooks | to_entries[] | select(.key != "Stop" and .key != "Custom") | .value | length] | add' "$s")"
+eq "the other eight events got the shipped hook once" "8" "$(jq '[.hooks | to_entries[] | select(.key != "Stop" and .key != "Custom" and .key != "PreToolUse") | .value | length] | add' "$s")"
 before_hooks=$(jq -S . "$s")
 out=$(run "$B/mac.pub" 2>&1)
 has "a merged hook file is left alone next time" "nothing to change" "$out"
 eq "and is byte for byte the same" "$before_hooks" "$(jq -S . "$s")"
+# The shipped hook command never blocks or errors Claude Code.
+mkdir -p "$T/hk/.iterm2/bin"
+eq "without it2 the hook exits 0 quietly" "rc=0 err=" "$(HOME=$T/hk bash -c "$NEWHOOK" </dev/null 2>"$T/hk.err"; echo "rc=$? err=$(cat "$T/hk.err")")"
+printf '#!/bin/sh\nexit 7\n' >"$T/hk/.iterm2/bin/it2"
+chmod +x "$T/hk/.iterm2/bin/it2"
+eq "an it2 that fails is reported on stderr and exits 0" "rc=0 err=it2 hook exit 7" "$(HOME=$T/hk bash -c "$NEWHOOK" </dev/null 2>"$T/hk.err"; echo "rc=$? err=$(cat "$T/hk.err")")"
+printf '#!/bin/sh\ncat >"%s/hk.in"\n' "$T" >"$T/hk/.iterm2/bin/it2"
+echo '{"x":1}' | HOME=$T/hk bash -c "$NEWHOOK"
+eq "a working it2 gets the hook's input" '{"x":1}' "$(cat "$T/hk.in")"
 
 # --- the launcher block is replaced in place --------------------------------------
 cp "$HERE/launchers.bash" "$T/launchers.orig"
@@ -707,6 +735,37 @@ err=$(run "$T/bad.pub" 2>&1); rc=$?
 err=$(run 2>&1); rc=$?
 eq "usage without a key file" 2 "$rc"
 eq "refusals change nothing" "" "$(cat "$CALLS")"
+# A staged file that is not JSON stops the run before anything is written.
+for broken in policy.json accounts/$ACCT.json settings.json; do
+  fresh "$R"
+  cp "$B/$broken" "$T/keep.json"
+  printf '{' >"$B/$broken"
+  before=$(tree "$R")
+  err=$(run "$B/mac.pub" 2>&1); rc=$?
+  [[ $rc -eq 1 && $err == *"$broken is not valid JSON"* ]] && ok "a staged $broken that is not JSON stops the run" || bad "broken $broken (rc=$rc): $err"
+  eq "and nothing under $R changed for $broken" "$before" "$(tree "$R")"
+  [[ ! -e $R/etc/claude-code ]] && ok "and no /etc/claude-code exists for $broken" || bad "/etc/claude-code written for $broken"
+  cp "$T/keep.json" "$B/$broken"
+done
+# The helper runs jq and getent by path.
+fresh "$R"
+rm "$R/usr/bin/getent"
+err=$(run "$B/mac.pub" 2>&1); rc=$?
+[[ $rc -eq 1 && $err == *"/usr/bin/jq and /usr/bin/getent must exist"* ]] && ok "a server without /usr/bin/getent is refused" || bad "getent (rc=$rc): $err"
+# gh: a problem when missing, a note either way when present.
+fresh "$R"
+rm "$R/usr/bin/gh"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "a missing gh fails the run" 1 "$rc"
+has "and is named" "PROBLEM: /usr/bin/gh is missing" "$out"
+fresh "$R"
+out=$(run "$B/mac.pub" 2>&1); rc=$?
+eq "gh present but logged out passes" 0 "$rc"
+has "and says the operator logs in" "note: gh is not logged in for openclawops" "$out"
+fresh "$R"
+touch "$STATE/gh-login"
+out=$(run "$B/mac.pub" 2>&1)
+has "a logged-in gh is noted" "note: gh is logged in for openclawops" "$out"
 if [[ ! -e $T/bin/tmux ]]; then
   echo 'set -g no-such-option on' >>"$B/tmux.conf"
   err=$(run --check "$B/mac.pub" 2>&1); rc=$?
@@ -801,7 +860,7 @@ esac'
   calls=$(cat "$CALLS")
   has "apply adds the Mac's private key to a throwaway agent" "ssh-add -q $AH/.ssh/id_ed25519" "$calls"
   has "apply clones as openclawops with that agent forwarded" \
-    "ssh -A contabo-dev git clone -q git@github.com:$slug.git ~/Projects/colloid-swarm SSH_AUTH_SOCK=/agent.sock" "$calls"
+    "ssh -A contabo-dev GIT_CONFIG_GLOBAL=/dev/null git clone -q git@github.com:$slug.git ~/Projects/colloid-swarm SSH_AUTH_SOCK=/agent.sock" "$calls"
   has "apply stops the agent" "ssh-agent -k" "$calls"
   : >"$CALLS"
   out=$(HOME=$AH SETUP_ROOT=$R TMPDIR=$T/tmpd "$HERE/apply" 2>&1); rc=$?

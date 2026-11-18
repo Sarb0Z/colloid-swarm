@@ -91,6 +91,8 @@ COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - -C "$stage" . |
 
 # colloid-swarm in openclawops' ~/Projects, cloned over ssh with the Mac's key,
 # which a throwaway agent forwards for this one login; nothing stays on the server.
+# The clone runs without the global git config, so the https rewrite in
+# ~/.gitconfig-projects cannot turn its ssh url into one that needs a gh login.
 origin=$(git -C "$here" remote get-url origin)
 slug=${origin#git@github.com:}
 slug=${slug#https://*github.com/}
@@ -114,7 +116,7 @@ else
   eval "$(ssh-agent -s)" >/dev/null
   trap 'ssh-agent -k >/dev/null; rm -rf "$stage"' EXIT
   ssh-add -q "${key%.pub}"
-  ssh -A contabo-dev "git clone -q git@github.com:$slug.git ~/$clone" || {
+  ssh -A contabo-dev "GIT_CONFIG_GLOBAL=/dev/null git clone -q git@github.com:$slug.git ~/$clone" || {
     echo "apply: GitHub refused the clone; add the Mac's key to the account that owns $slug: gh ssh-key add $key" >&2
     exit 1
   }

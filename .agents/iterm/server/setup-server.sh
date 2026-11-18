@@ -108,9 +108,16 @@ make_parent() {
   if [[ $2 == "$user:$user" ]]; then
     as_user mkdir -p "$dir"
   else
-    mkdir -p "$dir"
-    chmod 755 "$dir"
-    chown "$2" "$dir"
+    local made=() d=$dir
+    while [[ ! -d $d ]]; do
+      made=("$d" "${made[@]}")
+      d=$(dirname "$d")
+    done
+    for d in "${made[@]}"; do
+      mkdir "$d"
+      chmod 755 "$d"
+      chown "$2" "$d"
+    done
   fi
 }
 
@@ -242,10 +249,18 @@ grep -qx 'VERSION_CODENAME=noble' "$R/etc/os-release" ||
   die "expected Ubuntu 24.04 (noble), the release this script picks ppa:jgmath2000/et for"
 [[ -d $home ]] || die "no home folder $home for $user"
 command -v jq >/dev/null || die "jq is needed to merge settings.json"
+# The policy helper names these two by path: Claude Code runs it with a minimal PATH.
+[[ -x $R/usr/bin/jq && -x $R/usr/bin/getent ]] || die "/usr/bin/jq and /usr/bin/getent must exist: the policy helper runs them by path"
 for f in tmux.conf launchers.bash settings.json claude-version github-known-hosts tailscale-archive-keyring.asc \
   managed-settings.json policy-helper.sh policy.json server-asks.json claude-statusline.sh CLAUDE.md output-style.md \
   gitconfig-projects git-identities.json colloid-diffview.lua; do
   [[ -f $here/$f ]] || die "missing $here/$f"
+done
+# A command substitution that fails inside an argument does not stop this script,
+# so every JSON file it reads is parsed once here, before anything is written.
+for f in "$here"/{settings,managed-settings,policy,server-asks,git-identities}.json "$here"/accounts/*.json; do
+  [[ -f $f ]] || continue
+  jq -e . "$f" >/dev/null 2>&1 || die "$f is not valid JSON; nothing was changed"
 done
 pub=$(<"$keyfile")
 [[ $pub =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com)\ [A-Za-z0-9+/]+=*(\ [^[:cntrl:]]*)?$ ]] ||
@@ -377,19 +392,28 @@ fi
 # A settings.json Claude Code has written to since keeps its own keys. The
 # shipped env keys are forced (they are privacy settings); every other shipped key
 # is a default, used only where the file has none, so a model picked on the server
-# stays. Each event's hook entry carrying a shipped command is replaced in place,
-# and added when absent, so a rerun adds no second copy.
+# stays. Within each event, the hook that carries the shipped command, or one of
+# its older spellings, is replaced in place by the shipped hook; its entry's matcher
+# and other hooks stay. The shipped entry is added when no such hook exists, so a
+# rerun adds no second copy.
 merge_settings='. as $cur | $ship[0] as $s
+  | ["\"$HOME/.iterm2/bin/it2\" handle-agent-hook", "~/.iterm2/bin/it2 handle-agent-hook"] as $legacy
   | (($s | del(.env, .hooks)) * $cur)
   | .env = (($cur.env // {}) + $s.env)
   | .hooks = reduce ($s.hooks | keys[]) as $ev (($cur.hooks // {});
-      ($s.hooks[$ev] | map(.hooks[].command)) as $cmds
+      (($s.hooks[$ev] | map(.hooks[].command)) + $legacy) as $own
       | $s.hooks[$ev] as $mine
       | (.[$ev] // []) as $arr
-      | ($arr | map(any(.hooks[]?; .command as $c | any($cmds[]; . == $c)))) as $own
-      | if ($own | any) then
-          .[$ev] = ([range(0; $arr | length)] | map(
-            if $own[.] then (if . == ($own | index(true)) then $mine[] else empty end) else $arr[.] end))
+      | def isown: .command as $c | any($own[]; . == $c);
+        if any($arr[]; any(.hooks[]?; isown)) then
+          .[$ev] = ((reduce $arr[] as $e ({out: [], done: false};
+              if ($e.hooks | type) == "array" and ($e.hooks | any(isown)) then
+                (reduce $e.hooks[] as $h ({hs: [], done: .done};
+                  if ($h | isown) then (if .done then . else .hs += [$mine[0].hooks[0]] | .done = true end)
+                  else .hs += [$h] end)) as $r
+                | .done = $r.done
+                | if ($r.hs | length) > 0 then .out += [$e | .hooks = $r.hs] else . end
+              else .out += [$e] end)) | .out)
         else .[$ev] = $arr + $mine end)'
 for account in "${accounts[@]}"; do
   folder=$home/.claude-$account
@@ -472,8 +496,10 @@ elif ! grep -qE '(\.|source)[[:space:]]+[^#]*\.(profile|bashrc)' "$login"; then
 fi
 
 # ── 6. Development: tools, git identity, GitHub's host key, ~/Projects ─────────
-# Clones and pushes use the Mac's key, forwarded by et while the Mac is attached
-# (the Dev server profile's --forward-ssh-agent), so no GitHub login is stored here.
+# Clones under ~/Projects use https with the gh login the operator stores by hand
+# (`gh auth login --with-token`). The colloid-swarm clone that `apply` makes, and
+# any clone outside ~/Projects, use the Mac's key, forwarded by et while the Mac
+# is attached (the Dev server profile's --forward-ssh-agent).
 missing=()
 for package in "${tools[@]}"; do
   installed "$package" || missing+=("$package")
@@ -508,6 +534,13 @@ fi
 # Clones under ~/Projects reach GitHub over https with the operator's gh login
 # (which the operator makes with `gh auth login --with-token`); the services'
 # clones under ~/apps keep their own transport, as only ~/Projects reads the file.
+if [[ ! -x $R/usr/bin/gh ]]; then
+  problem "/usr/bin/gh is missing: clones under ~/Projects take their credentials from it"
+elif as_user "$R/usr/bin/gh" auth status >/dev/null 2>&1; then
+  echo "note: gh is logged in for $user"
+else
+  echo "note: gh is not logged in for $user; the operator runs gh auth login --with-token"
+fi
 put "$here/gitconfig-projects" "$home/.gitconfig-projects" 644 "write $user's ~/.gitconfig-projects, gh as the credential helper for GitHub"
 gc=$home/.gitconfig
 include_head='[includeIf "gitdir:~/Projects/"]'
@@ -628,15 +661,19 @@ server_asks=$(jq -c . "$here/server-asks.json")
 with_server_asks() {
   jq --argjson asks "$server_asks" '.managedSettings.permissions.ask = (((.managedSettings.permissions.ask // []) + $asks) | unique)' "$1"
 }
-put "$here/managed-settings.json" "$cc/managed-settings.json" 644 "write /etc/claude-code/managed-settings.json, naming the policy helper" root:root
-put "$here/policy-helper.sh" "$cc/policy-helper.sh" 755 "install /etc/claude-code/policy-helper.sh" root:root
-put_text "$(with_server_asks "$here/policy.json")" "$cc/policy.json" 644 "write /etc/claude-code/policy.json, the Mac's policy with the server's own asks" root:root
+# Payloads first and managed-settings.json last: the helper that file names is
+# useless without them, and a helper that fails stops Claude Code from starting.
+policy=$(with_server_asks "$here/policy.json")
 payloads=("$here"/accounts/*.json)
 for payload in "${payloads[@]}"; do
   [[ -f $payload ]] || continue
-  put_text "$(with_server_asks "$payload")" "$cc/accounts/$(basename "$payload")" 644 \
+  body=$(with_server_asks "$payload")
+  put_text "$body" "$cc/accounts/$(basename "$payload")" 644 \
     "write the policy payload of one limited account in /etc/claude-code/accounts, with the server's own asks" root:root
 done
+put_text "$policy" "$cc/policy.json" 644 "write /etc/claude-code/policy.json, the Mac's policy with the server's own asks" root:root
+put "$here/policy-helper.sh" "$cc/policy-helper.sh" 755 "install /etc/claude-code/policy-helper.sh" root:root
+put "$here/managed-settings.json" "$cc/managed-settings.json" 644 "write /etc/claude-code/managed-settings.json, naming the policy helper" root:root
 
 # ── 7. Tailscale, the Mac's exit node for the phone link ───────────────────────
 # The Mac's own network blocks Signal's hosts, so the Mac reaches Signal through
