@@ -1,6 +1,6 @@
 # Review: the Signal TLS proxy module and its Mac side
 
-Covers: 3c9e773..78ecbc5
+Covers: 3c9e773..c2251ab
 
 Scope: commits `fb1fdd6`, `0c7ddbb`, `7c314e2` and `78ecbc5`. They cover:
 - `.agents/iterm/server/signal-proxy/` (compose, terminate config, vendored
@@ -32,3 +32,12 @@ Round 1 found one `P1` and six `P2` items, and no `P0`.
 | 7 | P2 | The plan says the relay config is fetched; the module vendors it. | Adopted: the plan line is corrected. |
 
 QA's cosmetic note, `in -8 h` for an expired certificate, is also adopted: it reads `expired 8 h ago`.
+
+The fixes landed in `81ca557` (finding 6 and the wording), `edfc4eb` (finding
+1, with a check after each reload that the proxy serves the certificate on
+disk), `1d56ec0` (2), `9ea52ec` (4), `cc87bde` (5) and `5ab279f` (3), each
+with a test that failed before it. The lead's `c2251ab` closes the gap the
+writer reported: a switch that Let's Encrypt refuses puts the staging
+certificate back, and its test fails without the restore. The round has no
+`P0`, so the fixes do not re-enter review. The run's verify command passed at
+`c2251ab`, rerun by the lead.
