@@ -107,6 +107,7 @@ case "$1 $2" in
   run\ *)
     echo "docker $*" >>"$CALLS"
     [[ -e $STATE/lego-noop ]] && exit 0
+    [[ -e $STATE/lego-fails ]] && { echo "acme: error: 403 urn:ietf:params:acme:error:unauthorized" >&2; exit 1; }
     end=$(sed -n "s/^notAfter=//p" "$certs/62.171.166.213.crt" 2>/dev/null)
     if [[ -z $end || $* == *--renew-force* ]] || (( end - $(date +%s) <= 80 * 3600 )); then
       mkdir -p "$certs"
@@ -298,6 +299,14 @@ eq "to production with a webroot that is not served: the staging certificate sta
 compgen -G "$R/var/lib/lego/certificates-*" >/dev/null && bad "to production with a webroot that is not served: a folder was put aside" ||
   ok "to production with a webroot that is not served: nothing is put aside"
 rm "$STATE/webroot-broken"
+touch "$STATE/lego-fails"
+out=$(renew 2>&1); rc=$?
+eq "to production when Let's Encrypt refuses: exits 1" 1 "$rc"
+has "to production when Let's Encrypt refuses: says the old certificate is back" "the certificate from before is back in place" "$out"
+eq "to production when Let's Encrypt refuses: the staging certificate is in its folder again" "$staging_cert" "$(cat "$cert" 2>&1)"
+compgen -G "$R/var/lib/lego/certificates-*" >/dev/null && bad "to production when Let's Encrypt refuses: a folder is left aside" ||
+  ok "to production when Let's Encrypt refuses: no folder is left aside"
+rm "$STATE/lego-fails"
 : >"$CALLS"
 certs_inode=$(ls -di "$R/var/lib/lego/certificates" | awk '{print $1}')
 out=$(run 2>&1); rc=$?

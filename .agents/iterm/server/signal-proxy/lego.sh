@@ -124,9 +124,18 @@ fingerprint() { [[ ! -f $cert ]] || cat "$cert" "$key" | cksum; }
 before=$(fingerprint)
 extra=()
 ((!force)) || extra=(--renew-force)
-docker run --rm --name signal-proxy-lego -v "$store:$store" -v "$webroot:$webroot" "$image" \
+if ! docker run --rm --name signal-proxy-lego -v "$store:$store" -v "$webroot:$webroot" "$image" \
   run --accept-tos --path "$store" --server "$server" --domains "$ip" --http --http.webroot "$webroot" \
-  --profile shortlived ${extra[@]+"${extra[@]}"}
+  --profile shortlived ${extra[@]+"${extra[@]}"}; then
+  # A switch that Let's Encrypt refused puts the old files back, so a restart of
+  # the proxy before the next run still finds a certificate to load.
+  if ((foreign)) && [[ ! -e $cert ]]; then
+    mv -- "$aside"/* "$R$store/certificates/"
+    rmdir "$aside"
+    die "lego failed against $server; the certificate from before is back in place"
+  fi
+  die "lego failed against $server"
+fi
 printf '%s\n' "$server" >"$issued_by"
 after=$(fingerprint)
 if [[ $before == "$after" ]]; then
