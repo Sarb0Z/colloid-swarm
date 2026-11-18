@@ -28,7 +28,7 @@ has() { if [[ $3 == *"$2"* ]]; then ok "$1"; else bad "$1: [$2] not in [$3]"; fi
 lacks() { if [[ $3 != *"$2"* ]]; then ok "$1"; else bad "$1: [$2] is in [$3]"; fi; }
 
 export HOME=$T/home PANE_RUN_SETTLE=0
-export CLAUDE_TAB_STATE_DIR=$T/no-tab-state
+export CLAUDE_TAB_STATE_DIR=$T/no-tab-state PANE_RUN_PLATFORM=linux
 unset CLAUDE_CONFIG_DIR TMUX TMUX_PANE ITERM_SESSION_ID
 SOCK=$T/in.sock
 SID1=11111111-2222-4333-8444-555555555555
@@ -151,11 +151,36 @@ send x 'do it'
 has "tmux, @iterm2_wg names the leader pane: its session" "Lead: First [work" "$out"
 lacks "tmux, @iterm2_wg: no menu" "Press the key" "$out"
 
+# One session, proven by its terminal to sit in another window: never posted to.
+rm -f "$T/wg" "$HOME"/.claude-*/sessions/*.json
+printf '%%1 /dev/pts/9 @1\n%%3 /dev/pts/1 @2\n' >"$T/panes"
+session "$HOME/.claude-work" "$A" "$SID1" "$T/proj" "Elsewhere-window" /dev/pts/1
+send z 'do it'
+eq "tmux, the one session is in another window: nothing posted" 0 "$posts"
+has "tmux, the one session is in another window: the menu is shown" "Press the key" "$out"
+send 1 'do it'
+eq "tmux, the one session is in another window: the operator may pick it" 1 "$posts"
+session "$HOME/.claude-personal" "$B" "$SID2" "$T/proj" "Second" /dev/pts/2
+printf '%%1 /dev/pts/9 @1\n%%2 /dev/pts/2 @1\n%%3 /dev/pts/1 @2\n' >"$T/panes"
+session "$HOME/.claude-work" "$A" "$SID1" "$T/proj" "First" /dev/pts/2
 # Two sessions in the window: the menu offers those two only.
 session "$HOME/.claude-work" "$A" "$SID1" "$T/proj" "First" /dev/pts/2
 send 1 'do it'
 has "tmux, two in the window: the menu" "Press the key" "$out"
 unset TMUX TMUX_PANE
+
+# --- the platform decides, and ~/.claude is not searched --------------------------
+reset
+mkdir -p "$HOME/.claude/sessions"
+session "$HOME/.claude" "$A" "$SID1" "$T/proj" "Other-person" /dev/pts/1
+send x 'do it'
+eq "~/.claude's sessions are not candidates on a server" 0 "$posts"
+has "~/.claude: refused for want of a session" "no live Claude session is recorded for" "$err"
+rm -f "$HOME/.claude/sessions/"*.json
+session "$HOME/.claude-work" "$A" "$SID1" "$T/proj" "Server-lead" /dev/pts/1
+PANE_RUN_PLATFORM=darwin send x 'do it'
+eq "on macOS a registry session is not used, tab-state folder or not" 0 "$posts"
+has "on macOS the tab-state refusal stands" "no live Claude session is recorded for" "$err"
 
 # --- saved prompt without defaults ---------------------------------------------
 reset

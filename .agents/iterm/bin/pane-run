@@ -20,14 +20,15 @@ lead's status (default 2). CLAUDE_TAB_STATE_DIR is claude-tab-state's folder.
 PANE_RUN_ITERM_DOMAIN is the defaults domain, or plist path, of iTerm2's
 preferences, read for its saved prompt "Default" and never written.
 
-On a server (Linux over iTerm2's SSH integration, no claude-tab-state folder)
+On a server (Linux, over iTerm2's SSH integration; PANE_RUN_PLATFORM stands in for the platform in tests)
 `it2` is ~/.iterm2/bin/it2 when ~/.config/iterm2/it2 is missing. The lead is
 found in Claude Code's session registry of every account folder
-($CLAUDE_CONFIG_DIR, else ~/.claude-{work,personal,family,guest} and ~/.claude):
+($CLAUDE_CONFIG_DIR, else ~/.claude-{work,personal,family,guest}):
 the live sessions whose folder is this pane's. Inside tmux, a session whose
 terminal is a pane of this pane's window, or of the leader pane in the pane
-option @iterm2_wg, wins over the others. One session is used, several are
-offered as a menu, none is refused. Where `defaults` is absent, the saved
+option @iterm2_wg, is the only kind used automatically. One such session is
+used; several, or none, give a menu of the folder's sessions, and no session of
+the folder is a refusal. On a server the saved
 prompt "Default" is the catalog's default_review_prompt, from ../catalog.json.
 Design: docs/notes/2026-11-15-iterm2-review-and-status-spec.md, unit 4.
 """
@@ -50,7 +51,11 @@ HERE = Path(__file__).resolve().parent
 STATE = Path(os.environ.get("CLAUDE_TAB_STATE_DIR", Path.home() / ".local/state/iterm-tabs"))
 IT2 = next((p for p in (Path.home() / ".config/iterm2/it2", Path.home() / ".iterm2/bin/it2") if p.exists()),
            Path.home() / ".config/iterm2/it2")
-ACCOUNT_DIRS = (".claude-work", ".claude-personal", ".claude-family", ".claude-guest", ".claude")
+# The server's launchers; its plain ~/.claude is another person's login, so it is not searched.
+ACCOUNT_DIRS = (".claude-work", ".claude-personal", ".claude-family", ".claude-guest")
+# The server path is for Linux, whether or not a tab-state folder exists. PANE_RUN_PLATFORM stands in
+# for sys.platform in tests.
+SERVER = os.environ.get("PANE_RUN_PLATFORM", sys.platform).startswith("linux")
 UUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
 TAB_ID = re.compile(rf"w\d+t\d+p\d+:({UUID})")
 MODELS = ("opus", "sonnet", "haiku", "fable")
@@ -323,7 +328,7 @@ class Leads:
     """The tab records, with each one's liveness read once."""
 
     def __init__(self):
-        self.server = not STATE.is_dir()
+        self.server = SERVER
         self.records, self.dead = (registry_records() if self.server else tab_records()), {}
         self.only: list | None = None
 
@@ -333,13 +338,18 @@ class Leads:
         here = os.getcwd()
         found = [guid for guid, record in self.records.items() if same_place(record.get("cwd", ""), here) and self.live(guid)]
         ttys = window_ttys()
-        if len(found) > 1 and ttys:
-            near = [g for g in found if "/dev/" + ps(self.records[g]["pid"], "tty") in ttys]
-            if near:
-                self.only, found = near, near
+        if ttys is not None:
+            # A session on no terminal of this window or its leader's is another tab's, however alone it is.
+            found_here = [g for g in found if "/dev/" + ps(self.records[g]["pid"], "tty") in ttys]
+            if len(found_here) == 1:
+                return found_here[0], ""
+            if found_here:
+                self.only = found_here
+            return None, (f"{len(found)} live sessions of this folder, "
+                          f"{len(found_here) or 'none'} on a terminal of this tmux window")
         if len(found) == 1:
             return found[0], ""
-        return None, f"{len(found)} live sessions of this folder" + (" in this tmux window" if self.only else "")
+        return None, f"{len(found)} live sessions of this folder"
 
     def live(self, guid: str) -> bool:
         if guid not in self.records:
@@ -508,7 +518,7 @@ def iterm_review_prompt(repo: Path) -> str:
     repository without the harness. Read from iTerm2's preferences, which are never written."""
     without = (f'{repo} has no .agents/playbooks/hostile-review.md, so the brief is iTerm2\'s saved prompt '
                f'"Default", and')
-    if shutil.which("defaults") is None:
+    if SERVER:
         brief = json.loads((HERE.parent / "catalog.json").read_text())["default_review_prompt"]
         if ENVELOPE_TAG.search(brief):
             raise Refusal(f"{without} the catalog's default_review_prompt holds a cross-session-message tag")
