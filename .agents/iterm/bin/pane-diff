@@ -5,8 +5,18 @@
 # uncommitted changes only; anything else is passed through as typed.
 set -uo pipefail
 
-# Neovim by path: a login shell's PATH may lack it. PANE_DIFF_NVIM overrides.
-nvim=${PANE_DIFF_NVIM:-$(command -v nvim || echo /opt/homebrew/bin/nvim)}
+# Neovim: PATH first, then the Linux and Homebrew locations, since a pane's PATH
+# (a tmux server's on Linux, a non-login shell's on macOS) may lack it.
+# PANE_DIFF_NVIM overrides.
+find_nvim() {
+  command -v nvim && return
+  local path
+  for path in /usr/bin/nvim /opt/homebrew/bin/nvim; do
+    [[ -x $path ]] && { echo "$path"; return; }
+  done
+  echo /opt/homebrew/bin/nvim
+}
+nvim=${PANE_DIFF_NVIM:-$(find_nvim)}
 here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
 # The pane would close at once on an error, so every failure holds it for a key.

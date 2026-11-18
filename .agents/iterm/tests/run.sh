@@ -110,6 +110,14 @@ eq "pane-diff % in file name" "-c${nl}DiffviewOpen $c1 -- a\\%b.txt" "$(run_diff
 eq "pane-diff # in file name" "-c${nl}DiffviewOpen $c1 -- c\\#d.txt" "$(run_diff "$T/up" HEAD -- 'c#d.txt')"
 eq "pane-diff [ ] in file name" "-c${nl}DiffviewOpen $c1 -- e\\[1\\].txt" "$(run_diff "$T/up" HEAD -- 'e[1].txt')"
 
+# Without PANE_DIFF_NVIM, nvim comes from PATH (the Linux server's tmux PATH
+# included).
+mkdir "$T/fakebin"
+cp "$T/nvim-stub" "$T/fakebin/nvim"
+rm -f "$T/argv"
+(cd "$T/up" && env -u PANE_DIFF_NVIM PATH="$T/fakebin:$PATH" "$IT/bin/pane-diff" </dev/null >/dev/null 2>&1)
+eq "pane-diff finds nvim on PATH without PANE_DIFF_NVIM" "-c${nl}DiffviewOpen $c1" "$(cat "$T/argv" 2>/dev/null)"
+
 # Untracked files: a commit base gets a second tab, with tab 1 current and a message.
 repo "$T/ut"
 u1=$(commit "$T/ut" one)
