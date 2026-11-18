@@ -254,6 +254,16 @@ rm "$STATE/serve-stale"
 
 : >"$CALLS"
 cert_left 50 "$STAGING"
+touch "$STATE/ps-fails"
+out=$(renew 2>&1); rc=$?
+eq "a compose ps that fails after a new certificate: exits 1" 1 "$rc"
+has "a compose ps that fails after a new certificate: says the proxy was not reloaded" \
+  "lego.sh: docker compose ps failed, so the proxy was not reloaded onto the new certificate" "$out"
+lacks "a compose ps that fails after a new certificate: no reload" "nginx -s reload" "$(cat "$CALLS")"
+rm "$STATE/ps-fails"
+
+: >"$CALLS"
+cert_left 50 "$STAGING"
 touch "$STATE/lego-noop"
 out=$(renew 2>&1); rc=$?
 eq "a renewal that leaves the certificate: exits 0" 0 "$rc"
@@ -321,6 +331,12 @@ eq "a proxy serving another certificate than the file: the run exits 1" 1 "$rc"
 has "a proxy serving another certificate than the file: reported" \
   "PROBLEM: the proxy on 8443 does not serve /var/lib/lego/certificates/62.171.166.213.crt" "$out"
 printf '%s\n' "$served_before" >"$STATE/served"
+
+touch "$STATE/ps-fails"
+out=$(run 2>&1); rc=$?
+eq "a run whose compose ps fails: exits 1" 1 "$rc"
+has "a run whose compose ps fails: says so" "setup-proxy: docker compose ps failed" "$out"
+rm "$STATE/ps-fails"
 
 # --- refusals change nothing ---------------------------------------------------------
 fresh

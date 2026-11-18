@@ -130,7 +130,9 @@ echo "lego wrote a new certificate: $(openssl x509 -enddate -noout -in "$cert")"
 
 # lego has written the chain and the key by the time it exits, so nginx reads a
 # matching pair. A proxy not running yet reads them when it starts.
-if "${compose[@]}" ps --status running --services | grep -qx terminate; then
+services=$("${compose[@]}" ps --status running --services) ||
+  die "docker compose ps failed, so the proxy was not reloaded onto the new certificate"
+if grep -qx terminate <<<"$services"; then
   "${compose[@]}" exec -T terminate nginx -t
   "${compose[@]}" exec -T terminate nginx -s reload
   served || exit 1

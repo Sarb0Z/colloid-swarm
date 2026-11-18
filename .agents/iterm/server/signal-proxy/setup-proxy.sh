@@ -163,7 +163,8 @@ fi
 # ── 4. The proxy's containers ────────────────────────────────────────────────
 running=
 if [[ -f $dir/compose.yaml ]]; then
-  running=$("${compose[@]}" ps --status running --services | LC_ALL=C sort | tr '\n' ' ')
+  services=$("${compose[@]}" ps --status running --services) || die "docker compose ps failed; the containers were left as they are"
+  running=$(printf '%s' "$services" | LC_ALL=C sort | tr '\n' ' ')
 fi
 if ((config_changed)) && [[ -n $running ]]; then
   if change "recreate the proxy's containers, to read the new configuration"; then
