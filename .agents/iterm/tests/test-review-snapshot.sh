@@ -151,8 +151,13 @@ printf '.agents/worktrees/\n' >"$N/.gitignore"
 git -C "$N" add -A
 git -C "$N" commit -q -m one
 n1=$(git -C "$N" rev-parse HEAD)
-mkdir -p "$T/linkhome"
-HOME=$T/linkhome "$IT/install.sh" >/dev/null
+# install.sh installs the phone link too, so this home has an account folder,
+# and stand-ins take the place of launchctl and signal-cli.
+mkdir -p "$T/linkhome/.claude"
+printf '#!/bin/sh\n' >"$T/signal-cli"
+chmod +x "$T/signal-cli"
+HOME=$T/linkhome PHONE_LINK_LAUNCHCTL=$IT/tests/fake-launchctl FAKE_LAUNCHCTL_STATE=$T/launchd \
+  PHONE_LINK_SIGNAL_CLI=$T/signal-cli "$IT/install.sh" >/dev/null
 out=$(cd "$N" && CLAUDE_CODE_SESSION_ID=sess-5 "$T/linkhome/.local/bin/review-snapshot" 2>/dev/null); rc=$?
 eq "no remote, installed link: base is HEAD" "0 $n1 $n1 yes" "$rc $(field base) $(field tip) $(field committed)"
 eq "repository without worktree_records.py: says only step 5 removes it" \

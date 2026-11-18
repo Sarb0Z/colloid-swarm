@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Stand-in for launchctl in the install tests: install.sh takes it from
+# PHONE_LINK_LAUNCHCTL. It answers the three calls phone/install.py makes,
+# keeps which agents are loaded as files of $FAKE_LAUNCHCTL_STATE/loaded, and
+# appends every call to $FAKE_LAUNCHCTL_STATE/calls. No real launchd is reached.
+set -euo pipefail
+state=${FAKE_LAUNCHCTL_STATE:?fake-launchctl: FAKE_LAUNCHCTL_STATE names no folder}
+mkdir -p "$state/loaded"
+echo "$*" >>"$state/calls"
+
+case ${1:-} in
+  print) # print gui/<uid>/<label>
+    [[ -e $state/loaded/${2##*/} ]]
+    ;;
+  bootstrap) # bootstrap gui/<uid> <plist>
+    label=$(basename "$3" .plist)
+    [[ -f $3 ]] || { echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; }
+    [[ ! -e $state/loaded/$label ]] || { echo "Bootstrap failed: 37: Operation already in progress" >&2; exit 37; }
+    : >"$state/loaded/$label"
+    ;;
+  bootout) # bootout gui/<uid>/<label>
+    [[ -e $state/loaded/${2##*/} ]] || { echo "Boot-out failed: 3: No such process" >&2; exit 3; }
+    rm "$state/loaded/${2##*/}"
+    ;;
+  *)
+    echo "fake-launchctl: a call the install does not make: $*" >&2
+    exit 64
+    ;;
+esac

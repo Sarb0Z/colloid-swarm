@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for .agents/iterm: pane-base over fixture repositories, pane-diff with a
 # stub nvim recording its argv, install.sh in a temporary HOME, then every
-# test-*.sh beside this file, one per prompt-pane script.
+# test-*.sh beside this file, one per prompt-pane script and one for the phone
+# link's install, then the phone link's own tests (.agents/test-phone-hooks.sh).
 set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -17,6 +18,13 @@ bad() { printf 'FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
 eq() { # name expected actual
   if [[ $2 == "$3" ]]; then ok "$1"; else bad "$1: expected [$2] got [$3]"; fi
 }
+
+# install.sh installs the phone link too: it writes each Claude account's
+# settings and loads launchd agents. Every run of it here gets a home with one
+# account folder, and stand-ins for launchctl and signal-cli.
+printf '#!/bin/sh\n' >"$T/signal-cli"
+chmod +x "$T/signal-cli"
+export PHONE_LINK_LAUNCHCTL=$IT/tests/fake-launchctl FAKE_LAUNCHCTL_STATE=$T/launchd PHONE_LINK_SIGNAL_CLI=$T/signal-cli
 
 commit() { git -C "$1" commit -q --allow-empty -m "$2" && git -C "$1" rev-parse HEAD; }
 repo() { git init -q -b main "$1" 2>/dev/null; }
@@ -119,7 +127,7 @@ git -C "$T/ut" add new1.txt new2.txt
 eq "pane-diff nothing untracked: one view" "-c${nl}DiffviewOpen $u1" "$(run_diff "$T/ut")"
 
 # Through the link install.sh makes: pane-diff finds pane-base beside its target.
-mkdir -p "$T/linkhome"
+mkdir -p "$T/linkhome/.claude"
 HOME=$T/linkhome "$IT/install.sh" >/dev/null
 rm -f "$T/argv"
 (cd "$T/up" && "$T/linkhome/.local/bin/pane-diff" </dev/null >/dev/null 2>&1)
@@ -164,7 +172,7 @@ fi
 
 # --- (c) install.sh in a temporary HOME ------------------------------------
 H=$T/home
-mkdir "$H"
+mkdir -p "$H/.claude"
 out1=$(HOME=$H "$IT/install.sh" 2>&1); rc=$?
 eq "install first run exits 0" 0 "$rc"
 [[ -L $H/.local/bin/pane-base && -L $H/.local/bin/pane-diff ]] && ok "install links pane-base and pane-diff" || bad "install links pane-base and pane-diff"
@@ -173,7 +181,8 @@ for script in "$IT"/bin/*; do
   [[ -x $script ]] && ok "$name is executable" || bad "$script is not executable"
   eq "install links $name to its file here" "$script" "$(readlink "$H/.local/bin/$name")"
 done
-eq "install links nothing else" "$(ls "$IT/bin")" "$(ls "$H/.local/bin")"
+eq "install links the pane commands, the phone link's hooks and nothing else" \
+  "$({ ls "$IT/bin"; ls "$IT/phone/hooks"; } | LC_ALL=C sort)" "$(ls "$H/.local/bin" | LC_ALL=C sort)"
 [[ $out1 == *linked:* ]] && ok "install reports what it did" || bad "install reports: $out1"
 links1=$(ls -l "$H/.local/bin")
 out2=$(HOME=$H "$IT/install.sh" 2>&1); rc=$?
@@ -186,14 +195,17 @@ err=$(HOME=$H "$IT/install.sh" 2>&1 >/dev/null); rc=$?
 [[ $rc -ne 0 && $err == *"$H/.local/bin/pane-diff"* ]] && ok "install refuses a foreign file, naming it" || bad "install foreign file (rc=$rc): $err"
 eq "install left the foreign file intact" mine "$(cat "$H/.local/bin/pane-diff")"
 
-# --- (d) the prompt pane: each script's own test file ------------------------
+# --- (d) the prompt pane and the phone link's install: each one's own test file
 # Named, not globbed: lint-suite.py reaches a test only by its file name, and
 # the count check fails a test file added here without a line below.
-suites=(test-pane-run.sh test-prompt-catalog.sh test-review-snapshot.sh)
+suites=(test-pane-run.sh test-phone-install.sh test-prompt-catalog.sh test-review-snapshot.sh)
 on_disk=$(cd "$IT/tests" && ls test-*.sh | LC_ALL=C sort | tr '\n' ' ')
 eq "every test file here is run" "$(printf '%s\n' "${suites[@]}" | LC_ALL=C sort | tr '\n' ' ')" "$on_disk"
 for suite in "${suites[@]}"; do
   "$IT/tests/$suite" || bad "$suite"
 done
+
+# --- (e) the phone link: its modules and its hook, fired as Claude Code fires it
+"$IT/../test-phone-hooks.sh" || bad "test-phone-hooks.sh"
 
 ((fails == 0)) && echo "iterm tests passed" || { echo "$fails failed" >&2; exit 1; }

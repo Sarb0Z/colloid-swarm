@@ -1,22 +1,59 @@
 #!/usr/bin/env bash
-# Link each .agents/iterm/bin/* into $HOME/.local/bin. Safe to rerun; refuses
-# to replace anything that is not already its own link.
+# Install the iTerm2 pane commands and the phone link for this user. Safe to
+# rerun: what is in place is left alone, and nothing that is not this script's
+# own link is replaced.
+#
+#   install.sh [--zone <IANA zone>]   Link bin/* into ~/.local/bin. Then the phone
+#                                     link (phone/install.py says what it is): its
+#                                     hook in each Claude account's settings.json
+#                                     and its two launchd agents. --zone is the
+#                                     phone's time zone, by default this Mac's.
+#   install.sh --check                Print what an install would change, and
+#                                     change nothing.
+#   install.sh --uninstall [--check]  Remove the phone link's parts, and only
+#                                     those: the pane commands stay.
 set -euo pipefail
 
-src=$(cd "$(dirname "${BASH_SOURCE[0]}")/bin" && pwd -P)
-dest=$HOME/.local/bin
-mkdir -p "$dest"
-
-for f in "$src"/*; do
-  name=$(basename "$f")
-  target=$dest/$name
-  if [[ -L $target && $(readlink "$target") == "$f" ]]; then
-    echo "unchanged: $target"
-  elif [[ -e $target || -L $target ]]; then
-    echo "install.sh: $target exists and is not a link to $f; not replacing it" >&2
-    exit 1
-  else
-    ln -s "$f" "$target"
-    echo "linked: $target -> $f"
-  fi
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+mode=install check="" zone=""
+while (($#)); do
+  case $1 in
+    --check) check=--check ;;
+    --uninstall) mode=uninstall ;;
+    --zone)
+      [[ $# -ge 2 ]] || { echo "install.sh: --zone needs a time zone, for example Europe/Lisbon" >&2; exit 2; }
+      zone=$2
+      shift
+      ;;
+    *)
+      echo "usage: install.sh [--check] [--uninstall] [--zone <IANA zone>]" >&2
+      exit 2
+      ;;
+  esac
+  shift
 done
+
+if [[ $mode == install ]]; then
+  dest=$HOME/.local/bin
+  [[ -n $check ]] || mkdir -p "$dest"
+  for f in "$here"/bin/*; do
+    name=$(basename "$f")
+    target=$dest/$name
+    if [[ -L $target && $(readlink "$target") == "$f" ]]; then
+      echo "unchanged: $target"
+    elif [[ -e $target || -L $target ]]; then
+      echo "install.sh: $target exists and is not a link to $f; not replacing it" >&2
+      exit 1
+    elif [[ -n $check ]]; then
+      echo "would: linked: $target -> $f"
+    else
+      ln -s "$f" "$target"
+      echo "linked: $target -> $f"
+    fi
+  done
+fi
+
+arguments=("$mode")
+[[ -z $check ]] || arguments+=("$check")
+[[ -z $zone ]] || arguments+=(--zone "$zone")
+exec python3 "$here/phone/install.py" "${arguments[@]}"
