@@ -94,8 +94,9 @@ class Decision:
 class Wait:
     """One permission hook that waits, or whose event still waits for its ending."""
 
-    def __init__(self, conn, file: str):
-        self.conn, self.file = conn, file
+    def __init__(self, conn, file: str, digest: str):
+        # `digest` is the hook's call's name and input as `transcript.call_digest` gives them.
+        self.conn, self.file, self.digest = conn, file, digest
         self.decision = None
 
 
@@ -251,7 +252,7 @@ class Link:
                      "project": listed["project"], "account": listed["account"], "cwd": listed["cwd"]},
             turn=message.get("turn"), call=call, tool=message["tool"], preview=preview,
             masked=message["masked"] + masked_here, cut=message["cut"], deadline=message["deadline"], now=now)
-        self.waits[event["id"]] = Wait(conn, message["file"])
+        self.waits[event["id"]] = Wait(conn, message["file"], message["digest"])
         self.by_conn[conn] = event["id"]
         conn.send({"type": "registered", "id": event["id"], "call": call})
         self.queue.append(event["id"])
@@ -264,8 +265,8 @@ class Link:
         if not isinstance(asked, dict) or type(asked.get("pid")) is not int \
                 or not all(isinstance(asked.get(key), str) for key in SESSION_KEYS):
             return "its session is incomplete"
-        if not all(isinstance(message.get(key), str) for key in ("tool", "preview", "file")):
-            return "its tool, preview or file is missing"
+        if not all(isinstance(message.get(key), str) for key in ("tool", "preview", "file", "digest")):
+            return "its tool, preview, digest or file is missing"
         if not isinstance(message.get("calls"), list) or not all(isinstance(c, str) for c in message["calls"]):
             return "its calls are not a list of ids"
         if not isinstance(message.get("deadline"), (int, float)):
@@ -360,7 +361,7 @@ class Link:
         ending = watch.calls.ending(event["call"]) if event["call"] else None
         if wait.decision is not None:
             if ending is None and event["call"] is None:
-                ending = self._late_call(event, watch, wait.decision)
+                ending = self._late_call(event, watch, wait)
             if ending is not None and ending.by == "hook" and ending.decision == wait.decision.behavior:
                 self._end(event_id, "answered", "phone", wait.decision.text, now)
                 self._say(grammar.reply(event_id, "done"))
@@ -377,14 +378,15 @@ class Link:
         elif last or now >= watch.until:
             self._end(event_id, "closed", "none", "the hook went away", now)
 
-    def _late_call(self, event: dict, watch: Watch, decision: Decision):
+    def _late_call(self, event: dict, watch: Watch, wait: Wait):
         """For an event whose hook never found its call: the ending of a call of the same tool
-        that a hook decided this way after the answer went out. The event takes that call."""
+        and input that a hook decided this way after the answer went out. The event takes
+        that call."""
         held = {self.events.events[other]["call"] for other in self.waits}
         for call, ending in watch.calls.ended().items():
             if (call not in watch.ended_before and call not in held and ending.by == "hook"
-                    and ending.decision == decision.behavior
-                    and watch.calls.names.get(call) == event["detail"]["tool"]):
+                    and ending.decision == wait.decision.behavior
+                    and watch.calls.digests.get(call) == wait.digest):
                 self.events.amend(event["id"], call=call)
                 return ending
         return None

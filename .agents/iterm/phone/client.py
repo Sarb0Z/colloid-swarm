@@ -205,7 +205,7 @@ def _wait(payload, environ, effects, out, err, link, started, root, cwd) -> int:
                     "transcript": transcript_path},
         "turn": payload.get("prompt_id"), "tool": tool, "preview": shown.text,
         "masked": shown.masked, "cut": shown.cut,
-        "calls": offered, "file": file, "deadline": deadline,
+        "calls": offered, "digest": transcript.call_digest(tool, tool_input), "file": file, "deadline": deadline,
     })
     registered, call, unbound_limit_told = False, None, False
     next_poll, next_start_check = started + POLL_SECONDS, started + START_CHECK_SECONDS

@@ -122,6 +122,20 @@ class Waiting(Files):
         self.assertEqual(self.calls(("Bash", PUSH), agent_path).waiting(), ["toolu_agent"])
 
 
+class Digests(Files):
+    def test_each_call_is_known_by_the_digest_of_its_name_and_input(self):
+        self.written.use("toolu_1", "Bash", PUSH)
+        self.written.use("toolu_2", "Bash", {"command": "rm -rf build", "description": "Clean"})
+        calls = self.calls()
+        self.assertEqual(calls.digests["toolu_1"], transcript.call_digest("Bash", PUSH))
+        self.assertNotEqual(calls.digests["toolu_2"], transcript.call_digest("Bash", PUSH))
+        # Key order is not part of the input.
+        self.assertEqual(transcript.call_digest("Bash", {"description": "Push", "command": "git push origin main"}),
+                         transcript.call_digest("Bash", PUSH))
+        self.assertNotEqual(transcript.call_digest("Write", PUSH), transcript.call_digest("Bash", PUSH))
+        self.assertNotIn("git push", transcript.call_digest("Bash", PUSH))
+
+
 class Endings(Files):
     def ending_after(self, end):
         self.written.use("toolu_1", "Bash", PUSH)

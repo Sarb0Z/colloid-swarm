@@ -122,7 +122,7 @@ class Service(unittest.TestCase):
 
     # What a hook's registration line holds, as client.py sends it.
     def registration(self, session="s1", pid=501, tool="Bash", preview="git push origin main", calls=("toolu_1",),
-                     agent=None, file=None, name="colloid-swarm-c1"):
+                     agent=None, file=None, name="colloid-swarm-c1", tool_input=None):
         self.running[pid] = START
         self.registry.setdefault(pid, {"sessionId": session, "name": name})
         return {"type": "permission",
@@ -130,6 +130,7 @@ class Service(unittest.TestCase):
                             "cwd": "/p/colloid-swarm", "project": "colloid-swarm", "account": "work",
                             "transcript": self.path},
                 "turn": "prompt-1", "tool": tool, "preview": preview, "masked": 0, "cut": 0, "calls": list(calls),
+                "digest": transcript.call_digest(tool, PUSH if tool_input is None else tool_input),
                 "file": file or self.path, "deadline": self.now + 3540}
 
     def hook(self, **fields):
@@ -210,7 +211,7 @@ class Alerts(Service):
 
     def test_a_malformed_registration_is_refused_and_reported(self):
         broken_lines = ({"session": None}, {"calls": "toolu_1"}, {"deadline": None}, {"preview": None},
-                        {"masked": None}, {"cut": -1}, {"masked": True})
+                        {"masked": None}, {"cut": -1}, {"masked": True}, {"digest": None})
         for broken in broken_lines:
             conn = Conn()
             self.link.hook_line(conn, {**self.registration(), **broken})
@@ -531,6 +532,18 @@ class Unbound(Service):
         self.later(1)
         self.assertEqual(self.signal.texts[1:], ["[m-abcde] done"])
         self.assertEqual((self.event()["state"], self.event()["call"]), ("answered", "toolu_late"))
+
+    def test_yes_to_an_unbound_event_is_not_done_by_a_hook_decision_on_a_call_of_that_tool_with_other_input(self):
+        conn = self.hook(calls=())
+        self.phone("yes m-abcde")
+        self.assertEqual(len(conn.of("decision")), 1)
+        self.written.use("toolu_other", "Bash", {"command": "rm -rf build", "description": "Clean"})
+        self.written.allowed_by_hook("toolu_other")
+        self.later(1)
+        self.assertEqual(self.signal.texts[1:], [])
+        self.assertIsNone(self.event()["call"])
+        self.later(29)
+        self.assertEqual(self.signal.texts[1:], ["[m-abcde] refused: not confirmed — check the Mac"])
 
     def test_yes_to_an_unbound_event_with_no_such_row_is_not_confirmed(self):
         self.hook(calls=())
@@ -874,6 +887,7 @@ class Loop(unittest.TestCase):
                             "cwd": "/p/colloid-swarm", "project": "colloid-swarm", "account": "work",
                             "transcript": self.path},
                 "turn": "prompt-1", "tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0, "calls": ["toolu_1"],
+                "digest": transcript.call_digest("Bash", PUSH),
                 "file": self.path, "deadline": time.time() + 3540}
 
     def wait_for(self, condition, seconds=5.0):

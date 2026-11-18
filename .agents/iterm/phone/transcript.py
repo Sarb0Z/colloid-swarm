@@ -40,6 +40,7 @@ read, so a later read sees the row once it is complete.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -57,6 +58,13 @@ WANTED = (b'"tool_use"', b'"tool_result"', b'"hook_permission_decision"', INTERR
 class Ending(NamedTuple):
     by: str  # "hook", "mac" or "other"
     decision: str  # "allow" or "deny"
+
+
+def call_digest(name, tool_input) -> str:
+    """A digest of a call's tool name and input: the service matches a call by it and so
+    never holds the input itself."""
+    canonical = json.dumps([name, tool_input], sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def call_file(transcript_path: str, agent_id) -> str:
@@ -149,6 +157,7 @@ class Calls:
     def __init__(self, wanted=None):
         self.wanted = wanted
         self.names: dict = {}
+        self.digests: dict = {}  # call id -> call_digest of its name and input
         self.matching: list = []
         self.turn_start = 0  # the index in `matching` of the latest turn's first match
         self.results: dict = {}
@@ -178,6 +187,7 @@ class Calls:
                     continue
                 if kind == "assistant" and block.get("type") == "tool_use":
                     self.names[block.get("id")] = block.get("name")
+                    self.digests[block.get("id")] = call_digest(block.get("name"), block.get("input"))
                     if self.wanted == (block.get("name"), block.get("input")):
                         self.matching.append(block.get("id"))
                 elif kind == "user" and block.get("type") == "tool_result":

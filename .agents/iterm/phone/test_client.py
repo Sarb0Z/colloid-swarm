@@ -183,6 +183,7 @@ class Registration(Hook):
                         "cwd": str(self.repo), "project": "colloid-swarm", "account": "guest",
                         "transcript": self.path},
             "turn": "prompt-1", "tool": "Bash", "preview": "git push origin main", "masked": 0, "cut": 0, "calls": ["toolu_1"],
+            "digest": transcript.call_digest("Bash", PUSH),
             "file": self.path, "deadline": T0 + 3540,
         })
 
