@@ -709,6 +709,7 @@ with tempfile.TemporaryDirectory() as tmp:
                     "gcloud storage cp ./f gs://b/", "gcloud projects add-iam-policy-binding p",
                     "gcloud builds approve b1 --project p --location australia-southeast1",
                     "gcloud beta builds approve b1",
+                    "gcloud secrets versions access latest --secret cd-website-ssh-key --project p",
                     "firebase firestore:delete /vendors -r", "firebase database:set /a d.json",
                     "firebase functions:delete f", "firebase auth:import u.json",
                     "firebase functions:secrets:set KEY", "firebase hosting:disable"):

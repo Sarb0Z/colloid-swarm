@@ -366,6 +366,9 @@ def gcloud_reason(rest):
     start = 1 if path[:1] and path[0] in GCLOUD_TRACKS else 0
     if len(path) <= start or path[start] in GCLOUD_LOCAL_GROUPS:
         return None
+    # A read, but it prints a secret's value, such as a deploy's root SSH key.
+    if path[start:start + 3] == ["secrets", "versions", "access"]:
+        return "gcloud secrets versions access prints a secret's value into the session."
     for index in range(start + 1, len(path)):
         word = path[index]
         if word in GCLOUD_READS or word.startswith(("get-", "list-", "describe-")):
