@@ -234,7 +234,10 @@ GCLOUD_WRITES = {"create", "delete", "update", "deploy", "set", "unset", "patch"
                  "import", "enable", "disable", "undelete", "restore", "replace",
                  "rollback", "submit", "execute", "add", "remove", "cancel",
                  "resize", "start", "stop", "reset", "promote", "rm", "mv",
-                 "publish", "migrate", "export", "run", "call", "apply"}
+                 "publish", "migrate", "export", "run", "call", "apply",
+                 # Approving a pending Cloud Build build starts it, and a
+                 # deploy trigger's build is a deploy.
+                 "approve"}
 # A verb family: `set-traffic`, `add-iam-policy-binding`, `enable-oslogin`.
 GCLOUD_WRITE_PREFIXES = ("add-", "remove-", "set-", "update-", "create-", "delete-",
                          "enable-", "disable-")

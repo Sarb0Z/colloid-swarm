@@ -707,6 +707,8 @@ with tempfile.TemporaryDirectory() as tmp:
                     "gcloud run services update s --set-env-vars A=1",
                     "gcloud secrets versions add s --data-file=-", "gcloud storage rm gs://b/o",
                     "gcloud storage cp ./f gs://b/", "gcloud projects add-iam-policy-binding p",
+                    "gcloud builds approve b1 --project p --location australia-southeast1",
+                    "gcloud beta builds approve b1",
                     "firebase firestore:delete /vendors -r", "firebase database:set /a d.json",
                     "firebase functions:delete f", "firebase auth:import u.json",
                     "firebase functions:secrets:set KEY", "firebase hosting:disable"):
@@ -1129,6 +1131,7 @@ PLAIN_FORMS = [
     "railway up", "railway deploy",
     "npx vercel", "npx wrangler deploy", "npx netlify deploy",
     "npx firebase deploy", "npx fly deploy",
+    "gcloud builds approve", "gcloud beta builds approve",
 ]
 prefixes = [r[len("Bash("):].rstrip(")").removesuffix(":*")
             for r in ask_rules if r.startswith("Bash(")]

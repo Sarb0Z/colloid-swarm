@@ -64,6 +64,8 @@
       "Bash(gh run delete:*)",
       "Bash(gh ssh-key add:*)",
       "Bash(gh repo deploy-key add:*)",
+      "Bash(gcloud builds approve:*)",
+      "Bash(gcloud beta builds approve:*)",
       "Bash(gh repo archive:*)",
       "Bash(gh repo rename:*)",
       "Bash(gh repo sync:*)",
