@@ -460,11 +460,26 @@ def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget:
     spared = recorded | {str(Path(space).resolve()) for run in runs for space in rn.workspaces(run)}
     common = common_dir(main)
     save_cache(common, hl.heal(main, spared, load_cache(common), emit, source != "compact", budget))
+    for line in hl.stale_ledgers(main, live_sessions(folder) | {me}):
+        emit(line)
     saved = wr.out(main, "for-each-ref", "--format=%(refname:short) %(committerdate:short) %(subject)", "refs/heads/saved/")
     if saved:
         emit("Unsaved work from removed worktrees waits on these branches; merge what is wanted, then delete each branch:")
         for line in saved.splitlines():
             emit(f"  {line}")
+
+
+def live_sessions(folder: Path) -> set[str]:
+    """The sessions whose record says they still run: not ended, their process alive."""
+    live = set()
+    for path in folder.glob("*.jsonl") if folder.is_dir() else []:
+        try:
+            entries = wr.load(path)
+        except FileNotFoundError:
+            continue
+        if not wr.ended(entries) and wr.alive(wr.last_host(entries)):
+            live.add(path.stem)
+    return live
 
 
 def keep(path: Path) -> str:

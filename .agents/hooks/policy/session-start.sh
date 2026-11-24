@@ -113,8 +113,15 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
   writers_session="$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')"
   rm -rf "$proj/.agents/.writers-live-$writers_session" "$proj/.agents/.writers-turn-$writers_session" \
          "$proj/.agents/.writers-kinds-$writers_session" \
-         "$proj/.agents/.writers-lock-$writers_session" \
-         "$proj/.agents/.cell-markers-$writers_session" "$proj/.agents/.outside-runs-$writers_session" 2>/dev/null || true
+         "$proj/.agents/.writers-lock-$writers_session" 2>/dev/null || true
+fi
+# The marker ledgers say which of the session's cells only read. A resumed or
+# cleared session can message those cells again, so only a fresh start of the
+# id drops them; other sessions' stale ones go with the sweep (worktree_heal.py
+# stale_ledgers).
+if [[ -n "$session_id" && "$start_source" == "startup" ]]; then
+  markers_session="$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')"
+  rm -f "$proj/.agents/.cell-markers-$markers_session" "$proj/.agents/.outside-runs-$markers_session" 2>/dev/null || true
 fi
 
 # Worktrees end with the session that made them (worktree_sweep.py). At most

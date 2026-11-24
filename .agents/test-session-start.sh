@@ -400,6 +400,29 @@ run_policy "$writers" startup >/dev/null
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 run_policy "$writers" resume >/dev/null
 [[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"
+# Acceptance row 30: the marker ledgers, which say which cells only read, survive a
+# resume and a /clear of their session and another session's fresh start; the
+# sweep removes another session's ledger that no live record names once it has
+# sat a day.
+printf 'toolu_1\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-fixture-session"
+printf 'p1\ttoolu_1\n' > "$writers/.agents/.outside-runs-fixture-session"
+for source in resume clear; do
+  run_policy "$writers" "$source" >/dev/null
+  [[ "$(cat "$writers/.agents/.cell-markers-fixture-session")" == $'toolu_1\tREAD-ONLY' && -f "$writers/.agents/.outside-runs-fixture-session" ]] \
+    || fail "a $source start must keep its session's marker ledgers"
+done
+printf 'toolu_9\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-old-session"
+printf 'toolu_8\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-fresh-session"
+printf 'toolu_7\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-live-session"
+touch -t 202601010000 "$writers/.agents/.cell-markers-old-session" "$writers/.agents/.cell-markers-live-session"
+mkdir -p "$writers/.agents/worktrees/.records"
+(cd "$writers/.agents/hooks/lib" && CLAUDE_PID=$$ python3 -c 'import sys, worktree_records as w; w.record(sys.argv[1], "live-session", [{"type": "worktree", "path": "/nonexistent", "by": "git worktree add"}])' "$writers")
+printf '{"project_dir":"%s","source":"startup","session_id":"new-session","transcript_path":""}\n' "$writers" \
+  | bash "$writers/.agents/hooks/policy/session-start.sh" >/dev/null
+[[ -f "$writers/.agents/.cell-markers-fixture-session" && -f "$writers/.agents/.cell-markers-fresh-session" ]] || fail "another session's start must leave a recent ledger alone"
+[[ -f "$writers/.agents/.cell-markers-live-session" ]] || fail "the sweep must keep the ledger of a session whose record says it runs"
+[[ ! -e "$writers/.agents/.cell-markers-old-session" ]] || fail "the sweep must remove a day-old ledger no live record names"
+printf 'ok: marker ledgers survive a resume or a clear of their session; the sweep removes only stale ones no live session owns\n'
 printf 'ok: startup and resume clear the live-writers record; compact keeps it\n'
 
 
