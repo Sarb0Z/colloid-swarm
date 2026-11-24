@@ -448,6 +448,14 @@ if [[ "$mode" == "check" && -n "$py_edited" ]]; then
   # severity — a blocking false positive, which is worse than no gate. Group the
   # files by resolved environment and run one pass per group, from that
   # environment's own directory so its pyproject/pyrightconfig is the one read.
+  #
+  # The interpreter is resolved on its own walk from the edited file, not beside
+  # the pyright binary: with no pythonPath configured pyright takes `python` from
+  # PATH and ignores $VIRTUAL_ENV by design, so a service that keeps its packages
+  # in services/api/.venv while pyright comes from PATH or the root would have
+  # every third-party import reported missing — a gate that blocks on nothing.
+  # pyright runs from whichever of the two directories is nearer the file, so
+  # that package's pyproject/pyrightconfig is the one read.
   py_pairs=""
   pyright_found=""
   pyright_absent=""
@@ -458,29 +466,28 @@ if [[ "$mode" == "check" && -n "$py_edited" ]]; then
       continue
     fi
     pyright_found+=$'\n'"$pf"
-    py_pairs+="$PY_TOOL_DIR"$'\t'"$PY_TOOL_BIN"$'\t'"$pf"$'\n'
+    py_ws="$PY_TOOL_DIR"
+    pyright_bin="$PY_TOOL_BIN"
+    py_interp=""
+    # A bare name is PATH's python, which pyright would pick by itself.
+    if resolve_py_tool python "${pf%/*}" && [[ "$PY_TOOL_BIN" == /* ]]; then
+      py_interp="$PY_TOOL_BIN"
+      # Both directories are ancestors of the file, so the longer is the nearer.
+      (( ${#PY_TOOL_DIR} > ${#py_ws} )) && py_ws="$PY_TOOL_DIR"
+    fi
+    # The interpreter goes last because it can be empty: tab is whitespace to
+    # `read`, so an empty middle field would collapse and shift the path into it.
+    py_pairs+="$py_ws"$'\t'"$pyright_bin"$'\t'"$pf"$'\t'"$py_interp"$'\n'
   done <<< "$py_edited"
 
-  while IFS=$'\t' read -r py_ws pyright_bin; do
+  while IFS=$'\t' read -r py_ws pyright_bin py_interp; do
     [[ -z "$pyright_bin" ]] && continue
     pyfiles=()
-    while IFS=$'\t' read -r w b pf; do
-      [[ "$w" == "$py_ws" && "$b" == "$pyright_bin" ]] && pyfiles+=("$pf")
+    while IFS=$'\t' read -r w b pf i; do
+      [[ "$w" == "$py_ws" && "$b" == "$pyright_bin" && "$i" == "$py_interp" ]] && pyfiles+=("$pf")
     done <<< "$py_pairs"
     [[ ${#pyfiles[@]} -eq 0 ]] && continue
 
-    # cwd settles which pyrightconfig.json / [tool.pyright] applies. It does not
-    # settle the interpreter: with no pythonPath configured pyright takes
-    # `python` from PATH, and it ignores $VIRTUAL_ENV by design. Left alone, a
-    # package's own environment is never consulted and every third-party import
-    # comes back missing at error severity — a gate that blocks on nothing.
-    py_interp=""
-    case "$pyright_bin" in
-      */.venv/bin/pyright|*/venv/bin/pyright)
-        [[ -x "${pyright_bin%/pyright}/python" ]] && py_interp="${pyright_bin%/pyright}/python" ;;
-      *)
-        [[ -x "$py_ws/.venv/bin/python" ]] && py_interp="$py_ws/.venv/bin/python" ;;
-    esac
     # stderr is kept: a pyright that cannot start says why there and prints
     # nothing on stdout. Exit 1 is the ordinary "found errors"; the JSON report
     # is what says whether the run could be read.
@@ -503,7 +510,7 @@ if [[ "$mode" == "check" && -n "$py_edited" ]]; then
     checkers_py pyright "$proj" "$py_ws" "$pyright_rc" "$pyright_err" "$has_scoped" <<< "$pyright_raw"
     [[ -n "$checkers_out" ]] && issues+=$'\n'"$checkers_out"$'\n'
     rm -f "$pyright_err"
-  done <<< "$(printf '%s' "$py_pairs" | cut -f1,2 | sort -u)"
+  done <<< "$(printf '%s' "$py_pairs" | cut -f1,2,4 | sort -u)"
   checker_ran pyright "$pyright_found"
   checker_missing pyright "$pyright_absent"
 fi

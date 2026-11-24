@@ -428,6 +428,36 @@ fxrun check s1 '["src/a.py"]'
   || fail "STUB pyright: stderr of an unreadable run must be kept and reported, got rc=$rc: $err"
 ok "STUB pyright: an unreadable run is reported with its stderr"
 
+# A service keeps its packages in its own environment (services/api/.venv) while
+# pyright comes from PATH. pyright must be handed that environment's interpreter
+# and run from the service, or every third-party import is reported missing.
+newfix pyservice
+mkdir -p "$fx/services/api/src" "$fx/pathbin"
+stub "$fx/services/api/.venv/bin/python" 'exit 0'
+printf 'x = 1\n' > "$fx/services/api/src/a.py"
+stub "$fx/pathbin/pyright" 'printf "%s | %s\n" "$*" "$PWD" > "$(dirname "$0")/../pyright.log"
+printf "{\"generalDiagnostics\":[],\"summary\":{\"errorCount\":0}}\n"'
+fxpath="$fx/pathbin:/usr/bin:/bin" fxrun check s1 '["services/api/src/a.py"]'
+[[ "$(cat "$fx/pyright.log")" == "--pythonpath $fxproj/services/api/.venv/bin/python --outputjson $fxproj/services/api/src/a.py | $fxproj/services/api" ]] \
+  || fail "STUB pyright from PATH must get the service's interpreter and run from the service, got: $(cat "$fx/pyright.log")"
+ok "STUB pyright from PATH is pointed at the service's own environment"
+
+if have_real pyright; then
+  newfix pyservicereal
+  mkdir -p "$fx/services/api/src"
+  python3 -m venv --without-pip "$fx/services/api/.venv"
+  site="$(ls -d "$fx"/services/api/.venv/lib/python3*/site-packages)"
+  mkdir -p "$site/probe_pkg"
+  printf 'VALUE: int = 1\n' > "$site/probe_pkg/__init__.py"
+  printf 'from probe_pkg import VALUE\n\nx: int = VALUE\n' > "$fx/services/api/src/a.py"
+  fxrun check s1 '["services/api/src/a.py"]'
+  [[ $rc -eq 0 ]] \
+    || fail "REAL pyright must resolve a package installed only in the service's .venv, got rc=$rc: $err"
+  ok "REAL pyright: a package installed only in the service's .venv resolves"
+else
+  skip "pyright service-environment row" pyright
+fi
+
 # --- tsc baseline and caller logic, on a stub that prints a file --------------
 # The stub prints $fx/tsc.out and exits 1 when it holds anything, so these rows
 # run where tsc is not installed.
