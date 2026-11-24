@@ -220,13 +220,15 @@ def drops(path: Path, branch: str | None) -> str:
 
 
 def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask: Ask,
-           lane: tuple[str, str, str] | None, squash: bool, removable: bool) -> str:
+           lane: tuple[str, str, str] | None, squash: bool, removable: bool, copy: str | None) -> str:
     """Remove a dead session's worktree whose work is merged into its source branch, with nothing
-    uncommitted, untracked or ignored that would not come back; flag any other one. With
-    `removable` off (a lane of an unfinished run, which is not done under ruling R1) nothing
-    is removed: a worktree holding work is flagged and an empty one left as it is. A worktree
-    the operator kept is passed over before anything is read from it. Returns "removed",
-    "gone", "locked" (a standing decision to keep it) or "kept"."""
+    uncommitted, untracked or ignored that would not come back; flag any other one. `copy` is
+    the commit a review snapshot was made at: a snapshot still there holds only a copy of what
+    its checkout holds, so it counts as merged. With `removable` off (a lane of an unfinished
+    run, which is not done under ruling R1) nothing is removed: a worktree holding work is
+    flagged and an empty one left as it is. A worktree the operator kept is passed over before
+    anything is read from it. Returns "removed", "gone", "locked" (a standing decision to keep
+    it) or "kept"."""
     path = path.resolve() if path.exists() else path
     if not path.is_dir():
         return "gone"
@@ -245,9 +247,10 @@ def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask
     if ask.asked_lately(path):
         return "kept"
     label, refs = source
+    snapshot = copy is not None and wr.out(path, "rev-parse", "-q", "--verify", "HEAD") == copy
     ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", *refs) if refs else ""
-    merged = ahead == "0" or bool(entry["branch"] and hl.squashed(path, refs))
-    stranded = hl.stranded(path, hl.REFLOG_KEEP_SECONDS, ())[0] if merged else None
+    merged = snapshot or ahead == "0" or bool(entry["branch"] and hl.squashed(path, refs))
+    stranded = hl.stranded(path, hl.REFLOG_KEEP_SECONDS, (copy,) if snapshot else ())[0] if merged else None
     why = remover.occupant(path) or rm.inner_worktree(path, listed) or rm.nested(path) or rm.unsaveable(path)
     if why:
         remover.lines.append(ask.blocked(path, why))
@@ -266,7 +269,8 @@ def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask
         if note:
             remover.lines.append(f"kept {path}: {note}")
             return "kept"
-        remover.lines.append(f"removed {path}: its work is merged into {label}"
+        remover.lines.append(f"removed {path}: a review snapshot still at the commit it was made at" if snapshot
+                             else f"removed {path}: its work is merged into {label}"
                              + rm.drop_branch(main, entry["branch"], refs, squash=squash))
         return "removed"
     remover.lines.append(f"dead session {ask.session} left {path}: {ahead or '?'} commits not in {label}, "
@@ -310,7 +314,8 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
             space_path = Path(space).resolve() if Path(space).exists() else Path(space)
             lane_name, branch = lanes.get(str(space_path), (None, None))
             outcome = settle(space_path, source_for(wr.main_checkout(space_path) or main, base, branch), remover, record,
-                             ask, (state, name, lane_name) if lane_name else None, squash=True, removable=why is None)
+                             ask, (state, name, lane_name) if lane_name else None, squash=True, removable=why is None,
+                             copy=None)
             settled.add(str(space_path))
             pending = pending or outcome == "kept"
         if resumed(record):
@@ -346,7 +351,8 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
         where = wr.main_checkout(worktree) if worktree.is_dir() else None
         branch = next((e["branch"] for e in wr.worktrees(where) if e["path"] == worktree.resolve()), None) if where else None
         outcome = settle(worktree, source_for(where or main, entry.get("source"), branch), remover, record, ask, None,
-                         squash=False, removable=True)
+                         squash=False, removable=True,
+                         copy=entry.get("head") if entry.get("by") == "review-snapshot" else None)
         if outcome == "kept":
             remaining.append(entry)
     return remaining

@@ -9,7 +9,8 @@
 #   uncommitted: <commit>  with committed: no, one commit on the tip that holds them
 #   snapshot: <path>       <main checkout>/.agents/worktrees/pane-review-<id>, detached
 #                          at the tip, or at the uncommitted commit
-#   registered: yes|no …   whether the session's end removes the snapshot
+#   registered: yes|no …   whether the hourly check removes the snapshot once
+#                          the session has ended
 # The checkout's index and files are not changed: the uncommitted commit is
 # built in a scratch index and is on no branch.
 set -euo pipefail
@@ -88,23 +89,25 @@ fi
 snap=$main/.agents/worktrees/pane-review-$(date +%Y%m%d-%H%M%S)-$$
 git -C "$top" worktree add --quiet --detach "$snap" "$shown" >&2
 
-# The session's end removes the worktrees in its record file. teardown-gate
-# records a `git worktree add` it sees in a tool call's command; this one runs
-# inside a script, so the script writes the record. -B: a bytecode folder
-# beside the module would be a new untracked file in the checkout.
+# Once the session ends, the hourly dead-session check removes the worktrees in
+# its record file; a snapshot still at the `head` recorded here is a copy of
+# work the checkout holds, so it goes unasked. teardown-gate records a
+# `git worktree add` it sees in a tool call's command; this one runs inside a
+# script, so the script writes the record. -B: a bytecode folder beside the
+# module would be a new untracked file in the checkout.
 records=$top/.agents/hooks/lib/worktree_records.py
 if [[ ! -f $records ]]; then
   registered="no (this repository has no .agents/hooks/lib/worktree_records.py): only step 5 removes the snapshot"
 elif [[ -z ${CLAUDE_CODE_SESSION_ID:-} ]]; then
   registered="no (CLAUDE_CODE_SESSION_ID is not set, so no Claude session ran this): only step 5 removes the snapshot"
-elif python3 -B - "$records" "$top" "$CLAUDE_CODE_SESSION_ID" "$snap" >&2 <<'PY'; then
+elif python3 -B - "$records" "$top" "$CLAUDE_CODE_SESSION_ID" "$snap" "$shown" >&2 <<'PY'; then
 import importlib.util
 import sys
 
 spec = importlib.util.spec_from_file_location("worktree_records", sys.argv[1])
 records = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(records)
-records.record(sys.argv[2], sys.argv[3], [{"type": "worktree", "path": sys.argv[4], "by": "review-snapshot"}])
+records.record(sys.argv[2], sys.argv[3], [{"type": "worktree", "path": sys.argv[4], "by": "review-snapshot", "head": sys.argv[5]}])
 PY
   registered="yes"
 else

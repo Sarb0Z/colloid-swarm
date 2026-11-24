@@ -77,8 +77,8 @@ eq "snapshot: nothing uncommitted in it" "" "$(git -C "$S" status --porcelain)"
 eq "checkout: git status unchanged" "$status_before" "$(git -C "$R" status --porcelain)"
 eq "checkout: the index file unchanged" "$index_before" "$index_after"
 eq "checkout: no branch or ref added" "$refs_before" "$(git -C "$R" for-each-ref)"
-eq "the record the session's end reads" "worktree $S review-snapshot" \
-  "$(python3 -c 'import json,sys; [print(e["type"], e["path"], e["by"]) for e in map(json.loads, open(sys.argv[1]))]' "$R/.agents/worktrees/.records/sess-1.jsonl" 2>&1)"
+eq "the record the hourly check reads names the snapshot's commit" "worktree $S review-snapshot $U" \
+  "$(python3 -c 'import json,sys; [print(e["type"], e["path"], e["by"], e["head"]) for e in map(json.loads, open(sys.argv[1]))]' "$R/.agents/worktrees/.records/sess-1.jsonl" 2>&1)"
 
 # An edit after the snapshot stays out of it.
 printf 'later\n' >"$R/a.txt"
@@ -87,14 +87,25 @@ eq "a later edit does not reach the snapshot" "one, edited" "$(cat "$S/a.txt")"
 # A second snapshot gets its own folder.
 out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 "$SNAP" 2>/dev/null)
 [[ -n $(field snapshot) && $(field snapshot) != "$S" ]] && ok "second snapshot: its own folder" || bad "second snapshot: [$(field snapshot)]"
-
-# The session's end, as session-end.sh runs it, removes both recorded snapshots
-# and saves nothing: a snapshot holds no work of its own.
 S2=$(field snapshot)
-ended=$(python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" end "$R" sess-1 prompt_input_exit "$IT/../workloop.py" 2>&1)
-[[ ! -e $S && ! -e $S2 ]] && ok "session end removes the recorded snapshots" || bad "session end left a snapshot: $ended"
-eq "session end: no saved/ branch, no ref added" "$refs_before" "$(git -C "$R" for-each-ref)"
-eq "session end: only the checkout is left in git's worktree list" 1 "$(git -C "$R" worktree list | wc -l | tr -d ' ')"
+
+# A third snapshot a reviewer then writes in holds work of its own.
+out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 "$SNAP" 2>/dev/null)
+S3=$(field snapshot)
+printf 'a reviewer note\n' >"$S3/note.txt"
+
+# The session ends as session-end.sh marks it, and another session's hourly
+# check removes the two untouched snapshots unasked and saves nothing: each is
+# a copy of work the checkout holds. The written one is put to the operator.
+python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" end "$R" sess-1 prompt_input_exit
+checked=$(python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" sess-2 "$IT/../workloop.py" 2>&1)
+[[ ! -e $S && -n $S2 && ! -e $S2 ]] && ok "the hourly check removes the untouched snapshots" || bad "the hourly check left a snapshot: $checked"
+grep -q "^removed $S: a review snapshot still at the commit it was made at" <<<"$checked" && ok "the removal says it was a snapshot" || bad "removal line: $checked"
+[[ -d $S3 ]] && grep -q "^dead session sess-1 left $S3: .* 1 uncommitted files" <<<"$checked" \
+  && ok "a snapshot a reviewer wrote in is kept and put to the operator" || bad "the written snapshot: $checked"
+eq "the hourly check: no saved/ branch, no ref added" "$refs_before" "$(git -C "$R" for-each-ref)"
+eq "the hourly check: only the checkout and the written snapshot are left in git's worktree list" 2 "$(git -C "$R" worktree list | wc -l | tr -d ' ')"
+git -C "$R" worktree remove --force "$S3"
 
 # No session in the environment: nothing is recorded, and the script says so.
 out=$(cd "$R" && env -u CLAUDE_CODE_SESSION_ID "$SNAP" 2>/dev/null)
