@@ -23,16 +23,8 @@
 # lead's edits there, an OUTSIDE cell's writes there and a brief for such a
 # lane all count as outside; a submodule stays the checkout's.
 #
-# Seven events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. One the gate lets through that carries no
-#                  WORKLOOP … BRIEF header is noted in
-#                  .agents/.outside-runs-<session> as "<prompt_id>
-#                  <tool_use_id>", unless its type is one of the host's own
-#                  helpers (HELPERS); a refused one is not. The lead's digest
-#                  (hooks/lib/workloop-inbox.py) counts a turn's lines at the
-#                  next prompt and names a turn with two or more, a multi-cell
-#                  delegation outside a run (ruling 36). Nothing is refused for
-#                  it. A read-only type passes. A prompt that
+# Eight events share one policy because they share one state file:
+#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
 #                  opens with READ-ONLY passes, as does one that opens with
 #                  NOTES-ONLY where the repository has a product folder
 #                  (hooks.product_folder.enabled; denied where it has none,
@@ -95,6 +87,12 @@
 #                  finish fires SubagentStop (probed on 2.1.299). One that
 #                  never wrote is counted marked here if its metadata names a
 #                  marker.
+#   PostToolUse Agent, SubagentStop — the lead's read-only cells record
+#                  themselves (decision D4): a dispatch with a READ-ONLY or
+#                  NOTES-ONLY marker or a reading persona and no WORKLOOP …
+#                  BRIEF header becomes a cell of the run fanout-<session>, and
+#                  its SubagentStop marks it returned (hooks/lib/fanout_record.py,
+#                  which reports a failure on stderr and never blocks).
 #
 # Every session working in this checkout shares one live file,
 # .agents/.writers-live, under one lock, .agents/.writers-lock (ruling R7):
@@ -145,8 +143,6 @@ lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
 
 READERS="explore explorer plan researcher reviewer qa-verifier claude-code-guide statusline-setup"
-# The host's own helpers: no delegation of the lead's, so never a cell outside a run.
-HELPERS="claude-code-guide statusline-setup"
 
 payload="$(cat)"
 # A malformed toggle keeps the gate on: a broken gate must never silently
@@ -165,7 +161,6 @@ lock="$proj/.agents/.writers-lock"
 turn="$proj/.agents/.writers-turn-$session"
 kinds="$proj/.agents/.writers-kinds-$session"
 markers="$proj/.agents/.cell-markers-$session"
-outside_runs="$proj/.agents/.outside-runs-$session"
 
 named_in() {  # <type> <list> -> 0 when the type, case aside, is in the list
   local t; t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -461,15 +456,6 @@ live_names() {
   printf '%s' "$out"
 }
 
-# Notes an admitted dispatch with no run header for the lead's digest; called
-# at each exit that lets a dispatch through, never on a denial, so no refused
-# dispatch is counted. A failed append is reported and changes no decision.
-note_outside() {
-  [[ "$header" != yes ]] && ! named_in "$tool_type" "$HELPERS" || return 0
-  printf '%s\t%s\n' "$prompt_id" "$tool_use_id" >>"$outside_runs" ||
-    echo "parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it." >&2
-}
-
 SWEPT="The gate dropped every live writer that finished (SubagentStop), died of an API error or usage limit (StopFailure), was stopped (TaskStop, or an interruption closing its transcript), or whose metadata names a READ-ONLY, NOTES-ONLY or OUTSIDE dispatch, and brought back each that died or was swept and has written to its transcript since"
 
 case "$event" in
@@ -483,17 +469,12 @@ case "$event" in
         fi
         exit 0
       fi
-      if is_reader "$tool_type"; then
-        note_outside
-        exit 0
-      fi
+      is_reader "$tool_type" && exit 0
       take_lock || lock_denied
       if [[ "$kind" != "plain" ]]; then
         marker="$kind"; [[ "$kind" == "brief" || "$kind" == "workspace" ]] && marker=outside
         if ! note_turn "$prompt_id" || ! python3 "$lib/cell_markers.py" record "$proj" "$session" "$tool_use_id" "$marker"; then
           deny "The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold."
-        else
-          note_outside
         fi
         exit 0
       fi
@@ -518,8 +499,6 @@ case "$event" in
       fi
       if ! count_turn "$prompt_id" dispatched || ! note_turn "$prompt_id" "$tool_type"; then
         deny "The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory's permissions and retry."
-      else
-        note_outside
       fi
     elif [[ -n "$agent_id" ]]; then
       # A cell's own write: its dispatch marker decides, before any bookkeeping.
@@ -554,6 +533,9 @@ case "$event" in
     ;;
   PostToolUse)
     [[ "$tool_name" == "TaskStop" ]] && finish "$task_id" stopped
+    if [[ ( "$tool_name" == "Agent" || "$tool_name" == "Task" ) && -z "$agent_id" && -f "$lib/fanout_record.py" ]]; then
+      printf '%s' "$payload" | python3 "$lib/fanout_record.py" record "$repo"
+    fi
     ;;
   StopFailure)
     # A cell's API error ends the cell unless it recovers, which restore
@@ -587,6 +569,9 @@ case "$event" in
     # A marked cell that stops before its first write is counted as that write
     # would count it.
     finish "$agent_id" finished
+    if [[ -f "$lib/fanout_record.py" && -n "$transcript" ]]; then
+      printf '%s' "$payload" | python3 "$lib/fanout_record.py" returned "$repo"
+    fi
     ;;
 esac
 exit 0

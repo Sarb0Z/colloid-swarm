@@ -26,6 +26,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-worktree-provision.sh
 .agents/test-worktree-sessions.sh
 .agents/test-parallel-writers.sh
+.agents/test-fanout-record.sh
 .agents/test-workloop-inbox.sh
 .agents/test-commit-nudge.sh
 .agents/test-agent-deaths.sh
