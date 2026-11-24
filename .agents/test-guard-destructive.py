@@ -107,6 +107,9 @@ BLOCK = [
     "timeout 120 sh -c 'git push --force'",
     # git: the global options must not hide the subcommand.
     "git push --force origin main",
+    # A `#` inside a word is no comment: the shell keeps what follows it.
+    "git push origin main#1 --force",
+    "rm -rf x#y /",
     "git push -f",
     "git push --force-with-lease",
     "git -C /repo reset --hard",
@@ -323,6 +326,8 @@ BLOCK = [
 ]
 
 ALLOW = [
+    # A `#` that starts a word opens a comment, which runs nothing.
+    "echo done # rm -rf /",
     # rm: a scoped path is the agent's own call.
     "rm -rf /tmp/scratch",
     "rm -rf ./build",
