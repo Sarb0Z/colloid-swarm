@@ -269,8 +269,8 @@ def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask
         if note:
             remover.lines.append(f"kept {path}: {note}")
             return "kept"
-        remover.lines.append(f"removed {path}: a review snapshot still at the commit it was made at" if snapshot
-                             else f"removed {path}: its work is merged into {label}"
+        remover.lines.append((f"removed {path}: a review snapshot still at the commit it was made at" if snapshot
+                              else f"removed {path}: its work is merged into {label}")
                              + rm.drop_branch(main, entry["branch"], refs, squash=squash))
         return "removed"
     remover.lines.append(f"dead session {ask.session} left {path}: {ahead or '?'} commits not in {label}, "
@@ -288,6 +288,9 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
     runs = {(e.get("run"), e.get("state")): e for e in entries if e.get("type") == "run"}
     entered = [e["path"] for e in entries if e.get("by") == "EnterWorktree" and e.get("path")]
     remaining, held, settled = [], set(), set()
+    # After /clear the session's process runs on, and a reviewer cell it started may still
+    # read a review snapshot through absolute paths, which no occupant check sees.
+    host_alive = bool((mark := wr.last_host(entries)) and wr.alive(mark))
     for entry in runs.values():
         name, state = entry.get("run"), entry.get("state") or ""
         found, error = rn.runs_of(state)
@@ -348,11 +351,14 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
                 and worktree.is_dir() and not lock_of(worktree):
             remover.lines.append(f"kept {worktree}: kept at Claude Code's exit prompt")
             continue
+        snapshot = entry.get("by") == "review-snapshot"
+        if snapshot and host_alive and worktree.is_dir():
+            remaining.append(entry)  # judged again once the session's process is gone
+            continue
         where = wr.main_checkout(worktree) if worktree.is_dir() else None
         branch = next((e["branch"] for e in wr.worktrees(where) if e["path"] == worktree.resolve()), None) if where else None
         outcome = settle(worktree, source_for(where or main, entry.get("source"), branch), remover, record, ask, None,
-                         squash=False, removable=True,
-                         copy=entry.get("head") if entry.get("by") == "review-snapshot" else None)
+                         squash=False, removable=True, copy=entry.get("head") if snapshot else None)
         if outcome == "kept":
             remaining.append(entry)
     return remaining

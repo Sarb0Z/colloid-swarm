@@ -21,6 +21,10 @@ eq() { # name expected actual
 }
 field() { sed -n "s/^$1: //p" <<<"$out"; }
 nl=$'\n'
+# The record stamps the session's process: the first ancestor no shell or
+# interpreter carries. perl stands in for a Claude session that has exited by
+# the time the hourly check runs.
+session() { perl -e 'exit(system(@ARGV) >> 8)' "$@"; }
 
 # --- upstream ahead, with uncommitted, staged, deleted, untracked and ignored files
 git init -q --bare -b main "$T/remote.git" 2>/dev/null
@@ -56,7 +60,7 @@ status_before=$(git -C "$R" status --porcelain)
 touch -t 202001010000 "$R/b.txt"
 index_before=$(shasum "$R/.git/index")
 refs_before=$(git -C "$R" for-each-ref)
-out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 "$SNAP" 2>"$T/err"); rc=$?
+out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 session "$SNAP" 2>"$T/err"); rc=$?
 index_after=$(shasum "$R/.git/index")
 eq "uncommitted work: rc" 0 "$rc"
 S=$(field snapshot)
@@ -85,27 +89,60 @@ printf 'later\n' >"$R/a.txt"
 eq "a later edit does not reach the snapshot" "one, edited" "$(cat "$S/a.txt")"
 
 # A second snapshot gets its own folder.
-out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 "$SNAP" 2>/dev/null)
+out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 session "$SNAP" 2>/dev/null)
 [[ -n $(field snapshot) && $(field snapshot) != "$S" ]] && ok "second snapshot: its own folder" || bad "second snapshot: [$(field snapshot)]"
 S2=$(field snapshot)
 
-# A third snapshot a reviewer then writes in holds work of its own.
-out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 "$SNAP" 2>/dev/null)
+# Three more snapshots, each holding work of its own: a reviewer writes a file
+# in one, commits in another and resets back to the snapshot's commit, and
+# moves the third to a commit of its own.
+out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 session "$SNAP" 2>/dev/null)
 S3=$(field snapshot)
 printf 'a reviewer note\n' >"$S3/note.txt"
+out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 session "$SNAP" 2>/dev/null)
+S4=$(field snapshot)
+printf 'tried\n' >"$S4/try.txt"
+git -C "$S4" add try.txt
+git -C "$S4" commit -q -m tried
+git -C "$S4" reset -q --hard HEAD^
+out=$(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-1 session "$SNAP" 2>/dev/null)
+S5=$(field snapshot)
+git -C "$S5" checkout -q --detach "$(git -C "$S5" commit-tree 'HEAD^{tree}' -p HEAD -m moved)"
 
 # The session ends as session-end.sh marks it, and another session's hourly
 # check removes the two untouched snapshots unasked and saves nothing: each is
-# a copy of work the checkout holds. The written one is put to the operator.
+# a copy of work the checkout holds. Each one holding work is put to the operator.
 python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" end "$R" sess-1 prompt_input_exit
 checked=$(python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" sess-2 "$IT/../workloop.py" 2>&1)
 [[ ! -e $S && -n $S2 && ! -e $S2 ]] && ok "the hourly check removes the untouched snapshots" || bad "the hourly check left a snapshot: $checked"
-grep -q "^removed $S: a review snapshot still at the commit it was made at" <<<"$checked" && ok "the removal says it was a snapshot" || bad "removal line: $checked"
+grep -q "^removed $S: a review snapshot still at the commit it was made at$" <<<"$checked" && ok "the removal says it was a snapshot" || bad "removal line: $checked"
 [[ -d $S3 ]] && grep -q "^dead session sess-1 left $S3: .* 1 uncommitted files" <<<"$checked" \
   && ok "a snapshot a reviewer wrote in is kept and put to the operator" || bad "the written snapshot: $checked"
+[[ -d $S4 ]] && grep -q "^dead session sess-1 left $S4: .*1 commit(s) only its HEAD log" <<<"$checked" \
+  && ok "a snapshot a reviewer committed in, then reset to its commit, is kept and put to the operator" || bad "the reset snapshot: $checked"
+[[ -d $S5 ]] && grep -q "^dead session sess-1 left $S5: 2 commits not in main" <<<"$checked" \
+  && ok "a snapshot moved off its commit is kept and put to the operator" || bad "the moved snapshot: $checked"
 eq "the hourly check: no saved/ branch, no ref added" "$refs_before" "$(git -C "$R" for-each-ref)"
-eq "the hourly check: only the checkout and the written snapshot are left in git's worktree list" 2 "$(git -C "$R" worktree list | wc -l | tr -d ' ')"
-git -C "$R" worktree remove --force "$S3"
+eq "the hourly check: the checkout and the three snapshots holding work are left in git's worktree list" 4 \
+  "$(git -C "$R" worktree list | wc -l | tr -d ' ')"
+for kept in "$S3" "$S4" "$S5"; do git -C "$R" worktree remove --force "$kept"; done
+
+# After /clear the session's process runs on, and a reviewer cell it started
+# may still read the snapshot: it stays, unasked, until that process is gone.
+(cd "$R" && CLAUDE_CODE_SESSION_ID=sess-3 exec perl -e 'system(@ARGV); sleep 300' "$SNAP" >"$T/held.out" 2>/dev/null) &
+holder=$!
+for _ in $(seq 100); do grep -q '^registered:' "$T/held.out" 2>/dev/null && break; sleep 0.1; done
+S6=$(sed -n 's/^snapshot: //p' "$T/held.out")
+python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" end "$R" sess-3 clear
+rm -f "$R/.agents/worktrees/.dead-session-check"
+checked=$(python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" sess-2 "$IT/../workloop.py" 2>&1)
+[[ -n $S6 && -d $S6 && $checked != *"$S6"* ]] && ok "/clear: the snapshot stays, unasked, while the session's process runs" || bad "/clear: [$S6] $checked"
+kill "$holder"
+wait "$holder" 2>/dev/null
+rm -f "$R/.agents/worktrees/.dead-session-check"
+checked=$(python3 -B "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" sess-2 "$IT/../workloop.py" 2>&1)
+[[ ! -e $S6 ]] && grep -q "^removed $S6: a review snapshot" <<<"$checked" \
+  && ok "/clear: once the process is gone the next check removes the snapshot" || bad "/clear, process gone: $checked"
 
 # No session in the environment: nothing is recorded, and the script says so.
 out=$(cd "$R" && env -u CLAUDE_CODE_SESSION_ID "$SNAP" 2>/dev/null)
