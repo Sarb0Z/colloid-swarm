@@ -774,6 +774,30 @@ for first in 'NOTES-ONLY — this cell writes notes.' 'WORKSPACE: /tmp/elsewhere
 done
 ok "a header after a NOTES-ONLY or WORKSPACE line binds the cell, as one after READ-ONLY does; one after any other line does not"
 
+# the lead's prompt runs the hourly dead-session check (worktree_sweep.py), at most once an hour
+wt_repo="$scratch/wt-repo"
+mkdir -p "$wt_repo/.agents/hooks/policy" "$wt_repo/.agents/hooks/lib"
+cp "$repo/.agents/hooks/policy/workloop-inbox.sh" "$wt_repo/.agents/hooks/policy/"
+cp "$repo"/.agents/hooks/lib/*.py "$wt_repo/.agents/hooks/lib/"
+printf '.agents/\n' > "$wt_repo/.gitignore"
+git -C "$wt_repo" init -q -b main && git -C "$wt_repo" add .gitignore && git -C "$wt_repo" -c user.name=f -c user.email=f@x commit -qm init
+git -C "$wt_repo" worktree add -q "$scratch/wt-merged" -b merged
+git -C "$wt_repo" worktree add -q "$scratch/wt-work" -b work && printf 'draft\n' > "$scratch/wt-work/draft.txt"
+sleep 300 >/dev/null 2>&1 & ended_pid=$!; kill "$ended_pid"; wait "$ended_pid" 2>/dev/null || true
+mkdir -p "$wt_repo/.agents/worktrees/.records"
+for name in merged work; do
+  printf '{"type": "worktree", "path": "%s", "by": "git worktree add", "source": "main", "host": [%s, "x"], "at": 1}\n' "$scratch/wt-$name" "$ended_pid"
+done > "$wt_repo/.agents/worktrees/.records/gone.jsonl"
+fire_lead() { printf '{"project_dir":"%s","event":"UserPromptSubmit","session_id":"s1","agent_id":""}' "$wt_repo" | bash "$wt_repo/.agents/hooks/policy/workloop-inbox.sh"; }
+real_scratch="$(cd "$scratch" && pwd -P)"
+ctx="$(context "$(fire_lead)")"
+[[ ! -e "$scratch/wt-merged" && "$ctx" == *"WORKTREES (hooks/lib/worktree_sweep.py, checked at most once an hour)"* \
+  && "$ctx" == *"removed $real_scratch/wt-merged: its work is merged into main"* \
+  && "$ctx" == *"dead session gone left $real_scratch/wt-work: 0 commits not in main, 1 uncommitted files, ignored: none. Ask the operator"* ]] \
+  || fail "the lead's prompt must run the dead-session check: $ctx"
+[[ "$(fire_lead)" != *WORKTREES* && -d "$scratch/wt-work" ]] || fail "a second prompt within the hour must run no check"
+ok "the lead's prompt runs the dead-session check once an hour: a merged worktree goes, one holding work is flagged"
+
 # disabled
 printf '{"hooks":{"workloop_inbox":{"enabled":false}}}\n' > "$dir/.agents/config.json"
 [[ -z "$(fire UserPromptSubmit '')" ]] || fail "toggle did not disable"

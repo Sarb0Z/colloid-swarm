@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Remove the worktrees and runs a session recorded, saving unsaved work first.
+"""Remove the worktrees a session recorded, once they are done or the operator answered.
 
-`Remover.retire` keeps and names a worktree that is no linked worktree; is
+`Remover.blocked` keeps and names a worktree that is no linked worktree; is
 locked (Claude Code's own lock counts only while its session runs); has a
 process inside, or no lsof to tell; holds another worktree, or a nested
-repository outside PACKAGE_DIRS, or what a save cannot carry (`unsaveable`);
-or whose unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no
-new gitlink). Ignored folders are parked behind a manifest the sweep can
-undo, then `git worktree remove` runs without --force on a clean tree; the
-branch goes only when HEAD contains it. Paths are compared by device and
-inode, so a path that differs from git's in case or by a link still matches.
+repository outside PACKAGE_DIRS, or what a save cannot carry (`unsaveable`).
+`Remover.retire` (the operator's "save and remove") also keeps one whose
+unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no new
+gitlink). Ignored folders are parked behind a manifest the sweep can undo,
+then `git worktree remove` runs without --force on a clean tree; the branch
+goes only when its source branch contains it (`drop_branch`). Paths are
+compared by device and inode, so a path that differs from git's in case or by
+a link still matches.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ _spec.loader.exec_module(wr)
 
 TRASH = "colloid-trash"
 SAVE_CAP = 200 * 1024 * 1024
-CLAUDE_LOCK = re.compile(r"^claude (?:session|agent) \S+ \(pid (\d+)(?: start (.+))?\)$")
+CLAUDE_LOCK = re.compile(r"^claude (session|agent) (\S+) \(pid (\d+)(?: start (.+))?\)$")
 GITLINK = re.compile(r"^160000 (?:commit )?([0-9a-f]+)(?: \d+)?\t(.*)$")
 # Folders a package manager reinstalls from the repository's lockfile: the only
 # folders whose ignored contents rebuild, and the only ones a walk skips. Build
@@ -40,28 +42,31 @@ PACKAGE_DIRS = frozenset({"node_modules", ".venv", "venv", ".tox", ".nox", "Pods
 IN_PROGRESS = ("BISECT_LOG", "rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD")
 
 
-def claude_lock_ended(reason: str, ending_pid: int | None) -> bool:
+def claude_lock_ended(reason: str, ended_session: str | None) -> bool:
     """True when `reason` is Claude Code's lock (`claude session|agent <id> (pid N[ start S])`,
-    S its start as C-locale UTC `ps` text) and that session is over: its pid is the ending one,
-    gone, or started more than START_SLACK_SECONDS from S. A start that does not parse, or a pid
-    whose start `ps` cannot give, holds."""
+    S its start as C-locale UTC `ps` text) and its holder is over: a session lock naming
+    `ended_session`, which a `/clear` ends while its process runs on; or a pid that is gone or
+    started more than START_SLACK_SECONDS from S. Any other lock of a running pid, an agent's
+    included, holds, as does a start that does not parse or a pid whose start `ps` cannot give."""
     match = CLAUDE_LOCK.match(reason or "")
     if not match:
         return False
-    pid = int(match.group(1))
-    started = wr.ps.utc_text(pid) if pid != ending_pid else None
+    if match.group(1) == "session" and ended_session and wr.session_key(match.group(2)) == ended_session:
+        return True
+    started = wr.ps.utc_text(int(match.group(3)))
     if started is None:
         return True
-    locked, seen = wr.ps.epoch_of(match.group(2)), wr.ps.epoch_of(started)
+    locked, seen = wr.ps.epoch_of(match.group(4)), wr.ps.epoch_of(started)
     return locked is not None and seen is not None and abs(locked - seen) > wr.ps.START_SLACK_SECONDS
 
 
 class Remover:
     """Retires worktrees; collects one report line per outcome."""
 
-    def __init__(self, label: str, exclude: set, ending_pid: int | None, lost=None):
-        """`lost(path)` says what a removal would lose that a save cannot carry, or None."""
-        self.label, self.exclude, self.ending_pid, self.lost = label, exclude, ending_pid, lost
+    def __init__(self, label: str, exclude: set, ended_session: str | None, lost=None):
+        """`ended_session` is the session whose own Claude Code lock no longer holds (`claude_lock_ended`);
+        `lost(path)` says what a removal would lose that a save cannot carry, or None."""
+        self.label, self.exclude, self.ended_session, self.lost = label, exclude, ended_session, lost
         self.lines: list[str] = []
         self._procs, self._loaded = None, False
 
@@ -98,13 +103,14 @@ class Remover:
         entry = next((item for item in listed[1:] if item["path"] == path), None)
         if entry is None:
             return "other", "git lists it as no linked worktree"
-        if entry["locked"] and not claude_lock_ended(entry["locked"], self.ending_pid):
+        if entry["locked"] and not claude_lock_ended(entry["locked"], self.ended_session):
             return "locked", f"it is locked ({entry['locked']})"
         why = self.occupant(path) or inner_worktree(path, listed) or nested(path) or unsaveable(path)
         return ("other", why) if why else None
 
-    def retire(self, path: Path) -> str:
-        """Remove one worktree; return "removed", "gone", "locked" or "kept"."""
+    def retire(self, path: Path, refs: list[str]) -> str:
+        """Save its unsaved work to `saved/<name>`, then remove one worktree, its branch only once
+        `refs`, its source branch, contains it; return "removed", "gone", "locked" or "kept"."""
         path = path.resolve() if path.exists() else path
         if not path.is_dir():
             return "gone"
@@ -117,19 +123,25 @@ class Remover:
             self.lines.append(f"kept {path}: {loss}")
             return "kept"
         saved, error = save(path, self.label) if dirty(path) else (None, None)
+        if not saved and not error and unreferenced(path, "HEAD", None):
+            # A detached HEAD no ref reaches: its commits go with the worktree unless a branch holds them.
+            saved, error = saved_branch(path, wr.out(path, "rev-parse", "HEAD"))
         if error:
             self.lines.append(f"kept {path}: its unsaved work could not be committed ({error})")
             return "kept"
         main = wr.main_checkout(path)
-        entry = next(item for item in wr.worktrees(main) if item["path"] == path)
+        entry = next((item for item in wr.worktrees(main) if item["path"] == path), None)
+        if entry is None:
+            self.lines.append(f"kept {path}: git no longer lists it as a linked worktree")
+            return "kept"
         if entry["locked"]:
             wr.git(main, "worktree", "unlock", str(path))
         note = remove(path, main, force=bool(saved))
         if note:
             self.lines.append(f"kept {path}: {note}")
             return "kept"
-        line = f"removed {path}" + (f"; its unsaved work is on branch {saved}" if saved else "")
-        self.lines.append(line + drop_branch(main, entry["branch"]))
+        line = f"removed {path}" + (f"; its work is on branch {saved}" if saved else "")
+        self.lines.append(line + drop_branch(main, entry["branch"], refs, squash=False))
         return "removed"
 
 
@@ -209,25 +221,41 @@ def save(path: Path, label: str) -> tuple[str | None, str | None]:
         else:
             os.unlink(scratch)
             steps = [("read-tree", head or "--empty")]
-        for step in steps + [("add", "-A"), ("write-tree",)]:
+        # --sparse: an untracked file outside a sparse checkout's cone is unsaved work too.
+        for step in steps + [("add", "-A", "--sparse"), ("write-tree",)]:
             result = wr.git(path, *step, env=env)
             if result.returncode:
                 return None, result.stderr.strip()
         if gitlinks(path, "ls-files", "-s", env=env) - (gitlinks(path, "ls-tree", "-r", head) if head else set()):
             return None, "it would save a nested repository as a bare gitlink"
-        message = (f"Save unsaved work from worktree {path}\n\nCommitted when {label} ended, before the "
+        message = (f"Save unsaved work from worktree {path}\n\nCommitted on {label}, before the "
                    "worktree was removed. Untracked files are included; ignored files are not.")
         commit = wr.git(path, "commit-tree", result.stdout.strip(), *(["-p", head] if head else []), "-m", message)
         if commit.returncode:
             return None, commit.stderr.strip()
-        name = re.sub(r"[^A-Za-z0-9._-]", "-", admin.name).strip(".-") or "worktree"
-        for candidate in [name] + [f"{name}-{time.strftime('%Y%m%d-%H%M%S')}-{n}" for n in range(1, 10)]:
-            if not wr.git(path, "update-ref", f"refs/heads/saved/{candidate}", commit.stdout.strip(), "").returncode:
-                return f"saved/{candidate}", None
-        return None, f"no free branch name under saved/{name}"
+        return saved_branch(path, commit.stdout.strip())
     finally:
         if os.path.exists(scratch):
             os.unlink(scratch)
+
+
+def saved_branch(path: Path, commit: str) -> tuple[str | None, str | None]:
+    """Point a new `saved/<worktree name>` branch at `commit`; return (branch, error)."""
+    admin = Path(wr.out(path, "rev-parse", "--path-format=absolute", "--git-dir"))
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", admin.name).strip(".-") or "worktree"
+    for candidate in [name] + [f"{name}-{time.strftime('%Y%m%d-%H%M%S')}-{n}" for n in range(1, 10)]:
+        if not wr.git(path, "update-ref", f"refs/heads/saved/{candidate}", commit, "").returncode:
+            return f"saved/{candidate}", None
+    return None, f"no free branch name under saved/{name}"
+
+
+def unreferenced(path: Path, rev: str, keep: str | None) -> int:
+    """How many commits `rev` reaches that no branch, tag or remote-tracking ref does, the
+    branch `keep` names set aside (a branch about to go counts as no ref)."""
+    # --exclude takes a name below refs/heads/ for the --branches after it, and only for that one.
+    exclude = [f"--exclude={keep}"] if keep else []
+    found = wr.out(path, "rev-list", "--count", rev, "--not", *exclude, "--branches", "--tags", "--remotes")
+    return int(found) if found.isdigit() else 0
 
 
 def trash_dir(main: Path) -> Path:
@@ -285,14 +313,28 @@ def purge(bins: list[Path]) -> None:
                          stderr=subprocess.DEVNULL)
 
 
-def drop_branch(main: Path, branch: str | None) -> str:
+def protected(main: Path, branch: str, refs: list[str]) -> str | None:
+    """Why a branch is never deleted with its worktree: the trunk, one tracking a remote, or the source branch."""
     trunk = wr.out(main, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").split("/", 1)[-1]
+    if branch in ("main", "master", trunk) or wr.out(main, "rev-parse", "-q", "--abbrev-ref", f"{branch}@{{upstream}}"):
+        return "it is the trunk or tracks a remote"
+    return "it is the source branch" if f"refs/heads/{branch}" in refs else None
+
+
+def drop_branch(main: Path, branch: str | None, refs: list[str], squash: bool) -> str:
+    """Delete a removed worktree's branch once its source branch (`refs`, ruling R11) contains it;
+    with `squash`, also once its changes are already there, as for a lane or `saved/` branch."""
     if not branch:
         return ""
-    if branch in ("main", "master", trunk) or wr.out(main, "rev-parse", "-q", "--abbrev-ref", f"{branch}@{{upstream}}"):
-        return f"; branch {branch} kept, it is the trunk or tracks a remote"
-    head = wr.out(main, "rev-parse", "-q", "--verify", "HEAD")
-    if not head or wr.git(main, "merge-base", "--is-ancestor", f"refs/heads/{branch}", head).returncode:
-        return f"; branch {branch} kept, HEAD does not contain it"
+    why = protected(main, branch, refs)
+    if why:
+        return f"; branch {branch} kept, {why}"
+    label = refs[0].removeprefix("refs/heads/").removeprefix("refs/remotes/") if refs else "no source branch"
+    into = next((ref for ref in refs if not wr.git(main, "merge-base", "--is-ancestor", f"refs/heads/{branch}", ref).returncode), None)
+    if not into and squash and refs:
+        merged = wr.git(main, "merge-tree", "--write-tree", refs[0], f"refs/heads/{branch}")
+        into = refs[0] if not merged.returncode and merged.stdout.split()[:1] == [wr.out(main, "rev-parse", f"{refs[0]}^{{tree}}")] else None
+    if not into:
+        return f"; branch {branch} kept, {label} does not contain it"
     result = wr.git(main, "branch", "-D", branch)
-    return f"; branch {branch} kept: {result.stderr.strip()}" if result.returncode else f"; branch {branch} deleted, HEAD contains it"
+    return f"; branch {branch} kept: {result.stderr.strip()}" if result.returncode else f"; branch {branch} deleted, {label} contains it"

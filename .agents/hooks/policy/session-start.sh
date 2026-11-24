@@ -34,10 +34,11 @@
 #   - The work log (hooks.worklog, off by default): the procedure in
 #     .agents/playbooks/worklog.md and today's file, or why the configured
 #     folder was refused (hooks/lib/worklog.py).
-#   - Worktrees (hooks.teardown_gate): the sweep of sessions that ended without
-#     session-end.sh and of worktrees idle 24 hours that no record names, what
-#     it removed or kept and what each kept one's work is about, each `saved/`
-#     branch, and workloop runs with no recorded lead
+#   - Worktrees (hooks.teardown_gate): the hourly check of dead sessions'
+#     worktrees (ended or killed), what it removed as merged and a `dead
+#     session` line for each one holding work, with the operator's three
+#     answers; the heal of worktrees idle 24 hours that no record names; each
+#     `saved/` branch; and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
 #   - Workloop runs in flight, and on Claude Code each agent of this checkout
 #     waiting on the operator and each dead one, read from Claude Code's own
@@ -113,8 +114,14 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
   writers_session="$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')"
   rm -rf "$proj/.agents/.writers-live-$writers_session" "$proj/.agents/.writers-turn-$writers_session" \
          "$proj/.agents/.writers-kinds-$writers_session" \
-         "$proj/.agents/.writers-lock-$writers_session" \
-         "$proj/.agents/.cell-markers-$writers_session" "$proj/.agents/.outside-runs-$writers_session" 2>/dev/null || true
+         "$proj/.agents/.writers-lock-$writers_session" 2>/dev/null || true
+fi
+# The marker ledger says which of the session's cells only read. A resumed or
+# cleared session can message those cells again, so only a fresh start of the
+# id drops it; another session's goes with the sweep once that session's
+# transcript has not changed in a day (worktree_heal.py stale_ledgers).
+if [[ -n "$session_id" && "$start_source" == "startup" ]]; then
+  rm -f "$proj/.agents/.cell-markers-$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')" 2>/dev/null || true
 fi
 # The gate's live writers are one file per checkout, .agents/.writers-live, a
 # line per cell led by its session: a fresh start or a resume drops this
@@ -133,14 +140,16 @@ if [[ -n "$session_id" && -f "$lib/cell_markers.py" ]]; then
     || { echo "session-start: could not check for other sessions in this checkout" >&2; peer_notice=""; }
 fi
 
-# Worktrees end with the session that made them (worktree_sweep.py). Sessions
-# that never reached session-end.sh — killed, or on a host with no such event —
-# are swept here once their process is gone. Worktrees no record names that
-# sat idle 24 hours go only when nothing in them would be lost; the rest are
-# named with what their work was about. Every source sweeps: a resumed
-# session keeps its own records and only the others' are judged; a compaction
-# start removes no unrecorded worktree. A sweep that fails keeps the lines it
-# printed, so what it removed before failing is still reported.
+# Worktrees end with the session that made them (worktree_sweep.py). At most
+# once an hour, each dead session's worktree — its session ended (/exit,
+# /clear) or its process is gone — is removed when its work is merged into its
+# source branch, and otherwise flagged with the operator's three answers.
+# Worktrees no record names that sat idle 24 hours go only when nothing in
+# them would be lost; the rest are named with what their work was about. Every
+# source sweeps: a resumed session keeps its own records and only the others'
+# are judged; a compaction start removes no unrecorded worktree. A sweep that
+# fails keeps the lines it printed, so what it removed before failing is still
+# reported.
 worktree_digest=""
 if [[ "$teardown_enabled" == "yes" && -f "$lib/worktree_sweep.py" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   worktree_digest="$(python3 "$lib/worktree_sweep.py" sweep "$proj" "${session_id:-}" "${start_source:-startup}" "$repo/.agents/workloop.py")" \
@@ -355,7 +364,7 @@ EOF
 
   if [[ -n "$worktree_digest" ]]; then
     section
-    echo "Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock <path>\` keeps one):"
+    echo "Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock <path>\` keeps one). Put each \`dead session\` line to the operator through the question tool, with its three answers, and run the one they choose:"
     printf '%s\n' "$worktree_digest"
   fi
 

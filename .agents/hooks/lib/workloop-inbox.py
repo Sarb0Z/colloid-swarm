@@ -18,7 +18,9 @@ agent hears a digest of every run not torn down: lanes awaiting review, lanes
 carrying attention, lanes whose heartbeat is stale, lanes and cells whose agent
 died. Run or no run, at every Claude Code start and prompt it hears the agents
 of this checkout waiting on the operator (agent_waits.py) and its dead agents
-(agent_deaths.py).
+(agent_deaths.py). At a prompt it also runs the hourly dead-session check
+(worktree_sweep.hourly) and lists what it removed and each `dead session` line
+the operator must answer.
 
 The digest judges a composed result from state on every prompt, comparing the
 integration record to each lane's accepted tip; `check` judges from Git, also
@@ -31,6 +33,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -260,6 +263,30 @@ def deliver(runs: dict, seen_dir: Path, safe: str, agent_id: str, event: str) ->
     return block
 
 
+DEAD_SESSIONS_NOTE = ("WORKTREES (hooks/lib/worktree_sweep.py, checked at most once an hour): put each `dead session` "
+                      "line to the operator through the question tool with its three answers, and run the one they choose:")
+
+
+def dead_sessions(seen_dir: Path, session: str) -> str:
+    """The hourly dead-session check (worktree_sweep.hourly, spec Unit 1.5) at a lead's prompt,
+    under the teardown gate's toggle; nothing while the hour since the last check runs, or in
+    an export that ships no sweep, as session-start.sh reads it."""
+    agents = Path(__file__).resolve().parents[2]
+    if not Path(__file__).with_name("worktree_sweep.py").is_file():
+        return ""
+    import config
+    import worktree_sweep
+    if not config.read(config.load(str(agents / "config.json")), "hooks.teardown_gate.enabled", True):
+        return ""
+    lines: list[str] = []
+    try:
+        worktree_sweep.hourly(seen_dir.parent, session, agents / "workloop.py", lines.append)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"workloop-inbox: the dead-session check failed: {error}", file=sys.stderr)
+        lines.append(f"the dead-session check failed ({error}); the next one runs within the hour")
+    return "\n".join([DEAD_SESSIONS_NOTE, *lines]) if lines else ""
+
+
 def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str, host: str) -> str:
     git = GitBudget()
     # Claude Code's records are read at a prompt (a Claude Code hook) and at a Claude Code start.
@@ -269,7 +296,9 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else ""
     deaths = report.block(agent_deaths.SHOWN_MAX, event == "SessionStart")
-    return "\n".join(part for part in (digest, waiting, deaths) if part)
+    # A start runs the check in session-start.sh's sweep; a prompt runs it here.
+    worktrees = dead_sessions(seen_dir, session) if event == "UserPromptSubmit" else ""
+    return "\n".join(part for part in (digest, waiting, deaths, worktrees) if part)
 
 
 def main() -> None:

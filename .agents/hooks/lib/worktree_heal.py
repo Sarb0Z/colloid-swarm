@@ -3,7 +3,8 @@
 `.agents/worktrees/`, is removed when nothing in it would be lost, and every other one is
 named with its work and the command that shows why it stays. `judge` holds the rules and
 runs again in full just before each removal. Removal is `git worktree remove` without
---force; nothing is saved; a branch goes only when the main checkout's HEAD contains it.
+--force; nothing is saved; a branch goes only when its source branch contains it
+(`heal_source`: the start point its reflog names, else the default branch).
 """
 
 from __future__ import annotations
@@ -43,6 +44,28 @@ LEDGERS = (".wrap-*", ".teardown-pending-*", ".ui-pending-*", ".provenance-*", "
 # colloid-only
 LEDGERS += (".genome-ledger", ".mutagen-ledger")
 # /colloid-only
+
+
+def stale_ledgers(main: Path, me: str, stores: list[Path]) -> list[str]:
+    """Remove another session's marker ledger (`.cell-markers-<session>`, in LEDGERS) once its
+    session's transcript (`<store>/<project>/<session>.jsonl` in Claude Code's `stores`) has not
+    changed for IDLE_SECONDS, as cell_markers.py drop-session judges a writer row; a session
+    with no transcript found is judged by the ledger's own age. A session start keeps its own
+    unless it starts afresh. One line per ledger that could not go."""
+    lines = []
+    for ledger in (main / ".agents").glob(".cell-markers-*"):
+        session = ledger.name.removeprefix(".cell-markers-")
+        if session == me:
+            continue
+        transcript = next((found for store in stores for found in store.glob(f"*/{session}.jsonl")), None)
+        try:
+            if time.time() - (transcript or ledger).stat().st_mtime > IDLE_SECONDS:
+                ledger.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            lines.append(f"could not remove the stale ledger {ledger}: {error}")
+    return lines
 
 
 def idle_since(path: Path) -> float:
@@ -98,40 +121,88 @@ def default_refs(main: Path) -> list[str]:
     return [ref for ref in refs if wr.out(main, "rev-parse", "-q", "--verify", ref)]
 
 
+def short(ref: str) -> str:
+    return ref.removeprefix("refs/heads/").removeprefix("refs/remotes/")
+
+
+def branch_refs(main: Path, name: str | None) -> list[str]:
+    """The refs a source branch name stands for: the local branch and its upstream, or the
+    remote-tracking branch; [] when it names neither."""
+    if not name:
+        return []
+    if wr.out(main, "rev-parse", "-q", "--verify", f"refs/heads/{name}"):
+        upstream = wr.out(main, "rev-parse", "-q", "--symbolic-full-name", f"refs/heads/{name}@{{upstream}}")
+        return [f"refs/heads/{name}"] + ([upstream] if upstream.startswith("refs/") else [])
+    return [f"refs/remotes/{name}"] if wr.out(main, "rev-parse", "-q", "--verify", f"refs/remotes/{name}") else []
+
+
+def created_from(main: Path, branch: str | None) -> str | None:
+    """The start point git wrote into the branch's own reflog when it made the branch
+    (`branch: Created from staging`); None when that names HEAD or the log is gone."""
+    log = wr.out(main, "reflog", "show", "--format=%gs", f"refs/heads/{branch}") if branch else ""
+    first = log.splitlines()[-1] if log else ""
+    name = first.removeprefix("branch: Created from ") if first.startswith("branch: Created from ") else ""
+    return name if name and name != "HEAD" else None
+
+
+def named_source(main: Path, recorded: str | None, branch: str | None) -> tuple[str, list[str]] | None:
+    """(The source branch's name, its refs) a worktree's work is judged merged against (ruling R11):
+    the branch recorded when it was made, else the start point in its branch's reflog; None when
+    neither names a branch that still exists."""
+    for name in (recorded, created_from(main, branch)):
+        refs = branch_refs(main, name)
+        if refs:
+            return name, refs
+    return None
+
+
 @functools.cache
 def merge_tree_ok() -> bool:
     found = re.search(r"(\d+)\.(\d+)", wr.out(".", "version"))
     return bool(found) and (int(found.group(1)), int(found.group(2))) >= (2, 38)
 
 
-def settled(path: Path, branch: str | None, defaults: list[str]) -> tuple[str | None, str | None]:
-    """(How its commits are safe elsewhere, or None; why not, with the command to look.)"""
-    short = defaults[0].split("/", 2)[-1] if defaults else "the default branch"
-    for ref in defaults:
-        if wr.git(path, "merge-base", "--is-ancestor", "HEAD", ref).returncode == 0:
-            return f"merged into {ref.split('/', 2)[-1]}", None
-    look = f"see `git -C {path} log {short}..HEAD`" if defaults else "no main, master or origin/HEAD names it"
-    if not branch:
-        return None, f"its detached HEAD is not in {short}; {look}"
-    for ref in defaults if merge_tree_ok() else []:
+def contained(path: Path, refs: list[str]) -> str | None:
+    """The first of `refs` whose history holds HEAD, short; None when none does."""
+    return next((short(ref) for ref in refs if wr.git(path, "merge-base", "--is-ancestor", "HEAD", ref).returncode == 0), None)
+
+
+def squashed(path: Path, refs: list[str]) -> str | None:
+    """The first of `refs` that already holds HEAD's changes (a squash merge), short; None when none does."""
+    for ref in refs if merge_tree_ok() else []:
         merged = wr.git(path, "merge-tree", "--write-tree", ref, "HEAD")
         if merged.returncode == 0 and merged.stdout.split()[:1] == [wr.out(path, "rev-parse", f"{ref}^{{tree}}")]:
-            return f"its changes are already in {ref.split('/', 2)[-1]}", None
+            return short(ref)
+    return None
+
+
+def settled(path: Path, branch: str | None, defaults: list[str]) -> tuple[str | None, str | None]:
+    """(How its commits are safe elsewhere, or None; why not, with the command to look.)
+    `defaults` are its source branch's refs (`heal_source`), squash merges into them included."""
+    short_name = short(defaults[0]) if defaults else "the default branch"
+    if into := contained(path, defaults):
+        return f"merged into {into}", None
+    look = f"see `git -C {path} log {short_name}..HEAD`" if defaults else "no main, master or origin/HEAD names it"
+    if not branch:
+        return None, f"its detached HEAD is not in {short_name}; {look}"
+    if into := squashed(path, defaults):
+        return f"its changes are already in {into}", None
     upstream, _, track = wr.out(path, "for-each-ref", "--format=%(upstream:short)%00%(upstream:track)",
                                 f"refs/heads/{branch}").partition("\0")
     if not upstream:
-        return None, f"its commits are not in {short} and it has no upstream; {look}, or `git -C {path} push -u`"
+        return None, f"its commits are not in {short_name} and it has no upstream; {look}, or `git -C {path} push -u`"
     if track == "[gone]":
-        return None, f"its commits are not in {short} and its upstream {upstream} is gone; {look}"
+        return None, f"its commits are not in {short_name} and its upstream {upstream} is gone; {look}"
     ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", "@{upstream}")
     if ahead == "0":
         return f"every commit is on {upstream}", None
-    return None, f"{ahead or 'some'} commit(s) are neither in {short} nor on {upstream}; see `git -C {path} log @{{upstream}}..HEAD`"
+    return None, f"{ahead or 'some'} commit(s) are neither in {short_name} nor on {upstream}; see `git -C {path} log @{{upstream}}..HEAD`"
 
 
-def stranded(path: Path, keep: float | None) -> tuple[str | None, float | None]:
+def stranded(path: Path, keep: float | None, saved: tuple[str, ...]) -> tuple[str | None, float | None]:
     """Why commits only this worktree reaches keep it, and until when. Removal deletes its
-    HEAD log and its refs/worktree/ refs; a log entry counts while git would keep it."""
+    HEAD log and its refs/worktree/ refs; a log entry counts while git would keep it. Commits
+    `saved` (revisions a save is about to put on a branch, such as HEAD) reach count as kept."""
     log = wr.git(path, "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD")
     own = wr.git(path, "for-each-ref", "--format=%(objectname)", "refs/worktree/")
     if log.returncode or own.returncode:
@@ -143,7 +214,7 @@ def stranded(path: Path, keep: float | None) -> tuple[str | None, float | None]:
             reached[commit] = max(reached.get(commit) or 0, int(stamp) + keep) if keep is not None else None
     if not reached:
         return None, None
-    found = wr.git(path, "rev-list", "--ignore-missing", "--stdin", "--not", "--branches", "--tags", "--remotes",
+    found = wr.git(path, "rev-list", "--ignore-missing", "--stdin", "--not", "--branches", "--tags", "--remotes", *saved,
                    stdin="".join(f"{commit}\n" for commit in reached))
     if found.returncode:
         return f"git could not read its HEAD log ({found.stderr.strip()}); see `git -C {path} reflog`", None
@@ -157,13 +228,21 @@ def stranded(path: Path, keep: float | None) -> tuple[str | None, float | None]:
             f"see `git -C {path} reflog`"), until
 
 
-def about(path: Path, entry: dict, defaults: list[str]) -> str:
+def about(path: Path, entry: dict, refs: list[str], label: str) -> str:
+    """The worktree, its branch and last commit, and its commits not in `refs` (`label`)."""
     subject = wr.out(path, "log", "-1", "--format=%cs %s")
-    ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", *defaults) if defaults else "?"
+    ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", *refs) if refs else "?"
     status = wr.git(path, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all")
     changed = "status unreadable" if status.returncode else f"{len(status.stdout.splitlines())} uncommitted file(s)"
     return (f"{path} [{entry['branch'] or 'detached'}] last commit {subject or 'none'}; "
-            f"{ahead} commit(s) not in the default branch, {changed}")
+            f"{ahead} commit(s) not in {label}, {changed}")
+
+
+def heal_source(main: Path, branch: str | None, defaults: list[str]) -> tuple[str, list[str]]:
+    """(Label, refs) an unrecorded worktree is judged against: the start point its branch's reflog
+    names, else the default branch."""
+    found = named_source(main, None, branch)
+    return found if found else ("the default branch", defaults)
 
 
 def held(path: Path, entry: dict, remover) -> tuple[str | None, bool]:
@@ -177,12 +256,12 @@ def held(path: Path, entry: dict, remover) -> tuple[str | None, bool]:
     return remover.occupant(path), False
 
 
-def judge(path: Path, entry: dict, ctx) -> tuple[str | None, str | None, bool, float | None, bool]:
+def judge(path: Path, entry: dict, ctx, refs: list[str]) -> tuple[str | None, str | None, bool, float | None, bool]:
     """(Why it stays, or None; how its work is safe; whether that turned on the branch tips;
     when to judge again; whether to cache it.) It goes only with no live lock and no process
-    inside; nothing uncommitted, untracked or hidden from status; its branch merged into the
-    default branch, squash included, or on its upstream, a detached HEAD only inside the
-    default branch; no commit only its HEAD log or refs/worktree/ reach while git keeps it;
+    inside; nothing uncommitted, untracked or hidden from status; its branch merged into its
+    source branch's `refs`, squash included, or on its upstream, a detached HEAD only inside
+    them; no commit only its HEAD log or refs/worktree/ reach while git keeps it;
     no worktree or `.git` inside outside package folders; and no ignored file that does not
     rebuild. Cheap checks first, the walk last."""
     why, lasting = held(path, entry, ctx.remover)
@@ -191,10 +270,10 @@ def judge(path: Path, entry: dict, ctx) -> tuple[str | None, str | None, bool, f
     why = rm.unsaveable(path) or (f"it holds uncommitted work; see `git -C {path} status`" if rm.dirty(path) else None)
     if why:
         return why, None, False, None, True
-    safe, why = settled(path, entry["branch"], ctx.defaults)
+    safe, why = settled(path, entry["branch"], refs)
     if why:
         return why, None, True, None, True
-    why, until = stranded(path, ctx.keep)
+    why, until = stranded(path, ctx.keep, ())
     if why:
         return why, None, False, until, True
     why = rm.inner_worktree(path, ctx.listed) or rm.nested(path)
@@ -250,55 +329,61 @@ def heal(main: Path, spared: set, cache: dict | None, emit, remove: bool, budget
     started, listed = time.monotonic(), wr.worktrees(main)
     defaults, (tips, upstreams) = default_refs(main), branch_tips(main)
     keep = None if wr.out(main, "config", "--get", "gc.reflogExpireUnreachable") else REFLOG_KEEP_SECONDS
-    ctx = SimpleNamespace(defaults=defaults, keep=keep, listed=listed, remover=rm.Remover("the heal", {os.getpid()}, None))
+    ctx = SimpleNamespace(keep=keep, listed=listed, remover=rm.Remover("the heal", {os.getpid()}, None, None))
     kept, ready, standing = {}, [], 0
     for entry in listed[1:]:
         path = entry["path"]
         if entry["prunable"] or not path.is_dir() or str(path) in spared:
             continue
         if any(folder.name == "worktrees" and folder.parent.name == ".agents" for folder in path.parents):
-            emit(f"lane folder {about(path, entry, defaults)}: belongs to no workloop run; see `git worktree list`")
+            label, on = heal_source(main, entry["branch"], defaults)
+            emit(f"lane folder {about(path, entry, on, label)}: belongs to no workloop run; "
+                 "see `git worktree list`")
             continue
-        key = cache_key(path, entry)
-        refs = [tips.get(ref) for ref in defaults] + [tips.get(upstreams.get(f"refs/heads/{entry['branch']}"))]
-        if cache and cached(cache.get(str(path)), key, refs):
+        key, hit = cache_key(path, entry), (cache or {}).get(str(path))
+        # A cached verdict names the source refs it was judged on; a hit costs no reflog read.
+        on = hit["on"] if isinstance(hit, dict) and isinstance(hit.get("on"), list) else defaults
+        upstream_tip = tips.get(upstreams.get(f"refs/heads/{entry['branch']}"))
+        if cache and cached(hit, key, [tips.get(ref) for ref in on] + [upstream_tip]):
             kept[str(path)], standing = cache[str(path)], standing + 1
             continue
         if time.time() - idle_since(path) < IDLE_SECONDS:
             continue
-        named = about(path, entry, defaults)
-        why, safe, on_refs, until, lasting = judge(path, entry, ctx)
+        label, on = heal_source(main, entry["branch"], defaults)
+        refs = [tips.get(ref) for ref in on] + [upstream_tip]
+        named = about(path, entry, on, label)
+        why, safe, on_refs, until, lasting = judge(path, entry, ctx, on)
         if why is None:
-            ready.append((path, named, safe))
+            ready.append((path, named, safe, on))
             continue
         emit(f"idle {named}: stays: {why}")
         if lasting and key is not None:
-            kept[str(path)] = {"key": key, "refs": refs if on_refs else None, "until": until,
+            kept[str(path)] = {"key": key, "refs": refs if on_refs else None, "on": on, "until": until,
                                "line": f"idle {named}: stays: {why}", "at": time.time()}
     if standing:
         emit(f"{standing} other idle worktree(s) stay as judged at an earlier start; list them with "
              f"`python3 {Path(__file__).with_name('worktree_sweep.py').resolve()} list {main}`")
-    ctx.remover = rm.Remover("the heal", {os.getpid()}, None)  # removal looks at processes afresh
-    for path, named, safe in ready:
+    ctx.remover = rm.Remover("the heal", {os.getpid()}, None, None)  # removal looks at processes afresh
+    for path, named, safe, on in ready:
         late = None if remove else "a compaction start removes nothing"
         late = late or (f"this start begins no removal after {budget:g} s" if time.monotonic() - started > budget else None)
         if late:
             emit(f"idle {named}: could go: {safe}; {late}, so the next start removes it")
             continue
-        emit(remove_one(main, path, named, ctx))
+        emit(remove_one(main, path, named, ctx, on))
     return kept
 
 
-def remove_one(main: Path, path: Path, named: str, ctx) -> str:
+def remove_one(main: Path, path: Path, named: str, ctx, refs: list[str]) -> str:
     """Judge one worktree again in full, then remove it; the line saying what happened."""
     ctx.listed = wr.worktrees(main)
     entry = next((e for e in ctx.listed if e["path"] == path), None)
     if entry is None:
         return f"idle {named}: stays: git no longer lists it"
-    why, safe = judge(path, entry, ctx)[:2]
+    why, safe = judge(path, entry, ctx, refs)[:2]
     if not why and entry["locked"]:
         unlocked = wr.git(main, "worktree", "unlock", str(path))
         why = f"git could not unlock it ({unlocked.stderr.strip()})" if unlocked.returncode else None
     why = why or rm.remove(path, main, force=False)
     return f"idle {named}: stays: {why}" if why else (
-        f"removed idle {named}: could go: {safe}" + rm.drop_branch(main, entry["branch"]))
+        f"removed idle {named}: could go: {safe}" + rm.drop_branch(main, entry["branch"], refs, squash=False))
