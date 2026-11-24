@@ -22,6 +22,9 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 ok() { printf 'ok    %s\n' "$*"; }
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+# add-lane refuses a lane while free disk is under the floor; the fixtures'
+# lanes install nothing, so this machine's free space is no part of the test.
+export WORKLOOP_DISK_FLOOR_GB=0
 # The recording session's process is this shell. Under `docker exec` every
 # ancestor is a shell, which the records pass over, so none would be found.
 export CLAUDE_PID=$$
