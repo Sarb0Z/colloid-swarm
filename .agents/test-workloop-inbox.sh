@@ -338,14 +338,14 @@ runs = {
 json.dump({"version": 1, "runs": runs}, open(path, "w"))
 EOF
 ctx="$(digest)"
-has "$ctx" "WORKLOOP m-none: lane reviewed; check m-none runs the composed test" "no verification"
-has "$ctx" "WORKLOOP m-fail: lane reviewed; check m-fail runs the composed test" "failed verification"
-has "$ctx" "WORKLOOP m-stale: lane reviewed; check m-stale runs the composed test" "stale verification"
+has "$ctx" "WORKLOOP m-none: ready for QA; record it with qa m-none --evidence" "no verification: land runs it"
+has "$ctx" "WORKLOOP m-fail: the composed test failed at the accepted commit; see status" "failed verification"
+has "$ctx" "WORKLOOP m-stale: ready for QA; record it with qa m-stale --evidence" "stale verification: land runs it again"
 has "$ctx" "WORKLOOP m-qa: ready for QA; record it with qa m-qa --evidence" "passing verification, no QA"
-has "$ctx" "WORKLOOP m-done: check m-done, then teardown m-done" "QA recorded"
+has "$ctx" "WORKLOOP m-done: land m-done" "QA recorded: accepted and not landed"
 lacks "$ctx" "m-open: lane reviewed" "an unreviewed lane"
 lacks "$ctx" "m-open: all lanes" "an unreviewed lane"
-ok "a one-writer run names check, QA, then check and teardown by the verification's state"
+ok "a one-writer run names QA, a failed composed test, then land"
 
 # cells still out are named with the remedy of the moment: at a prompt the lead
 # records each as it returns; at a session start no cell outlives its session
@@ -442,11 +442,11 @@ has "$ctx" "WORKLOOP w-one: all lanes reviewed; integrate w-one" "one worktree l
 has "$ctx" "WORKLOOP w-moved: all lanes reviewed; integrate w-moved" "a lane moved after integration"
 has "$ctx" "WORKLOOP w-fail: the composed test failed at integrate; see status" "failed integration"
 has "$ctx" "WORKLOOP w-qa: ready for QA; record it with qa w-qa --evidence" "passing integration, no QA"
-has "$ctx" "WORKLOOP w-done: check w-done, then teardown w-done" "QA recorded"
+has "$ctx" "WORKLOOP w-done: land w-done" "QA recorded: accepted and not landed"
 has "$ctx" "WORKLOOP w-share: all lanes reviewed; integrate w-share" "a share changed the rebuild rule after the integration"
 has "$ctx" "WORKLOOP w-shared: ready for QA; record it with qa w-shared --evidence" "an integration that used the run's shared paths and rebuild commands"
 has "$ctx" "WORKLOOP w-old: ready for QA; record it with qa w-old --evidence" "an integration record from before the two fields, in a run that shares nothing"
-ok "a worktree run names integrate, the failed composed test, QA, then check and teardown; a share after the merge is not ready for QA"
+ok "a worktree run names integrate, the failed composed test, QA, then land; a share after the merge is not ready for QA"
 
 # lane size: each limit names the lane with its figure and remedy; lanes under every limit are silent
 remedy="split what remains into a new lane after this one is reviewed"

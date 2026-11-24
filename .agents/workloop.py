@@ -2,10 +2,11 @@
 """Durable, provider-neutral coordination for bounded parallel agent work.
 
 This file is the command line: the argument parser that routes each command to
-its handler. The state file and its lock live in workloop_state.py, path
-ownership in workloop_paths.py, and the handlers in workloop_setup.py,
-workloop_lanes.py, workloop_shared.py, workloop_cells.py,
-workloop_messages.py and workloop_finish.py.
+its handler. The state file, its lock and closed runs' records live in
+workloop_state.py, path ownership in workloop_paths.py, and the handlers in
+workloop_setup.py, workloop_lanes.py, workloop_shared.py, workloop_cells.py,
+workloop_messages.py, workloop_finish.py, workloop_land.py (land, prune) and
+workloop_resume.py (park, resume, the wip ref and the disk floor).
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from workloop_finish import (
     cmd_reap,
     cmd_teardown,
 )
+from workloop_land import cmd_land, cmd_prune
+from workloop_resume import cmd_park, cmd_resume
 from workloop_lanes import (
     cmd_ack,
     cmd_attention,
@@ -107,7 +110,7 @@ def parser() -> argparse.ArgumentParser:
     share = sub.add_parser("share", help="declare a repository path every lane may edit without owning it, optionally rebuilt once at integrate"); share.add_argument("run"); share.add_argument("path"); share.add_argument("--rebuild", help="command that regenerates the path (a lockfile, generated code): lane merges take the path from the base and integrate runs this once over the merged tree before the install; '' clears it"); share.set_defaults(func=cmd_share)
     claim = sub.add_parser("claim"); claim.add_argument("run"); claim.add_argument("lane"); claim.add_argument("--agent", required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser("submit"); submit.add_argument("run"); submit.add_argument("lane"); submit.add_argument("--evidence", required=True); submit.set_defaults(func=cmd_submit)
-    review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", choices=("P0", "P1", "P2"), help="required with --result reopen"); review.add_argument("--tip", help="required with --result accept: the commit the review read, as the reviewer brief names it"); review.add_argument("--ruling", help="the operator's words authorising a review round past the third submission"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
+    review = sub.add_parser("review"); review.add_argument("run"); review.add_argument("lane"); review.add_argument("--reference", required=True); review.add_argument("--result", choices=("accept", "reopen"), required=True); review.add_argument("--severity", choices=("P0", "P1", "P2"), help="required with --result reopen"); review.add_argument("--tip", help="required with --result accept: the commit the review read, as the reviewer brief names it"); review.add_argument("--ruling", help="the operator's words authorising a review after the lane's fourth reopen verdict"); review.add_argument("--message", default="review requested a correction"); review.set_defaults(func=cmd_review)
     attention = sub.add_parser("attention"); attention.add_argument("run"); attention.add_argument("lane"); attention.add_argument("--severity", choices=("P0", "P1", "P2"), required=True); attention.add_argument("--message", required=True); attention.add_argument("--reference", default=""); attention.set_defaults(func=cmd_attention)
     ack = sub.add_parser("ack"); ack.add_argument("run"); ack.add_argument("lane"); ack.add_argument("--agent", required=True); ack.set_defaults(func=cmd_ack)
     stale = sub.add_parser("release-stale"); stale.add_argument("run"); stale.add_argument("lane"); stale.add_argument("--reason", required=True); stale.set_defaults(func=cmd_release_stale)
@@ -116,6 +119,10 @@ def parser() -> argparse.ArgumentParser:
     provision = sub.add_parser("provision"); provision.add_argument("run"); provision.add_argument("lane"); provision.set_defaults(func=cmd_provision)
     integrate = sub.add_parser("integrate"); integrate.add_argument("run"); integrate.add_argument("--workspace", help=f"the integration worktree (default: {WORKTREES}/<run>/integration in the checkout)"); integrate.set_defaults(func=cmd_integrate)
     teardown = sub.add_parser("teardown"); teardown.add_argument("run"); teardown.set_defaults(func=cmd_teardown)
+    land = sub.add_parser("land", help="put a finished run's work on its source branch in this checkout, verified there, and close it; never pushes"); land.add_argument("run"); land.set_defaults(func=cmd_land)
+    park = sub.add_parser("park", help="save a lane's uncommitted work on refs/workloop/<run>/<lane>/wip and remove its worktree"); park.add_argument("run"); park.add_argument("lane"); park.set_defaults(func=cmd_park)
+    resume = sub.add_parser("resume", help="re-add each lane worktree that is gone at its branch tip and restore its saved work"); resume.add_argument("run"); resume.set_defaults(func=cmd_resume)
+    prune = sub.add_parser("prune", help="delete closed runs' records from .agents/worktrees/.closed/"); prune.add_argument("--closed-before", required=True, help="a date (2026-11-25) or UTC time; records of runs closed before it go"); prune.set_defaults(func=cmd_prune)
     abandon = sub.add_parser("abandon"); abandon.add_argument("run"); abandon.add_argument("--discard-branches", action="store_true", help="also delete lane branches whose commits HEAD does not contain"); abandon.add_argument("--checkout-gone", action="store_true", help="the run's checkout was deleted: reap its containers, name the folders it leaves, and drop the run without git"); abandon.set_defaults(func=cmd_abandon)
     add_cell = sub.add_parser("add-cell", help="record a read-only cell: no worktree, branch or install; prints its dispatch"); add_cell.add_argument("run"); add_cell.add_argument("name"); add_cell.add_argument("--role", choices=("research", "review", "qa"), required=True); add_cell.add_argument("--model", required=True); add_cell.set_defaults(func=cmd_add_cell)
     returned = sub.add_parser("returned", help="a cell came back, or did not"); returned.add_argument("run"); returned.add_argument("name"); outcome = returned.add_mutually_exclusive_group(required=True); outcome.add_argument("--result", help="where its result went: a file the lead wrote, or the word reply"); outcome.add_argument("--failed", help="why it died or was stopped without returning"); returned.set_defaults(func=cmd_returned)

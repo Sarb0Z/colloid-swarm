@@ -28,6 +28,9 @@
   "scrapling": {
     "proxies": {}
   },
+  "workloop": {
+    "disk_floor_gb": 10
+  },
   "mcp_env": {
     "research-mcp": {
       "RESEARCH_MCP_CONTACT_EMAIL": ""

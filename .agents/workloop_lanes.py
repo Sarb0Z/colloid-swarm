@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -16,17 +18,21 @@ from workloop_paths import (
     WORKTREES,
     canonical_reference,
     changed_paths,
+    foreign_paths,
+    owning_lane,
     reference_roots,
     review_start,
+    scratch_line,
+    source_branch,
     start_point,
     uncommitted_owned,
-    undeclared_paths,
 )
 from workloop_shared import LOCKFILE_ONLY, share_line, shared_lines
 from workloop_state import (
     ReadStore,
     Store,
     activity_columns,
+    closed_record,
     fail,
     lane_of,
     now,
@@ -37,6 +43,7 @@ from workloop_state import (
     run_of,
     shared_of,
     state_path,
+    waiting_agents,
 )
 
 BRIEF_FILES = {"worker": "BRIEF.md", "reviewer": "BRIEF-reviewer.md", "qa": "BRIEF-qa.md"}
@@ -44,6 +51,7 @@ BRIEF_SUFFIXES = {"worker": "", "reviewer": "-reviewer", "qa": "-qa"}
 # A main lane's reviewer or QA cell reads the checkout a writer works in; the
 # marker makes the parallel-writers gate hold it to reading.
 READ_ONLY = "READ-ONLY — this lane works in the checkout itself; read it and write nothing."
+# Reopen verdicts a lane takes before its next review needs the operator's ruling.
 MAX_REVIEW_ROUNDS = 4
 P2_REFUSAL = "a P2 is filed, not reopened: accept the lane and file the finding"
 
@@ -53,6 +61,13 @@ def cmd_claim(args: argparse.Namespace) -> None:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
         lane = lane_of(run, args.lane)
+        if wm.is_main(lane) and lane["state"] == "active" and not lane.get("claimed_by"):
+            # init claimed the main lane; its writer binds its agent id, so the
+            # digest can tell a dead writer from a busy one and its stamps land.
+            lane["claimed_by"] = args.agent
+            record(args.run, run, "claim", args.lane, args.agent, args.event_id)
+            print(f"lane {args.lane!r} is claimed since init; bound it to {args.agent}")
+            return
         if lane["state"] not in {"ready", "reopened"}:
             fail(f"lane is {lane['state']}, not ready to claim")
         blocked = [name for name in lane["depends_on"] if lane_of(run, name)["state"] != "reviewed"]
@@ -116,6 +131,7 @@ def cmd_submit(args: argparse.Namespace) -> None:
             where = "in the checkout" if wm.is_main(lane) else "on the lane branch"
             fail(f"lane has uncommitted changes; commit them {where} first: " + ", ".join(dirty))
         mixed: list[dict] = []
+        outside: list[str] = []
         if wm.is_main(lane):
             actual, others, mixed = wm.submit_main(args.run, run, lane, workspace)
             for sha in others:
@@ -124,18 +140,35 @@ def cmd_submit(args: argparse.Namespace) -> None:
                 print(f"submit {args.lane}: {entry['text']}", file=sys.stderr)
         else:
             head = wg.head_of(workspace)
-            if head == run["base"]:
-                fail(f"lane branch {lane.get('branch')} has no commits beyond the base; nothing to review")
-            actual = changed_paths(lane, start_point(run, args.lane, head))
-            undeclared = undeclared_paths(run, lane, actual)
-            if undeclared:
-                fail("lane changed undeclared paths: " + ", ".join(undeclared))
-            # The commit the review reads; an accepting review must name it.
-            lane["tip"] = head
-        lane["evidence"].append({"at": now(), "text": args.evidence, "paths": actual, "mixed": mixed})
+            # Measured from where the lane leaves its source branch now, so
+            # a merge of that branch or a rebase onto it adds nothing here.
+            start = start_point(run, args.lane, head)
+            if head == start:
+                fail(f"lane branch {lane.get('branch')} has no commits beyond {source_branch(run) or 'the base'}; nothing to review")
+            actual = changed_paths(lane, start)
+            elsewhere, outside = foreign_paths(run, args.lane, lane, actual)
+            if elsewhere:
+                fail("lane changed paths another lane owns: " + ", ".join(f"{path} ({owning_lane([path], run['lanes'], args.lane)})" for path in elsewhere))
+            for path in outside:
+                print(f"submit {args.lane}: outside the lane: {path} — listed for the reviewer", file=sys.stderr)
+            # The pair the review reads; an accepting review must name the tip.
+            lane["start"], lane["tip"] = start, head
+        lane["evidence"].append({"at": now(), "text": args.evidence, "paths": actual, "mixed": mixed, "outside": outside})
         lane["state"] = "review"
         record(args.run, run, "submit", args.lane, args.evidence, args.event_id)
+        waiting = [name for name, other in run["lanes"].items() if other["state"] not in ("review", "reviewed")]
     print(f"lane {args.lane!r} is ready for final review at {lane['tip'][:12]}")
+    if waiting:
+        print(f"the review round starts once every lane is in; still out: {', '.join(sorted(waiting))}")
+        return
+    # Every lane is in: the one review round of this wave goes out now, one
+    # reviewer brief per lane awaiting review, each naming the tip it accepts.
+    for name, other in sorted(run["lanes"].items()):
+        if other["state"] == "review" and not Path(other["workspace"]).is_dir():
+            print(f"lane {name}'s worktree is not on disk, so its reviewer brief waits: resume {args.run}, then brief {args.run} {name} --role reviewer")
+        elif other["state"] == "review":
+            print(f"reviewer dispatch for lane {name}:")
+            print(dispatch_prompt(state_path(args.state), args.run, run, name, other, "reviewer"))
 
 
 def cmd_review(args: argparse.Namespace) -> None:
@@ -150,24 +183,44 @@ def cmd_review(args: argparse.Namespace) -> None:
                 fail("--result reopen needs --severity P0 or P1")
             if args.severity == "P2":
                 fail(P2_REFUSAL)
-        # A reopen that is resubmitted, or an attention that is acknowledged and
-        # resubmitted, each add a submission, so the count covers both paths.
-        rounds = len(lane["evidence"])
-        if rounds >= MAX_REVIEW_ROUNDS and not args.ruling:
-            fail(f"lane has been submitted {rounds} times; review round {rounds} needs the operator's ruling: pass --ruling \"<operator's words>\"")
+        # A round is a reopen verdict (ruling R10): a re-submit a peer's commit
+        # forced, or an attention cycle, is no review finding and spends none.
+        reopens = sum(1 for entry in lane["review_refs"] if entry["result"] == "reopen")
+        if reopens >= MAX_REVIEW_ROUNDS and not args.ruling:
+            fail(f"lane has been reopened {reopens} times; review after the {MAX_REVIEW_ROUNDS}th reopen needs the operator's ruling: pass --ruling \"<operator's words>\"")
         reference = canonical_reference(args.reference, reference_roots(run, lane))
         if args.result == "accept":
             lane["accepted_tip"] = accepted_tip(args, run, lane)
+            if not wm.is_main(lane):
+                # The accept binds the (start, tip) pair the reviewer brief named.
+                lane["accepted_start"] = lane["start"]
             lane["state"] = "reviewed"
         else:
             lane["state"] = "reopened"
             lane["attention"] = {"severity": args.severity, "message": args.message, "reference": reference}
-        entry = {"at": now(), "reference": reference, "result": args.result}
+        entry = {"at": now(), "reference": reference, "result": args.result,
+                 "copy": str(keep_reference(run, args.run, args.lane, lane, reference, len(lane["review_refs"]) + 1))}
         if args.ruling:
             entry["ruling"] = args.ruling
         lane["review_refs"].append(entry)
         record(args.run, run, "review-" + args.result, args.lane, reference, args.event_id)
     print(f"recorded {args.result} review for lane {args.lane!r}")
+
+
+def keep_reference(run: dict, run_name: str, lane_name: str, lane: dict, reference: str, number: int) -> Path:
+    """Copy the review's report into the run's `.workloop/reviews/`, which outlives every worktree; return the copy.
+
+    A report the lane committed in its own worktree would otherwise go with
+    the worktree at teardown, and the review record would point at nothing.
+    """
+    name = reference.partition("#")[0]
+    source = Path(name) if Path(name).is_absolute() else next(root / name for root in reference_roots(run, lane) if (root / name).is_file())
+    folder = Path(run["repo"]) / WORKTREES / run_name / BRIEF_FOLDER
+    target = folder / "reviews" / lane_name / f"{number}-{source.name}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (folder / ".gitignore").write_text("*\n")
+    shutil.copyfile(source, target)
+    return target
 
 
 def accepted_tip(args: argparse.Namespace, run: dict, lane: dict) -> str:
@@ -239,6 +292,10 @@ def cmd_release_stale(args: argparse.Namespace) -> None:
         lane = lane_of(run, args.lane)
         if lane["state"] != "active":
             fail("only an active lane can be released")
+        claimant = lane.get("claimed_by")
+        if claimant and claimant in waiting_agents(Path(run["repo"])):
+            fail(f"lane {args.lane!r}'s writer {claimant} is waiting on its own background work, not gone: "
+                 "its notification arrives when that work ends; SendMessage it to ask, and release the lane only once its agent reads as dead")
         lane["state"] = "reopened"
         lane.pop("claimed_by", None)
         lane.pop("claimed_at", None)
@@ -252,6 +309,8 @@ def cmd_release_stale(args: argparse.Namespace) -> None:
 def cmd_heartbeat(args: argparse.Namespace) -> None:
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run); lane = lane_of(run, args.lane)
+        if wm.is_main(lane) and lane["state"] == "active" and not lane.get("claimed_by"):
+            lane["claimed_by"] = args.agent
         if lane.get("claimed_by") != args.agent:
             fail("heartbeat requires a lane claimed by this agent")
         # The payload is what separates a slow lane from a dead one: the
@@ -265,8 +324,12 @@ def cmd_heartbeat(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
-        run = run_of(data, args.run)
+        closed = closed_record(state_path(args.state), args.run) if args.run not in data["runs"] else None
+        run = json.loads((closed / "state.json").read_text()) if closed else run_of(data, args.run)
         print(f"workloop {args.run}: {run['objective']}")
+        if closed:
+            print(f"closed\t{run['closed']['how']} at {run['closed']['at']}\trecord={closed}")
+        print(f"source\t{source_branch(run) or 'detached ' + run['base'][:12]}")
         if shared_of(run):
             print(f"shared\t{', '.join(share_line(run, path) for path in shared_of(run))}")
         for name, lane in sorted(run["lanes"].items()):
@@ -283,6 +346,12 @@ def cmd_status(args: argparse.Namespace) -> None:
             print(line)
         if run.get("verify"):
             print("qa\t" + (run["qa"]["evidence"] if run["qa"] else "pending"))
+            # The composed test's last run: a one-writer run's at its accepted commit, a worktree run's over the merge.
+            composed = run.get("verified") or run.get("integration")
+            if composed:
+                print(f"verify\t{composed['result']} at {composed['head'][:12]}\t{composed['verify']}")
+                for line in (composed.get("tail") or "").splitlines():
+                    print(f"  {line}")
 
 
 def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str, command: str) -> list[str]:
@@ -300,6 +369,8 @@ def place_lines(run: dict, run_name: str, lane_name: str, lane: dict, role: str,
     return [
         f"Workspace: {lane['workspace']} (branch {lane.get('branch')})",
         *([f"Diff: start point {start} — build this lane's diff with: git diff {start}..{lane.get('tip') or lane.get('branch')}"] if role == "reviewer" and (start := review_start(run, lane_name, lane)) else []),
+        *([f"Outside the lane: {', '.join(outside)} — paths no lane owns that this lane changed or left untracked; judge whether each belongs in this change"]
+          if role == "reviewer" and lane["evidence"] and (outside := lane["evidence"][-1].get("outside")) else []),
         *([f"Sparse cone: {', '.join(lane['sparse'])} — files outside it are absent from this worktree, not deleted; ask the lead to widen it ({command} widen {run_name} {lane_name} --also <dir>)"] if lane.get("sparse") else []),
         *([f"node_modules here is a link into the checkout this lane branched from. Never install into it: change the lockfile with {LOCKFILE_ONLY}, then run .agents/provision.sh {lane['workspace']}, which gives this lane its own tree."] if "shared from" in (lane.get("env_detail") or "") else []),
         f"Provision: .agents/provision.sh {lane['workspace']} — a test failure naming a missing module, binary, or runtime version is an environment failure, not a code failure; run this and rerun before touching source.",
@@ -333,7 +404,8 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         *place_lines(run, run_name, lane_name, lane, role, command),
         f"Environment: export COLLOID_RUN={run_name} COLLOID_LANE={lane_name} COMPOSE_PROJECT_NAME={wd.project_name(run_name, lane_name)}. Label what only this lane uses with --label colloid.run={run_name} --label colloid.lane={lane_name} (or that compose project name); label what the whole run shares, such as one Postgres, with --label colloid.run={run_name} only. The controller reaps lane-labelled resources when this lane ends and run-labelled ones at teardown; it never touches anything else, including containers a test framework starts with its own labels — leave that framework's reaper on.",
         *([f"Exclusive: {', '.join(lane['exclusive'])} — held while this lane is active and freed at submit; the lead dispatches the next holder, and what you started stays until reap or teardown."] if lane.get("exclusive") else []),
-        *([WORKING_PRACTICE.read_text().strip()] if role in {"worker", "qa"} else []),
+        *([scratch_line(run, run_name, lane_name if role == "worker" else f"{lane_name}-qa"),
+           WORKING_PRACTICE.read_text().strip()] if role in {"worker", "qa"} else []),
         f"Progress: {command} heartbeat {run_name} {lane_name} --agent <AGENT_ID> --progress '<what is running, e.g. e2e 12/40>' — a lane that is slow reads as slow, not dead.",
         "Preserve unrelated work. Record executable evidence before handoff." if role == "qa" else "Do not edit outside owned or shared paths. Preserve unrelated work. Record executable evidence before handoff.",
         # A reviewer closes with its contract's AMBIGUITY and HANDOFF lines.
@@ -341,7 +413,9 @@ def dispatch_prompt(state: Path, run_name: str, run: dict, lane_name: str, lane:
         "Commits follow .agents/playbooks/commits.md: split along seams, each one building and passing its checks.",
         supervised,
         f"State: {command} status {run_name}",
-        f"Claim: {command} claim {run_name} {lane_name} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls.",
+        (f"Claim: init claimed this lane for its writer; as the writer, bind your agent id once with {command} claim {run_name} {lane_name} --agent <AGENT_ID>, using the AGENT_ID your host injected at your start, so the lead can tell a busy writer from a dead one."
+         if wm.is_main(lane) else
+         f"Claim: as the writer, claim your workloop lane before your first edit: {command} claim {run_name} {lane_name} --agent <AGENT_ID> — use the AGENT_ID your host injected at your start; messages for this lane then reach you between tool calls."),
         f"Worker handoff: {command} submit {run_name} {lane_name} --evidence '<command and observed result>'",
         f"Reviewer handoff: {command} review {run_name} {lane_name} --reference '<canonical-review-path>#<finding>' --result accept --tip {lane.get('tip') or '<the commit submit recorded; status shows it>'}",
         "A finding must live in its canonical review report; use --result reopen to require a correction cycle.",

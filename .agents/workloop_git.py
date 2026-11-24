@@ -53,8 +53,10 @@ def within(path: str, roots: list[str]) -> bool:
     return any(path == root or path.startswith(root + "/") for root in roots)
 
 
-def git(repo: Path | str, *args: str, check: bool = True, strip: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True)
+def git(repo: Path | str, *args: str, check: bool = True, strip: bool = True, env: dict | None = None) -> str:
+    """Run git in `repo`; `env` adds variables to this process's environment for the one call."""
+    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True,
+                            env={**os.environ, **env} if env else None)
     if check and result.returncode != 0:
         fail(f"git {' '.join(args)} failed in {repo}: {(result.stderr or result.stdout).strip()}")
     return result.stdout.strip() if strip else result.stdout
@@ -96,6 +98,19 @@ def branch_of(workspace: Path | str) -> str:
     if not name:
         fail(f"lane workspace must be on a branch, not detached: {workspace}")
     return name
+
+
+def current_branch(repo: Path | str) -> str | None:
+    """The branch checked out in `repo`; None when its HEAD is detached."""
+    return git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False) or None
+
+
+def named_branch(repo: Path | str, rev: str) -> str | None:
+    """The branch `rev` names (`HEAD` names the one checked out); None for a commit, a tag or a detached HEAD."""
+    if rev == "HEAD":
+        return current_branch(repo)
+    name = rev.removeprefix("refs/heads/")
+    return name if branch_tip(repo, name) else None
 
 
 def branch_tip(repo: Path | str, branch: str) -> str | None:
@@ -500,6 +515,27 @@ def worktree_add_detached(repo: Path, workspace: Path, commit: str) -> None:
     was deleted by hand; every other registration is left as it is.
     """
     git(repo, "worktree", "add", "-q", "-f", "--detach", str(workspace), commit)
+
+
+def worktree_readd(repo: Path, workspace: Path, branch: str, cone: list[str] | None) -> None:
+    """Re-create a lane's worktree on its existing branch at the branch tip; with a cone, populate only those directories.
+
+    `-f` overrides the registration a removed worktree left at this path or on this branch.
+    """
+    if not cone:
+        git(repo, "worktree", "add", "-q", "-f", str(workspace), branch)
+        return
+    git(repo, "worktree", "add", "-q", "-f", "--no-checkout", str(workspace), branch)
+    git(workspace, "sparse-checkout", "set", "--cone", *cone)
+    git(workspace, "read-tree", "-mu", "HEAD")
+
+
+def run_text(command: list[str]) -> str:
+    """A command's standard output; a failure stops the controller with its error."""
+    result = subprocess.run(command, text=True, capture_output=True)
+    if result.returncode != 0:
+        fail(f"{' '.join(command[:2])} failed: {(result.stderr or result.stdout).strip()}")
+    return result.stdout
 
 
 def worktree_add(repo: Path, workspace: Path, branch: str, base: str, cone: list[str] | None = None) -> None:
