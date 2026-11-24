@@ -2014,7 +2014,7 @@ qm_worker="$(full_brief qm solo --role worker)"
 grep -q 'Do not edit outside owned' <<<"$qm_worker" && grep -q 'commits since its first claim' <<<"$qm_worker" || fail "the worker brief lost its owned-path lines"
 ok "a QA brief holds the acceptance and the test suite, none when the run has none, and no diff or path list"
 
-# ══ swarm fixes: docs/notes/2026-11-24-swarm-coordination-fixes-spec.md, Units 1–2 ══
+# ══ source branches, land, park and resume (rows: the acceptance of the spec that added them) ══
 # Seams under test, each with what it catches and what it misses:
 # - submit/integrate against a source branch that moved (rows 1, 2): catches a lane
 #   measured from the commit init recorded; misses a source branch rewritten by force.
@@ -2290,7 +2290,7 @@ s2="$(sed -n 's/^Scratch: \([^ ]*\) — .*/\1/p' "$sg/.agents/worktrees/sgs/.wor
 grep -q 'mktemp -d <scratch>' "$repo/.agents/skills/workloop/working-practice.md" || fail "the working practice does not name the scratch folder"
 ok "row 29: two QA cells get distinct scratch folders under the run, each named in its own brief and ignored by the checkout"
 
-# review round 1 (docs/reviews/2026-11-25-swarm-fixes-build.md #7-#15)
+# findings #7-#15 of the code review of land, park and resume
 # #7: a checkout switched to another branch while land's verify runs is never fast-forwarded
 st="$scratch/st"; sf_repo "$st" staging
 printf '.agents/.workloop-state.json*\n.agents/worktrees/\n.agents/.readout/\n' >> "$st/.gitignore"; commit "$st" 'staging ahead of main'
@@ -2387,7 +2387,7 @@ ok "#14: closing a run names the saved work of a lane parked and never resumed"
 out="$("${T[@]}" review sgv one --reference x --result accept --rul 'x' 2>&1)" && fail "an abbreviated --rul was accepted: $out"
 [[ "$out" == *"unrecognized arguments: --rul"* ]] || fail "an abbreviated option was not refused as unrecognized: $out"
 ok "#15: the controller takes no abbreviated option, so --rul is not --ruling"
-# ══ end swarm fixes ══
+# ══ end source branches, land, park and resume ══
 
 rm "$state.lock"
 if "${tool[@]}" status supervised 2>/dev/null; then fail 'read-only status recreated a missing lock'; fi
