@@ -889,6 +889,22 @@ Read the full brief at $other/.agents/worktrees/run/.workloop/cells/ghost.md" tu
 denied "$(ndispatch p80 implementer 'WORKLOOP WORKER BRIEF — run/lane' tul80n)" || fail "3.2: a header with no brief path read another repository's run"
 ok "row 23: a lane of a run recorded in another repository is OUTSIDE and passes beside a writer; a run's research or QA cell is read-only with no marker line; a header naming nothing recorded is a writer"
 
+# --- the first edit hears of another session (spec Unit 5.2) ------------------
+# A peer that committed here 2 minutes ago is named at this session's first
+# edit, with EnterWorktree, and not again at the next.
+reset
+rm -f "$nf/.agents/".writers-told-*
+mkdir -p "$transcripts"; : > "$transcripts/s2.jsonl"; : > "$transcripts/peer-1.jsonl"
+peer_ledger="$nf/.agents/.wrap-commits-$(printf '%s' peer-1 | cksum | tr -d ' ')"
+: > "$peer_ledger"; python3 -c 'import os,sys,time; t=time.time()-120; os.utime(sys.argv[1], (t, t))' "$peer_ledger"
+nfire_first() { nfire event=PreToolUse tool_name=Edit prompt_id=p90 file_path="$nf/src/x.py" transcript_path="$transcripts/s2.jsonl"; }
+out="$(nfire_first)"
+warned "$out" && [[ "$out" == *"session peer-1 committed here 2 min ago"* && "$out" == *EnterWorktree* ]] \
+  || fail "5.2: the first edit did not name the peer that committed 2 minutes ago ($out)"
+[[ -z "$(nfire_first)" ]] || fail "5.2: the peer was named again at the second edit"
+rm -f "$peer_ledger" "$nf/.agents/".writers-told-*
+ok "a session's first edit names another session that committed here in the last 10 minutes, with EnterWorktree, and later edits do not"
+
 # disabled
 printf '{"hooks":{"parallel_writers":{"enabled":false}}}\n' > "$dir/.agents/config.json"
 [[ -z "$(dispatch p4 implementer)" && -z "$(dispatch p4 mechanic)" ]] || fail "the toggle did not disable the gate"

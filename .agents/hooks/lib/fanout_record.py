@@ -78,7 +78,9 @@ def must(done: subprocess.CompletedProcess, what: str) -> None:
 
 def reading(payload: dict) -> bool:
     """A read-only dispatch with no run header, by marker or by persona."""
-    tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return False
     prompt = str(tool_input.get("prompt") or "")
     if re.search(r"WORKLOOP (?:WORKER|REVIEWER|QA|CELL) BRIEF", prompt):
         return False

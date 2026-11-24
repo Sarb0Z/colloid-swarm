@@ -120,9 +120,17 @@ fi
 # line per cell led by its session: a fresh start or a resume drops this
 # session's lines (its earlier process ran them), and the lines of any session
 # whose transcript has not changed in a day. Another live session's stay.
-if [[ -n "$session_id" && "$start_source" != "compact" && -f "$lib/cell_markers.py" && -f "$proj/.agents/.writers-live" ]]; then
+if [[ -n "$session_id" && "$start_source" != "compact" && -f "$lib/cell_markers.py" && -d "$proj/.agents" ]]; then
   python3 "$lib/cell_markers.py" drop-session "$proj" "$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')" "${transcript:-}" \
     || echo "session-start: this session's lines in .agents/.writers-live were not dropped; the gate sweeps them when they block" >&2
+fi
+
+# Another live session in this checkout: one with a writer cell here, or one
+# that committed here in the last 10 minutes (cell_markers.py peers).
+peer_notice=""
+if [[ -n "$session_id" && -f "$lib/cell_markers.py" ]]; then
+  peer_notice="$(python3 "$lib/cell_markers.py" peers "$proj" "$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')" "${transcript:-}")" \
+    || { echo "session-start: could not check for other sessions in this checkout" >&2; peer_notice=""; }
 fi
 
 # Worktrees end with the session that made them (worktree_sweep.py). Sessions
@@ -250,7 +258,7 @@ if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" && -d "$proj/.ag
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" && -z "$peer_notice" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -331,6 +339,13 @@ EOF
     section
     echo "Workloop runs in flight and dead agents (.agents/.workloop-state.json — lanes, messages, and gates a lead owns; WAITING ON YOU lines for agents stuck on a permission prompt or a blocked background session, hooks/lib/agent_waits.py; AGENT DIED lines from Claude Code's own records, hooks/lib/agent_deaths.py):"
     printf '%s\n' "$workloop_digest"
+  fi
+
+  if [[ -n "$peer_notice" ]]; then
+    section
+    echo "Another session is working in this checkout:"
+    printf '%s\n' "$peer_notice" | sed 's/^/  - /'
+    echo "Its edits and yours land in one tree. Take a worktree for this session's work (EnterWorktree) before you edit, unless the operator says to share the tree."
   fi
 
   if [[ -n "$workloop_failure" ]]; then

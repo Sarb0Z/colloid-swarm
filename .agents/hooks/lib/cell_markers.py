@@ -99,6 +99,8 @@ LOCK_REAP_SECONDS = 120
 FOREIGN_QUIET_SECONDS = 1800
 # A session whose transcript has not changed in a day has no cell running.
 STALE_SESSION_SECONDS = 86400
+# A session that committed here this recently is still working in the checkout.
+PEER_COMMIT_SECONDS = 600
 
 READ_ONLY_DENIAL = (
     "This cell was dispatched READ-ONLY, so it writes nothing, wherever the target is. Return the content as "
@@ -395,11 +397,71 @@ def foreign(project, session, transcript_path, now):
     return [(row[0], row[1], row[2]) for row in others if (row[0], row[1]) not in ended]
 
 
+CRC_TABLE = []
+for _byte in range(256):
+    _crc = _byte << 24
+    for _ in range(8):
+        _crc = ((_crc << 1) ^ 0x04C11DB7) if _crc & 0x80000000 else _crc << 1
+    CRC_TABLE.append(_crc & 0xFFFFFFFF)
+
+
+def cksum_key(text):
+    """POSIX `cksum` of the text, its CRC and length run together: the key
+    edit-record.sh names a session's `.wrap-commits-<key>` ledger by."""
+    data, crc = text.encode(), 0
+    for byte in data:
+        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC_TABLE[((crc >> 24) ^ byte) & 0xFF]
+    length = len(data)
+    while length:
+        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC_TABLE[((crc >> 24) ^ (length & 0xFF)) & 0xFF]
+        length >>= 8
+    return f"{~crc & 0xFFFFFFFF}{len(data)}"
+
+
+def peers(project, session, transcript_path, now):
+    """Other live sessions in this checkout, one line each: one with a writer
+    line here its transcripts do not show ended, or one whose transcript and
+    commit ledger (edit-record.sh's `.wrap-commits-<key>`) both changed in the
+    last PEER_COMMIT_SECONDS. Reads only; nothing is swept."""
+    lines, seen = [], set()
+    transcript_dir = os.path.dirname(transcript_path) if transcript_path else ""
+    cache = {}
+    for row in live_rows(project):
+        if row[0] == session or is_gone(row) or len(row) < 3:
+            continue
+        if transcript_dir and foreign_end(transcript_dir, row[0], row[1], cache, now):
+            continue
+        lines.append(f"session {row[0]} has writer cell {row[1]} ({row[2]}) live in this checkout")
+        seen.add(row[0])
+    if not transcript_dir or not os.path.isdir(transcript_dir):
+        return lines
+    with os.scandir(transcript_dir) as entries:
+        recent = [entry.name[:-len(".jsonl")] for entry in entries
+                  if entry.name.endswith(".jsonl") and entry.is_file() and now - entry.stat().st_mtime < PEER_COMMIT_SECONDS]
+    for other in sorted(recent):
+        if other == session or other in seen:
+            continue
+        ledger_path = os.path.join(project, ".agents", f".wrap-commits-{cksum_key(other)}")
+        try:
+            committed = os.stat(ledger_path).st_mtime
+        except FileNotFoundError:
+            continue
+        if now - committed < PEER_COMMIT_SECONDS:
+            lines.append(f"session {other} committed here {int((now - committed) // 60)} min ago")
+    return lines
+
+
 def drop_session(project, session, transcript_path, now):
     """At a session's fresh start or resume, no cell of its earlier process is
     alive: drop its lines from the live file, and every line of a session whose
     transcript has not changed in STALE_SESSION_SECONDS. False when the lock
-    stays busy."""
+    stays busy. The gate's `.writers-told-<session>` marks (a session's first
+    edit was checked for other sessions) older than a day go too."""
+    agents = os.path.join(project, ".agents")
+    with os.scandir(agents) as entries:
+        for entry in entries:
+            if entry.name.startswith(".writers-told-") and entry.stat().st_mtime < now - STALE_SESSION_SECONDS:
+                os.unlink(entry.path)
     if not os.path.exists(live_path(project)):
         return True
     if not take_lock(project):
@@ -461,7 +523,9 @@ def main(argv):
             payload = json.load(sys.stdin)
         except ValueError:
             payload = {}
-        reason, marked = decide(*argv[2:], payload if isinstance(payload, dict) else {})
+        repo, project, session, transcript_path, agent_id = argv[2:]
+        reason, marked = decide(repo, project, session, transcript_path, agent_id,
+                                payload if isinstance(payload, dict) else {})
         print(reason, end="")
         return MARKED if marked else 0
     if command == "marked" and len(argv) == 6:
@@ -474,12 +538,17 @@ def main(argv):
         for agent_id in resumed(argv[2], argv[3], argv[4:]):
             print(agent_id)
         return 0
-    if command == "foreign" and len(argv) == 5:
-        for row in foreign(*argv[2:], time.time()):
-            print("\t".join(row))
-        return 0
-    if command == "drop-session" and len(argv) == 5:
-        if drop_session(*argv[2:], time.time()):
+    if command in ("foreign", "peers", "drop-session") and len(argv) == 5:
+        project, session, transcript_path = argv[2:]
+        if command == "foreign":
+            for row in foreign(project, session, transcript_path, time.time()):
+                print("\t".join(row))
+            return 0
+        if command == "peers":
+            for line in peers(project, session, transcript_path, time.time()):
+                print(line)
+            return 0
+        if drop_session(project, session, transcript_path, time.time()):
             return 0
         print(f"cell_markers.py: the lock in {argv[2]}/.agents stayed busy for 5 s; session {argv[3]}'s writer lines stay "
               "until its next start.", file=sys.stderr)

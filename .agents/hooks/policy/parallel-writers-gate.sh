@@ -518,7 +518,22 @@ case "$event" in
     else
       # The lead's own edit while a writer works in the checkout.
       [[ "$outside" == "yes" ]] && exit 0
-      (( $(live_count) >= 1 )) || [[ -n "$(grown)" ]] || has_foreign || exit 0
+      # The session's first edit in this checkout hears of any other live
+      # session here (spec Unit 5.2); later edits only hear of another
+      # session's live writer, below.
+      peer=""
+      told="$proj/.agents/.writers-told-$session"
+      if [[ ! -e "$told" ]]; then
+        : >"$told" || echo "parallel-writers-gate: could not write $told; the next edit checks for other sessions again." >&2
+        peer="$(python3 "$lib/cell_markers.py" peers "$proj" "$session" "$transcript")" \
+          || { echo "parallel-writers-gate: could not check for other sessions in this checkout." >&2; peer=""; }
+        peer="${peer//$'\n'/; }"
+      fi
+      PEER="Another session is working in this checkout: ${peer}. Its edits and yours land in one tree; take a worktree for this session's work (EnterWorktree) unless the operator says to share it."
+      if ! { (( $(live_count) >= 1 )) || [[ -n "$(grown)" ]] || has_foreign; }; then
+        [[ -z "$peer" ]] || warn "$PEER"
+        exit 0
+      fi
       take_lock || lock_denied
       restore
       sweep
@@ -528,7 +543,11 @@ case "$event" in
       fi
       # Ruling R7: another session's writer leaves this lead's edits allowed, with a warning.
       others="$(foreign_names)"
-      [[ -n "$others" ]] && warn "Another session has a writer cell live in this checkout: ${others}. This edit is allowed, but that cell may be editing the same files; check \`git status\` before you commit, or take a worktree for this session's work (EnterWorktree)."
+      if [[ -n "$others" ]]; then
+        warn "Another session has a writer cell live in this checkout: ${others}. This edit is allowed, but that cell may be editing the same files; check \`git status\` before you commit, or take a worktree for this session's work (EnterWorktree).${peer:+ $PEER}"
+      elif [[ -n "$peer" ]]; then
+        warn "$PEER"
+      fi
     fi
     ;;
   PostToolUse)
