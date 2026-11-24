@@ -48,6 +48,7 @@ MANIFEST = {
     "worktree-provision": ".agents/hooks/policy/worktree-provision.sh",
     "worktree-sessions": ".agents/hooks/policy/worktree-sessions.sh",
     "parallel-writers-gate": ".agents/hooks/policy/parallel-writers-gate.sh",
+    "workloop-authority": ".agents/hooks/policy/workloop-authority.sh",
     "product-folder":    ".agents/hooks/lib/product_folder.py",
     "workloop-inbox":    ".agents/hooks/lib/workloop-inbox.py",
     "agent-waits":       ".agents/hooks/lib/agent_waits.py",
