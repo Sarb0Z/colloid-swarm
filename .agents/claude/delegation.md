@@ -16,10 +16,15 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   questions: does it change files; can one writer do it; are the parts
   disjoint; does one consume another's interface; is a choice worth paying for
   several times; which tier each cell needs. **One writer** is the default,
-  editing the main tree with read-only cells around it, recorded with one
-  `workloop.py init … --lane` and an `add-cell` per read-only cell. Each lane carries one behaviour and merges
-  within about a day. A **read-only
-  fan-out** is three cells by default, about ten for broad research.
+  editing the main tree with read-only cells around it: five controller
+  commands, `init … --lane`, `submit`, `review`, `qa` and `land`, which
+  verifies at the accepted commit and closes the run. Each lane carries one
+  behaviour and merges within about a day. A **read-only fan-out** is three
+  cells by default, about ten for broad research; a read-only cell dispatched
+  outside any run is recorded for you in `fanout-<session>`.
+  `land` puts a worktree run on its source branch, composing again if that
+  branch moved; `park` saves a lane's uncommitted work on its wip ref and frees
+  its worktree, and `resume` brings both back.
   **Parallel slices** take about three writers at most, one lane each. A
   **contract-first split** commits the interface before the lanes start. A
   **bake-off** pays every attempt in full, so two or three, preferring
