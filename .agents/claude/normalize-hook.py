@@ -56,6 +56,10 @@ def normalize(payload, policy, repo):
 
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
+        out["agent_id"] = payload.get("agent_id", "")
+    elif policy == "workloop-authority.sh":
+        out["command"] = tool_input.get("command", "")
+        out["agent_id"] = payload.get("agent_id", "")
     elif policy == "keychain-notice.sh":
         out["command"] = tool_input.get("command", "")
         out["cwd"] = payload.get("cwd") or ""
@@ -107,6 +111,11 @@ def normalize(payload, policy, repo):
         out["tool_use_id"] = payload.get("tool_use_id") or ""
         out["transcript_path"] = payload.get("transcript_path") or ""
         out["cwd"] = payload.get("cwd") or ""
+        # An Agent call's result says whether its cell is back (`completed`) or
+        # only launched in the background (`async_launched`); the rest of it,
+        # the cell's whole reply, stays out of the payload.
+        response = payload.get("tool_response")
+        out["agent_status"] = response.get("status", "") if isinstance(response, dict) else ""
     elif policy == "product-folder.sh":
         out["tool_name"] = payload.get("tool_name") or ""
         out["tool_input"] = tool_input

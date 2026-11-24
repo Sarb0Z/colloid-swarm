@@ -354,21 +354,27 @@ that call created, so a failed add or init adopts nothing. After a `git push`
 it lists a worktree as due with `git worktree remove` or `workloop.py
 teardown`. Each pending entry carries the agent that started it, and a stop
 judges only its own agent's: a cell's stop never answers for the lead's
-servers or worktrees. `session-end.sh` (Claude's `SessionEnd`, 60 s budget)
-removes what the session recorded, in this repository or another: a clean
-worktree at once, a dirty one after committing its tracked changes and
-unignored files to `saved/<name>`, a run's lanes the same way before
-`workloop.py abandon` closes it. A branch goes only when the main checkout's
-HEAD contains it. `/clear` and `/resume` end the old conversation's worktrees
-and runs as an exit does. Only a finished run closes, one
-`workloop.py check --recorded` passes, which judges recorded results and never
-runs the test; any other run waits 24 hours for the conversation's resume, its
-record stamped at each session end. A start that finds a killed session's run
-unstamped, or stamped before the conversation's last resume, stamps it then
-and keeps it; resuming re-hosts the record, before the sweep's lock, so the
-run is the lead's again; after the 24 hours the next start saves and closes
-it. A worktree or a run's worktree holding ignored files that would not come
-back, judged as the heal judges them below, stays and is named.
+servers or worktrees. `session-end.sh` (Claude's `SessionEnd`) removes
+nothing: it stamps the session's record with its end. `/clear` ends a session
+as an exit does; a resume of the same conversation re-stamps its records, so
+its worktrees are never a dead session's. At most once an hour per checkout,
+`session-start.sh` and the per-prompt digest check each worktree a dead
+session recorded, in this repository or another, unless a cell of its run
+still runs (the death reader's `running` or `waiting` verdict). A worktree
+whose branch is merged into its source branch (the branch it was cut from,
+recorded at creation) or that branch's upstream, squash included, and that
+holds nothing uncommitted, untracked, or ignored that would not come back
+(judged as the heal judges it below), is removed, and its lane or `saved/`
+branch deleted. Any other stays and gets one digest line, `dead session <id>
+left <path>: <n> commits not in <source branch>, <m> uncommitted files,
+ignored: <list>`, with the command for each answer the lead puts to the
+operator: keep it, asked again after a week (`python3
+.agents/hooks/lib/worktree_sweep.py keep <path>`); save and remove it
+(`worktree_sweep.py remove <path> --save`, which puts a lane's uncommitted
+work on `refs/workloop/<run>/<lane>/wip` and another worktree's on
+`saved/<name>`); or discard it (`worktree_sweep.py remove <path>
+--discard`). For a lane, `workloop.py park <run> <lane>` is named beside them.
+Nothing that still holds work is removed without one of those answers.
 A worktree stays and is named when it is locked (Claude Code's own `claude
 session|agent` lock counts only while its session runs; the last worktree the
 session entered, if the operator kept it at Claude Code's exit prompt,
@@ -563,15 +569,20 @@ and one whose metadata now names a marker, so a marked cell that never writes
 blocks nothing. A writer that left after `StopFailure` or an interruption
 counts again once its transcript shows new work, since a cell can recover
 from an API error, and a resumed writer registers again on its new start. The
-denial lists the writers that still count. State lives in `.agents/.writers-live-<session>`,
-`.agents/.writers-turn-<session>`, `.agents/.writers-kinds-<session>` (the
-writer types each turn dispatched and those of its writers that finished,
-which decides whether a started cell registers: a long turn's finished writers
-grant nothing to a later marked cell of their type) and
-`.agents/.cell-markers-<session>` (each marked or outside dispatch's id and
-marker); `session-start.sh` clears them at startup and resume, and deleting the
-live file is the manual reset for a cell known to have died that the gate
-still lists. The toggle is `hooks.parallel_writers.enabled`.
+denial lists the writers that still count. Live writers of every session in
+the checkout share `.agents/.writers-live`, one line per cell led by its
+session, under the lock `.agents/.writers-lock`: another session's live writer
+refuses this session's writer dispatch and lets its own edits through with a
+warning naming that session and cell, and its line is swept once its
+transcripts show it ended. Per session stay `.agents/.writers-turn-<session>`,
+`.agents/.writers-kinds-<session>` (the writer types each turn dispatched and
+those of its writers that finished, which decides whether a started cell
+registers: a long turn's finished writers grant nothing to a later marked cell
+of their type) and `.agents/.cell-markers-<session>` (each marked or outside
+dispatch's id and marker). `session-start.sh` drops the session's live lines
+at startup and resume, and deleting a cell's line from the live file is the
+manual reset for a cell known to have died that the gate still lists. The
+toggle is `hooks.parallel_writers.enabled`.
 
 `claude/statusline.sh` is the status strip, wired as Claude's project
 `statusLine`, so it replaces each person's own status line in every scaffold

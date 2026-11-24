@@ -46,20 +46,18 @@ LEDGERS += (".genome-ledger", ".mutagen-ledger")
 
 
 def stale_ledgers(main: Path, live: set) -> list[str]:
-    """Remove the marker ledgers (`.cell-markers-<session>`, `.outside-runs-<session>`, both in
-    LEDGERS) a session left that no live record names and nothing has written for IDLE_SECONDS;
-    a session start keeps its own unless it starts afresh. One line per ledger that could not go."""
+    """Remove the marker ledgers (`.cell-markers-<session>`, in LEDGERS) a session left that no
+    live record names and nothing has written for IDLE_SECONDS; a session start keeps its own
+    unless it starts afresh. One line per ledger that could not go."""
     lines = []
-    for pattern in (".cell-markers-*", ".outside-runs-*"):
-        for ledger in (main / ".agents").glob(pattern):
-            session = ledger.name.removeprefix(pattern[:-1])
-            try:
-                if session not in live and time.time() - ledger.stat().st_mtime > IDLE_SECONDS:
-                    ledger.unlink()
-            except FileNotFoundError:
-                continue
-            except OSError as error:
-                lines.append(f"could not remove the stale ledger {ledger}: {error}")
+    for ledger in (main / ".agents").glob(".cell-markers-*"):
+        try:
+            if ledger.name.removeprefix(".cell-markers-") not in live and time.time() - ledger.stat().st_mtime > IDLE_SECONDS:
+                ledger.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            lines.append(f"could not remove the stale ledger {ledger}: {error}")
     return lines
 
 

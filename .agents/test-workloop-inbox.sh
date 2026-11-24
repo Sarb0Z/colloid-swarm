@@ -58,31 +58,20 @@ context() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["hookSp
 [[ -z "$(fire SubagentStart a1)" && -z "$(fire UserPromptSubmit '')" ]] || fail "spoke with no workloop state"
 ok "silent without a workloop state file"
 
-# ruling 36, with no run and no state file: the gate's ledger of header-less
-# dispatches is read at the lead's next prompt; a turn with two or more is
-# named once, a lone one is not, and a session start counts nothing
-ledger="$dir/.agents/.outside-runs-s1"
-printf 'p1\ttu1\n' > "$ledger"
-[[ -z "$(fire UserPromptSubmit '')" ]] || fail "a lone header-less dispatch was reported"
-[[ ! -e "$ledger" ]] || fail "a read ledger was kept"
-printf 'p1\ttu1\np2\ttu2\np2\ttu3\np2\ttu3\np2\ttu4\n' > "$ledger"
-[[ -z "$(fire SessionStart '')" && -f "$ledger" ]] || fail "a session start counted the ledger"
-ctx="$(context "$(fire UserPromptSubmit '')")"
-[[ "$ctx" == *"3 cells last turn outside any run"* && "$ctx" == *"add-cell"* ]] || fail "the outside-run note did not fire with no state file: $ctx"
-[[ ! -e "$ledger" ]] || fail "the counted lines were not consumed"
-[[ -z "$(fire UserPromptSubmit '')" ]] || fail "the note repeated at the next prompt"
-ok "two or more header-less dispatches in the turn that ended are named once at the next prompt, with no run open"
+# with no run, dispatches outside any run are not counted at the lead's prompt:
+# read-only cells record themselves in a fan-out run (fanout_record.py), so
+# the digest has no "cells last turn outside any run" note (spec F9)
+[[ -z "$(fire UserPromptSubmit '')" ]] || fail "the lead's prompt spoke with no run"
+ok "the lead's prompt carries no note about dispatches outside any run"
 
-# with a ledger and no state, a subagent's tool batch parses its payload and stops: only the lead's prompt reads the ledger
+# with no state, a subagent's tool batch parses its payload and stops
 mkdir -p "$scratch/pybin"
 printf '#!/usr/bin/env bash\nprintf "start\\n" >> "%s"\nexec "%s" "$@"\n' "$scratch/python3.log" "$(command -v python3)" > "$scratch/pybin/python3"
 chmod +x "$scratch/pybin/python3"
-printf 'p3\ttu5\np3\ttu6\n' > "$ledger"
 out="$(printf '{"project_dir":"%s","event":"PostToolBatch","session_id":"s1","agent_id":"a9"}' "$dir" | PATH="$scratch/pybin:$PATH" bash "$policy")"
-[[ -z "$out" && -f "$ledger" ]] || fail "a subagent's tool batch spoke or consumed the ledger: $out"
-[[ "$(wc -l < "$scratch/python3.log" | tr -d ' ')" == 1 ]] || fail "a subagent's tool batch with a ledger and no state started $(wc -l < "$scratch/python3.log" | tr -d ' ') interpreters, not one"
-rm -f "$ledger"
-ok "a subagent's tool batch with a ledger and no state prints nothing, leaves the ledger, and starts one interpreter"
+[[ -z "$out" ]] || fail "a subagent's tool batch spoke with no state: $out"
+[[ "$(wc -l < "$scratch/python3.log" | tr -d ' ')" == 1 ]] || fail "a subagent's tool batch with no state started $(wc -l < "$scratch/python3.log" | tr -d ' ') interpreters, not one"
+ok "a subagent's tool batch with no state prints nothing and starts one interpreter"
 
 old="$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -130,6 +119,10 @@ p = sys.argv[1]; s = json.load(open(p)); s["runs"]["r1"]["lanes"]["spare"] = {"s
 EOF
 ctx="$(context "$(fire SubagentStart zz)")"
 [[ "$ctx" == *"AGENT_ID: zz"* && "$ctx" != *"WORKLOOP MESSAGE"* ]] || fail "a cell with a lane to claim was not told its id: $ctx"
+# Spec acceptance 13: a SubagentStart hook cannot see whether the cell is the
+# lane's writer or a READ-ONLY one (probe P6), so no start context tells it to
+# claim; the lane's brief, which only its writer receives, does.
+[[ "$ctx" != *"claim your workloop lane"* && "$ctx" != *"claim"* ]] || fail "row 13: a cell's start context tells it to claim a lane: $ctx"
 [[ -z "$(fire PostToolBatch zz)" ]] || fail "unclaimed cell heard something between tools"
 ok "a cell hears its id only when a lane is claimable, and no messages until it claims"
 

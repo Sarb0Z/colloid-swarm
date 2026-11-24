@@ -107,6 +107,9 @@ BLOCK = [
     "timeout 120 sh -c 'git push --force'",
     # git: the global options must not hide the subcommand.
     "git push --force origin main",
+    # A `#` inside a word is no comment: the shell keeps what follows it.
+    "git push origin main#1 --force",
+    "rm -rf x#y /",
     "git push -f",
     "git push --force-with-lease",
     "git -C /repo reset --hard",
@@ -323,6 +326,8 @@ BLOCK = [
 ]
 
 ALLOW = [
+    # A `#` that starts a word opens a comment, which runs nothing.
+    "echo done # rm -rf /",
     # rm: a scoped path is the agent's own call.
     "rm -rf /tmp/scratch",
     "rm -rf ./build",
@@ -595,6 +600,24 @@ with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() a
     check("entry point exits 0 on unreadable input",
           subprocess.run([armed], input="{not json", text=True,
                          capture_output=True).returncode == 0)
+
+    # Spec acceptance 18: a cell's `git stash` is refused, naming a lane commit
+    # and the wip ref; the lead's is not, and a cell may still read the stash.
+    for stash in ("git stash", "git stash push -m wip", "git stash save x", "git stash pop", "git stash apply stash@{0}",
+                  "git -C ../lane stash", "cd lane && git stash -u", "git stash drop"):
+        cell = run({"command": stash, "agent_id": "a1b2"})
+        check(f"a cell's `{stash}` is refused", cell.returncode == 2
+              and "lane branch" in cell.stderr and "refs/workloop/<run>/<lane>/wip" in cell.stderr, cell.stderr)
+        check(f"the lead's `{stash}` passes", run({"command": stash, "agent_id": ""}).returncode == 0)
+    for read in ("git stash list", "git stash show -p stash@{0}", "git status"):
+        check(f"a cell's `{read}` passes", run({"command": read, "agent_id": "a1b2"}).returncode == 0)
+    # Claude Code's adapter hands the guard the cell's agent_id.
+    normalized = subprocess.run(
+        [sys.executable, str(here / "claude" / "normalize-hook.py"), "guard-destructive.sh", str(here.parent)],
+        input=json.dumps({"hook_event_name": "PreToolUse", "agent_id": "a1b2", "tool_input": {"command": "git stash"}}),
+        text=True, capture_output=True)
+    check("the Claude normalizer passes a cell's agent_id to the guard",
+          json.loads(normalized.stdout or "{}").get("agent_id") == "a1b2", normalized.stdout + normalized.stderr)
 
     off = run({"command": "rm -rf /"}, entry=disarmed)
     check("the config toggle turns the guard off", off.returncode == 0, off.stderr)
