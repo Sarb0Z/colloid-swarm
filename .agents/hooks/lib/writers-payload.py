@@ -38,6 +38,7 @@ import write_targets
 
 BRIEF = re.compile(r"WORKLOOP (WORKER|REVIEWER|QA|CELL) BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)")
 BRIEF_PATH = re.compile(r"Read the full brief at (/\S+?\.md)\b")
+BRIEF_STATE = re.compile(r"workloop\.py --state (/\S+)")
 WORKSPACE = re.compile(r"^[ \t]*WORKSPACE:[ \t]*(\S.*?)[ \t]*$", re.MULTILINE)
 # A run's cells of these roles return text and write nothing (workloop_cells.py).
 READING_ROLES = ("research", "review", "qa")
@@ -58,20 +59,35 @@ def main_checkout(directory):
     return os.path.dirname(path) if path.endswith(os.sep + ".git") else None
 
 
-def run_location(root, prompt):
-    """(the main checkout whose state records the brief's run, whether that is
-    another repository than this checkout's). The brief path the dispatch names
-    (`Read the full brief at <path>`) lies in a lane worktree or the run's
-    folder, so Git places it in its repository; without one, or where Git
-    cannot place it, the run is this checkout's."""
+def state_file(root, prompt):
+    """The workloop state file that records the brief's run. The brief file the
+    dispatch names (`Read the full brief at <path>`) carries it on its State,
+    Claim and handoff lines (`--state <path>`), wherever the run's state lives;
+    a brief file without one lies in a lane worktree or the run's folder, so
+    Git places it in its repository, whose state is the default. With neither,
+    the run is this checkout's."""
     found = BRIEF_PATH.search(prompt)
-    here = main_checkout(root) or root
-    if not found or not os.path.isdir(os.path.dirname(found.group(1))):
-        return here, False
-    there = main_checkout(os.path.dirname(found.group(1)))
-    if there is None:
-        return here, False
-    return there, os.path.realpath(there) != os.path.realpath(here)
+    if found:
+        try:
+            with open(found.group(1), encoding="utf-8") as source:
+                named = BRIEF_STATE.search(source.read())
+        except OSError:
+            named = None
+        if named:
+            return named.group(1)
+        there = main_checkout(os.path.dirname(found.group(1))) if os.path.isdir(os.path.dirname(found.group(1))) else None
+        if there:
+            return os.path.join(there, ".agents", ".workloop-state.json")
+    return os.path.join(main_checkout(root) or root, ".agents", ".workloop-state.json")
+
+
+def elsewhere(root, run):
+    """True when the run's repository is another than this checkout's."""
+    repo = run.get("repo") if isinstance(run, dict) else None
+    if not isinstance(repo, str) or not os.path.isdir(repo):
+        return False
+    there, here = main_checkout(repo), main_checkout(root) or root
+    return bool(there) and os.path.realpath(there) != os.path.realpath(here)
 
 
 def briefed(root, prompt):
@@ -83,9 +99,8 @@ def briefed(root, prompt):
     if not header:
         return None
     role, run_name, name = header.groups()
-    checkout, elsewhere = run_location(root, prompt)
     try:
-        with open(os.path.join(checkout, ".agents", ".workloop-state.json"), encoding="utf-8") as source:
+        with open(state_file(root, prompt), encoding="utf-8") as source:
             run = json.load(source)["runs"][run_name]
         if role == "CELL":
             return "read-only" if run["cells"][name]["role"] in READING_ROLES else None
@@ -94,7 +109,7 @@ def briefed(root, prompt):
     except (OSError, ValueError, KeyError, TypeError):
         return None
     # A lane of another repository's run never writes in this checkout.
-    if elsewhere:
+    if elsewhere(root, run):
         return "brief"
     # A main lane works in its run's checkout, which may be a worktree or a
     # clone of this one: wherever that is, its cell is a plain writer here.

@@ -494,7 +494,7 @@ case "$event" in
       # Ruling R7: another session's live writer refuses this session's writer.
       others="$(foreign_names)"
       if [[ -n "$others" ]]; then
-        deny "Another session has a writer cell live in this checkout: ${others}. A writer of this session (${tool_type}) would edit the same tree. Take a worktree for this session's work (EnterWorktree) and dispatch from there, make the work a workloop lane, or wait until that cell returns. This session's own edits stay allowed. If that cell is known dead, delete its line from ${live}."
+        deny "Another session has a writer cell live in this checkout: ${others}. A writer of this session (${tool_type}) would edit the same tree. Dispatch it as a workloop lane, whose brief places it in its own worktree (.agents/workloop.py init / add-lane / brief), give it a WORKSPACE: <absolute path> line for a directory that is no copy of this repository, or wait until that cell returns. This session's own edits stay allowed. If that cell is known dead, delete its line from ${live}."
         exit 0
       fi
       if ! count_turn "$prompt_id" dispatched || ! note_turn "$prompt_id" "$tool_type"; then

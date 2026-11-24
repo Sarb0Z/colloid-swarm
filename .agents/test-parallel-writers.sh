@@ -795,7 +795,7 @@ reset
 sfire sa event=SubagentStart prompt_id=pa agent_id=wa agent_type=implementer >/dev/null
 grep -q $'^sa\twa\timplementer\tpa$' "$nlive" || fail "R7: A's writer is not one line of the checkout's live file: $(cat "$nlive")"
 out="$(ndispatch pb general-purpose 'change another module' tub)"
-denied "$out" && [[ "$out" == *"wa (implementer) of session sa"* && "$out" == *EnterWorktree* ]] \
+denied "$out" && [[ "$out" == *"wa (implementer) of session sa"* && "$out" == *"workloop lane"* && "$out" == *"WORKSPACE:"* && "$out" != *EnterWorktree* ]] \
   || fail "row 11: session B's writer passed, or its refusal does not name A's session and cell ($out)"
 [[ -z "$(ndispatch pb general-purpose 'READ-ONLY: look around' tubr)" ]] || fail "R7: B's READ-ONLY cell was refused beside A's writer"
 out="$(nlead pb "$nf/src/x.py")"
@@ -868,8 +868,8 @@ ok "a start drops its own lines and those of a session whose transcript has not 
 other="$(cd "$scratch" && pwd -P)/other-repo"
 git init -q "$other"; git -C "$other" -c user.name=t -c user.email=t@t commit -q --allow-empty -m root
 mkdir -p "$other/.agents/worktrees/run/lane/.workloop" "$other/.agents/worktrees/run/.workloop/cells"
-printf '{"runs":{"run":{"lanes":{"lane":{"workspace":"%s/.agents/worktrees/run/lane"},"solo":{"place":"main","workspace":"%s"}},"cells":{"scout":{"role":"research"},"checker":{"role":"qa"}}}}}' \
-  "$other" "$other" > "$other/.agents/.workloop-state.json"
+printf '{"runs":{"run":{"repo":"%s","lanes":{"lane":{"workspace":"%s/.agents/worktrees/run/lane"},"solo":{"place":"main","workspace":"%s"}},"cells":{"scout":{"role":"research"},"checker":{"role":"qa"}}}}}' \
+  "$other" "$other" "$other" > "$other/.agents/.workloop-state.json"
 reset
 [[ -z "$(ndispatch p80 general-purpose 'change the module' tuw80)" ]] || fail "row 23: the first writer was refused"
 for lane in lane solo; do
@@ -887,6 +887,15 @@ done
 denied "$(ndispatch p80 general-purpose "WORKLOOP CELL BRIEF — run/ghost
 Read the full brief at $other/.agents/worktrees/run/.workloop/cells/ghost.md" tuc80g)" || fail "3.2: a cell the run does not record passed as read-only"
 denied "$(ndispatch p80 implementer 'WORKLOOP WORKER BRIEF — run/lane' tul80n)" || fail "3.2: a header with no brief path read another repository's run"
+# A run whose state file lives anywhere (a custom --state, or a lead in one
+# repository running --repo another): the brief file names it on its State line.
+mkdir -p "$scratch/custom" "$scratch/cust-lane/.workloop"
+printf '{"runs":{"cust":{"repo":"%s","lanes":{"l":{"workspace":"%s/cust-lane"}}}}}' "$other" "$scratch" > "$scratch/custom/state.json"
+printf 'WORKLOOP WORKER BRIEF — cust/l\nState: .agents/workloop.py --state %s/custom/state.json status cust\n' "$scratch" > "$scratch/cust-lane/.workloop/BRIEF.md"
+[[ -z "$(ndispatch p80 implementer "WORKLOOP WORKER BRIEF — cust/l
+Read the full brief at $scratch/cust-lane/.workloop/BRIEF.md before anything else" tul80c)" ]] \
+  || fail "3.2: a lane whose run state the brief file names (--state) was refused beside a writer"
+grep -q "^tul80c	OUTSIDE$" "$nf/.agents/.cell-markers-s2" || fail "3.2: the --state lane was not recorded OUTSIDE"
 ok "row 23: a lane of a run recorded in another repository is OUTSIDE and passes beside a writer; a run's research or QA cell is read-only with no marker line; a header naming nothing recorded is a writer"
 
 # --- the first edit hears of another session (spec Unit 5.2) ------------------
