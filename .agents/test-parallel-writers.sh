@@ -16,7 +16,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 dir="$scratch/fixture"
 mkdir -p "$dir/.agents/hooks/policy" "$dir/.agents/hooks/lib"
 cp "$repo/.agents/hooks/policy/parallel-writers-gate.sh" "$dir/.agents/hooks/policy/"
-cp "$repo"/.agents/hooks/lib/{config,product_folder,cell_markers,write_targets,writers-payload}.py "$dir/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{agent_records,config,product_folder,cell_markers,write_targets,writers-payload}.py "$dir/.agents/hooks/lib/"
 printf '{"hooks":{"parallel_writers":{"enabled":true}}}\n' > "$dir/.agents/config.json"
 gate="$dir/.agents/hooks/policy/parallel-writers-gate.sh"
 
@@ -102,29 +102,17 @@ ok "a main lane's worker brief is one plain writer in the checkout, its reviewer
 denied "$(dispatch p1 general-purpose 'compare the two modules; the word READ-ONLY appears later')" || fail "a marker not on the first line exempted a writer"
 ok "a general-purpose cell whose prompt starts READ-ONLY passes; the marker must lead"
 
-# ruling 36: a dispatch with no WORKLOOP … BRIEF header is noted per turn in
-# .outside-runs-<session> as "<prompt id> <tool use id>", readers and markers
-# included; a briefed lane or cell, the host's own helpers and a dispatch the
-# notes-only rule refuses are not
-ledger="$dir/.agents/.outside-runs-s1"
-rm -f "$ledger"; : > "$dir/.agents/.writers-turn-s1"; lane_state "$scratch/wt-lane"
+# Dispatches outside any run are not counted for the lead's digest: read-only
+# cells record themselves (test-fanout-record.sh), and the gate writes no
+# .outside-runs ledger
+: > "$dir/.agents/.writers-turn-s1"; lane_state "$scratch/wt-lane"
 [[ -z "$(dispatch p30 implementer)" ]] || fail "first writer refused"
 [[ -z "$(dispatch p30 explorer)" && -z "$(dispatch p30 general-purpose 'READ-ONLY: look around')" ]] || fail "a reader was refused"
 [[ -z "$(dispatch p30 statusline-setup)" && -z "$(dispatch p30 claude-code-guide)" ]] || fail "a helper was refused"
 [[ -z "$(dispatch p30 implementer "$forged")" ]] || fail "a briefed lane was refused"
-[[ -z "$(dispatch p30 general-purpose 'READ-ONLY — this cell reads the checkout and writes nothing; its result is its reply.
-WORKLOOP CELL BRIEF — run/scout
-Read the full brief at /x/.agents/worktrees/run/.workloop/cells/scout.md before anything else')" ]] || fail "a cell brief was refused"
-denied "$(dispatch p30 general-purpose 'NOTES-ONLY: inventory the vendors')" || fail "a NOTES-ONLY dispatch passed with no product folder"
-[[ -f "$ledger" && "$(grep -c '^p30	tu-' "$ledger")" -eq 3 && "$(grep -vc '^p30	tu-' "$ledger")" -eq 0 ]] || fail "the ledger does not hold the turn's three header-less dispatches: $(cat "$ledger" 2>&1)"
-[[ -z "$(dispatch p31 reviewer)" ]] || fail "a reviewer was refused"
-[[ "$(grep -c '^p31	tu-' "$ledger")" -eq 1 && "$(grep -c '^p30	tu-' "$ledger")" -eq 3 ]] || fail "a later turn's dispatch was not appended after the earlier turn's: $(cat "$ledger")"
-# a refused dispatch is not counted: one writer passed and a second denied leave one line
-[[ -z "$(dispatch p32 implementer)" ]] || fail "the first writer of turn p32 was refused"
-denied "$(dispatch p32 mechanic)" || fail "a second writer in turn p32 passed"
-[[ "$(grep -c '^p32	tu-' "$ledger")" -eq 1 ]] || fail "a refused writer was counted outside any run: $(cat "$ledger")"
-rm -f "$ledger" "$dir/.agents/.workloop-state.json"
-ok "header-less dispatches the gate admits are noted per turn for the lead's digest; refused ones, briefed cells and the host's helpers are not"
+[[ ! -e "$dir/.agents/.outside-runs-s1" ]] || fail "the gate still notes dispatches outside any run"
+rm -f "$dir/.agents/.workloop-state.json"
+ok "readers, helpers and briefed lanes pass, and no ledger of dispatches outside a run is written"
 # the rows below continue turn p1 with its one writer pending
 : > "$dir/.agents/.writers-turn-s1"
 [[ -z "$(dispatch p1 implementer)" ]] || fail "first writer refused"
@@ -253,12 +241,12 @@ pf="$home/product"
 nf="$pf/repo"
 mkdir -p "$nf/.git" "$nf/.agents/hooks/policy" "$nf/.agents/hooks/lib" "$nf/src" "$pf/notes" "$pf/.vercel" "$pf/sibling/.git" "$pf/sibling/src"
 cp "$repo/.agents/hooks/policy/parallel-writers-gate.sh" "$nf/.agents/hooks/policy/"
-cp "$repo"/.agents/hooks/lib/{config,product_folder,cell_markers,write_targets,writers-payload}.py "$nf/.agents/hooks/lib/"
+cp "$repo"/.agents/hooks/lib/{agent_records,config,product_folder,cell_markers,write_targets,writers-payload}.py "$nf/.agents/hooks/lib/"
 printf '{"hooks":{"product_folder":{"enabled":true}}}\n' > "$nf/.agents/config.json"
 ngate="$nf/.agents/hooks/policy/parallel-writers-gate.sh"
 transcripts="$scratch/transcripts"
 subagents="$transcripts/s2/subagents"
-nlive="$nf/.agents/.writers-live-s2"
+nlive="$nf/.agents/.writers-live"
 
 # nfire key=value ... -> stdout; stderr lands in $scratch/gerr
 nfire() {
@@ -279,8 +267,9 @@ meta() {  # <agent_id> <tool_use_id>: Claude Code's record of a running cell
 }
 reset() { rm -rf "$nf/.agents/".writers-* "$nf/.agents/".cell-markers-* "$transcripts"; }
 # The live file also remembers cells that left, on lines carrying a gone column.
-live_lines() { if [[ -f "$nlive" ]]; then grep -v '	gone	' "$nlive" | grep -c . || true; else echo 0; fi; }
-live_has() { [[ -f "$nlive" ]] && grep "^$1	" "$nlive" | grep -vq '	gone	'; }
+# Each line is led by its session; these read session s2's.
+live_lines() { if [[ -f "$nlive" ]]; then grep '^s2	' "$nlive" | grep -v '	gone	' | grep -c . || true; else echo 0; fi; }
+live_has() { [[ -f "$nlive" ]] && grep "^s2	$1	" "$nlive" | grep -vq '	gone	'; }
 
 # dispatch: the marker passes beside a live writer, and a second plain writer is refused
 reset
@@ -325,8 +314,9 @@ for marker in READ-ONLY NOTES-ONLY; do
   reset
   [[ -z "$(ndispatch p4 general-purpose 'change the module' tuw)" ]] || fail "writer refused"
   [[ -z "$(ndispatch p4 general-purpose "$marker: write up" tum)" ]] || fail "$marker dispatch refused"
-  meta w4 tuw; meta m4 tum
+  # Claude Code writes a cell's metadata after SubagentStart returns (probe P6).
   nstart w4 general-purpose p4; nstart m4 general-purpose p4
+  meta w4 tuw; meta m4 tum
   [[ "$(live_lines)" -eq 2 ]] || fail "$marker: expected both cells registered at start, got $(live_lines)"
   nwrite m4 general-purpose "$pf/notes/x.md" >/dev/null
   [[ "$(live_lines)" -eq 1 ]] && live_has w4 || fail "$marker: the marked cell stayed a live writer after its first write"
@@ -387,7 +377,7 @@ done
 chmod a-w "$nf/.agents"
 out="$(ndispatch p9 general-purpose 'NOTES-ONLY: inventory' tu9)" || { chmod u+w "$nf/.agents"; fail "the gate exited non-zero on an unwritable .agents"; }
 chmod u+w "$nf/.agents"
-denied "$out" && [[ "$out" == *"could not record"* ]] || fail "a NOTES-ONLY dispatch passed with .agents unwritable ($out)"
+denied "$out" && [[ "$out" == *"could not take its lock"* && "$out" == *"cannot be written"* ]] || fail "a NOTES-ONLY dispatch passed with .agents unwritable, or the denial does not say why ($out)"
 ok "a marked dispatch with an empty id, or an unwritable .agents, is refused with an envelope"
 
 # with no marked dispatch recorded this session, a cell's write is a writer's and reads nothing
@@ -611,8 +601,8 @@ for marker in READ-ONLY 'WORKSPACE:'; do
 WORKSPACE: $scratch/copy-a"
   [[ -z "$(ndispatch p44 general-purpose 'change the module' tuw44)" ]] || fail "$marker: the writer was refused"
   [[ -z "$(ndispatch p44 general-purpose "$prompt" tum44)" ]] || fail "$marker: the marked dispatch was refused"
-  meta w44 tuw44; meta m44 tum44
   nstart m44 general-purpose p44; nstart w44 general-purpose p44
+  meta w44 tuw44; meta m44 tum44
   [[ "$(live_lines)" -eq 2 ]] || fail "$marker: expected both cells registered at start, got $(live_lines)"
   nstop w44 general-purpose
   [[ -z "$(nlead p45 "$nf/src/x.py")" ]] || fail "$marker: a marked cell that never wrote held the lead's edit after the writer stopped"
@@ -643,12 +633,12 @@ ok "a long turn's finished writers grant no registration to a later marked cell 
 # demotion happens only under the lock: with the lock busy the write is still denied and the cell stays live
 reset
 [[ -z "$(ndispatch p15 general-purpose 'READ-ONLY: look' tum15)" ]] || fail "READ-ONLY dispatch refused"
-meta m15 tum15; nstart m15 general-purpose p-unrecorded
-mkdir "$nf/.agents/.writers-lock-s2"
+nstart m15 general-purpose p-unrecorded; meta m15 tum15
+mkdir "$nf/.agents/.writers-lock"
 # dated an hour ahead, so a write slowed past the reap age under load still finds the lock busy
-python3 -c 'import os,sys,time; t=time.time()+3600; os.utime(sys.argv[1], (t, t))' "$nf/.agents/.writers-lock-s2"
+python3 -c 'import os,sys,time; t=time.time()+3600; os.utime(sys.argv[1], (t, t))' "$nf/.agents/.writers-lock"
 out="$(nwrite m15 general-purpose "$pf/notes/x.md")"
-rmdir "$nf/.agents/.writers-lock-s2"
+rmdir "$nf/.agents/.writers-lock"
 denied "$out" || fail "a READ-ONLY write passed while the lock was busy"
 live_has m15 && grep -q 'lock is busy' "$scratch/gerr" || fail "a demotion ran without the lock, or skipped it silently"
 ok "with the lock busy a marked cell's write is denied and its demotion is skipped aloud"
@@ -784,6 +774,145 @@ done
 [[ "$(gdispatch p30 mechanic "WORKSPACE: $glane" tuws30b)" == *"worktree or clone of this repository"* ]] || fail "a nested worktree WORKSPACE was not refused as this repository's worktree"
 [[ "$(gdispatch p30 mechanic "WORKSPACE: $gr/src/vendor" tuws30c)" == *"lies inside this checkout"* ]] || fail "a submodule WORKSPACE was not refused as inside the checkout"
 ok "a WORKSPACE naming a nested worktree of this repository, or a submodule, is refused"
+
+# --- two sessions in one checkout (spec Unit 3.1, ruling R7) --------------------
+# Seam: the gate's events for two session ids against one fixture checkout; it
+# catches a gate that keys its live writers on the session, a foreign row that
+# never clears, and a lead edit refused rather than warned, and misses whether
+# Claude Code shows the warning to the person.
+sfire() {  # <session> key=value ... -> stdout; stderr lands in $scratch/gerr
+  local args=(--arg project_dir "$nf" --arg session_id "$1" --arg transcript_path "$transcripts/$1.jsonl") pair
+  shift
+  for pair in "$@"; do args+=(--arg "${pair%%=*}" "${pair#*=}"); done
+  jq -nc "${args[@]}" '$ARGS.named
+    | .tool_input = ({subagent_type, prompt, file_path, task_id} | with_entries(select(.value != null)))
+    | del(.subagent_type, .prompt, .file_path, .task_id)' | env HOME="$home" bash "$ngate" 2>"$scratch/gerr"
+}
+warned() { [[ "$1" == *'"additionalContext"'* && "$1" != *'"permissionDecision"'* ]]; }
+reset
+[[ -z "$(sfire sa event=PreToolUse tool_name=Agent prompt_id=pa subagent_type=implementer prompt='change the module' tool_use_id=tua)" ]] \
+  || fail "R7: session A's first writer was refused"
+sfire sa event=SubagentStart prompt_id=pa agent_id=wa agent_type=implementer >/dev/null
+grep -q $'^sa\twa\timplementer\tpa$' "$nlive" || fail "R7: A's writer is not one line of the checkout's live file: $(cat "$nlive")"
+out="$(ndispatch pb general-purpose 'change another module' tub)"
+denied "$out" && [[ "$out" == *"wa (implementer) of session sa"* && "$out" == *"workloop lane"* && "$out" == *"WORKSPACE:"* && "$out" != *EnterWorktree* ]] \
+  || fail "row 11: session B's writer passed, or its refusal does not name A's session and cell ($out)"
+[[ -z "$(ndispatch pb general-purpose 'READ-ONLY: look around' tubr)" ]] || fail "R7: B's READ-ONLY cell was refused beside A's writer"
+out="$(nlead pb "$nf/src/x.py")"
+warned "$out" && [[ "$out" == *"session sa"* && "$out" == *"wa (implementer)"* ]] \
+  || fail "row 11: B's own edit was refused, or allowed without a warning naming A ($out)"
+out="$(sfire sa event=PreToolUse tool_name=Edit prompt_id=pa file_path="$nf/src/x.py")"
+denied "$out" || fail "R7: A's lead edited beside its own live writer"
+sfire sa event=SubagentStop agent_id=wa agent_type=implementer >/dev/null
+[[ -z "$(ndispatch pb general-purpose 'change another module' tub2)" ]] || fail "row 11: B's writer was refused after A's writer returned"
+[[ -z "$(sfire sa event=PreToolUse tool_name=Edit prompt_id=pa2 file_path="$nf/src/x.py")" ]] || fail "R7: B's pending writer refused A's lead edit"
+ok "row 11: B's writer is refused naming A's session and cell, B's own edit passes with a warning naming A, and B's writer passes once A's returns"
+
+# Another session's writer that ended without a SubagentStop is swept from its
+# transcripts: an interruption, a final answer, or both transcripts quiet 30 min.
+foreign_row() {  # <how the cell's transcript ends: interrupted|answer|quiet|waiting|working>
+  reset
+  sfire sa event=PreToolUse tool_name=Agent prompt_id=pa subagent_type=implementer prompt='change it' tool_use_id=tua >/dev/null
+  sfire sa event=SubagentStart prompt_id=pa agent_id=wa agent_type=implementer >/dev/null
+  mkdir -p "$transcripts/sa/subagents"
+  local log="$transcripts/sa/subagents/agent-wa.jsonl" at='"timestamp":"2026-11-24T10:00:00.000Z","cwd":"/x"'
+  printf '{"type":"user",%s,"message":{"role":"user","content":"change it"}}\n' "$at" > "$log"
+  case "$1" in
+    interrupted) printf '{"type":"user",%s,"message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}\n' "$at" >> "$log" ;;
+    answer) printf '{"type":"assistant",%s,"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}\n' "$at" >> "$log" ;;
+    waiting) printf '{"type":"assistant",%s,"message":{"role":"assistant","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"make test","run_in_background":true}}]}}\n{"type":"user",%s,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"started"}]},"toolUseResult":{"backgroundTaskId":"bg1"}}\n{"type":"assistant",%s,"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"waiting on the tests"}]}}\n' "$at" "$at" "$at" >> "$log" ;;
+    quiet|working) printf '{"type":"assistant",%s,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]}}\n' "$at" >> "$log" ;;
+  esac
+  : > "$transcripts/sa.jsonl"
+  if [[ "$1" == quiet || "$1" == waiting ]]; then
+    touch -t 202611240800 "$log" "$transcripts/sa.jsonl"
+  fi
+}
+for end in interrupted answer quiet; do
+  foreign_row "$end"
+  [[ -z "$(ndispatch pb general-purpose 'change another module' tub)" ]] || fail "a foreign writer whose transcript shows it $end still refused B's writer"
+  ! grep -q $'^sa\twa\t' "$nlive" || fail "a foreign writer that $end stayed in the live file"
+done
+for end in working waiting; do
+  foreign_row "$end"
+  out="$(ndispatch pb general-purpose 'change another module' tub)"
+  denied "$out" && [[ "$out" == *"of session sa"* ]] || fail "a foreign writer still $end was swept ($out)"
+done
+ok "another session's writer leaves once its transcript ends in an interruption or a final answer, or both transcripts stay quiet 30 min; a working one, or one waiting on its own background command, stays"
+
+# --- a resumed session's READ-ONLY cell (spec acceptance row 10, the gate's part) ---
+# The session restarts with /resume: session-start drops this session's live
+# lines and keeps its marker ledger (Unit 1.8). The lead messages the cell,
+# which starts again with its metadata already written.
+reset
+sfire sa event=PreToolUse tool_name=Agent prompt_id=pa subagent_type=implementer prompt='change it' tool_use_id=tua >/dev/null
+sfire sa event=SubagentStart prompt_id=pa agent_id=wa agent_type=implementer >/dev/null
+[[ -z "$(ndispatch p70 general-purpose 'READ-ONLY: read the logs' tur70)" ]] || fail "row 10: the READ-ONLY dispatch was refused"
+nstart r70 general-purpose p70; meta r70 tur70
+python3 "$nf/.agents/hooks/lib/cell_markers.py" drop-session "$nf" s2 "$transcripts/s2.jsonl" || fail "row 10: drop-session failed"
+! grep -q '^s2	' "$nlive" || fail "row 10: drop-session left this session's lines: $(cat "$nlive")"
+grep -q $'^sa\twa\t' "$nlive" || fail "row 10: drop-session dropped another live session's line"
+nstart r70 general-purpose p71
+[[ "$(live_lines)" -eq 0 ]] || fail "row 10: the resumed READ-ONLY cell registered as a writer"
+warned "$(nlead p71 "$nf/src/x.py")" || fail "row 10: the lead's write beside its resumed READ-ONLY cell was refused"
+ok "row 10: after a resume, a READ-ONLY cell brought back does not register, and the lead's write passes"
+
+reset
+printf 's2\tw1\timplementer\tp1\nsold\two\timplementer\tp0\nsnew\twn\timplementer\tp0\n' > "$nlive"
+mkdir -p "$transcripts"; : > "$transcripts/snew.jsonl"; : > "$transcripts/sold.jsonl"; touch -t 202611200000 "$transcripts/sold.jsonl"
+python3 "$nf/.agents/hooks/lib/cell_markers.py" drop-session "$nf" s2 "$transcripts/s2.jsonl"
+[[ "$(cat "$nlive")" == $'snew\twn\timplementer\tp0' ]] || fail "drop-session kept the wrong lines: $(cat "$nlive")"
+ok "a start drops its own lines and those of a session whose transcript has not changed in a day"
+
+# --- briefs whose run lives elsewhere (spec Unit 3.2, acceptance row 23) ------
+other="$(cd "$scratch" && pwd -P)/other-repo"
+git init -q "$other"; git -C "$other" -c user.name=t -c user.email=t@t commit -q --allow-empty -m root
+mkdir -p "$other/.agents/worktrees/run/lane/.workloop" "$other/.agents/worktrees/run/.workloop/cells"
+printf '{"runs":{"run":{"repo":"%s","lanes":{"lane":{"workspace":"%s/.agents/worktrees/run/lane"},"solo":{"place":"main","workspace":"%s"}},"cells":{"scout":{"role":"research"},"checker":{"role":"qa"}}}}}' \
+  "$other" "$other" "$other" > "$other/.agents/.workloop-state.json"
+reset
+[[ -z "$(ndispatch p80 general-purpose 'change the module' tuw80)" ]] || fail "row 23: the first writer was refused"
+for lane in lane solo; do
+  out="$(ndispatch p80 implementer "WORKLOOP WORKER BRIEF — run/$lane
+Read the full brief at $other/.agents/worktrees/run/lane/.workloop/BRIEF.md before anything else" "tul80$lane")"
+  [[ -z "$out" ]] || fail "row 23: a brief for lane $lane of another repository's run was refused beside a writer ($out)"
+  grep -q "^tul80$lane	OUTSIDE$" "$nf/.agents/.cell-markers-s2" || fail "row 23: lane $lane of another repository was not recorded OUTSIDE"
+done
+for cell in scout checker; do
+  [[ -z "$(ndispatch p80 general-purpose "WORKLOOP CELL BRIEF — run/$cell
+Read the full brief at $other/.agents/worktrees/run/.workloop/cells/$cell.md before anything else" "tuc80$cell")" ]] \
+    || fail "3.2: a $cell cell brief with no READ-ONLY line was refused beside a writer"
+  grep -q "^tuc80$cell	READ-ONLY$" "$nf/.agents/.cell-markers-s2" || fail "3.2: the $cell cell was not recorded READ-ONLY"
+done
+denied "$(ndispatch p80 general-purpose "WORKLOOP CELL BRIEF — run/ghost
+Read the full brief at $other/.agents/worktrees/run/.workloop/cells/ghost.md" tuc80g)" || fail "3.2: a cell the run does not record passed as read-only"
+denied "$(ndispatch p80 implementer 'WORKLOOP WORKER BRIEF — run/lane' tul80n)" || fail "3.2: a header with no brief path read another repository's run"
+# A run whose state file lives anywhere (a custom --state, or a lead in one
+# repository running --repo another): the brief file names it on its State line.
+mkdir -p "$scratch/custom" "$scratch/cust-lane/.workloop"
+printf '{"runs":{"cust":{"repo":"%s","lanes":{"l":{"workspace":"%s/cust-lane"}}}}}' "$other" "$scratch" > "$scratch/custom/state.json"
+printf 'WORKLOOP WORKER BRIEF — cust/l\nState: .agents/workloop.py --state %s/custom/state.json status cust\n' "$scratch" > "$scratch/cust-lane/.workloop/BRIEF.md"
+[[ -z "$(ndispatch p80 implementer "WORKLOOP WORKER BRIEF — cust/l
+Read the full brief at $scratch/cust-lane/.workloop/BRIEF.md before anything else" tul80c)" ]] \
+  || fail "3.2: a lane whose run state the brief file names (--state) was refused beside a writer"
+grep -q "^tul80c	OUTSIDE$" "$nf/.agents/.cell-markers-s2" || fail "3.2: the --state lane was not recorded OUTSIDE"
+ok "row 23: a lane of a run recorded in another repository is OUTSIDE and passes beside a writer; a run's research or QA cell is read-only with no marker line; a header naming nothing recorded is a writer"
+
+# --- the first edit hears of another session (spec Unit 5.2) ------------------
+# A peer that committed here 2 minutes ago is named at this session's first
+# edit, with EnterWorktree, and not again at the next.
+reset
+rm -f "$nf/.agents/".writers-told-*
+mkdir -p "$transcripts"; : > "$transcripts/s2.jsonl"; : > "$transcripts/peer-1.jsonl"
+peer_ledger="$nf/.agents/.wrap-commits-$(printf '%s' peer-1 | cksum | tr -d ' ')"
+: > "$peer_ledger"; python3 -c 'import os,sys,time; t=time.time()-120; os.utime(sys.argv[1], (t, t))' "$peer_ledger"
+nfire_first() { nfire event=PreToolUse tool_name=Edit prompt_id=p90 file_path="$nf/src/x.py" transcript_path="$transcripts/s2.jsonl"; }
+out="$(nfire_first)"
+warned "$out" && [[ "$out" == *"session peer-1 committed here 2 min ago"* && "$out" == *EnterWorktree* ]] \
+  || fail "5.2: the first edit did not name the peer that committed 2 minutes ago ($out)"
+[[ -z "$(nfire_first)" ]] || fail "5.2: the peer was named again at the second edit"
+rm -f "$peer_ledger" "$nf/.agents/".writers-told-*
+ok "a session's first edit names another session that committed here in the last 10 minutes, with EnterWorktree, and later edits do not"
 
 # disabled
 printf '{"hooks":{"parallel_writers":{"enabled":false}}}\n' > "$dir/.agents/config.json"

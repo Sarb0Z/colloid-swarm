@@ -23,16 +23,8 @@
 # lead's edits there, an OUTSIDE cell's writes there and a brief for such a
 # lane all count as outside; a submodule stays the checkout's.
 #
-# Seven events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. One the gate lets through that carries no
-#                  WORKLOOP … BRIEF header is noted in
-#                  .agents/.outside-runs-<session> as "<prompt_id>
-#                  <tool_use_id>", unless its type is one of the host's own
-#                  helpers (HELPERS); a refused one is not. The lead's digest
-#                  (hooks/lib/workloop-inbox.py) counts a turn's lines at the
-#                  next prompt and names a turn with two or more, a multi-cell
-#                  delegation outside a run (ruling 36). Nothing is refused for
-#                  it. A read-only type passes. A prompt that
+# Eight events share one policy because they share one state file:
+#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
 #                  opens with READ-ONLY passes, as does one that opens with
 #                  NOTES-ONLY where the repository has a product folder
 #                  (hooks.product_folder.enabled; denied where it has none,
@@ -95,17 +87,36 @@
 #                  finish fires SubagentStop (probed on 2.1.299). One that
 #                  never wrote is counted marked here if its metadata names a
 #                  marker.
+#   PostToolUse Agent, SubagentStop — the lead's read-only cells record
+#                  themselves (decision D4): a dispatch with a READ-ONLY or
+#                  NOTES-ONLY marker or a reading persona and no WORKLOOP …
+#                  BRIEF header becomes a cell of the run fanout-<session>, and
+#                  its SubagentStop marks it returned (hooks/lib/fanout_record.py,
+#                  which reports a failure on stderr and never blocks).
 #
-# session-start.sh clears the state at startup and resume: no subagent
-# survives the process, so a cell that died without a SubagentStop cannot
-# deny the next session. Within one session, .agents/.writers-live-<session>
-# is the file to delete if a cell is known dead and the sweep kept it.
+# Every session working in this checkout shares one live file,
+# .agents/.writers-live, under one lock, .agents/.writers-lock (ruling R7):
+#   - another session's live writer refuses this session's writer dispatch,
+#     naming that session and cell, and lets this session's own edit through
+#     with a warning naming them;
+#   - another session's line is swept by its transcripts (cell_markers.py
+#     foreign), read only when such a line exists.
+# The turn and kinds files stay per session. session-start.sh drops this
+# session's lines at startup and resume (cell_markers.py drop-session): no
+# subagent survives the process, so a cell that died without a SubagentStop
+# cannot deny the next session. A line the sweeps keep for a cell known dead
+# is the line to delete from .agents/.writers-live.
+#
+# A cell resumed after a restart starts again with its metadata written, so a
+# marked one is found at SubagentStart and never registers.
 #
 # Input (stdin JSON): {"project_dir", "cwd", "event", "session_id", "prompt_id",
 #   "tool_name", "tool_input": {...}, "tool_use_id", "transcript_path",
 #   "agent_id", "agent_type"}
-# Output: PreToolUse — a deny envelope on stdout when the rule fires, silence
-#   otherwise. The other events emit nothing.
+# Output: PreToolUse — a deny envelope on stdout when the rule fires; for the
+#   lead's edit beside another session's writer, an additionalContext and
+#   systemMessage warning with no decision; silence otherwise. The other events
+#   emit nothing.
 #
 # Writers are everything not on the read-only list below. An unknown persona
 # is a writer: a gate that guesses "reader" for a name it has not seen lets
@@ -132,8 +143,6 @@ lib="$repo/.agents/hooks/lib"
 cfg_path="$repo/.agents/config.json"
 
 READERS="explore explorer plan researcher reviewer qa-verifier claude-code-guide statusline-setup"
-# The host's own helpers: no delegation of the lead's, so never a cell outside a run.
-HELPERS="claude-code-guide statusline-setup"
 
 payload="$(cat)"
 # A malformed toggle keeps the gate on: a broken gate must never silently
@@ -145,12 +154,13 @@ enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.parallel_writers.enabled=t
   printf '%s' "$payload" | python3 "$lib/writers-payload.py")
 
 [[ -n "$session" && -n "$proj" ]] || exit 0
-live="$proj/.agents/.writers-live-$session"
+# One live file and one lock per checkout, shared by every session working in
+# it; the turn and kinds files count one lead's turns and stay per session.
+live="$proj/.agents/.writers-live"
+lock="$proj/.agents/.writers-lock"
 turn="$proj/.agents/.writers-turn-$session"
-lock="$proj/.agents/.writers-lock-$session"
 kinds="$proj/.agents/.writers-kinds-$session"
 markers="$proj/.agents/.cell-markers-$session"
-outside_runs="$proj/.agents/.outside-runs-$session"
 
 named_in() {  # <type> <list> -> 0 when the type, case aside, is in the list
   local t; t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -159,22 +169,30 @@ named_in() {  # <type> <list> -> 0 when the type, case aside, is in the list
 }
 is_reader() { named_in "$1" "$READERS"; }
 
-# mkdir is the atomic test-and-set stock macOS has. The hold is milliseconds,
-# so a lock untouched for two minutes (macOS find counts whole minutes, so
-# -mmin +1 is two) belongs to a dead hook and is reaped; a hook
-# that cannot take the lock in a second proceeds without it rather than
-# stalling the dispatch behind it.
+# mkdir is the atomic test-and-set stock macOS has (cell_markers.py takes the
+# same lock the same way). The hold is milliseconds, so a lock untouched for two
+# minutes (macOS find counts whole minutes, so -mmin +1 is two) belongs to a
+# dead hook and is reaped. A hook waits up to 5 s for it; a PreToolUse call that
+# still cannot have it is denied (lock_denied), since every session's writers
+# share the file, and other events report on stderr and skip their write.
 held=""
 take_lock() {
   local tries=0
-  while (( tries < 20 )); do
-    if mkdir "$lock" 2>/dev/null; then held=yes; return; fi
+  [[ -n "$held" ]] && return 0
+  while (( tries < 100 )); do
+    if mkdir "$lock" 2>/dev/null; then held=yes; return 0; fi
+    [[ -d "$lock" ]] || return 1  # not busy: .agents cannot be written
     [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rm -rf "$lock"
     sleep 0.05; tries=$((tries + 1))
   done
+  return 1
 }
 release_lock() { [[ -n "$held" ]] && rmdir "$lock" 2>/dev/null || true; }
 trap release_lock EXIT
+lock_denied() {
+  deny "The parallel-writers gate could not take its lock ${lock} within 5 s, so it cannot tell which writers are live in this checkout. Retry; if no gate is running, the lock is left over: remove the folder ${lock}. If the folder is absent, the .agents directory cannot be written: fix its permissions."
+  exit 0
+}
 
 # .writers-turn-<session> holds the latest turn that dispatched a writer:
 # "<prompt_id> <dispatched> <started> <marked>", tab-separated — the writers it
@@ -267,27 +285,32 @@ take_back_finished() {  # <prompt_id> <type>: undoes one note_finished of that t
   printf '%s\t%s\t%s' "$1" "$(kinds_field "$recorded" 1)" "$left" >"$kinds"
 }
 
-# .writers-live-<session> holds every cell that registered this session, one
-# line each. A live writer is "<agent_id> <type> <turn it started in>"; one that
-# left is "<agent_id> <type> <turn> gone <how> <marker state> <transcript size>",
-# tab-separated, where <how> is finished (SubagentStop), stopped (TaskStop),
-# died (StopFailure), swept (its transcript ended in an interruption) or
-# marked, and the size is its transcript's in bytes when it left ("-" when the
-# gate had no transcript path). Remembering the cells that left lets a resumed
-# cell register again, and lets one that died or was swept come back when its
-# transcript shows new work: a cell may recover from an API error with no new
-# SubagentStart.
-entry_of() { grep "^$1	" "$live" 2>/dev/null | head -n1; }
+# .agents/.writers-live holds every cell that registered in this checkout, one
+# line each, led by the session that dispatched it. A live writer is
+# "<session> <agent_id> <type> <turn it started in>"; one that left is
+# "<session> <agent_id> <type> <turn> gone <how> <marker state> <transcript
+# size>", tab-separated, where <how> is finished (SubagentStop), stopped
+# (TaskStop), died (StopFailure), swept (its transcript ended in an
+# interruption) or marked, and the size is its transcript's in bytes when it
+# left ("-" when the gate had no transcript path). Remembering the cells that
+# left lets a resumed cell register again, and lets one that died or was swept
+# come back when its transcript shows new work: a cell may recover from an API
+# error with no new SubagentStart. This session reads its own lines through
+# `own`, without the session column; another session's live lines are swept by
+# cell_markers.py foreign, from that session's transcripts.
+own() { [[ -f "$live" ]] && grep "^$session	" "$live" | cut -f2- || true; }
+has_foreign() { [[ -f "$live" ]] && awk -F'\t' -v s="$session" '$1 != s && $5 != "gone" { f = 1 } END { exit !f }' "$live"; }
+entry_of() { own | grep "^$1	" | head -n1 || true; }
 is_live() { local e; e="$(entry_of "$1")"; [[ -n "$e" && "$e" != *"	gone	"* ]]; }
 
-# Replaces a cell's line, only while this hook holds the lock, via a temporary
-# file beside the live file so a reader sees one whole file. A failure is
-# reported and never fails the hook.
-rewrite() {  # <agent_id> <new line> <what a failure leaves>
+# Replaces one of this session's lines, only while this hook holds the lock,
+# via a temporary file beside the live file so a reader sees one whole file. A
+# failure is reported and never fails the hook.
+rewrite() {  # <agent_id> <new line, without the session column> <what a failure leaves>
   local tmp=""
   [[ -n "$held" ]] || { echo "parallel-writers-gate: the lock is busy, so $3." >&2; return 1; }
-  if tmp="$(mktemp "$live.XXXXXX")" && { grep -v "^$1	" "$live" >"$tmp"; (( $? <= 1 )); } &&
-     printf '%s\n' "$2" >>"$tmp" && mv "$tmp" "$live"; then
+  if tmp="$(mktemp "$live.XXXXXX")" && { grep -v "^$session	$1	" "$live" >"$tmp"; (( $? <= 1 )); } &&
+     printf '%s\t%s\n' "$session" "$2" >>"$tmp" && mv "$tmp" "$live"; then
     return 0
   fi
   [[ -z "$tmp" ]] || rm -f "$tmp"
@@ -331,7 +354,7 @@ grown() {
     [[ "$how" == died || "$how" == swept ]] && [[ "$state" != marked && "$size" != - && -n "$size" ]] || continue
     now="$(transcript_size "$id")"
     (( now > size )) && printf '%s:%s\n' "$id" "$size"
-  done < <(grep '	gone	' "$live")
+  done < <(own | grep '	gone	')
   return 0
 }
 
@@ -354,14 +377,29 @@ restore() {
   done
 }
 
-live_count() {
+live_count() {  # this session's live writers
   # grep -c prints 0 and exits 1 when nothing matches, so it cannot sit in a || chain.
-  if [[ -f "$live" ]]; then grep -v '	gone	' "$live" | grep -c . || true; else echo 0; fi
+  own | grep -v '	gone	' | grep -c . || true
+}
+
+# Another session's live writers, after cell_markers.py foreign drops each its
+# transcripts show ended, as "a1 (implementer) of session s2, ...". Needs the
+# lock held; empty when there are none.
+foreign_names() {
+  has_foreign || return 0
+  python3 "$lib/cell_markers.py" foreign "$proj" "$session" "$transcript" |
+    awk -F'\t' '{ printf "%s%s (%s) of session %s", (NR > 1 ? ", " : ""), $2, $3, $1 }'
 }
 
 deny() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' \
     "$(printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+}
+
+# Lets the call through with no decision of its own, telling the agent (context)
+# and the person (systemMessage) why.
+warn() {
+  printf '%s' "$1" | python3 -c 'import json,sys; text = sys.stdin.read(); print(json.dumps({"systemMessage": "parallel-writers-gate: " + text, "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}}))'
 }
 
 # Books a cell already taken off the live writers by what it turned out to be:
@@ -383,7 +421,7 @@ settle() {  # <agent_id> <"type<TAB>turn" from unregister> <marked|unmarked|unkn
 finish() {  # <agent_id> <finished|stopped|died>
   local state=unmarked status=0
   [[ -n "$1" ]] && is_live "$1" || return 0
-  take_lock
+  take_lock || true  # without it, rewrite says the cell stays live
   if [[ -f "$markers" ]]; then
     python3 "$lib/cell_markers.py" marked "$proj" "$session" "$transcript" "$1" || status=$?
     case "$status" in
@@ -400,7 +438,7 @@ finish() {  # <agent_id> <finished|stopped|died>
 sweep() {
   local ids=() id reason state
   [[ -f "$live" ]] || return 0
-  while IFS=$'\t' read -r id _; do is_live "$id" && ids+=("$id"); done <"$live"
+  while IFS=$'\t' read -r id _; do is_live "$id" && ids+=("$id"); done < <(own)
   (( ${#ids[@]} )) && [[ -n "$transcript" ]] || return 0
   while IFS=$'\t' read -r id reason; do
     case "$reason" in
@@ -414,17 +452,8 @@ sweep() {
 live_names() {
   local id type out=""
   [[ -f "$live" ]] || return 0
-  while IFS=$'\t' read -r id type _; do [[ -n "$id" ]] && out="${out:+$out, }$id ($type)"; done < <(grep -v '	gone	' "$live")
+  while IFS=$'\t' read -r id type _; do [[ -n "$id" ]] && out="${out:+$out, }$id ($type)"; done < <(own | grep -v '	gone	')
   printf '%s' "$out"
-}
-
-# Notes an admitted dispatch with no run header for the lead's digest; called
-# at each exit that lets a dispatch through, never on a denial, so no refused
-# dispatch is counted. A failed append is reported and changes no decision.
-note_outside() {
-  [[ "$header" != yes ]] && ! named_in "$tool_type" "$HELPERS" || return 0
-  printf '%s\t%s\n' "$prompt_id" "$tool_use_id" >>"$outside_runs" ||
-    echo "parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it." >&2
 }
 
 SWEPT="The gate dropped every live writer that finished (SubagentStop), died of an API error or usage limit (StopFailure), was stopped (TaskStop, or an interruption closing its transcript), or whose metadata names a READ-ONLY, NOTES-ONLY or OUTSIDE dispatch, and brought back each that died or was swept and has written to its transcript since"
@@ -440,17 +469,12 @@ case "$event" in
         fi
         exit 0
       fi
-      if is_reader "$tool_type"; then
-        note_outside
-        exit 0
-      fi
-      take_lock
+      is_reader "$tool_type" && exit 0
+      take_lock || lock_denied
       if [[ "$kind" != "plain" ]]; then
         marker="$kind"; [[ "$kind" == "brief" || "$kind" == "workspace" ]] && marker=outside
         if ! note_turn "$prompt_id" || ! python3 "$lib/cell_markers.py" record "$proj" "$session" "$tool_use_id" "$marker"; then
           deny "The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold."
-        else
-          note_outside
         fi
         exit 0
       fi
@@ -460,17 +484,21 @@ case "$event" in
       running="$(live_count)"
       if (( pending + running >= 1 )); then
         if (( running )); then
-          still="${SWEPT}; still live: $(live_names). If one of these is known dead, delete ${live}."
+          still="${SWEPT}; still live: $(live_names). If one of these is known dead, delete its line from ${live}."
         else
           still="The other writer was dispatched earlier in this turn and has not started yet."
         fi
         deny "A second writer (${tool_type}) is being dispatched to this checkout while another writer works in it.${refusal:+ Its WORKSPACE line was not accepted: ${refusal}.} Check the shape first (the workloop skill's guide): one writer with read-only cells around it is the default; parallel slices suit disjoint files, about three writers at most. Concurrent writers in one repository go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init <run> --objective '<goal>' --acceptance '<prose>' --verify '<test command>'; .agents/workloop.py add-lane <run> <lane> --worker ${tool_type} --path <owned path> (the worktree goes to .agents/worktrees/<run>/<lane>); then dispatch the output of .agents/workloop.py brief <run> <lane> --role worker as this cell's prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that works in a separate directory, no copy of this repository, says so with one prompt line, WORKSPACE: <absolute path>, and may then write anywhere but this checkout. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. ${still}"
         exit 0
       fi
+      # Ruling R7: another session's live writer refuses this session's writer.
+      others="$(foreign_names)"
+      if [[ -n "$others" ]]; then
+        deny "Another session has a writer cell live in this checkout: ${others}. A writer of this session (${tool_type}) would edit the same tree. Dispatch it as a workloop lane, whose brief places it in its own worktree (.agents/workloop.py init / add-lane / brief), give it a WORKSPACE: <absolute path> line for a directory that is no copy of this repository, or wait until that cell returns. This session's own edits stay allowed. If that cell is known dead, delete its line from ${live}."
+        exit 0
+      fi
       if ! count_turn "$prompt_id" dispatched || ! note_turn "$prompt_id" "$tool_type"; then
         deny "The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory's permissions and retry."
-      else
-        note_outside
       fi
     elif [[ -n "$agent_id" ]]; then
       # A cell's own write: its dispatch marker decides, before any bookkeeping.
@@ -484,22 +512,49 @@ case "$event" in
       [[ -z "$reason" ]] || deny "$reason"
       # A marked cell is no writer, whether or not it registered at start.
       if (( status == 3 )) && is_live "$agent_id"; then
-        take_lock
+        take_lock || true  # without it, rewrite says the cell stays live
         settle "$agent_id" "$(unregister "$agent_id" marked marked)" marked
       fi
     else
       # The lead's own edit while a writer works in the checkout.
       [[ "$outside" == "yes" ]] && exit 0
-      (( $(live_count) >= 1 )) || [[ -n "$(grown)" ]] || exit 0
-      take_lock
+      # The session's first edit in this checkout hears of any other live
+      # session here (spec Unit 5.2); later edits only hear of another
+      # session's live writer, below.
+      peer=""
+      told="$proj/.agents/.writers-told-$session"
+      if [[ ! -e "$told" ]]; then
+        : >"$told" || echo "parallel-writers-gate: could not write $told; the next edit checks for other sessions again." >&2
+        peer="$(python3 "$lib/cell_markers.py" peers "$proj" "$session" "$transcript")" \
+          || { echo "parallel-writers-gate: could not check for other sessions in this checkout." >&2; peer=""; }
+        peer="${peer//$'\n'/; }"
+      fi
+      PEER="Another session is working in this checkout: ${peer}. Its edits and yours land in one tree; take a worktree for this session's work (EnterWorktree) unless the operator says to share it."
+      if ! { (( $(live_count) >= 1 )) || [[ -n "$(grown)" ]] || has_foreign; }; then
+        [[ -z "$peer" ]] || warn "$PEER"
+        exit 0
+      fi
+      take_lock || lock_denied
       restore
       sweep
-      (( $(live_count) >= 1 )) || exit 0
-      deny "A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. ${SWEPT}; still live: $(live_names). If one of these is known dead, delete ${live}."
+      if (( $(live_count) >= 1 )); then
+        deny "A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. ${SWEPT}; still live: $(live_names). If one of these is known dead, delete its line from ${live}."
+        exit 0
+      fi
+      # Ruling R7: another session's writer leaves this lead's edits allowed, with a warning.
+      others="$(foreign_names)"
+      if [[ -n "$others" ]]; then
+        warn "Another session has a writer cell live in this checkout: ${others}. This edit is allowed, but that cell may be editing the same files; check \`git status\` before you commit, or take a worktree for this session's work (EnterWorktree).${peer:+ $PEER}"
+      elif [[ -n "$peer" ]]; then
+        warn "$PEER"
+      fi
     fi
     ;;
   PostToolUse)
     [[ "$tool_name" == "TaskStop" ]] && finish "$task_id" stopped
+    if [[ ( "$tool_name" == "Agent" || "$tool_name" == "Task" ) && -z "$agent_id" && -f "$lib/fanout_record.py" ]]; then
+      printf '%s' "$payload" | python3 "$lib/fanout_record.py" record "$repo"
+    fi
     ;;
   StopFailure)
     # A cell's API error ends the cell unless it recovers, which restore
@@ -509,22 +564,33 @@ case "$event" in
   SubagentStart)
     is_reader "$agent_type" && exit 0
     [[ -n "$agent_id" ]] || exit 0
-    take_lock
+    take_lock || echo "parallel-writers-gate: the lock ${lock} stayed busy for 5 s; registering $agent_id without it." >&2
     # A cell that registered earlier this session and starts again is resumed:
     # it registers whatever its turn's counts say, unless it was found marked.
     if entry="$(entry_of "$agent_id")" && [[ -n "$entry" ]]; then
       [[ "$entry" == *"	gone	"* && "$entry" != *"	marked	"* ]] && revive "$agent_id"
       exit 0
     fi
+    # A cell started before (resumed after a restart, which drops this session's
+    # lines) already has its metadata, which names its marker; a first start
+    # has none yet (probe P6), and the marker waits for its first write.
+    if [[ -f "$markers" ]]; then
+      status=0
+      python3 "$lib/cell_markers.py" marked "$proj" "$session" "$transcript" "$agent_id" 2>/dev/null || status=$?
+      (( status == 3 )) && exit 0
+    fi
     registers "$prompt_id" "$agent_type" || exit 0
     count_turn "$prompt_id" started || echo "parallel-writers-gate: could not count $agent_id's start in $turn." >&2
-    # Column 3 names the turn the cell started in.
-    printf '%s\t%s\t%s\n' "$agent_id" "$agent_type" "$prompt_id" >>"$live" || echo "parallel-writers-gate: could not register writer $agent_id in $live." >&2
+    # Column 4 names the turn the cell started in.
+    printf '%s\t%s\t%s\t%s\n' "$session" "$agent_id" "$agent_type" "$prompt_id" >>"$live" || echo "parallel-writers-gate: could not register writer $agent_id in $live." >&2
     ;;
   SubagentStop)
     # A marked cell that stops before its first write is counted as that write
     # would count it.
     finish "$agent_id" finished
+    if [[ -f "$lib/fanout_record.py" && -n "$transcript" ]]; then
+      printf '%s' "$payload" | python3 "$lib/fanout_record.py" returned "$repo"
+    fi
     ;;
 esac
 exit 0

@@ -402,6 +402,33 @@ run_policy "$writers" resume >/dev/null
 [[ ! -e "$writers/.agents/.writers-live-fixture-session" ]] || fail "resume left a stale live-writers record"
 printf 'ok: startup and resume clear the live-writers record; compact keeps it\n'
 
+# Spec Unit 5.2, acceptance row 31: a session starting where another live
+# session committed 2 minutes ago, or has a writer cell live, is told so with
+# that session's id and EnterWorktree; its own lines in the checkout's live
+# file are dropped and the other session's kept.
+# Seam: session-start.sh with cell_markers.py in a fixture, the peer's
+# transcript and edit-record.sh's commit ledger stood in by files; it catches a
+# missed or misnamed peer, and misses edit-record.sh writing that ledger.
+peers="$(make_fixture peers)"
+write_config "$peers" true false
+cp "$repo/.agents/hooks/lib/cell_markers.py" "$repo/.agents/hooks/lib/product_folder.py" "$peers/.agents/hooks/lib/"
+tx="$scratch/peers-transcripts"; mkdir -p "$tx"
+: > "$tx/fixture-session.jsonl"; : > "$tx/peer-1.jsonl"; : > "$tx/quiet-peer.jsonl"
+peer_key="$(printf '%s' peer-1 | cksum | tr -d ' ')"; quiet_key="$(printf '%s' quiet-peer | cksum | tr -d ' ')"
+: > "$peers/.agents/.wrap-commits-$peer_key"; : > "$peers/.agents/.wrap-commits-$quiet_key"
+python3 -c 'import os,sys,time; t=time.time()-120; os.utime(sys.argv[1], (t, t)); t=time.time()-1200; [os.utime(p, (t, t)) for p in sys.argv[2:]]' \
+  "$peers/.agents/.wrap-commits-$peer_key" "$peers/.agents/.wrap-commits-$quiet_key" "$tx/quiet-peer.jsonl"
+printf 'fixture-session\tw0\timplementer\tp0\npeer-2\tw9\timplementer\tp1\n' > "$peers/.agents/.writers-live"
+peers_out="$(printf '{"project_dir":"%s","source":"startup","session_id":"fixture-session","transcript_path":"%s/fixture-session.jsonl"}\n' "$peers" "$tx" |
+  bash "$peers/.agents/hooks/policy/session-start.sh")"
+peers_context="$(context_of "$peers_out")"
+[[ "$peers_context" == *"session peer-1 committed here 2 min ago"* && "$peers_context" == *EnterWorktree* ]] \
+  || fail "row 31: a peer that committed 2 minutes ago was not named with EnterWorktree: $peers_context"
+[[ "$peers_context" == *"session peer-2 has writer cell w9 (implementer) live in this checkout"* ]] || fail "5.2: a peer's live writer was not named: $peers_context"
+[[ "$peers_context" != *quiet-peer* && "$peers_context" != *"session fixture-session"* ]] || fail "5.2: a quiet session or this session was named as a peer: $peers_context"
+[[ "$(cat "$peers/.agents/.writers-live")" == $'peer-2\tw9\timplementer\tp1' ]] || fail "3.1: the start did not drop only its own live lines: $(cat "$peers/.agents/.writers-live")"
+printf 'ok: a start names another session that committed here in the last 10 minutes or has a writer live, with EnterWorktree, and drops only its own live lines\n'
+
 
 # A run in flight is surfaced at session start; a torn-down one is not.
 inflight="$(make_fixture inflight)"

@@ -116,6 +116,9 @@ jobs:
       - name: Parallel-writers gate
         run: .agents/test-parallel-writers.sh
 
+      - name: Fan-out record of read-only cells
+        run: .agents/test-fanout-record.sh
+
       - name: Workloop inbox policy
         run: .agents/test-workloop-inbox.sh
 
@@ -177,6 +180,9 @@ jobs:
 
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
+
+      - name: Workloop lead-only commands
+        run: .agents/test-workloop-authority.sh
 
       - name: Publish-gate policy
         run: python3 .agents/test-guard-publish.py

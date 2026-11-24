@@ -6,9 +6,10 @@
 # finding only by running `inbox`, and a lead learns a lane stalled only by
 # running `watch`. This policy turns the same state into push, on the
 # events a host lets a hook add context to:
-#   SubagentStart      — the cell's host agent id, so it claims its lane with
-#                        the id the hook will later recognise; plus anything
-#                        already addressed to a lane it holds.
+#   SubagentStart      — the cell's host agent id while a lane is claimable,
+#                        so a lane's writer, told by its brief to claim,
+#                        claims with the id the hook will later recognise;
+#                        plus anything already addressed to a lane it holds.
 #   PostToolBatch      — unread messages for the lanes this cell has claimed,
 #                        between its tool calls, once each; and it stamps the
 #                        lane or cell with the time and the batch's last tool
@@ -22,10 +23,7 @@
 #                        still out or whose agent died; messages awaiting
 #                        acknowledgement; a run ready to integrate; and, run or
 #                        no run, each dead agent of this checkout read from
-#                        Claude Code's own records (agent_deaths.py), and a
-#                        turn that dispatched two or more cells outside any
-#                        run, read from the parallel-writers gate's
-#                        .agents/.outside-runs-<session> (ruling 36).
+#                        Claude Code's own records (agent_deaths.py).
 #
 # A hook cannot start a turn for an idle agent, so this reaches a cell only
 # while it is working and a lead only when they next speak. Codex and Kimi
@@ -59,7 +57,7 @@ for k in ("project_dir", "event", "session_id", "agent_id", "transcript_path"):
 state="$proj/.agents/.workloop-state.json"
 # Without state, a subagent's event costs the payload parse above and nothing
 # more. The lead's prompt goes on, run or no run: it hears this checkout's dead
-# agents and the ledger of dispatches outside any run.
+# agents.
 [[ -z "$agent_id" || -f "$state" ]] || exit 0
 enabled="$(python3 "$lib/config.py" "$cfg_path" hooks.workloop_inbox.enabled=true 2>/dev/null || echo yes)"
 [[ "$enabled" == "no" ]] && exit 0

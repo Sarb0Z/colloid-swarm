@@ -206,10 +206,30 @@ def separate_redirects(segment):
     return "".join(out)
 
 
+def strip_comment(segment):
+    """The segment up to an unquoted `#` that starts a word, as the shell reads
+    a comment. shlex's own comment handling also cuts at a `#` inside a word
+    (`r.md#1 --force` would lose `--force`), which the shell keeps."""
+    quote, escaped = "", False
+    for index, char in enumerate(segment):
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or segment[index - 1].isspace()):
+            return segment[:index]
+    return segment
+
+
 def tokens(segment):
     """(words, output targets) of one segment; raises ValueError when it does not
     tokenize."""
-    return cut_redirects(shlex.split(separate_redirects(segment), comments=True))
+    return cut_redirects(shlex.split(strip_comment(separate_redirects(segment))))
 
 
 def normalize(text, depth=0):
@@ -469,6 +489,30 @@ def rule_git(command, project=""):
     if verb == "push" and "--no-verify" in longs:
         return "--no-verify skips the pre-push safety checks: fix the failure they catch instead."
     return None
+
+
+# What reads the stash leaves it as it is; every other verb, a bare `git stash`
+# included, pushes onto it or takes from it.
+STASH_READS = {"list", "show"}
+
+
+def rule_cell_stash(command, project=""):
+    """A cell's `git stash`: the stash is one stack shared by every worktree of
+    the repository, so a cell's push lands where another lane's pop takes it."""
+    words = lead(command.words)
+    if not words or base(words[0]) != "git":
+        return None
+    verb, rest = git_verb(words)
+    if verb != "stash":
+        return None
+    # Past `--` every word is a pathspec of a bare `git stash`, which pushes.
+    options = rest[:rest.index("--")] if "--" in rest else rest
+    action = next((word for word in options if not word.startswith("-")), None)
+    if action in STASH_READS:
+        return None
+    return ("A cell may not run git stash: the stash is shared by every worktree of this repository, so another lane's "
+            "pop takes your changes or yours takes theirs. Commit the work on your lane branch instead; uncommitted "
+            "work the run removes is saved on its wip ref, refs/workloop/<run>/<lane>/wip.")
 
 
 # ssh option letters that take a value, attached (`-p2222`) or as the next word.
@@ -1187,6 +1231,10 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return 0
     project = payload.get("project_dir")
+    # A payload with an agent_id is a cell's (Claude Code tags a spawned
+    # subagent's calls with it); the lead may stash its own checkout.
+    if payload.get("agent_id") and rules is RULES:
+        rules = (*rules, rule_cell_stash)
     reason = verdict(command, project if isinstance(project, str) else repo, rules)
     if not reason:
         return 0

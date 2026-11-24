@@ -36,8 +36,12 @@ import sys
 
 import write_targets
 
-BRIEF = re.compile(r"WORKLOOP (?:WORKER|REVIEWER|QA|CELL) BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)")
+BRIEF = re.compile(r"WORKLOOP (WORKER|REVIEWER|QA|CELL) BRIEF[^\w\n]+([\w.-]+)/([\w.-]+)")
+BRIEF_PATH = re.compile(r"Read the full brief at (/\S+?\.md)\b")
+BRIEF_STATE = re.compile(r"workloop\.py --state (/\S+)")
 WORKSPACE = re.compile(r"^[ \t]*WORKSPACE:[ \t]*(\S.*?)[ \t]*$", re.MULTILINE)
+# A run's cells of these roles return text and write nothing (workloop_cells.py).
+READING_ROLES = ("research", "review", "qa")
 
 
 def line(value):
@@ -48,23 +52,70 @@ def ident(value):
     return re.sub(r"[^A-Za-z0-9_-]", "", str(value or ""))
 
 
-def real_lane(root, prompt):
-    """A header is only text anyone can type; it exempts the dispatch when the
-    controller really holds that lane with a worktree outside this checkout."""
+def main_checkout(directory):
+    """The main working tree of the repository holding `directory`, or None."""
+    common = git_words(directory, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    path = next(iter(common), "") if len(common) == 1 else ""
+    return os.path.dirname(path) if path.endswith(os.sep + ".git") else None
+
+
+def state_file(root, prompt):
+    """The workloop state file that records the brief's run. The brief file the
+    dispatch names (`Read the full brief at <path>`) carries it on its State,
+    Claim and handoff lines (`--state <path>`), wherever the run's state lives;
+    a brief file without one lies in a lane worktree or the run's folder, so
+    Git places it in its repository, whose state is the default. With neither,
+    the run is this checkout's."""
+    found = BRIEF_PATH.search(prompt)
+    if found:
+        try:
+            with open(found.group(1), encoding="utf-8") as source:
+                named = BRIEF_STATE.search(source.read())
+        except OSError:
+            named = None
+        if named:
+            return named.group(1)
+        there = main_checkout(os.path.dirname(found.group(1))) if os.path.isdir(os.path.dirname(found.group(1))) else None
+        if there:
+            return os.path.join(there, ".agents", ".workloop-state.json")
+    return os.path.join(main_checkout(root) or root, ".agents", ".workloop-state.json")
+
+
+def elsewhere(root, run):
+    """True when the run's repository is another than this checkout's."""
+    repo = run.get("repo") if isinstance(run, dict) else None
+    if not isinstance(repo, str) or not os.path.isdir(repo):
+        return False
+    there, here = main_checkout(repo), main_checkout(root) or root
+    return bool(there) and os.path.realpath(there) != os.path.realpath(here)
+
+
+def briefed(root, prompt):
+    """What a WORKLOOP … BRIEF header makes the dispatch: `brief` for a lane the
+    controller holds outside this checkout, `read-only` for a run's research,
+    review or QA cell, None otherwise. A header is only text anyone can type, so
+    each is read from the run's state."""
     header = BRIEF.search(prompt)
     if not header:
-        return False
+        return None
+    role, run_name, name = header.groups()
     try:
-        with open(os.path.join(root, ".agents", ".workloop-state.json"), encoding="utf-8") as source:
-            lane = json.load(source)["runs"][header.group(1)]["lanes"][header.group(2)]
+        with open(state_file(root, prompt), encoding="utf-8") as source:
+            run = json.load(source)["runs"][run_name]
+        if role == "CELL":
+            return "read-only" if run["cells"][name]["role"] in READING_ROLES else None
+        lane = run["lanes"][name]
         workspace = os.path.realpath(lane["workspace"])
     except (OSError, ValueError, KeyError, TypeError):
-        return False
+        return None
+    # A lane of another repository's run never writes in this checkout.
+    if elsewhere(root, run):
+        return "brief"
     # A main lane works in its run's checkout, which may be a worktree or a
     # clone of this one: wherever that is, its cell is a plain writer here.
     if isinstance(lane, dict) and lane.get("place") == "main":
-        return False
-    return not write_targets.in_checkout(workspace, root)
+        return None
+    return None if write_targets.in_checkout(workspace, root) else "brief"
 
 
 def git_words(directory, *args):
@@ -119,8 +170,8 @@ def kind(root, prompt, refusal):
         return "read-only"
     if re.match(r"\s*NOTES-ONLY\b", prompt):
         return "notes-only"
-    if real_lane(root, prompt):
-        return "brief"
+    if found := briefed(root, prompt):
+        return found
     if WORKSPACE.search(prompt) and not refusal:
         return "workspace"
     return "plain"

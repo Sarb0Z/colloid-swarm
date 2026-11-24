@@ -117,6 +117,23 @@ runs_stub 9 "a lane under .claude/worktrees maps back to the checkout's adapter"
   "$pf" "$lane" repo "$pf/repo"
 runs_stub 11 "no launch folder, working inside a workloop lane under .agents/worktrees: the checkout's adapter runs, so the lane's hooks read the run state where it lives" \
   - "$workloop_lane/sub" repo "$pf/repo"
+# Spec acceptance 22: a session launched in a lane worktree (CLAUDE_PROJECT_DIR is
+# the lane, which carries its own adapter) runs the main checkout's copy.
+runs_stub 12 "launched in a workloop lane under .agents/worktrees that has its own adapter: the checkout's adapter runs" \
+  "$workloop_lane" "$workloop_lane/sub" repo "$pf/repo"
+runs_stub 13 "launched in a lane under .claude/worktrees that has its own adapter: the checkout's adapter runs" \
+  "$lane" "$lane" repo "$pf/repo"
+# The command exports the folder it was launched in, which the adapter falls back
+# to for a policy the main checkout lacks.
+before=$fails
+for i in "${!cmds[@]}"; do
+  [[ "${cmds[$i]}" == *'COLLOID_HOOK_LAUNCH=\"$o\"'* || "${cmds[$i]}" == *'COLLOID_HOOK_LAUNCH="$o"'* ]] \
+    || fail "row 12: ${events[$i]} '$(args_of "${cmds[$i]}")' does not export COLLOID_HOOK_LAUNCH"
+done
+printf '#!/usr/bin/env bash\necho "workloop-lane COLLOID_HOOK_LAUNCH=$COLLOID_HOOK_LAUNCH"\n' > "$scratch/launch-probe.sh"
+run "$(printf '%s' "${cmds[0]}" | sed -E 's#exec bash "\$d/\.claude/hooks/adapter\.sh" .*$#exec bash '"$scratch"'/launch-probe.sh#')" "$workloop_lane" "$workloop_lane"
+[[ "$out" == "workloop-lane COLLOID_HOOK_LAUNCH=$workloop_lane" ]] || fail "row 12: the launch folder was not exported: '$out'"
+[[ "$fails" -eq "$before" ]] && ok "row 12: every hook command exports the folder it was launched in as COLLOID_HOOK_LAUNCH"
 
 before=$fails
 for i in "${!cmds[@]}"; do
@@ -186,25 +203,52 @@ else
 fi
 [[ "$fails" -eq "$before" ]] && ok "end to end: the real guard-destructive denies a hard reset launched from a product folder"
 
-# The Claude adapter's denial tells a present policy without its executable bit
-# apart from an absent one: the first names the chmod, the second says missing.
-# Seam: the adapter run from a scratch repository; it catches a swapped or merged
-# message and misses the wording a live session shows.
+# Spec acceptance 21: a registration saved before its script does not lock the
+# session. A present policy without its executable bit runs through bash and
+# warns; an absent one denies every call in auto mode except a Write or Edit of
+# its own path.
+# Seam: the real adapter and normalizer run from a scratch repository; it
+# catches a policy that does not run, a missing warning, and an allowance that
+# leaks to other paths or tools, and misses how a live session renders them.
 before=$fails
 adapter_repo="$scratch/adapter-repo"
-mkdir -p "$adapter_repo/.agents/claude" "$adapter_repo/.agents/hooks/policy"
-cp "$repo/.agents/claude/adapter.sh" "$adapter_repo/.agents/claude/"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$adapter_repo/.agents/hooks/policy/plain.sh"
+mkdir -p "$adapter_repo/.agents/claude" "$adapter_repo/.agents/hooks/policy" "$adapter_repo/.agents/hooks/lib"
+cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$adapter_repo/.agents/claude/"
+cp "$repo/.agents/hooks/lib/write_targets.py" "$adapter_repo/.agents/hooks/lib/"
+printf '#!/usr/bin/env bash\necho "plain ran"\n' > "$adapter_repo/.agents/hooks/policy/plain.sh"
 chmod 644 "$adapter_repo/.agents/hooks/policy/plain.sh"
 pretool='{"hook_event_name":"PreToolUse","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"true"}}'
-reason_of() { bash "$adapter_repo/.agents/claude/adapter.sh" "$1" <<<"$pretool" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason'; }
-reason="$(reason_of plain.sh)"
-[[ "$reason" == *"present but not executable"* && "$reason" == *"chmod +x .agents/hooks/policy/plain.sh"* && "$reason" != *"missing"* ]] \
-  || fail "adapter: a policy without its executable bit was not reported as present but not executable: $reason"
-reason="$(reason_of absent.sh)"
-[[ "$reason" == *"absent.sh policy is missing from this checkout"* && "$reason" != *"chmod"* ]] \
-  || fail "adapter: an absent policy was not reported as missing: $reason"
-[[ "$fails" -eq "$before" ]] && ok "adapter: a non-executable policy and an absent one get different denials"
+adapt() { bash "$adapter_repo/.agents/claude/adapter.sh" "$1" 2>"$scratch/aerr"; }
+out="$(adapt plain.sh <<<"$pretool")" && rc=0 || rc=$?
+[[ "$rc" -eq 0 && "$out" == "plain ran" && "$(<"$scratch/aerr")" == *"not executable"*"chmod +x .agents/hooks/policy/plain.sh"* ]] \
+  || fail "adapter: a policy without its executable bit did not run with a warning: exit $rc, stdout '$out', stderr '$(<"$scratch/aerr")'"
+reason="$(adapt absent.sh <<<"$pretool" | jq -r '.hookSpecificOutput.permissionDecision + " " + .hookSpecificOutput.permissionDecisionReason')"
+[[ "$reason" == "deny "*"absent.sh policy is missing from this checkout"* ]] \
+  || fail "adapter: a Bash call under an absent policy was not denied in auto mode: $reason"
+write_own() {  # <tool> <file_path> -> the adapter's stdout for that call under absent.sh
+  jq -nc --arg t "$1" --arg f "$2" '{hook_event_name:"PreToolUse",permission_mode:"bypassPermissions",tool_name:$t,tool_input:{file_path:$f}}' | adapt absent.sh
+}
+for target in "$adapter_repo/.agents/hooks/policy/absent.sh" ".agents/hooks/policy/absent.sh" "$scratch/lane/.agents/hooks/policy/absent.sh"; do
+  for tool in Write Edit; do
+    out="$(write_own "$tool" "$target")" && rc=0 || rc=$?
+    [[ "$rc" -eq 0 && -z "$out" ]] || fail "adapter: $tool of the missing policy's own path $target was not allowed: exit $rc, '$out'"
+  done
+done
+[[ "$(write_own Write "$adapter_repo/.agents/hooks/policy/other.sh" | jq -r .hookSpecificOutput.permissionDecision)" == deny ]] \
+  || fail "adapter: a Write to another policy's path passed under an absent policy"
+[[ "$(write_own Write "$adapter_repo/absent.sh" | jq -r .hookSpecificOutput.permissionDecision)" == deny ]] \
+  || fail "adapter: a Write to a file of the same name outside the policy folder passed under an absent policy"
+[[ "$(write_own Read "$adapter_repo/.agents/hooks/policy/absent.sh" | jq -r .hookSpecificOutput.permissionDecision)" == deny ]] \
+  || fail "adapter: a Read of the missing policy's path passed: only a Write or Edit repairs it"
+# A policy only the launch folder has runs from there.
+launch_repo="$scratch/launch-repo"
+mkdir -p "$launch_repo/.agents/claude" "$launch_repo/.agents/hooks/policy" "$launch_repo/.agents/hooks/lib"
+cp "$adapter_repo/.agents/claude/"*.{sh,py} "$launch_repo/.agents/claude/"; cp "$adapter_repo/.agents/hooks/lib/"*.py "$launch_repo/.agents/hooks/lib/"
+printf '#!/usr/bin/env bash\necho "lane copy ran"\n' > "$launch_repo/.agents/hooks/policy/new.sh"; chmod +x "$launch_repo/.agents/hooks/policy/new.sh"
+out="$(COLLOID_HOOK_LAUNCH="$launch_repo" adapt new.sh <<<"$pretool")" && rc=0 || rc=$?
+[[ "$rc" -eq 0 && "$out" == "lane copy ran" && "$(<"$scratch/aerr")" == *"running the copy in $launch_repo"* ]] \
+  || fail "adapter: a policy only the launch folder has did not run from there: exit $rc, '$out', '$(<"$scratch/aerr")'"
+[[ "$fails" -eq "$before" ]] && ok "row 21: a non-executable policy runs through bash and warns; an absent one denies all but a Write or Edit of its own path; a policy only the launch folder has runs from there"
 
 # Every policy a host configuration names exists and is executable: a
 # registration goes live the moment it is saved, and the adapter denies every
