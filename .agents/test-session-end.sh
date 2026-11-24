@@ -120,23 +120,10 @@ bash_call "$R" "$wl add-lane t1 l1 --worker w --path src"
 lane="$R/.agents/worktrees/t1/l1"
 [[ -d "$lane" && "$(recorded "$lane")" == 1 ]] || fail "add-lane was not recorded"
 grep -q '"run": "t1", .*"type": "run"' "$records"/*.jsonl || fail "the run was not recorded with its lead"
-# t5 is finished, `check` passes; t1 stays unfinished, its lane never claimed.
-bash_call "$R" "$wl init t5 --objective o --acceptance a --repo $R --verify true"
-bash_call "$R" "$wl add-lane t5 l5 --worker w --path docs"
-done5="$R/.agents/worktrees/t5/l5"
-$wl claim t5 l5 --agent cell5 >/dev/null
-mkdir -p "$done5/docs" && printf 'r\n' > "$done5/docs/r.md"
-git -C "$done5" add docs && git -C "$done5" commit -qm l5
-$wl submit t5 l5 --evidence ok >/dev/null
-$wl review t5 l5 --reference docs/r.md#ok --result accept --tip "$(git -C "$done5" rev-parse HEAD)" >/dev/null
-$wl qa t5 --evidence ok >/dev/null
-$wl integrate t5 >/dev/null 2>&1 || fail "the finished run's fixture does not integrate: $($wl integrate t5 2>&1)"
-$wl check t5 >/dev/null || fail "the finished run's fixture does not pass check: $($wl check t5 2>&1)"
-bash_call "$R" "git -C $O worktree add -q $scratch/other-made -b made"
-[[ "$(recorded "$scratch/other-made")" == 1 ]] || fail "a worktree made in another repository was not recorded"
-ok "add-lane is recorded with its run, and a worktree made in another repository"
 # t6 is a finished one-writer run: its lane worked in the checkout, and its composed
 # test leaves a marker whenever it runs, so a session end that ran it would show.
+# Its commit lands on main before t5 integrates, so t5's integration composes on
+# main's current tip and no later commit moves the base under it.
 mark6="$scratch/ran-t6"
 worktrees_before="$(git -C "$R" worktree list --porcelain | grep '^worktree ')"
 bash_call "$R" "$wl init t6 --objective o --acceptance a --repo $R --verify 'touch $mark6' --lane solo --worker w --path notes"
@@ -152,6 +139,21 @@ $wl qa t6 --evidence ok >/dev/null
 rm "$mark6"
 $wl check t6 --recorded >/dev/null || fail "the one-writer fixture does not pass check --recorded: $($wl check t6 --recorded 2>&1)"
 ok "a one-writer run is recorded with its lead; check runs its composed test in the checkout"
+# t5 is finished, `check` passes; t1 stays unfinished, its lane never claimed.
+bash_call "$R" "$wl init t5 --objective o --acceptance a --repo $R --verify true"
+bash_call "$R" "$wl add-lane t5 l5 --worker w --path docs"
+done5="$R/.agents/worktrees/t5/l5"
+$wl claim t5 l5 --agent cell5 >/dev/null
+mkdir -p "$done5/docs" && printf 'r\n' > "$done5/docs/r.md"
+git -C "$done5" add docs && git -C "$done5" commit -qm l5
+$wl submit t5 l5 --evidence ok >/dev/null
+$wl review t5 l5 --reference docs/r.md#ok --result accept --tip "$(git -C "$done5" rev-parse HEAD)" >/dev/null
+$wl qa t5 --evidence ok >/dev/null
+$wl integrate t5 >/dev/null 2>&1 || fail "the finished run's fixture does not integrate: $($wl integrate t5 2>&1)"
+$wl check t5 >/dev/null || fail "the finished run's fixture does not pass check: $($wl check t5 2>&1)"
+bash_call "$R" "git -C $O worktree add -q $scratch/other-made -b made"
+[[ "$(recorded "$scratch/other-made")" == 1 ]] || fail "a worktree made in another repository was not recorded"
+ok "add-lane is recorded with its run, and a worktree made in another repository"
 
 # ── due once a push follows; a cell's stop leaves the lead's worktrees ──────
 stop; [[ "$rc" -eq 0 ]] || fail "a worktree before any push must not block: $err"
