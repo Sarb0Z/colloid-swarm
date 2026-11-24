@@ -7,11 +7,16 @@ process helpers and the record files; teardown-gate.sh calls `snapshot` and
 worktree_sweep.py is the session-start sweep.
 
 RECORD FILE: `<main checkout>/.agents/worktrees/.records/<session>.jsonl`,
-gitignored, appended only, one object per line: `worktree` (path, by, run?),
-`run` (run, state) or `host`. Each carries the session's stamp: `host`, its
-[pid, ps start time in the writer's locale and zone], and `start`, that
-process's start as process_start.py reads it; the last stamp decides whether
-the session still runs. Code from before `start` reads `host` alone.
+gitignored, appended only, one object per line: `worktree` (path, by, run?,
+source?), `run` (run, state), `host`, or `end` (reason, at). Each but `end`
+carries the session's stamp: `host`, its [pid, ps start time in the writer's
+locale and zone], and `start`, that process's start as process_start.py reads
+it; the last stamp decides whether the session's process still runs. An `end`
+that no stamp follows says the session ended (`/exit`, `/clear`, a finished
+`claude -p`) while its process may run on; a resume of the same id stamps the
+record again. `source` is the branch the worktree was cut from: the start
+point `-b` names when it is a branch, else the branch checked out where the
+call ran. Code from before `start` reads `host` alone.
 
 ONLY WHAT THE CALL CREATED: PreToolUse stores what the command asks for and
 the worktrees and runs that exist, under the call's tool_use_id; PostToolUse
@@ -196,6 +201,30 @@ def last_host(entries: list[dict]) -> dict | None:
     return {key: marked[-1][key] for key in ("host", "start") if key in marked[-1]} if marked else None
 
 
+def ended(entries: list[dict]) -> dict | None:
+    """The session's last `end` entry when no stamp follows it, else None."""
+    for entry in reversed(entries):
+        if entry.get("type") == "end":
+            return entry
+        if entry.get("host"):
+            return None
+    return None
+
+
+def branch_at(cwd) -> str | None:
+    """The branch checked out in `cwd`, None when HEAD is detached or `cwd` is no checkout."""
+    return out(cwd, "symbolic-ref", "-q", "--short", "HEAD") or None if Path(cwd).is_dir() else None
+
+
+def source_of(base: str, start: str | None) -> str | None:
+    """The branch a new worktree is cut from: `start` when it names a local or remote-tracking
+    branch, else the branch checked out where git runs."""
+    if start and any(out(base, "rev-parse", "-q", "--verify", f"{prefix}{start}^{{commit}}")
+                     for prefix in ("refs/heads/", "refs/remotes/")):
+        return start
+    return branch_at(base)
+
+
 def record(project, session: str, entries: list[dict]) -> None:
     mark, now = stamp(), int(time.time())
     append(records_dir(project), session, [dict(entry, **mark, at=now) for entry in entries])
@@ -232,7 +261,8 @@ def named(command: str, cwd: Path, lib: Path) -> dict:
 
 
 def git_add(words: list[str], cwd: Path, shell) -> list | None:
-    """[folder git runs in, path operand] of `git [-C d] worktree add ... <path>`."""
+    """[folder git runs in, path operand, the start point when `-b`/`-B` names a new branch]
+    of `git [-C d] worktree add ... <path> [<commit-ish>]`."""
     base, index = cwd, 1
     while index < len(words) and words[index].startswith("-"):
         if words[index] == "-C" and index + 1 < len(words):
@@ -240,13 +270,19 @@ def git_add(words: list[str], cwd: Path, shell) -> list | None:
         index += 2 if words[index] in shell.GIT_VALUED else 1
     verb, rest = shell.git_verb(words)
     args, index = (rest[1:], 0) if verb == "worktree" and rest[:1] == ["add"] else ([], 0)
+    operands, new_branch = [], False
     while index < len(args):
         if args[index] == "--":
-            return [str(base), args[index + 1]] if index + 1 < len(args) else None
+            operands += args[index + 1:]
+            break
         if not args[index].startswith("-"):
-            return [str(base), args[index]]
+            operands.append(args[index])
+        new_branch = new_branch or args[index] in ("-b", "-B")
         index += 2 if args[index] in ("-b", "-B", "--reason") else 1
-    return None
+    if not operands:
+        return None
+    # Without -b the commit-ish is the branch checked out, not where it was cut from.
+    return [str(base), operands[0], operands[1] if new_branch and len(operands) > 1 else None]
 
 
 def workloop_call(args: list[str], cwd: Path, script: Path) -> dict | None:
@@ -285,10 +321,13 @@ def snapshot(project, tool: str, command: str, cwd: Path, tool_use_id: str, lib:
     asked = named(command, cwd, lib)
     if not tool_use_id or not (tool == "EnterWorktree" or asked["adds"] or asked["runs"]):
         return
-    repos = {main_checkout(cwd)} | {main_checkout(base) for base, _ in asked["adds"]}
+    repos = {main_checkout(cwd)} | {main_checkout(base) for base, *_ in asked["adds"]}
     for call in asked["runs"]:
         repos |= {main_checkout(run.get("repo") or cwd) for run in runs_in(call["state"]).values()}
-    state = dict(asked, worktrees={str(repo): [str(e["path"]) for e in worktrees(repo)] for repo in repos if repo},
+    # The source branch is read before the call: after it, EnterWorktree's folder is the new worktree.
+    adds = [[base, operand, source_of(base, start)] for base, operand, start in asked["adds"]]
+    state = dict(asked, adds=adds, entered_from=branch_at(cwd) if tool == "EnterWorktree" else None,
+                 worktrees={str(repo): [str(e["path"]) for e in worktrees(repo)] for repo in repos if repo},
                  before={call["state"]: sorted(runs_in(call["state"])) for call in asked["runs"]})
     folder = snapshot_file(project, tool_use_id).parent
     folder.mkdir(parents=True, exist_ok=True)
@@ -323,9 +362,10 @@ def made(project, event: str, tool: str, cwd: Path, tool_use_id: str) -> list[di
            for entry in worktrees(Path(repo))[1:] if str(entry["path"]) not in paths]
     if tool == "EnterWorktree":
         path = claude_worktree(cwd, "")
-        return [{"type": "worktree", "path": str(path), "by": "EnterWorktree"}] if path in new else []
-    found = [{"type": "worktree", "path": str(path), "by": "git worktree add"}
-             for base, operand in before["adds"] for path in new if matches(path, base, operand)]
+        source = {"source": before["entered_from"]} if before.get("entered_from") else {}
+        return [dict({"type": "worktree", "path": str(path), "by": "EnterWorktree"}, **source)] if path in new else []
+    found = [dict({"type": "worktree", "path": str(path), "by": "git worktree add"}, **({"source": source} if source else {}))
+             for base, operand, source in before["adds"] for path in new if matches(path, base, operand)]
     for call in before["runs"]:
         run = runs_in(call["state"]).get(call["run"]) or {}
         lead = {"type": "run", "run": call["run"], "state": call["state"]}

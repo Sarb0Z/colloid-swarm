@@ -49,11 +49,12 @@
 #                            Agent cell with isolation "worktree", or
 #                            `workloop.py add-lane`; `workloop.py init` records
 #                            its run. Each is also appended to the session's
-#                            record file (hooks/lib/worktree_records.py), from
-#                            which session-end.sh removes what is left when the
-#                            session ends, and session-start.sh what a session
-#                            that never reached that hook left. One clears when
-#                            its path is gone from disk.
+#                            record file (hooks/lib/worktree_records.py) with
+#                            the branch it was cut from; once the session is
+#                            dead, the hourly check (worktree_sweep.py) removes
+#                            it when merged into that branch and asks the
+#                            operator about it otherwise. One clears when its
+#                            path is gone from disk.
 #
 # The payload's cwd is the session's directory after the call — inside the
 # new worktree after EnterWorktree, the cell's worktree at an isolated cell's
@@ -562,7 +563,7 @@ due_why() {
     docker)   printf 'the push made it due; it earned its keep while the work ran' ;;
     build)    printf 'the push made it due; the warm cache earned its keep until then' ;;
     emulator) printf 'the push made it due; a boot costs a minute, so it earned its keep' ;;
-    worktree) printf 'the push made it due; the session end removes it anyway, saving unsaved work to saved/<name>' ;;
+    worktree) printf 'the push made it due; after the session ends the hourly check removes it once merged, and asks the operator about it otherwise' ;;
     *)        printf 'restarts in seconds, so it is not worth holding between turns' ;;
   esac
 }

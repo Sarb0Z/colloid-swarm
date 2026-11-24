@@ -117,14 +117,16 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
          "$proj/.agents/.cell-markers-$writers_session" "$proj/.agents/.outside-runs-$writers_session" 2>/dev/null || true
 fi
 
-# Worktrees end with the session that made them (worktree_sweep.py). Sessions
-# that never reached session-end.sh — killed, or on a host with no such event —
-# are swept here once their process is gone. Worktrees no record names that
-# sat idle 24 hours go only when nothing in them would be lost; the rest are
-# named with what their work was about. Every source sweeps: a resumed
-# session keeps its own records and only the others' are judged; a compaction
-# start removes no unrecorded worktree. A sweep that fails keeps the lines it
-# printed, so what it removed before failing is still reported.
+# Worktrees end with the session that made them (worktree_sweep.py). At most
+# once an hour, each dead session's worktree — its session ended (/exit,
+# /clear) or its process is gone — is removed when its work is merged into its
+# source branch, and otherwise flagged with the operator's three answers.
+# Worktrees no record names that sat idle 24 hours go only when nothing in
+# them would be lost; the rest are named with what their work was about. Every
+# source sweeps: a resumed session keeps its own records and only the others'
+# are judged; a compaction start removes no unrecorded worktree. A sweep that
+# fails keeps the lines it printed, so what it removed before failing is still
+# reported.
 worktree_digest=""
 if [[ "$teardown_enabled" == "yes" && -f "$lib/worktree_sweep.py" ]] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   worktree_digest="$(python3 "$lib/worktree_sweep.py" sweep "$proj" "${session_id:-}" "${start_source:-startup}" "$repo/.agents/workloop.py")" \
@@ -332,7 +334,7 @@ EOF
 
   if [[ -n "$worktree_digest" ]]; then
     section
-    echo "Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock <path>\` keeps one):"
+    echo "Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock <path>\` keeps one). Put each \`dead session\` line to the operator through the question tool, with its three answers, and run the one they choose:"
     printf '%s\n' "$worktree_digest"
   fi
 

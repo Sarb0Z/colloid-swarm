@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Firing tests for worktree teardown: teardown-gate.sh records each worktree a
-# tool call creates, lists it as due after a push, and session-end.sh removes
-# it when the session ends — saving unsaved work first, and leaving locked,
-# occupied, nested and other sessions' worktrees alone.
+# tool call creates with its source branch, lists it as due after a push;
+# session-end.sh marks the session ended; the hourly check removes a dead
+# session's worktree once merged into its source branch and flags every other
+# one with the operator's three answers, leaving locked, occupied, nested and
+# other sessions' worktrees alone.
 set -euo pipefail
 # A caller such as `git rebase -x` exports these; the git calls below must
 # reach only their own temporary repositories.
@@ -104,6 +106,8 @@ tool PreToolUse "$R" EnterWorktree '{"name":"feat"}'
 git -C "$R" worktree add -q "$R/.claude/worktrees/feat" -b worktree-feat
 tool PostToolUse "$R/.claude/worktrees/feat" EnterWorktree '{"name":"feat"}'
 [[ "$(recorded "$R/.claude/worktrees/feat")" == 1 ]] || fail "EnterWorktree was not recorded from the payload's cwd"
+grep -q "\"path\": \"$R/.claude/worktrees/feat\", \"source\": \"main\"" "$records/s1.jsonl" || fail "EnterWorktree must record the branch checked out where it ran: $(cat "$records/s1.jsonl")"
+grep -q "\"path\": \"$scratch/wt-clean\", \"source\": \"main\"" "$records/s1.jsonl" || fail "git worktree add without a start point must record the branch checked out where it ran"
 git -C "$R" worktree add -q "$R/.claude/worktrees/agent-a1b2" -b worktree-agent-a1b2
 gate "$(printf '{"hook_event_name":"SubagentStart","cwd":"%s","session_id":"s1","agent_id":"a1b2"}' "$R/.claude/worktrees/agent-a1b2")"
 [[ "$(recorded "$R/.claude/worktrees/agent-a1b2")" == 1 ]] || fail "an isolated cell's worktree was not recorded"
@@ -213,36 +217,59 @@ git -C "$R" worktree add -q "$scratch/wt-s2b" -b s2b
 tool PostToolUse "$R" Bash "{\"command\":$(json 'git worktree add -q ../wt-s2b -b s2b')}" s2
 for _ in $(seq 50); do lsof -a -p "${sleepers[1]}" -d cwd >/dev/null 2>&1 && break; sleep 0.1; done
 
+end_session other
+[[ -z "$report" && -d "$scratch/wt-clean" ]] || fail "the session end must remove nothing and say nothing: $report"
+[[ "$(tail -1 "$records/s1.jsonl")" == *'"reason": "other"'*'"type": "end"'* ]] || fail "the session end must mark the record ended: $(tail -1 "$records/s1.jsonl")"
+ok "the session end only marks its record ended; nothing is removed then"
+stamp="$R/.agents/worktrees/.dead-session-check"
+check() {  # [cwd] [VAR=value ...]: the hourly dead-session check, made due -> report
+  local where="${1:-$scratch}"; shift || true
+  rm -f "$stamp"
+  report="$(cd "$where" && env "$@" python3 "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" s9 "$R/.agents/workloop.py")"
+}
+answer() {  # <worktree> keep|--save|--discard -> answered
+  if [[ "$2" == keep ]]; then answered="$(python3 "$R/.agents/hooks/lib/worktree_sweep.py" keep "$1")"
+  else answered="$(python3 "$R/.agents/hooks/lib/worktree_sweep.py" remove "$1" "$2")"; fi
+}
 start=$(python3 -c 'import time; print(time.time())')
-end_session other "$scratch/wt-here"
+check "$scratch/wt-here"
 elapsed=$(python3 -c "import time; print('%.2f' % (time.time() - $start))")
 [[ -n "${SESSION_END_TEST_VERBOSE:-}" ]] && printf '%s\n' "$report"
-[[ ! -e "$scratch/wt-clean" ]] || fail "a clean worktree must be removed: $report"
+[[ ! -e "$scratch/wt-clean" ]] || fail "a clean merged worktree must be removed: $report"
 git -C "$R" rev-parse -q --verify refs/heads/clean >/dev/null && fail "a merged branch must be deleted"
+[[ "$report" == *"removed $scratch/wt-clean: its work is merged into main; branch clean deleted, main contains it"* ]] || fail "the removal must name the source branch: $report"
 [[ ! -e "$R/.claude/worktrees/feat" && ! -e "$R/.claude/worktrees/agent-a1b2" ]] || fail "EnterWorktree and cell worktrees must go: $report"
-ok "a clean worktree is removed at the session end, its merged branch deleted (${elapsed}s for all)"
-[[ ! -e "$scratch/wt-here" ]] || fail "the worktree the hook runs in must not read busy from lsof itself: $report"
-ok "the worktree the session-end hook runs in is removed: lsof does not count itself"
-[[ ! -e "$scratch/wt-dirty" && "$(git -C "$R" show saved/wt-dirty:src/app.txt)" == two ]] || fail "a dirty worktree must be saved, then removed: $report"
+ok "the check removes a dead session's merged, clean worktree, its branch deleted once its source contains it (${elapsed}s for all)"
+[[ ! -e "$scratch/wt-here" ]] || fail "the worktree the check runs in must not read busy from lsof itself: $report"
+ok "the worktree the check's own process runs in is removed: lsof does not count itself"
+[[ -d "$scratch/wt-dirty" && "$report" == *"dead session s1 left $scratch/wt-dirty: 0 commits not in main, 2 uncommitted files, ignored: none. Ask the operator"* ]] \
+  || fail "a dirty worktree must stay and be flagged, package folders and tool caches not counted: $report"
+[[ "$report" == *"keep it (asked again in a week): \`python3 $R/.agents/hooks/lib/worktree_sweep.py keep $scratch/wt-dirty\`; save and remove: \`python3 $R/.agents/hooks/lib/worktree_sweep.py remove $scratch/wt-dirty --save\`; discard: \`python3 $R/.agents/hooks/lib/worktree_sweep.py remove $scratch/wt-dirty --discard\`"* ]] \
+  || fail "the flag must name the three answers as commands: $report"
+git -C "$R" rev-parse -q --verify refs/heads/saved/wt-dirty >/dev/null && fail "nothing may be saved unasked"
+answer "$scratch/wt-dirty" --save
+[[ ! -e "$scratch/wt-dirty" && "$(git -C "$R" show saved/wt-dirty:src/app.txt)" == two ]] || fail "save and remove must save, then remove: $answered"
 [[ "$(git -C "$R" show saved/wt-dirty:src/untracked.txt)" == new ]] || fail "the saved branch lacks the untracked file"
 git -C "$R" cat-file -e saved/wt-dirty:node_modules/dep/index.js 2>/dev/null && fail "the saved branch must not carry ignored files"
-ok "a dirty worktree is committed to saved/<name>, package folders and tool caches left out, then removed"
-[[ -f "$scratch/wt-keeplog/run.log" && "$report" == *"kept $scratch/wt-keeplog: it holds ignored files that would not come back (run.log)"* ]] \
-  || fail "an ignored file that would not come back must keep a plain worktree: $report"
-ok "a plain worktree holding an ignored file that would not come back stays and is named"
-[[ ! -e "$done5" && "$(git -C "$R" show saved/l5:docs/extra.txt)" == "done work" ]] || fail "a finished run's lane must be saved and removed: $report"
-python3 -c "import json,sys; sys.exit('t5' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the finished run must be closed"
-ok "a finished workloop run ends with its lead: lanes saved and removed, the run closed"
+ok "a dirty worktree is flagged with its three answers, never saved unasked; save and remove commits it to saved/<name>, package folders and tool caches left out"
+[[ -f "$scratch/wt-keeplog/run.log" && "$report" == *"dead session s1 left $scratch/wt-keeplog: 0 commits not in main, 0 uncommitted files, ignored: run.log."* ]] \
+  || fail "a merged worktree holding an ignored file that would not come back must stay, flagged with the file: $report"
+answer "$scratch/wt-keeplog" --save
+[[ -f "$scratch/wt-keeplog/run.log" && "$answered" == *"kept $scratch/wt-keeplog: it holds ignored files that would not come back (run.log)"* ]] \
+  || fail "save and remove must keep a worktree whose ignored files would be lost: $answered"
+ok "a merged worktree holding an ignored file that would not come back is flagged naming it, and save and remove keeps it"
+[[ -d "$done5" && "$report" == *"dead session s1 left $done5: 1 commits not in main, 1 uncommitted files, ignored: none."* ]] || fail "a finished run's unmerged lane must be flagged: $report"
+[[ "$report" == *"save and remove: \`python3 $R/.agents/workloop.py --state $R/.agents/.workloop-state.json park t5 l5\`"* ]] || fail "a lane's save and remove must be the controller's park: $report"
+python3 -c "import json,sys; sys.exit('t5' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "a run with a flagged lane must stay open"
+ok "a run's unmerged lane is flagged, its save and remove naming park; the run stays open"
 python3 -c "import json,sys; sys.exit('t6' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the finished one-writer run must be closed: $report"
-[[ ! -e "$mark6" && "$report" == *"closed workloop run t6"* ]] || fail "the session end must close a one-writer run from recorded results, never running its test: $report"
-[[ "$(git -C "$R" show HEAD:notes/solo.txt)" == solo && ! -e "$R/.agents/worktrees/t6" ]] || fail "closing a one-writer run must leave the checkout's commits and remove only its briefs"
-ok "a finished one-writer run closes at the session end without its composed test running; the checkout keeps its work"
-[[ -f "$lane/src/lane.txt" && "$report" == *"kept workloop run t1: completion is blocked by l1:ready"*"waits for this conversation's resume until"* ]] \
-  || fail "an unfinished run must wait for the resume: $report"
-grep -q '"held": ' "$records/s1.jsonl" || fail "the waiting run's record carries no hold stamp: $(cat "$records/s1.jsonl")"
-ok "an unfinished run outlives its lead's end, its record stamped for the 24-hour wait"
+[[ ! -e "$mark6" && "$report" == *"closed workloop run t6"* ]] || fail "the check must close a one-writer run from recorded results, never running its test: $report"
+[[ "$(git -C "$R" show HEAD:notes/solo.txt)" == solo ]] || fail "closing a one-writer run must leave the checkout's commits"
+ok "a finished one-writer run of a dead session closes through abandon without its composed test running; the checkout keeps its work"
+[[ -f "$lane/src/lane.txt" && "$report" == *"dead session s1 left $lane: 0 commits not in main, 1 uncommitted files"* ]] || fail "an unfinished run's dirty lane must be flagged: $report"
+ok "an unfinished run's lane holding work is flagged and stays"
 [[ ! -e "$scratch/other-made" && -d "$scratch/other-wt" ]] || fail "this session's worktree in another repository goes; an unrecorded one there stays: $report"
-ok "a worktree this session made in another repository goes at its end; that repository's others stay"
+ok "a worktree this session made in another repository goes once merged; that repository's others stay"
 [[ ! -e "$scratch/wt-claude-dead" ]] || fail "Claude Code's lock of an ended session must not keep its worktree: $report"
 [[ -d "$scratch/wt-claude-live" && "$report" == *"kept $scratch/wt-claude-live: it is locked (claude session"* ]] || fail "a running session's Claude lock keeps it: $report"
 [[ -d "$scratch/wt-locked" && "$report" == *"kept $scratch/wt-locked: it is locked (keep for review)"* ]] || fail "a locked worktree must stay: $report"
@@ -283,8 +310,8 @@ for path in /opt/homebrew/bin:/usr/bin:/bin "$scratch/failing-lsof:$PATH"; do
     continue
   fi
   bash_call "$R" 'git worktree add -q ../wt-nolsof -b nolsof'
-  report="$(printf '{"hook_event_name":"SessionEnd","reason":"other","session_id":"s1"}' \
-    | PATH="$path" CLAUDE_PROJECT_DIR="$R" bash "$R/.claude/hooks/adapter.sh" session-end.sh 2>&1)"
+  end_session other
+  check "$scratch" PATH="$path"
   [[ -d "$scratch/wt-nolsof" && "$report" == *"kept $scratch/wt-nolsof: lsof is missing or failed"* ]] || fail "an lsof missing from $path or failing must keep the worktree: $report"
   git -C "$R" worktree remove "$scratch/wt-nolsof" && git -C "$R" branch -qD nolsof
 done
@@ -303,6 +330,7 @@ me="$(cd "$R/.agents/hooks/lib" && python3 -c 'import worktree_records as w; pri
 git -C "$R" worktree lock "$R/.claude/worktrees/answered-none" --reason "claude session answered-none (pid $me start $(utc_start "$me"))"
 printf 'x\n' > "$R/.claude/worktrees/kept/x.txt"
 end_session prompt_input_exit
+check
 [[ -f "$R/.claude/worktrees/kept/x.txt" && "$report" == *"kept $R/.claude/worktrees/kept: kept at Claude Code's exit prompt"* ]] \
   || fail "a worktree the operator kept at the exit prompt must stay: $report"
 [[ ! -e "$R/.claude/worktrees/answered-none" ]] || fail "one still under this session's own lock was never answered for, so it goes: $report"
@@ -310,75 +338,127 @@ end_session prompt_input_exit
 [[ ! -e "$R/.claude/worktrees/left-earlier" ]] || fail "an earlier worktree the session left, unlocked, was never answered for: $report"
 ok "after /exit, the last worktree entered and kept at Claude Code's prompt stays; earlier ones and one under the ending session's own lock go"
 
-# ── /clear ends the conversation's worktrees; an unfinished run waits 24 hours
-bash_call "$R" "$wl init t2 --objective o --acceptance a --repo $R --verify true"
-bash_call "$R" "$wl add-lane t2 l2 --worker w --path src"
-$wl claim t2 l2 --agent cellA >/dev/null
-l2="$R/.agents/worktrees/t2/l2"
-bash_call "$R" 'git worktree add -q ../wt-clear -b clear'
+# ── /clear ends a session: the hourly check removes what is merged into the source branch, flags the rest
+# Acceptance rows 24 and 25: three worktrees cut from staging, which main never gains.
+rm -f "$records"/s1.jsonl
+git -C "$R" branch staging main
+for name in st-merged st-ahead st-dirty; do bash_call "$R" "git worktree add -q ../$name -b $name staging"; done
+grep -q "\"path\": \"$scratch/st-merged\", \"source\": \"staging\"" "$records/s1.jsonl" || fail "the start point -b names must be recorded as the source branch: $(cat "$records/s1.jsonl")"
+printf 'm\n' > "$scratch/st-merged/m.txt" && git -C "$scratch/st-merged" add m.txt && git -C "$scratch/st-merged" commit -qm merged
+git -C "$R" update-ref refs/heads/staging "$(git -C "$scratch/st-merged" rev-parse HEAD)"
+printf 'a\n' > "$scratch/st-ahead/a.txt" && git -C "$scratch/st-ahead" add a.txt && git -C "$scratch/st-ahead" commit -qm ahead
+printf 'edit\n' >> "$scratch/st-dirty/src/app.txt"
 end_session clear
-[[ ! -e "$scratch/wt-clear" ]] || fail "/clear must end the conversation's worktrees: $report"
-[[ -d "$l2" && "$report" == *"kept workloop run t2: "*"waits for this conversation's resume until"* ]] || fail "an unfinished run must wait: $report"
-sweep() {  # [session] [workloop.py]
-  sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" "${1:-s9}" startup "${2:-$R/.agents/workloop.py}")"
-}
-sweep
-[[ -d "$l2" ]] || fail "while the session's process lives, the sweep must leave the run: $sweep_out"
-# Rewrites s1's record: the dead process as host; `held` set to an age in
-# seconds or "none" to drop it; a resume (a host entry) that many seconds ago.
-age() {  # <held age|none> [resumed age]
-  python3 - "$records/s1.jsonl" "$gone" "$gone_start" "$1" "${2:-}" <<'PY'
+check
+[[ ! -e "$scratch/st-merged" && "$report" == *"removed $scratch/st-merged: its work is merged into staging; branch st-merged deleted, staging contains it"* ]] \
+  || fail "a worktree merged into its source branch must go with its branch: $report"
+git -C "$R" merge-base --is-ancestor staging main && fail "the fixture's main must lack staging's commit"
+[[ -d "$scratch/st-ahead" && "$report" == *"dead session s1 left $scratch/st-ahead: 1 commits not in staging, 0 uncommitted files, ignored: none."* ]] \
+  || fail "a worktree with a commit not in staging must stay, flagged naming staging: $report"
+[[ -d "$scratch/st-dirty" && "$report" == *"dead session s1 left $scratch/st-dirty: 0 commits not in staging, 1 uncommitted files, ignored: none."* ]] \
+  || fail "a worktree with an uncommitted edit must stay, flagged naming staging: $report"
+mtime() { python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$1"; }
+checked="$(mtime "$stamp")"
+again="$(python3 "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" s9 "$R/.agents/workloop.py")"
+[[ -z "$again" && "$(mtime "$stamp")" == "$checked" && -d "$scratch/st-ahead" ]] || fail "a second check within the hour must do nothing: $again"
+ok "after /clear the check removes the worktree merged into staging with its branch, flags the two holding work naming staging, and runs once an hour"
+answer "$scratch/st-ahead" keep
+check
+[[ "$report" != *"left $scratch/st-ahead:"* && "$report" == *"left $scratch/st-dirty:"* && -d "$scratch/st-ahead" ]] || fail "a kept worktree must not be asked about again within the week: $report"
+python3 - "$records/.kept.json" "$scratch/st-ahead" <<'PY'
 import json, sys, time
-path, pid, start, held, resumed = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
-now, out = int(time.time()), []
-for line in open(path):
-    if not line.strip():
-        continue
-    entry = dict(json.loads(line), host=[pid, start])
-    entry.pop("start", None)
-    if entry.get("type") == "host":
-        continue
-    if entry.get("type") == "run":
-        entry.pop("held", None)
-        if held != "none":
-            entry["held"] = now - int(held)
-    out.append(entry)
-if resumed:
-    out.append({"type": "host", "host": [pid, start], "at": now - int(resumed)})
-open(path, "w").write("".join(json.dumps(e, sort_keys=True) + "\n" for e in out))
+data = json.load(open(sys.argv[1])); data[sys.argv[2]] = int(time.time()) - 8 * 86400; json.dump(data, open(sys.argv[1], "w"))
 PY
+check
+[[ "$report" == *"left $scratch/st-ahead:"* ]] || fail "a keep older than a week must be asked about again: $report"
+answer "$scratch/st-dirty" --save
+[[ ! -e "$scratch/st-dirty" && "$(git -C "$R" show saved/st-dirty:src/app.txt)" == $'one\nedit' ]] || fail "save and remove must keep the edit on saved/st-dirty: $answered"
+answer "$scratch/st-ahead" --discard
+[[ ! -e "$scratch/st-ahead" && "$answered" == *"branch st-ahead deleted"* ]] && ! git -C "$R" rev-parse -q --verify refs/heads/st-ahead >/dev/null \
+  || fail "discard must remove the worktree and its branch: $answered"
+check
+[[ "$report" != *st-* ]] || fail "answered worktrees must not be asked about again: $report"
+ok "keep holds the question off for a week; save and remove commits the edit to saved/<name>; discard drops worktree and branch"
+sweep() {  # [session] [workloop.py] [source]
+  sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" "${1:-s9}" "${3:-startup}" "${2:-$R/.agents/workloop.py}")"
 }
-held_age() { python3 -c 'import json,sys,time; print(min(int(time.time()) - e["held"] for e in map(json.loads, open(sys.argv[1])) if e.get("type") == "run" and e.get("run") == "t2"))' "$records/s1.jsonl"; }
-age 3600; sweep
-[[ -d "$l2" && "$sweep_out" == *"kept workloop run t2: "*"waits for this conversation's resume"* ]] || fail "a fresh hold must keep the run after its process exits: $sweep_out"
-(( $(held_age) >= 3600 )) || fail "a sweep must not refresh a standing hold"
-ok "/clear ends the conversation's worktrees; an unfinished run waits, and a sweep inside the 24 hours keeps it unrefreshed"
-age none; sweep
-[[ -d "$l2" ]] && (( $(held_age) < 60 )) || fail "a killed session's run, never stamped, must be stamped and kept: $sweep_out"
-age 90000 3600; sweep
-[[ -d "$l2" ]] && (( $(held_age) < 60 )) || fail "a stamp older than the last resume must be renewed: $sweep_out"
-ok "a sweep stamps a killed session's run, and renews a stamp older than the conversation's resume"
-printf 'secret\n' > "$l2/cell.log"
-printf 'cell work\n' > "$l2/src/cell.txt"
-age 90000; sweep
-[[ -f "$l2/cell.log" && "$sweep_out" == *"kept workloop run t2: $l2: it holds ignored files that would not come back (cell.log)"* ]] \
-  || fail "an ignored file that would not come back must keep the run: $sweep_out"
-rm "$l2/cell.log"
-age 90000; sweep
-[[ ! -e "$l2" && "$sweep_out" == *"closed workloop run t2"* && "$(git -C "$R" show saved/l2:src/cell.txt)" == "cell work" ]] \
-  || fail "past 24 hours with no resume, the sweep must save and close the run: $sweep_out"
-ok "past the 24 hours the next start saves and closes the run, unless an ignored file would be lost"
+bash_call "$R" 'git worktree add -q ../st-resumed -b st-resumed'
+printf 'draft\n' > "$scratch/st-resumed/draft.txt"
+end_session other
+sweep s1 "" resume
+rm -f "$stamp"; sweep
+[[ -d "$scratch/st-resumed" && "$sweep_out" != *st-resumed* ]] || fail "a resumed session's worktrees must not read dead: $sweep_out"
+ok "a resume of the same session stamps its record again, so its worktrees are never dead"
+# Acceptance row 26: a lane cut from mvp/roadmap, merged there and not into main.
+git -C "$R" branch mvp/roadmap main
+bash_call "$R" "$wl init tr --objective o --acceptance a --repo $R --verify true"
+bash_call "$R" "$wl add-lane tr lr --worker w --path src"
+lr="$R/.agents/worktrees/tr/lr"
+lr_branch="$(git -C "$lr" symbolic-ref --short HEAD)"
+printf 'road\n' > "$lr/src/road.txt" && git -C "$lr" add src/road.txt && git -C "$lr" commit -qm road
+git -C "$R" update-ref refs/heads/mvp/roadmap "$(git -C "$lr" rev-parse HEAD)"
+python3 - "$R/.agents/.workloop-state.json" <<'PY'
+import json, sys
+path = sys.argv[1]; data = json.load(open(path)); data["runs"]["tr"]["base_branch"] = "mvp/roadmap"; json.dump(data, open(path, "w"))
+PY
+end_session clear
+check
+[[ ! -e "$lr" && "$report" == *"removed $lr: its work is merged into mvp/roadmap; branch $lr_branch deleted, mvp/roadmap contains it"* ]] \
+  || fail "a lane merged into its run's source branch must be judged against it, not main: $report"
+[[ "$report" == *"closed workloop run tr: git lists none of its worktrees"* ]] || fail "a run whose lanes all went must close through abandon: $report"
+$wl status tr >/dev/null 2>&1 && fail "the run must leave the live state"
+git -C "$R" merge-base --is-ancestor "$(git -C "$R" rev-parse mvp/roadmap)" main && fail "main must not have gained the lane's commit"
+ok "a lane is judged merged against its run's source branch mvp/roadmap, removed, and its run closed through abandon"
+# Acceptance row 9: a lane whose writer's transcript grew within the last minute.
+bash_call "$R" "$wl init tc --objective o --acceptance a --repo $R --verify true"
+bash_call "$R" "$wl add-lane tc lc --worker w --path src"
+lc="$R/.agents/worktrees/tc/lc"
+$wl claim tc lc --agent agfixture >/dev/null
+printf 'w\n' > "$lc/src/w.txt"
+transcript="$scratch/claude/projects/p/sess/subagents/agent-agfixture.jsonl"
+mkdir -p "${transcript%/*}" && printf '{}\n' > "$transcript"
+end_session clear
+check "$scratch" CLAUDE_CONFIG_DIR="$scratch/claude"
+[[ -d "$lc" && "$report" != *"$lc"* ]] || fail "a run whose writer's transcript grew within the minute must be neither removed nor flagged: $report"
+touch -t 202601010000 "$transcript"
+mkdir -p "$R/.agents/.readout"
+python3 - "$R/.agents/.readout/.agent-deaths-cache" "$transcript" <<'PY'
+import json, os, sys
+stat = os.stat(sys.argv[2])
+json.dump({"agents": {"agfixture": {"transcript": sys.argv[2], "file": [stat.st_size, stat.st_mtime_ns], "state": "running"}}}, open(sys.argv[1], "w"))
+PY
+check "$scratch" CLAUDE_CONFIG_DIR="$scratch/claude"
+[[ -d "$lc" && "$report" != *"$lc"* ]] || fail "a run whose writer the death reader judged running must be held: $report"
+python3 - "$R/.agents/.readout/.agent-deaths-cache" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1])); data["agents"]["agfixture"]["state"] = "lost"; json.dump(data, open(sys.argv[1], "w"))
+PY
+check "$scratch" CLAUDE_CONFIG_DIR="$scratch/claude"
+[[ -d "$lc" && "$report" == *"dead session s1 left $lc: 0 commits not in main, 1 uncommitted files"* ]] || fail "once its writer is quiet and judged lost, the lane is flagged: $report"
+ok "a run with an agent that may still be working is neither removed nor flagged; once it reads lost, its lane is flagged"
+# Acceptance row 8: a merged lane holding an ignored .env.
+printf '.env\n' >> "$R/.git/info/exclude"
+bash_call "$R" "$wl init te --objective o --acceptance a --repo $R --verify true"
+bash_call "$R" "$wl add-lane te le --worker w --path src"
+le="$R/.agents/worktrees/te/le"
+printf 'KEY=1\n' > "$le/.env"
+end_session clear
+check
+[[ -f "$le/.env" && "$report" == *"dead session s1 left $le: 0 commits not in main, 0 uncommitted files, ignored: .env."* ]] \
+  || fail "a merged lane holding an ignored .env must stay, flagged naming .env: $report"
+ok "a merged lane holding an ignored .env stays and its dead session line names .env"
 # A checkout that is not on disk may be on an unmounted disk, so the sweep never drops its run.
 git clone -q "$R" "$scratch/gone-clone"
 bash_call "$R" "$wl init tg --objective o --acceptance a --repo $scratch/gone-clone --verify true"
 bash_call "$R" "$wl add-lane tg lg --worker w --path src"
 rm -rf "$scratch/gone-clone"
-age 90000; sweep
-[[ "$sweep_out" == *"kept workloop run tg: abandon failed: "*"gone-clone is not on disk"*"rerun with --checkout-gone"* ]] \
-  || fail "the sweep must keep a run whose checkout is not on disk, naming --checkout-gone: $sweep_out"
-$wl status tg >/dev/null 2>&1 || fail "the sweep dropped a run whose checkout is not on disk: $sweep_out"
+end_session other
+check
+[[ "$report" == *"left alone with their worktrees: "*"tg"* && "$report" != *"closed workloop run tg"* ]] \
+  || fail "the check must keep and name a run whose checkout is not on disk: $report"
+$wl status tg >/dev/null 2>&1 || fail "the check dropped a run whose checkout is not on disk: $report"
 $wl abandon tg --checkout-gone >/dev/null
-ok "a run whose checkout is not on disk outlives the sweep, which names --checkout-gone"
+ok "a run whose checkout is not on disk outlives the check and is named"
 # An empty mount point inside another repository is not that repository: git
 # listing none of the run's worktrees there says nothing about the run.
 mkdir -p "$scratch/home-repo/mnt"; printf 'dotfiles\n' > "$scratch/home-repo/f"
@@ -424,8 +504,8 @@ $wl returned fo a --result reply >/dev/null; $wl returned fo b --failed x >/dev/
 sweep
 [[ "$sweep_out" == *"closed workloop run fo: every cell is back"* && "$sweep_out" == *"left alone with their worktrees: "*"pre"* && "$sweep_out" != *"closed workloop run pre"* ]] || fail "a fan-out whose cells are back must close, and a --verify run with no lane must stay: $sweep_out"
 python3 -c "import json,sys; r=json.load(open('$R/.agents/.workloop-state.json'))['runs']; sys.exit('fo' in r or 'pre' not in r)" || fail "the sweep dropped the wrong run"
-[[ ! -e "$R/.agents/worktrees/fo" && -d "$R/.agents/worktrees/pre/.workloop" ]] || fail "the close left the fan-out's briefs, or took another run's: $(ls -R "$R/.agents/worktrees/fo" 2>&1)"
-# the close judges the run again under the controller's lock: a cell added since the sweep read it keeps the run
+[[ -d "$R/.agents/worktrees/pre/.workloop" ]] || fail "the close took another run's briefs"
+# the close judges the run again on a fresh read: a cell added since the sweep read it keeps the run
 $wl init late --objective o --acceptance a --repo "$R" >/dev/null
 $wl add-cell late a --role research --model haiku >/dev/null; $wl returned late a --result reply >/dev/null
 stale="$(python3 -c "import json; print(json.dumps(json.load(open('$R/.agents/.workloop-state.json'))['runs']['late']))")"
@@ -435,7 +515,7 @@ import importlib.util, json, sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location("worktree_runs", "worktree_runs.py"); rn = importlib.util.module_from_spec(spec); spec.loader.exec_module(rn)
 rn.wr.runs_in = lambda state: {"late": json.loads(sys.argv[2])}  # the read before the lock, from before cell b
-print("\n".join(rn.unowned_runs(Path(sys.argv[1]), set())))
+print("\n".join(rn.unowned_runs(Path(sys.argv[1]), set(), Path(sys.argv[1]) / ".agents/workloop.py")))
 PY
 )"
 [[ "$late_out" == *"left alone with their worktrees: late"* && "$late_out" != *"closed workloop run late"* ]] || fail "the close dropped a fan-out a cell joined after the sweep read it: $late_out"
@@ -460,15 +540,31 @@ json.dump(s, open(path, "w"))
 PY
 sweep
 [[ "$sweep_out" == *"closed workloop run old: its cells went out over 24 hours ago"* ]] || fail "a fan-out whose cells all went out past the hold must close: $sweep_out"
-[[ ! -e "$R/.agents/worktrees/old" ]] || fail "the close left the fan-out's briefs: $(ls -R "$R/.agents/worktrees/old" 2>&1)"
+$wl status old >/dev/null 2>&1 && fail "the closed fan-out must leave the live state"
 $wl abandon pre >/dev/null
 ! grep -q strptime "$repo/.agents/hooks/lib/worktree_runs.py" || fail "worktree_runs.py parses the controller's stamps itself instead of importing workloop_size's parse"
-ok "a lead-less fan-out closes once every cell is back or every cell is out past the hold, read by the digest's own stamp parse; a --verify run with no lane yet stays"
+! grep -q 'del data\["runs"\]' "$repo/.agents/hooks/lib/worktree_runs.py" || fail "worktree_runs.py deletes runs from state itself instead of closing them through abandon"
+ok "a lead-less fan-out closes through abandon once every cell is back or every cell is out past the hold, read by the digest's own stamp parse; a --verify run with no lane yet stays"
 
 # ── a resumed session claims its records even while another start sweeps ───
+# Rewrites s1's record with the dead process as its host, and drops its resumes.
+age() {
+  python3 - "$records/s1.jsonl" "$gone" "$gone_start" <<'PY'
+import json, sys
+path, pid, start = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+out = []
+for line in open(path):
+    entry = json.loads(line) if line.strip() else None
+    if entry is None or entry.get("type") == "host":
+        continue
+    entry.pop("start", None)
+    out.append(entry if entry.get("type") == "end" else dict(entry, host=[pid, start]))
+open(path, "w").write("".join(json.dumps(e, sort_keys=True) + "\n" for e in out))
+PY
+}
 bash_call "$R" "$wl init t7 --objective o --acceptance a --repo $R --verify true"
 end_session other
-age 3600
+age
 lockfile="$(git -C "$R" rev-parse --path-format=absolute --git-common-dir)/colloid-sweep.lock"
 python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"w"); fcntl.flock(f,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)' \
   "$lockfile" "$scratch/locked" & holder=$!
@@ -481,7 +577,7 @@ live_last() {  # <record>: its last host is a live process
 }
 live_last "$records/s1.jsonl" || fail "the skipped start must re-host its records under a live process: $(tail -2 "$records/s1.jsonl")"
 # Another sweep holds the record itself: the resumed start writes a new one beside the claim.
-age 3600
+age
 sleep 300 >/dev/null 2>&1 & claimer=$!
 mv "$records/s1.jsonl" "$records/.s1.jsonl.sweep-$claimer"
 python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"w"); fcntl.flock(f,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)' \
@@ -495,20 +591,21 @@ sweep s9
 [[ ! -e "$records/.s1.jsonl.sweep-$claimer" ]] && live_last "$records/s1.jsonl" \
   || fail "folding a dead claim back must leave the resumed host last: $(tail -3 "$records/s1.jsonl")"
 ok "a resumed session re-hosts its records even when another start holds the sweep or the record; a folded-back claim keeps it live"
-age 3600
+age
 (cd "$R/.agents/hooks/lib" && python3 - "$records/s1.jsonl" "$R/.agents/workloop.py" <<'PY') || fail "a sweep must give back a record whose session resumed before the claim"
 import pathlib, sys, time, worktree_records as w, worktree_sweep as s
 record = pathlib.Path(sys.argv[1])
 w.append(record.parent, "s1", [dict({"type": "host", "at": int(time.time())}, **w.stamp())])
 before = record.read_text()
-lines = s.close(record, "", pathlib.Path(sys.argv[2]))
+lines = s.close(record, pathlib.Path(sys.argv[2]))
 claims = list(record.parent.glob(".s1.jsonl.*"))
 sys.exit(bool(lines) or bool(claims) or record.read_text() != before)
 PY
 ok "a sweep that finds the session alive after its claim gives the records back untouched"
 # The session resumes while the sweep holds its claim: a stub check re-hosts the record midway.
 bash_call "$R" 'git worktree add -q ../wt-resumed -b resumed'
-age 3600
+printf 'work\n' > "$scratch/wt-resumed/work.txt"
+age
 cat > "$scratch/stub-workloop.py" <<PY
 import sys, time
 sys.path.insert(0, "$R/.agents/hooks/lib")
@@ -519,7 +616,7 @@ if "check" in sys.argv:
     sys.exit(0)
 sys.exit("stub workloop: " + " ".join(sys.argv[1:]))
 PY
-sweep s9 "$scratch/stub-workloop.py"
+rm -f "$stamp"; sweep s9 "$scratch/stub-workloop.py"
 [[ "$sweep_out" == *"kept workloop run t7: its session resumed during this sweep"* \
   && "$sweep_out" == *"kept $scratch/wt-resumed: its session resumed during this sweep"* && -d "$scratch/wt-resumed" ]] \
   || fail "a session resumed during the sweep keeps its runs and worktrees: $sweep_out"
@@ -534,9 +631,10 @@ l9="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["t
 [[ -d "$l9" ]] || fail "the t9 lane was not made"
 printf '{"runs": ' > "$alt"
 end_session other
-[[ -d "$l9" && "$report" == *"kept workloop run t9: its state file $alt is unreadable"* ]] || fail "an unreadable state file must keep the run at the session end: $report"
-age 90000; sweep
-[[ -d "$l9" && "$sweep_out" == *"kept workloop run t9: its state file $alt is unreadable"* ]] || fail "past the hold, an unreadable state file still keeps the run: $sweep_out"
+check
+[[ -d "$l9" && "$report" == *"kept workloop run t9: its state file $alt is unreadable"* ]] || fail "an unreadable state file must keep the run at the check: $report"
+age; check
+[[ -d "$l9" && "$report" == *"kept workloop run t9: its state file $alt is unreadable"* ]] || fail "after its process is gone, an unreadable state file still keeps the run: $report"
 ok "a state file that does not parse keeps its run and lanes, never read as empty"
 
 # ── Codex and Kimi record through their own adapters ────────────────────────
@@ -588,9 +686,12 @@ git -C "$R" config status.showUntrackedFiles no
 bash_call "$R" 'git worktree add -q ../wt-hidden -b hidden'
 printf 'notes\n' > "$scratch/wt-hidden/notes.txt"
 end_session other
+check
+[[ -d "$scratch/wt-hidden" && "$report" == *"left $scratch/wt-hidden: 0 commits not in main, 1 uncommitted files"* ]] || fail "an untracked file the config hides must keep and flag its worktree: $report"
+answer "$scratch/wt-hidden" --save
 git -C "$R" config --unset status.showUntrackedFiles
-[[ "$(git -C "$R" show saved/wt-hidden:notes.txt 2>/dev/null)" == notes ]] || fail "an untracked file the config hides must be saved: $report"
-ok "an untracked file hidden by status.showUntrackedFiles=no is saved before the removal"
+[[ "$(git -C "$R" show saved/wt-hidden:notes.txt 2>/dev/null)" == notes ]] || fail "an untracked file the config hides must be saved: $answered"
+ok "an untracked file hidden by status.showUntrackedFiles=no is flagged, and saved before the removal"
 
 # ── a failed save stops the removal ──────────────────────────────────────────
 git -C "$R" config user.useConfigOnly true
@@ -600,8 +701,8 @@ printf 'x\n' > "$scratch/wt-nosave/src/x.txt"
   unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
   export HOME="$scratch/home" XDG_CONFIG_HOME="$scratch/home" GIT_CONFIG_NOSYSTEM=1
   mkdir -p "$HOME"
-  end_session other
-  printf '%s' "$report" > "$scratch/nosave"
+  answer "$scratch/wt-nosave" --save
+  printf '%s' "$answered" > "$scratch/nosave"
 )
 [[ -f "$scratch/wt-nosave/src/x.txt" ]] || fail "a worktree whose save failed must stay: $(cat "$scratch/nosave")"
 grep -q "kept $scratch/wt-nosave: its unsaved work could not be committed" "$scratch/nosave" || fail "the failed save must be named: $(cat "$scratch/nosave")"
@@ -618,7 +719,8 @@ git init -q -b main "$U" && printf '.agents/\n*.log\n' > "$U/.gitignore" && git 
 u5records="$U/.agents/worktrees/.records" && mkdir -p "$u5records"
 lib="$R/.agents/hooks/lib"
 linux=""; [[ "$(uname)" == Linux ]] && linux=yes
-u5_sweep() {  # [VAR=value ...]: one session-start sweep of $U under those variables -> u5_out, u5_err
+u5_sweep() {  # [VAR=value ...]: one session-start sweep of $U under those variables, its check due -> u5_out, u5_err
+  rm -f "$U/.agents/worktrees/.dead-session-check"
   u5_out="$(cd "$lib" && env "$@" python3 worktree_sweep.py sweep "$U" u5-sweeper startup "$R/.agents/workloop.py" 2>"$scratch/u5-err")"
   u5_err="$(<"$scratch/u5-err")"
 }

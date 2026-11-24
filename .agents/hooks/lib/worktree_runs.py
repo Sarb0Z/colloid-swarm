@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Close or keep a session's workloop runs (worktree_sweep.py calls these).
+"""The workloop runs a session sweep reads and closes (worktree_sweep.py calls these).
 
-A finished run, one `workloop.py check` passes, closes: its worktrees' unsaved
-work is committed to `saved/<name>` and the run ends with `abandon`. Any other
-run waits HOLD_SECONDS for its conversation's resume (ruling 26). A run whose
-worktrees hold ignored files that would not come back stays, as such a
-worktree stays from the heal (ruling 28).
+A run closes only through `workloop.py abandon`, which keeps its record
+(`abandon`). Nothing of a run is removed, flagged or closed while one of its
+agents may still be working (`live_agents`, spec Unit 1.6). A run whose
+worktrees hold ignored files that would not come back keeps them
+(`lost_files`, ruling 28).
 """
 
 from __future__ import annotations
 
-import fcntl
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -28,10 +26,18 @@ rm, wr = hl.rm, hl.wr
 _spec = importlib.util.spec_from_file_location("workloop_size", Path(__file__).with_name("workloop_size.py"))
 ws = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ws)
+_spec = importlib.util.spec_from_file_location("agent_records", Path(__file__).with_name("agent_records.py"))
+ar = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ar)
 
-# An unfinished run waits this long after its session ends for the conversation's resume.
+# A lead-less read-only fan-out whose cells all went out this long ago is closed (ruling 35).
 HOLD_SECONDS = 24 * 3600
 STATE = Path(".agents/.workloop-state.json")
+# The death reader's cache (agent_deaths.py), and its rule that an agent whose transcript, or its
+# session's, changed this recently may still run (agent_verdicts.QUIET_SECONDS).
+DEATHS_CACHE = Path(".agents/.readout/.agent-deaths-cache")
+QUIET_SECONDS = 600
+LIVE_STATES = ("running", "waiting", "unknown")
 
 
 def runs_of(state: str) -> tuple[dict, str | None]:
@@ -50,7 +56,7 @@ def runs_of(state: str) -> tuple[dict, str | None]:
 
 def unfinished(entry: dict, workloop: Path) -> str | None:
     """Why `workloop.py check --recorded` refuses the run; None once it passes or the run is gone.
-    The recorded form judges from results already recorded: a session end never runs a composed test."""
+    The recorded form judges from results already recorded: a sweep never runs a composed test."""
     name, state = entry.get("run"), entry.get("state") or ""
     runs, error = runs_of(state)
     if error:
@@ -64,52 +70,13 @@ def unfinished(entry: dict, workloop: Path) -> str | None:
         if result.returncode else None
 
 
-def waits(entry: dict, reason: str, since: float, now: float) -> bool:
-    """Stamp an unfinished run's hold; True while it waits. A session end stamps afresh;
-    a sweep stamps a run with no stamp (its session was killed) or one older than the
-    last resume (`since`), and never refreshes a standing one."""
-    held = entry.get("held")
-    if reason or not isinstance(held, (int, float)) or held < since:
-        entry["held"] = held = int(now)
-    return now - held < HOLD_SECONDS
-
-
-def close_run(remover, entry: dict, workloop: Path) -> bool:
-    """Save a run's worktrees and close it with `abandon`; False when it must stay."""
-    name, state = entry.get("run"), entry.get("state") or ""
-    runs, error = runs_of(state)
-    if error:
-        remover.lines.append(f"kept workloop run {name}: {error}")
-        return False
-    run = runs.get(name)
-    if run is None:
-        return True
-    spaces = [Path(s).resolve() for s in workspaces(run)]
-    present = [path for path in spaces if path.is_dir()]
-    repo = wr.run_checkout(run.get("repo") or "/nonexistent")
-    # Git still lists a workspace that is not on disk (an unmounted volume):
-    # abandon's prune would drop it, so the run stays.
-    away = next((f"git lists {e['path']} but it is not on disk" for e in (wr.worktrees(repo) if repo else [])
-                 if e["path"] in spaces and not e["path"].is_dir()), None)
-    refusal = away or next((f"{path}: {r[1]}" for path in present for r in [remover.blocked(path)] if r), None) \
-        or next((f"{path}: {loss}" for path in present for loss in [lost_files(path)] if loss), None)
-    saved = []
-    for path in [] if refusal else [path for path in present if rm.dirty(path)]:
-        branch, error = rm.save(path, remover.label)
-        refusal = f"{path}: its unsaved work could not be committed ({error})" if error else None
-        if refusal:
-            break
-        saved.append(f"{path} -> {branch}")
-    if refusal:
-        remover.lines.append(f"kept workloop run {name}: {refusal}")
-        return False
-    os.chdir(Path(state).parent)
+def abandon(name: str, state: str, workloop: Path, why: str) -> tuple[bool, str]:
+    """Close a run through `workloop.py abandon`, which keeps its record; (closed, the line)."""
     result = subprocess.run([sys.executable, str(workloop), "--state", state, "abandon", name],
-                            text=True, capture_output=True, env=wr.clean_env())
-    remover.lines.append(f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
-                         if result.returncode else f"closed workloop run {name}: {result.stdout.strip()}"
-                         + ("; unsaved work: " + ", ".join(saved) if saved else ""))
-    return not result.returncode
+                            text=True, capture_output=True, env=wr.clean_env(), cwd=Path(state).parent)
+    if result.returncode:
+        return False, f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
+    return True, f"closed workloop run {name}: {why}; {result.stdout.strip()}"
 
 
 def lost_files(path: Path) -> str | None:
@@ -129,35 +96,45 @@ def workspaces(run: dict) -> list[str]:
             + [(run.get("integration") or {}).get("workspace"), (run.get("verified") or {}).get("workspace")] if s]
 
 
-def drop_run(state: Path, name: str, why) -> str | None:
-    """Delete one run from the state file under the controller's own lock, as `workloop_state.Store`
-    writes it, when `why(run)`, judged on the run as read under that lock, still names a reason.
-    Returns the reason; None when the run is gone or changed since it was judged, and stays."""
-    with open(f"{state}.lock", "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        data = json.loads(state.read_text())
-        run = data["runs"].get(name)
-        reason = why(run) if run is not None else None
-        if reason is None:
-            return None
-        del data["runs"][name]
-        scratch = state.with_name(f"{state.name}.{os.getpid()}")
-        scratch.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-        os.replace(scratch, state)
-    return reason
-
-
-def remove_briefs(run: dict, name: str) -> str | None:
-    """Remove a closed run's briefs and its folder once empty, as `teardown` does; why not, or None."""
-    folder = Path(run.get("repo") or "/nonexistent") / wr.RECORDS.parent / name
-    try:
-        if (folder / ".workloop").is_dir():
-            shutil.rmtree(folder / ".workloop")
-        if folder.is_dir() and not any(folder.iterdir()):
-            folder.rmdir()
-    except OSError as error:
-        return f"its briefs in {folder} could not be removed ({error})"
+def transcript_of(agent_id: str) -> Path | None:
+    """An agent's transcript the death reader has not cached, found in Claude Code's stores."""
+    for store in ar.real_folders(d / "projects" for d in ar.config_dirs(Path.home(), os.environ.get("CLAUDE_CONFIG_DIR", ""))):
+        found = next(store.glob(f"*/*/subagents/agent-{agent_id}.jsonl"), None)
+        if found:
+            return found
     return None
+
+
+def live_agents(main: Path, run: dict, now: float) -> list[str]:
+    """The run's agents still out (cells out, active lanes' writers) that may still be working:
+    the death reader's cached verdict is running, waiting or unknown on an unchanged transcript,
+    or the transcript changed within QUIET_SECONDS. A start pays one stat per such agent."""
+    ids = [cell.get("agent_id") for cell in (run.get("cells") or {}).values() if cell.get("state") == "out"]
+    ids += [lane.get("claimed_by") for lane in (run.get("lanes") or {}).values() if lane.get("state") == "active"]
+    ids = [agent_id for agent_id in ids if agent_id]
+    if not ids:
+        return []
+    try:
+        cache = json.loads((main / DEATHS_CACHE).read_text()).get("agents", {})
+    except FileNotFoundError:
+        cache = {}
+    except (OSError, ValueError, AttributeError) as error:
+        wr.warn(f"{main / DEATHS_CACHE} is unreadable ({error}); each agent is judged by its transcript's age")
+        cache = {}
+    live = []
+    for agent_id in ids:
+        info = cache.get(agent_id) if isinstance(cache.get(agent_id), dict) else {}
+        transcript = Path(info["transcript"]) if isinstance(info.get("transcript"), str) else transcript_of(agent_id)
+        try:
+            stat = os.stat(transcript) if transcript else None
+        except FileNotFoundError:
+            stat = None
+        if stat is None:
+            continue
+        unchanged = info.get("file") == [stat.st_size, stat.st_mtime_ns]
+        if now - stat.st_mtime < QUIET_SECONDS or (unchanged and info.get("state") in LIVE_STATES):
+            live.append(agent_id)
+    return live
 
 
 def fanout_closed(run: dict, now: float) -> str | None:
@@ -177,11 +154,11 @@ def fanout_closed(run: dict, now: float) -> str | None:
     return None
 
 
-def unowned_runs(main: Path, leads: set) -> list[str]:
-    """Close a run no record leads once git lists none of its worktrees (a missing path
-    may be an unmounted disk), or once it is a fan-out whose cells are back or past the
-    hold; a run with lanes and no repository or no worktree (a one-writer run, whose
-    lane works in the checkout) stays. Name the rest."""
+def unowned_runs(main: Path, leads: set, workloop: Path) -> list[str]:
+    """Close, through `abandon`, a run no record leads once git lists none of its worktrees (a
+    missing path may be an unmounted disk), or once it is a fan-out whose cells are back or past
+    the hold; a run with lanes and no repository or no worktree (a one-writer run, whose lane
+    works in the checkout), and a run an agent may still be working for, stays. Name the rest."""
     state, names, lines, now = main / STATE, [], [], time.time()
     for name, run in sorted(wr.runs_in(str(state)).items()):
         if name in leads:
@@ -189,14 +166,30 @@ def unowned_runs(main: Path, leads: set) -> list[str]:
         repo = wr.run_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
         spaces = workspaces(run)
+        if live_agents(main, run, now):
+            names.append(name)
+            continue
+        away = [str(e["path"]) for e in wr.worktrees(repo) if not e["path"].is_dir()] if repo else []
         if run.get("lanes") and repo and spaces and not any(str(Path(s).resolve()) in listed for s in spaces):
-            drop_run(state, name, lambda _: "git lists none of its worktrees")
-            lines.append(f"closed workloop run {name}: git lists none of its worktrees")
-        # Judged again under the lock: a cell added since this read keeps the run.
-        elif fanout_closed(run, now) and (closed := drop_run(state, name, lambda current: fanout_closed(current, now))):
-            unremoved = remove_briefs(run, name)
-            lines.append(f"closed workloop run {name}: {closed}" + (f"; {unremoved}" if unremoved else ""))
+            # abandon prunes git's worktree list repository-wide, which would forget a worktree
+            # on an unmounted disk; such a run waits until that disk is back.
+            if away:
+                lines.append(f"kept workloop run {name}: git lists none of its worktrees, but closing it would make git "
+                             f"forget {away[0]}, which is not on disk")
+                names.append(name)
+                continue
+            why = "git lists none of its worktrees"
+        # Judged again on a fresh read just before the close: a cell added since keeps the run.
+        elif fanout_closed(run, now) and (fresh := runs_of(str(state))[0].get(name)) is not None:
+            why = fanout_closed(fresh, now)
         else:
+            why = None
+        if why is None:
+            names.append(name)
+            continue
+        closed, line = abandon(name, str(state), workloop, why)
+        lines.append(line)
+        if not closed:
             names.append(name)
     if names:
         lines.append("Workloop runs no session recorded as their lead, left alone with their worktrees: " + ", ".join(names))

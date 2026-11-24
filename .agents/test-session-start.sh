@@ -621,11 +621,14 @@ printf '{"hooks":{"session_start":{"enabled":false},"learning_output_style":{"en
 assert_contains "$(context_of "$(run_policy "$wl")")" "Today's work log:"
 
 # ── the worktree sweep ───────────────────────────────────────────────────────
-# Sessions that ended without session-end.sh are swept as their end would
-# have; worktrees no record names that sat idle 24 hours go only when nothing
-# in them would be lost, and every other one is named with its work.
+# A killed session's worktrees are judged by the hourly check: what is merged
+# goes, what holds work is flagged; worktrees no record names that sat idle 24
+# hours go only when nothing in them would be lost, and every other one is
+# named with its work.
 sw="$(make_fixture sweep)"
 sw="$(cd "$sw" && pwd -P)"
+# The sweep closes a run through the controller's abandon, which imports hook libraries.
+cp "$repo"/.agents/hooks/lib/*.py "$sw/.agents/hooks/lib/"
 cp "$repo"/.agents/workloop*.py "$repo/.agents/provision.sh" "$sw/.agents/"
 git -C "$sw" config user.name fixture
 git -C "$sw" config user.email fixture@example.invalid
@@ -795,6 +798,7 @@ print(json.dumps({"version": 1, "runs": {
     "moved-repo": run(f"{scratch}/no-such-checkout", [f"{scratch}/x"]),  # no repository: named
 }}, indent=2, sort_keys=True))
 PY
+: > "$sw/.agents/.workloop-state.json.lock"  # the controller's lock beside its state, as init leaves it
 other="$scratch/sweep-other-repo"
 git init -q "$other" && git -C "$other" -c user.name=f -c user.email=f@x commit -q --allow-empty -m init
 git -C "$other" worktree add -q "$scratch/sweep-foreign" -b foreign
@@ -805,9 +809,13 @@ done
 
 sweep_context="$(context_of "$(run_policy "$sw" resume)")"
 [[ -n "${SWEEP_TEST_VERBOSE:-}" ]] && printf '%s\n' "$sweep_context"
-[[ ! -e "$scratch/sweep-dead" && "$(git -C "$sw" show saved/sweep-dead:src/new.txt)" == unsaved ]] || fail "an ended session's worktree must be saved and swept"
-[[ ! -e "$records/ended-session.jsonl" ]] || fail "a swept session's records must go"
-printf 'ok: a session that ended without its hook is swept at the next start, unsaved work saved\n'
+[[ -d "$scratch/sweep-dead" && -f "$records/ended-session.jsonl" ]] || fail "a dead session's worktree holding work must stay, recorded"
+git -C "$sw" rev-parse -q --verify refs/heads/saved/sweep-dead >/dev/null && fail "the sweep must save nothing unasked"
+assert_contains "$sweep_context" "dead session ended-session left $real/sweep-dead: 0 commits not in main, 1 uncommitted files, ignored: none. Ask the operator"
+assert_contains "$sweep_context" "Put each \`dead session\` line to the operator through the question tool"
+answered="$(python3 "$sw/.agents/hooks/lib/worktree_sweep.py" remove "$scratch/sweep-dead" --save)"
+[[ ! -e "$scratch/sweep-dead" && "$(git -C "$sw" show saved/sweep-dead:src/new.txt)" == unsaved ]] || fail "save and remove must save, then remove: $answered"
+printf 'ok: a session killed without its hook leaves a worktree with work, flagged at the next start and saved only on the answer\n'
 [[ -d "$scratch/sweep-live" && -f "$records/running-session.jsonl" && -d "$scratch/sweep-mine" ]] || fail "running and resumed sessions keep their worktrees"
 grep -q '"type": "host"' "$records/fixture-session.jsonl" || fail "a resumed session must record its new process"
 printf 'ok: a running session and the resumed session keep their worktrees\n'
@@ -957,8 +965,8 @@ row kept late "$late_context" "an ignored file written between the verdict and t
 (( heal_failures == 0 )) || fail "$heal_failures heal row(s) failed"
 printf 'ok: the heal removes what would lose nothing and keeps the rest\n'
 assert_contains "$sweep_context" "removed idle $real/sweep-merged [merged] last commit 2026-01-01"
-assert_contains "$sweep_context" "0 commit(s) not in the default branch, 0 uncommitted file(s): could go: merged into main; branch merged deleted, HEAD contains it"
-assert_contains "$sweep_context" "removed idle $real/sweep-squash [squash] last commit 2026-01-01 squash: add squashed.txt; 1 commit(s) not in the default branch, 0 uncommitted file(s): could go: its changes are already in main; branch squash kept, HEAD does not contain it"
+assert_contains "$sweep_context" "0 commit(s) not in the default branch, 0 uncommitted file(s): could go: merged into main; branch merged deleted, main contains it"
+assert_contains "$sweep_context" "removed idle $real/sweep-squash [squash] last commit 2026-01-01 squash: add squashed.txt; 1 commit(s) not in the default branch, 0 uncommitted file(s): could go: its changes are already in main; branch squash kept, main does not contain it"
 assert_contains "$sweep_context" ": could go: every commit is on origin/stable; branch stable kept, it is the trunk or tracks a remote"
 assert_contains "$sweep_context" "removed idle $real/sweep-detached-main [detached]"
 git -C "$sw" rev-parse -q --verify refs/heads/squash >/dev/null || fail "a squash-merged branch HEAD does not contain must stay"
@@ -1020,16 +1028,20 @@ assert_not_contains "$sweep_context" "sweep-today"
 assert_not_contains "$sweep_context" "sweep-foreign"
 printf 'ok: active, locked, occupied and foreign worktrees stay\n'
 [[ -d "$scratch/sweep-lane" ]] || fail "a run with no recorded lead must keep its worktrees"
-assert_contains "$sweep_context" "closed workloop run fold: git lists none of its worktrees"
-assert_contains "$sweep_context" "Workloop runs no session recorded as their lead, left alone with their worktrees: empty, lq-ui, moved-repo, unmounted"
-python3 - "$sw/.agents/.workloop-state.json" <<'PY' || fail "only fold may be closed, by dropping its entry"
+# abandon prunes git's worktree list, so while sweep-away is off disk fold waits.
+assert_contains "$sweep_context" "kept workloop run fold: git lists none of its worktrees, but closing it would make git forget $real/sweep-away, which is not on disk"
+assert_contains "$sweep_context" "Workloop runs no session recorded as their lead, left alone with their worktrees: empty, fold, lq-ui, moved-repo, unmounted"
+[[ -n "$(git -C "$sw" worktree list --porcelain | grep "$real/sweep-away")" ]] || fail "the sweep must not prune another lane's worktree entry"
+mv "$scratch/moved-away" "$scratch/sweep-away"
+back="$(context_of "$(run_policy "$sw")")"
+assert_contains "$back" "closed workloop run fold: git lists none of its worktrees"
+python3 - "$sw/.agents/.workloop-state.json" <<'PY' || fail "only fold may be closed, through abandon"
 import json, sys
 runs = json.load(open(sys.argv[1]))["runs"]
 sys.exit(sorted(runs) != ["empty", "lq-ui", "moved-repo", "unmounted"])
 PY
-[[ -n "$(git -C "$sw" worktree list --porcelain | grep "$real/sweep-away")" ]] || fail "closing a run must not prune another lane's worktree entry"
-printf 'ok: an unowned run closes only when it has lanes, its repository exists and git lists none of its worktrees; no prune\n'
-assert_contains "$sweep_context" "removed $real/sweep-dead; its unsaved work is on branch saved/sweep-dead"
+[[ -n "$(git -C "$sw" worktree list --porcelain | grep "$real/sweep-away")" ]] || fail "closing a run must keep another lane's worktree entry"
+printf 'ok: an unowned run closes through abandon only when it has lanes, its repository exists, git lists none of its worktrees and no worktree is off disk\n'
 assert_contains "$again" "  saved/sweep-dead "
 assert_not_contains "$again" "removed $real/sweep-dead"
 printf 'ok: the digest names each saved branch until it is deleted\n'

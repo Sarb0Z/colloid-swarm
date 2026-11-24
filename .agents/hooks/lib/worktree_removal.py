@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Remove the worktrees and runs a session recorded, saving unsaved work first.
+"""Remove the worktrees a session recorded, once they are done or the operator answered.
 
-`Remover.retire` keeps and names a worktree that is no linked worktree; is
+`Remover.blocked` keeps and names a worktree that is no linked worktree; is
 locked (Claude Code's own lock counts only while its session runs); has a
 process inside, or no lsof to tell; holds another worktree, or a nested
-repository outside PACKAGE_DIRS, or what a save cannot carry (`unsaveable`);
-or whose unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no
-new gitlink). Ignored folders are parked behind a manifest the sweep can
-undo, then `git worktree remove` runs without --force on a clean tree; the
-branch goes only when HEAD contains it. Paths are compared by device and
-inode, so a path that differs from git's in case or by a link still matches.
+repository outside PACKAGE_DIRS, or what a save cannot carry (`unsaveable`).
+`Remover.retire` (the operator's "save and remove") also keeps one whose
+unsaved work cannot be committed to `saved/<name>` (SAVE_CAP, no new
+gitlink). Ignored folders are parked behind a manifest the sweep can undo,
+then `git worktree remove` runs without --force on a clean tree; the branch
+goes only when its source branch contains it (`drop_branch`). Paths are
+compared by device and inode, so a path that differs from git's in case or by
+a link still matches.
 """
 
 from __future__ import annotations
@@ -103,8 +105,9 @@ class Remover:
         why = self.occupant(path) or inner_worktree(path, listed) or nested(path) or unsaveable(path)
         return ("other", why) if why else None
 
-    def retire(self, path: Path) -> str:
-        """Remove one worktree; return "removed", "gone", "locked" or "kept"."""
+    def retire(self, path: Path, refs: list[str]) -> str:
+        """Save its unsaved work to `saved/<name>`, then remove one worktree, its branch only once
+        `refs`, its source branch, contains it; return "removed", "gone", "locked" or "kept"."""
         path = path.resolve() if path.exists() else path
         if not path.is_dir():
             return "gone"
@@ -129,7 +132,7 @@ class Remover:
             self.lines.append(f"kept {path}: {note}")
             return "kept"
         line = f"removed {path}" + (f"; its unsaved work is on branch {saved}" if saved else "")
-        self.lines.append(line + drop_branch(main, entry["branch"]))
+        self.lines.append(line + drop_branch(main, entry["branch"], refs, squash=False))
         return "removed"
 
 
@@ -215,7 +218,7 @@ def save(path: Path, label: str) -> tuple[str | None, str | None]:
                 return None, result.stderr.strip()
         if gitlinks(path, "ls-files", "-s", env=env) - (gitlinks(path, "ls-tree", "-r", head) if head else set()):
             return None, "it would save a nested repository as a bare gitlink"
-        message = (f"Save unsaved work from worktree {path}\n\nCommitted when {label} ended, before the "
+        message = (f"Save unsaved work from worktree {path}\n\nCommitted on {label}, before the "
                    "worktree was removed. Untracked files are included; ignored files are not.")
         commit = wr.git(path, "commit-tree", result.stdout.strip(), *(["-p", head] if head else []), "-m", message)
         if commit.returncode:
@@ -285,14 +288,28 @@ def purge(bins: list[Path]) -> None:
                          stderr=subprocess.DEVNULL)
 
 
-def drop_branch(main: Path, branch: str | None) -> str:
+def protected(main: Path, branch: str, refs: list[str]) -> str | None:
+    """Why a branch is never deleted with its worktree: the trunk, one tracking a remote, or the source branch."""
     trunk = wr.out(main, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").split("/", 1)[-1]
+    if branch in ("main", "master", trunk) or wr.out(main, "rev-parse", "-q", "--abbrev-ref", f"{branch}@{{upstream}}"):
+        return "it is the trunk or tracks a remote"
+    return "it is the source branch" if f"refs/heads/{branch}" in refs else None
+
+
+def drop_branch(main: Path, branch: str | None, refs: list[str], squash: bool) -> str:
+    """Delete a removed worktree's branch once its source branch (`refs`, ruling R11) contains it;
+    with `squash`, also once its changes are already there, as for a lane or `saved/` branch."""
     if not branch:
         return ""
-    if branch in ("main", "master", trunk) or wr.out(main, "rev-parse", "-q", "--abbrev-ref", f"{branch}@{{upstream}}"):
-        return f"; branch {branch} kept, it is the trunk or tracks a remote"
-    head = wr.out(main, "rev-parse", "-q", "--verify", "HEAD")
-    if not head or wr.git(main, "merge-base", "--is-ancestor", f"refs/heads/{branch}", head).returncode:
-        return f"; branch {branch} kept, HEAD does not contain it"
+    why = protected(main, branch, refs)
+    if why:
+        return f"; branch {branch} kept, {why}"
+    label = refs[0].removeprefix("refs/heads/").removeprefix("refs/remotes/") if refs else "no source branch"
+    into = next((ref for ref in refs if not wr.git(main, "merge-base", "--is-ancestor", f"refs/heads/{branch}", ref).returncode), None)
+    if not into and squash and refs:
+        merged = wr.git(main, "merge-tree", "--write-tree", refs[0], f"refs/heads/{branch}")
+        into = refs[0] if not merged.returncode and merged.stdout.split()[:1] == [wr.out(main, "rev-parse", f"{refs[0]}^{{tree}}")] else None
+    if not into:
+        return f"; branch {branch} kept, {label} does not contain it"
     result = wr.git(main, "branch", "-D", branch)
-    return f"; branch {branch} kept: {result.stderr.strip()}" if result.returncode else f"; branch {branch} deleted, HEAD contains it"
+    return f"; branch {branch} kept: {result.stderr.strip()}" if result.returncode else f"; branch {branch} deleted, {label} contains it"
