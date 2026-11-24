@@ -51,6 +51,11 @@ except ImportError:  # a trimmed export without the controller still gets the di
 
 from workloop_size import GitBudget, size_notes  # noqa: E402
 
+try:
+    from workloop_state import waiting_agents  # noqa: E402
+except ImportError:  # a trimmed export without the controller reads no writer as waiting
+    waiting_agents = None  # type: ignore[assignment]
+
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
 # file is written before the host reads the block, so a delivery must never
@@ -119,15 +124,17 @@ def closing_notes(run_name: str, run: dict) -> list[str]:
         return []
     current = composed_result(run)
     if all(lane.get("place") == "main" for lane in lanes.values()):
-        if current is None or current.get("result") != "pass":
-            return [f"lane reviewed; check {run_name} runs the composed test"]
+        # land runs a one-writer run's composed test at its accepted commit.
+        if current is not None and current.get("result") != "pass":
+            return ["the composed test failed at the accepted commit; see status"]
     elif current is None:
         return [f"all lanes reviewed; integrate {run_name}"]
     elif current.get("result") != "pass":
         return ["the composed test failed at integrate; see status"]
     if not run.get("qa"):
         return [f"ready for QA; record it with qa {run_name} --evidence '…'"]
-    return [f"check {run_name}, then teardown {run_name}"]
+    # Accepted and not landed: land verifies on the source branch and closes the run.
+    return [f"land {run_name}"]
 
 
 def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -> list[str]:
@@ -194,6 +201,10 @@ def active_note(run_name: str, run: dict, lane_name: str, lane: dict, verdicts: 
     # sign of life beside the heartbeat.
     quiet = silence(lane, "claimed_at", now)
     progress = f" — {lane['progress']}" if lane.get("progress") else ""
+    # A writer whose last turn started a background command is neither stale
+    # nor gone; release-stale refuses it.
+    if claimant and waiting_agents is not None and claimant in waiting_agents(Path(run.get("repo") or "/nonexistent")):
+        return f"{lane_name}'s worker {claimant} is waiting on its own background work{progress}"
     if quiet is not None and quiet > STALE_SECONDS:
         minutes = int(quiet // 60)
         if run.get("supervised"):
@@ -213,6 +224,10 @@ def lane_notes(run_name: str, run: dict, verdicts: dict, now: float) -> list[str
             notes.append(note)
         if lane.get("env") == "broken":
             notes.append(f"{lane_name} environment broken (provision {run_name} {lane_name})")
+        # A parked lane, or one a restart left without its folder: its branch
+        # and saved work wait in git (one stat per lane).
+        if lane.get("place") != "main" and lane.get("state") != "reviewed" and lane.get("workspace") and not Path(lane["workspace"]).is_dir():
+            notes.append(f"{lane_name}'s worktree is gone; resume {run_name} re-adds it with its saved work")
     return notes
 
 

@@ -21,6 +21,21 @@ WORKING_PRACTICE = Path(__file__).resolve().parent / "skills/workloop/working-pr
 TEMPORARY_ROOTS = tuple({Path("/tmp"), Path("/private/tmp"), Path(tempfile.gettempdir()).resolve()})
 
 
+def scratch_line(run: dict, run_name: str, cell: str) -> str:
+    """Create a writing or QA cell's own kept-scratch folder under the run and return the brief's line naming it.
+
+    It lives under `.agents/worktrees/<run>/scratch/`, which the checkout
+    ignores and the run's closed record keeps, so nothing the lead may read
+    later sits in a `$TMPDIR` the system clears or a sibling cell shares.
+    """
+    root = Path(run["repo"]) / WORKTREES / run_name / "scratch"
+    folder = root / cell
+    folder.mkdir(parents=True, exist_ok=True)
+    (root / ".gitignore").write_text("*\n")
+    return (f"Scratch: {folder} — yours alone: keep there anything the lead may read later, and make throwaway "
+            f"folders with mktemp -d {folder}/tmp.XXXXXX, never under $TMPDIR.")
+
+
 def normalize_path(value: str) -> str:
     path = PurePosixPath(value)
     if not value or path.is_absolute() or ".." in path.parts or str(path) == ".":
@@ -113,18 +128,46 @@ def lane_allows(run: dict, lane: dict, path: str) -> bool:
     return owned(path, lane["paths"]) or owned(path, shared_of(run)) or path in review_paths
 
 
+def source_branch(run: dict) -> str | None:
+    """The branch the run was cut from (ruling R11); None for a run started from a detached commit.
+
+    A run recorded before the field existed takes the branch checked out in
+    its checkout at its first use, and keeps it: a command holding the state
+    lock writes it back with the run.
+    """
+    if "source" not in run:
+        run["source"] = wg.current_branch(Path(run["repo"]))
+    return run["source"]
+
+
+def source_tip(run: dict) -> str:
+    """The source branch's commit now; the run's recorded base when it has no source branch."""
+    branch = source_branch(run)
+    tip = wg.branch_tip(Path(run["repo"]), branch) if branch else None
+    if branch and tip is None:
+        fail(f"the run's source branch {branch} no longer exists in {run['repo']}")
+    return tip or run["base"]
+
+
+def lane_base(run: dict, head: str) -> str:
+    """Where a worktree lane's history leaves its source branch: the merge-base of its tip
+    with that branch's tip now, so a lane that merged or rebased onto the branch is measured
+    from there, not from the commit recorded at init (ruling R2)."""
+    return wg.merge_base(Path(run["repo"]), head, source_tip(run)) or run["base"]
+
+
 def start_point(run: dict, lane_name: str, head: str) -> str:
     """The commit this lane's own work starts from.
 
     A lane rebased onto a sibling's branch carries the sibling's files; they
     are the sibling's work, not this lane's. A sibling branch that shares
-    history with `head` beyond the run base marks such a rebase, and the newest
-    of those merge-bases is where this lane's own commits begin. A merge-base
-    counts only when the sibling is in review or reviewed and everything it
-    adds past the base lies inside its own paths: otherwise the rebase would
-    launder a change the sibling was never allowed to make.
+    history with `head` beyond the lane's base marks such a rebase, and the
+    newest of those merge-bases is where this lane's own commits begin. A
+    merge-base counts only when the sibling is in review or reviewed and
+    everything it adds past the base lies inside its own paths: otherwise the
+    rebase would launder a change the sibling was never allowed to make.
     """
-    repo, base = Path(run["repo"]), run["base"]
+    repo, base = Path(run["repo"]), lane_base(run, head)
     candidates: set[str] = set()
     for name, other in run["lanes"].items():
         tip = wg.branch_tip(repo, other["branch"]) if name != lane_name and other.get("branch") else None
@@ -145,7 +188,23 @@ def undeclared_paths(run: dict, lane: dict, actual: list[str]) -> list[str]:
     return [path for path in actual if not lane_allows(run, lane, path)]
 
 
+def foreign_paths(run: dict, lane_name: str, lane: dict, actual: list[str]) -> tuple[list[str], list[str]]:
+    """(paths another lane of the run owns, any other path outside this lane's).
+
+    The first refuse a handoff: two writers would edit one file. The second
+    are listed for the reviewer as outside the lane, never refused: a fix to
+    an unowned file, or a file the writer created beside its work, is the
+    reviewer's call.
+    """
+    outside = undeclared_paths(run, lane, actual)
+    owned_elsewhere = [path for path in outside if owning_lane([path], run["lanes"], lane_name)]
+    return owned_elsewhere, [path for path in outside if path not in owned_elsewhere]
+
+
 def review_start(run: dict, lane_name: str, lane: dict) -> str | None:
+    """The start the reviewer reads from: the one submit recorded, or, before a submit, the live one."""
+    if lane.get("start") and lane.get("tip"):
+        return lane["start"]
     repo = Path(run["repo"])
     tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
     return start_point(run, lane_name, tip) if tip else None

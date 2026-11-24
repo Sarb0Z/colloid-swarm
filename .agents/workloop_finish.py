@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
-import shutil
+import json
 import sys
 from pathlib import Path
 
@@ -12,18 +13,22 @@ import workloop_cells as wc
 import workloop_docker as wd
 import workloop_git as wg
 import workloop_main as wm
+import workloop_resume as wr_resume
 from workloop_paths import (
     BRIEF_FOLDER,
     WORKTREES,
+    foreign_paths,
     normalize_path,
+    source_tip,
     start_point,
     uncommitted_owned,
-    undeclared_paths,
     workspace_for,
 )
 from workloop_state import (
     ReadStore,
     Store,
+    close_run,
+    closed_record,
     fail,
     lane_of,
     now,
@@ -60,6 +65,14 @@ def cmd_qa(args: argparse.Namespace) -> None:
 
 def cmd_check(args: argparse.Namespace) -> None:
     with ReadStore(state_path(args.state)) as data:
+        closed = closed_record(state_path(args.state), args.run) if args.run not in data["runs"] else None
+        if closed:
+            # Landing and teardown close a run only once it is complete; abandon closes it as it stands.
+            how = json.loads((closed / "state.json").read_text())["closed"]["how"]
+            if how == "abandoned":
+                fail(f"run {args.run!r} was abandoned unfinished; its record is in {closed}")
+            print(f"PASS: {args.run!r} was complete and is closed ({how}); its record is in {closed}")
+            return
         run = run_of(data, args.run)
         due = not args.recorded and wm.verification_due(run)
     if due:
@@ -78,7 +91,9 @@ def cmd_check(args: argparse.Namespace) -> None:
     else:
         print(f"PASS: {args.run!r} is a read-only fan-out and every cell is back")
     if not run.get("torn_down"):
-        print(f"the run is still open; close it with: .agents/workloop.py teardown {args.run}")
+        print(f"the run is still open; land it on its source branch with: .agents/workloop.py land {args.run}"
+              f" (teardown {args.run} closes it without landing)" if run.get("verify") else
+              f"the run is still open; close it with: .agents/workloop.py teardown {args.run}")
 
 
 def run_check(args: argparse.Namespace, run: dict) -> dict:
@@ -111,7 +126,7 @@ def run_check(args: argparse.Namespace, run: dict) -> dict:
 
 def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str]]:
     """Each lane's (branch, tip) once it is fit to merge; the first lane that is not stops integrate."""
-    repo, base = Path(run["repo"]), run["base"]
+    repo = Path(run["repo"])
     branches = {}
     for name in order:
         lane = run["lanes"][name]
@@ -119,8 +134,10 @@ def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str
         tip = wg.branch_tip(repo, branch) if branch else None
         if tip is None:
             fail(f"lane {name!r} branch {branch!r} no longer exists in {repo}")
-        if tip == base or not wg.is_ancestor(repo, base, tip):
-            fail(f"lane {name!r} branch {branch} is not ahead of the base {base[:12]}")
+        # The start the accepted review read; a lane from before starts were recorded is measured afresh.
+        start = lane.get("accepted_start") or start_point(run, name, tip)
+        if tip == start or not wg.is_ancestor(repo, start, tip):
+            fail(f"lane {name!r} branch {branch} is not ahead of its start {start[:12]}")
         # The branch is what merges; work still sitting uncommitted in the
         # lane's worktree would be verified by nobody.
         lane_workspace = Path(lane["workspace"])
@@ -131,23 +148,54 @@ def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str
         if lane.get("accepted_tip") != tip:
             fail(f"lane {name!r} moved after its accepted review; re-submit it for review")
         # Sibling branches may have been amended since this lane was
-        # submitted, so its own work is measured again against them.
-        stray = undeclared_paths(run, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
-        if stray:
-            fail(f"lane {name!r} changed undeclared paths: " + ", ".join(stray) + "; rebase it onto the sibling's current branch")
+        # submitted, so its own work is measured again against them: a
+        # sibling's file in its diff means it is built on a superseded commit.
+        # A path no lane owns was listed for its reviewer at submit.
+        elsewhere, _ = foreign_paths(run, name, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
+        if elsewhere:
+            fail(f"lane {name!r} changed paths another lane owns: " + ", ".join(elsewhere) + "; rebase it onto the sibling's current branch")
         branches[name] = (branch, tip)
     return branches
 
 
 def cmd_integrate(args: argparse.Namespace) -> None:
-    with ReadStore(state_path(args.state)) as data:
+    with run_lock(state_path(args.state), args.run, "integrate"):
+        integration = compose(args, args.workspace)
+    if integration["result"] != "pass":
+        print(integration["tail"], file=sys.stderr)
+        fail(f"{'rebuild' if integration.get('failed_at') == 'rebuild' else 'verify'} failed over the composed tree in {integration['workspace']}")
+    print(f"PASS: integrated {', '.join(integration['lane_heads'])} in {integration['workspace']}; verify passed over the source branch at {integration['base_head'][:12]}")
+
+
+@contextlib.contextmanager
+def run_lock(state: Path, run_name: str, command: str):
+    """Hold the run's integration lock: one integrate or land per run at a time, since both reset one integration worktree."""
+    with ReadStore(state) as data:
+        repo = Path(run_of(data, run_name)["repo"])
+    lock_path = repo / WORKTREES / run_name / BRIEF_FOLDER / "integrate.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    (lock_path.parent / ".gitignore").write_text("*\n")
+    with lock_path.open("a+") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fail(f"{command}: another integrate or land holds {run_name!r} ({lock_path}); wait for it to finish")
+        yield
+
+
+def compose(args: argparse.Namespace, workspace_arg: str | None) -> dict:
+    """Merge every lane onto the source branch's tip now, run the composed test, record it; return the record.
+
+    The caller holds `run_lock`.
+    """
+    with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if not run.get("verify") and not run["lanes"]:
             fail(f"run {args.run!r} declared no --verify, so it has nothing to merge: a read-only fan-out holds cells only, and check {args.run} passes once every cell is back")
         if not run.get("verify"):
             fail("integrate needs a verify command; re-init the run with --verify '<test command>'")
         if wm.main_lane(run):
-            fail(f"a one-writer run has nothing to integrate; check {args.run} runs the composed test in the checkout")
+            fail(f"a one-writer run has nothing to integrate; land {args.run} runs the composed test at its accepted commit")
         # A QA cell recorded before the merge waits for the merge; a cell out
         # never blocks it. Dropped by exact problem, never by prefix: a lane
         # named `cell` or `qa` has problems that start the same way.
@@ -155,12 +203,13 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         blockers = [problem for problem in wm.completion_problems(run) if problem not in waiting]
         if blockers:
             fail("integration is blocked by " + ", ".join(blockers))
-        repo, base, verify = Path(run["repo"]), run["base"], run["verify"]
+        # The source branch as it stands now, not as it stood at init (ruling R2).
+        repo, base, verify = Path(run["repo"]), source_tip(run), run["verify"]
         order = wg.topo_order(run["lanes"])
         branches = integrable_branches(run, order)
         # What this merge used: a `share` landing meanwhile makes it stale.
         steps, shared = rebuild_steps(run), list(shared_of(run))
-    workspace = workspace_for(args.workspace, repo, args.run, "integration", "integration")
+    workspace = workspace_for(workspace_arg, repo, args.run, "integration", "integration")
     taken = {Path(lane["workspace"]).resolve(): name for name, lane in run["lanes"].items()}
     if workspace in taken:
         fail(f"integration workspace is lane {taken[workspace]!r}'s worktree; use a separate path")
@@ -206,10 +255,7 @@ def cmd_integrate(args: argparse.Namespace) -> None:
         if not rebuilt_ok:
             run["integration"]["failed_at"] = "rebuild"
         record(args.run, run, "integrate", detail=run["integration"]["result"], supplied=args.event_id)
-    if not passed:
-        print(tail, file=sys.stderr)
-        fail(f"{'verify' if rebuilt_ok else 'rebuild'} failed over the composed tree in {workspace}")
-    print(f"PASS: integrated {', '.join(order)} in {workspace}; verify passed")
+        return run["integration"]
 
 
 def release_run(repo: Path, run_name: str, lane_names: list[str], worktrees: dict[str, tuple[str, str | None]],
@@ -217,12 +263,15 @@ def release_run(repo: Path, run_name: str, lane_names: list[str], worktrees: dic
     """Reap every lane's containers, remove the run's worktrees, delete its merged branches.
 
     `worktrees` holds the worktree lanes' (workspace, branch); a main lane has
-    neither, and only its labelled resources are reaped. Every step records its
-    outcome rather than raising, so a directory an operator already deleted by
-    hand, or a branch git refuses to drop, leaves a report instead of a run
-    that no command can move forward. A branch whose commits `head` does not
-    contain is kept unless `discard` is set.
-    Returns (removed worktrees, kept branches, errors, docker resources removed).
+    neither, and only its labelled resources are reaped. A lane worktree's
+    uncommitted and untracked work goes to its wip ref first and its
+    `.workloop/` folder into the run's; a worktree holding ignored files that
+    would not come back (`lost_files`) is kept and named, with its branch.
+    Every step records its outcome rather than raising, so a directory an
+    operator already deleted by hand, or a branch git refuses to drop, leaves
+    a report instead of a run that no command can move forward. A branch whose
+    commits `head` does not contain is kept unless `discard` is set.
+    Returns (removed worktrees, kept worktrees and branches, errors, docker resources removed).
     """
     removed, kept, errors = [], [], []
     docker_result = wd.reap(run_name, sorted(lane_names))
@@ -232,28 +281,41 @@ def release_run(repo: Path, run_name: str, lane_names: list[str], worktrees: dic
     # worktree of its own pays that risk.
     if worktrees or integration.get("workspace") or wm.verify_workspace(repo, run_name).exists():
         wg.git(repo, "worktree", "prune", check=False)
-    targets = [(f"lane {name}", workspace, branch, f"not merged into {head[:12]}") for name, (workspace, branch) in sorted(worktrees.items())]
-    targets.append(("integration", integration.get("workspace"), f"{run_name}/integration",
-                    "carries the verified composition; land it, then rerun teardown"))
-    targets.append(("verify", str(wm.verify_workspace(repo, run_name)), None, ""))
-    for label, workspace, branch, keep_reason in targets:
-        if workspace and wg.remove_worktree(repo, Path(workspace)):
-            removed.append(workspace)
+    targets = [(name, workspace, branch, f"not merged into {head[:12]}") for name, (workspace, branch) in sorted(worktrees.items())]
+    targets.append((None, integration.get("workspace"), f"{run_name}/integration", f"carries the verified composition, not merged into {head[:12]}"))
+    targets.append((None, str(wm.verify_workspace(repo, run_name)), None, ""))
+    for lane_name, workspace, branch, keep_reason in targets:
+        label = f"lane {lane_name}" if lane_name else ("integration" if branch else "verify")
+        path = Path(workspace) if workspace else None
+        saved = None
+        if path is not None and path.is_dir() and wg.is_linked_worktree(path):
+            if lane_name:
+                gone, line, saved = wr_resume.release_lane(repo, run_name, lane_name, path)
+            else:
+                lost = wr_resume.keep_reason(path)
+                gone, line = (False, f"worktree {path}: {lost}") if lost else (wg.remove_worktree(repo, path), "")
+            if gone:
+                removed.append(workspace)
+            elif line:
+                kept.append(line)
+                continue
         tip = wg.branch_tip(repo, branch) if branch else None
         if not tip:
+            continue
+        if saved:
+            # The saved work is built on this branch's tip; the pair stays together.
+            kept.append(f"branch {branch} (its saved work is on {saved})")
             continue
         if discard or wg.is_ancestor(repo, tip, head):
             reason = wg.delete_branch(repo, branch)
             if reason:
                 errors.append(f"{label}: could not delete {branch}: {reason}")
         else:
-            kept.append(f"{branch} ({keep_reason})")
-    run_folder = repo / WORKTREES / run_name
-    briefs = run_folder / BRIEF_FOLDER
-    if briefs.is_dir():
-        shutil.rmtree(briefs)
-    if run_folder.is_dir() and not any(run_folder.iterdir()):
-        run_folder.rmdir()
+            kept.append(f"branch {branch} ({keep_reason})")
+    # Saved work of a lane parked and never resumed outlives the run; it is named, never dropped.
+    for ref in wg.git(repo, "for-each-ref", "--format=%(refname)", f"refs/workloop/{run_name}/", check=False).splitlines():
+        if not any(ref in line for line in kept):
+            kept.append(f"saved work {ref} (never resumed: git show --stat {ref}; delete it with git update-ref -d {ref})")
     return removed, kept, errors, wd.removed_count(docker_result)
 
 
@@ -317,26 +379,40 @@ def cmd_teardown(args: argparse.Namespace) -> None:
         names = sorted(run["lanes"])
         lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in wm.worktree_lanes(run).items()}
         integration = run.get("integration") or {}
+    print(close(args, "torn down", repo, names, lanes, integration, head))
+
+
+# How a complete run closed, as its record says, and the command that closed it.
+CLOSING_COMMANDS = {"torn down": "teardown", "landed": "land"}
+
+
+def close(args: argparse.Namespace, how: str, repo: Path, names: list[str], lanes: dict[str, tuple[str, str | None]],
+          integration: dict, head: str) -> str:
+    """Release a complete run's worktrees and containers and move its record to `.closed/`; return the report.
+
+    Shared by teardown and land. The release runs outside the state lock, so
+    a cell added or a lane moved meanwhile is caught before the record moves.
+    Judged as torn down: the release itself removed the worktrees and merged
+    branches the live checks read.
+    """
+    state, command = state_path(args.state), CLOSING_COMMANDS[how]
     removed, kept, errors, docker_removed = release_run(repo, args.run, names, lanes, integration, head, discard=False)
-    with Store(state_path(args.state)) as data:
+    with Store(state) as data:
         run = run_of(data, args.run)
-        # The release ran outside the lock, so a cell added or a lane moved
-        # meanwhile is caught here. Judged as torn down: the release itself
-        # removed the worktrees and merged branches the live checks read.
         changed = wm.completion_problems(dict(run, torn_down=True))
         if changed:
-            fail(f"completion changed while teardown ran: blocked by {', '.join(changed)}; the worktrees and containers are "
+            fail(f"completion changed while {command} ran: blocked by {', '.join(changed)}; the worktrees and containers are "
                  f"released ({len(removed)} worktree(s) removed) but the run stays open: once that is resolved, close it with abandon {args.run}")
         run["torn_down"] = {"at": now(), "removed": removed, "kept": kept, "errors": errors}
         record(args.run, run, "teardown", detail=f"removed {len(removed)}, kept {len(kept)}, errors {len(errors)}", supplied=args.event_id)
-    refresh_readout(state_path(args.state), run["repo"])
-    print(f"removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)")
-    for line in kept:
-        print(f"kept branch {line}")
     if errors:
         for line in errors:
             print(line, file=sys.stderr)
-        fail("teardown finished with errors; rerun after resolving them")
+        fail(f"{command} finished with errors; the run stays open, rerun after resolving them")
+    target = close_run(state, args.run, how, repo / WORKTREES / args.run / BRIEF_FOLDER)
+    refresh_readout(state, str(repo))
+    return "\n".join([f"removed {len(removed)} worktree(s) and {docker_removed} docker resource(s); the run's record is in {target}",
+                      *(f"kept {line}" for line in kept)])
 
 
 def cmd_abandon(args: argparse.Namespace) -> None:
@@ -353,7 +429,8 @@ def cmd_abandon(args: argparse.Namespace) -> None:
         removed, kept, errors, docker_removed = release_run(holder, args.run, names, lanes, integration, head, args.discard_branches)
         through = "" if holder == repo else f"its checkout {repo} is gone; released its worktrees and branches through {holder}: "
         lines = [f"abandoned {args.run!r}: {through}removed {len(removed)} worktree(s) and {docker_removed} docker resource(s)"]
-        lines += [f"kept branch {line}; delete it yourself or rerun with --discard-branches" for line in kept]
+        lines += [f"kept {line}; delete it yourself or rerun with --discard-branches" if line.startswith("branch ") else f"kept {line}"
+                  for line in kept]
     else:
         folders = [workspace for workspace, _ in lanes.values()] + [integration.get("workspace")]
         named, errors, docker_removed = release_without_checkout(args.run, names, repo, folders)
@@ -366,9 +443,10 @@ def cmd_abandon(args: argparse.Namespace) -> None:
         for line in errors:
             print(line, file=sys.stderr)
         fail(f"abandon finished with errors; run {args.run!r} is still in state, rerun after resolving them")
-    with Store(state) as data:
-        del data["runs"][args.run]
-    print("\n".join(lines))
+    # The session-end sweep runs abandon from a hook: no prompt, and the exit
+    # code says whether the run closed.
+    target = close_run(state, args.run, "abandoned", (holder or repo) / WORKTREES / args.run / BRIEF_FOLDER)
+    print("\n".join(lines + [f"the run's record is in {target}"]))
 
 
 def cmd_reap(args: argparse.Namespace) -> None:

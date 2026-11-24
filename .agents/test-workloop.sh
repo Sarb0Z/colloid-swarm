@@ -24,6 +24,8 @@ exit 0
 EOF
 chmod +x "$scratch/bin/npm"
 export PATH="$scratch/bin:$PATH" NPM_LOG="$scratch/npm.log"
+# The disk floor reads the machine's free space; pinned at 0 so no row hangs on it but its own.
+export WORKLOOP_DISK_FLOOR_GB=0
 
 # A recording docker so reaping is observed without a daemon: `ps -aq` with a
 # colloid label filter answers with canned ids, everything else is logged.
@@ -64,6 +66,8 @@ full_brief() { local out file; out="$("${tool[@]}" brief "$@")"; file="$(sed -n 
 commit() { git -C "$1" add -A && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
 # A main lane stages by path: the checkout may hold others' uncommitted work.
 commit_paths() { git -C "$1" add -- "${@:3}" && git -C "$1" -c user.email=t@e.com -c user.name=t commit -qm "$2"; }
+# Whether the live state file still holds the run; a closed run's record lives in .closed/, which status also reads.
+live() { python3 -c 'import json,sys; sys.exit(sys.argv[2] not in json.load(open(sys.argv[1]))["runs"])' "$state" "$1"; }
 tip_of() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"][sys.argv[2]]["lanes"][sys.argv[3]].get("tip") or "")' "$state" "$1" "$2"; }
 # An accepting review names the commit it read, as the reviewer brief prints it.
 accept() { local run="$1" lane="$2" ref="$3"; shift 3; "${tool[@]}" review "$run" "$lane" --reference "$ref" --result accept --tip "$(tip_of "$run" "$lane")" "$@"; }
@@ -273,8 +277,8 @@ bnd="$scratch/lane-bnd"
 "${tool[@]}" add-lane boundary src-only --worker implementer --workspace "$bnd" --path src
 "${tool[@]}" claim boundary src-only --agent worker-5
 mkdir -p "$bnd/tests"; printf 'wrong\n' > "$bnd/tests/app.txt"; commit "$bnd" wrong
-if "${tool[@]}" submit boundary src-only --evidence 'wrong files' 2>/dev/null; then fail 'undeclared changed path was accepted'; fi
-ok "an undeclared changed path is refused"
+expect 'outside the lane: tests/app.txt' "${tool[@]}" submit boundary src-only --evidence 'wrong files'
+ok "a changed path no lane owns is listed for the reviewer as outside the lane"
 
 # ── two lanes: integrate verifies the composed tree once ─────────────────────
 verify='test -f src/app.txt && test -f tests/app.txt && grep -q change src/app.txt && grep -q test tests/app.txt'
@@ -423,7 +427,7 @@ out="$("${tool[@]}" abandon aband 2>&1)"; grep -q 'abandoned' <<<"$out" || fail 
 grep -q 'kept branch aband/one' <<<"$out" || fail "abandon did not report the branch it kept: $out"
 [[ ! -d "$scratch/lane-ab" ]] || fail 'abandon left the lane worktree'
 git -C "$work" rev-parse --verify -q aband/one >/dev/null || fail 'abandon deleted a branch HEAD does not contain'
-if "${tool[@]}" status aband 2>/dev/null; then fail 'abandon left the run in state'; fi
+if live aband; then fail 'abandon left the run in state'; fi
 grep -q 'label=colloid.run=aband' "$DOCKER_LOG" || fail "abandon did not reap the run's labelled containers"
 git -C "$work" branch -q -D aband/one
 ok "abandon removes worktrees and the run, reaps containers, and keeps a branch HEAD does not contain"
@@ -456,12 +460,12 @@ rm -rf "$scratch/gone-repo"
 : > "$DOCKER_LOG"
 out="$("${tool[@]}" abandon abgone 2>&1)" && fail "abandon dropped a run whose checkout is not on disk, unasked: $out"
 grep -q "gone-repo is not on disk.*mount or repair it and rerun.*rerun with --checkout-gone" <<<"$out" || fail "the refusal did not say how to go on: $out"
-"${tool[@]}" status abgone >/dev/null 2>&1 || fail 'a refused abandon removed the run from state'
+live abgone || fail 'a refused abandon removed the run from state'
 mkdir "$scratch/gone-repo"
 out="$("${tool[@]}" abandon abgone 2>&1)" && fail "abandon dropped a run whose checkout git cannot read, unasked: $out"
 grep -q "gone-repo is not a checkout git can read: fatal: not a git repository" <<<"$out" || fail "the refusal did not quote git's reason: $out"
 expect "gone-repo is still there (is not a checkout git can read.*move it away and rerun with --checkout-gone" "${tool[@]}" abandon abgone --checkout-gone
-"${tool[@]}" status abgone >/dev/null 2>&1 || fail 'abandon --checkout-gone dropped a run whose checkout folder is still there'
+live abgone || fail 'abandon --checkout-gone dropped a run whose checkout folder is still there'
 [[ ! -s "$DOCKER_LOG" ]] || fail "a refused abandon touched docker: $(cat "$DOCKER_LOG")"
 rmdir "$scratch/gone-repo"
 out="$("${tool[@]}" abandon abgone --checkout-gone --discard-branches 2>&1)" || fail "abandon --checkout-gone refused: $out"
@@ -471,7 +475,7 @@ grep -q "left folder .*/lane-gone: it holds the only copy left of its work; copy
 grep -q "left folder .*/int-gone: it holds" <<<"$out" || fail "abandon did not name the integration folder it left: $out"
 ! grep -q "folder .*gone-repo" <<<"$out" || fail "abandon named a folder that went with the checkout: $out"
 [[ -d "$scratch/lane-gone/src" && -d "$scratch/int-gone/src" ]] || fail 'abandon deleted a folder whose checkout is gone'
-if "${tool[@]}" status abgone 2>/dev/null; then fail 'abandon --checkout-gone left the run in state'; fi
+if live abgone; then fail 'abandon --checkout-gone left the run in state'; fi
 grep -qx 'rm -f cg1 cg2' "$DOCKER_LOG" || fail "abandon did not remove a gone checkout's labelled and compose containers: $(cat "$DOCKER_LOG")"
 rm -rf "$scratch/lane-gone" "$scratch/int-gone"
 ok "abandon refuses a missing or unreadable checkout without --checkout-gone and a folder still there with it, touching nothing; then reaps, and names every folder it leaves"
@@ -486,7 +490,7 @@ mv "$scratch/home-repo/mnt/disk" "$scratch/disk-away"; mkdir "$scratch/home-repo
 out="$("${tool[@]}" abandon abmount 2>&1)" && fail "abandon released an empty mount point through the repository around it: $out"
 grep -q "disk is not a checkout of its own: git reads it as part of .*home-repo" <<<"$out" || fail "the refusal did not name the enclosing repository: $out"
 expect "disk is still there" "${tool[@]}" abandon abmount --checkout-gone
-"${tool[@]}" status abmount >/dev/null 2>&1 || fail 'abandon dropped a run whose checkout is an empty mount point'
+live abmount || fail 'abandon dropped a run whose checkout is an empty mount point'
 [[ ! -s "$DOCKER_LOG" ]] || fail "a refused abandon touched docker: $(cat "$DOCKER_LOG")"
 rmdir "$scratch/home-repo/mnt/disk"; mv "$scratch/disk-away" "$scratch/home-repo/mnt/disk"
 expect "abandoned 'abmount': removed 0 worktree(s)" "${tool[@]}" abandon abmount
@@ -496,7 +500,7 @@ ok "an empty mount point inside another repository is refused, with or without -
 # A checkout git refuses (here its owner differs) is named with git's reason.
 "${tool[@]}" init abreadable --objective x --acceptance y --repo "$work" --verify true
 expect "checkout .* is readable.*abandon it without --checkout-gone" "${tool[@]}" abandon abreadable --checkout-gone
-"${tool[@]}" status abreadable >/dev/null 2>&1 || fail 'abandon --checkout-gone dropped a run whose checkout is readable'
+live abreadable || fail 'abandon --checkout-gone dropped a run whose checkout is readable'
 out="$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "${tool[@]}" abandon abreadable 2>&1)" && fail "abandon dropped a run whose checkout git refuses: $out"
 grep -q "is not a checkout git can read: fatal: detected dubious ownership" <<<"$out" || fail "the refusal did not quote git's reason: $out"
 "${tool[@]}" abandon abreadable >/dev/null
@@ -517,7 +521,7 @@ grep -q "abandoned 'ablw': its checkout .*wt-lw is gone; released its worktrees 
 grep -q "kept branch ablw/one" <<<"$out" || fail "abandon did not name the branch it kept: $out"
 git -C "$scratch/main-lw" rev-parse --verify -q ablw/one >/dev/null || fail 'abandon deleted a branch HEAD does not contain'
 [[ ! -e "$scratch/lane-lw" ]] || fail 'abandon left the lane worktree the main checkout could remove'
-if "${tool[@]}" status ablw 2>/dev/null; then fail 'abandon left the run in state'; fi
+if live ablw; then fail 'abandon left the run in state'; fi
 rm -rf "$scratch/main-lw"
 ok "a deleted linked worktree's run is released through the main checkout that still holds its branches"
 
@@ -527,10 +531,10 @@ git clone -q "$work" "$scratch/fail-repo"
 rm -rf "$scratch/fail-repo" "$scratch/lane-fail"
 out="$(DOCKER_V9_BUSY=1 "${tool[@]}" abandon abfail --checkout-gone 2>&1)" && fail "abandon dropped a run whose reap failed: $out"
 grep -q 'volumes v9: volume is in use' <<<"$out" && grep -q "run 'abfail' is still in state" <<<"$out" || fail "a failed reap was not reported: $out"
-"${tool[@]}" status abfail >/dev/null 2>&1 || fail 'a failed reap removed the run from state'
+live abfail || fail 'a failed reap removed the run from state'
 out="$("${tool[@]}" abandon abfail --checkout-gone 2>&1)" || fail "the retried abandon failed: $out"
 grep -q "folder .*/lane-fail is not on disk: if it is on a disk that is not mounted, its files are still there" <<<"$out" || fail "abandon did not name a lane folder that is not on disk: $out"
-if "${tool[@]}" status abfail 2>/dev/null; then fail 'the retried abandon left the run in state'; fi
+if live abfail; then fail 'the retried abandon left the run in state'; fi
 ok "a failed reap keeps the run, the retry closes it, and a lane folder not on disk is named"
 
 
@@ -908,8 +912,8 @@ if "${tool[@]}" status noshared | grep -q '^shared'; then fail 'a run without sh
 expect 'paths overlap lane' "${tool[@]}" add-lane noshared d --worker implementer --workspace "$scratch/lane-nd" --path src
 ok "a run state without shared keeps working"
 printf 'c\n' > "$sc/tests/c.txt"; commit "$sc" c-bad
-expect 'lane changed undeclared paths: tests/c.txt' "${tool[@]}" submit shr c --evidence wrong
-ok "a path that is neither owned nor shared is still refused"
+expect 'lane changed paths another lane owns: tests/c.txt (b)' "${tool[@]}" submit shr c --evidence wrong
+ok "a path another lane owns is still refused"
 
 # ── integrate refuses a reviewed lane with uncommitted shared work ───────────
 "${tool[@]}" init shint --objective x --acceptance y --repo "$work" --verify 'true' --shared docs/shared
@@ -932,9 +936,9 @@ mkdir -p "$lb/tests" "$lb/secret"; printf 'b\n' > "$lb/tests/b.txt"; printf 'k\n
 git -C "$lc" rebase -q lk/b
 mkdir -p "$lc/docs/c"; printf 'c\n' > "$lc/docs/c/c.txt"; commit "$lc" c1
 printf 'b2\n' >> "$lb/tests/b.txt"; commit "$lb" b2
-expect 'lane changed undeclared paths: secret/keys.txt' "${tool[@]}" submit lk b --evidence x
-expect 'lane changed undeclared paths' "${tool[@]}" submit lk c --evidence x
-ok "a change to an unowned path is not laundered by a sibling that rebases onto it"
+expect 'outside the lane: secret/keys.txt' "${tool[@]}" submit lk b --evidence x
+expect 'lane changed paths another lane owns: tests/b.txt (b)' "${tool[@]}" submit lk c --evidence x
+ok "a rebase launders nothing: an active sibling's files count against the lane that rebased onto it"
 
 # ── integrate re-measures each lane and refuses a tip that moved after accept ─
 "${tool[@]}" init am --objective x --acceptance y --repo "$work" --verify 'true'
@@ -974,16 +978,14 @@ if "${tool[@]}" review gate g --reference docs/g/r.md#p3 --result reopen --sever
 "${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence three
 "${tool[@]}" review gate g --reference docs/g/r.md#p1 --result reopen --severity P1 --message m
 "${tool[@]}" ack gate g --agent g; "${tool[@]}" submit gate g --evidence four
-expect 'needs the operator' accept gate g docs/g/r.md#ok
-accept gate g docs/g/r.md#ok --ruling 'one more round, go ahead'
+accept gate g docs/g/r.md#ok
 python3 - "$state" <<'EOF2'
 import json, sys
 lane = json.load(open(sys.argv[1]))["runs"]["gate"]["lanes"]["g"]
 assert lane["state"] == "reviewed", lane["state"]
-assert lane["review_refs"][-1]["ruling"] == "one more round, go ahead", lane["review_refs"][-1]
-assert "ruling" not in lane["review_refs"][0], lane["review_refs"][0]
+assert "ruling" not in lane["review_refs"][-1], lane["review_refs"][-1]
 EOF2
-ok "a P2 reopen is refused; an attention cycle counts as a round; the fourth round needs a recorded ruling"
+ok "a P2 reopen is refused; an attention cycle spends no review round, so a fourth submission after two reopens needs no ruling"
 
 # ── one writer: init --lane records the run's sole lane in the checkout itself ─
 expect '\-\-path needs --lane' "${tool[@]}" init ow --objective x --acceptance y --repo "$work" --verify true --path src
@@ -1000,11 +1002,12 @@ prompt="$("${tool[@]}" init ow --objective 'one writer' --acceptance 'the main l
 [[ "$prompt" == *"created workloop 'ow'"*$'\n'"WORKLOOP WORKER BRIEF — ow/solo"$'\n'"Read the full brief at $real_work/.agents/worktrees/ow/.workloop/solo.md before anything else"* ]] || fail "init --lane did not print the lane's dispatch line: $prompt"
 [[ -f "$real_work/.agents/worktrees/ow/.workloop/solo.md" ]] || fail "init --lane wrote no brief"
 [[ "$(worktree_paths)" == "$worktrees_before" ]] || fail "init --lane made a worktree"
-python3 - "$state" "$real_work" <<'EOF'
+python3 - "$state" "$real_work" "$(git -C "$work" rev-parse HEAD)" <<'EOF'
 import json, sys
 lane = json.load(open(sys.argv[1]))["runs"]["ow"]["lanes"]["solo"]
 assert lane["place"] == "main" and lane["branch"] is None and lane["env"] == "main" and lane["workspace"] == sys.argv[2], lane
-assert lane["paths"] == ["src", "docs/ow"] and lane["state"] == "ready" and "start" not in lane, lane
+# init claims the main lane (ruling R5): active, measured from HEAD, its writer's id bound later
+assert lane["paths"] == ["src", "docs/ow"] and lane["state"] == "active" and lane["start"] == sys.argv[3] and "claimed_by" not in lane, lane
 EOF
 solo_brief="$(cat "$real_work/.agents/worktrees/ow/.workloop/solo.md")"
 for want in "Workspace: the checkout $real_work, on its current branch — no worktree" 'staging by path only (git add -- <path>..., never -A, . or commit -a)' "Provision: .agents/provision.sh $real_work" 'Working practice:'; do
@@ -1104,10 +1107,10 @@ expect 'recorded accept review' accept wt one tests/a.txt#ok
 python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["wt"]["lanes"]["one"]; assert l["accepted_tip"] == l["tip"] == sys.argv[2], l' "$state" "$(git -C "$scratch/lane-wt" rev-parse HEAD)"
 # a rename out of, and into, a worktree lane is seen on both sides
 git -C "$scratch/lane-wt" mv tests/a.txt moved-a.txt; commit "$scratch/lane-wt" 'moved out'
-expect 'lane changed undeclared paths: moved-a.txt' "${tool[@]}" submit wt one --evidence x
+expect 'outside the lane: moved-a.txt' "${tool[@]}" submit wt one --evidence x
 git -C "$scratch/lane-wt" reset -q --hard HEAD~1
 git -C "$scratch/lane-wt" mv src/app.txt tests/app.txt; commit "$scratch/lane-wt" 'moved in'
-expect 'lane changed undeclared paths: src/app.txt' "${tool[@]}" submit wt one --evidence x
+expect 'outside the lane: src/app.txt' "${tool[@]}" submit wt one --evidence x
 "${tool[@]}" abandon wt --discard-branches >/dev/null
 ok "an accepting review needs --tip naming the submitted commit, refuses a lane that moved, and renames are seen leaving and arriving in worktree lanes too"
 
@@ -1270,7 +1273,7 @@ printf 'r\n' >> "$work/src/app.txt"; commit_paths "$work" r src/app.txt
 git -C "$work" reset -q --hard HEAD~2; printf 'r2\n' >> "$work/src/app.txt"; commit_paths "$work" r2 src/app.txt
 expect "does not descend from the lane's start"'.*close it with: abandon owr' "${tool[@]}" submit owr r --evidence ok
 expect "abandoned 'owr': removed 0 worktree(s)" "${tool[@]}" abandon owr
-if "${tool[@]}" status owr 2>/dev/null; then fail 'abandon left the one-writer run in state'; fi
+if live owr; then fail 'abandon left the one-writer run in state'; fi
 ok "an amend after submit is re-submitted; a history that lost the claim's start is refused naming abandon, which closes the run without touching the checkout"
 
 # ── read-only cells: a light entry in any run, tracked until it returns (ruling 8) ──
@@ -1396,9 +1399,10 @@ python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["fo"]; asser
 expect 'removed 0 worktree(s)' "${tool[@]}" teardown fo
 [[ ! -e "$real_work/.agents/worktrees/fo" && "$(worktree_paths)" == "$worktrees_before" ]] || fail "the fan-out's teardown left briefs or touched worktrees"
 # a torn-down run takes no cell: nothing would wait for it
-expect "run 'fo' is torn down, so nothing waits for a cell sent out on it" "${tool[@]}" add-cell fo d --role research --model haiku
-expect "run 'fo' is torn down, so nothing waits for a cell sent out on it" "${tool[@]}" brief fo a --again
-python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["fo"]; assert "d" not in r["cells"] and r["cells"]["a"]["state"] == "returned", r["cells"]' "$state"
+expect "no open run named 'fo'" "${tool[@]}" add-cell fo d --role research --model haiku
+expect "no open run named 'fo'" "${tool[@]}" brief fo a --again
+expect $'^closed\ttorn down' "${tool[@]}" status fo
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert "d" not in r["cells"] and r["cells"]["a"]["state"] == "returned", r["cells"]' "$scratch/worktrees/.closed/fo/state.json"
 # a cell added while teardown releases the run is caught under teardown's write lock
 "${tool[@]}" init tg --objective x --acceptance y --repo "$work" >/dev/null
 "${tool[@]}" add-cell tg early --role research --model haiku >/dev/null; "${tool[@]}" returned tg early --result reply >/dev/null
@@ -1430,7 +1434,7 @@ ok "a run without --verify takes cells and no lane, needs no QA or composed test
 expect '\-\-model needs --lane' "${tool[@]}" init om --objective x --acceptance y --repo "$work" --verify true --model opus
 "${tool[@]}" init om --objective x --acceptance y --repo "$work" --verify true --lane m --worker implementer --path src --model opus >/dev/null
 grep -qx 'Model: opus' "$real_work/.agents/worktrees/om/.workloop/m.md" || fail "the main lane's brief lacks its model: $(cat "$real_work/.agents/worktrees/om/.workloop/m.md")"
-[[ "$("${tool[@]}" status om)" == *$'m\tready\tpending=0\timplementer\tmodel=opus\tsrc'* ]] || fail "status does not show the main lane's model: $("${tool[@]}" status om)"
+[[ "$("${tool[@]}" status om)" == *$'m\tactive\tpending=0\timplementer\tmodel=opus\tsrc'* ]] || fail "status does not show the main lane's model: $("${tool[@]}" status om)"
 python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["runs"]["om"]["lanes"]["m"]; assert l["model"] == "opus", l' "$state"
 "${tool[@]}" abandon om >/dev/null
 "${tool[@]}" init wm --objective x --acceptance y --repo "$work" --verify true >/dev/null
@@ -1986,7 +1990,7 @@ python3 -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); del s["runs"][
 expect 'qa:stale' "${tool[@]}" check qa3 --recorded
 ok "a QA record with no tips is stale"
 # QA covers each lane's submitted tip; the composed tree is the integration's own verify run
-python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["runs"]["multi"]; assert sorted(r["qa"]["tips"]) == ["alpha", "beta"] and "integration" not in r["qa"], r["qa"]' "$state" || fail "a several-lane QA record holds the tips and no integration field"
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert sorted(r["qa"]["tips"]) == ["alpha", "beta"] and "integration" not in r["qa"], r["qa"]' "$scratch/worktrees/.closed/multi/state.json" || fail "a several-lane QA record holds the tips and no integration field"
 ok "a several-lane QA record holds both lane tips and no integration commit"
 "${tool[@]}" init qe --objective x --acceptance y --repo "$work" --verify true >/dev/null
 expect 'QA needs at least one submitted lane' "${tool[@]}" qa qe --evidence x
@@ -2009,6 +2013,381 @@ qm_qa="$(full_brief qm solo --role qa)"
 qm_worker="$(full_brief qm solo --role worker)"
 grep -q 'Do not edit outside owned' <<<"$qm_worker" && grep -q 'commits since its first claim' <<<"$qm_worker" || fail "the worker brief lost its owned-path lines"
 ok "a QA brief holds the acceptance and the test suite, none when the run has none, and no diff or path list"
+
+# ══ swarm fixes: docs/notes/2026-11-24-swarm-coordination-fixes-spec.md, Units 1–2 ══
+# Seams under test, each with what it catches and what it misses:
+# - submit/integrate against a source branch that moved (rows 1, 2): catches a lane
+#   measured from the commit init recorded; misses a source branch rewritten by force.
+# - land (rows 3, 4, 5, 16, 26): catches a base that moved after integrate, a failing
+#   verify and a merge commit; runs the real git merge in a scratch checkout, never a push.
+# - the wip ref, closed records and resume (rows 6, 7, 33): catches work lost with a
+#   removed worktree; misses ignored files, which lost_files guards (row 8).
+# - the round cap (row 20), the disk floor (row 17), a waiting writer (row 28) and the
+#   scratch folders (row 29): each through the command a lead runs. The waiting verdict
+#   is read from a death-reader cache written by this test, not by a live session.
+sf_repo() {  # <dir> [branch]: a checkout on <branch> (default main) with src/ and docs/, worktrees ignored
+  git init -q -b main "$1"; git -C "$1" config user.email t@e.com; git -C "$1" config user.name t
+  mkdir -p "$1/src" "$1/docs"; printf 'base\n' > "$1/src/app.txt"; printf 'd\n' > "$1/docs/d.md"
+  printf 'node_modules/\n.agents/worktrees/\n' > "$1/.gitignore"; commit "$1" base
+  [[ -z "${2:-}" ]] || git -C "$1" checkout -q -b "$2"
+}
+sf_field() {  # <run> <python expression over run>
+  python3 -c 'import json,sys; run=json.load(open(sys.argv[1]))["runs"][sys.argv[2]]; print(eval(sys.argv[3]))' "$state" "$1" "$2"
+}
+
+# rows 1, 2: a lane that merged or rebased onto its moved source branch is measured from there
+sf="$scratch/sf"; sf_repo "$sf"
+"${tool[@]}" init sfm --objective x --acceptance y --repo "$sf" --verify true >/dev/null
+[[ "$(sf_field sfm 'run["source"]')" == main ]] || fail "init did not record the checked-out branch as the source"
+expect $'^source\tmain' "${tool[@]}" status sfm
+"${tool[@]}" add-lane sfm a --worker implementer --path src >/dev/null 2>&1
+"${tool[@]}" add-lane sfm b --worker implementer --path docs/b >/dev/null 2>&1
+sfa="$sf/.agents/worktrees/sfm/a"; sfb="$sf/.agents/worktrees/sfm/b"
+"${tool[@]}" claim sfm a --agent a >/dev/null; "${tool[@]}" claim sfm b --agent b >/dev/null
+mkdir -p "$sf/c"; printf 'z\n' > "$sf/c/z"; commit "$sf" 'base gains c/z'
+printf 'a\n' >> "$sfa/src/app.txt"; commit "$sfa" a1
+git -C "$sfa" -c user.email=t@e.com -c user.name=t merge -q --no-edit main
+out="$("${tool[@]}" submit sfm a --evidence merged 2>&1)" || fail "submit refused a lane that merged its source branch: $out"
+[[ "$out" != *c/z* ]] || fail "submit listed the source branch's c/z as the lane's: $out"
+[[ "$(sf_field sfm 'run["lanes"]["a"]["start"]')" == "$(git -C "$sf" rev-parse main)" ]] || fail "submit did not record the merge-base with main as the lane's start"
+mkdir -p "$sfb/docs/b"; printf 'b\n' > "$sfb/docs/b/b.md"; commit "$sfb" b1
+git -C "$sfb" rebase -q main
+out="$("${tool[@]}" submit sfm b --evidence rebased 2>&1)" || fail "submit refused a lane rebased onto its source branch: $out"
+[[ "$out" != *c/z* ]] || fail "submit listed c/z for a rebased lane: $out"
+ok "rows 1, 2: a lane that merged or rebased onto its source branch is accepted at submit, c/z not its own"
+
+# 2.6: a path no lane owns is listed for the reviewer; another lane's path refuses
+printf 'stray\n' > "$sfb/stray.txt"; commit "$sfb" stray
+out="$("${tool[@]}" submit sfm b --evidence stray 2>&1)" || fail "submit refused a path no lane owns: $out"
+[[ "$out" == *"outside the lane: stray.txt"* ]] || fail "submit did not list the unowned path: $out"
+expect 'Outside the lane: stray.txt' full_brief sfm b --role reviewer
+printf 'x\n' >> "$sfb/src/app.txt"; commit "$sfb" 'into a'
+expect "lane changed paths another lane owns: src/app.txt (a)" "${tool[@]}" submit sfm b --evidence owned
+git -C "$sfb" reset -q --hard HEAD~1
+ok "2.6: a path no lane owns is listed as outside the lane for the reviewer; a path another lane owns refuses"
+
+# R11: a run cut from a detached commit takes no worktree lane
+expect 'from a detached commit' "${tool[@]}" init sfd --objective x --acceptance y --repo "$sf" --verify true --base "$(git -C "$sf" rev-parse HEAD)"
+expect 'was started from a detached commit' "${tool[@]}" add-lane sfd one --worker implementer --path src
+ok "R11: a run started from a detached commit records no source branch and refuses a worktree lane"
+
+# row 20: re-submits a peer's commit forced spend no round; four reopen verdicts do
+"${tool[@]}" init sfr --objective x --acceptance y --repo "$sf" --verify true >/dev/null
+"${tool[@]}" add-lane sfr r --worker implementer --path docs/r >/dev/null 2>&1
+sfrw="$sf/.agents/worktrees/sfr/r"; "${tool[@]}" claim sfr r --agent r >/dev/null
+mkdir -p "$sfrw/docs/r"; printf 'r\n' > "$sfrw/docs/r/review.md"
+for n in 1 2 3 4; do printf '%s\n' "$n" >> "$sfrw/docs/r/review.md"; commit "$sfrw" "r$n"; "${tool[@]}" submit sfr r --evidence "peer forced $n" >/dev/null 2>&1; done
+expect 'recorded accept review' accept sfr r docs/r/review.md#ok
+"${tool[@]}" init sfr4 --objective x --acceptance y --repo "$sf" --verify true >/dev/null
+"${tool[@]}" add-lane sfr4 r --worker implementer --path docs/r4 >/dev/null 2>&1
+sfr4="$sf/.agents/worktrees/sfr4/r"; "${tool[@]}" claim sfr4 r --agent r >/dev/null
+mkdir -p "$sfr4/docs/r4"
+for n in 1 2 3 4; do
+  printf '%s\n' "$n" >> "$sfr4/docs/r4/review.md"; commit "$sfr4" "r$n"; "${tool[@]}" submit sfr4 r --evidence "round $n" >/dev/null 2>&1
+  "${tool[@]}" review sfr4 r --reference docs/r4/review.md#p1 --result reopen --severity P1 >/dev/null; "${tool[@]}" ack sfr4 r --agent r >/dev/null
+done
+printf '5\n' >> "$sfr4/docs/r4/review.md"; commit "$sfr4" r5; "${tool[@]}" submit sfr4 r --evidence 'round 5' >/dev/null 2>&1
+expect "reopened 4 times; review after the 4th reopen needs the operator's ruling" accept sfr4 r docs/r4/review.md#ok
+expect 'recorded accept review' accept sfr4 r docs/r4/review.md#ok --ruling 'one more round, go ahead'
+ok "row 20: four re-submits with no reopen verdict need no ruling; a review after four reopen verdicts does"
+
+# The closing rows run against a checkout whose state file sits where the default one does,
+# so closed records land in its .agents/worktrees/.closed/, with a bare remote that no command may push to.
+sg="$scratch/sg"; sf_repo "$sg"
+printf '.agents/.workloop-state.json*\n.agents/worktrees/\n.agents/.readout/\n.agents/config.json\n.env\n' >> "$sg/.gitignore"; commit "$sg" 'ignore state'
+git init -q --bare "$scratch/sg-remote.git"; git -C "$sg" remote add origin "$scratch/sg-remote.git"; git -C "$sg" push -q origin main
+T=(python3 "$repo/.agents/workloop.py" --state "$sg/.agents/.workloop-state.json")
+closed="$sg/.agents/worktrees/.closed"
+printf 'review\n' > "$scratch/sg-review.md"
+sg_live() { python3 -c 'import json,sys; print(sys.argv[2] in json.load(open(sys.argv[1]))["runs"])' "$sg/.agents/.workloop-state.json" "$1"; }
+sg_worktree_run() {  # <run> <verify>: one worktree lane `one` owning src, committed, submitted, accepted, QA recorded
+  "${T[@]}" init "$1" --objective x --acceptance y --repo "$sg" --verify "$2" >/dev/null
+  "${T[@]}" add-lane "$1" one --worker implementer --path src >/dev/null 2>&1
+  local w="$sg/.agents/worktrees/$1/one"; "${T[@]}" claim "$1" one --agent one >/dev/null
+  printf '%s\n' "$1" >> "$w/src/app.txt"; commit "$w" "$1 work"
+  "${T[@]}" submit "$1" one --evidence ok >/dev/null 2>&1
+  "${T[@]}" review "$1" one --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$w" rev-parse HEAD)" >/dev/null
+  "${T[@]}" qa "$1" --evidence 'scenario passed' >/dev/null
+}
+
+# row 6: abandon saves uncommitted and untracked work on the wip ref, not the lane branch, and moves the record
+"${T[@]}" init sga --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sga one --worker implementer --path src >/dev/null 2>&1
+sgaw="$sg/.agents/worktrees/sga/one"; "${T[@]}" claim sga one --agent one >/dev/null
+full_brief_sg() { local out file; out="$("${T[@]}" brief "$@")"; file="$(sed -n 's/^Read the full brief at \(.*\) before anything else.*$/\1/p' <<<"$out")"; cat "$file"; }
+full_brief_sg sga one >/dev/null
+printf 'edited\n' >> "$sgaw/src/app.txt"; printf 'new\n' > "$sgaw/src/new.txt"
+lane_tip="$(git -C "$sg" rev-parse sga/one)"
+out="$("${T[@]}" abandon sga 2>&1)" || fail "abandon refused a lane with uncommitted work: $out"
+[[ ! -e "$sgaw" ]] || fail "abandon left the lane worktree"
+[[ "$(git -C "$sg" rev-parse sga/one)" == "$lane_tip" ]] || fail "abandon moved the lane branch"
+[[ "$(git -C "$sg" show refs/workloop/sga/one/wip:src/new.txt)" == new ]] || fail "the wip ref lacks the untracked file"
+git -C "$sg" show refs/workloop/sga/one/wip:src/app.txt | grep -q edited || fail "the wip ref lacks the tracked edit"
+[[ "$(git -C "$sg" rev-parse refs/workloop/sga/one/wip^)" == "$lane_tip" ]] || fail "the wip commit is not built on the lane tip"
+[[ -f "$closed/sga/state.json" && -f "$closed/sga/.workloop/lanes/one/BRIEF.md" ]] || fail "the closed record lacks state.json or the lane's .workloop folder: $(ls -Ra "$closed")"
+[[ "$(sg_live sga)" == False ]] || fail "the live state still holds the abandoned run"
+expect $'^closed\tabandoned' "${T[@]}" status sga
+ok "row 6: abandon saves tracked and untracked work on refs/workloop/<run>/<lane>/wip, leaves the branch, and moves the record to .closed"
+
+# review --reference is copied into the run's records, so it survives the worktree it was in
+"${T[@]}" init sgc --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgc one --worker implementer --path src >/dev/null 2>&1
+sgcw="$sg/.agents/worktrees/sgc/one"; "${T[@]}" claim sgc one --agent one >/dev/null
+mkdir -p "$sgcw/src/reviews"; printf 'finding\n' > "$sgcw/src/reviews/r.md"; commit "$sgcw" 'work and review'
+"${T[@]}" submit sgc one --evidence ok >/dev/null 2>&1
+"${T[@]}" review sgc one --reference src/reviews/r.md#p1 --result accept --tip "$(git -C "$sgcw" rev-parse HEAD)" >/dev/null
+[[ "$(cat "$sg/.agents/worktrees/sgc/.workloop/reviews/one/1-r.md")" == finding ]] || fail "review did not copy its reference into the run's .workloop/reviews"
+"${T[@]}" abandon sgc --discard-branches >/dev/null
+[[ "$(cat "$closed/sgc/.workloop/reviews/one/1-r.md")" == finding ]] || fail "the review copy did not move with the closed record"
+ok "1.4: review copies its reference into .workloop/reviews/, which the closed record keeps after the worktree is gone"
+
+# row 7: park saves and removes; resume re-adds the worktree at the branch tip with the work uncommitted
+"${T[@]}" init sgp --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgp one --worker implementer --path src >/dev/null 2>&1
+sgpw="$sg/.agents/worktrees/sgp/one"; "${T[@]}" claim sgp one --agent one >/dev/null
+printf 'parked\n' >> "$sgpw/src/app.txt"; printf 'new\n' > "$sgpw/src/new.txt"
+expect 'saved on refs/workloop/sgp/one/wip' "${T[@]}" park sgp one
+[[ ! -e "$sgpw" ]] || fail "park left the worktree"
+out="$("${T[@]}" resume sgp 2>&1)" || fail "resume failed: $out"
+[[ "$out" == *"disk: "*" free"* && "$out" == *"saved work restored as uncommitted changes"* ]] || fail "resume did not print the disk line and the restore: $out"
+[[ "$(git -C "$sgpw" rev-parse HEAD)" == "$(git -C "$sg" rev-parse sgp/one)" ]] || fail "the resumed worktree is not at its branch tip"
+[[ "$(git -C "$sgpw" status --porcelain)" == $' M src/app.txt\n?? src/new.txt' ]] || fail "resume did not restore the edit and the untracked file as uncommitted: $(git -C "$sgpw" status --porcelain)"
+! git -C "$sg" rev-parse -q --verify refs/workloop/sgp/one/wip >/dev/null || fail "resume left the wip ref"
+ok "row 7: park, then resume: the worktree is back at its branch tip, the edit and the untracked file uncommitted, the wip ref gone"
+
+# row 8 (abandon and disk floor) and row 17: a worktree holding an ignored .env is kept and named;
+# under the disk floor add-lane refuses, naming each worktree it could drop, with its size
+"${T[@]}" init sge --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sge e --worker implementer --path src >/dev/null 2>&1
+"${T[@]}" add-lane sge idle --worker implementer --path docs >/dev/null 2>&1
+sgew="$sg/.agents/worktrees/sge/e"; "${T[@]}" claim sge e --agent e >/dev/null
+printf 'e\n' >> "$sgew/src/app.txt"; commit "$sgew" 'e work'; git -C "$sg" merge -q --ff-only sge/e
+printf 'SECRET=1\n' > "$sgew/.env"
+printf '{"workloop": {"disk_floor_gb": 1000000}}\n' > "$sg/.agents/config.json"
+out="$(env -u WORKLOOP_DISK_FLOOR_GB "${T[@]}" add-lane sge more --worker implementer --path tests 2>&1)" && fail "add-lane ran under the disk floor: $out"
+[[ "$out" == *"is under workloop.disk_floor_gb (1e+06 GB)"* ]] || fail "add-lane did not name the floor: $out"
+grep -Eq "$sg/.agents/worktrees/sge/idle \([0-9.]+ GB\): could be dropped" <<<"$out" || fail "add-lane did not name the idle worktree with its size: $out"
+grep -Eq "$sg/.agents/worktrees/sge/e \([0-9.]+ GB\): kept, .*\(\.env\)" <<<"$out" || fail "the disk floor's list did not keep the worktree holding .env and name it: $out"
+rm "$sg/.agents/config.json"
+out="$("${T[@]}" abandon sge 2>&1)" || fail "abandon failed: $out"
+[[ -f "$sgew/.env" ]] || fail "abandon removed a worktree holding an ignored .env"
+[[ "$out" == *"kept worktree "*"/sge/e of lane e: it holds ignored files that would not come back (.env)"* ]] || fail "abandon did not name the kept worktree and its .env: $out"
+git -C "$sg" worktree remove --force "$sgew"
+ok "rows 8, 17: a worktree holding an ignored .env is kept and named by abandon and the disk floor; under the floor add-lane names what it could drop, with sizes"
+
+# rows 3, 4: land composes again on a moved source branch, verifies there, fast-forwards, never pushes
+sg_worktree_run sgl 'test -f src/app.txt'
+expect 'PASS: integrated one' "${T[@]}" integrate sgl
+printf 'other\n' > "$sg/other.txt"; commit "$sg" 'base moves after integrate'
+expect 'integration:base-moved' "${T[@]}" check sgl --recorded
+remote_before="$(git -C "$scratch/sg-remote.git" rev-parse main)"
+out="$("${T[@]}" land sgl 2>&1)" || fail "land refused: $out"
+[[ "$out" == *"integrating again on main"* ]] || fail "land did not integrate again on the moved tip: $out"
+landed_tip="$(git -C "$sg" rev-parse main)"
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["integration"]["head"])' "$closed/sgl/state.json")" == "$landed_tip" ]] || fail "main is not at the new integration tip"
+[[ -f "$sg/other.txt" ]] && grep -q sgl "$sg/src/app.txt" || fail "the landed tree lacks the base commit or the lane's work"
+expect $'^closed\tlanded' "${T[@]}" status sgl
+[[ "$(git -C "$scratch/sg-remote.git" rev-parse main)" == "$remote_before" ]] || fail "land pushed"
+ok "row 3: land integrates again on the moved source branch, verifies, fast-forwards it to the new tip, closes the run, pushes nothing"
+sg_worktree_run sgx 'test ! -f poison'
+expect 'PASS: integrated one' "${T[@]}" integrate sgx
+printf 'p\n' > "$sg/poison"; commit "$sg" 'base gains poison'
+main_before="$(git -C "$sg" rev-parse main)"
+out="$("${T[@]}" land sgx 2>&1)" && fail "land passed a failing verify: $out"
+[[ "$out" == *"main is unchanged and the run stays open"* ]] || fail "land did not say the branch is unchanged: $out"
+[[ "$(git -C "$sg" rev-parse main)" == "$main_before" && "$(sg_live sgx)" == True ]] || fail "a failed land moved main or closed the run"
+"${T[@]}" abandon sgx --discard-branches >/dev/null
+ok "row 4: a verify failing on the new tip refuses land, leaves main unchanged and the run open"
+
+# rows 5, 16: a one-writer run is exactly init --lane, submit, review, qa, land; land verifies at the accepted tip, merges nothing
+"${T[@]}" init sgo --objective x --acceptance y --repo "$sg" --verify 'test -f src/ok.txt' --lane solo --worker implementer --path src >/dev/null
+printf 'solo\n' >> "$sg/src/app.txt"; commit_paths "$sg" solo src/app.txt
+"${T[@]}" submit sgo solo --evidence ok >/dev/null 2>&1
+"${T[@]}" review sgo solo --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$sg" rev-parse HEAD)" >/dev/null
+"${T[@]}" qa sgo --evidence ok >/dev/null
+out="$("${T[@]}" land sgo 2>&1)" && fail "land passed a failing verify: $out"
+[[ "$(sg_live sgo)" == True ]] || fail "a failed land closed the one-writer run"
+"${T[@]}" abandon sgo >/dev/null
+merges_before="$(git -C "$sg" rev-list --merges --count HEAD)"
+"${T[@]}" init sgw --objective x --acceptance y --repo "$sg" --verify 'test -f src/ok.txt && echo verify-ran' --lane solo --worker implementer --path src >/dev/null
+printf 'ok\n' > "$sg/src/ok.txt"; commit_paths "$sg" ok src/ok.txt
+out="$("${T[@]}" submit sgw solo --evidence 'ok passes' 2>&1)"
+[[ "$out" == *"WORKLOOP REVIEWER BRIEF — sgw/solo"* ]] || fail "submit did not print the reviewer dispatch once every lane is in: $out"
+"${T[@]}" review sgw solo --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$sg" rev-parse HEAD)" >/dev/null
+"${T[@]}" qa sgw --evidence ok >/dev/null
+head_before="$(git -C "$sg" rev-parse HEAD)"
+out="$("${T[@]}" land sgw 2>&1)" || fail "land refused a passing one-writer run: $out"
+[[ "$(git -C "$sg" rev-parse HEAD)" == "$head_before" && "$(git -C "$sg" rev-list --merges --count HEAD)" == "$merges_before" ]] || fail "land of a one-writer run made a commit"
+out="$("${T[@]}" status sgw)"
+[[ "$out" == *$'closed\tlanded'* && "$out" == *$'verify\tpass at'* && "$out" == *verify-ran* ]] || fail "status of the landed run lacks the close or the verify output: $out"
+ok "rows 5, 16: one-writer land refuses a failing verify and keeps the run; the 5-command loop lands with no merge commit and status shows the verify"
+
+# row 26: a run started on mvp/roadmap lands there and leaves main alone
+sm="$scratch/sm"; sf_repo "$sm" mvp/roadmap
+printf '.agents/.workloop-state.json*\n.agents/worktrees/\n' >> "$sm/.gitignore"; commit "$sm" 'ignore state'
+M=(python3 "$repo/.agents/workloop.py" --state "$sm/.agents/.workloop-state.json")
+"${M[@]}" init smr --objective x --acceptance y --repo "$sm" --verify true >/dev/null
+expect $'^source\tmvp/roadmap' "${M[@]}" status smr
+"${M[@]}" add-lane smr one --worker implementer --path src >/dev/null 2>&1
+smw="$sm/.agents/worktrees/smr/one"; "${M[@]}" claim smr one --agent one >/dev/null
+printf 'r\n' >> "$smw/src/app.txt"; commit "$smw" r
+"${M[@]}" submit smr one --evidence ok >/dev/null 2>&1
+"${M[@]}" review smr one --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$smw" rev-parse HEAD)" >/dev/null
+"${M[@]}" qa smr --evidence ok >/dev/null
+main_before="$(git -C "$sm" rev-parse main)"
+out="$("${M[@]}" land smr 2>&1)" || fail "land refused the mvp/roadmap run: $out"
+[[ "$(git -C "$sm" rev-parse main)" == "$main_before" ]] || fail "land moved main"
+git -C "$sm" show mvp/roadmap:src/app.txt | grep -q '^r$' || fail "land did not put the lane's work on mvp/roadmap"
+! git -C "$sm" rev-parse -q --verify smr/one >/dev/null || fail "the lane branch merged into mvp/roadmap was kept"
+ok "row 26: a run cut from mvp/roadmap shows it as its source, lands there, leaves main unchanged, and drops the merged lane branch"
+
+# row 33: prune deletes every closed record before the date
+tomorrow="$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)).strftime("%Y-%m-%d"))')"
+expect 'pruned' "${T[@]}" prune --closed-before 2000-01-01
+[[ -n "$(ls -A "$closed")" ]] || fail "prune before 2000 removed records"
+expect 'pruned' "${T[@]}" prune --closed-before "$tomorrow"
+[[ -z "$(ls -A "$closed")" ]] || fail "prune left closed records: $(ls -A "$closed")"
+ok "row 33: prune --closed-before <tomorrow> empties .agents/worktrees/.closed/"
+
+# row 28: a writer whose newest notification says it waits on its own background work is not stale
+"${T[@]}" init sgb --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgb one --worker implementer --path src >/dev/null 2>&1
+"${T[@]}" claim sgb one --agent aw1 >/dev/null
+sg_cache() {  # <status> <summary>: the death reader's cache holding agent aw1 and its newest notification
+  mkdir -p "$sg/.agents/.readout"
+  python3 - "$sg/.agents/.readout/.agent-deaths-cache" "$1" "$2" <<'EOF'
+import json, sys
+info = {"transcript": "/p/proj/s1/subagents/agent-aw1.jsonl", "session": "s1", "state": "running"}
+notes = {"aw1": [[50.0, "completed", "an older verdict"], [100.0, sys.argv[2], sys.argv[3]]]}
+json.dump({"agents": {"aw1": info}, "parents": {"/p/proj/s1.jsonl": {"notes": notes}}}, open(sys.argv[1], "w"))
+EOF
+}
+sg_cache completed 'Agent "one" is waiting on its own background work (a Bash command is still running)'
+out="$("${T[@]}" release-stale sgb one --reason 'looks idle' 2>&1)" && fail "release-stale released a writer waiting on its own background work: $out"
+[[ "$out" == *"writer aw1 is waiting on its own background work"* ]] || fail "release-stale did not say the writer waits: $out"
+note="$(python3 - "$repo/.agents/hooks/lib" "$sg/.agents/.workloop-state.json" <<'EOF'
+import importlib.util, json, sys, time
+sys.path.insert(0, sys.argv[1])
+spec = importlib.util.spec_from_file_location("workloop_inbox", sys.argv[1] + "/workloop-inbox.py")
+inbox = importlib.util.module_from_spec(spec); spec.loader.exec_module(inbox)
+run = json.load(open(sys.argv[2]))["runs"]["sgb"]
+print(inbox.active_note("sgb", run, "one", run["lanes"]["one"], {}, time.time()))
+EOF
+)"
+[[ "$note" == "one's worker aw1 is waiting on its own background work" ]] || fail "the digest did not say the writer waits: $note"
+sg_cache completed 'Agent "one" completed'
+expect "released stale claim for lane 'one'" "${T[@]}" release-stale sgb one --reason 'it finished without submitting'
+"${T[@]}" abandon sgb --discard-branches >/dev/null
+ok "row 28: the digest says a writer is waiting on its own background work and release-stale refuses it; once it completed, release-stale releases"
+
+# row 29: each writing or QA cell gets its own kept-scratch folder under the run, named in its brief
+"${T[@]}" init sgs --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+q1="$("${T[@]}" add-cell sgs q1 --role qa --model sonnet)"; q2="$("${T[@]}" add-cell sgs q2 --role qa --model sonnet)"
+s1="$(sed -n 's/^Scratch: \([^ ]*\) — .*/\1/p' "$sg/.agents/worktrees/sgs/.workloop/cells/q1.md")"
+s2="$(sed -n 's/^Scratch: \([^ ]*\) — .*/\1/p' "$sg/.agents/worktrees/sgs/.workloop/cells/q2.md")"
+[[ -n "$s1" && -n "$s2" && "$s1" != "$s2" && "$s1" == */sgs/scratch/q1 && "$s2" == */sgs/scratch/q2 && -d "$s1" && -d "$s2" ]] || fail "the QA cells' scratch folders are missing, shared or unnamed: '$s1' '$s2'"
+[[ -z "$(git -C "$sg" status --porcelain --untracked-files=all)" ]] || fail "a scratch folder shows in the checkout: $(git -C "$sg" status --porcelain)"
+grep -q 'mktemp -d <scratch>' "$repo/.agents/skills/workloop/working-practice.md" || fail "the working practice does not name the scratch folder"
+ok "row 29: two QA cells get distinct scratch folders under the run, each named in its own brief and ignored by the checkout"
+
+# review round 1 (docs/reviews/2026-11-25-swarm-fixes-build.md #7-#15)
+# #7: a checkout switched to another branch while land's verify runs is never fast-forwarded
+st="$scratch/st"; sf_repo "$st" staging
+printf '.agents/.workloop-state.json*\n.agents/worktrees/\n.agents/.readout/\n' >> "$st/.gitignore"; commit "$st" 'staging ahead of main'
+S=(python3 "$repo/.agents/workloop.py" --state "$st/.agents/.workloop-state.json")
+"${S[@]}" init stw --objective x --acceptance y --repo "$st" --verify "git -C $st switch -q main" >/dev/null
+"${S[@]}" add-lane stw one --worker implementer --path src >/dev/null 2>&1
+stw="$st/.agents/worktrees/stw/one"; "${S[@]}" claim stw one --agent one >/dev/null
+printf 'w\n' >> "$stw/src/app.txt"; commit "$stw" w
+"${S[@]}" submit stw one --evidence ok >/dev/null 2>&1
+"${S[@]}" review stw one --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$stw" rev-parse HEAD)" >/dev/null
+"${S[@]}" qa stw --evidence ok >/dev/null
+main_before="$(git -C "$st" rev-parse main)"; staging_before="$(git -C "$st" rev-parse staging)"
+out="$("${S[@]}" land stw 2>&1)" && fail "land merged after the checkout was switched: $out"
+[[ "$out" == *"was switched to main while land ran; nothing was merged"* ]] || fail "land did not name the switch: $out"
+[[ "$(git -C "$st" rev-parse main)" == "$main_before" && "$(git -C "$st" rev-parse staging)" == "$staging_before" ]] || fail "land moved main or staging after the checkout was switched"
+ok "#7: land refuses, merging nothing, when the checkout was switched to another branch while its verify ran"
+
+# #8: a worktree holding a nested repository is kept and named; its files are not lost
+"${T[@]}" init sgn --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgn one --worker implementer --path src >/dev/null 2>&1
+sgnw="$sg/.agents/worktrees/sgn/one"; "${T[@]}" claim sgn one --agent one >/dev/null
+git init -q "$sgnw/src/vendored"; printf 'only copy\n' > "$sgnw/src/vendored/data.txt"
+out="$("${T[@]}" abandon sgn 2>&1)" || fail "abandon failed: $out"
+[[ "$(cat "$sgnw/src/vendored/data.txt")" == "only copy" ]] || fail "abandon lost a nested repository's files"
+[[ "$out" == *"kept worktree "*"/sgn/one of lane one: it holds a nested repository at "*"src/vendored"* ]] || fail "abandon did not name the nested repository: $out"
+git -C "$sg" worktree remove --force "$sgnw"
+ok "#8: a lane worktree holding a nested repository is kept and named, not saved as a bare gitlink"
+
+# #9, #10: saved work comes back byte for byte (CRLF, non-UTF-8), a sparse lane's file outside its cone is saved,
+# and a restore that left its ref is finished by the next resume
+"${T[@]}" init sgk --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgk one --worker implementer --path src --sparse >/dev/null 2>&1
+sgkw="$sg/.agents/worktrees/sgk/one"; "${T[@]}" claim sgk one --agent one >/dev/null
+printf 'a\r\nb\r\n' > "$sgkw/src/crlf.txt"; printf 'x\377y\n' > "$sgkw/src/latin.bin"; printf 'edit\r\n' >> "$sgkw/src/app.txt"
+mkdir -p "$sgkw/docs"; printf 'outside\n' > "$sgkw/docs/outside.txt"
+cp "$sgkw/src/crlf.txt" "$scratch/crlf.want"; cp "$sgkw/src/latin.bin" "$scratch/latin.want"; cp "$sgkw/src/app.txt" "$scratch/app.want"
+"${T[@]}" park sgk one >/dev/null || fail "park refused the sparse lane"
+[[ "$(git -C "$sg" show refs/workloop/sgk/one/wip:docs/outside.txt)" == outside ]] || fail "a sparse lane's untracked file outside its cone was not saved"
+git -C "$sg" worktree add -q "$sgkw" sgk/one
+out="$("${T[@]}" resume sgk 2>&1)" || fail "resume failed: $out"
+[[ "$out" == *"restored as uncommitted changes into its worktree"* ]] || fail "resume did not finish the restore of a worktree whose ref remained: $out"
+cmp -s "$sgkw/src/crlf.txt" "$scratch/crlf.want" && cmp -s "$sgkw/src/latin.bin" "$scratch/latin.want" && cmp -s "$sgkw/src/app.txt" "$scratch/app.want" \
+  || fail "resume did not restore the saved bytes (CRLF or non-UTF-8 changed)"
+[[ "$(git -C "$sgkw" status --porcelain -- src)" == $' M src/app.txt\n?? src/crlf.txt\n?? src/latin.bin' ]] || fail "restored files are not uncommitted and untracked as saved: $(git -C "$sgkw" status --porcelain)"
+! git -C "$sg" rev-parse -q --verify refs/workloop/sgk/one/wip >/dev/null || fail "resume left the wip ref after restoring"
+"${T[@]}" abandon sgk --discard-branches >/dev/null 2>&1 || true
+ok "#9, #10: saved work returns byte for byte, a sparse lane's file outside its cone is saved, and resume finishes a restore whose ref remained"
+
+# #11: a lane submitted before starts were recorded is accepted; #12: an older run records its source at the first write
+"${T[@]}" init sgo2 --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgo2 one --worker implementer --path src >/dev/null 2>&1
+sgo2w="$sg/.agents/worktrees/sgo2/one"; "${T[@]}" claim sgo2 one --agent one >/dev/null
+printf 'o\n' >> "$sgo2w/src/app.txt"; commit "$sgo2w" o; "${T[@]}" submit sgo2 one --evidence ok >/dev/null 2>&1
+python3 - "$sg/.agents/.workloop-state.json" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); run = s["runs"]["sgo2"]
+del run["lanes"]["one"]["start"]; del run["source"]
+json.dump(s, open(p, "w"))
+EOF
+expect 'recorded accept review' "${T[@]}" review sgo2 one --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$sgo2w" rev-parse HEAD)"
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["sgo2"]["source"])' "$sg/.agents/.workloop-state.json")" == main ]] || fail "the first write did not record the older run's source branch"
+git -C "$sg" switch -q -c elsewhere; expect $'^source\tmain' "${T[@]}" status sgo2; git -C "$sg" switch -q main
+"${T[@]}" abandon sgo2 --discard-branches >/dev/null
+ok "#11, #12: review accepts a lane submitted with no recorded start; an older run keeps the source branch its first write recorded"
+
+# #13: a landed run whose close failed reruns only the close, not its verify
+"${T[@]}" init sgd --objective x --acceptance y --repo "$sg" --verify 'test -f src/app.txt' --lane solo --worker implementer --path src >/dev/null
+printf 'd\n' >> "$sg/src/app.txt"; commit_paths "$sg" d src/app.txt
+"${T[@]}" submit sgd solo --evidence ok >/dev/null 2>&1
+"${T[@]}" review sgd solo --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$sg" rev-parse HEAD)" >/dev/null
+"${T[@]}" qa sgd --evidence ok >/dev/null
+python3 - "$sg/.agents/.workloop-state.json" "$(git -C "$sg" rev-parse HEAD)" "$scratch/never-runs" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); run = s["runs"]["sgd"]
+run["landed"] = {"at": "2026-11-25T00:00:00Z", "branch": "main", "tip": sys.argv[2]}
+run["verified"] = {"at": "2026-11-25T00:00:00Z", "head": sys.argv[2], "lane_tips": {"solo": sys.argv[2]}, "verify": run["verify"], "result": "pass", "tail": ""}
+run["verify"] = run["verified"]["verify"] = f"touch {sys.argv[3]}"
+json.dump(s, open(p, "w"))
+EOF
+out="$("${T[@]}" land sgd 2>&1)" || fail "a landed run's close did not rerun: $out"
+[[ "$out" == *"landed on main"*"already; closing it"* && ! -e "$scratch/never-runs" ]] || fail "land of a landed run ran more than the close: $out"
+expect $'^closed\tlanded' "${T[@]}" status sgd
+ok "#13: land of a run already landed reruns only the close"
+
+# #14: saved work of a lane parked and never resumed is named when its run closes
+"${T[@]}" init sgv --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgv one --worker implementer --path src >/dev/null 2>&1
+"${T[@]}" claim sgv one --agent one >/dev/null; printf 'v\n' >> "$sg/.agents/worktrees/sgv/one/src/app.txt"
+"${T[@]}" park sgv one >/dev/null
+expect 'kept saved work refs/workloop/sgv/one/wip (never resumed' "${T[@]}" abandon sgv --discard-branches
+ok "#14: closing a run names the saved work of a lane parked and never resumed"
+
+# #15: no abbreviated option: --rul is not --ruling
+out="$("${T[@]}" review sgv one --reference x --result accept --rul 'x' 2>&1)" && fail "an abbreviated --rul was accepted: $out"
+[[ "$out" == *"unrecognized arguments: --rul"* ]] || fail "an abbreviated option was not refused as unrecognized: $out"
+ok "#15: the controller takes no abbreviated option, so --rul is not --ruling"
+# ══ end swarm fixes ══
 
 rm "$state.lock"
 if "${tool[@]}" status supervised 2>/dev/null; then fail 'read-only status recreated a missing lock'; fi

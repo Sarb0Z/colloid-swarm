@@ -9,8 +9,9 @@ from pathlib import Path
 import workloop_cells as wc
 import workloop_git as wg
 import workloop_main as wm
+import workloop_resume as wr_resume
 from workloop_lanes import dispatch_prompt
-from workloop_paths import normalize_path, overlaps, owned, owning_lane, workspace_for
+from workloop_paths import normalize_path, overlaps, owned, owning_lane, source_branch, workspace_for
 from workloop_state import (
     ReadStore,
     Store,
@@ -62,13 +63,14 @@ def main_lane_paths(args: argparse.Namespace, shared: list[str]) -> list[str]:
     return paths
 
 
-def new_run(args: argparse.Namespace, repo: Path, base: str, shared: list[str]) -> dict:
+def new_run(args: argparse.Namespace, repo: Path, base: str, source: str | None, shared: list[str]) -> dict:
     return {
         "objective": args.objective,
         "acceptance": args.acceptance,
         "verify": args.verify,
         "repo": str(repo),
         "base": base,
+        "source": source,
         "shared": shared,
         "rebuild": {},
         "max_lanes": args.max_lanes,
@@ -92,6 +94,10 @@ def cmd_init(args: argparse.Namespace) -> None:
     lane_paths = main_lane_paths(args, shared)
     repo = wg.toplevel(args.repo or Path.cwd())
     base = wg.resolve_commit(repo, args.base)
+    # The branch the run is cut from and lands on (ruling R11): the one
+    # checked out, or the one --base names; None for a detached commit,
+    # which add-lane refuses since nothing could follow it.
+    source = wg.named_branch(repo, args.base)
     if args.verify:
         wg.guard_command(args.verify, repo, "verify")
     with Store(state_path(args.state)) as data:
@@ -100,12 +106,16 @@ def cmd_init(args: argparse.Namespace) -> None:
                 print("replayed event")
                 return
             fail(f"run {args.run!r} already exists; init is intentionally not destructive")
-        run = data["runs"][args.run] = new_run(args, repo, base, shared)
+        run = data["runs"][args.run] = new_run(args, repo, base, source, shared)
         record(args.run, run, "init", detail=args.objective, supplied=args.event_id)
         if args.lane:
-            run["lanes"][args.lane] = wm.new_lane(args.worker, repo, lane_paths, args.model)
+            lane = run["lanes"][args.lane] = wm.new_lane(args.worker, repo, lane_paths, args.model)
             record(args.run, run, "add-lane", args.lane, ", ".join(lane_paths))
-    print(f"created workloop {args.run!r} at {base[:12]} in {repo}")
+            # The main lane is claimed here (ruling R5): its work is measured
+            # from this commit, and its writer only binds its agent id.
+            lane.update(state="active", start=wg.head_of(repo), claimed_at=now(), heartbeat_at=now())
+            record(args.run, run, "claim", args.lane, args.worker)
+    print(f"created workloop {args.run!r} at {base[:12]} in {repo}, " + (f"source branch {source}" if source else "from a detached commit"))
     if args.lane:
         print(dispatch_prompt(state_path(args.state), args.run, run, args.lane, run["lanes"][args.lane], "worker"))
     elif not args.verify:
@@ -119,6 +129,11 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
     paths = [normalize_path(path) for path in args.path]
     if len(set(paths)) != len(paths):
         fail("a lane cannot declare the same path twice")
+    with ReadStore(state_path(args.state)) as data:
+        run = run_of(data, args.run)
+    # A lane is a worktree and an install; under the floor it is refused
+    # before it starts, naming what could be dropped.
+    wr_resume.floor_check(state_path(args.state), Path(run["repo"]), run, refuse=True)
     with Store(state_path(args.state)) as data:
         run = run_of(data, args.run)
         if replayed(run, args.event_id): print("replayed event"); return
@@ -128,6 +143,9 @@ def cmd_add_lane(args: argparse.Namespace) -> None:
             fail(f"run already has a lane or cell named {args.lane!r}")
         if wm.main_lane(run):
             fail("a one-writer run's lane works in the main tree; start a new run for writers working at once")
+        if not source_branch(run):
+            fail(f"run {args.run!r} was started from a detached commit, so no branch carries its lanes' base forward or "
+                 "receives their work; start a new run with --base <branch>, or from a checkout on that branch")
         repo = Path(run["repo"])
         base = run["base"]
         workspace = workspace_for(args.workspace, repo, args.run, args.lane, "lane")

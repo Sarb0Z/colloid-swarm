@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES
+from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES, scratch_line
 from workloop_state import Store, activity_columns, fail, now, record, refresh_readout, replayed, run_of, state_path, valid_name
 
 ROLES = {
@@ -153,7 +153,7 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
         f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish.",
         # A review cell closes with its contract's AMBIGUITY and HANDOFF lines.
         *([OPEN_GATES] if cell["role"] != "review" else []),
-        *([WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
+        *([scratch_line(run, run_name, name), WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),
         f"State: {command} status {run_name}",
     )) + "\n")
     # The gate reads the first line: READ-ONLY holds the cell to reading, so

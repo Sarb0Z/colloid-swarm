@@ -121,7 +121,8 @@ chunk gets no reviewer of its own. A multi-lane wave gets one review round,
 over every lane's diff from the start point its reviewer brief names, and one
 report with a section per lane that each lane's `workloop review` cites; every
 reviewer of the round, an axis reviewer included, reads every lane. The controller refuses to reopen a lane for a `P2`, and a lane's
-fourth submission without the operator's ruling.
+review after its fourth reopen verdict without the operator's ruling; a
+re-submit a peer's commit forced spends no round.
 
 ## Disprove pass
 

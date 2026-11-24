@@ -102,32 +102,40 @@ elsewhere the cells poll the durable inbox at each handoff.
 
 ## Start a run
 
-A lone writer is a one-writer run: one command before the dispatch, five after
-the cell submits.
+A lone writer is a one-writer run of five commands: `init --lane`, `submit`,
+`review`, `qa`, `land`.
 
 ```sh
 .agents/workloop.py init export --objective 'Reports export their rows as CSV' \
   --acceptance 'the reports page test downloads the visible rows' \
   --verify 'pnpm vitest run apps/web' \
   --lane csv --worker implementer --path apps/web/src/pages/reports
-# dispatch the printed prompt; the cell claims, commits on the current branch, submits
-.agents/workloop.py brief export csv --role reviewer   # dispatch; it accepts with --tip
+# dispatch the printed prompt; the cell commits on the current branch and submits;
+# submit prints the reviewer's dispatch, which accepts with --tip
+.agents/workloop.py review export csv --reference '<report>#<finding>' --result accept --tip <sha>
 .agents/workloop.py brief export csv --role qa         # dispatch beside the reviewer
 .agents/workloop.py qa export --evidence '<observed result>'      # binds the submitted tip
-.agents/workloop.py check export      # runs --verify once, at the accepted commit
-.agents/workloop.py teardown export
+.agents/workloop.py land export      # runs --verify at the accepted commit, then closes the run
 ```
 
-The lane works in the main checkout on its current branch: no worktree, branch
-or install. Its cell stages by path (`git add -- <path>`), since others may
-hold uncommitted work in the checkout. Its work is the commits since its first
-claim that touch its paths; another writer's commits there are listed, not
-refused, and so is a commit touching its paths and others ("mixed"), for the
-reviewer to judge. `add-lane` refuses a run holding such a lane: writers working
-at once start a run with worktree lanes. `check` tests the accepted commit in a
-short-lived worktree at `.agents/worktrees/<run>/verify`, removed after a pass
-and kept for inspection after a fail; a lane-path commit or uncommitted edit
-after the accept makes the run stale until the lane is re-submitted.
+`init --lane` claims the lane: its work is measured from HEAD at `init`, and
+its writer binds its agent id with `claim` (one call, so the digest can tell a
+busy writer from a dead one). The lane works in the main checkout on its
+current branch: no worktree, branch or install. Its cell stages by path
+(`git add -- <path>`), since others may hold uncommitted work in the checkout.
+Its work is the commits since `init` that touch its paths; another writer's
+commits there are listed, not refused, and so is a commit touching its paths
+and others ("mixed"), for the reviewer to judge. `add-lane` refuses a run
+holding such a lane: writers working at once start a run with worktree lanes.
+`land` (and `check`, which reports without closing) tests the accepted commit
+in a short-lived worktree at `.agents/worktrees/<run>/verify`, removed after a
+pass and kept for inspection after a fail; a lane-path commit or uncommitted
+edit after the accept makes the run stale until the lane is re-submitted.
+
+Every writing or QA brief names a Scratch folder,
+`.agents/worktrees/<run>/scratch/<cell>/`, which the checkout ignores and the
+closed record keeps: the cell keeps there what you may read later. Keep your
+own under `.agents/worktrees/<run>/scratch/lead/`.
 
 ## Read-only cells
 
@@ -182,19 +190,29 @@ the commits and the `review --tip` handoff; a review cell is for what is not a
 lane, such as a plan. A run started without `--verify` is a read-only fan-out:
 it is finished once every cell is back, with no QA record and no composed test,
 so `qa` and `integrate` say there is nothing for them, and `add-lane` refuses it. When a writer will follow the cells, start with
-`init … --lane` instead and add the cells beside it. The lead's digest names a
-turn that dispatched two or more cells with no run header ("3 cells last turn
-outside any run"); it refuses nothing.
+`init … --lane` instead and add the cells beside it. A read-only cell you
+dispatch outside any run (a `READ-ONLY` or `NOTES-ONLY` prompt, or an
+`explorer`, `researcher`, `reviewer` or `Explore` persona) is recorded for you
+in the session's own fan-out run, `fanout-<session>`, and marked returned when
+it comes back: a research fan-out needs no controller command, and
+`status fanout-<session>` lists its cells.
 
 `--model <model>` on `add-lane` or `init --lane` records a lane's model, shown
 in its brief and in `status`.
 
 For writers working at once, create one run with a testable objective, the test
 command proving the composed result, and a base revision, which `init` pins to
-a commit. Add a lane
+a commit and whose branch it records as the run's source branch: the branch
+checked out, or the one `--base` names (`status` shows it). That branch, not
+`main`, is what lanes are measured against and what `land` moves; a run cut
+from a detached commit takes no worktree lane. Add a lane
 per writer: `add-lane` creates the worktree on branch `<run>/<lane>` when the
 path does not exist, installs its dependencies from the lockfiles, and records
-the lockfile hash. A writing lane owns exclusive paths.
+the lockfile hash. A writing lane owns exclusive paths. `add-lane` prints free
+space and the run's worktree sizes, and refuses when free space less the
+checkout's installs falls under `workloop.disk_floor_gb` (default 10, in
+`.agents/config.json`), naming each worktree with its size: droppable, in use
+by an active lane, or kept for its ignored files.
 
 ```sh
 .agents/workloop.py init slice-3b --objective 'Persist parsed 835 claims' \
@@ -274,13 +292,19 @@ two rules:
 A `share` after lanes start reaches them only through a fresh brief: it prints
 the `brief` command for each claimed lane not yet reviewed. A `share` after `integrate` makes the
 integration stale until it runs again. A sparse lane receives a shared
-directory only through `--also`. A lane may rebase onto a
-sibling in `review` or `reviewed`; `submit` measures its changes from where
-its own commits begin, so the sibling's files do not count against it, but
-only while the sibling's work stays inside its own paths. `integrate` measures
-each lane again against the siblings' current branches, and refuses one whose
-branch moved after its accepted review: `submit` it again. It
-merges in dependency order.
+directory only through `--also`. `submit` measures a lane from the merge-base
+of its tip with the source branch's tip now, and records that start with the
+tip; the accept binds the pair. A lane that merges the source branch or
+rebases onto it therefore carries none of the branch's files. A lane may also
+rebase onto a sibling in `review` or `reviewed`; its changes are then measured
+from where its own commits begin, so the sibling's files do not count against
+it, but only while the sibling's work stays inside its own paths. A changed
+path another lane owns refuses `submit`; any other path outside the lane, or
+an untracked file there, is listed as "outside the lane" in `submit`'s output
+and the reviewer brief, for the reviewer to judge. `integrate` composes on the
+source branch's current tip, measures each lane again against the siblings'
+current branches, and refuses one whose branch moved after its accepted
+review: `submit` it again. It merges in dependency order.
 
 ```sh
 .agents/workloop.py init slice-3b --objective '...' --acceptance '...' \
@@ -295,7 +319,8 @@ unattended with no hook in front of it. Give it no cleaning or resetting step:
 `integrate` already resets the worktree to the base and cleans
 it before merging, and such a step is exactly what the floor refuses.
 
-Use the prompt `brief` prints as the bounded dispatch prompt. The cell claims the lane, works only in
+Use the prompt `brief` prints as the bounded dispatch prompt. Its brief tells a
+worktree lane's writer to claim its workloop lane before its first edit. The cell claims the lane, works only in
 its worktree and declared paths, commits on the lane branch, and submits observed
 test evidence. `claim` refuses a lane whose lockfiles changed since it
 was provisioned, or whose install failed, until `provision <run> <lane>`
@@ -307,37 +332,10 @@ review report are available.
 
 ## Resources a lane starts
 
-Three lanes sharing one Postgres, one Docker daemon, and one machine's browser
-capacity are bottlenecked, not stalled, and a lane killed mid-run leaves its
-containers behind. The controller answers with ownership, leases, and progress:
-
-- **Ownership.** The brief exports `COLLOID_RUN`, `COLLOID_LANE`, and
-  `COMPOSE_PROJECT_NAME=<run>-<lane>`. What only a lane uses carries
-  `--label colloid.run=<run> --label colloid.lane=<lane>` or that compose
-  project name; what the run shares — the one Postgres — carries `colloid.run`
-  alone, so a lane's reap never takes it and `teardown` does. `release-stale`,
-  `teardown`, and `reap` remove by those labels, report what docker refused,
-  and touch nothing else. The lead's digest reaps a lane whose cell stopped
-  without submitting (the hook records every cell's start and stop) and names,
-  without removing, test containers that belong to no one — a testcontainers
-  session with no reaper. A container a test framework starts under its own
-  labels lies outside all this: leave that framework's reaper on.
-- **Leases.** `add-lane --exclusive <name>` leases a resource only one active
-  lane may hold — `playwright`, a device, a shared service that cannot be
-  copied. `claim` refuses while another active lane holds it; the lead
-  sequences dispatch, and nothing queues. The lease frees at `submit` or
-  `release-stale`; what the holder started stays until `reap` or `teardown`.
-  `status` shows each lane's lease, so a misspelt name is visible.
-- **Cheap isolation.** One shared, labelled Postgres per run and a database per
-  lane named from `COLLOID_LANE` (the shape Rails uses per test worker), not a
-  container per lane; give a lane its own compose stack only when it needs one.
-- **Progress.** `heartbeat --progress '<what is running>'` works on any claimed
-  lane, and the digest and `status` show it beside the lane's age, so a slow
-  lane reads as slow.
-- **Narrow acceptance.** A lane runs only the narrowest acceptance for its slice,
-  never the end-to-end or browser suite; `--verify` runs once over the result:
-  at `integrate` for a run with worktree lanes, one or more, and at `check` for
-  a one-writer run. Every merge queue works this way.
+Before a run whose lanes start containers, a database or a browser, read
+`resources.md`: labels that let the controller reap a lane's containers, leases
+on a resource one lane may hold, one shared Postgres per run, and progress
+heartbeats.
 
 ## Feedback and recovery
 
@@ -357,19 +355,24 @@ and records the cell's acknowledgement before the correction cycle.
 ```
 
 **One review round per wave.** A multi-lane wave gets one review round that
-reads every lane's diff; `brief --role reviewer` writes each lane's start point
-and the `git diff <start>..<lane-branch>` command. Each lane's `review` cites
-its section of the one report. A P2 finding is filed, never reopened:
+reads every lane's diff; once the last lane submits, `submit` prints each
+lane's reviewer dispatch (`brief --role reviewer` reprints one), with the
+lane's start point and the `git diff <start>..<tip>` command. Each lane's
+`review` cites its section of the one report, and `review` copies that report
+into the run's `.workloop/reviews/`, so the reference outlives the worktree.
+A P2 finding is filed, never reopened:
 `review --result reopen` takes `--severity P0` or `P1` explicitly, and a P2
 there, or an `attention --severity P2` on a lane in review, is refused, so
-accept the lane and file it. Submissions are counted, so an attention,
-acknowledgement, and resubmit counts too. A review of a fourth submission is
-refused unless
+accept the lane and file it. Reopen verdicts are counted, not submissions: a
+re-submit a peer's commit forced, or an attention cycle, spends no round. A
+review after a lane's fourth reopen verdict is refused unless
 `review --ruling "<operator's words>"` is given, and the ruling is stored in the
 review ref; this is deliberately stricter than the playbook's same-shape rule.
 
 `release-stale` makes an interrupted claim resumable, erasing neither evidence nor
-a pending attention item.
+a pending attention item. It refuses a lane whose writer's newest notification
+says it is waiting on its own background work, which the digest shows in
+those words: that writer is busy, not gone.
 
 ## Peer messages and supervision
 
@@ -392,7 +395,8 @@ Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
 its host agent id at start and each unread message for its lane once between
 tool calls, and the lead hears at every prompt which lanes await review, carry
 attention, are stale or broken or growing past their size, and each run's next
-closing step: `integrate`, `check`, QA, or `teardown`. The same hook stamps each
+closing step: `integrate`, QA, or `land`, and a lane whose worktree is gone
+(`resume`). The same hook stamps each
 background lane and cell with the time and its last tool call, at most once a
 minute, so `status` shows every agent's time out, its silence and its last action
 without the agent reporting anything. A hook cannot wake an idle lead, so when
@@ -415,36 +419,52 @@ completion until the claimant answers it.
 .agents/workloop.py archive slice-3b
 ```
 
-## Integrate and tear down
+## Integrate, land and close
 
 Each lane verified its own slice in its own worktree; nothing has verified the
 composition. Once every lane is reviewed, `integrate` resets an integration
 worktree (`.agents/worktrees/<run>/integration` unless `--workspace` names
-one) to the base on branch `<run>/integration`, merges the lane branches in
-dependency order, provisions, and runs the `--verify` command once. A conflict
-aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
-On a run with worktree lanes, `check` requires a passing integration whose
-recorded lane tips still match; a lane commit after integration reports
-`integration:stale` until `integrate` reruns.
+one) to the source branch's current tip on branch `<run>/integration`, merges
+the lane branches in dependency order, provisions, and runs `--verify` once. A
+conflict aborts the merge, names the two lanes, and leaves the tree clean for
+the rerun. A lane commit after integration reports `integration:stale`, and a
+source branch that moved since reports `integration:base-moved`.
 
 ```sh
 # the reviewer and the QA cell go out together once every lane is submitted
 .agents/workloop.py qa slice-3b --evidence 'Playwright and service tests passed'
 .agents/workloop.py integrate slice-3b
-.agents/workloop.py check slice-3b
-.agents/workloop.py teardown slice-3b
+.agents/workloop.py land slice-3b
 ```
 
-`teardown` removes the lane and integration worktrees once `check` passes. It
-deletes a branch only when the repository's HEAD already contains it; the
-`<run>/integration` branch carries the verified composition, so land it first
-and rerun `teardown` to drop it.
+`land <run>` needs the checkout on the run's source branch with no uncommitted
+change to a path the run touched. For worktree lanes it integrates again, under
+the run's lock, when the source branch moved or no integration is current, and
+fast-forwards the branch to the verified commit; a failing verify leaves the
+branch unchanged and the run open. For a one-writer run it runs `--verify` at
+the accepted commit and makes no commit. It never pushes: a push is an outward
+action needing its own approval. In a repository whose rules say commit only
+when asked, run `land` only on the operator's request.
 
-`abandon <run>` closes a run whose work landed another way — after main moved
-past the base, for instance, so that `integrate` and `teardown` refuse. It reaps
-the run's labelled containers, removes the lane and integration worktrees, and
-deletes the run from state. It deletes only branches the repository's HEAD
-already contains and names the rest; `--discard-branches` deletes those too.
+Closing — `land`, `teardown` (complete, not landed) or `abandon` — reaps the
+run's labelled containers and removes its worktrees. Before removing a lane
+worktree it commits the worktree's uncommitted and untracked work on
+`refs/workloop/<run>/<lane>/wip`, never on the lane branch, and keeps that
+branch beside it; a worktree holding ignored files that would not come back
+(a `.env`), or a nested repository, is kept and named with them. It deletes a branch only when the
+checkout's HEAD contains it. The run's `.workloop/` folder, scratch and state
+entry move to `.agents/worktrees/.closed/<run>/`, which `status` and `check`
+read; `prune --closed-before <date>` deletes old records.
+
+`park <run> <lane>` saves a lane's work on its wip ref and removes its worktree
+to free disk. `resume <run>` re-adds each worktree that is gone at its branch
+tip, reprovisions it, and restores the saved work as uncommitted changes; a
+lane whose branch was merged and deleted is listed as landed.
+
+`abandon <run>` closes a run as it stands — work that landed another way, or
+work given up. It deletes only branches the repository's HEAD already
+contains and names the rest; `--discard-branches` deletes those too. It never
+prompts, so the session-end sweep runs it.
 When the run's checkout is not on disk, git cannot read it, or git reads it as
 part of an enclosing repository (an empty mount point), `abandon` refuses with
 git's reason, because a disk that is not mounted looks the same as a deleted
@@ -468,12 +488,12 @@ those tips, and the composed tree is the integration's own `--verify` run.
 been added since, or the record holds no tips, so QA reruns after a lane is
 reopened and resubmitted. A QA brief carries the run's acceptance lines and its
 test suite (`--verify`, left out when the run has none) and no diff or path
-list: QA reproduces the acceptance written before the code. `check` is the completion
-gate: it fails when any lane is unresolved, lacks evidence, or has
-unacknowledged attention, when the run lacks QA evidence, or when its composed
-test has no current pass: an integration for worktree lanes, a verification at
-the accepted commit for a one-writer run. `check --recorded` judges from what is
-recorded and never runs the test; the session end uses it.
+list: QA reproduces the acceptance written before the code. `land` refuses,
+and `check` reports, when any lane is unresolved, lacks evidence, or has
+unacknowledged attention, or when the run lacks QA evidence; `check` also
+wants a current passing composed test, which `land` runs itself.
+`check --recorded` judges from what is recorded and never runs the test; the
+session end uses it.
 
 The default ceiling is eight lanes; each further lane requires `--allow-more`
 when added, so the lead accepts the coordination cost deliberately.

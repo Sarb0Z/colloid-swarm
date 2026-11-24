@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # The hooks and the controller measure an agent's silence by the same function.
 sys.path.insert(0, str(ROOT / ".agents/hooks/lib"))
 import agent_activity  # noqa: E402
+import agent_deaths  # noqa: E402
 import agent_silence  # noqa: E402
+import agent_verdicts  # noqa: E402
 DEFAULT_STATE = ROOT / ".agents/.workloop-state.json"
 NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -121,14 +124,62 @@ class ReadStore:
         fcntl.flock(self.lock, fcntl.LOCK_UN); self.lock.close()
 
 
+def closed_root(state: Path) -> Path:
+    """Where closed runs' records go: `.agents/worktrees/.closed/` beside the default state file."""
+    return state.parent / "worktrees" / ".closed"
+
+
+def closed_record(state: Path, name: str) -> Path | None:
+    """The closed record of run `name`, its newest when the name closed more than once; None when none."""
+    root = closed_root(state)
+    found = sorted((path for path in [root / name, *root.glob(f"{name}.*")] if (path / "state.json").is_file()),
+                   key=lambda path: json.loads((path / "state.json").read_text())["closed"]["at"])
+    return found[-1] if found else None
+
+
+def close_run(state: Path, name: str, how: str, records: Path | None) -> Path:
+    """Move run `name` out of the live state into its closed record; return the record's folder.
+
+    The record holds the state entry as `state.json`, with `closed` saying
+    when and how, and the run's `.workloop/` folder (`records`) and kept
+    scratch, moved from the checkout. The live state file, read at every
+    prompt, keeps open runs only.
+    """
+    root = closed_root(state)
+    root.mkdir(parents=True, exist_ok=True)
+    with Store(state) as data:
+        run = data["runs"].pop(name, None)
+        if run is None:
+            fail(f"no run named {name!r} to close")
+        run["closed"] = {"at": now(), "how": how}
+        target = root / name
+        number = 1
+        while target.exists():
+            target, number = root / f"{name}.{number}", number + 1
+        target.mkdir()
+        (target / "state.json").write_text(json.dumps(run, indent=2, sort_keys=True) + "\n")
+    if records is not None:
+        for source, leaf in ((records, records.name), (records.parent / "scratch", "scratch")):
+            if source.is_dir():
+                shutil.move(str(source), str(target / leaf))
+        if records.parent.is_dir() and not any(records.parent.iterdir()):
+            records.parent.rmdir()
+    return target
+
+
 def run_of(data: dict, name: str) -> dict:
     run = data["runs"].get(name)
     if run is None:
-        fail(f"no run named {name!r}; create it with init")
+        fail(f"no open run named {name!r}; create it with init (status {name} reads a closed run's record)")
     # base is a commit SHA and repo the checkout it was resolved in; every
     # worktree, merge, and staleness check below depends on both being fixed.
     if not wg.SHA.fullmatch(str(run.get("base", ""))) or not run.get("repo"):
         fail(f"run {name!r} predates pinned bases; re-init it (base must be a commit SHA with a repo)")
+    # A run from before source branches records the branch its checkout has
+    # checked out at the first command that writes the state, and keeps it
+    # (ruling R11); a checkout not on disk records nothing yet.
+    if "source" not in run and Path(run["repo"]).is_dir():
+        run["source"] = wg.current_branch(run["repo"])
     return run
 
 
@@ -193,6 +244,35 @@ def silence(agent: dict, since_key: str, at: float | None = None) -> tuple[float
 
 
 last_sign = agent_silence.last_sign
+
+
+def waiting_agents(repo: Path) -> set[str]:
+    """The agents of this checkout whose newest notification says they are waiting on their own background work.
+
+    Read from the death reader's cache (`agent_deaths.CACHE`), which the
+    digest refreshes at every prompt: such an agent's verdict is no death, and
+    it reads `running` while its transcripts are quiet for under 10 minutes
+    and `lost` after, once its session has ended. One the cache settled or
+    judged dead is not waiting. A missing cache holds nobody; an unreadable
+    one is reported and holds nobody.
+    """
+    path = repo / ".agents" / agent_deaths.CACHE
+    try:
+        cache = json.loads(path.read_bytes())
+    except FileNotFoundError:
+        return set()
+    except (OSError, ValueError) as error:
+        print(f"workloop: the death reader's cache {path} is unreadable ({error}); no writer reads as waiting", file=sys.stderr)
+        return set()
+    waiting = set()
+    for agent_id, info in (cache.get("agents") or {}).items():
+        if "settled" in info or info.get("state") in (*agent_verdicts.SHOWN, "elsewhere") or "transcript" not in info:
+            continue
+        notes = ((cache.get("parents") or {}).get(agent_verdicts.parent(info)) or {}).get("notes", {}).get(agent_id) or []
+        newest = max(notes, default=None, key=lambda note: note[0])
+        if newest and newest[1] == "completed" and agent_verdicts.WAITING in newest[2]:
+            waiting.add(agent_id)
+    return waiting
 
 
 def clock_text(value: float) -> str:

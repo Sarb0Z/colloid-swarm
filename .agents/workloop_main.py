@@ -16,7 +16,7 @@ from pathlib import Path
 
 import workloop_cells as wc
 import workloop_git as wg
-from workloop_paths import WORKTREES, lane_allows, normalize_path, owned
+from workloop_paths import WORKTREES, lane_allows, normalize_path, owned, source_branch
 from workloop_state import fail, now, rebuild_of, shared_of
 
 PLACE = "main"
@@ -254,9 +254,14 @@ def integration_problems(run: dict) -> list[str]:
     problems = []
     if integration["result"] != "pass":
         problems.append("integration:" + integration["result"])
-    if integration["base_head"] != run["base"]:
-        problems.append("integration:base-moved")
     repo = Path(run["repo"])
+    # The source branch moved since the merge: the composed test ran on a tree
+    # the branch no longer is. Its tip at the integration's own head is the
+    # run landed, not moved.
+    branch = source_branch(run)
+    now = wg.branch_tip(repo, branch) if branch else None
+    if now is not None and now not in (integration["base_head"], integration.get("head")):
+        problems.append("integration:base-moved")
     for name, lane in run["lanes"].items():
         tip = wg.branch_tip(repo, lane["branch"]) if lane.get("branch") else None
         if tip != integration["lane_heads"].get(name):
