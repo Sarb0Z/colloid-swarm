@@ -41,6 +41,12 @@ refused=(
   "cd /x && python3 -u /x/.agents/workloop.py --state /x/s.json share run docs/shared.md"
   "COLLOID_RUN=r .agents/workloop.py widen run lane --also y"
   "bash -c '.agents/workloop.py share run a.md'"
+  # argparse reads an unambiguous prefix of a long option as the option
+  ".agents/workloop.py review run lane --rul ok --reference r.md --result accept --tip abc"
+  ".agents/workloop.py review run lane --ru=ok --reference r.md --result accept --tip abc"
+  # interpreter options, with and without a value, come before the script
+  "python3 -X dev .agents/workloop.py widen run lane --also y"
+  "python3 -W ignore -u .agents/workloop.py share run a.md"
 )
 for command in "${refused[@]}"; do
   rc=0; fire a1b2 "$command" || rc=$?
@@ -52,6 +58,8 @@ done
 
 before=$fails
 for command in ".agents/workloop.py review run lane --reference r.md#1 --result accept --tip abc" \
+               ".agents/workloop.py review run lane --r r.md --result accept --tip abc" \
+               ".agents/workloop.py review run lane --re r.md --result accept --tip abc" \
                ".agents/workloop.py --state /x/s.json submit run lane --evidence 'tests pass'" \
                ".agents/workloop.py claim run lane --agent a1b2" \
                "echo widen share --ruling" "git log --grep=widen"; do

@@ -35,6 +35,11 @@ spec.loader.exec_module(guard)
 PYTHON = re.compile(r"python[0-9.]*")
 # The controller'"'"'s own options that take a value, before its subcommand.
 VALUED = {"--state", "--event-id"}
+# The interpreter'"'"'s options that take a separate value (`python3 -X dev`).
+PYTHON_VALUED = {"-X", "-W", "--check-hash-based-pycs"}
+# Every long option `review` reads, its own and the controller'"'"'s: argparse
+# takes any unambiguous prefix of one, so `--rul` is `--ruling`.
+REVIEW_LONGS = ("--reference", "--result", "--severity", "--tip", "--ruling", "--message", "--state", "--event-id", "--help")
 
 
 def controller_args(words):
@@ -43,10 +48,19 @@ def controller_args(words):
     if words and PYTHON.fullmatch(guard.base(words[0])):
         words = words[1:]
         while words and words[0].startswith("-"):
-            words = words[1:]
+            words = words[2:] if words[0] in PYTHON_VALUED else words[1:]
     if words and guard.base(words[0]) == "workloop.py":
         return words[1:]
     return None
+
+
+def names_ruling(word):
+    """True when argparse would read the word as --ruling: the option itself or
+    an unambiguous prefix of it, with or without =value."""
+    name = word.split("=", 1)[0]
+    if not name.startswith("--") or len(name) < 3:
+        return False
+    return [option for option in REVIEW_LONGS if option.startswith(name)] == ["--ruling"]
 
 
 def refusal(args):
@@ -57,7 +71,7 @@ def refusal(args):
     rest = args[index + 1:]
     if verb in ("widen", "share"):
         return verb
-    if verb == "review" and any(word == "--ruling" or word.startswith("--ruling=") for word in rest):
+    if verb == "review" and any(names_ruling(word) for word in rest):
         return "review --ruling"
     return None
 
