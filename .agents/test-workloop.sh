@@ -2289,6 +2289,104 @@ s2="$(sed -n 's/^Scratch: \([^ ]*\) — .*/\1/p' "$sg/.agents/worktrees/sgs/.wor
 [[ -z "$(git -C "$sg" status --porcelain --untracked-files=all)" ]] || fail "a scratch folder shows in the checkout: $(git -C "$sg" status --porcelain)"
 grep -q 'mktemp -d <scratch>' "$repo/.agents/skills/workloop/working-practice.md" || fail "the working practice does not name the scratch folder"
 ok "row 29: two QA cells get distinct scratch folders under the run, each named in its own brief and ignored by the checkout"
+
+# review round 1 (docs/reviews/2026-11-25-swarm-fixes-build.md #7-#15)
+# #7: a checkout switched to another branch while land's verify runs is never fast-forwarded
+st="$scratch/st"; sf_repo "$st" staging
+printf '.agents/.workloop-state.json*\n.agents/worktrees/\n.agents/.readout/\n' >> "$st/.gitignore"; commit "$st" 'staging ahead of main'
+S=(python3 "$repo/.agents/workloop.py" --state "$st/.agents/.workloop-state.json")
+"${S[@]}" init stw --objective x --acceptance y --repo "$st" --verify "git -C $st switch -q main" >/dev/null
+"${S[@]}" add-lane stw one --worker implementer --path src >/dev/null 2>&1
+stw="$st/.agents/worktrees/stw/one"; "${S[@]}" claim stw one --agent one >/dev/null
+printf 'w\n' >> "$stw/src/app.txt"; commit "$stw" w
+"${S[@]}" submit stw one --evidence ok >/dev/null 2>&1
+"${S[@]}" review stw one --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$stw" rev-parse HEAD)" >/dev/null
+"${S[@]}" qa stw --evidence ok >/dev/null
+main_before="$(git -C "$st" rev-parse main)"; staging_before="$(git -C "$st" rev-parse staging)"
+out="$("${S[@]}" land stw 2>&1)" && fail "land merged after the checkout was switched: $out"
+[[ "$out" == *"was switched to main while land ran; nothing was merged"* ]] || fail "land did not name the switch: $out"
+[[ "$(git -C "$st" rev-parse main)" == "$main_before" && "$(git -C "$st" rev-parse staging)" == "$staging_before" ]] || fail "land moved main or staging after the checkout was switched"
+ok "#7: land refuses, merging nothing, when the checkout was switched to another branch while its verify ran"
+
+# #8: a worktree holding a nested repository is kept and named; its files are not lost
+"${T[@]}" init sgn --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgn one --worker implementer --path src >/dev/null 2>&1
+sgnw="$sg/.agents/worktrees/sgn/one"; "${T[@]}" claim sgn one --agent one >/dev/null
+git init -q "$sgnw/src/vendored"; printf 'only copy\n' > "$sgnw/src/vendored/data.txt"
+out="$("${T[@]}" abandon sgn 2>&1)" || fail "abandon failed: $out"
+[[ "$(cat "$sgnw/src/vendored/data.txt")" == "only copy" ]] || fail "abandon lost a nested repository's files"
+[[ "$out" == *"kept worktree "*"/sgn/one of lane one: it holds a nested repository at "*"src/vendored"* ]] || fail "abandon did not name the nested repository: $out"
+git -C "$sg" worktree remove --force "$sgnw"
+ok "#8: a lane worktree holding a nested repository is kept and named, not saved as a bare gitlink"
+
+# #9, #10: saved work comes back byte for byte (CRLF, non-UTF-8), a sparse lane's file outside its cone is saved,
+# and a restore that left its ref is finished by the next resume
+"${T[@]}" init sgk --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgk one --worker implementer --path src --sparse >/dev/null 2>&1
+sgkw="$sg/.agents/worktrees/sgk/one"; "${T[@]}" claim sgk one --agent one >/dev/null
+printf 'a\r\nb\r\n' > "$sgkw/src/crlf.txt"; printf 'x\377y\n' > "$sgkw/src/latin.bin"; printf 'edit\r\n' >> "$sgkw/src/app.txt"
+mkdir -p "$sgkw/docs"; printf 'outside\n' > "$sgkw/docs/outside.txt"
+cp "$sgkw/src/crlf.txt" "$scratch/crlf.want"; cp "$sgkw/src/latin.bin" "$scratch/latin.want"; cp "$sgkw/src/app.txt" "$scratch/app.want"
+"${T[@]}" park sgk one >/dev/null || fail "park refused the sparse lane"
+[[ "$(git -C "$sg" show refs/workloop/sgk/one/wip:docs/outside.txt)" == outside ]] || fail "a sparse lane's untracked file outside its cone was not saved"
+git -C "$sg" worktree add -q "$sgkw" sgk/one
+out="$("${T[@]}" resume sgk 2>&1)" || fail "resume failed: $out"
+[[ "$out" == *"restored as uncommitted changes into its worktree"* ]] || fail "resume did not finish the restore of a worktree whose ref remained: $out"
+cmp -s "$sgkw/src/crlf.txt" "$scratch/crlf.want" && cmp -s "$sgkw/src/latin.bin" "$scratch/latin.want" && cmp -s "$sgkw/src/app.txt" "$scratch/app.want" \
+  || fail "resume did not restore the saved bytes (CRLF or non-UTF-8 changed)"
+[[ "$(git -C "$sgkw" status --porcelain -- src)" == $' M src/app.txt\n?? src/crlf.txt\n?? src/latin.bin' ]] || fail "restored files are not uncommitted and untracked as saved: $(git -C "$sgkw" status --porcelain)"
+! git -C "$sg" rev-parse -q --verify refs/workloop/sgk/one/wip >/dev/null || fail "resume left the wip ref after restoring"
+"${T[@]}" abandon sgk --discard-branches >/dev/null 2>&1 || true
+ok "#9, #10: saved work returns byte for byte, a sparse lane's file outside its cone is saved, and resume finishes a restore whose ref remained"
+
+# #11: a lane submitted before starts were recorded is accepted; #12: an older run records its source at the first write
+"${T[@]}" init sgo2 --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgo2 one --worker implementer --path src >/dev/null 2>&1
+sgo2w="$sg/.agents/worktrees/sgo2/one"; "${T[@]}" claim sgo2 one --agent one >/dev/null
+printf 'o\n' >> "$sgo2w/src/app.txt"; commit "$sgo2w" o; "${T[@]}" submit sgo2 one --evidence ok >/dev/null 2>&1
+python3 - "$sg/.agents/.workloop-state.json" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); run = s["runs"]["sgo2"]
+del run["lanes"]["one"]["start"]; del run["source"]
+json.dump(s, open(p, "w"))
+EOF
+expect 'recorded accept review' "${T[@]}" review sgo2 one --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$sgo2w" rev-parse HEAD)"
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["sgo2"]["source"])' "$sg/.agents/.workloop-state.json")" == main ]] || fail "the first write did not record the older run's source branch"
+git -C "$sg" switch -q -c elsewhere; expect $'^source\tmain' "${T[@]}" status sgo2; git -C "$sg" switch -q main
+"${T[@]}" abandon sgo2 --discard-branches >/dev/null
+ok "#11, #12: review accepts a lane submitted with no recorded start; an older run keeps the source branch its first write recorded"
+
+# #13: a landed run whose close failed reruns only the close, not its verify
+"${T[@]}" init sgd --objective x --acceptance y --repo "$sg" --verify 'test -f src/app.txt' --lane solo --worker implementer --path src >/dev/null
+printf 'd\n' >> "$sg/src/app.txt"; commit_paths "$sg" d src/app.txt
+"${T[@]}" submit sgd solo --evidence ok >/dev/null 2>&1
+"${T[@]}" review sgd solo --reference "$scratch/sg-review.md#ok" --result accept --tip "$(git -C "$sg" rev-parse HEAD)" >/dev/null
+"${T[@]}" qa sgd --evidence ok >/dev/null
+python3 - "$sg/.agents/.workloop-state.json" "$(git -C "$sg" rev-parse HEAD)" "$scratch/never-runs" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); run = s["runs"]["sgd"]
+run["landed"] = {"at": "2026-11-25T00:00:00Z", "branch": "main", "tip": sys.argv[2]}
+run["verified"] = {"at": "2026-11-25T00:00:00Z", "head": sys.argv[2], "lane_tips": {"solo": sys.argv[2]}, "verify": run["verify"], "result": "pass", "tail": ""}
+run["verify"] = run["verified"]["verify"] = f"touch {sys.argv[3]}"
+json.dump(s, open(p, "w"))
+EOF
+out="$("${T[@]}" land sgd 2>&1)" || fail "a landed run's close did not rerun: $out"
+[[ "$out" == *"landed on main"*"already; closing it"* && ! -e "$scratch/never-runs" ]] || fail "land of a landed run ran more than the close: $out"
+expect $'^closed\tlanded' "${T[@]}" status sgd
+ok "#13: land of a run already landed reruns only the close"
+
+# #14: saved work of a lane parked and never resumed is named when its run closes
+"${T[@]}" init sgv --objective x --acceptance y --repo "$sg" --verify true >/dev/null
+"${T[@]}" add-lane sgv one --worker implementer --path src >/dev/null 2>&1
+"${T[@]}" claim sgv one --agent one >/dev/null; printf 'v\n' >> "$sg/.agents/worktrees/sgv/one/src/app.txt"
+"${T[@]}" park sgv one >/dev/null
+expect 'kept saved work refs/workloop/sgv/one/wip (never resumed' "${T[@]}" abandon sgv --discard-branches
+ok "#14: closing a run names the saved work of a lane parked and never resumed"
+
+# #15: no abbreviated option: --rul is not --ruling
+out="$("${T[@]}" review sgv one --reference x --result accept --rul 'x' 2>&1)" && fail "an abbreviated --rul was accepted: $out"
+[[ "$out" == *"unrecognized arguments: --rul"* ]] || fail "an abbreviated option was not refused as unrecognized: $out"
+ok "#15: the controller takes no abbreviated option, so --rul is not --ruling"
 # ══ end swarm fixes ══
 
 rm "$state.lock"

@@ -451,7 +451,7 @@ run's labelled containers and removes its worktrees. Before removing a lane
 worktree it commits the worktree's uncommitted and untracked work on
 `refs/workloop/<run>/<lane>/wip`, never on the lane branch, and keeps that
 branch beside it; a worktree holding ignored files that would not come back
-(a `.env`) is kept and named with them. It deletes a branch only when the
+(a `.env`), or a nested repository, is kept and named with them. It deletes a branch only when the
 checkout's HEAD contains it. The run's `.workloop/` folder, scratch and state
 entry move to `.agents/worktrees/.closed/<run>/`, which `status` and `check`
 read; `prune --closed-before <date>` deletes old records.

@@ -65,7 +65,8 @@ def save_wip(repo: Path, workspace: Path, run_name: str, lane_name: str) -> tupl
     env = {"GIT_INDEX_FILE": scratch}
     try:
         shutil.copyfile(admin / "index", scratch)
-        wg.git(workspace, "add", "-A", env=env)
+        # --sparse: a sparse lane's untracked file outside its cone is still its work.
+        wg.git(workspace, "add", "-A", "--sparse", env=env)
         tree = wg.git(workspace, "write-tree", env=env)
         head = wg.head_of(workspace)
         commit = wg.git(workspace, "commit-tree", tree, "-p", head, "-m",
@@ -78,21 +79,25 @@ def save_wip(repo: Path, workspace: Path, run_name: str, lane_name: str) -> tupl
 
 
 def restore_wip(repo: Path, workspace: Path, ref: str) -> None:
-    """Apply the saved tree over the worktree as uncommitted changes, untracked files staying untracked, then drop the ref."""
-    admin = Path(wg.git(workspace, "rev-parse", "--path-format=absolute", "--git-dir"))
-    patch = admin / "wip.patch"
-    patch.write_text(wg.git(workspace, "diff", "--binary", "--no-renames", "HEAD", ref, strip=False))
-    try:
-        if patch.stat().st_size:
-            wg.git(workspace, "apply", "--whitespace=nowarn", str(patch))
-    finally:
-        patch.unlink()
+    """Write the saved tree over the worktree as uncommitted changes, then drop the ref.
+
+    `git restore` writes the files byte for byte from the ref and leaves the
+    index alone, so a file the save took untracked comes back untracked; with
+    --no-overlay a tracked file the save had deleted is deleted again. The ref
+    goes only after the restore succeeded: a failed one leaves it for the next
+    `resume`.
+    """
+    wg.git(workspace, "restore", f"--source={ref}", "--worktree", "--no-overlay", "--", ".")
     wg.git(repo, "update-ref", "-d", ref)
 
 
 def keep_reason(workspace: Path) -> str | None:
-    """Why removing the worktree would lose ignored files that would not come back; None when nothing would."""
-    return worktree_runs.lost_files(workspace)
+    """Why removing the worktree would lose what no ref holds; None when nothing would.
+
+    Ignored files that would not come back (`lost_files`), and a nested Git
+    repository, which a save records as a bare gitlink, its files nowhere.
+    """
+    return worktree_runs.lost_files(workspace) or worktree_runs.rm.nested(workspace)
 
 
 def lane_records(repo: Path, run_name: str, lane_name: str, workspace: Path) -> None:
@@ -114,7 +119,8 @@ def release_lane(repo: Path, run_name: str, lane_name: str, workspace: Path) -> 
     if why:
         return False, f"worktree {workspace} of lane {lane_name}: its uncommitted work was not saved ({why})", None
     lane_records(repo, run_name, lane_name, workspace)
-    wg.remove_worktree(repo, workspace)
+    if not wg.remove_worktree(repo, workspace):
+        return False, f"worktree {workspace} of lane {lane_name}: git does not list it as a linked worktree, so it was left in place", ref
     return True, (f"lane {lane_name}: uncommitted work saved on {ref}" if ref else f"lane {lane_name}: nothing uncommitted"), ref
 
 
@@ -224,7 +230,18 @@ def cmd_resume(args: argparse.Namespace) -> None:
     lines, restored = [], {}
     for name, lane in sorted(lanes.items()):
         workspace, branch = Path(lane["workspace"]), lane.get("branch")
+        ref = wip_ref(args.run, name)
+        saved = ref_tip(repo, ref)
         if workspace.is_dir():
+            # A restore that failed after the worktree came back left its ref:
+            # it is restored again while the worktree still sits on the commit
+            # the save was built on, so later work there is never overwritten.
+            if saved and wg.head_of(workspace) == wg.git(repo, "rev-parse", f"{saved}^"):
+                restore_wip(repo, workspace, ref)
+                lines.append(f"lane {name}: saved work restored as uncommitted changes into its worktree {workspace}")
+            elif saved:
+                lines.append(f"lane {name}: {ref} holds saved work, but its worktree moved past the commit it was saved on; "
+                             f"look with git -C {workspace} diff HEAD {ref}, then delete it with git update-ref -d {ref}")
             continue
         if lane["state"] == "reviewed":
             lines.append(f"lane {name}: reviewed; integrate and land read its branch, so it needs no worktree")
@@ -234,8 +251,6 @@ def cmd_resume(args: argparse.Namespace) -> None:
             continue
         wg.worktree_readd(repo, workspace, branch, lane.get("sparse"))
         ok, text = wg.provision(workspace, repo)
-        ref = wip_ref(args.run, name)
-        saved = ref_tip(repo, ref)
         if saved:
             restore_wip(repo, workspace, ref)
         restored[name] = (ok, text, wg.lock_hash(workspace) if ok else None)

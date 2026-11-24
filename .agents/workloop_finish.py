@@ -312,6 +312,10 @@ def release_run(repo: Path, run_name: str, lane_names: list[str], worktrees: dic
                 errors.append(f"{label}: could not delete {branch}: {reason}")
         else:
             kept.append(f"branch {branch} ({keep_reason})")
+    # Saved work of a lane parked and never resumed outlives the run; it is named, never dropped.
+    for ref in wg.git(repo, "for-each-ref", "--format=%(refname)", f"refs/workloop/{run_name}/", check=False).splitlines():
+        if not any(ref in line for line in kept):
+            kept.append(f"saved work {ref} (never resumed: git show --stat {ref}; delete it with git update-ref -d {ref})")
     return removed, kept, errors, wd.removed_count(docker_result)
 
 

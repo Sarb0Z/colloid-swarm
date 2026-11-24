@@ -193,7 +193,8 @@ def cmd_review(args: argparse.Namespace) -> None:
             lane["accepted_tip"] = accepted_tip(args, run, lane)
             if not wm.is_main(lane):
                 # The accept binds the (start, tip) pair the reviewer brief named.
-                lane["accepted_start"] = lane["start"]
+                # A lane submitted before starts were recorded is measured afresh at its tip.
+                lane["accepted_start"] = lane.get("start") or start_point(run, args.lane, lane["accepted_tip"])
             lane["state"] = "reviewed"
         else:
             lane["state"] = "reopened"

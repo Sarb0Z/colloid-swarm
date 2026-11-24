@@ -12,6 +12,7 @@ workloop_resume.py (park, resume, the wip ref and the disk floor).
 from __future__ import annotations
 
 import argparse
+import functools
 import re
 import time
 
@@ -100,10 +101,12 @@ def cmd_dismiss(args: argparse.Namespace) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(epilog=SHAPES, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # No abbreviations: `--rul` must not mean `--ruling`, which the authority
+    # hook refuses from cells by its full spelling.
+    root = argparse.ArgumentParser(epilog=SHAPES, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     root.add_argument("--state", help="state file (default: .agents/.workloop-state.json)")
     root.add_argument("--event-id", help="idempotency key for a mutating command")
-    sub = root.add_subparsers(required=True)
+    sub = root.add_subparsers(required=True, parser_class=functools.partial(argparse.ArgumentParser, allow_abbrev=False))
     init = sub.add_parser("init"); init.add_argument("run"); init.add_argument("--objective", required=True); init.add_argument("--acceptance", required=True); init.add_argument("--verify", help="the composed test: check runs it in a worktree at a main lane's accepted commit, integrate over the merged tree for worktree lanes; a run declared without it is a read-only fan-out, which holds cells only"); init.add_argument("--repo", help="checkout the run belongs to (default: the current directory's)"); init.add_argument("--base", default="HEAD"); init.add_argument("--shared", action="append", help="repository path every lane may edit without owning it (repeatable)"); init.add_argument("--max-lanes", type=int, default=8); init.add_argument("--supervised", action="store_true"); init.add_argument("--message-limit", type=int, default=128); init.add_argument("--lane", help="one writer: the run's sole lane, working in the checkout itself; prints its dispatch"); init.add_argument("--worker", help="the main lane's worker type (with --lane)"); init.add_argument("--path", action="append", help="a path the main lane owns (with --lane, repeatable)"); init.add_argument("--model", help="the main lane's model, printed in its brief and in status (with --lane)"); init.set_defaults(func=cmd_init)
     add = sub.add_parser("add-lane"); add.add_argument("run"); add.add_argument("lane"); add.add_argument("--worker", required=True); add.add_argument("--workspace", help=f"the lane's worktree (default: {WORKTREES}/<run>/<lane> in the checkout)"); add.add_argument("--path", action="append", required=True); add.add_argument("--depends-on", action="append"); add.add_argument("--allow-more", action="store_true"); add.add_argument("--sparse", action="store_true", help="very large monorepos only: check out the owned directories, --also ones, and what the install needs"); add.add_argument("--also", action="append", help="extra directory to include in a sparse cone"); add.add_argument("--exclusive", action="append", help="a named resource only one active lane may hold, e.g. playwright"); add.add_argument("--model", help="the lane's model, printed in its brief and in status"); add.set_defaults(func=cmd_add_lane)
     widen = sub.add_parser("widen"); widen.add_argument("run"); widen.add_argument("lane"); widen.add_argument("--path", action="append", help="repository path the lane comes to own (repeatable)"); widen.add_argument("--also", action="append", help="directory added to a sparse lane's cone (repeatable)"); widen.set_defaults(func=cmd_widen)

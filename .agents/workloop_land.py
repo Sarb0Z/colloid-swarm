@@ -49,10 +49,22 @@ def cmd_land(args: argparse.Namespace) -> None:
         source = source_branch(run)
         if not source:
             fail(f"run {args.run!r} was started from a detached commit, so it has no branch to land on; merge its work by hand, then abandon {args.run}")
+        repo = Path(run["repo"])
+        landed = run.get("landed")
+        if landed:
+            # The work is on the branch already; only the close failed, so only the close runs again.
+            names = sorted(run["lanes"])
+            lanes = {name: (lane["workspace"], lane.get("branch")) for name, lane in wm.worktree_lanes(run).items()}
+            integration = run.get("integration") or {}
+    if landed:
+        print(f"{args.run!r} landed on {landed['branch']} at {landed['tip'][:12]} already; closing it")
+        print(close(args, "landed", repo, names, lanes, integration, wg.head_of(repo)))
+        return
+    with Store(state) as data:
+        run = run_of(data, args.run)
         blockers = land_blockers(run)
         if blockers:
             fail("land waits for completion; blocked by " + ", ".join(blockers))
-        repo = Path(run["repo"])
         touched = sorted({path for lane in run["lanes"].values() for path in lane["paths"]} | set(shared_of(run)))
     on = wg.current_branch(repo)
     if on != source:
@@ -109,7 +121,15 @@ def land_worktrees(args: argparse.Namespace, state: Path, run: dict, repo: Path,
         if dirty:
             fail(f"the checkout has uncommitted changes in paths the merge brings: {', '.join(dirty)}; commit or discard them, then rerun land")
         if tip != head:
+            # The checkout may have been switched while the composed test ran;
+            # a merge now would move whatever branch is checked out.
+            on = wg.current_branch(repo)
+            if on != source:
+                fail(f"the checkout {repo} was switched to {on or 'a detached HEAD'} while land ran; nothing was merged. "
+                     f"Switch back to {source}, then rerun land")
             wg.git(repo, "merge", "--ff-only", "-q", head)
+            if wg.branch_tip(repo, source) != head:
+                fail(f"{source} is not at the verified commit {head[:12]} after the fast-forward; see git -C {repo} log -1 {source}")
     return head
 
 

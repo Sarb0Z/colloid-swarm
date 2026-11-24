@@ -175,6 +175,11 @@ def run_of(data: dict, name: str) -> dict:
     # worktree, merge, and staleness check below depends on both being fixed.
     if not wg.SHA.fullmatch(str(run.get("base", ""))) or not run.get("repo"):
         fail(f"run {name!r} predates pinned bases; re-init it (base must be a commit SHA with a repo)")
+    # A run from before source branches records the branch its checkout has
+    # checked out at the first command that writes the state, and keeps it
+    # (ruling R11); a checkout not on disk records nothing yet.
+    if "source" not in run and Path(run["repo"]).is_dir():
+        run["source"] = wg.current_branch(run["repo"])
     return run
 
 
