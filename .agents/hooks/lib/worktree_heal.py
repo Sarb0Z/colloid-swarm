@@ -3,7 +3,8 @@
 `.agents/worktrees/`, is removed when nothing in it would be lost, and every other one is
 named with its work and the command that shows why it stays. `judge` holds the rules and
 runs again in full just before each removal. Removal is `git worktree remove` without
---force; nothing is saved; a branch goes only when the main checkout's HEAD contains it.
+--force; nothing is saved; a branch goes only when its source branch contains it
+(`heal_source`: the start point its reflog names, else the default branch).
 """
 
 from __future__ import annotations
@@ -45,14 +46,20 @@ LEDGERS += (".genome-ledger", ".mutagen-ledger")
 # /colloid-only
 
 
-def stale_ledgers(main: Path, live: set) -> list[str]:
-    """Remove the marker ledgers (`.cell-markers-<session>`, in LEDGERS) a session left that no
-    live record names and nothing has written for IDLE_SECONDS; a session start keeps its own
+def stale_ledgers(main: Path, me: str, stores: list[Path]) -> list[str]:
+    """Remove another session's marker ledger (`.cell-markers-<session>`, in LEDGERS) once its
+    session's transcript (`<store>/<project>/<session>.jsonl` in Claude Code's `stores`) has not
+    changed for IDLE_SECONDS, as cell_markers.py drop-session judges a writer row; a session
+    with no transcript found is judged by the ledger's own age. A session start keeps its own
     unless it starts afresh. One line per ledger that could not go."""
     lines = []
     for ledger in (main / ".agents").glob(".cell-markers-*"):
+        session = ledger.name.removeprefix(".cell-markers-")
+        if session == me:
+            continue
+        transcript = next((found for store in stores for found in store.glob(f"*/{session}.jsonl")), None)
         try:
-            if ledger.name.removeprefix(".cell-markers-") not in live and time.time() - ledger.stat().st_mtime > IDLE_SECONDS:
+            if time.time() - (transcript or ledger).stat().st_mtime > IDLE_SECONDS:
                 ledger.unlink()
         except FileNotFoundError:
             continue
@@ -171,7 +178,7 @@ def squashed(path: Path, refs: list[str]) -> str | None:
 
 def settled(path: Path, branch: str | None, defaults: list[str]) -> tuple[str | None, str | None]:
     """(How its commits are safe elsewhere, or None; why not, with the command to look.)
-    `defaults` are its source branch's refs (`source_refs`)."""
+    `defaults` are its source branch's refs (`heal_source`), squash merges into them included."""
     short_name = short(defaults[0]) if defaults else "the default branch"
     if into := contained(path, defaults):
         return f"merged into {into}", None
@@ -192,9 +199,10 @@ def settled(path: Path, branch: str | None, defaults: list[str]) -> tuple[str | 
     return None, f"{ahead or 'some'} commit(s) are neither in {short_name} nor on {upstream}; see `git -C {path} log @{{upstream}}..HEAD`"
 
 
-def stranded(path: Path, keep: float | None) -> tuple[str | None, float | None]:
+def stranded(path: Path, keep: float | None, saved: tuple[str, ...]) -> tuple[str | None, float | None]:
     """Why commits only this worktree reaches keep it, and until when. Removal deletes its
-    HEAD log and its refs/worktree/ refs; a log entry counts while git would keep it."""
+    HEAD log and its refs/worktree/ refs; a log entry counts while git would keep it. Commits
+    `saved` (revisions a save is about to put on a branch, such as HEAD) reach count as kept."""
     log = wr.git(path, "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD")
     own = wr.git(path, "for-each-ref", "--format=%(objectname)", "refs/worktree/")
     if log.returncode or own.returncode:
@@ -206,7 +214,7 @@ def stranded(path: Path, keep: float | None) -> tuple[str | None, float | None]:
             reached[commit] = max(reached.get(commit) or 0, int(stamp) + keep) if keep is not None else None
     if not reached:
         return None, None
-    found = wr.git(path, "rev-list", "--ignore-missing", "--stdin", "--not", "--branches", "--tags", "--remotes",
+    found = wr.git(path, "rev-list", "--ignore-missing", "--stdin", "--not", "--branches", "--tags", "--remotes", *saved,
                    stdin="".join(f"{commit}\n" for commit in reached))
     if found.returncode:
         return f"git could not read its HEAD log ({found.stderr.strip()}); see `git -C {path} reflog`", None
@@ -265,7 +273,7 @@ def judge(path: Path, entry: dict, ctx, refs: list[str]) -> tuple[str | None, st
     safe, why = settled(path, entry["branch"], refs)
     if why:
         return why, None, True, None, True
-    why, until = stranded(path, ctx.keep)
+    why, until = stranded(path, ctx.keep, ())
     if why:
         return why, None, False, until, True
     why = rm.inner_worktree(path, ctx.listed) or rm.nested(path)
@@ -328,7 +336,8 @@ def heal(main: Path, spared: set, cache: dict | None, emit, remove: bool, budget
         if entry["prunable"] or not path.is_dir() or str(path) in spared:
             continue
         if any(folder.name == "worktrees" and folder.parent.name == ".agents" for folder in path.parents):
-            emit(f"lane folder {about(path, entry, defaults, 'the default branch')}: belongs to no workloop run; "
+            label, on = heal_source(main, entry["branch"], defaults)
+            emit(f"lane folder {about(path, entry, on, label)}: belongs to no workloop run; "
                  "see `git worktree list`")
             continue
         key, hit = cache_key(path, entry), (cache or {}).get(str(path))

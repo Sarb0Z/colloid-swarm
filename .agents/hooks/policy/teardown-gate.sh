@@ -684,7 +684,7 @@ PostToolUse|SubagentStart)
   [[ -z "$opened" || "$first" == "no" || "$event" == "SubagentStart" ]] && exit 0
   kind="${opened#+}"; kind="${kind%%	*}"
   if [[ "$kind" == "worktree" ]]; then
-    printf '%s' "Made a worktree: ${opened#*	}. Remove it once the work is pushed, or before the session ends — $(howto worktree "${opened#*	}"). Whatever is left when the session ends is removed then, its unsaved work committed to a saved/ branch first; \`git worktree lock <path>\` keeps one." \
+    printf '%s' "Made a worktree: ${opened#*	}. Remove it once the work is pushed, or before the session ends — $(howto worktree "${opened#*	}"). Once the session has ended, an hourly check removes what is left if its work is merged into the branch it was cut from, and otherwise names it in the lead's digest with three answers for the operator: keep it, save and remove, or discard; \`git worktree lock <path>\` keeps one." \
       | python3 "$lib/emit-context.py" PostToolUse
     exit 0
   fi

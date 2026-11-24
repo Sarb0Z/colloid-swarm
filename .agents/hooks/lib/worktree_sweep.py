@@ -140,8 +140,8 @@ def close(path: Path, workloop: Path) -> list[str]:
         wr.append(path.parent, path.stem, entries)
         claimed.unlink()
         return []
-    # After /clear the session's process runs on, and its own lock of a worktree ends with the session.
-    remover = rm.Remover(f"session {path.stem}", carriers(), mark["host"][0] if mark else None, rn.lost_files)
+    # After /clear the session's process runs on: only the lock naming this session ends with it.
+    remover = rm.Remover(f"session {path.stem}", carriers(), path.stem, rn.lost_files)
     standing = finish(entries, remover, workloop, path, end)
     again = resumed(path)
     # What stays goes back under the session's stamp, still ended unless it resumed meanwhile.
@@ -192,48 +192,74 @@ class Ask:
         self.session, self.workloop, self.kept = session, workloop, kept
         self.script = Path(__file__).resolve()
 
-    def answers(self, path: Path, lane: tuple[str, str, str] | None) -> str:
-        """`lane` is (state file, run, lane) for a lane's worktree."""
+    def answers(self, path: Path, lane: tuple[str, str, str] | None, drops: str) -> str:
+        """`lane` is (state file, run, lane) for a lane's worktree; `drops` what discard loses."""
         save = (f"python3 {self.workloop} --state {lane[0]} park {lane[1]} {lane[2]}" if lane
                 else f"python3 {self.script} remove {path} --save")
         return (f"keep it (asked again in a week): `python3 {self.script} keep {path}`; save and remove: `{save}`; "
-                f"discard: `python3 {self.script} remove {path} --discard`")
+                f"discard ({drops}): `python3 {self.script} remove {path} --discard`")
+
+    def blocked(self, path: Path, why: str) -> str:
+        """The line for a worktree the check cannot judge until a step by hand."""
+        return (f"kept {path}: {why}; dead session {self.session} left it: resolve that by hand, or keep it with "
+                f"`git worktree lock {path}`; to be asked again in a week instead: `python3 {self.script} keep {path}`")
 
     def asked_lately(self, path: Path) -> bool:
         at = self.kept.get(str(path))
         return isinstance(at, (int, float)) and time.time() - at < KEEP_SECONDS
 
 
+def drops(path: Path, branch: str | None) -> str:
+    """What discarding the worktree does (the operator's ruling of 2026-11-25): its folder goes
+    with its uncommitted, untracked and ignored files; its branch stays, with the commits no
+    other ref reaches, so `git switch <branch>` brings them back."""
+    count = rm.unreferenced(path, "HEAD", branch)
+    kept = (f"keeps branch {branch} with its {count} commits in no other ref" if branch
+            else f"puts its detached HEAD's {count} commits in no other ref on a saved/ branch")
+    return f"removes the folder with its uncommitted, untracked and ignored files; {kept}"
+
+
 def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask: Ask,
-           lane: tuple[str, str, str] | None, squash: bool) -> str:
+           lane: tuple[str, str, str] | None, squash: bool, removable: bool) -> str:
     """Remove a dead session's worktree whose work is merged into its source branch, with nothing
-    uncommitted, untracked or ignored that would not come back; flag any other one. Returns
-    "removed", "gone", "locked" (a standing decision to keep it) or "kept"."""
+    uncommitted, untracked or ignored that would not come back; flag any other one. With
+    `removable` off (a lane of an unfinished run, which is not done under ruling R1) nothing
+    is removed: a worktree holding work is flagged and an empty one left as it is. A worktree
+    the operator kept is passed over before anything is read from it. Returns "removed",
+    "gone", "locked" (a standing decision to keep it) or "kept"."""
     path = path.resolve() if path.exists() else path
     if not path.is_dir():
         return "gone"
     if resumed(record):
         remover.lines.append(f"kept {path}: its session resumed during this sweep")
         return "kept"
-    refusal = remover.blocked(path)
-    if refusal:
-        remover.lines.append(f"kept {path}: {refusal[1]}")
-        return "locked" if refusal[0] == "locked" else "kept"
-    label, refs = source
     main = wr.main_checkout(path)
-    entry = next((item for item in wr.worktrees(main) if item["path"] == path), None) if main else None
+    listed = wr.worktrees(main) if main else []
+    entry = next((item for item in listed[1:] if item["path"] == path), None)
     if entry is None:
         remover.lines.append(f"kept {path}: git lists it as no linked worktree")
         return "kept"
+    if entry["locked"] and not rm.claude_lock_ended(entry["locked"], remover.ended_session):
+        remover.lines.append(f"kept {path}: it is locked ({entry['locked']})")
+        return "locked"
+    if ask.asked_lately(path):
+        return "kept"
+    label, refs = source
     ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", *refs) if refs else ""
     merged = ahead == "0" or bool(entry["branch"] and hl.squashed(path, refs))
+    stranded = hl.stranded(path, hl.REFLOG_KEEP_SECONDS, ())[0] if merged else None
+    why = remover.occupant(path) or rm.inner_worktree(path, listed) or rm.nested(path) or rm.unsaveable(path)
+    if why:
+        remover.lines.append(ask.blocked(path, why))
+        return "kept"
     status = wr.git(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain",
                     "--ignore-submodules=none", "--untracked-files=all")
     changed = "an unreadable number of" if status.returncode else str(len(status.stdout.splitlines()))
     lost = hl.unrebuildable(path)
     ignored = lost if isinstance(lost, str) else (", ".join(lost) or "none")
-    stranded = hl.stranded(path, hl.REFLOG_KEEP_SECONDS)[0] if merged else None
     if merged and changed == "0" and lost == [] and not stranded:
+        if not removable:
+            return "kept"
         if entry["locked"]:
             wr.git(main, "worktree", "unlock", str(path))
         note = rm.remove(path, main, force=False)
@@ -243,10 +269,9 @@ def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask
         remover.lines.append(f"removed {path}: its work is merged into {label}"
                              + rm.drop_branch(main, entry["branch"], refs, squash=squash))
         return "removed"
-    if not ask.asked_lately(path):
-        remover.lines.append(f"dead session {ask.session} left {path}: {ahead or '?'} commits not in {label}, "
-                             f"{changed} uncommitted files, ignored: {ignored}" + (f"; {stranded}" if stranded else "")
-                             + f". Ask the operator, then run the answer: {ask.answers(path, lane)}")
+    remover.lines.append(f"dead session {ask.session} left {path}: {ahead or '?'} commits not in {label}, "
+                         f"{changed} uncommitted files, ignored: {ignored}" + (f"; {stranded}" if stranded else "")
+                         + f". Ask the operator, then run the answer: {ask.answers(path, lane, drops(path, entry['branch']))}")
     return "kept"
 
 
@@ -274,6 +299,9 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
             remaining.append(entry)
             held.add(name)
             continue
+        # Finished or not decides first: an unfinished run is not done (ruling R1), so
+        # nothing of it is removed, and only its lanes holding work are flagged.
+        why = rn.unfinished(entry, workloop)
         base = run.get("source")
         lanes = {str(Path(lane["workspace"]).resolve()): (lane_name, lane.get("branch"))
                  for lane_name, lane in (run.get("lanes") or {}).items() if lane.get("workspace") and lane.get("place") != "main"}
@@ -282,27 +310,27 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
             space_path = Path(space).resolve() if Path(space).exists() else Path(space)
             lane_name, branch = lanes.get(str(space_path), (None, None))
             outcome = settle(space_path, source_for(wr.main_checkout(space_path) or main, base, branch), remover, record,
-                             ask, (state, name, lane_name) if lane_name else None, squash=True)
+                             ask, (state, name, lane_name) if lane_name else None, squash=True, removable=why is None)
             settled.add(str(space_path))
             pending = pending or outcome == "kept"
-        if pending:
-            remaining.append(entry)
-            held.add(name)
-            continue
-        why = rn.unfinished(entry, workloop)
         if resumed(record):
             remover.lines.append(f"kept workloop run {name}: its session resumed during this sweep")
-            remaining.append(entry)
-            held.add(name)
+        elif pending:
+            pass
         elif why is None:
             # Finished, so it closes as complete: abandon would record it as given up.
             closed, line = rn.close(name, state, workloop, "teardown", "its lead's session ended and its work is finished")
             remover.lines.append(line)
-            if not closed:
-                remaining.append(entry)
-                held.add(name)
-        # An unfinished run with no worktree left is no longer this record's; the sweep's
-        # unowned-run pass names it, or closes it once git lists none of its worktrees.
+            if closed:
+                continue
+        elif lane := rn.parked(wr.run_checkout(run.get("repo") or "/nonexistent"), name, run):
+            remover.lines.append(f"kept workloop run {name}: lane {lane}'s saved work waits; bring it back with "
+                                 f"`python3 {workloop} --state {state} resume {name}`")
+        else:
+            # Unfinished with no worktree left: the sweep's unowned-run pass closes it.
+            continue
+        remaining.append(entry)
+        held.add(name)
     seen = set(settled)
     for entry in [e for e in entries if e.get("type") == "worktree" and e.get("path")]:
         worktree = Path(entry["path"])
@@ -318,7 +346,7 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
         where = wr.main_checkout(worktree) if worktree.is_dir() else None
         branch = next((e["branch"] for e in wr.worktrees(where) if e["path"] == worktree.resolve()), None) if where else None
         outcome = settle(worktree, source_for(where or main, entry.get("source"), branch), remover, record, ask, None,
-                         squash=False)
+                         squash=False, removable=True)
         if outcome == "kept":
             remaining.append(entry)
     return remaining
@@ -465,26 +493,14 @@ def locked_sweep(main: Path, me: str, source: str, workloop: Path, emit, budget:
     spared = recorded | {str(Path(space).resolve()) for run in runs for space in rn.workspaces(run)}
     common = common_dir(main)
     save_cache(common, hl.heal(main, spared, load_cache(common), emit, source != "compact", budget))
-    for line in hl.stale_ledgers(main, live_sessions(folder) | {me}):
+    stores = rn.ar.real_folders(d / "projects" for d in rn.ar.config_dirs(Path.home(), os.environ.get("CLAUDE_CONFIG_DIR", "")))
+    for line in hl.stale_ledgers(main, me, stores):
         emit(line)
     saved = wr.out(main, "for-each-ref", "--format=%(refname:short) %(committerdate:short) %(subject)", "refs/heads/saved/")
     if saved:
         emit("Unsaved work from removed worktrees waits on these branches; merge what is wanted, then delete each branch:")
         for line in saved.splitlines():
             emit(f"  {line}")
-
-
-def live_sessions(folder: Path) -> set[str]:
-    """The sessions whose record says they still run: not ended, their process alive."""
-    live = set()
-    for path in folder.glob("*.jsonl") if folder.is_dir() else []:
-        try:
-            entries = wr.load(path)
-        except FileNotFoundError:
-            continue
-        if not wr.ended(entries) and wr.alive(wr.last_host(entries)):
-            live.add(path.stem)
-    return live
 
 
 def keep(path: Path) -> str:
@@ -502,14 +518,16 @@ def keep(path: Path) -> str:
     return f"kept {path}; the hourly check asks about it again after {time.strftime('%Y-%m-%d', time.localtime(time.time() + KEEP_SECONDS))}"
 
 
-def recorded_source(main: Path, path: Path) -> str | None:
-    """The source branch a session record gave the worktree at its creation, if any."""
+def recorded(main: Path, path: Path) -> tuple[str | None, str | None]:
+    """(The source branch a session record gave the worktree at its creation, the session that
+    recorded it when that session has ended), each None when no record says."""
     folder = main / wr.RECORDS
     for record in folder.glob("*.jsonl") if folder.is_dir() else []:
-        for entry in wr.load(record):
-            if entry.get("type") == "worktree" and entry.get("source") and Path(entry.get("path", "")).resolve() == path:
-                return entry["source"]
-    return None
+        entries = wr.load(record)
+        mine = [e for e in entries if e.get("type") == "worktree" and Path(e.get("path", "")).resolve() == path]
+        if mine:
+            return next((e["source"] for e in mine if e.get("source")), None), record.stem if wr.ended(entries) else None
+    return None, None
 
 
 def run_holding(main: Path, path: Path) -> tuple[str, str, str | None, dict] | None:
@@ -528,9 +546,11 @@ def run_holding(main: Path, path: Path) -> tuple[str, str, str | None, dict] | N
 
 def remove(path: Path, how: str, workloop: Path) -> list[str]:
     """The operator's answer for a flagged worktree: `--save` commits its unsaved work to
-    `saved/<name>` and removes it, keeping it while ignored files would be lost; `--discard`
-    deletes it with all it holds, its ignored files and its branch included. A worktree of a run
-    an agent may still be working for is refused, and a lane's save is the controller's `park`."""
+    `saved/<name>` (a detached HEAD no ref reaches too) and removes it, keeping it while ignored
+    files or commits only its HEAD log reaches would be lost; `--discard` removes the folder with
+    its uncommitted, untracked and ignored files and keeps its branch. Both refuse a lock whose
+    holder still runs, and a worktree of a run an agent may still be working for; a lane's save
+    is the controller's `park`."""
     path = path.resolve() if path.exists() else path
     main = wr.main_checkout(path) if path.is_dir() else None
     if main is None:
@@ -547,26 +567,37 @@ def remove(path: Path, how: str, workloop: Path) -> list[str]:
         if lane and how == "--save":
             return [f"kept {path}: it is lane {lane} of workloop run {name}, whose save is "
                     f"`python3 {workloop} --state {state} park {name} {lane}`"]
-    refs = source_for(main, recorded_source(main, path), entry["branch"])[1]
+    source, ended = recorded(main, path)
+    refs = source_for(main, source, entry["branch"])[1]
     if how == "--save":
-        remover = rm.Remover("the operator's save-and-remove answer", carriers(), None, rn.lost_files)
+        lost = hl.stranded(path, hl.REFLOG_KEEP_SECONDS, ("HEAD",))[0]
+        if lost:
+            return [f"kept {path}: {lost}; put them on a branch first, then answer again"]
+        remover = rm.Remover("the operator's save-and-remove answer", carriers(), ended, rn.lost_files)
         remover.retire(path, refs)
         return remover.lines
-    refusal = rm.Remover("the operator's discard answer", carriers(), None, None).occupant(path) \
-        or rm.inner_worktree(path, wr.worktrees(main)) or rm.nested(path)
+    remover = rm.Remover("the operator's discard answer", carriers(), ended, None)
+    if entry["locked"] and not rm.claude_lock_ended(entry["locked"], ended):
+        return [f"kept {path}: it is locked ({entry['locked']}); unlock it first if it is to go"]
+    refusal = remover.occupant(path) or rm.inner_worktree(path, wr.worktrees(main)) or rm.nested(path)
     if refusal:
         return [f"kept {path}: {refusal}"]
+    branch, count = entry["branch"], rm.unreferenced(path, "HEAD", entry["branch"])
+    saved = None
+    if not branch and count:
+        saved, error = rm.saved_branch(path, wr.out(path, "rev-parse", "HEAD"))
+        if error:
+            return [f"kept {path}: its detached HEAD's {count} commits could not be put on a branch ({error})"]
     removed = wr.git(main, "worktree", "remove", "--force", "--force", str(path))
     if removed.returncode:
         return [f"kept {path}: git refused to remove it ({(removed.stderr or removed.stdout).strip()})"]
-    branch = entry["branch"]
-    if not branch:
-        return [f"discarded {path}"]
-    why = rm.protected(main, branch, refs)
-    if why:
-        return [f"discarded {path}; branch {branch} kept, {why}"]
-    deleted = wr.git(main, "branch", "-D", branch)
-    return [f"discarded {path}; " + (f"branch {branch} kept: {deleted.stderr.strip()}" if deleted.returncode else f"branch {branch} deleted")]
+    # The operator's ruling of 2026-11-25: discard keeps the branch, so its commits come back
+    # with `git switch <branch>`; only the folder's uncommitted, untracked and ignored files go.
+    if branch:
+        return [f"discarded {path} with its uncommitted, untracked and ignored files; branch {branch} kept with its "
+                f"{count} commits in no other ref (`git switch {branch}` brings them back)"]
+    return [f"discarded {path} with its uncommitted, untracked and ignored files"
+            + (f"; its detached HEAD's {count} commits are on branch {saved}" if saved else "")]
 
 
 def say(line: str) -> None:

@@ -82,6 +82,8 @@ utc_start() {  # <pid>: its start as Claude Code writes it into a lock, in UTC
 bash_call "$R" 'git worktree add -q ../wt-clean -b clean'
 [[ "$(recorded "$scratch/wt-clean")" == 1 ]] || fail "git worktree add was not recorded: $(cat "$records"/*.jsonl 2>&1)"
 [[ "$out" == *"Made a worktree: $scratch/wt-clean"* ]] || fail "no reminder for the new worktree: $out"
+[[ "$out" == *"an hourly check removes what is left if its work is merged"*"keep it, save and remove, or discard"* && "$out" != *"saved/ branch first"* ]] \
+  || fail "the reminder must describe the hourly check and its three answers: $out"
 bash_call "$R/src" 'cd .. && git worktree add -q ../wt-dirty -b dirty'
 [[ "$(recorded "$scratch/wt-dirty")" == 1 ]] || fail "a worktree added after a cd was not recorded"
 bash_call "$R" 'echo "git worktree add ../nothing"'
@@ -111,6 +113,8 @@ grep -q "\"path\": \"$scratch/wt-clean\", \"source\": \"main\"" "$records/s1.jso
 git -C "$R" worktree add -q "$R/.claude/worktrees/agent-a1b2" -b worktree-agent-a1b2
 gate "$(printf '{"hook_event_name":"SubagentStart","cwd":"%s","session_id":"s1","agent_id":"a1b2"}' "$R/.claude/worktrees/agent-a1b2")"
 [[ "$(recorded "$R/.claude/worktrees/agent-a1b2")" == 1 ]] || fail "an isolated cell's worktree was not recorded"
+grep -q "\"path\": \"$R/.claude/worktrees/agent-a1b2\", \"source\": \"main\"" "$records/s1.jsonl" \
+  || fail "an isolated cell's worktree must record the main checkout's branch as its source: $(cat "$records/s1.jsonl")"
 gate "$(printf '{"hook_event_name":"SubagentStart","cwd":"%s","session_id":"s1"}' "$scratch/wt-operator")"
 [[ "$(recorded "$scratch/wt-operator")" == 0 ]] || fail "a cell started in someone's worktree recorded it"
 ok "EnterWorktree and an isolated cell's worktree are recorded from the payload's folder"
@@ -246,7 +250,7 @@ ok "the check removes a dead session's merged, clean worktree, its branch delete
 ok "the worktree the check's own process runs in is removed: lsof does not count itself"
 [[ -d "$scratch/wt-dirty" && "$report" == *"dead session s1 left $scratch/wt-dirty: 0 commits not in main, 2 uncommitted files, ignored: none. Ask the operator"* ]] \
   || fail "a dirty worktree must stay and be flagged, package folders and tool caches not counted: $report"
-[[ "$report" == *"keep it (asked again in a week): \`python3 $R/.agents/hooks/lib/worktree_sweep.py keep $scratch/wt-dirty\`; save and remove: \`python3 $R/.agents/hooks/lib/worktree_sweep.py remove $scratch/wt-dirty --save\`; discard: \`python3 $R/.agents/hooks/lib/worktree_sweep.py remove $scratch/wt-dirty --discard\`"* ]] \
+[[ "$report" == *"keep it (asked again in a week): \`python3 $R/.agents/hooks/lib/worktree_sweep.py keep $scratch/wt-dirty\`; save and remove: \`python3 $R/.agents/hooks/lib/worktree_sweep.py remove $scratch/wt-dirty --save\`; discard (removes the folder with its uncommitted, untracked and ignored files; keeps branch dirty with its 0 commits in no other ref): \`python3 $R/.agents/hooks/lib/worktree_sweep.py remove $scratch/wt-dirty --discard\`"* ]] \
   || fail "the flag must name the three answers as commands: $report"
 git -C "$R" rev-parse -q --verify refs/heads/saved/wt-dirty >/dev/null && fail "nothing may be saved unasked"
 answer "$scratch/wt-dirty" --save
@@ -333,10 +337,19 @@ for name in left-earlier answered-none kept; do
   tool PostToolUse "$R/.claude/worktrees/$name" EnterWorktree "{\"name\":\"$name\"}"
 done
 me="$(cd "$R/.agents/hooks/lib" && python3 -c 'import worktree_records as w; print(w.host()[0])')"
-git -C "$R" worktree lock "$R/.claude/worktrees/answered-none" --reason "claude session answered-none (pid $me start $(utc_start "$me"))"
+git -C "$R" worktree lock "$R/.claude/worktrees/answered-none" --reason "claude session s1 (pid $me start $(utc_start "$me"))"
+# An isolated cell's lock names its agent and the same process: that process runs on, so it holds.
+bash_call "$R" 'git worktree add -q ../wt-agent-held -b agent-held'
+git -C "$R" worktree lock "$scratch/wt-agent-held" --reason "claude agent ag9 (pid $me start $(utc_start "$me"))"
 printf 'x\n' > "$R/.claude/worktrees/kept/x.txt"
 end_session prompt_input_exit
 check
+[[ -d "$scratch/wt-agent-held" && "$report" == *"kept $scratch/wt-agent-held: it is locked (claude agent ag9"* ]] \
+  || fail "a running process's agent lock must hold its worktree after its session ends: $report"
+answer "$scratch/wt-agent-held" --discard
+[[ -d "$scratch/wt-agent-held" && "$answered" == *"kept $scratch/wt-agent-held: it is locked (claude agent ag9"* ]] \
+  || fail "discard must refuse a lock whose holder still runs: $answered"
+git -C "$R" worktree unlock "$scratch/wt-agent-held"
 [[ -f "$R/.claude/worktrees/kept/x.txt" && "$report" == *"kept $R/.claude/worktrees/kept: kept at Claude Code's exit prompt"* ]] \
   || fail "a worktree the operator kept at the exit prompt must stay: $report"
 [[ ! -e "$R/.claude/worktrees/answered-none" ]] || fail "one still under this session's own lock was never answered for, so it goes: $report"
@@ -379,12 +392,56 @@ check
 [[ "$report" == *"left $scratch/st-ahead:"* ]] || fail "a keep older than a week must be asked about again: $report"
 answer "$scratch/st-dirty" --save
 [[ ! -e "$scratch/st-dirty" && "$(git -C "$R" show saved/st-dirty:src/app.txt)" == $'one\nedit' ]] || fail "save and remove must keep the edit on saved/st-dirty: $answered"
+[[ "$report" == *"discard (removes the folder with its uncommitted, untracked and ignored files; keeps branch st-ahead with its 1 commits in no other ref)"* ]] \
+  || fail "the discard answer must name the branch it keeps and its commits in no other ref: $report"
+ahead_tip="$(git -C "$scratch/st-ahead" rev-parse HEAD)"
+printf 'scratch\n' > "$scratch/st-ahead/scratch.txt"
 answer "$scratch/st-ahead" --discard
-[[ ! -e "$scratch/st-ahead" && "$answered" == *"branch st-ahead deleted"* ]] && ! git -C "$R" rev-parse -q --verify refs/heads/st-ahead >/dev/null \
-  || fail "discard must remove the worktree and its branch: $answered"
+[[ ! -e "$scratch/st-ahead" && "$answered" == *"branch st-ahead kept with its 1 commits in no other ref"* ]] || fail "discard must remove the folder and name the branch it keeps: $answered"
+[[ "$(git -C "$R" rev-parse -q --verify refs/heads/st-ahead)" == "$ahead_tip" && "$(git -C "$R" show st-ahead:a.txt)" == a ]] \
+  || fail "discard must keep the branch and its commit (the operator's ruling): $answered"
 check
 [[ "$report" != *st-* ]] || fail "answered worktrees must not be asked about again: $report"
-ok "keep holds the question off for a week; save and remove commits the edit to saved/<name>; discard drops worktree and branch"
+ok "keep holds the question off for a week; save and remove commits the edit to saved/<name>; discard removes the folder and keeps the branch with its commit"
+# Review R2-7: a stuck `-b<name>` reads as a new branch from its start point, and a
+# revision such as staging~1 names no branch, so the branch checked out where git ran counts.
+bash_call "$R" 'git worktree add -q ../wt-stuck -bstuck staging'
+bash_call "$R" 'git worktree add -q ../wt-tilde -b tilde staging~1'
+grep -q "\"path\": \"$scratch/wt-stuck\", \"source\": \"staging\"" "$records/s1.jsonl" || fail "the stuck -b form must record its start point: $(cat "$records/s1.jsonl")"
+grep -q "\"path\": \"$scratch/wt-tilde\", \"source\": \"main\"" "$records/s1.jsonl" || fail "staging~1 must not be recorded as a branch: $(cat "$records/s1.jsonl")"
+ok "a stuck -b<name> records its start point; a revision such as staging~1 records the branch checked out instead"
+# Review R2-1: a detached HEAD whose commit no ref holds, saved and removed: the commit goes to saved/<name>.
+bash_call "$R" 'git worktree add -q --detach ../wt-detached main'
+printf 'd\n' > "$scratch/wt-detached/d.txt" && git -C "$scratch/wt-detached" add d.txt && git -C "$scratch/wt-detached" commit -qm detached
+detached_tip="$(git -C "$scratch/wt-detached" rev-parse HEAD)"
+# Review R2-9: a sparse worktree whose untracked file lies outside its cone.
+bash_call "$R" 'git worktree add -q ../wt-sparse -b sparse'
+git -C "$scratch/wt-sparse" sparse-checkout set --cone src
+mkdir -p "$scratch/wt-sparse/notes" && printf 'outside\n' > "$scratch/wt-sparse/notes/outside.txt"
+# Review R2-10: a worktree the check cannot judge (a process works in it) is silenced by keep.
+bash_call "$R" 'git worktree add -q ../wt-busy2 -b busy2'
+(cd "$scratch/wt-busy2" && exec sleep 120) >/dev/null 2>&1 & sleepers+=($!); busy2=$!
+for _ in $(seq 50); do lsof -a -p "$busy2" -d cwd >/dev/null 2>&1 && break; sleep 0.1; done
+end_session clear
+check
+[[ "$report" == *"dead session s1 left $scratch/wt-detached: 1 commits not in main"*"puts its detached HEAD's 1 commits in no other ref on a saved/ branch"* ]] \
+  || fail "a detached worktree's commit must be flagged with what discard does to it: $report"
+answer "$scratch/wt-detached" --save
+[[ ! -e "$scratch/wt-detached" && "$(git -C "$R" rev-parse -q --verify refs/heads/saved/wt-detached)" == "$detached_tip" ]] \
+  || fail "save and remove must put a detached HEAD no ref holds on saved/<name>: $answered"
+ok "save and remove puts a clean detached HEAD's commit on saved/<name> before the removal"
+[[ "$report" == *"dead session s1 left $scratch/wt-sparse: 0 commits not in main, 1 uncommitted files"* ]] || fail "the sparse worktree must be flagged: $report"
+answer "$scratch/wt-sparse" --save
+[[ ! -e "$scratch/wt-sparse" && "$(git -C "$R" show saved/wt-sparse:notes/outside.txt 2>/dev/null)" == outside ]] \
+  || fail "save and remove must carry an untracked file outside the sparse cone: $answered"
+ok "save and remove carries an untracked file outside a sparse worktree's cone"
+[[ "$report" == *"kept $scratch/wt-busy2: process $busy2 is working in it; see \`ps -p $busy2\`; dead session s1 left it: resolve that by hand, or keep it with \`git worktree lock $scratch/wt-busy2\`"* ]] \
+  || fail "a worktree the check cannot judge must be named with the step by hand: $report"
+answer "$scratch/wt-busy2" keep
+check
+[[ "$report" != *"wt-busy2"* && -d "$scratch/wt-busy2" ]] || fail "keep must silence a worktree the check cannot judge: $report"
+kill "$busy2" 2>/dev/null || true
+ok "a worktree the check cannot judge names the step by hand or git worktree lock, and keep silences it for a week"
 sweep() {  # [session] [workloop.py] [source]
   sweep_out="$(cd "$R/.agents/hooks/lib" && python3 worktree_sweep.py sweep "$R" "${1:-s9}" "${3:-startup}" "${2:-$R/.agents/workloop.py}")"
 }
@@ -395,8 +452,10 @@ sweep s1 "" resume
 rm -f "$stamp"; sweep
 [[ -d "$scratch/st-resumed" && "$sweep_out" != *st-resumed* ]] || fail "a resumed session's worktrees must not read dead: $sweep_out"
 ok "a resume of the same session stamps its record again, so its worktrees are never dead"
-# Acceptance row 26: a lane cut from mvp/roadmap, merged there and not into main.
+# Acceptance row 26: a run started from a checkout on mvp/roadmap, a commit ahead of main;
+# its lane's commit merged into mvp/roadmap and not into main.
 git -C "$R" checkout -q -b mvp/roadmap main
+mkdir -p "$R/docs" && printf 'plan\n' > "$R/docs/plan.md" && git -C "$R" add docs/plan.md && git -C "$R" commit -qm plan
 bash_call "$R" "$wl init tr --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane tr lr --worker w --path src"
 lr="$R/.agents/worktrees/tr/lr"
@@ -404,6 +463,7 @@ lr_branch="$(git -C "$lr" symbolic-ref --short HEAD)"
 printf 'road\n' > "$lr/src/road.txt" && git -C "$lr" add src/road.txt && git -C "$lr" commit -qm road
 git -C "$R" merge -q --ff-only "$(git -C "$lr" rev-parse HEAD)"
 git -C "$R" checkout -q main
+printf 'draft\n' > "$lr/src/draft.txt"
 # The controller's init records the branch checked out as `source`. A controller from
 # before that field (this lane's own tree) leaves it out, so the run gets it here as
 # init would have written it; with the field recorded this changes nothing.
@@ -413,14 +473,23 @@ path = sys.argv[1]; data = json.load(open(path)); data["runs"]["tr"].setdefault(
 PY
 python3 -c "import json,sys; sys.exit(json.load(open('$R/.agents/.workloop-state.json'))['runs']['tr']['source'] != 'mvp/roadmap')" \
   || fail "a run started from a checkout on mvp/roadmap must record it as its source"
+# Review R2-2: an unfinished run is not done (ruling R1), so its lane holding no work is left
+# as it is, with its branch, and nothing is said of it.
+bash_call "$R" "$wl init tq --objective o --acceptance a --repo $R --verify true"
+bash_call "$R" "$wl add-lane tq lq --worker w --path src"
+lq="$R/.agents/worktrees/tq/lq"
+lq_branch="$(git -C "$lq" symbolic-ref --short HEAD)"
 end_session clear
 check
-[[ ! -e "$lr" && "$report" == *"removed $lr: its work is merged into mvp/roadmap; branch $lr_branch deleted, mvp/roadmap contains it"* ]] \
-  || fail "a lane merged into its run's source branch must be judged against it, not main: $report"
-[[ "$report" == *"closed workloop run tr: git lists none of its worktrees"* ]] || fail "a run whose lanes all went must close through abandon: $report"
-python3 -c "import json,sys; sys.exit('tr' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the run must leave the live state"
+[[ -d "$lr" && "$report" == *"dead session s1 left $lr: 0 commits not in mvp/roadmap, 1 uncommitted files"* ]] \
+  || fail "a lane must be judged against its run's source branch mvp/roadmap, not main: $report"
+git -C "$R" rev-parse -q --verify "refs/heads/$lr_branch" >/dev/null || fail "a lane of an unfinished run keeps its branch"
 git -C "$R" merge-base --is-ancestor "$(git -C "$R" rev-parse mvp/roadmap)" main && fail "main must not have gained the lane's commit"
-ok "a lane is judged merged against its run's source branch mvp/roadmap, removed, and its run closed through abandon"
+ok "a lane is judged merged against its run's source branch mvp/roadmap, not main"
+[[ -d "$lq" && "$report" != *"$lq"* ]] && git -C "$R" rev-parse -q --verify "refs/heads/$lq_branch" >/dev/null \
+  || fail "an unfinished run's empty lane must be left untouched and unflagged: $report"
+! closed_run tq || fail "an unfinished run with a lane on disk must stay open"
+ok "an unfinished run's empty lane is left as it is, with its branch, and not flagged"
 # Acceptance row 9: a lane whose writer's transcript grew within the last minute.
 bash_call "$R" "$wl init tc --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane tc lc --worker w --path src"

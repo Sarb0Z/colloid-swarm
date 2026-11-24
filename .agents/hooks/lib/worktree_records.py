@@ -217,11 +217,13 @@ def branch_at(cwd) -> str | None:
 
 
 def source_of(base: str, start: str | None) -> str | None:
-    """The branch a new worktree is cut from: `start` when it names a local or remote-tracking
-    branch, else the branch checked out where git runs."""
-    if start and any(out(base, "rev-parse", "-q", "--verify", f"{prefix}{start}^{{commit}}")
-                     for prefix in ("refs/heads/", "refs/remotes/")):
-        return start
+    """The branch a new worktree is cut from: the local or remote-tracking branch `start` names
+    (`staging`, `heads/staging`, `origin/staging`), else the branch checked out where git runs.
+    A revision such as `staging~1` or a commit names no branch."""
+    full = out(base, "rev-parse", "--symbolic-full-name", start) if start else ""
+    for prefix in ("refs/heads/", "refs/remotes/"):
+        if full.startswith(prefix):
+            return full.removeprefix(prefix)
     return branch_at(base)
 
 
@@ -277,7 +279,8 @@ def git_add(words: list[str], cwd: Path, shell) -> list | None:
             break
         if not args[index].startswith("-"):
             operands.append(args[index])
-        new_branch = new_branch or args[index] in ("-b", "-B")
+        # `-b <name>` or the stuck form `-b<name>`
+        new_branch = new_branch or args[index][:2] in ("-b", "-B")
         index += 2 if args[index] in ("-b", "-B", "--reason") else 1
     if not operands:
         return None
@@ -352,7 +355,10 @@ def made(project, event: str, tool: str, cwd: Path, tool_use_id: str) -> list[di
     worktree at its SubagentStart."""
     if event == "SubagentStart":
         path = claude_worktree(cwd, "agent-")
-        return [{"type": "worktree", "path": str(path), "by": "Agent isolation"}] if path else []
+        # Claude Code cuts an isolated cell's worktree from the main checkout's branch.
+        source = branch_at(main_checkout(path)) if path else None
+        return [dict({"type": "worktree", "path": str(path), "by": "Agent isolation"},
+                     **({"source": source} if source else {}))] if path else []
     snap = snapshot_file(project, tool_use_id) if tool_use_id else None
     if snap is None or not snap.is_file():
         return []

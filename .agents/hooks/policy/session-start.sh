@@ -34,10 +34,11 @@
 #   - The work log (hooks.worklog, off by default): the procedure in
 #     .agents/playbooks/worklog.md and today's file, or why the configured
 #     folder was refused (hooks/lib/worklog.py).
-#   - Worktrees (hooks.teardown_gate): the sweep of sessions that ended without
-#     session-end.sh and of worktrees idle 24 hours that no record names, what
-#     it removed or kept and what each kept one's work is about, each `saved/`
-#     branch, and workloop runs with no recorded lead
+#   - Worktrees (hooks.teardown_gate): the hourly check of dead sessions'
+#     worktrees (ended or killed), what it removed as merged and a `dead
+#     session` line for each one holding work, with the operator's three
+#     answers; the heal of worktrees idle 24 hours that no record names; each
+#     `saved/` branch; and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
 #   - Workloop runs in flight, and on Claude Code each agent of this checkout
 #     waiting on the operator and each dead one, read from Claude Code's own
@@ -117,8 +118,8 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
 fi
 # The marker ledger says which of the session's cells only read. A resumed or
 # cleared session can message those cells again, so only a fresh start of the
-# id drops it; other sessions' stale ones go with the sweep (worktree_heal.py
-# stale_ledgers).
+# id drops it; another session's goes with the sweep once that session's
+# transcript has not changed in a day (worktree_heal.py stale_ledgers).
 if [[ -n "$session_id" && "$start_source" == "startup" ]]; then
   rm -f "$proj/.agents/.cell-markers-$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')" 2>/dev/null || true
 fi

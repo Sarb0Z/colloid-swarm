@@ -413,14 +413,17 @@ printf 'toolu_9\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-old-session"
 printf 'toolu_8\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-fresh-session"
 printf 'toolu_7\tREAD-ONLY\n' > "$writers/.agents/.cell-markers-live-session"
 touch -t 202601010000 "$writers/.agents/.cell-markers-old-session" "$writers/.agents/.cell-markers-live-session"
-mkdir -p "$writers/.agents/worktrees/.records"
-(cd "$writers/.agents/hooks/lib" && CLAUDE_PID=$$ python3 -c 'import sys, worktree_records as w; w.record(sys.argv[1], "live-session", [{"type": "worktree", "path": "/nonexistent", "by": "git worktree add"}])' "$writers")
+# Each session is judged by its transcript's age, as Claude Code's store keeps it: the
+# live session wrote a moment ago, though its ledger and no worktree record say so.
+ledger_store="$scratch/ledger-config/projects/p"
+mkdir -p "$ledger_store" && printf '{}\n' > "$ledger_store/live-session.jsonl" && printf '{}\n' > "$ledger_store/old-session.jsonl"
+touch -t 202601010000 "$ledger_store/old-session.jsonl"
 printf '{"project_dir":"%s","source":"startup","session_id":"new-session","transcript_path":""}\n' "$writers" \
-  | bash "$writers/.agents/hooks/policy/session-start.sh" >/dev/null
+  | CLAUDE_CONFIG_DIR="$scratch/ledger-config" bash "$writers/.agents/hooks/policy/session-start.sh" >/dev/null
 [[ -f "$writers/.agents/.cell-markers-fixture-session" && -f "$writers/.agents/.cell-markers-fresh-session" ]] || fail "another session's start must leave a recent ledger alone"
-[[ -f "$writers/.agents/.cell-markers-live-session" ]] || fail "the sweep must keep the ledger of a session whose record says it runs"
-[[ ! -e "$writers/.agents/.cell-markers-old-session" ]] || fail "the sweep must remove a day-old ledger no live record names"
-printf 'ok: marker ledgers survive a resume or a clear of their session; the sweep removes only stale ones no live session owns\n'
+[[ -f "$writers/.agents/.cell-markers-live-session" ]] || fail "the sweep must keep the ledger of a session whose transcript changed within the day"
+[[ ! -e "$writers/.agents/.cell-markers-old-session" ]] || fail "the sweep must remove the ledger of a session whose transcript sat a day"
+printf 'ok: marker ledgers survive a resume or a clear of their session; the sweep removes one only once its session'"'"'s transcript sat a day\n'
 printf 'ok: startup and resume clear the live-writers record; compact keeps it\n'
 
 # Spec Unit 5.2, acceptance row 31: a session starting where another live
@@ -716,6 +719,9 @@ wt bisecting; git -C "$scratch/sweep-bisecting" bisect start >/dev/null 2>&1; ag
 find "$sw/.git/worktrees/sweep-bisecting" -exec touch -h -t 202601010000 {} +
 git -C "$sw" worktree add -q "$sw/.agents/worktrees/old-run/lane" -b old-lane
 find "$sw/.agents/worktrees/old-run/lane" "$sw/.git/worktrees/lane" -exec touch -h -t 202601010000 {} +
+# A lane folder cut from another branch is named against the branch its reflog says it came from.
+git -C "$sw" branch r6-base "$(git -C "$sw" commit-tree -p main -m r6 "main^{tree}")"
+git -C "$sw" worktree add -q "$sw/.agents/worktrees/r6-run/lane" -b r6-lane r6-base
 # The heal's rows: what may go, and every way something could be lost.
 printf '%s\n' build/ '.env.*' .DS_Store out/ logs/ '*.pem' '*.tfstate' '*.sqlite3-wal' credentials.json >> "$sw/.git/info/exclude"
 wt build-env; mkdir -p "$scratch/sweep-build-env/build" && printf 'SECRET=1\n' > "$scratch/sweep-build-env/build/.env.production"; age build-env
@@ -1067,6 +1073,8 @@ printf 'ok: scaffold ledgers rebuild and its operator files keep; the budget and
 [[ -d "$sw/.agents/worktrees/old-run/lane" ]] || fail "a lane folder must never be removed by the sweep"
 assert_contains "$sweep_context" "lane folder $sw/.agents/worktrees/old-run/lane [old-lane]"
 assert_contains "$sweep_context" ": belongs to no workloop run"
+assert_contains "$sweep_context" "lane folder $sw/.agents/worktrees/r6-run/lane [r6-lane] last commit"
+assert_contains "$sweep_context" "0 commit(s) not in r6-base, 0 uncommitted file(s): belongs to no workloop run"
 printf 'ok: a lane folder under .agents/worktrees/ that belongs to no run is named\n'
 [[ -d "$scratch/sweep-today" && -d "$scratch/sweep-locked" && -d "$scratch/sweep-busy" && -d "$scratch/sweep-foreign" ]] \
   || fail "active, locked, occupied and foreign worktrees must stay"
