@@ -409,9 +409,11 @@ saves nothing to `saved/`. No lock may hold it but Claude Code's lock of a
 session that has ended, and no process may work in it. It must hold no
 uncommitted or untracked file, however the repository's config hides them,
 no skip-worktree or assume-unchanged file, and no operation in progress. Its
-branch must be merged into the default branch, squash included, or have every
-commit on its upstream as of the last fetch; a detached HEAD counts only
-inside the default branch. No commit may be reachable only from its HEAD log
+branch must be merged into its source branch (the branch it was cut from, as
+recorded at creation; its upstream, then the default branch, for a worktree
+recorded without one), squash included, or have every commit on its upstream
+as of the last fetch; a detached HEAD counts only inside that source branch.
+No commit may be reachable only from its HEAD log
 or its `refs/worktree/` refs while git would keep it. It must contain no
 other worktree and no `.git` outside package folders. Every ignored file must
 lie in a package folder or a tool cache (`__pycache__/`, `.pytest_cache/`,
