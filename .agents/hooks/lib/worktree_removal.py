@@ -124,7 +124,10 @@ class Remover:
             self.lines.append(f"kept {path}: its unsaved work could not be committed ({error})")
             return "kept"
         main = wr.main_checkout(path)
-        entry = next(item for item in wr.worktrees(main) if item["path"] == path)
+        entry = next((item for item in wr.worktrees(main) if item["path"] == path), None)
+        if entry is None:
+            self.lines.append(f"kept {path}: git no longer lists it as a linked worktree")
+            return "kept"
         if entry["locked"]:
             wr.git(main, "worktree", "unlock", str(path))
         note = remove(path, main, force=bool(saved))

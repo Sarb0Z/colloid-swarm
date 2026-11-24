@@ -221,7 +221,10 @@ def settle(path: Path, source: tuple[str, list[str]], remover, record: Path, ask
         return "locked" if refusal[0] == "locked" else "kept"
     label, refs = source
     main = wr.main_checkout(path)
-    entry = next(item for item in wr.worktrees(main) if item["path"] == path)
+    entry = next((item for item in wr.worktrees(main) if item["path"] == path), None) if main else None
+    if entry is None:
+        remover.lines.append(f"kept {path}: git lists it as no linked worktree")
+        return "kept"
     ahead = wr.out(path, "rev-list", "--count", "HEAD", "--not", *refs) if refs else ""
     merged = ahead == "0" or bool(entry["branch"] and hl.squashed(path, refs))
     status = wr.git(path, "--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain",
@@ -265,13 +268,13 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
             held.add(name)
             continue
         run = found.get(name)
-        if run is None:
+        if run is None or run.get("torn_down"):
             continue  # closed elsewhere
         if rn.live_agents(main, run, now):
             remaining.append(entry)
             held.add(name)
             continue
-        base = run.get("base_branch")
+        base = run.get("source")
         lanes = {str(Path(lane["workspace"]).resolve()): (lane_name, lane.get("branch"))
                  for lane_name, lane in (run.get("lanes") or {}).items() if lane.get("workspace") and lane.get("place") != "main"}
         pending = False
@@ -292,7 +295,8 @@ def finish(entries: list[dict], remover, workloop: Path, record: Path, end: dict
             remaining.append(entry)
             held.add(name)
         elif why is None:
-            closed, line = rn.abandon(name, state, workloop, "its lead's session ended and nothing of it is left to ask about")
+            # Finished, so it closes as complete: abandon would record it as given up.
+            closed, line = rn.close(name, state, workloop, "teardown", "its lead's session ended and its work is finished")
             remover.lines.append(line)
             if not closed:
                 remaining.append(entry)
@@ -381,10 +385,8 @@ def due(main: Path) -> bool:
 
 
 def check_dead(main: Path, me: str, workloop: Path, emit) -> None:
-    """Stamp the hourly check, then judge every dead session's records but this session's own."""
-    stamp = main / CHECK_STAMP
-    stamp.parent.mkdir(parents=True, exist_ok=True)
-    stamp.touch()
+    """Judge every dead session's records but this session's own, then stamp the hourly check:
+    a check that fails part way runs again at the next prompt."""
     folder = main / wr.RECORDS
     for path in sorted(folder.glob("*.jsonl")) if folder.is_dir() else []:
         try:
@@ -394,6 +396,9 @@ def check_dead(main: Path, me: str, workloop: Path, emit) -> None:
         if path.stem != me and (wr.ended(entries) or over(entries, path)):
             for line in close(path, workloop):
                 emit(line)
+    stamp = main / CHECK_STAMP
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.touch()
 
 
 def leading(folder: Path) -> set:
@@ -507,10 +512,25 @@ def recorded_source(main: Path, path: Path) -> str | None:
     return None
 
 
-def remove(path: Path, how: str) -> list[str]:
+def run_holding(main: Path, path: Path) -> tuple[str, str, str | None, dict] | None:
+    """(State file, run, lane or None, the run) of the workloop run whose worktree `path` is, read
+    from every checkout's state file, as the sweep spares them."""
+    for checkout in wr.worktrees(main):
+        state = str(checkout["path"] / rn.STATE)
+        for name, run in wr.runs_in(state).items():
+            if run.get("torn_down") or str(path) not in {str(Path(s).resolve()) for s in rn.workspaces(run)}:
+                continue
+            lane = next((lane_name for lane_name, lane in (run.get("lanes") or {}).items()
+                         if lane.get("workspace") and str(Path(lane["workspace"]).resolve()) == str(path)), None)
+            return state, name, lane, run
+    return None
+
+
+def remove(path: Path, how: str, workloop: Path) -> list[str]:
     """The operator's answer for a flagged worktree: `--save` commits its unsaved work to
     `saved/<name>` and removes it, keeping it while ignored files would be lost; `--discard`
-    deletes it with all it holds, its ignored files and its branch included."""
+    deletes it with all it holds, its ignored files and its branch included. A worktree of a run
+    an agent may still be working for is refused, and a lane's save is the controller's `park`."""
     path = path.resolve() if path.exists() else path
     main = wr.main_checkout(path) if path.is_dir() else None
     if main is None:
@@ -518,6 +538,15 @@ def remove(path: Path, how: str) -> list[str]:
     entry = next((item for item in wr.worktrees(main)[1:] if item["path"] == path), None)
     if entry is None:
         return [f"kept {path}: git lists it as no linked worktree"]
+    holder = run_holding(main, path)
+    if holder:
+        state, name, lane, run = holder
+        live = rn.live_agents(main, run, time.time())
+        if live:
+            return [f"kept {path}: workloop run {name}'s agent {live[0]} may still be working; answer once it is back"]
+        if lane and how == "--save":
+            return [f"kept {path}: it is lane {lane} of workloop run {name}, whose save is "
+                    f"`python3 {workloop} --state {state} park {name} {lane}`"]
     refs = source_for(main, recorded_source(main, path), entry["branch"])[1]
     if how == "--save":
         remover = rm.Remover("the operator's save-and-remove answer", carriers(), None, rn.lost_files)
@@ -559,7 +588,7 @@ if __name__ == "__main__":
     elif args[:1] == ["keep"] and len(args) == 2:
         say(keep(Path(args[1])))
     elif args[:1] == ["remove"] and len(args) == 3 and args[2] in ("--save", "--discard"):
-        for report in remove(Path(args[1]), args[2]):
+        for report in remove(Path(args[1]), args[2], Path(__file__).resolve().parents[2] / "workloop.py"):
             say(report)
     else:
         sys.exit(__doc__)

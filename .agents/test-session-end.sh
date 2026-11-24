@@ -264,10 +264,14 @@ ok "a merged worktree holding an ignored file that would not come back is flagge
 [[ "$report" == *"save and remove: \`python3 $R/.agents/workloop.py --state $R/.agents/.workloop-state.json park t5 l5\`"* ]] || fail "a lane's save and remove must be the controller's park: $report"
 python3 -c "import json,sys; sys.exit('t5' not in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "a run with a flagged lane must stay open"
 ok "a run's unmerged lane is flagged, its save and remove naming park; the run stays open"
-python3 -c "import json,sys; sys.exit('t6' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the finished one-writer run must be closed: $report"
+# Closed means out of the live runs: moved to the closed records, or, with a controller
+# from before them, marked torn down in place.
+closed_run() { python3 -c "import json,sys; r=json.load(open('$R/.agents/.workloop-state.json'))['runs'].get(sys.argv[1]); sys.exit(not (r is None or r.get('torn_down')))" "$1"; }
+closed_run t6 || fail "the finished one-writer run must be closed: $report"
 [[ ! -e "$mark6" && "$report" == *"closed workloop run t6"* ]] || fail "the check must close a one-writer run from recorded results, never running its test: $report"
+[[ "$report" != *"abandoned 't6'"* ]] || fail "a finished run must close through teardown, not abandon: $report"
 [[ "$(git -C "$R" show HEAD:notes/solo.txt)" == solo ]] || fail "closing a one-writer run must leave the checkout's commits"
-ok "a finished one-writer run of a dead session closes through abandon without its composed test running; the checkout keeps its work"
+ok "a finished one-writer run of a dead session closes through teardown without its composed test running; the checkout keeps its work"
 [[ -f "$lane/src/lane.txt" && "$report" == *"dead session s1 left $lane: 0 commits not in main, 1 uncommitted files"* ]] || fail "an unfinished run's dirty lane must be flagged: $report"
 ok "an unfinished run's lane holding work is flagged and stays"
 [[ ! -e "$scratch/other-made" && -d "$scratch/other-wt" ]] || fail "this session's worktree in another repository goes; an unrecorded one there stays: $report"
@@ -392,23 +396,29 @@ rm -f "$stamp"; sweep
 [[ -d "$scratch/st-resumed" && "$sweep_out" != *st-resumed* ]] || fail "a resumed session's worktrees must not read dead: $sweep_out"
 ok "a resume of the same session stamps its record again, so its worktrees are never dead"
 # Acceptance row 26: a lane cut from mvp/roadmap, merged there and not into main.
-git -C "$R" branch mvp/roadmap main
+git -C "$R" checkout -q -b mvp/roadmap main
 bash_call "$R" "$wl init tr --objective o --acceptance a --repo $R --verify true"
 bash_call "$R" "$wl add-lane tr lr --worker w --path src"
 lr="$R/.agents/worktrees/tr/lr"
 lr_branch="$(git -C "$lr" symbolic-ref --short HEAD)"
 printf 'road\n' > "$lr/src/road.txt" && git -C "$lr" add src/road.txt && git -C "$lr" commit -qm road
-git -C "$R" update-ref refs/heads/mvp/roadmap "$(git -C "$lr" rev-parse HEAD)"
+git -C "$R" merge -q --ff-only "$(git -C "$lr" rev-parse HEAD)"
+git -C "$R" checkout -q main
+# The controller's init records the branch checked out as `source`. A controller from
+# before that field (this lane's own tree) leaves it out, so the run gets it here as
+# init would have written it; with the field recorded this changes nothing.
 python3 - "$R/.agents/.workloop-state.json" <<'PY'
 import json, sys
-path = sys.argv[1]; data = json.load(open(path)); data["runs"]["tr"]["base_branch"] = "mvp/roadmap"; json.dump(data, open(path, "w"))
+path = sys.argv[1]; data = json.load(open(path)); data["runs"]["tr"].setdefault("source", "mvp/roadmap"); json.dump(data, open(path, "w"))
 PY
+python3 -c "import json,sys; sys.exit(json.load(open('$R/.agents/.workloop-state.json'))['runs']['tr']['source'] != 'mvp/roadmap')" \
+  || fail "a run started from a checkout on mvp/roadmap must record it as its source"
 end_session clear
 check
 [[ ! -e "$lr" && "$report" == *"removed $lr: its work is merged into mvp/roadmap; branch $lr_branch deleted, mvp/roadmap contains it"* ]] \
   || fail "a lane merged into its run's source branch must be judged against it, not main: $report"
 [[ "$report" == *"closed workloop run tr: git lists none of its worktrees"* ]] || fail "a run whose lanes all went must close through abandon: $report"
-$wl status tr >/dev/null 2>&1 && fail "the run must leave the live state"
+python3 -c "import json,sys; sys.exit('tr' in json.load(open('$R/.agents/.workloop-state.json'))['runs'])" || fail "the run must leave the live state"
 git -C "$R" merge-base --is-ancestor "$(git -C "$R" rev-parse mvp/roadmap)" main && fail "main must not have gained the lane's commit"
 ok "a lane is judged merged against its run's source branch mvp/roadmap, removed, and its run closed through abandon"
 # Acceptance row 9: a lane whose writer's transcript grew within the last minute.
@@ -422,6 +432,9 @@ mkdir -p "${transcript%/*}" && printf '{}\n' > "$transcript"
 end_session clear
 check "$scratch" CLAUDE_CONFIG_DIR="$scratch/claude"
 [[ -d "$lc" && "$report" != *"$lc"* ]] || fail "a run whose writer's transcript grew within the minute must be neither removed nor flagged: $report"
+CLAUDE_CONFIG_DIR="$scratch/claude" answer "$lc" --discard
+[[ -d "$lc" && -f "$lc/src/w.txt" && "$answered" == *"kept $lc: workloop run tc's agent agfixture may still be working"* ]] \
+  || fail "an answer must not remove a worktree whose run's agent may still be working: $answered"
 touch -t 202601010000 "$transcript"
 mkdir -p "$R/.agents/.readout"
 python3 - "$R/.agents/.readout/.agent-deaths-cache" "$transcript" <<'PY'
@@ -449,6 +462,47 @@ check
 [[ -f "$le/.env" && "$report" == *"dead session s1 left $le: 0 commits not in main, 0 uncommitted files, ignored: .env."* ]] \
   || fail "a merged lane holding an ignored .env must stay, flagged naming .env: $report"
 ok "a merged lane holding an ignored .env stays and its dead session line names .env"
+answer "$le" --save
+[[ -d "$le" && "$answered" == *"kept $le: it is lane le of workloop run te, whose save is \`python3 $R/.agents/workloop.py --state $R/.agents/.workloop-state.json park te le\`"* ]] \
+  || fail "a lane's save and remove must be the controller's park, never saved/<name>: $answered"
+git -C "$R" rev-parse -q --verify refs/heads/saved/le >/dev/null && fail "a lane's save must not write saved/<name>"
+ok "the save answer for a lane worktree refuses and names park"
+# A parked lane, as `workloop.py park` leaves it: its worktree removed, the lane marked
+# parked, its saved work on the wip ref. Written by hand: this lane's controller has no park.
+bash_call "$R" "$wl init tp --objective o --acceptance a --repo $R --verify true"
+bash_call "$R" "$wl add-lane tp lp --worker w --path src"
+lp="$R/.agents/worktrees/tp/lp"
+git -C "$R" update-ref refs/workloop/tp/lp/wip "$(git -C "$lp" rev-parse HEAD)"
+git -C "$R" worktree remove --force "$lp"
+python3 - "$R/.agents/.workloop-state.json" <<'PY'
+import json, sys
+path = sys.argv[1]; data = json.load(open(path)); data["runs"]["tp"]["lanes"]["lp"]["parked"] = {"at": "2026-11-25T00:00:00Z", "wip": "refs/workloop/tp/lp/wip"}
+json.dump(data, open(path, "w"))
+PY
+end_session clear
+check
+[[ "$report" == *"kept workloop run tp: lane lp's saved work waits; bring it back with \`python3 $R/.agents/workloop.py --state $R/.agents/.workloop-state.json resume tp\`"* ]] \
+  || fail "a run with a parked lane must be held and name resume: $report"
+! closed_run tp || fail "a run with a parked lane must stay open: $report"
+python3 - "$R/.agents/.workloop-state.json" <<'PY'
+import json, sys
+path = sys.argv[1]; data = json.load(open(path)); data["runs"]["tp"]["lanes"]["lp"].pop("parked"); json.dump(data, open(path, "w"))
+PY
+check
+[[ "$report" == *"kept workloop run tp: lane lp's saved work waits"* ]] && ! closed_run tp || fail "a wip ref alone must hold its run: $report"
+git -C "$R" update-ref -d refs/workloop/tp/lp/wip
+check
+[[ "$report" == *"closed workloop run tp: git lists none of its worktrees"* ]] || fail "with nothing parked, the run whose worktrees are gone closes: $report"
+ok "a run whose lane is parked, or whose wip ref waits, is held and names resume; it closes once nothing waits"
+# A check that fails part way leaves the hour unstamped, so the next prompt runs it again.
+mkdir "$records/broken.jsonl"
+rm -f "$stamp"
+(cd "$scratch" && python3 "$R/.agents/hooks/lib/worktree_sweep.py" check "$R" s9 "$R/.agents/workloop.py" >/dev/null 2>&1) && fail "a record that cannot be read must fail the check"
+[[ ! -e "$stamp" ]] || fail "a check that failed part way must not stamp the hour"
+rmdir "$records/broken.jsonl"
+check
+[[ -e "$stamp" ]] || fail "a check that completes must stamp the hour"
+ok "the hour is stamped only once the check has judged every record"
 # A checkout that is not on disk may be on an unmounted disk, so the sweep never drops its run.
 git clone -q "$R" "$scratch/gone-clone"
 bash_call "$R" "$wl init tg --objective o --acceptance a --repo $scratch/gone-clone --verify true"
@@ -458,7 +512,7 @@ end_session other
 check
 [[ "$report" == *"left alone with their worktrees: "*"tg"* && "$report" != *"closed workloop run tg"* ]] \
   || fail "the check must keep and name a run whose checkout is not on disk: $report"
-$wl status tg >/dev/null 2>&1 || fail "the check dropped a run whose checkout is not on disk: $report"
+! closed_run tg || fail "the check dropped a run whose checkout is not on disk: $report"
 $wl abandon tg --checkout-gone >/dev/null
 ok "a run whose checkout is not on disk outlives the check and is named"
 # An empty mount point inside another repository is not that repository: git
@@ -472,7 +526,7 @@ mv "$scratch/home-repo/mnt/disk" "$scratch/disk-away"; mkdir "$scratch/home-repo
 sweep
 [[ "$sweep_out" != *"closed workloop run um"* && "$sweep_out" == *"left alone with their worktrees: "*"um"* ]] \
   || fail "the sweep dropped a run whose checkout is an empty mount point inside another repository: $sweep_out"
-$wl status um >/dev/null 2>&1 || fail "the sweep dropped the mount point's run from state: $sweep_out"
+! closed_run um || fail "the sweep dropped the mount point's run from state: $sweep_out"
 rmdir "$scratch/home-repo/mnt/disk"; mv "$scratch/disk-away" "$scratch/home-repo/mnt/disk"
 $wl abandon um >/dev/null
 rm -rf "$scratch/home-repo"
@@ -505,7 +559,8 @@ sweep
 $wl returned fo a --result reply >/dev/null; $wl returned fo b --failed x >/dev/null
 sweep
 [[ "$sweep_out" == *"closed workloop run fo: every cell is back"* && "$sweep_out" == *"left alone with their worktrees: "*"pre"* && "$sweep_out" != *"closed workloop run pre"* ]] || fail "a fan-out whose cells are back must close, and a --verify run with no lane must stay: $sweep_out"
-python3 -c "import json,sys; r=json.load(open('$R/.agents/.workloop-state.json'))['runs']; sys.exit('fo' in r or 'pre' not in r)" || fail "the sweep dropped the wrong run"
+closed_run fo && ! closed_run pre || fail "the sweep closed the wrong run"
+[[ "$sweep_out" != *"abandoned 'fo'"* ]] || fail "a fan-out whose cells are all back is finished, so it closes through teardown: $sweep_out"
 [[ -d "$R/.agents/worktrees/pre/.workloop" ]] || fail "the close took another run's briefs"
 # the close judges the run again on a fresh read: a cell added since the sweep read it keeps the run
 $wl init late --objective o --acceptance a --repo "$R" >/dev/null
@@ -542,7 +597,7 @@ json.dump(s, open(path, "w"))
 PY
 sweep
 [[ "$sweep_out" == *"closed workloop run old: its cells went out over 24 hours ago"* ]] || fail "a fan-out whose cells all went out past the hold must close: $sweep_out"
-$wl status old >/dev/null 2>&1 && fail "the closed fan-out must leave the live state"
+closed_run old || fail "the closed fan-out must leave the live state"
 $wl abandon pre >/dev/null
 ! grep -q strptime "$repo/.agents/hooks/lib/worktree_runs.py" || fail "worktree_runs.py parses the controller's stamps itself instead of importing workloop_size's parse"
 ! grep -q 'del data\["runs"\]' "$repo/.agents/hooks/lib/worktree_runs.py" || fail "worktree_runs.py deletes runs from state itself instead of closing them through abandon"

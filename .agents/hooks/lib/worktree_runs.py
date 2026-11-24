@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The workloop runs a session sweep reads and closes (worktree_sweep.py calls these).
 
-A run closes only through `workloop.py abandon`, which keeps its record
-(`abandon`). Nothing of a run is removed, flagged or closed while one of its
+A run closes only through the controller, which keeps its record (`close`):
+`teardown` for a finished run, `abandon` for any other. A run whose parked lane
+waits for `workloop.py resume` is held (`parked`). Nothing of a run is removed, flagged or closed while one of its
 agents may still be working (`live_agents`, spec Unit 1.6). A run whose
 worktrees hold ignored files that would not come back keeps them
 (`lost_files`, ruling 28).
@@ -70,13 +71,25 @@ def unfinished(entry: dict, workloop: Path) -> str | None:
         if result.returncode else None
 
 
-def abandon(name: str, state: str, workloop: Path, why: str) -> tuple[bool, str]:
-    """Close a run through `workloop.py abandon`, which keeps its record; (closed, the line)."""
-    result = subprocess.run([sys.executable, str(workloop), "--state", state, "abandon", name],
+def close(name: str, state: str, workloop: Path, verb: str, why: str) -> tuple[bool, str]:
+    """Close a run through `workloop.py teardown` (finished) or `abandon` (unfinished), which
+    keep its record; (closed, the line)."""
+    result = subprocess.run([sys.executable, str(workloop), "--state", state, verb, name],
                             text=True, capture_output=True, env=wr.clean_env(), cwd=Path(state).parent)
     if result.returncode:
-        return False, f"kept workloop run {name}: abandon failed: {(result.stderr or result.stdout).strip()}"
+        return False, f"kept workloop run {name}: {verb} failed: {(result.stderr or result.stdout).strip()}"
     return True, f"closed workloop run {name}: {why}; {result.stdout.strip()}"
+
+
+def parked(repo: Path | None, name: str, run: dict) -> str | None:
+    """A lane whose saved work waits for `workloop.py resume`: one marked parked, or a wip ref
+    `refs/workloop/<run>/<lane>/wip` left in the run's repository."""
+    lane = next((lane_name for lane_name, lane in sorted((run.get("lanes") or {}).items()) if lane.get("parked")), None)
+    if lane:
+        return lane
+    refs = wr.out(repo, "for-each-ref", "--format=%(refname)", f"refs/workloop/{name}/") if repo else ""
+    found = next((ref for ref in refs.splitlines() if ref.endswith("/wip")), None)
+    return found.split("/")[3] if found else None
 
 
 def lost_files(path: Path) -> str | None:
@@ -155,18 +168,24 @@ def fanout_closed(run: dict, now: float) -> str | None:
 
 
 def unowned_runs(main: Path, leads: set, workloop: Path) -> list[str]:
-    """Close, through `abandon`, a run no record leads once git lists none of its worktrees (a
-    missing path may be an unmounted disk), or once it is a fan-out whose cells are back or past
-    the hold; a run with lanes and no repository or no worktree (a one-writer run, whose lane
-    works in the checkout), and a run an agent may still be working for, stays. Name the rest."""
+    """Close a run no record leads once git lists none of its worktrees (a missing path may be an
+    unmounted disk), through `abandon`, or once it is a fan-out whose cells are back (`teardown`)
+    or past the hold (`abandon`). A run with lanes and no repository or no worktree (a one-writer
+    run, whose lane works in the checkout), a run an agent may still be working for, and a run
+    whose parked lane waits for `resume`, stays. Name the rest."""
     state, names, lines, now = main / STATE, [], [], time.time()
     for name, run in sorted(wr.runs_in(str(state)).items()):
-        if name in leads:
+        if name in leads or run.get("torn_down"):
             continue
         repo = wr.run_checkout(run.get("repo") or "/nonexistent")
         listed = {str(e["path"]) for e in wr.worktrees(repo)} if repo else set()
         spaces = workspaces(run)
         if live_agents(main, run, now):
+            names.append(name)
+            continue
+        if lane := parked(repo, name, run):
+            lines.append(f"kept workloop run {name}: lane {lane}'s saved work waits; bring it back with "
+                         f"`python3 {workloop} --state {state} resume {name}`")
             names.append(name)
             continue
         away = [str(e["path"]) for e in wr.worktrees(repo) if not e["path"].is_dir()] if repo else []
@@ -187,7 +206,7 @@ def unowned_runs(main: Path, leads: set, workloop: Path) -> list[str]:
         if why is None:
             names.append(name)
             continue
-        closed, line = abandon(name, str(state), workloop, why)
+        closed, line = close(name, str(state), workloop, "teardown" if why == "every cell is back" else "abandon", why)
         lines.append(line)
         if not closed:
             names.append(name)
