@@ -44,6 +44,7 @@ python3 .agents/check-test-isolation.py
 python3 .agents/test-sources-matcher.py
 .agents/test-untrusted-content.sh
 python3 .agents/test-guard-destructive.py
+.agents/test-workloop-authority.sh
 python3 .agents/test-wait-gate.py
 .agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh

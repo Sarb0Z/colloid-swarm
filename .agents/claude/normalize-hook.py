@@ -57,6 +57,9 @@ def normalize(payload, policy, repo):
     if policy == "guard-destructive.sh":
         out["command"] = tool_input.get("command", "")
         out["agent_id"] = payload.get("agent_id", "")
+    elif policy == "workloop-authority.sh":
+        out["command"] = tool_input.get("command", "")
+        out["agent_id"] = payload.get("agent_id", "")
     elif policy == "keychain-notice.sh":
         out["command"] = tool_input.get("command", "")
         out["cwd"] = payload.get("cwd") or ""

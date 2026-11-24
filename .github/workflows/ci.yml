@@ -178,6 +178,9 @@ jobs:
       - name: Destructive-command policy
         run: python3 .agents/test-guard-destructive.py
 
+      - name: Workloop lead-only commands
+        run: .agents/test-workloop-authority.sh
+
       - name: Publish-gate policy
         run: python3 .agents/test-guard-publish.py
 
