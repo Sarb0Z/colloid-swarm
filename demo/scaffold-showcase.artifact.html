@@ -277,13 +277,13 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, twenty-nine enforcement hooks, twenty-one skills, and an evidence trail —
+      A hostile-review workflow, thirty enforcement hooks, twenty-one skills, and an evidence trail —
       wrapped around every model turn, enforced on Claude Code, Codex and Kimi, and read as instructions on OpenCode and GitHub Copilot.
     </p>
 
     <div class="map">
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">[Contract menu line — one line]</span><span class="m-n">AGENTS.md</span></a>
-      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">14 gates · 7 context injectors · 4 evidence trails · 4 checkpoints, on the session lifecycle.</span><span class="m-n">29 policies</span></a>
+      <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">15 gates · 7 context injectors · 4 evidence trails · 4 checkpoints, on the session lifecycle.</span><span class="m-n">30 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
       <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">21 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">27 files</span></a>
@@ -597,7 +597,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, what the worktree sweep removed or kept, and workloop runs with no recorded lead. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 409 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 441 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -633,10 +633,11 @@ detect:
 #   - The work log (hooks.worklog, off by default): the procedure in
 #     .agents/playbooks/worklog.md and today&#x27;s file, or why the configured
 #     folder was refused (hooks/lib/worklog.py).
-#   - Worktrees (hooks.teardown_gate): the sweep of sessions that ended without
-#     session-end.sh and of worktrees idle 24 hours that no record names, what
-#     it removed or kept and what each kept one&#x27;s work is about, each `saved/`
-#     branch, and workloop runs with no recorded lead
+#   - Worktrees (hooks.teardown_gate): the hourly check of dead sessions&#x27;
+#     worktrees (ended or killed), what it removed as merged and a `dead
+#     session` line for each one holding work, with the operator&#x27;s three
+#     answers; the heal of worktrees idle 24 hours that no record names; each
+#     `saved/` branch; and workloop runs with no recorded lead
 #     (hooks/lib/worktree_sweep.py).
 #   - Workloop runs in flight, and on Claude Code each agent of this checkout
 #     waiting on the operator and each dead one, read from Claude Code&#x27;s own
@@ -712,18 +713,42 @@ if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; != &quot;c
   writers_session=&quot;$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot;
   rm -rf &quot;$proj/.agents/.writers-live-$writers_session&quot; &quot;$proj/.agents/.writers-turn-$writers_session&quot; \
          &quot;$proj/.agents/.writers-kinds-$writers_session&quot; \
-         &quot;$proj/.agents/.writers-lock-$writers_session&quot; \
-         &quot;$proj/.agents/.cell-markers-$writers_session&quot; &quot;$proj/.agents/.outside-runs-$writers_session&quot; 2&gt;/dev/null || true
+         &quot;$proj/.agents/.writers-lock-$writers_session&quot; 2&gt;/dev/null || true
+fi
+# The marker ledger says which of the session&#x27;s cells only read. A resumed or
+# cleared session can message those cells again, so only a fresh start of the
+# id drops it; another session&#x27;s goes with the sweep once that session&#x27;s
+# transcript has not changed in a day (worktree_heal.py stale_ledgers).
+if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; == &quot;startup&quot; ]]; then
+  rm -f &quot;$proj/.agents/.cell-markers-$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot; 2&gt;/dev/null || true
+fi
+# The gate&#x27;s live writers are one file per checkout, .agents/.writers-live, a
+# line per cell led by its session: a fresh start or a resume drops this
+# session&#x27;s lines (its earlier process ran them), and the lines of any session
+# whose transcript has not changed in a day. Another live session&#x27;s stay.
+if [[ -n &quot;$session_id&quot; &amp;&amp; &quot;$start_source&quot; != &quot;compact&quot; &amp;&amp; -f &quot;$lib/cell_markers.py&quot; &amp;&amp; -d &quot;$proj/.agents&quot; ]]; then
+  python3 &quot;$lib/cell_markers.py&quot; drop-session &quot;$proj&quot; &quot;$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot; &quot;${transcript:-}&quot; \
+    || echo &quot;session-start: this session&#x27;s lines in .agents/.writers-live were not dropped; the gate sweeps them when they block&quot; &gt;&amp;2
 fi
 
-# Worktrees end with the session that made them (worktree_sweep.py). Sessions
-# that never reached session-end.sh — killed, or on a host with no such event —
-# are swept here once their process is gone. Worktrees no record names that
-# sat idle 24 hours go only when nothing in them would be lost; the rest are
-# named with what their work was about. Every source sweeps: a resumed
-# session keeps its own records and only the others&#x27; are judged; a compaction
-# start removes no unrecorded worktree. A sweep that fails keeps the lines it
-# printed, so what it removed before failing is still reported.
+# Another live session in this checkout: one with a writer cell here, or one
+# that committed here in the last 10 minutes (cell_markers.py peers).
+peer_notice=&quot;&quot;
+if [[ -n &quot;$session_id&quot; &amp;&amp; -f &quot;$lib/cell_markers.py&quot; ]]; then
+  peer_notice=&quot;$(python3 &quot;$lib/cell_markers.py&quot; peers &quot;$proj&quot; &quot;$(printf &#x27;%s&#x27; &quot;$session_id&quot; | tr -cd &#x27;A-Za-z0-9_-&#x27;)&quot; &quot;${transcript:-}&quot;)&quot; \
+    || { echo &quot;session-start: could not check for other sessions in this checkout&quot; &gt;&amp;2; peer_notice=&quot;&quot;; }
+fi
+
+# Worktrees end with the session that made them (worktree_sweep.py). At most
+# once an hour, each dead session&#x27;s worktree — its session ended (/exit,
+# /clear) or its process is gone — is removed when its work is merged into its
+# source branch, and otherwise flagged with the operator&#x27;s three answers.
+# Worktrees no record names that sat idle 24 hours go only when nothing in
+# them would be lost; the rest are named with what their work was about. Every
+# source sweeps: a resumed session keeps its own records and only the others&#x27;
+# are judged; a compaction start removes no unrecorded worktree. A sweep that
+# fails keeps the lines it printed, so what it removed before failing is still
+# reported.
 worktree_digest=&quot;&quot;
 if [[ &quot;$teardown_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;$lib/worktree_sweep.py&quot; ]] &amp;&amp; git -C &quot;$proj&quot; rev-parse --is-inside-work-tree &gt;/dev/null 2&gt;&amp;1; then
   worktree_digest=&quot;$(python3 &quot;$lib/worktree_sweep.py&quot; sweep &quot;$proj&quot; &quot;${session_id:-}&quot; &quot;${start_source:-startup}&quot; &quot;$repo/.agents/workloop.py&quot;)&quot; \
@@ -841,7 +866,7 @@ if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;
 fi
 
 # Nothing to surface.
-[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; -z &quot;$workloop_failure&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; &amp;&amp; -z &quot;$readout_note&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; -z &quot;$workloop_failure&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; &amp;&amp; -z &quot;$readout_note&quot; &amp;&amp; -z &quot;$peer_notice&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
   # One blank line between sections, none before the first.
@@ -924,6 +949,13 @@ EOF
     printf &#x27;%s\n&#x27; &quot;$workloop_digest&quot;
   fi
 
+  if [[ -n &quot;$peer_notice&quot; ]]; then
+    section
+    echo &quot;Another session is working in this checkout:&quot;
+    printf &#x27;%s\n&#x27; &quot;$peer_notice&quot; | sed &#x27;s/^/  - /&#x27;
+    echo &quot;Its edits and yours land in one tree. Take a worktree for this session&#x27;s work (EnterWorktree) before you edit, unless the operator says to share the tree.&quot;
+  fi
+
   if [[ -n &quot;$workloop_failure&quot; ]]; then
     section
     echo &quot;Workloop runs and dead agents unknown: $workloop_failure.&quot;
@@ -931,7 +963,7 @@ EOF
 
   if [[ -n &quot;$worktree_digest&quot; ]]; then
     section
-    echo &quot;Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock &lt;path&gt;\` keeps one):&quot;
+    echo &quot;Worktrees end with the session that made them (hooks/lib/worktree_sweep.py; \`git worktree lock &lt;path&gt;\` keeps one). Put each \`dead session\` line to the operator through the question tool, with its three answers, and run the one they choose:&quot;
     printf &#x27;%s\n&#x27; &quot;$worktree_digest&quot;
   fi
 
@@ -1321,7 +1353,7 @@ exit 0
               <div class="top"><span class="id">workloop-inbox</span><span class="badge context">context</span></div>
               <p class="what">Carries a parallel run&#x27;s messages without polling. Wired to SubagentStart, SubagentStop, UserPromptSubmit and PostToolBatch. A lane cell hears its host agent id when it starts and each unread message for its lane once between tool calls; each tool batch stamps the lane or cell with the time and the batch&#x27;s last call, so a silent cell shows an age, and binds a cell to its agent&#x27;s id. When a worker finishes without submitting, only the lane&#x27;s Docker resources are reaped; one that died keeps them for its resume. Either way the lane waits for the lead&#x27;s <code>release-stale</code>.</p>
               <div class="io"><b>in</b> {agent_id, session_id} &nbsp;→&nbsp; <b>out</b> additionalContext | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 301 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 318 lines</span></summary><div class="srcpath">.agents/hooks/lib/workloop-inbox.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a workloop participant needs to hear right now, as one block of text.
 
 Usage: workloop-inbox.py &lt;state-path&gt; &lt;seen-dir&gt; &lt;session&gt; &lt;event&gt; &lt;agent-id&gt; [&lt;start-source&gt; &lt;host&gt;]
@@ -1333,16 +1365,17 @@ writes it. Delivery is remembered per agent in
 &lt;seen-dir&gt;/.inbox-seen-&lt;session&gt;-&lt;agent&gt;, so a message is injected once and
 its acknowledgement still goes through `ack-message`.
 
-A subagent hears: its host agent id at start, so it can claim its lane with
-that id; and, once it has claimed, every unread message addressed to its
-lane. The main agent hears a digest of every run not torn down: lanes
-awaiting review, lanes carrying attention, lanes whose heartbeat is stale,
-lanes and cells whose agent died. Run or no run, at every Claude Code start
-and prompt it hears the agents of this checkout waiting on the operator
-(agent_waits.py) and its dead agents (agent_deaths.py), and
-at a prompt, when the turn that just ended dispatched two or more cells
-outside any run, read once from the parallel-writers gate&#x27;s ledger
-&lt;seen-dir&gt;/.outside-runs-&lt;session&gt; (ruling 36).
+A subagent hears: its host agent id at start, while a lane is claimable, so a
+lane&#x27;s writer can claim with that id (the lane&#x27;s brief, which only a writer
+receives, tells it to: a SubagentStart hook cannot see the prompt, probe P6);
+and, once it has claimed, every unread message addressed to its lane. The main
+agent hears a digest of every run not torn down: lanes awaiting review, lanes
+carrying attention, lanes whose heartbeat is stale, lanes and cells whose agent
+died. Run or no run, at every Claude Code start and prompt it hears the agents
+of this checkout waiting on the operator (agent_waits.py) and its dead agents
+(agent_deaths.py). At a prompt it also runs the hourly dead-session check
+(worktree_sweep.hourly) and lists what it removed and each `dead session` line
+the operator must answer.
 
 The digest judges a composed result from state on every prompt, comparing the
 integration record to each lane&#x27;s accepted tip; `check` judges from Git, also
@@ -1355,6 +1388,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -1373,6 +1407,11 @@ except ImportError:  # a trimmed export without the controller still gets the di
     wd = None  # type: ignore[assignment]
 
 from workloop_size import GitBudget, size_notes  # noqa: E402
+
+try:
+    from workloop_state import waiting_agents  # noqa: E402
+except ImportError:  # a trimmed export without the controller reads no writer as waiting
+    waiting_agents = None  # type: ignore[assignment]
 
 STALE_SECONDS = 900
 # Hook output is capped by the host and discarded on timeout, and the seen
@@ -1399,7 +1438,7 @@ def subagent_block(runs: dict, agent_id: str, event: str, seen: set[str]) -&gt; 
     claimable = any(lane.get(&quot;state&quot;) in (&quot;ready&quot;, &quot;reopened&quot;) or lane.get(&quot;claimed_by&quot;) == agent_id
                     for run in runs.values() for lane in run[&quot;lanes&quot;].values())
     if event == &quot;SubagentStart&quot; and claimable:
-        lines.append(f&quot;AGENT_ID: {agent_id} — claim your workloop lane and send or acknowledge messages with --agent {agent_id}.&quot;)
+        lines.append(f&quot;AGENT_ID: {agent_id} — pass --agent {agent_id} wherever a workloop command asks for your agent id.&quot;)
     delivered: set[str] = set()
     for run_name, run in runs.items():
         mine = [name for name, lane in run[&quot;lanes&quot;].items() if lane.get(&quot;claimed_by&quot;) == agent_id]
@@ -1442,15 +1481,17 @@ def closing_notes(run_name: str, run: dict) -&gt; list[str]:
         return []
     current = composed_result(run)
     if all(lane.get(&quot;place&quot;) == &quot;main&quot; for lane in lanes.values()):
-        if current is None or current.get(&quot;result&quot;) != &quot;pass&quot;:
-            return [f&quot;lane reviewed; check {run_name} runs the composed test&quot;]
+        # land runs a one-writer run&#x27;s composed test at its accepted commit.
+        if current is not None and current.get(&quot;result&quot;) != &quot;pass&quot;:
+            return [&quot;the composed test failed at the accepted commit; see status&quot;]
     elif current is None:
         return [f&quot;all lanes reviewed; integrate {run_name}&quot;]
     elif current.get(&quot;result&quot;) != &quot;pass&quot;:
         return [&quot;the composed test failed at integrate; see status&quot;]
     if not run.get(&quot;qa&quot;):
         return [f&quot;ready for QA; record it with qa {run_name} --evidence &#x27;…&#x27;&quot;]
-    return [f&quot;check {run_name}, then teardown {run_name}&quot;]
+    # Accepted and not landed: land verifies on the source branch and closes the run.
+    return [f&quot;land {run_name}&quot;]
 
 
 def cell_notes(run_name: str, run: dict, ended: bool, verdicts: dict) -&gt; list[str]:
@@ -1517,6 +1558,10 @@ def active_note(run_name: str, run: dict, lane_name: str, lane: dict, verdicts: 
     # sign of life beside the heartbeat.
     quiet = silence(lane, &quot;claimed_at&quot;, now)
     progress = f&quot; — {lane[&#x27;progress&#x27;]}&quot; if lane.get(&quot;progress&quot;) else &quot;&quot;
+    # A writer whose last turn started a background command is neither stale
+    # nor gone; release-stale refuses it.
+    if claimant and waiting_agents is not None and claimant in waiting_agents(Path(run.get(&quot;repo&quot;) or &quot;/nonexistent&quot;)):
+        return f&quot;{lane_name}&#x27;s worker {claimant} is waiting on its own background work{progress}&quot;
     if quiet is not None and quiet &gt; STALE_SECONDS:
         minutes = int(quiet // 60)
         if run.get(&quot;supervised&quot;):
@@ -1536,6 +1581,10 @@ def lane_notes(run_name: str, run: dict, verdicts: dict, now: float) -&gt; list[
             notes.append(note)
         if lane.get(&quot;env&quot;) == &quot;broken&quot;:
             notes.append(f&quot;{lane_name} environment broken (provision {run_name} {lane_name})&quot;)
+        # A parked lane, or one a restart left without its folder: its branch
+        # and saved work wait in git (one stat per lane).
+        if lane.get(&quot;place&quot;) != &quot;main&quot; and lane.get(&quot;state&quot;) != &quot;reviewed&quot; and lane.get(&quot;workspace&quot;) and not Path(lane[&quot;workspace&quot;]).is_dir():
+            notes.append(f&quot;{lane_name}&#x27;s worktree is gone; resume {run_name} re-adds it with its saved work&quot;)
     return notes
 
 
@@ -1556,30 +1605,6 @@ def main_block(runs: dict, verdicts: dict, ended: frozenset, git: GitBudget) -&g
     return &quot;\n&quot;.join(lines)
 
 
-OUTSIDE_RUNS_NOTE = (&quot;WORKLOOP: {count} cells last turn outside any run. A multi-cell delegation is one workloop run: &quot;
-                     &quot;.agents/workloop.py init &lt;run&gt; --objective &#x27;…&#x27; --acceptance &#x27;…&#x27; (with --verify &#x27;&lt;test&gt;&#x27; and --lane for a writer), &quot;
-                     &quot;then add-cell &lt;run&gt; &lt;name&gt; --role research|review|qa --model &lt;model&gt; and dispatch what it prints.&quot;)
-
-
-def outside_runs_note(seen_dir: Path, session: str) -&gt; str:
-    &quot;&quot;&quot;The turn that just ended, counted from the gate&#x27;s ledger of dispatches with no run
-    header (&quot;&lt;prompt id&gt;\\t&lt;tool use id&gt;&quot; per line) and consumed: the last prompt&#x27;s distinct
-    dispatches, named at two or more (ruling 36). Older lines were a turn already reported.&quot;&quot;&quot;
-    path = seen_dir / f&quot;.outside-runs-{session}&quot;
-    try:
-        lines = [line.split(&quot;\t&quot;, 1) for line in path.read_text().splitlines() if &quot;\t&quot; in line]
-    except OSError:
-        return &quot;&quot;
-    try:
-        path.unlink()
-    except OSError as error:
-        print(f&quot;workloop-inbox: could not remove {path}: {error}&quot;, file=sys.stderr)
-    if not lines:
-        return &quot;&quot;
-    count = len({tool_use for prompt, tool_use in lines if prompt == lines[-1][0]})
-    return OUTSIDE_RUNS_NOTE.format(count=count) if count &gt;= 2 else &quot;&quot;
-
-
 def deliver(runs: dict, seen_dir: Path, safe: str, agent_id: str, event: str) -&gt; str:
     &quot;&quot;&quot;A subagent&#x27;s block; what it delivers is remembered so it is delivered once.&quot;&quot;&quot;
     seen_path = seen_dir / f&quot;.inbox-seen-{safe}-{re.sub(r&#x27;[^A-Za-z0-9_-]&#x27;, &#x27;&#x27;, agent_id)}&quot;
@@ -1593,9 +1618,31 @@ def deliver(runs: dict, seen_dir: Path, safe: str, agent_id: str, event: str) -&
     return block
 
 
+DEAD_SESSIONS_NOTE = (&quot;WORKTREES (hooks/lib/worktree_sweep.py, checked at most once an hour): put each `dead session` &quot;
+                      &quot;line to the operator through the question tool with its three answers, and run the one they choose:&quot;)
+
+
+def dead_sessions(seen_dir: Path, session: str) -&gt; str:
+    &quot;&quot;&quot;The hourly dead-session check (worktree_sweep.hourly, spec Unit 1.5) at a lead&#x27;s prompt,
+    under the teardown gate&#x27;s toggle; nothing while the hour since the last check runs, or in
+    an export that ships no sweep, as session-start.sh reads it.&quot;&quot;&quot;
+    agents = Path(__file__).resolve().parents[2]
+    if not Path(__file__).with_name(&quot;worktree_sweep.py&quot;).is_file():
+        return &quot;&quot;
+    import config
+    import worktree_sweep
+    if not config.read(config.load(str(agents / &quot;config.json&quot;)), &quot;hooks.teardown_gate.enabled&quot;, True):
+        return &quot;&quot;
+    lines: list[str] = []
+    try:
+        worktree_sweep.hourly(seen_dir.parent, session, agents / &quot;workloop.py&quot;, lines.append)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f&quot;workloop-inbox: the dead-session check failed: {error}&quot;, file=sys.stderr)
+        lines.append(f&quot;the dead-session check failed ({error}); the next one runs within the hour&quot;)
+    return &quot;\n&quot;.join([DEAD_SESSIONS_NOTE, *lines]) if lines else &quot;&quot;
+
+
 def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str, host: str) -&gt; str:
-    # The count stands with no run and no state file: the note is for a lead who opened no run.
-    outside = outside_runs_note(seen_dir, re.sub(r&quot;[^A-Za-z0-9_-]&quot;, &quot;&quot;, session)) if event == &quot;UserPromptSubmit&quot; else &quot;&quot;
     git = GitBudget()
     # Claude Code&#x27;s records are read at a prompt (a Claude Code hook) and at a Claude Code start.
     claude = event == &quot;UserPromptSubmit&quot; or host == &quot;claude&quot;
@@ -1604,7 +1651,9 @@ def lead_block(runs: dict, seen_dir: Path, session: str, event: str, source: str
     ended = frozenset(ended_runs(runs, seen_dir, session, source)) if runs else frozenset()
     digest = main_block(runs, report.verdicts, ended, git) if runs else &quot;&quot;
     deaths = report.block(agent_deaths.SHOWN_MAX, event == &quot;SessionStart&quot;)
-    return &quot;\n&quot;.join(part for part in (outside, digest, waiting, deaths) if part)
+    # A start runs the check in session-start.sh&#x27;s sweep; a prompt runs it here.
+    worktrees = dead_sessions(seen_dir, session) if event == &quot;UserPromptSubmit&quot; else &quot;&quot;
+    return &quot;\n&quot;.join(part for part in (digest, waiting, deaths, worktrees) if part)
 
 
 def main() -&gt; None:
@@ -1634,7 +1683,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-destructive</span><span class="badge gate">gate</span></div>
               <p class="what">The floor under destructive shell commands. Blocks broad <code>rm&nbsp;-rf</code>, force-push, <code>git&nbsp;clean&nbsp;-f</code>, <code>reset&nbsp;--hard</code>, <code>--no-verify</code>, production SSH mutations, <code>rsync</code> or <code>scp</code> to a remote, <code>terraform destroy</code>, recursive <code>aws s3 rm</code>, <code>aws s3 rb --force</code>, <code>kubectl delete</code> of a namespace or <code>--all</code>, and destructive SQL via <code>psql</code>, <code>mysql</code> or <code>mariadb</code> (DROP / TRUNCATE, WHERE-less DELETE/UPDATE). It fails open: a missing library or a payload that does not parse exits 0. It also guards <code>browser-sync.py</code>, which copies cookies out of the user&#x27;s Chrome, so only the user runs it.</p>
               <div class="io"><b>in</b> {command} &nbsp;→&nbsp; <b>out</b> exit 2 + reason | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1198 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1246 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-destructive.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a shell command is destructive or the user&#x27;s alone to run,
 and say why.
 
@@ -1842,10 +1891,30 @@ def separate_redirects(segment):
     return &quot;&quot;.join(out)
 
 
+def strip_comment(segment):
+    &quot;&quot;&quot;The segment up to an unquoted `#` that starts a word, as the shell reads
+    a comment. shlex&#x27;s own comment handling also cuts at a `#` inside a word
+    (`r.md#1 --force` would lose `--force`), which the shell keeps.&quot;&quot;&quot;
+    quote, escaped = &quot;&quot;, False
+    for index, char in enumerate(segment):
+        if escaped:
+            escaped = False
+        elif char == &quot;\\&quot; and quote != &quot;&#x27;&quot;:
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = &quot;&quot;
+        elif char in &quot;&#x27;\&quot;&quot;:
+            quote = char
+        elif char == &quot;#&quot; and (index == 0 or segment[index - 1].isspace()):
+            return segment[:index]
+    return segment
+
+
 def tokens(segment):
     &quot;&quot;&quot;(words, output targets) of one segment; raises ValueError when it does not
     tokenize.&quot;&quot;&quot;
-    return cut_redirects(shlex.split(separate_redirects(segment), comments=True))
+    return cut_redirects(shlex.split(strip_comment(separate_redirects(segment))))
 
 
 def normalize(text, depth=0):
@@ -2105,6 +2174,30 @@ def rule_git(command, project=&quot;&quot;):
     if verb == &quot;push&quot; and &quot;--no-verify&quot; in longs:
         return &quot;--no-verify skips the pre-push safety checks: fix the failure they catch instead.&quot;
     return None
+
+
+# What reads the stash leaves it as it is; every other verb, a bare `git stash`
+# included, pushes onto it or takes from it.
+STASH_READS = {&quot;list&quot;, &quot;show&quot;}
+
+
+def rule_cell_stash(command, project=&quot;&quot;):
+    &quot;&quot;&quot;A cell&#x27;s `git stash`: the stash is one stack shared by every worktree of
+    the repository, so a cell&#x27;s push lands where another lane&#x27;s pop takes it.&quot;&quot;&quot;
+    words = lead(command.words)
+    if not words or base(words[0]) != &quot;git&quot;:
+        return None
+    verb, rest = git_verb(words)
+    if verb != &quot;stash&quot;:
+        return None
+    # Past `--` every word is a pathspec of a bare `git stash`, which pushes.
+    options = rest[:rest.index(&quot;--&quot;)] if &quot;--&quot; in rest else rest
+    action = next((word for word in options if not word.startswith(&quot;-&quot;)), None)
+    if action in STASH_READS:
+        return None
+    return (&quot;A cell may not run git stash: the stash is shared by every worktree of this repository, so another lane&#x27;s &quot;
+            &quot;pop takes your changes or yours takes theirs. Commit the work on your lane branch instead; uncommitted &quot;
+            &quot;work the run removes is saved on its wip ref, refs/workloop/&lt;run&gt;/&lt;lane&gt;/wip.&quot;)
 
 
 # ssh option letters that take a value, attached (`-p2222`) or as the next word.
@@ -2823,6 +2916,10 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return 0
     project = payload.get(&quot;project_dir&quot;)
+    # A payload with an agent_id is a cell&#x27;s (Claude Code tags a spawned
+    # subagent&#x27;s calls with it); the lead may stash its own checkout.
+    if payload.get(&quot;agent_id&quot;) and rules is RULES:
+        rules = (*rules, rule_cell_stash)
     reason = verdict(command, project if isinstance(project, str) else repo, rules)
     if not reason:
         return 0
@@ -2832,6 +2929,106 @@ def main():
 
 if __name__ == &quot;__main__&quot;:
     sys.exit(main())
+</code></pre></details>
+            </article>
+            <article class="hook" data-t="gate">
+              <div class="top"><span class="id">workloop-authority</span><span class="badge gate">gate</span></div>
+              <p class="what">The workloop controller&rsquo;s lead-only commands stay the lead&rsquo;s. A cell may not run <code>review&nbsp;…&nbsp;--ruling</code>, <code>widen</code> or <code>share</code>, which would lift its own review cap or grow its own scope; every spelling of the line is read, wrappers and <code>sh&nbsp;-c</code> included.</p>
+              <div class="io"><b>in</b> {command, agent_id} &nbsp;→&nbsp; <b>out</b> exit 2 + remedy | exit 0</div>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 94 lines</span></summary><div class="srcpath">.agents/hooks/policy/workloop-authority.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: the workloop controller&#x27;s lead-only commands are the
+# lead&#x27;s. A cell (a payload carrying agent_id) may not run
+#   workloop.py review … --ruling   lifts the review-round cap
+#   workloop.py widen               grows a lane&#x27;s owned paths
+#   workloop.py share               declares a path every lane may edit
+# Each takes a free-text --agent the controller cannot check, so the hook is
+# what keeps a lane&#x27;s writer from granting itself scope or waiving its review.
+#
+# Input  (stdin JSON): {&quot;command&quot;: &quot;&lt;shell command&gt;&quot;, &quot;agent_id&quot;: &quot;&lt;a cell&#x27;s id, empty for the lead&gt;&quot;}
+# Output: exit 2 + stderr reason on a refusal; exit 0 otherwise.
+#
+# The command is read with guard-destructive.py&#x27;s shell parse: every command of
+# a compound line, past environment prefixes, wrappers and `sh -c`. A script
+# that runs the controller indirectly gets past it, as the publish guard&#x27;s push
+# detection notes for its own case.
+
+set -euo pipefail
+
+repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
+parser=&quot;$repo/.agents/hooks/lib/guard-destructive.py&quot;
+
+if [[ ! -f &quot;$parser&quot; ]]; then
+  echo &quot;workloop-authority: $parser is missing; the check cannot run.&quot; &gt;&amp;2
+  exit 0
+fi
+
+exec python3 -c &#x27;
+import importlib.util, json, re, sys
+
+spec = importlib.util.spec_from_file_location(&quot;guard_destructive&quot;, sys.argv[1])
+guard = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(guard)
+
+PYTHON = re.compile(r&quot;python[0-9.]*&quot;)
+# The controller&#x27;&quot;&#x27;&quot;&#x27;s own options that take a value, before its subcommand.
+VALUED = {&quot;--state&quot;, &quot;--event-id&quot;}
+# The interpreter&#x27;&quot;&#x27;&quot;&#x27;s options that take a separate value (`python3 -X dev`).
+PYTHON_VALUED = {&quot;-X&quot;, &quot;-W&quot;, &quot;--check-hash-based-pycs&quot;}
+# Every long option `review` reads, its own and the controller&#x27;&quot;&#x27;&quot;&#x27;s: argparse
+# takes any unambiguous prefix of one, so `--rul` is `--ruling`.
+REVIEW_LONGS = (&quot;--reference&quot;, &quot;--result&quot;, &quot;--severity&quot;, &quot;--tip&quot;, &quot;--ruling&quot;, &quot;--message&quot;, &quot;--state&quot;, &quot;--event-id&quot;, &quot;--help&quot;)
+
+
+def controller_args(words):
+    &quot;&quot;&quot;The words after workloop.py, or None when the command runs another program.&quot;&quot;&quot;
+    words = guard.lead(words)
+    if words and PYTHON.fullmatch(guard.base(words[0])):
+        words = words[1:]
+        while words and words[0].startswith(&quot;-&quot;):
+            words = words[2:] if words[0] in PYTHON_VALUED else words[1:]
+    if words and guard.base(words[0]) == &quot;workloop.py&quot;:
+        return words[1:]
+    return None
+
+
+def names_ruling(word):
+    &quot;&quot;&quot;True when argparse would read the word as --ruling: the option itself or
+    an unambiguous prefix of it, with or without =value.&quot;&quot;&quot;
+    name = word.split(&quot;=&quot;, 1)[0]
+    if not name.startswith(&quot;--&quot;) or len(name) &lt; 3:
+        return False
+    return [option for option in REVIEW_LONGS if option.startswith(name)] == [&quot;--ruling&quot;]
+
+
+def refusal(args):
+    index = 0
+    while index &lt; len(args) and args[index].startswith(&quot;-&quot;):
+        index += 1 if &quot;=&quot; in args[index] or args[index] not in VALUED else 2
+    verb = args[index] if index &lt; len(args) else &quot;&quot;
+    rest = args[index + 1:]
+    if verb in (&quot;widen&quot;, &quot;share&quot;):
+        return verb
+    if verb == &quot;review&quot; and any(names_ruling(word) for word in rest):
+        return &quot;review --ruling&quot;
+    return None
+
+
+try:
+    payload = json.loads(sys.stdin.read() or &quot;{}&quot;)
+except ValueError:
+    sys.exit(0)
+command = payload.get(&quot;command&quot;) if isinstance(payload, dict) else None
+if not payload.get(&quot;agent_id&quot;) or not isinstance(command, str):
+    sys.exit(0)
+for parsed in guard.normalize(command):
+    args = controller_args(parsed.words)
+    found = refusal(args) if args is not None else None
+    if found:
+        print(f&quot;workloop.py {found} is the lead&#x27;&quot;&#x27;&quot;&#x27;s: a cell may not widen a lane, share a path, or rule past the &quot;
+              &quot;review-round cap. Return to your lead with what you need and why; the lead runs it.&quot;, file=sys.stderr)
+        sys.exit(2)
+sys.exit(0)
+&#x27; &quot;$parser&quot;
 </code></pre></details>
             </article>
             <article class="hook" data-t="gate">
@@ -3106,7 +3303,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">guard-publish</span><span class="badge gate">gate</span></div>
               <p class="what">Forces the permission prompt on an outward mutation &mdash; publish, deploy, push, package release, a hosted migration, an Artifact action, many <code>gh</code> writes. It asks in the modes that prompt (default, acceptEdits, plan) and denies in the rest, since a prompt nobody saw is no approval; the push prompt names critical-path files the push carries without a review record. Wired for Claude only. Two pieces beside it: the publish-approval mod asks in Claude&#x27;s own question dialog in every mode, and its &ldquo;Run it&rdquo; leaves a token that turns the ask or deny into allow for that one call; the device policy (<code>.agents/claude/device/</code>) installs the same outward-mutation rules for every session on the machine, and the operator runs it once with <code>sudo</code>.</p>
               <div class="io"><b>in</b> {tool_name, tool_input, permission_mode} &nbsp;→&nbsp; <b>out</b> permissionDecision "ask" | "deny" | ∅ &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1273 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-publish.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 1279 lines</span></summary><div class="srcpath">.agents/hooks/lib/guard-publish.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Decide whether a tool call is an outward mutation that needs user approval.
 
 Input  (stdin JSON): {&quot;tool_name&quot;: &quot;...&quot;, &quot;tool_input&quot;: {...},
@@ -3342,7 +3539,10 @@ GCLOUD_WRITES = {&quot;create&quot;, &quot;delete&quot;, &quot;update&quot;, &qu
                  &quot;import&quot;, &quot;enable&quot;, &quot;disable&quot;, &quot;undelete&quot;, &quot;restore&quot;, &quot;replace&quot;,
                  &quot;rollback&quot;, &quot;submit&quot;, &quot;execute&quot;, &quot;add&quot;, &quot;remove&quot;, &quot;cancel&quot;,
                  &quot;resize&quot;, &quot;start&quot;, &quot;stop&quot;, &quot;reset&quot;, &quot;promote&quot;, &quot;rm&quot;, &quot;mv&quot;,
-                 &quot;publish&quot;, &quot;migrate&quot;, &quot;export&quot;, &quot;run&quot;, &quot;call&quot;, &quot;apply&quot;}
+                 &quot;publish&quot;, &quot;migrate&quot;, &quot;export&quot;, &quot;run&quot;, &quot;call&quot;, &quot;apply&quot;,
+                 # Approving a pending Cloud Build build starts it, and a
+                 # deploy trigger&#x27;s build is a deploy.
+                 &quot;approve&quot;}
 # A verb family: `set-traffic`, `add-iam-policy-binding`, `enable-oslogin`.
 GCLOUD_WRITE_PREFIXES = (&quot;add-&quot;, &quot;remove-&quot;, &quot;set-&quot;, &quot;update-&quot;, &quot;create-&quot;, &quot;delete-&quot;,
                          &quot;enable-&quot;, &quot;disable-&quot;)
@@ -3471,6 +3671,9 @@ def gcloud_reason(rest):
     start = 1 if path[:1] and path[0] in GCLOUD_TRACKS else 0
     if len(path) &lt;= start or path[start] in GCLOUD_LOCAL_GROUPS:
         return None
+    # A read, but it prints a secret&#x27;s value, such as a deploy&#x27;s root SSH key.
+    if path[start:start + 3] == [&quot;secrets&quot;, &quot;versions&quot;, &quot;access&quot;]:
+        return &quot;gcloud secrets versions access prints a secret&#x27;s value into the session.&quot;
     for index in range(start + 1, len(path)):
         word = path[index]
         if word in GCLOUD_READS or word.startswith((&quot;get-&quot;, &quot;list-&quot;, &quot;describe-&quot;)):
@@ -4507,7 +4710,7 @@ PY
               <div class="top"><span class="id">parallel-writers-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Denies a second writing cell while one is already live, so two agents never edit one checkout at once. The way through is a coordinated run, where each writer gets its own provisioned worktree and the composed result is verified once, or a <code>WORKSPACE:</code> line placing the cell in a directory that is no copy of this repository; it may then write anywhere but the checkout. A cell that only reads says so by opening its prompt with <code>READ-ONLY</code>; the lead&#x27;s own edit is denied while a writer is live in the checkout.</p>
               <div class="io"><b>in</b> {subagent_type, prompt} &nbsp;→&nbsp; <b>out</b> deny + the workloop commands | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 530 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 596 lines</span></summary><div class="srcpath">.agents/hooks/policy/parallel-writers-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: two writers never edit one checkout at once.
 #
 # A single writer edits the main tree — that is the linear case and needs no
@@ -4532,16 +4735,8 @@ PY
 # lead&#x27;s edits there, an OUTSIDE cell&#x27;s writes there and a brief for such a
 # lane all count as outside; a submodule stays the checkout&#x27;s.
 #
-# Seven events share one policy because they share one state file:
-#   PreToolUse Agent — a dispatch. One the gate lets through that carries no
-#                  WORKLOOP … BRIEF header is noted in
-#                  .agents/.outside-runs-&lt;session&gt; as &quot;&lt;prompt_id&gt;
-#                  &lt;tool_use_id&gt;&quot;, unless its type is one of the host&#x27;s own
-#                  helpers (HELPERS); a refused one is not. The lead&#x27;s digest
-#                  (hooks/lib/workloop-inbox.py) counts a turn&#x27;s lines at the
-#                  next prompt and names a turn with two or more, a multi-cell
-#                  delegation outside a run (ruling 36). Nothing is refused for
-#                  it. A read-only type passes. A prompt that
+# Eight events share one policy because they share one state file:
+#   PreToolUse Agent — a dispatch. A read-only type passes. A prompt that
 #                  opens with READ-ONLY passes, as does one that opens with
 #                  NOTES-ONLY where the repository has a product folder
 #                  (hooks.product_folder.enabled; denied where it has none,
@@ -4604,17 +4799,36 @@ PY
 #                  finish fires SubagentStop (probed on 2.1.299). One that
 #                  never wrote is counted marked here if its metadata names a
 #                  marker.
+#   PostToolUse Agent, SubagentStop — the lead&#x27;s read-only cells record
+#                  themselves (decision D4): a dispatch with a READ-ONLY or
+#                  NOTES-ONLY marker or a reading persona and no WORKLOOP …
+#                  BRIEF header becomes a cell of the run fanout-&lt;session&gt;, and
+#                  its SubagentStop marks it returned (hooks/lib/fanout_record.py,
+#                  which reports a failure on stderr and never blocks).
 #
-# session-start.sh clears the state at startup and resume: no subagent
-# survives the process, so a cell that died without a SubagentStop cannot
-# deny the next session. Within one session, .agents/.writers-live-&lt;session&gt;
-# is the file to delete if a cell is known dead and the sweep kept it.
+# Every session working in this checkout shares one live file,
+# .agents/.writers-live, under one lock, .agents/.writers-lock (ruling R7):
+#   - another session&#x27;s live writer refuses this session&#x27;s writer dispatch,
+#     naming that session and cell, and lets this session&#x27;s own edit through
+#     with a warning naming them;
+#   - another session&#x27;s line is swept by its transcripts (cell_markers.py
+#     foreign), read only when such a line exists.
+# The turn and kinds files stay per session. session-start.sh drops this
+# session&#x27;s lines at startup and resume (cell_markers.py drop-session): no
+# subagent survives the process, so a cell that died without a SubagentStop
+# cannot deny the next session. A line the sweeps keep for a cell known dead
+# is the line to delete from .agents/.writers-live.
+#
+# A cell resumed after a restart starts again with its metadata written, so a
+# marked one is found at SubagentStart and never registers.
 #
 # Input (stdin JSON): {&quot;project_dir&quot;, &quot;cwd&quot;, &quot;event&quot;, &quot;session_id&quot;, &quot;prompt_id&quot;,
 #   &quot;tool_name&quot;, &quot;tool_input&quot;: {...}, &quot;tool_use_id&quot;, &quot;transcript_path&quot;,
 #   &quot;agent_id&quot;, &quot;agent_type&quot;}
-# Output: PreToolUse — a deny envelope on stdout when the rule fires, silence
-#   otherwise. The other events emit nothing.
+# Output: PreToolUse — a deny envelope on stdout when the rule fires; for the
+#   lead&#x27;s edit beside another session&#x27;s writer, an additionalContext and
+#   systemMessage warning with no decision; silence otherwise. The other events
+#   emit nothing.
 #
 # Writers are everything not on the read-only list below. An unknown persona
 # is a writer: a gate that guesses &quot;reader&quot; for a name it has not seen lets
@@ -4641,8 +4855,6 @@ lib=&quot;$repo/.agents/hooks/lib&quot;
 cfg_path=&quot;$repo/.agents/config.json&quot;
 
 READERS=&quot;explore explorer plan researcher reviewer qa-verifier claude-code-guide statusline-setup&quot;
-# The host&#x27;s own helpers: no delegation of the lead&#x27;s, so never a cell outside a run.
-HELPERS=&quot;claude-code-guide statusline-setup&quot;
 
 payload=&quot;$(cat)&quot;
 # A malformed toggle keeps the gate on: a broken gate must never silently
@@ -4654,12 +4866,13 @@ enabled=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$cfg_path&quot; hooks.p
   printf &#x27;%s&#x27; &quot;$payload&quot; | python3 &quot;$lib/writers-payload.py&quot;)
 
 [[ -n &quot;$session&quot; &amp;&amp; -n &quot;$proj&quot; ]] || exit 0
-live=&quot;$proj/.agents/.writers-live-$session&quot;
+# One live file and one lock per checkout, shared by every session working in
+# it; the turn and kinds files count one lead&#x27;s turns and stay per session.
+live=&quot;$proj/.agents/.writers-live&quot;
+lock=&quot;$proj/.agents/.writers-lock&quot;
 turn=&quot;$proj/.agents/.writers-turn-$session&quot;
-lock=&quot;$proj/.agents/.writers-lock-$session&quot;
 kinds=&quot;$proj/.agents/.writers-kinds-$session&quot;
 markers=&quot;$proj/.agents/.cell-markers-$session&quot;
-outside_runs=&quot;$proj/.agents/.outside-runs-$session&quot;
 
 named_in() {  # &lt;type&gt; &lt;list&gt; -&gt; 0 when the type, case aside, is in the list
   local t; t=&quot;$(printf &#x27;%s&#x27; &quot;$1&quot; | tr &#x27;[:upper:]&#x27; &#x27;[:lower:]&#x27;)&quot;
@@ -4668,22 +4881,30 @@ named_in() {  # &lt;type&gt; &lt;list&gt; -&gt; 0 when the type, case aside, is 
 }
 is_reader() { named_in &quot;$1&quot; &quot;$READERS&quot;; }
 
-# mkdir is the atomic test-and-set stock macOS has. The hold is milliseconds,
-# so a lock untouched for two minutes (macOS find counts whole minutes, so
-# -mmin +1 is two) belongs to a dead hook and is reaped; a hook
-# that cannot take the lock in a second proceeds without it rather than
-# stalling the dispatch behind it.
+# mkdir is the atomic test-and-set stock macOS has (cell_markers.py takes the
+# same lock the same way). The hold is milliseconds, so a lock untouched for two
+# minutes (macOS find counts whole minutes, so -mmin +1 is two) belongs to a
+# dead hook and is reaped. A hook waits up to 5 s for it; a PreToolUse call that
+# still cannot have it is denied (lock_denied), since every session&#x27;s writers
+# share the file, and other events report on stderr and skip their write.
 held=&quot;&quot;
 take_lock() {
   local tries=0
-  while (( tries &lt; 20 )); do
-    if mkdir &quot;$lock&quot; 2&gt;/dev/null; then held=yes; return; fi
+  [[ -n &quot;$held&quot; ]] &amp;&amp; return 0
+  while (( tries &lt; 100 )); do
+    if mkdir &quot;$lock&quot; 2&gt;/dev/null; then held=yes; return 0; fi
+    [[ -d &quot;$lock&quot; ]] || return 1  # not busy: .agents cannot be written
     [[ -n &quot;$(find &quot;$lock&quot; -maxdepth 0 -mmin +1 2&gt;/dev/null)&quot; ]] &amp;&amp; rm -rf &quot;$lock&quot;
     sleep 0.05; tries=$((tries + 1))
   done
+  return 1
 }
 release_lock() { [[ -n &quot;$held&quot; ]] &amp;&amp; rmdir &quot;$lock&quot; 2&gt;/dev/null || true; }
 trap release_lock EXIT
+lock_denied() {
+  deny &quot;The parallel-writers gate could not take its lock ${lock} within 5 s, so it cannot tell which writers are live in this checkout. Retry; if no gate is running, the lock is left over: remove the folder ${lock}. If the folder is absent, the .agents directory cannot be written: fix its permissions.&quot;
+  exit 0
+}
 
 # .writers-turn-&lt;session&gt; holds the latest turn that dispatched a writer:
 # &quot;&lt;prompt_id&gt; &lt;dispatched&gt; &lt;started&gt; &lt;marked&gt;&quot;, tab-separated — the writers it
@@ -4776,27 +4997,32 @@ take_back_finished() {  # &lt;prompt_id&gt; &lt;type&gt;: undoes one note_finish
   printf &#x27;%s\t%s\t%s&#x27; &quot;$1&quot; &quot;$(kinds_field &quot;$recorded&quot; 1)&quot; &quot;$left&quot; &gt;&quot;$kinds&quot;
 }
 
-# .writers-live-&lt;session&gt; holds every cell that registered this session, one
-# line each. A live writer is &quot;&lt;agent_id&gt; &lt;type&gt; &lt;turn it started in&gt;&quot;; one that
-# left is &quot;&lt;agent_id&gt; &lt;type&gt; &lt;turn&gt; gone &lt;how&gt; &lt;marker state&gt; &lt;transcript size&gt;&quot;,
-# tab-separated, where &lt;how&gt; is finished (SubagentStop), stopped (TaskStop),
-# died (StopFailure), swept (its transcript ended in an interruption) or
-# marked, and the size is its transcript&#x27;s in bytes when it left (&quot;-&quot; when the
-# gate had no transcript path). Remembering the cells that left lets a resumed
-# cell register again, and lets one that died or was swept come back when its
-# transcript shows new work: a cell may recover from an API error with no new
-# SubagentStart.
-entry_of() { grep &quot;^$1	&quot; &quot;$live&quot; 2&gt;/dev/null | head -n1; }
+# .agents/.writers-live holds every cell that registered in this checkout, one
+# line each, led by the session that dispatched it. A live writer is
+# &quot;&lt;session&gt; &lt;agent_id&gt; &lt;type&gt; &lt;turn it started in&gt;&quot;; one that left is
+# &quot;&lt;session&gt; &lt;agent_id&gt; &lt;type&gt; &lt;turn&gt; gone &lt;how&gt; &lt;marker state&gt; &lt;transcript
+# size&gt;&quot;, tab-separated, where &lt;how&gt; is finished (SubagentStop), stopped
+# (TaskStop), died (StopFailure), swept (its transcript ended in an
+# interruption) or marked, and the size is its transcript&#x27;s in bytes when it
+# left (&quot;-&quot; when the gate had no transcript path). Remembering the cells that
+# left lets a resumed cell register again, and lets one that died or was swept
+# come back when its transcript shows new work: a cell may recover from an API
+# error with no new SubagentStart. This session reads its own lines through
+# `own`, without the session column; another session&#x27;s live lines are swept by
+# cell_markers.py foreign, from that session&#x27;s transcripts.
+own() { [[ -f &quot;$live&quot; ]] &amp;&amp; grep &quot;^$session	&quot; &quot;$live&quot; | cut -f2- || true; }
+has_foreign() { [[ -f &quot;$live&quot; ]] &amp;&amp; awk -F&#x27;\t&#x27; -v s=&quot;$session&quot; &#x27;$1 != s &amp;&amp; $5 != &quot;gone&quot; { f = 1 } END { exit !f }&#x27; &quot;$live&quot;; }
+entry_of() { own | grep &quot;^$1	&quot; | head -n1 || true; }
 is_live() { local e; e=&quot;$(entry_of &quot;$1&quot;)&quot;; [[ -n &quot;$e&quot; &amp;&amp; &quot;$e&quot; != *&quot;	gone	&quot;* ]]; }
 
-# Replaces a cell&#x27;s line, only while this hook holds the lock, via a temporary
-# file beside the live file so a reader sees one whole file. A failure is
-# reported and never fails the hook.
-rewrite() {  # &lt;agent_id&gt; &lt;new line&gt; &lt;what a failure leaves&gt;
+# Replaces one of this session&#x27;s lines, only while this hook holds the lock,
+# via a temporary file beside the live file so a reader sees one whole file. A
+# failure is reported and never fails the hook.
+rewrite() {  # &lt;agent_id&gt; &lt;new line, without the session column&gt; &lt;what a failure leaves&gt;
   local tmp=&quot;&quot;
   [[ -n &quot;$held&quot; ]] || { echo &quot;parallel-writers-gate: the lock is busy, so $3.&quot; &gt;&amp;2; return 1; }
-  if tmp=&quot;$(mktemp &quot;$live.XXXXXX&quot;)&quot; &amp;&amp; { grep -v &quot;^$1	&quot; &quot;$live&quot; &gt;&quot;$tmp&quot;; (( $? &lt;= 1 )); } &amp;&amp;
-     printf &#x27;%s\n&#x27; &quot;$2&quot; &gt;&gt;&quot;$tmp&quot; &amp;&amp; mv &quot;$tmp&quot; &quot;$live&quot;; then
+  if tmp=&quot;$(mktemp &quot;$live.XXXXXX&quot;)&quot; &amp;&amp; { grep -v &quot;^$session	$1	&quot; &quot;$live&quot; &gt;&quot;$tmp&quot;; (( $? &lt;= 1 )); } &amp;&amp;
+     printf &#x27;%s\t%s\n&#x27; &quot;$session&quot; &quot;$2&quot; &gt;&gt;&quot;$tmp&quot; &amp;&amp; mv &quot;$tmp&quot; &quot;$live&quot;; then
     return 0
   fi
   [[ -z &quot;$tmp&quot; ]] || rm -f &quot;$tmp&quot;
@@ -4840,7 +5066,7 @@ grown() {
     [[ &quot;$how&quot; == died || &quot;$how&quot; == swept ]] &amp;&amp; [[ &quot;$state&quot; != marked &amp;&amp; &quot;$size&quot; != - &amp;&amp; -n &quot;$size&quot; ]] || continue
     now=&quot;$(transcript_size &quot;$id&quot;)&quot;
     (( now &gt; size )) &amp;&amp; printf &#x27;%s:%s\n&#x27; &quot;$id&quot; &quot;$size&quot;
-  done &lt; &lt;(grep &#x27;	gone	&#x27; &quot;$live&quot;)
+  done &lt; &lt;(own | grep &#x27;	gone	&#x27;)
   return 0
 }
 
@@ -4863,14 +5089,29 @@ restore() {
   done
 }
 
-live_count() {
+live_count() {  # this session&#x27;s live writers
   # grep -c prints 0 and exits 1 when nothing matches, so it cannot sit in a || chain.
-  if [[ -f &quot;$live&quot; ]]; then grep -v &#x27;	gone	&#x27; &quot;$live&quot; | grep -c . || true; else echo 0; fi
+  own | grep -v &#x27;	gone	&#x27; | grep -c . || true
+}
+
+# Another session&#x27;s live writers, after cell_markers.py foreign drops each its
+# transcripts show ended, as &quot;a1 (implementer) of session s2, ...&quot;. Needs the
+# lock held; empty when there are none.
+foreign_names() {
+  has_foreign || return 0
+  python3 &quot;$lib/cell_markers.py&quot; foreign &quot;$proj&quot; &quot;$session&quot; &quot;$transcript&quot; |
+    awk -F&#x27;\t&#x27; &#x27;{ printf &quot;%s%s (%s) of session %s&quot;, (NR &gt; 1 ? &quot;, &quot; : &quot;&quot;), $2, $3, $1 }&#x27;
 }
 
 deny() {
   printf &#x27;{&quot;hookSpecificOutput&quot;:{&quot;hookEventName&quot;:&quot;PreToolUse&quot;,&quot;permissionDecision&quot;:&quot;deny&quot;,&quot;permissionDecisionReason&quot;:%s}}\n&#x27; \
     &quot;$(printf &#x27;%s&#x27; &quot;$1&quot; | python3 -c &#x27;import json,sys; print(json.dumps(sys.stdin.read()))&#x27;)&quot;
+}
+
+# Lets the call through with no decision of its own, telling the agent (context)
+# and the person (systemMessage) why.
+warn() {
+  printf &#x27;%s&#x27; &quot;$1&quot; | python3 -c &#x27;import json,sys; text = sys.stdin.read(); print(json.dumps({&quot;systemMessage&quot;: &quot;parallel-writers-gate: &quot; + text, &quot;hookSpecificOutput&quot;: {&quot;hookEventName&quot;: &quot;PreToolUse&quot;, &quot;additionalContext&quot;: text}}))&#x27;
 }
 
 # Books a cell already taken off the live writers by what it turned out to be:
@@ -4892,7 +5133,7 @@ settle() {  # &lt;agent_id&gt; &lt;&quot;type&lt;TAB&gt;turn&quot; from unregist
 finish() {  # &lt;agent_id&gt; &lt;finished|stopped|died&gt;
   local state=unmarked status=0
   [[ -n &quot;$1&quot; ]] &amp;&amp; is_live &quot;$1&quot; || return 0
-  take_lock
+  take_lock || true  # without it, rewrite says the cell stays live
   if [[ -f &quot;$markers&quot; ]]; then
     python3 &quot;$lib/cell_markers.py&quot; marked &quot;$proj&quot; &quot;$session&quot; &quot;$transcript&quot; &quot;$1&quot; || status=$?
     case &quot;$status&quot; in
@@ -4909,7 +5150,7 @@ finish() {  # &lt;agent_id&gt; &lt;finished|stopped|died&gt;
 sweep() {
   local ids=() id reason state
   [[ -f &quot;$live&quot; ]] || return 0
-  while IFS=$&#x27;\t&#x27; read -r id _; do is_live &quot;$id&quot; &amp;&amp; ids+=(&quot;$id&quot;); done &lt;&quot;$live&quot;
+  while IFS=$&#x27;\t&#x27; read -r id _; do is_live &quot;$id&quot; &amp;&amp; ids+=(&quot;$id&quot;); done &lt; &lt;(own)
   (( ${#ids[@]} )) &amp;&amp; [[ -n &quot;$transcript&quot; ]] || return 0
   while IFS=$&#x27;\t&#x27; read -r id reason; do
     case &quot;$reason&quot; in
@@ -4923,17 +5164,8 @@ sweep() {
 live_names() {
   local id type out=&quot;&quot;
   [[ -f &quot;$live&quot; ]] || return 0
-  while IFS=$&#x27;\t&#x27; read -r id type _; do [[ -n &quot;$id&quot; ]] &amp;&amp; out=&quot;${out:+$out, }$id ($type)&quot;; done &lt; &lt;(grep -v &#x27;	gone	&#x27; &quot;$live&quot;)
+  while IFS=$&#x27;\t&#x27; read -r id type _; do [[ -n &quot;$id&quot; ]] &amp;&amp; out=&quot;${out:+$out, }$id ($type)&quot;; done &lt; &lt;(own | grep -v &#x27;	gone	&#x27;)
   printf &#x27;%s&#x27; &quot;$out&quot;
-}
-
-# Notes an admitted dispatch with no run header for the lead&#x27;s digest; called
-# at each exit that lets a dispatch through, never on a denial, so no refused
-# dispatch is counted. A failed append is reported and changes no decision.
-note_outside() {
-  [[ &quot;$header&quot; != yes ]] &amp;&amp; ! named_in &quot;$tool_type&quot; &quot;$HELPERS&quot; || return 0
-  printf &#x27;%s\t%s\n&#x27; &quot;$prompt_id&quot; &quot;$tool_use_id&quot; &gt;&gt;&quot;$outside_runs&quot; ||
-    echo &quot;parallel-writers-gate: could not note this dispatch in $outside_runs; the next digest will not count it.&quot; &gt;&amp;2
 }
 
 SWEPT=&quot;The gate dropped every live writer that finished (SubagentStop), died of an API error or usage limit (StopFailure), was stopped (TaskStop, or an interruption closing its transcript), or whose metadata names a READ-ONLY, NOTES-ONLY or OUTSIDE dispatch, and brought back each that died or was swept and has written to its transcript since&quot;
@@ -4949,17 +5181,12 @@ case &quot;$event&quot; in
         fi
         exit 0
       fi
-      if is_reader &quot;$tool_type&quot;; then
-        note_outside
-        exit 0
-      fi
-      take_lock
+      is_reader &quot;$tool_type&quot; &amp;&amp; exit 0
+      take_lock || lock_denied
       if [[ &quot;$kind&quot; != &quot;plain&quot; ]]; then
         marker=&quot;$kind&quot;; [[ &quot;$kind&quot; == &quot;brief&quot; || &quot;$kind&quot; == &quot;workspace&quot; ]] &amp;&amp; marker=outside
         if ! note_turn &quot;$prompt_id&quot; || ! python3 &quot;$lib/cell_markers.py&quot; record &quot;$proj&quot; &quot;$session&quot; &quot;$tool_use_id&quot; &quot;$marker&quot;; then
           deny &quot;The parallel-writers gate could not record this ${kind} dispatch; without the record the cell would run as a writer. The dispatch needs a tool_use_id and a writable .agents directory; retry once both hold.&quot;
-        else
-          note_outside
         fi
         exit 0
       fi
@@ -4969,17 +5196,21 @@ case &quot;$event&quot; in
       running=&quot;$(live_count)&quot;
       if (( pending + running &gt;= 1 )); then
         if (( running )); then
-          still=&quot;${SWEPT}; still live: $(live_names). If one of these is known dead, delete ${live}.&quot;
+          still=&quot;${SWEPT}; still live: $(live_names). If one of these is known dead, delete its line from ${live}.&quot;
         else
           still=&quot;The other writer was dispatched earlier in this turn and has not started yet.&quot;
         fi
         deny &quot;A second writer (${tool_type}) is being dispatched to this checkout while another writer works in it.${refusal:+ Its WORKSPACE line was not accepted: ${refusal}.} Check the shape first (the workloop skill&#x27;s guide): one writer with read-only cells around it is the default; parallel slices suit disjoint files, about three writers at most. Concurrent writers in one repository go through a workloop run, which provisions a worktree per writer, verifies the merged result once, and removes the worktrees: .agents/workloop.py init &lt;run&gt; --objective &#x27;&lt;goal&gt;&#x27; --acceptance &#x27;&lt;prose&gt;&#x27; --verify &#x27;&lt;test command&gt;&#x27;; .agents/workloop.py add-lane &lt;run&gt; &lt;lane&gt; --worker ${tool_type} --path &lt;owned path&gt; (the worktree goes to .agents/worktrees/&lt;run&gt;/&lt;lane&gt;); then dispatch the output of .agents/workloop.py brief &lt;run&gt; &lt;lane&gt; --role worker as this cell&#x27;s prompt. isolation: worktree alone is not enough — nothing would verify the composition. A cell that works in a separate directory, no copy of this repository, says so with one prompt line, WORKSPACE: &lt;absolute path&gt;, and may then write anywhere but this checkout. A cell that only reads may say so: start its prompt with READ-ONLY; one that also writes notes in the product folder starts NOTES-ONLY. The read-only personas (explorer, researcher, reviewer, qa-verifier) pass. ${still}&quot;
         exit 0
       fi
+      # Ruling R7: another session&#x27;s live writer refuses this session&#x27;s writer.
+      others=&quot;$(foreign_names)&quot;
+      if [[ -n &quot;$others&quot; ]]; then
+        deny &quot;Another session has a writer cell live in this checkout: ${others}. A writer of this session (${tool_type}) would edit the same tree. Dispatch it as a workloop lane, whose brief places it in its own worktree (.agents/workloop.py init / add-lane / brief), give it a WORKSPACE: &lt;absolute path&gt; line for a directory that is no copy of this repository, or wait until that cell returns. This session&#x27;s own edits stay allowed. If that cell is known dead, delete its line from ${live}.&quot;
+        exit 0
+      fi
       if ! count_turn &quot;$prompt_id&quot; dispatched || ! note_turn &quot;$prompt_id&quot; &quot;$tool_type&quot;; then
         deny &quot;The parallel-writers gate could not record this dispatch in ${turn}; fix the .agents directory&#x27;s permissions and retry.&quot;
-      else
-        note_outside
       fi
     elif [[ -n &quot;$agent_id&quot; ]]; then
       # A cell&#x27;s own write: its dispatch marker decides, before any bookkeeping.
@@ -4993,22 +5224,49 @@ case &quot;$event&quot; in
       [[ -z &quot;$reason&quot; ]] || deny &quot;$reason&quot;
       # A marked cell is no writer, whether or not it registered at start.
       if (( status == 3 )) &amp;&amp; is_live &quot;$agent_id&quot;; then
-        take_lock
+        take_lock || true  # without it, rewrite says the cell stays live
         settle &quot;$agent_id&quot; &quot;$(unregister &quot;$agent_id&quot; marked marked)&quot; marked
       fi
     else
       # The lead&#x27;s own edit while a writer works in the checkout.
       [[ &quot;$outside&quot; == &quot;yes&quot; ]] &amp;&amp; exit 0
-      (( $(live_count) &gt;= 1 )) || [[ -n &quot;$(grown)&quot; ]] || exit 0
-      take_lock
+      # The session&#x27;s first edit in this checkout hears of any other live
+      # session here (spec Unit 5.2); later edits only hear of another
+      # session&#x27;s live writer, below.
+      peer=&quot;&quot;
+      told=&quot;$proj/.agents/.writers-told-$session&quot;
+      if [[ ! -e &quot;$told&quot; ]]; then
+        : &gt;&quot;$told&quot; || echo &quot;parallel-writers-gate: could not write $told; the next edit checks for other sessions again.&quot; &gt;&amp;2
+        peer=&quot;$(python3 &quot;$lib/cell_markers.py&quot; peers &quot;$proj&quot; &quot;$session&quot; &quot;$transcript&quot;)&quot; \
+          || { echo &quot;parallel-writers-gate: could not check for other sessions in this checkout.&quot; &gt;&amp;2; peer=&quot;&quot;; }
+        peer=&quot;${peer//$&#x27;\n&#x27;/; }&quot;
+      fi
+      PEER=&quot;Another session is working in this checkout: ${peer}. Its edits and yours land in one tree; take a worktree for this session&#x27;s work (EnterWorktree) unless the operator says to share it.&quot;
+      if ! { (( $(live_count) &gt;= 1 )) || [[ -n &quot;$(grown)&quot; ]] || has_foreign; }; then
+        [[ -z &quot;$peer&quot; ]] || warn &quot;$PEER&quot;
+        exit 0
+      fi
+      take_lock || lock_denied
       restore
       sweep
-      (( $(live_count) &gt;= 1 )) || exit 0
-      deny &quot;A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. ${SWEPT}; still live: $(live_names). If one of these is known dead, delete ${live}.&quot;
+      if (( $(live_count) &gt;= 1 )); then
+        deny &quot;A writer cell is live in this checkout, so an edit here collides with it. Wait for the cell to finish, or make it a workloop lane in its own worktree (.agents/workloop.py init / add-lane / brief), or give it a WORKSPACE outside this checkout, and edit the main tree freely. ${SWEPT}; still live: $(live_names). If one of these is known dead, delete its line from ${live}.&quot;
+        exit 0
+      fi
+      # Ruling R7: another session&#x27;s writer leaves this lead&#x27;s edits allowed, with a warning.
+      others=&quot;$(foreign_names)&quot;
+      if [[ -n &quot;$others&quot; ]]; then
+        warn &quot;Another session has a writer cell live in this checkout: ${others}. This edit is allowed, but that cell may be editing the same files; check \`git status\` before you commit, or take a worktree for this session&#x27;s work (EnterWorktree).${peer:+ $PEER}&quot;
+      elif [[ -n &quot;$peer&quot; ]]; then
+        warn &quot;$PEER&quot;
+      fi
     fi
     ;;
   PostToolUse)
     [[ &quot;$tool_name&quot; == &quot;TaskStop&quot; ]] &amp;&amp; finish &quot;$task_id&quot; stopped
+    if [[ ( &quot;$tool_name&quot; == &quot;Agent&quot; || &quot;$tool_name&quot; == &quot;Task&quot; ) &amp;&amp; -z &quot;$agent_id&quot; &amp;&amp; -f &quot;$lib/fanout_record.py&quot; ]]; then
+      printf &#x27;%s&#x27; &quot;$payload&quot; | python3 &quot;$lib/fanout_record.py&quot; record &quot;$repo&quot;
+    fi
     ;;
   StopFailure)
     # A cell&#x27;s API error ends the cell unless it recovers, which restore
@@ -5018,22 +5276,33 @@ case &quot;$event&quot; in
   SubagentStart)
     is_reader &quot;$agent_type&quot; &amp;&amp; exit 0
     [[ -n &quot;$agent_id&quot; ]] || exit 0
-    take_lock
+    take_lock || echo &quot;parallel-writers-gate: the lock ${lock} stayed busy for 5 s; registering $agent_id without it.&quot; &gt;&amp;2
     # A cell that registered earlier this session and starts again is resumed:
     # it registers whatever its turn&#x27;s counts say, unless it was found marked.
     if entry=&quot;$(entry_of &quot;$agent_id&quot;)&quot; &amp;&amp; [[ -n &quot;$entry&quot; ]]; then
       [[ &quot;$entry&quot; == *&quot;	gone	&quot;* &amp;&amp; &quot;$entry&quot; != *&quot;	marked	&quot;* ]] &amp;&amp; revive &quot;$agent_id&quot;
       exit 0
     fi
+    # A cell started before (resumed after a restart, which drops this session&#x27;s
+    # lines) already has its metadata, which names its marker; a first start
+    # has none yet (probe P6), and the marker waits for its first write.
+    if [[ -f &quot;$markers&quot; ]]; then
+      status=0
+      python3 &quot;$lib/cell_markers.py&quot; marked &quot;$proj&quot; &quot;$session&quot; &quot;$transcript&quot; &quot;$agent_id&quot; 2&gt;/dev/null || status=$?
+      (( status == 3 )) &amp;&amp; exit 0
+    fi
     registers &quot;$prompt_id&quot; &quot;$agent_type&quot; || exit 0
     count_turn &quot;$prompt_id&quot; started || echo &quot;parallel-writers-gate: could not count $agent_id&#x27;s start in $turn.&quot; &gt;&amp;2
-    # Column 3 names the turn the cell started in.
-    printf &#x27;%s\t%s\t%s\n&#x27; &quot;$agent_id&quot; &quot;$agent_type&quot; &quot;$prompt_id&quot; &gt;&gt;&quot;$live&quot; || echo &quot;parallel-writers-gate: could not register writer $agent_id in $live.&quot; &gt;&amp;2
+    # Column 4 names the turn the cell started in.
+    printf &#x27;%s\t%s\t%s\t%s\n&#x27; &quot;$session&quot; &quot;$agent_id&quot; &quot;$agent_type&quot; &quot;$prompt_id&quot; &gt;&gt;&quot;$live&quot; || echo &quot;parallel-writers-gate: could not register writer $agent_id in $live.&quot; &gt;&amp;2
     ;;
   SubagentStop)
     # A marked cell that stops before its first write is counted as that write
     # would count it.
     finish &quot;$agent_id&quot; finished
+    if [[ -f &quot;$lib/fanout_record.py&quot; &amp;&amp; -n &quot;$transcript&quot; ]]; then
+      printf &#x27;%s&#x27; &quot;$payload&quot; | python3 &quot;$lib/fanout_record.py&quot; returned &quot;$repo&quot;
+    fi
     ;;
 esac
 exit 0
@@ -5534,7 +5803,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Runs on only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep — as two entries. <code>write</code> runs the fixers and formatters, then the advisory scans, including tombstone comments (see <a href="#tracking">Tracking</a>), and exits 0 with context. <code>check</code> runs the linters and typecheckers in the background and exits 2 with findings. A configured tool that is missing is reported once per session.</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> additionalContext (write) | exit 2 + findings (check)</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 654 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 661 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
@@ -5984,6 +6253,14 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot
   # severity — a blocking false positive, which is worse than no gate. Group the
   # files by resolved environment and run one pass per group, from that
   # environment&#x27;s own directory so its pyproject/pyrightconfig is the one read.
+  #
+  # The interpreter is resolved on its own walk from the edited file, not beside
+  # the pyright binary: with no pythonPath configured pyright takes `python` from
+  # PATH and ignores $VIRTUAL_ENV by design, so a service that keeps its packages
+  # in services/api/.venv while pyright comes from PATH or the root would have
+  # every third-party import reported missing — a gate that blocks on nothing.
+  # pyright runs from whichever of the two directories is nearer the file, so
+  # that package&#x27;s pyproject/pyrightconfig is the one read.
   py_pairs=&quot;&quot;
   pyright_found=&quot;&quot;
   pyright_absent=&quot;&quot;
@@ -5994,29 +6271,28 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot
       continue
     fi
     pyright_found+=$&#x27;\n&#x27;&quot;$pf&quot;
-    py_pairs+=&quot;$PY_TOOL_DIR&quot;$&#x27;\t&#x27;&quot;$PY_TOOL_BIN&quot;$&#x27;\t&#x27;&quot;$pf&quot;$&#x27;\n&#x27;
+    py_ws=&quot;$PY_TOOL_DIR&quot;
+    pyright_bin=&quot;$PY_TOOL_BIN&quot;
+    py_interp=&quot;&quot;
+    # A bare name is PATH&#x27;s python, which pyright would pick by itself.
+    if resolve_py_tool python &quot;${pf%/*}&quot; &amp;&amp; [[ &quot;$PY_TOOL_BIN&quot; == /* ]]; then
+      py_interp=&quot;$PY_TOOL_BIN&quot;
+      # Both directories are ancestors of the file, so the longer is the nearer.
+      (( ${#PY_TOOL_DIR} &gt; ${#py_ws} )) &amp;&amp; py_ws=&quot;$PY_TOOL_DIR&quot;
+    fi
+    # The interpreter goes last because it can be empty: tab is whitespace to
+    # `read`, so an empty middle field would collapse and shift the path into it.
+    py_pairs+=&quot;$py_ws&quot;$&#x27;\t&#x27;&quot;$pyright_bin&quot;$&#x27;\t&#x27;&quot;$pf&quot;$&#x27;\t&#x27;&quot;$py_interp&quot;$&#x27;\n&#x27;
   done &lt;&lt;&lt; &quot;$py_edited&quot;
 
-  while IFS=$&#x27;\t&#x27; read -r py_ws pyright_bin; do
+  while IFS=$&#x27;\t&#x27; read -r py_ws pyright_bin py_interp; do
     [[ -z &quot;$pyright_bin&quot; ]] &amp;&amp; continue
     pyfiles=()
-    while IFS=$&#x27;\t&#x27; read -r w b pf; do
-      [[ &quot;$w&quot; == &quot;$py_ws&quot; &amp;&amp; &quot;$b&quot; == &quot;$pyright_bin&quot; ]] &amp;&amp; pyfiles+=(&quot;$pf&quot;)
+    while IFS=$&#x27;\t&#x27; read -r w b pf i; do
+      [[ &quot;$w&quot; == &quot;$py_ws&quot; &amp;&amp; &quot;$b&quot; == &quot;$pyright_bin&quot; &amp;&amp; &quot;$i&quot; == &quot;$py_interp&quot; ]] &amp;&amp; pyfiles+=(&quot;$pf&quot;)
     done &lt;&lt;&lt; &quot;$py_pairs&quot;
     [[ ${#pyfiles[@]} -eq 0 ]] &amp;&amp; continue
 
-    # cwd settles which pyrightconfig.json / [tool.pyright] applies. It does not
-    # settle the interpreter: with no pythonPath configured pyright takes
-    # `python` from PATH, and it ignores $VIRTUAL_ENV by design. Left alone, a
-    # package&#x27;s own environment is never consulted and every third-party import
-    # comes back missing at error severity — a gate that blocks on nothing.
-    py_interp=&quot;&quot;
-    case &quot;$pyright_bin&quot; in
-      */.venv/bin/pyright|*/venv/bin/pyright)
-        [[ -x &quot;${pyright_bin%/pyright}/python&quot; ]] &amp;&amp; py_interp=&quot;${pyright_bin%/pyright}/python&quot; ;;
-      *)
-        [[ -x &quot;$py_ws/.venv/bin/python&quot; ]] &amp;&amp; py_interp=&quot;$py_ws/.venv/bin/python&quot; ;;
-    esac
     # stderr is kept: a pyright that cannot start says why there and prints
     # nothing on stdout. Exit 1 is the ordinary &quot;found errors&quot;; the JSON report
     # is what says whether the run could be read.
@@ -6039,7 +6315,7 @@ if [[ &quot;$mode&quot; == &quot;check&quot; &amp;&amp; -n &quot;$py_edited&quot
     checkers_py pyright &quot;$proj&quot; &quot;$py_ws&quot; &quot;$pyright_rc&quot; &quot;$pyright_err&quot; &quot;$has_scoped&quot; &lt;&lt;&lt; &quot;$pyright_raw&quot;
     [[ -n &quot;$checkers_out&quot; ]] &amp;&amp; issues+=$&#x27;\n&#x27;&quot;$checkers_out&quot;$&#x27;\n&#x27;
     rm -f &quot;$pyright_err&quot;
-  done &lt;&lt;&lt; &quot;$(printf &#x27;%s&#x27; &quot;$py_pairs&quot; | cut -f1,2 | sort -u)&quot;
+  done &lt;&lt;&lt; &quot;$(printf &#x27;%s&#x27; &quot;$py_pairs&quot; | cut -f1,2,4 | sort -u)&quot;
   checker_ran pyright &quot;$pyright_found&quot;
   checker_missing pyright &quot;$pyright_absent&quot;
 fi
@@ -7475,7 +7751,7 @@ esac
               <div class="top"><span class="id">teardown-gate</span><span class="badge gate">gate</span></div>
               <p class="what">Holds the hand-back while something the agent started is still running, tiered by what a restart costs: a browser page or a device session must close as soon as the last interaction is observed, a dev server or a watcher by the end of the turn, a container, a build or a booted emulator once the work is finished, and a worktree it made once the work is finished. The block names each open resource and the command that closes it. The same policy is wired to PreToolUse, PostToolUse, SubagentStart and SubagentStop.</p>
               <div class="io"><b>in</b> {command} · {transcript} &nbsp;→&nbsp; <b>out</b> exit 2 + open resources | exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 764 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 765 lines</span></summary><div class="srcpath">.agents/hooks/policy/teardown-gate.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: a resource the agent started must be stopped before
 # the work is reported done — sooner for the ones that are cheap to restart.
 #
@@ -7526,11 +7802,12 @@ esac
 #                            Agent cell with isolation &quot;worktree&quot;, or
 #                            `workloop.py add-lane`; `workloop.py init` records
 #                            its run. Each is also appended to the session&#x27;s
-#                            record file (hooks/lib/worktree_records.py), from
-#                            which session-end.sh removes what is left when the
-#                            session ends, and session-start.sh what a session
-#                            that never reached that hook left. One clears when
-#                            its path is gone from disk.
+#                            record file (hooks/lib/worktree_records.py) with
+#                            the branch it was cut from; once the session is
+#                            dead, the hourly check (worktree_sweep.py) removes
+#                            it when merged into that branch and asks the
+#                            operator about it otherwise. One clears when its
+#                            path is gone from disk.
 #
 # The payload&#x27;s cwd is the session&#x27;s directory after the call — inside the
 # new worktree after EnterWorktree, the cell&#x27;s worktree at an isolated cell&#x27;s
@@ -8039,7 +8316,7 @@ due_why() {
     docker)   printf &#x27;the push made it due; it earned its keep while the work ran&#x27; ;;
     build)    printf &#x27;the push made it due; the warm cache earned its keep until then&#x27; ;;
     emulator) printf &#x27;the push made it due; a boot costs a minute, so it earned its keep&#x27; ;;
-    worktree) printf &#x27;the push made it due; the session end removes it anyway, saving unsaved work to saved/&lt;name&gt;&#x27; ;;
+    worktree) printf &#x27;the push made it due; after the session ends the hourly check removes it once merged, and asks the operator about it otherwise&#x27; ;;
     *)        printf &#x27;restarts in seconds, so it is not worth holding between turns&#x27; ;;
   esac
 }
@@ -8160,7 +8437,7 @@ PostToolUse|SubagentStart)
   [[ -z &quot;$opened&quot; || &quot;$first&quot; == &quot;no&quot; || &quot;$event&quot; == &quot;SubagentStart&quot; ]] &amp;&amp; exit 0
   kind=&quot;${opened#+}&quot;; kind=&quot;${kind%%	*}&quot;
   if [[ &quot;$kind&quot; == &quot;worktree&quot; ]]; then
-    printf &#x27;%s&#x27; &quot;Made a worktree: ${opened#*	}. Remove it once the work is pushed, or before the session ends — $(howto worktree &quot;${opened#*	}&quot;). Whatever is left when the session ends is removed then, its unsaved work committed to a saved/ branch first; \`git worktree lock &lt;path&gt;\` keeps one.&quot; \
+    printf &#x27;%s&#x27; &quot;Made a worktree: ${opened#*	}. Remove it once the work is pushed, or before the session ends — $(howto worktree &quot;${opened#*	}&quot;). Once the session has ended, an hourly check removes what is left if its work is merged into the branch it was cut from, and otherwise names it in the lead&#x27;s digest with three answers for the operator: keep it, save and remove, or discard; \`git worktree lock &lt;path&gt;\` keeps one.&quot; \
       | python3 &quot;$lib/emit-context.py&quot; PostToolUse
     exit 0
   fi
@@ -8752,36 +9029,30 @@ exit 0
               <div class="top"><span class="id">session-end</span><span class="badge checkpoint">checkpoint</span></div>
               <p class="what">When a session ends, removes the worktrees it made: a clean one at once, one holding unsaved work after committing it to <code>saved/&lt;name&gt;</code>, and a workloop run&#x27;s lanes before the run is closed. A locked or busy worktree stays and is named; session-start sweeps what a killed session leaves.</p>
               <div class="io"><b>in</b> {session_id, reason} &nbsp;→&nbsp; <b>out</b> removed | kept, on stderr &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 52 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-end.sh</div><pre><code>#!/usr/bin/env bash
-# Engine-agnostic policy: when a session ends, remove the worktrees it made.
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 45 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-end.sh</div><pre><code>#!/usr/bin/env bash
+# Engine-agnostic policy: when a session ends, mark its record ended.
 #
 # teardown-gate.sh records every worktree an agent tool call makes, and every
 # workloop run it creates or adds lanes to, in the session&#x27;s record file.
-# This removes what is still on disk, in this repository or another: a clean
-# worktree at once, its branch deleted when the main checkout&#x27;s HEAD contains
-# it; one holding unsaved work after committing it to `saved/&lt;worktree name&gt;`;
-# a workloop run&#x27;s worktrees the same way, then the run closed with
-# `workloop.py abandon`. A worktree locked by anything but Claude Code&#x27;s own
-# lock of this session, one a running process works in, one holding a nested
-# repository, and an EnterWorktree worktree kept at Claude Code&#x27;s exit prompt
-# all stay and are named. A run `workloop.py check` refuses waits 24 hours
-# for the conversation&#x27;s resume, and one whose worktrees hold ignored files
-# that would not come back stays. hooks/lib/worktree_removal.py owns the order
-# of the checks, and hooks/lib/worktree_sweep.py `end` the session&#x27;s record file.
+# This appends an `end` entry to that file and removes nothing: the hourly
+# check (hooks/lib/worktree_sweep.py `hourly`, run from session-start.sh and
+# the lead&#x27;s per-prompt digest) removes a dead session&#x27;s worktree once its
+# work is merged into its source branch, and flags every other one to the lead
+# with the operator&#x27;s three answers (ruling R1). A resume of the same session
+# stamps the record again, so a resumed session is never dead.
 #
 # What a session that never reaches this hook leaves (a killed process, a host
-# without the event) is swept by session-start.sh at the next start.
+# without the event) reads dead once its process is gone.
 #
 # Claude Code fires SessionEnd on /exit and Ctrl-D (reason prompt_input_exit,
 # after its keep-or-remove prompt for a dirty EnterWorktree worktree), /clear
-# (clear), /resume, a closed terminal and a finished `claude -p` (other); a
-# SIGKILL fires nothing. The event cannot block, and its 1.5 s default budget
-# is raised by the registration&#x27;s `timeout`.
+# (clear), an in-session /resume (resume), a closed terminal and a finished
+# `claude -p` (other); a SIGKILL fires nothing. The event cannot block.
 #
 # Input (stdin JSON): {&quot;project_dir&quot;, &quot;session_id&quot;, &quot;reason&quot;, &quot;cwd&quot;}. A payload
 # without session_id falls back to CLAUDE_CODE_SESSION_ID, which Claude Code
 # sets to the ending session&#x27;s id in every hook&#x27;s environment.
-# Output: one line per worktree removed or kept, on stderr. Always exit 0.
+# Output: nothing, or why the end could not be marked, on stderr. Always exit 0.
 set -euo pipefail
 
 repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../../..&quot; &amp;&amp; pwd)&quot;
@@ -8796,13 +9067,12 @@ reason=&quot;$(printf &#x27;%s\n&#x27; &quot;$parsed&quot; | sed -n &#x27;3p&#x2
 [[ -z &quot;$proj&quot; ]] &amp;&amp; proj=&quot;$repo&quot;
 session=&quot;${session:-${CLAUDE_CODE_SESSION_ID:-}}&quot;
 if [[ -z &quot;$session&quot; ]]; then
-  echo &quot;session-end: no session id in the payload or CLAUDE_CODE_SESSION_ID; the next session start sweeps this session&#x27;s worktrees&quot; &gt;&amp;2
+  echo &quot;session-end: no session id in the payload or CLAUDE_CODE_SESSION_ID; this session&#x27;s worktrees read dead once its process is gone&quot; &gt;&amp;2
   exit 0
 fi
 
-report=&quot;$(python3 &quot;$lib/worktree_sweep.py&quot; end &quot;$proj&quot; &quot;$session&quot; &quot;$reason&quot; &quot;$repo/.agents/workloop.py&quot;)&quot; \
-  || { echo &quot;session-end: removing this session&#x27;s worktrees failed; the next session start sweeps them&quot; &gt;&amp;2; exit 0; }
-[[ -n &quot;$report&quot; ]] &amp;&amp; printf &#x27;%s\n&#x27; &quot;$report&quot; | sed &#x27;s/^/session-end: /&#x27; &gt;&amp;2
+python3 &quot;$lib/worktree_sweep.py&quot; end &quot;$proj&quot; &quot;$session&quot; &quot;$reason&quot; \
+  || echo &quot;session-end: marking this session&#x27;s end failed; its worktrees read dead once its process is gone&quot; &gt;&amp;2
 exit 0
 </code></pre></details>
             </article>
@@ -9880,7 +10150,7 @@ Commit fully to the distinctive vision and execute it without hedging.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Orchestration</div><h3>workloop</h3><p>Picks the shape of a delegation before anything is dispatched: one writer by default, a read-only fan-out, parallel slices, a contract-first split, or a bake-off. Where writers work at once, the controller holds lane ownership, evidence, review references, and the QA completion gate in ignored runtime state, so an interrupted run resumes instead of restarting.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 479 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 499 lines</span></summary><div class="srcpath">.agents/skills/workloop/SKILL.md</div><pre><code>---
 name: workloop
 description: Designs each delegation before dispatch, choosing among one writer, a read-only fan-out, parallel slices, a contract-first split and a bake-off, and coordinates writing lanes through a portable, evidence-backed controller.
 ---
@@ -9984,32 +10254,40 @@ elsewhere the cells poll the durable inbox at each handoff.
 
 ## Start a run
 
-A lone writer is a one-writer run: one command before the dispatch, five after
-the cell submits.
+A lone writer is a one-writer run of five commands: `init --lane`, `submit`,
+`review`, `qa`, `land`.
 
 ```sh
 .agents/workloop.py init export --objective &#x27;Reports export their rows as CSV&#x27; \
   --acceptance &#x27;the reports page test downloads the visible rows&#x27; \
   --verify &#x27;pnpm vitest run apps/web&#x27; \
   --lane csv --worker implementer --path apps/web/src/pages/reports
-# dispatch the printed prompt; the cell claims, commits on the current branch, submits
-.agents/workloop.py brief export csv --role reviewer   # dispatch; it accepts with --tip
+# dispatch the printed prompt; the cell commits on the current branch and submits;
+# submit prints the reviewer&#x27;s dispatch, which accepts with --tip
+.agents/workloop.py review export csv --reference &#x27;&lt;report&gt;#&lt;finding&gt;&#x27; --result accept --tip &lt;sha&gt;
 .agents/workloop.py brief export csv --role qa         # dispatch beside the reviewer
 .agents/workloop.py qa export --evidence &#x27;&lt;observed result&gt;&#x27;      # binds the submitted tip
-.agents/workloop.py check export      # runs --verify once, at the accepted commit
-.agents/workloop.py teardown export
+.agents/workloop.py land export      # runs --verify at the accepted commit, then closes the run
 ```
 
-The lane works in the main checkout on its current branch: no worktree, branch
-or install. Its cell stages by path (`git add -- &lt;path&gt;`), since others may
-hold uncommitted work in the checkout. Its work is the commits since its first
-claim that touch its paths; another writer&#x27;s commits there are listed, not
-refused, and so is a commit touching its paths and others (&quot;mixed&quot;), for the
-reviewer to judge. `add-lane` refuses a run holding such a lane: writers working
-at once start a run with worktree lanes. `check` tests the accepted commit in a
-short-lived worktree at `.agents/worktrees/&lt;run&gt;/verify`, removed after a pass
-and kept for inspection after a fail; a lane-path commit or uncommitted edit
-after the accept makes the run stale until the lane is re-submitted.
+`init --lane` claims the lane: its work is measured from HEAD at `init`, and
+its writer binds its agent id with `claim` (one call, so the digest can tell a
+busy writer from a dead one). The lane works in the main checkout on its
+current branch: no worktree, branch or install. Its cell stages by path
+(`git add -- &lt;path&gt;`), since others may hold uncommitted work in the checkout.
+Its work is the commits since `init` that touch its paths; another writer&#x27;s
+commits there are listed, not refused, and so is a commit touching its paths
+and others (&quot;mixed&quot;), for the reviewer to judge. `add-lane` refuses a run
+holding such a lane: writers working at once start a run with worktree lanes.
+`land` (and `check`, which reports without closing) tests the accepted commit
+in a short-lived worktree at `.agents/worktrees/&lt;run&gt;/verify`, removed after a
+pass and kept for inspection after a fail; a lane-path commit or uncommitted
+edit after the accept makes the run stale until the lane is re-submitted.
+
+Every writing or QA brief names a Scratch folder,
+`.agents/worktrees/&lt;run&gt;/scratch/&lt;cell&gt;/`, which the checkout ignores and the
+closed record keeps: the cell keeps there what you may read later. Keep your
+own under `.agents/worktrees/&lt;run&gt;/scratch/lead/`.
 
 ## Read-only cells
 
@@ -10064,19 +10342,29 @@ the commits and the `review --tip` handoff; a review cell is for what is not a
 lane, such as a plan. A run started without `--verify` is a read-only fan-out:
 it is finished once every cell is back, with no QA record and no composed test,
 so `qa` and `integrate` say there is nothing for them, and `add-lane` refuses it. When a writer will follow the cells, start with
-`init … --lane` instead and add the cells beside it. The lead&#x27;s digest names a
-turn that dispatched two or more cells with no run header (&quot;3 cells last turn
-outside any run&quot;); it refuses nothing.
+`init … --lane` instead and add the cells beside it. A read-only cell you
+dispatch outside any run (a `READ-ONLY` or `NOTES-ONLY` prompt, or an
+`explorer`, `researcher`, `reviewer` or `Explore` persona) is recorded for you
+in the session&#x27;s own fan-out run, `fanout-&lt;session&gt;`, and marked returned when
+it comes back: a research fan-out needs no controller command, and
+`status fanout-&lt;session&gt;` lists its cells.
 
 `--model &lt;model&gt;` on `add-lane` or `init --lane` records a lane&#x27;s model, shown
 in its brief and in `status`.
 
 For writers working at once, create one run with a testable objective, the test
 command proving the composed result, and a base revision, which `init` pins to
-a commit. Add a lane
+a commit and whose branch it records as the run&#x27;s source branch: the branch
+checked out, or the one `--base` names (`status` shows it). That branch, not
+`main`, is what lanes are measured against and what `land` moves; a run cut
+from a detached commit takes no worktree lane. Add a lane
 per writer: `add-lane` creates the worktree on branch `&lt;run&gt;/&lt;lane&gt;` when the
 path does not exist, installs its dependencies from the lockfiles, and records
-the lockfile hash. A writing lane owns exclusive paths.
+the lockfile hash. A writing lane owns exclusive paths. `add-lane` prints free
+space and the run&#x27;s worktree sizes, and refuses when free space less the
+checkout&#x27;s installs falls under `workloop.disk_floor_gb` (default 10, in
+`.agents/config.json`), naming each worktree with its size: droppable, in use
+by an active lane, or kept for its ignored files.
 
 ```sh
 .agents/workloop.py init slice-3b --objective &#x27;Persist parsed 835 claims&#x27; \
@@ -10156,13 +10444,19 @@ two rules:
 A `share` after lanes start reaches them only through a fresh brief: it prints
 the `brief` command for each claimed lane not yet reviewed. A `share` after `integrate` makes the
 integration stale until it runs again. A sparse lane receives a shared
-directory only through `--also`. A lane may rebase onto a
-sibling in `review` or `reviewed`; `submit` measures its changes from where
-its own commits begin, so the sibling&#x27;s files do not count against it, but
-only while the sibling&#x27;s work stays inside its own paths. `integrate` measures
-each lane again against the siblings&#x27; current branches, and refuses one whose
-branch moved after its accepted review: `submit` it again. It
-merges in dependency order.
+directory only through `--also`. `submit` measures a lane from the merge-base
+of its tip with the source branch&#x27;s tip now, and records that start with the
+tip; the accept binds the pair. A lane that merges the source branch or
+rebases onto it therefore carries none of the branch&#x27;s files. A lane may also
+rebase onto a sibling in `review` or `reviewed`; its changes are then measured
+from where its own commits begin, so the sibling&#x27;s files do not count against
+it, but only while the sibling&#x27;s work stays inside its own paths. A changed
+path another lane owns refuses `submit`; any other path outside the lane, or
+an untracked file there, is listed as &quot;outside the lane&quot; in `submit`&#x27;s output
+and the reviewer brief, for the reviewer to judge. `integrate` composes on the
+source branch&#x27;s current tip, measures each lane again against the siblings&#x27;
+current branches, and refuses one whose branch moved after its accepted
+review: `submit` it again. It merges in dependency order.
 
 ```sh
 .agents/workloop.py init slice-3b --objective &#x27;...&#x27; --acceptance &#x27;...&#x27; \
@@ -10177,7 +10471,8 @@ unattended with no hook in front of it. Give it no cleaning or resetting step:
 `integrate` already resets the worktree to the base and cleans
 it before merging, and such a step is exactly what the floor refuses.
 
-Use the prompt `brief` prints as the bounded dispatch prompt. The cell claims the lane, works only in
+Use the prompt `brief` prints as the bounded dispatch prompt. Its brief tells a
+worktree lane&#x27;s writer to claim its workloop lane before its first edit. The cell claims the lane, works only in
 its worktree and declared paths, commits on the lane branch, and submits observed
 test evidence. `claim` refuses a lane whose lockfiles changed since it
 was provisioned, or whose install failed, until `provision &lt;run&gt; &lt;lane&gt;`
@@ -10189,37 +10484,10 @@ review report are available.
 
 ## Resources a lane starts
 
-Three lanes sharing one Postgres, one Docker daemon, and one machine&#x27;s browser
-capacity are bottlenecked, not stalled, and a lane killed mid-run leaves its
-containers behind. The controller answers with ownership, leases, and progress:
-
-- **Ownership.** The brief exports `COLLOID_RUN`, `COLLOID_LANE`, and
-  `COMPOSE_PROJECT_NAME=&lt;run&gt;-&lt;lane&gt;`. What only a lane uses carries
-  `--label colloid.run=&lt;run&gt; --label colloid.lane=&lt;lane&gt;` or that compose
-  project name; what the run shares — the one Postgres — carries `colloid.run`
-  alone, so a lane&#x27;s reap never takes it and `teardown` does. `release-stale`,
-  `teardown`, and `reap` remove by those labels, report what docker refused,
-  and touch nothing else. The lead&#x27;s digest reaps a lane whose cell stopped
-  without submitting (the hook records every cell&#x27;s start and stop) and names,
-  without removing, test containers that belong to no one — a testcontainers
-  session with no reaper. A container a test framework starts under its own
-  labels lies outside all this: leave that framework&#x27;s reaper on.
-- **Leases.** `add-lane --exclusive &lt;name&gt;` leases a resource only one active
-  lane may hold — `playwright`, a device, a shared service that cannot be
-  copied. `claim` refuses while another active lane holds it; the lead
-  sequences dispatch, and nothing queues. The lease frees at `submit` or
-  `release-stale`; what the holder started stays until `reap` or `teardown`.
-  `status` shows each lane&#x27;s lease, so a misspelt name is visible.
-- **Cheap isolation.** One shared, labelled Postgres per run and a database per
-  lane named from `COLLOID_LANE` (the shape Rails uses per test worker), not a
-  container per lane; give a lane its own compose stack only when it needs one.
-- **Progress.** `heartbeat --progress &#x27;&lt;what is running&gt;&#x27;` works on any claimed
-  lane, and the digest and `status` show it beside the lane&#x27;s age, so a slow
-  lane reads as slow.
-- **Narrow acceptance.** A lane runs only the narrowest acceptance for its slice,
-  never the end-to-end or browser suite; `--verify` runs once over the result:
-  at `integrate` for a run with worktree lanes, one or more, and at `check` for
-  a one-writer run. Every merge queue works this way.
+Before a run whose lanes start containers, a database or a browser, read
+`resources.md`: labels that let the controller reap a lane&#x27;s containers, leases
+on a resource one lane may hold, one shared Postgres per run, and progress
+heartbeats.
 
 ## Feedback and recovery
 
@@ -10239,19 +10507,24 @@ and records the cell&#x27;s acknowledgement before the correction cycle.
 ```
 
 **One review round per wave.** A multi-lane wave gets one review round that
-reads every lane&#x27;s diff; `brief --role reviewer` writes each lane&#x27;s start point
-and the `git diff &lt;start&gt;..&lt;lane-branch&gt;` command. Each lane&#x27;s `review` cites
-its section of the one report. A P2 finding is filed, never reopened:
+reads every lane&#x27;s diff; once the last lane submits, `submit` prints each
+lane&#x27;s reviewer dispatch (`brief --role reviewer` reprints one), with the
+lane&#x27;s start point and the `git diff &lt;start&gt;..&lt;tip&gt;` command. Each lane&#x27;s
+`review` cites its section of the one report, and `review` copies that report
+into the run&#x27;s `.workloop/reviews/`, so the reference outlives the worktree.
+A P2 finding is filed, never reopened:
 `review --result reopen` takes `--severity P0` or `P1` explicitly, and a P2
 there, or an `attention --severity P2` on a lane in review, is refused, so
-accept the lane and file it. Submissions are counted, so an attention,
-acknowledgement, and resubmit counts too. A review of a fourth submission is
-refused unless
+accept the lane and file it. Reopen verdicts are counted, not submissions: a
+re-submit a peer&#x27;s commit forced, or an attention cycle, spends no round. A
+review after a lane&#x27;s fourth reopen verdict is refused unless
 `review --ruling &quot;&lt;operator&#x27;s words&gt;&quot;` is given, and the ruling is stored in the
 review ref; this is deliberately stricter than the playbook&#x27;s same-shape rule.
 
 `release-stale` makes an interrupted claim resumable, erasing neither evidence nor
-a pending attention item.
+a pending attention item. It refuses a lane whose writer&#x27;s newest notification
+says it is waiting on its own background work, which the digest shows in
+those words: that writer is busy, not gone.
 
 ## Peer messages and supervision
 
@@ -10274,7 +10547,8 @@ Under Claude, `workloop-inbox.sh` delivers these without polling: a cell hears
 its host agent id at start and each unread message for its lane once between
 tool calls, and the lead hears at every prompt which lanes await review, carry
 attention, are stale or broken or growing past their size, and each run&#x27;s next
-closing step: `integrate`, `check`, QA, or `teardown`. The same hook stamps each
+closing step: `integrate`, QA, or `land`, and a lane whose worktree is gone
+(`resume`). The same hook stamps each
 background lane and cell with the time and its last tool call, at most once a
 minute, so `status` shows every agent&#x27;s time out, its silence and its last action
 without the agent reporting anything. A hook cannot wake an idle lead, so when
@@ -10297,36 +10571,52 @@ completion until the claimant answers it.
 .agents/workloop.py archive slice-3b
 ```
 
-## Integrate and tear down
+## Integrate, land and close
 
 Each lane verified its own slice in its own worktree; nothing has verified the
 composition. Once every lane is reviewed, `integrate` resets an integration
 worktree (`.agents/worktrees/&lt;run&gt;/integration` unless `--workspace` names
-one) to the base on branch `&lt;run&gt;/integration`, merges the lane branches in
-dependency order, provisions, and runs the `--verify` command once. A conflict
-aborts the merge, names the two lanes, and leaves the tree clean for the rerun.
-On a run with worktree lanes, `check` requires a passing integration whose
-recorded lane tips still match; a lane commit after integration reports
-`integration:stale` until `integrate` reruns.
+one) to the source branch&#x27;s current tip on branch `&lt;run&gt;/integration`, merges
+the lane branches in dependency order, provisions, and runs `--verify` once. A
+conflict aborts the merge, names the two lanes, and leaves the tree clean for
+the rerun. A lane commit after integration reports `integration:stale`, and a
+source branch that moved since reports `integration:base-moved`.
 
 ```sh
 # the reviewer and the QA cell go out together once every lane is submitted
 .agents/workloop.py qa slice-3b --evidence &#x27;Playwright and service tests passed&#x27;
 .agents/workloop.py integrate slice-3b
-.agents/workloop.py check slice-3b
-.agents/workloop.py teardown slice-3b
+.agents/workloop.py land slice-3b
 ```
 
-`teardown` removes the lane and integration worktrees once `check` passes. It
-deletes a branch only when the repository&#x27;s HEAD already contains it; the
-`&lt;run&gt;/integration` branch carries the verified composition, so land it first
-and rerun `teardown` to drop it.
+`land &lt;run&gt;` needs the checkout on the run&#x27;s source branch with no uncommitted
+change to a path the run touched. For worktree lanes it integrates again, under
+the run&#x27;s lock, when the source branch moved or no integration is current, and
+fast-forwards the branch to the verified commit; a failing verify leaves the
+branch unchanged and the run open. For a one-writer run it runs `--verify` at
+the accepted commit and makes no commit. It never pushes: a push is an outward
+action needing its own approval. In a repository whose rules say commit only
+when asked, run `land` only on the operator&#x27;s request.
 
-`abandon &lt;run&gt;` closes a run whose work landed another way — after main moved
-past the base, for instance, so that `integrate` and `teardown` refuse. It reaps
-the run&#x27;s labelled containers, removes the lane and integration worktrees, and
-deletes the run from state. It deletes only branches the repository&#x27;s HEAD
-already contains and names the rest; `--discard-branches` deletes those too.
+Closing — `land`, `teardown` (complete, not landed) or `abandon` — reaps the
+run&#x27;s labelled containers and removes its worktrees. Before removing a lane
+worktree it commits the worktree&#x27;s uncommitted and untracked work on
+`refs/workloop/&lt;run&gt;/&lt;lane&gt;/wip`, never on the lane branch, and keeps that
+branch beside it; a worktree holding ignored files that would not come back
+(a `.env`), or a nested repository, is kept and named with them. It deletes a branch only when the
+checkout&#x27;s HEAD contains it. The run&#x27;s `.workloop/` folder, scratch and state
+entry move to `.agents/worktrees/.closed/&lt;run&gt;/`, which `status` and `check`
+read; `prune --closed-before &lt;date&gt;` deletes old records.
+
+`park &lt;run&gt; &lt;lane&gt;` saves a lane&#x27;s work on its wip ref and removes its worktree
+to free disk. `resume &lt;run&gt;` re-adds each worktree that is gone at its branch
+tip, reprovisions it, and restores the saved work as uncommitted changes; a
+lane whose branch was merged and deleted is listed as landed.
+
+`abandon &lt;run&gt;` closes a run as it stands — work that landed another way, or
+work given up. It deletes only branches the repository&#x27;s HEAD already
+contains and names the rest; `--discard-branches` deletes those too. It never
+prompts, so the session-end sweep runs it.
 When the run&#x27;s checkout is not on disk, git cannot read it, or git reads it as
 part of an enclosing repository (an empty mount point), `abandon` refuses with
 git&#x27;s reason, because a disk that is not mounted looks the same as a deleted
@@ -10350,12 +10640,12 @@ those tips, and the composed tree is the integration&#x27;s own `--verify` run.
 been added since, or the record holds no tips, so QA reruns after a lane is
 reopened and resubmitted. A QA brief carries the run&#x27;s acceptance lines and its
 test suite (`--verify`, left out when the run has none) and no diff or path
-list: QA reproduces the acceptance written before the code. `check` is the completion
-gate: it fails when any lane is unresolved, lacks evidence, or has
-unacknowledged attention, when the run lacks QA evidence, or when its composed
-test has no current pass: an integration for worktree lanes, a verification at
-the accepted commit for a one-writer run. `check --recorded` judges from what is
-recorded and never runs the test; the session end uses it.
+list: QA reproduces the acceptance written before the code. `land` refuses,
+and `check` reports, when any lane is unresolved, lacks evidence, or has
+unacknowledged attention, or when the run lacks QA evidence; `check` also
+wants a current passing composed test, which `land` runs itself.
+`check --recorded` judges from what is recorded and never runs the test; the
+session end uses it.
 
 The default ceiling is eight lanes; each further lane requires `--allow-more`
 when added, so the lead accepts the coordination cost deliberately.
@@ -12179,19 +12469,21 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>workloop.py</h3><p>The controller behind the workloop skill: one command line over durable run state. <code>init</code> a run, <code>add-lane</code> for each writer, then <code>claim</code>, <code>submit</code>, <code>review</code>, <code>qa</code>, <code>check</code>, <code>integrate</code> and <code>teardown</code>. QA is recorded against the lane tips it ran on; a lane&#x27;s tip moves only on <code>submit</code>, so a later commit and resubmit makes <code>check</code> report <code>qa:stale</code>. For a one-writer run <code>check</code> runs the composed test; for parallel lanes <code>integrate</code> does.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 138 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 148 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Durable, provider-neutral coordination for bounded parallel agent work.
 
 This file is the command line: the argument parser that routes each command to
-its handler. The state file and its lock live in workloop_state.py, path
-ownership in workloop_paths.py, and the handlers in workloop_setup.py,
-workloop_lanes.py, workloop_shared.py, workloop_cells.py,
-workloop_messages.py and workloop_finish.py.
+its handler. The state file, its lock and closed runs&#x27; records live in
+workloop_state.py, path ownership in workloop_paths.py, and the handlers in
+workloop_setup.py, workloop_lanes.py, workloop_shared.py, workloop_cells.py,
+workloop_messages.py, workloop_finish.py, workloop_land.py (land, prune) and
+workloop_resume.py (park, resume, the wip ref and the disk floor).
 &quot;&quot;&quot;
 
 from __future__ import annotations
 
 import argparse
+import functools
 import re
 import time
 
@@ -12204,6 +12496,8 @@ from workloop_finish import (
     cmd_reap,
     cmd_teardown,
 )
+from workloop_land import cmd_land, cmd_prune
+from workloop_resume import cmd_park, cmd_resume
 from workloop_lanes import (
     cmd_ack,
     cmd_attention,
@@ -12278,17 +12572,19 @@ def cmd_dismiss(args: argparse.Namespace) -&gt; None:
 
 
 def parser() -&gt; argparse.ArgumentParser:
-    root = argparse.ArgumentParser(epilog=SHAPES, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # No abbreviations: `--rul` must not mean `--ruling`, which the authority
+    # hook refuses from cells by its full spelling.
+    root = argparse.ArgumentParser(epilog=SHAPES, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     root.add_argument(&quot;--state&quot;, help=&quot;state file (default: .agents/.workloop-state.json)&quot;)
     root.add_argument(&quot;--event-id&quot;, help=&quot;idempotency key for a mutating command&quot;)
-    sub = root.add_subparsers(required=True)
+    sub = root.add_subparsers(required=True, parser_class=functools.partial(argparse.ArgumentParser, allow_abbrev=False))
     init = sub.add_parser(&quot;init&quot;); init.add_argument(&quot;run&quot;); init.add_argument(&quot;--objective&quot;, required=True); init.add_argument(&quot;--acceptance&quot;, required=True); init.add_argument(&quot;--verify&quot;, help=&quot;the composed test: check runs it in a worktree at a main lane&#x27;s accepted commit, integrate over the merged tree for worktree lanes; a run declared without it is a read-only fan-out, which holds cells only&quot;); init.add_argument(&quot;--repo&quot;, help=&quot;checkout the run belongs to (default: the current directory&#x27;s)&quot;); init.add_argument(&quot;--base&quot;, default=&quot;HEAD&quot;); init.add_argument(&quot;--shared&quot;, action=&quot;append&quot;, help=&quot;repository path every lane may edit without owning it (repeatable)&quot;); init.add_argument(&quot;--max-lanes&quot;, type=int, default=8); init.add_argument(&quot;--supervised&quot;, action=&quot;store_true&quot;); init.add_argument(&quot;--message-limit&quot;, type=int, default=128); init.add_argument(&quot;--lane&quot;, help=&quot;one writer: the run&#x27;s sole lane, working in the checkout itself; prints its dispatch&quot;); init.add_argument(&quot;--worker&quot;, help=&quot;the main lane&#x27;s worker type (with --lane)&quot;); init.add_argument(&quot;--path&quot;, action=&quot;append&quot;, help=&quot;a path the main lane owns (with --lane, repeatable)&quot;); init.add_argument(&quot;--model&quot;, help=&quot;the main lane&#x27;s model, printed in its brief and in status (with --lane)&quot;); init.set_defaults(func=cmd_init)
     add = sub.add_parser(&quot;add-lane&quot;); add.add_argument(&quot;run&quot;); add.add_argument(&quot;lane&quot;); add.add_argument(&quot;--worker&quot;, required=True); add.add_argument(&quot;--workspace&quot;, help=f&quot;the lane&#x27;s worktree (default: {WORKTREES}/&lt;run&gt;/&lt;lane&gt; in the checkout)&quot;); add.add_argument(&quot;--path&quot;, action=&quot;append&quot;, required=True); add.add_argument(&quot;--depends-on&quot;, action=&quot;append&quot;); add.add_argument(&quot;--allow-more&quot;, action=&quot;store_true&quot;); add.add_argument(&quot;--sparse&quot;, action=&quot;store_true&quot;, help=&quot;very large monorepos only: check out the owned directories, --also ones, and what the install needs&quot;); add.add_argument(&quot;--also&quot;, action=&quot;append&quot;, help=&quot;extra directory to include in a sparse cone&quot;); add.add_argument(&quot;--exclusive&quot;, action=&quot;append&quot;, help=&quot;a named resource only one active lane may hold, e.g. playwright&quot;); add.add_argument(&quot;--model&quot;, help=&quot;the lane&#x27;s model, printed in its brief and in status&quot;); add.set_defaults(func=cmd_add_lane)
     widen = sub.add_parser(&quot;widen&quot;); widen.add_argument(&quot;run&quot;); widen.add_argument(&quot;lane&quot;); widen.add_argument(&quot;--path&quot;, action=&quot;append&quot;, help=&quot;repository path the lane comes to own (repeatable)&quot;); widen.add_argument(&quot;--also&quot;, action=&quot;append&quot;, help=&quot;directory added to a sparse lane&#x27;s cone (repeatable)&quot;); widen.set_defaults(func=cmd_widen)
     share = sub.add_parser(&quot;share&quot;, help=&quot;declare a repository path every lane may edit without owning it, optionally rebuilt once at integrate&quot;); share.add_argument(&quot;run&quot;); share.add_argument(&quot;path&quot;); share.add_argument(&quot;--rebuild&quot;, help=&quot;command that regenerates the path (a lockfile, generated code): lane merges take the path from the base and integrate runs this once over the merged tree before the install; &#x27;&#x27; clears it&quot;); share.set_defaults(func=cmd_share)
     claim = sub.add_parser(&quot;claim&quot;); claim.add_argument(&quot;run&quot;); claim.add_argument(&quot;lane&quot;); claim.add_argument(&quot;--agent&quot;, required=True); claim.set_defaults(func=cmd_claim)
     submit = sub.add_parser(&quot;submit&quot;); submit.add_argument(&quot;run&quot;); submit.add_argument(&quot;lane&quot;); submit.add_argument(&quot;--evidence&quot;, required=True); submit.set_defaults(func=cmd_submit)
-    review = sub.add_parser(&quot;review&quot;); review.add_argument(&quot;run&quot;); review.add_argument(&quot;lane&quot;); review.add_argument(&quot;--reference&quot;, required=True); review.add_argument(&quot;--result&quot;, choices=(&quot;accept&quot;, &quot;reopen&quot;), required=True); review.add_argument(&quot;--severity&quot;, choices=(&quot;P0&quot;, &quot;P1&quot;, &quot;P2&quot;), help=&quot;required with --result reopen&quot;); review.add_argument(&quot;--tip&quot;, help=&quot;required with --result accept: the commit the review read, as the reviewer brief names it&quot;); review.add_argument(&quot;--ruling&quot;, help=&quot;the operator&#x27;s words authorising a review round past the third submission&quot;); review.add_argument(&quot;--message&quot;, default=&quot;review requested a correction&quot;); review.set_defaults(func=cmd_review)
+    review = sub.add_parser(&quot;review&quot;); review.add_argument(&quot;run&quot;); review.add_argument(&quot;lane&quot;); review.add_argument(&quot;--reference&quot;, required=True); review.add_argument(&quot;--result&quot;, choices=(&quot;accept&quot;, &quot;reopen&quot;), required=True); review.add_argument(&quot;--severity&quot;, choices=(&quot;P0&quot;, &quot;P1&quot;, &quot;P2&quot;), help=&quot;required with --result reopen&quot;); review.add_argument(&quot;--tip&quot;, help=&quot;required with --result accept: the commit the review read, as the reviewer brief names it&quot;); review.add_argument(&quot;--ruling&quot;, help=&quot;the operator&#x27;s words authorising a review after the lane&#x27;s fourth reopen verdict&quot;); review.add_argument(&quot;--message&quot;, default=&quot;review requested a correction&quot;); review.set_defaults(func=cmd_review)
     attention = sub.add_parser(&quot;attention&quot;); attention.add_argument(&quot;run&quot;); attention.add_argument(&quot;lane&quot;); attention.add_argument(&quot;--severity&quot;, choices=(&quot;P0&quot;, &quot;P1&quot;, &quot;P2&quot;), required=True); attention.add_argument(&quot;--message&quot;, required=True); attention.add_argument(&quot;--reference&quot;, default=&quot;&quot;); attention.set_defaults(func=cmd_attention)
     ack = sub.add_parser(&quot;ack&quot;); ack.add_argument(&quot;run&quot;); ack.add_argument(&quot;lane&quot;); ack.add_argument(&quot;--agent&quot;, required=True); ack.set_defaults(func=cmd_ack)
     stale = sub.add_parser(&quot;release-stale&quot;); stale.add_argument(&quot;run&quot;); stale.add_argument(&quot;lane&quot;); stale.add_argument(&quot;--reason&quot;, required=True); stale.set_defaults(func=cmd_release_stale)
@@ -12297,6 +12593,10 @@ def parser() -&gt; argparse.ArgumentParser:
     provision = sub.add_parser(&quot;provision&quot;); provision.add_argument(&quot;run&quot;); provision.add_argument(&quot;lane&quot;); provision.set_defaults(func=cmd_provision)
     integrate = sub.add_parser(&quot;integrate&quot;); integrate.add_argument(&quot;run&quot;); integrate.add_argument(&quot;--workspace&quot;, help=f&quot;the integration worktree (default: {WORKTREES}/&lt;run&gt;/integration in the checkout)&quot;); integrate.set_defaults(func=cmd_integrate)
     teardown = sub.add_parser(&quot;teardown&quot;); teardown.add_argument(&quot;run&quot;); teardown.set_defaults(func=cmd_teardown)
+    land = sub.add_parser(&quot;land&quot;, help=&quot;put a finished run&#x27;s work on its source branch in this checkout, verified there, and close it; never pushes&quot;); land.add_argument(&quot;run&quot;); land.set_defaults(func=cmd_land)
+    park = sub.add_parser(&quot;park&quot;, help=&quot;save a lane&#x27;s uncommitted work on refs/workloop/&lt;run&gt;/&lt;lane&gt;/wip and remove its worktree&quot;); park.add_argument(&quot;run&quot;); park.add_argument(&quot;lane&quot;); park.set_defaults(func=cmd_park)
+    resume = sub.add_parser(&quot;resume&quot;, help=&quot;re-add each lane worktree that is gone at its branch tip and restore its saved work&quot;); resume.add_argument(&quot;run&quot;); resume.set_defaults(func=cmd_resume)
+    prune = sub.add_parser(&quot;prune&quot;, help=&quot;delete closed runs&#x27; records from .agents/worktrees/.closed/&quot;); prune.add_argument(&quot;--closed-before&quot;, required=True, help=&quot;a date (2026-11-25) or UTC time; records of runs closed before it go&quot;); prune.set_defaults(func=cmd_prune)
     abandon = sub.add_parser(&quot;abandon&quot;); abandon.add_argument(&quot;run&quot;); abandon.add_argument(&quot;--discard-branches&quot;, action=&quot;store_true&quot;, help=&quot;also delete lane branches whose commits HEAD does not contain&quot;); abandon.add_argument(&quot;--checkout-gone&quot;, action=&quot;store_true&quot;, help=&quot;the run&#x27;s checkout was deleted: reap its containers, name the folders it leaves, and drop the run without git&quot;); abandon.set_defaults(func=cmd_abandon)
     add_cell = sub.add_parser(&quot;add-cell&quot;, help=&quot;record a read-only cell: no worktree, branch or install; prints its dispatch&quot;); add_cell.add_argument(&quot;run&quot;); add_cell.add_argument(&quot;name&quot;); add_cell.add_argument(&quot;--role&quot;, choices=(&quot;research&quot;, &quot;review&quot;, &quot;qa&quot;), required=True); add_cell.add_argument(&quot;--model&quot;, required=True); add_cell.set_defaults(func=cmd_add_cell)
     returned = sub.add_parser(&quot;returned&quot;, help=&quot;a cell came back, or did not&quot;); returned.add_argument(&quot;run&quot;); returned.add_argument(&quot;name&quot;); outcome = returned.add_mutually_exclusive_group(required=True); outcome.add_argument(&quot;--result&quot;, help=&quot;where its result went: a file the lead wrote, or the word reply&quot;); outcome.add_argument(&quot;--failed&quot;, help=&quot;why it died or was stopped without returning&quot;); returned.set_defaults(func=cmd_returned)
@@ -12801,7 +13101,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 111 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 113 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -12829,6 +13129,7 @@ python3 .agents/check-test-isolation.py
 .agents/test-worktree-provision.sh
 .agents/test-worktree-sessions.sh
 .agents/test-parallel-writers.sh
+.agents/test-fanout-record.sh
 .agents/test-workloop-inbox.sh
 .agents/test-commit-nudge.sh
 .agents/test-agent-deaths.sh
@@ -12847,6 +13148,7 @@ python3 .agents/check-test-isolation.py
 python3 .agents/test-sources-matcher.py
 .agents/test-untrusted-content.sh
 python3 .agents/test-guard-destructive.py
+.agents/test-workloop-authority.sh
 python3 .agents/test-wait-gate.py
 .agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh
@@ -14069,7 +14371,7 @@ it last.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Protocol</div><h3>delegation.md</h3><p>Binds the contract&#x27;s tiers to Claude Code models: light is haiku, medium sonnet, heavy opus, frontier fable. It also picks a delegation&#x27;s shape by six questions: one writer by default, a read-only fan-out, parallel slices, a contract-first split, or a bake-off.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 62 lines</span></summary><div class="srcpath">.agents/claude/delegation.md</div><pre><code># Delegation on Claude Code
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 67 lines</span></summary><div class="srcpath">.agents/claude/delegation.md</div><pre><code># Delegation on Claude Code
 
 The root `AGENTS.md` states delegation in host-neutral capability tiers; this
 file binds them to Claude Code. `.claude/rules/delegation.md` links here without
@@ -14087,10 +14389,15 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   questions: does it change files; can one writer do it; are the parts
   disjoint; does one consume another&#x27;s interface; is a choice worth paying for
   several times; which tier each cell needs. **One writer** is the default,
-  editing the main tree with read-only cells around it, recorded with one
-  `workloop.py init … --lane` and an `add-cell` per read-only cell. Each lane carries one behaviour and merges
-  within about a day. A **read-only
-  fan-out** is three cells by default, about ten for broad research.
+  editing the main tree with read-only cells around it: five controller
+  commands, `init … --lane`, `submit`, `review`, `qa` and `land`, which
+  verifies at the accepted commit and closes the run. Each lane carries one
+  behaviour and merges within about a day. A **read-only fan-out** is three
+  cells by default, about ten for broad research; a read-only cell dispatched
+  outside any run is recorded for you in `fanout-&lt;session&gt;`.
+  `land` puts a worktree run on its source branch, composing again if that
+  branch moved; `park` saves a lane&#x27;s uncommitted work on its wip ref and frees
+  its worktree, and `resume` brings both back.
   **Parallel slices** take about three writers at most, one lane each. A
   **contract-first split** commits the interface before the lanes start. A
   **bake-off** pays every attempt in full, so two or three, preferring
@@ -14951,7 +15258,7 @@ number of decisions covered; delegate nothing.
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Wrap</div><h3>hostile-review.md</h3><p>The reviewer contract, sent verbatim with the artifact: review it against the repository, not its own claims, with <b>no praise, filler, or invented findings</b>. A theoretical finding cannot exceed P2, so a speculative note cannot block the round. At Critical stakes a disprove pass sends each inspection-only P0 or P1 to a QA cell that tries to reproduce it; each round ends in a review record carrying a <code>Covers:</code> line for the commit range it read. Run at the plan and at each delivered scope.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 142 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 143 lines</span></summary><div class="srcpath">.agents/playbooks/hostile-review.md</div><pre><code># Hostile review
 
 Dispatch the independent `reviewer` cell for the plan before implementation and
 the diff after it. Supply the ask verbatim, the plan, and one immutable artifact:
@@ -15074,7 +15381,8 @@ chunk gets no reviewer of its own. A multi-lane wave gets one review round,
 over every lane&#x27;s diff from the start point its reviewer brief names, and one
 report with a section per lane that each lane&#x27;s `workloop review` cites; every
 reviewer of the round, an axis reviewer included, reads every lane. The controller refuses to reopen a lane for a `P2`, and a lane&#x27;s
-fourth submission without the operator&#x27;s ruling.
+review after its fourth reopen verdict without the operator&#x27;s ruling; a
+re-submit a peer&#x27;s commit forced spends no round.
 
 ## Disprove pass
 
@@ -15407,7 +15715,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 146 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 152 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -15553,6 +15861,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — the `inline-thinking` mod rereads the whole main conversation (`$.session.messages({ as: &#x27;api&#x27; })`, up to 4096 messages with media inline) after every main-thread tool call and turn, and walks it again (`hooks/register.tsx` `refresh`, `hooks/anchors.ts` `collect`). Reads run one at a time with one more queued, only where a terminal draws, so a `claude -p` cell reads nothing. Acceptable: one walk is a pass over blocks with short string work, and the live sessions it was tested in showed no delay.
 - **Trigger** — a session where tool calls visibly lag with the mod loaded, a conversation past 4096 messages losing its early summaries before a compaction, or a debug log showing reads queued back to back.
 - **Rework** — keep the walk&#x27;s state (the pending summaries, the keys below the last row, the row counts) in `$.state` and advance it from `session.append`, which hands each main-thread row before it is stored; keep one full read at `session.start` for a resume. About 80 lines, and firing tests that raise rows through `session.append`.
+
+### tailscale-key-rotation
+
+- **Condition** — contabo-hop&#x27;s apt list for Tailscale trusts only the key shipped in `.agents/iterm/server/tailscale-archive-keyring.asc` (fingerprint 2596A99EAAB33821893C0A79458CA832957F5868), and `setup-server.sh` installs tailscale with `--no-install-recommends`, leaving out the `tailscale-archive-keyring` package that would carry a rotated key. Acceptable: the key has signed Tailscale&#x27;s packages since 2020 and carries no expiry, and one source owns the trusted key (review of the server step, 2026-11-18, finding 8).
+- **Trigger** — `apt-get update` on contabo-hop reports a signature error for pkgs.tailscale.com, or Tailscale announces a new repository key.
+- **Rework** — fetch the new key, check its fingerprint against Tailscale&#x27;s announcement, replace the shipped `.asc`, and run `apply`; a few minutes, no code change.
 </code></pre></details>
             </article>
         <article class="card">
@@ -16393,7 +16707,7 @@ if __name__ == &quot;__main__&quot;:
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>The committed defaults for every toggle and threshold above. <code>policy.json</code> is the tracked per-repository policy, and an ignored <code>config.json</code> overrides both for one operator. Only the <code>session_wrap</code> thresholds also read <code>WRAP_*</code> environment variables.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 149 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 152 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -16422,6 +16736,9 @@ if __name__ == &quot;__main__&quot;:
   },
   &quot;scrapling&quot;: {
     &quot;proxies&quot;: {}
+  },
+  &quot;workloop&quot;: {
+    &quot;disk_floor_gb&quot;: 10
   },
   &quot;mcp_env&quot;: {
     &quot;research-mcp&quot;: {
