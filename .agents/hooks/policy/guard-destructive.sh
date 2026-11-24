@@ -2,7 +2,8 @@
 # Engine-agnostic policy: block destructive shell commands, and commands only
 # the user may run.
 #
-# Input  (stdin JSON): {"command": "<shell command>"}
+# Input  (stdin JSON): {"command": "<shell command>", "agent_id": "<a cell's id, empty for the lead>"}
+# A cell may not touch the stash, which every worktree of the repository shares.
 # Output: exit 2 + stderr reason on block; exit 0 otherwise.
 #
 # Claude Code, Kimi CLI, and Codex all treat exit 2 + stderr as "block, feed

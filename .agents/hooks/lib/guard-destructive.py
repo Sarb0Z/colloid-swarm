@@ -471,6 +471,28 @@ def rule_git(command, project=""):
     return None
 
 
+# What reads the stash leaves it as it is; every other verb, a bare `git stash`
+# included, pushes onto it or takes from it.
+STASH_READS = {"list", "show"}
+
+
+def rule_cell_stash(command, project=""):
+    """A cell's `git stash`: the stash is one stack shared by every worktree of
+    the repository, so a cell's push lands where another lane's pop takes it."""
+    words = lead(command.words)
+    if not words or base(words[0]) != "git":
+        return None
+    verb, rest = git_verb(words)
+    if verb != "stash":
+        return None
+    action = next((word for word in rest if not word.startswith("-")), None)
+    if action in STASH_READS:
+        return None
+    return ("A cell may not run git stash: the stash is shared by every worktree of this repository, so another lane's "
+            "pop takes your changes or yours takes theirs. Commit the work on your lane branch instead; uncommitted "
+            "work the run removes is saved on its wip ref, refs/workloop/<run>/<lane>/wip.")
+
+
 # ssh option letters that take a value, attached (`-p2222`) or as the next word.
 SSH_VALUED = set("BbcDEeFIiJLlmOoPpQRSWw")
 # Options under which ssh logs in to nothing: print its configuration or its
@@ -1187,6 +1209,10 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return 0
     project = payload.get("project_dir")
+    # A payload with an agent_id is a cell's (Claude Code tags a spawned
+    # subagent's calls with it); the lead may stash its own checkout.
+    if payload.get("agent_id") and rules is RULES:
+        rules = (*rules, rule_cell_stash)
     reason = verdict(command, project if isinstance(project, str) else repo, rules)
     if not reason:
         return 0
