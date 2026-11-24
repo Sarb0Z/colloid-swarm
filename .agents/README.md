@@ -563,15 +563,20 @@ and one whose metadata now names a marker, so a marked cell that never writes
 blocks nothing. A writer that left after `StopFailure` or an interruption
 counts again once its transcript shows new work, since a cell can recover
 from an API error, and a resumed writer registers again on its new start. The
-denial lists the writers that still count. State lives in `.agents/.writers-live-<session>`,
-`.agents/.writers-turn-<session>`, `.agents/.writers-kinds-<session>` (the
-writer types each turn dispatched and those of its writers that finished,
-which decides whether a started cell registers: a long turn's finished writers
-grant nothing to a later marked cell of their type) and
-`.agents/.cell-markers-<session>` (each marked or outside dispatch's id and
-marker); `session-start.sh` clears them at startup and resume, and deleting the
-live file is the manual reset for a cell known to have died that the gate
-still lists. The toggle is `hooks.parallel_writers.enabled`.
+denial lists the writers that still count. Live writers of every session in
+the checkout share `.agents/.writers-live`, one line per cell led by its
+session, under the lock `.agents/.writers-lock`: another session's live writer
+refuses this session's writer dispatch and lets its own edits through with a
+warning naming that session and cell, and its line is swept once its
+transcripts show it ended. Per session stay `.agents/.writers-turn-<session>`,
+`.agents/.writers-kinds-<session>` (the writer types each turn dispatched and
+those of its writers that finished, which decides whether a started cell
+registers: a long turn's finished writers grant nothing to a later marked cell
+of their type) and `.agents/.cell-markers-<session>` (each marked or outside
+dispatch's id and marker). `session-start.sh` drops the session's live lines
+at startup and resume, and deleting a cell's line from the live file is the
+manual reset for a cell known to have died that the gate still lists. The
+toggle is `hooks.parallel_writers.enabled`.
 
 `claude/statusline.sh` is the status strip, wired as Claude's project
 `statusLine`, so it replaces each person's own status line in every scaffold

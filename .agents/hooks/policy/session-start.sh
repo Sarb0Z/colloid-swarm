@@ -116,6 +116,14 @@ if [[ -n "$session_id" && "$start_source" != "compact" ]]; then
          "$proj/.agents/.writers-lock-$writers_session" \
          "$proj/.agents/.cell-markers-$writers_session" "$proj/.agents/.outside-runs-$writers_session" 2>/dev/null || true
 fi
+# The gate's live writers are one file per checkout, .agents/.writers-live, a
+# line per cell led by its session: a fresh start or a resume drops this
+# session's lines (its earlier process ran them), and the lines of any session
+# whose transcript has not changed in a day. Another live session's stay.
+if [[ -n "$session_id" && "$start_source" != "compact" && -f "$lib/cell_markers.py" && -f "$proj/.agents/.writers-live" ]]; then
+  python3 "$lib/cell_markers.py" drop-session "$proj" "$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')" "${transcript:-}" \
+    || echo "session-start: this session's lines in .agents/.writers-live were not dropped; the gate sweeps them when they block" >&2
+fi
 
 # Worktrees end with the session that made them (worktree_sweep.py). Sessions
 # that never reached session-end.sh — killed, or on a host with no such event —

@@ -19,10 +19,12 @@
 .agents/.provenance-*
 .agents/.ui-pending-*
 .agents/.teardown-pending-*
-.agents/.writers-live-*
+.agents/.writers-live*
 .agents/.writers-turn-*
 .agents/.writers-kinds-*
-.agents/.writers-lock-*
+.agents/.writers-lock*
+.agents/.writers-foreign-cache
+.agents/.writers-told-*
 .agents/.inbox-seen-*
 .agents/.cells-*
 .agents/.agents-dismissed

@@ -8,6 +8,8 @@ Usage: cell_markers.py record <project> <session> <tool_use_id> <marker>
        cell_markers.py marked <project> <session> <transcript_path> <agent_id>
        cell_markers.py sweep <project> <session> <transcript_path> <agent_id>...
        cell_markers.py resumed <session> <transcript_path> <agent_id>:<offset>...
+       cell_markers.py foreign <project> <session> <transcript_path>
+       cell_markers.py drop-session <project> <session> <transcript_path>
 
 The parallel-writers gate sees a marker once, at dispatch (PreToolUse on the
 Agent tool, which carries the prompt and a `tool_use_id`), but must enforce it
@@ -58,14 +60,27 @@ and the cell stays live.
 writers and the size its transcript had then, and prints each cell whose
 transcript past that offset holds a user or assistant record that is neither
 an API error nor an interruption: the cell is working again.
+
+The gate's live file, `.agents/.writers-live`, is one per checkout, each line
+led by the session that registered the cell. `foreign` drops every other
+session's live line whose transcripts show it ended (foreign_end) and prints
+the rest as `<session> <agent_id> <type>`; the gate holds its lock. What a
+cell's transcript ended on is cached by its size in
+`.agents/.writers-foreign-cache`. `drop-session`, run by session-start.sh at a
+fresh start or resume, takes the lock itself and drops the session's lines and
+those of sessions idle a day; it exits 1 when the lock stays busy.
 """
 
 import json
 import os
 import re
 import sys
+import tempfile
+import time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agent_records  # noqa: E402
 import product_folder  # noqa: E402
 import write_targets  # noqa: E402
 
@@ -74,6 +89,16 @@ MARKED = 3
 UNKNOWN = 4
 INTERRUPTED = "[Request interrupted by user"
 TAIL_BLOCK = 65536
+# The gate's lock: 100 tries 50 ms apart is the 5 s the gate waits; a lock
+# untouched for two minutes belongs to a dead hook.
+LOCK_TRIES = 100
+LOCK_REAP_SECONDS = 120
+# How long another session's writer may leave both its transcript and its
+# session's unchanged before it counts as gone. Longer than a foreground Bash
+# call's 10-minute cap, so a writer running one long command still counts.
+FOREIGN_QUIET_SECONDS = 1800
+# A session whose transcript has not changed in a day has no cell running.
+STALE_SESSION_SECONDS = 86400
 
 READ_ONLY_DENIAL = (
     "This cell was dispatched READ-ONLY, so it writes nothing, wherever the target is. Return the content as "
@@ -245,15 +270,156 @@ def status(project, session, transcript_path, agent_id):
     return "marked" if marker in MARKERS else marker
 
 
-def registered(project, session, agent_id):
-    """True when the cell is on the gate's live writers; a line with a `gone`
-    column records a cell that left them."""
+def live_path(project):
+    return os.path.join(project, ".agents", ".writers-live")
+
+
+def live_rows(project):
+    """The gate's live file as rows of columns: session, agent_id, type, turn,
+    then `gone` and its details for a cell that left."""
     try:
-        with open(os.path.join(project, ".agents", f".writers-live-{session}"), encoding="utf-8") as source:
-            return any(line.split("\t")[0] == agent_id and "gone" not in line.split("\t")[3:4]
-                       for line in source.read().splitlines())
+        with open(live_path(project), encoding="utf-8") as source:
+            return [line.split("\t") for line in source.read().splitlines() if line]
     except FileNotFoundError:
+        return []
+
+
+def is_gone(row):
+    return row[4:5] == ["gone"]
+
+
+def registered(project, session, agent_id):
+    """True when the cell is on the gate's live writers for this session."""
+    return any(row[:2] == [session, agent_id] and not is_gone(row) for row in live_rows(project))
+
+
+def write_rows(project, rows):
+    """Replaces the live file atomically; the caller holds the gate's lock."""
+    path = live_path(project)
+    handle, temporary = tempfile.mkstemp(prefix=".writers-live.", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            out.write("".join("\t".join(row) + "\n" for row in rows))
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def take_lock(project):
+    """The gate's per-checkout lock, taken as the gate takes it (mkdir, a lock
+    untouched for two minutes reaped), waiting up to 5 s; False when busy."""
+    lock = os.path.join(project, ".agents", ".writers-lock")
+    for _ in range(LOCK_TRIES):
+        try:
+            os.mkdir(lock)
+            return True
+        except FileExistsError:
+            try:
+                if time.time() - os.stat(lock).st_mtime > LOCK_REAP_SECONDS:
+                    os.rmdir(lock)
+                    continue
+            except OSError:
+                pass  # taken or released between the two calls: try again
+            time.sleep(0.05)
+    return False
+
+
+def release_lock(project):
+    os.rmdir(os.path.join(project, ".agents", ".writers-lock"))
+
+
+def foreign_end(transcript_dir, session, agent_id, cache, now):
+    """Whether another session's live writer has ended, judged from its own
+    transcript and its session's: it ended on an interruption, a final answer or
+    its SubagentHandback, or both transcripts stayed quiet FOREIGN_QUIET_SECONDS
+    while it was not waiting on its own background command. A row neither
+    transcript exists for is kept: nothing here can judge it. What the cell's
+    transcript ended on is cached by its size in `cache`."""
+    cell = os.path.join(transcript_dir, session, "subagents", f"agent-{agent_id}.jsonl")
+    parent = os.path.join(transcript_dir, f"{session}.jsonl")
+    end = None
+    try:
+        size = os.stat(cell).st_size
+    except FileNotFoundError:
+        size = None
+    if size is not None:
+        key = f"{session}/{agent_id}"
+        if cache.get(key, [None])[0] == size:
+            end = cache[key][1]
+        else:
+            try:
+                record = last_turn(cell)
+                end = "interrupted" if record is not None and is_interruption(record) else \
+                    agent_records.how_it_ends(Path(cell))["end"]
+            except (OSError, ValueError) as error:
+                print(f"cell_markers.py: {cell} cannot be read ({error}); judging {agent_id} by its quiet time alone.",
+                      file=sys.stderr)
+            cache[key] = [size, end]
+    if end in ("interrupted", "answer", "handback"):
+        return True
+    newest = max(agent_records.mtime_ns(cell), agent_records.mtime_ns(parent)) / 1e9
+    return end != "waiting" and newest > 0 and now - newest >= FOREIGN_QUIET_SECONDS
+
+
+def foreign(project, session, transcript_path, now):
+    """Drops from the live file every other session's live writer that has
+    ended (foreign_end) and returns the rest as (session, agent_id, type). The
+    caller holds the gate's lock. With no transcript path nothing is judged."""
+    rows = live_rows(project)
+    others = [row for row in rows if row[0] != session and not is_gone(row) and len(row) >= 3]
+    if not others or not transcript_path:
+        return [(row[0], row[1], row[2]) for row in others]
+    cache_path = os.path.join(project, ".agents", ".writers-foreign-cache")
+    try:
+        with open(cache_path, encoding="utf-8") as source:
+            cache = json.load(source)
+        if not isinstance(cache, dict):
+            raise ValueError("it holds no JSON object")
+    except FileNotFoundError:
+        cache = {}
+    except ValueError as error:
+        print(f"cell_markers.py: {cache_path} is unreadable ({error}); reading each transcript again.", file=sys.stderr)
+        cache = {}
+    transcript_dir = os.path.dirname(transcript_path)
+    ended = {(row[0], row[1]) for row in others if foreign_end(transcript_dir, row[0], row[1], cache, now)}
+    if ended:
+        write_rows(project, [row for row in rows if (row[0], row[1]) not in ended])
+    kept = {f"{row[0]}/{row[1]}" for row in others if (row[0], row[1]) not in ended}
+    try:
+        with open(cache_path, "w", encoding="utf-8") as out:
+            json.dump({key: value for key, value in cache.items() if key in kept}, out)
+    except OSError as error:
+        print(f"cell_markers.py: {cache_path} cannot be written ({error.strerror}); the next check reads the "
+              "transcripts again.", file=sys.stderr)
+    return [(row[0], row[1], row[2]) for row in others if (row[0], row[1]) not in ended]
+
+
+def drop_session(project, session, transcript_path, now):
+    """At a session's fresh start or resume, no cell of its earlier process is
+    alive: drop its lines from the live file, and every line of a session whose
+    transcript has not changed in STALE_SESSION_SECONDS. False when the lock
+    stays busy."""
+    if not os.path.exists(live_path(project)):
+        return True
+    if not take_lock(project):
         return False
+    try:
+        transcript_dir = os.path.dirname(transcript_path) if transcript_path else ""
+
+        def stale(other):
+            if not transcript_dir or other == session:
+                return other == session
+            changed = agent_records.mtime_ns(os.path.join(transcript_dir, f"{other}.jsonl")) / 1e9
+            return 0 < changed < now - STALE_SESSION_SECONDS
+
+        rows = live_rows(project)
+        kept = [row for row in rows if not stale(row[0])]
+        if len(kept) != len(rows):
+            write_rows(project, kept)
+    finally:
+        release_lock(project)
+    return True
 
 
 def touches_checkout(project, payload):
@@ -308,11 +474,23 @@ def main(argv):
         for agent_id in resumed(argv[2], argv[3], argv[4:]):
             print(agent_id)
         return 0
+    if command == "foreign" and len(argv) == 5:
+        for row in foreign(*argv[2:], time.time()):
+            print("\t".join(row))
+        return 0
+    if command == "drop-session" and len(argv) == 5:
+        if drop_session(*argv[2:], time.time()):
+            return 0
+        print(f"cell_markers.py: the lock in {argv[2]}/.agents stayed busy for 5 s; session {argv[3]}'s writer lines stay "
+              "until its next start.", file=sys.stderr)
+        return 1
     raise SystemExit("cell_markers.py: usage: cell_markers.py record <project> <session> <tool_use_id> <marker> | "
                      "decide <repo> <project> <session> <transcript_path> <agent_id> | "
                      "marked <project> <session> <transcript_path> <agent_id> | "
                      "sweep <project> <session> <transcript_path> <agent_id>... | "
-                     "resumed <session> <transcript_path> <agent_id>:<offset>...")
+                     "resumed <session> <transcript_path> <agent_id>:<offset>... | "
+                     "foreign <project> <session> <transcript_path> | "
+                     "drop-session <project> <session> <transcript_path>")
 
 
 if __name__ == "__main__":
