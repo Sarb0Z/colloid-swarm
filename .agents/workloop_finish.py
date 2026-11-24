@@ -126,7 +126,7 @@ def run_check(args: argparse.Namespace, run: dict) -> dict:
 
 def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str]]:
     """Each lane's (branch, tip) once it is fit to merge; the first lane that is not stops integrate."""
-    repo = Path(run["repo"])
+    repo, source = Path(run["repo"]), source_tip(run)
     branches = {}
     for name in order:
         lane = run["lanes"][name]
@@ -134,9 +134,12 @@ def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str
         tip = wg.branch_tip(repo, branch) if branch else None
         if tip is None:
             fail(f"lane {name!r} branch {branch!r} no longer exists in {repo}")
+        # A lane the source branch already holds (merged by hand, or by an earlier
+        # land) has nothing left to merge and no work past the source to measure.
+        on_source = wg.is_ancestor(repo, tip, source)
         # The start the accepted review read; a lane from before starts were recorded is measured afresh.
         start = lane.get("accepted_start") or start_point(run, name, tip)
-        if tip == start or not wg.is_ancestor(repo, start, tip):
+        if not on_source and (tip == start or not wg.is_ancestor(repo, start, tip)):
             fail(f"lane {name!r} branch {branch} is not ahead of its start {start[:12]}")
         # The branch is what merges; work still sitting uncommitted in the
         # lane's worktree would be verified by nobody.
@@ -151,7 +154,8 @@ def integrable_branches(run: dict, order: list[str]) -> dict[str, tuple[str, str
         # submitted, so its own work is measured again against them: a
         # sibling's file in its diff means it is built on a superseded commit.
         # A path no lane owns was listed for its reviewer at submit.
-        elsewhere, _ = foreign_paths(run, name, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
+        elsewhere, _ = ([], None) if on_source else foreign_paths(
+            run, name, lane, [normalize_path(path) for path in wg.committed_files(repo, start_point(run, name, tip), tip)])
         if elsewhere:
             fail(f"lane {name!r} changed paths another lane owns: " + ", ".join(elsewhere) + "; rebase it onto the sibling's current branch")
         branches[name] = (branch, tip)

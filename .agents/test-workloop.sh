@@ -2199,6 +2199,26 @@ out="$("${T[@]}" land sgx 2>&1)" && fail "land passed a failing verify: $out"
 "${T[@]}" abandon sgx --discard-branches >/dev/null
 ok "row 4: a verify failing on the new tip refuses land, leaves main unchanged and the run open"
 
+# A lane its source branch already holds lands as merged: main is fast-forwarded
+# to the integration by hand, then moves on, and the lane carries no recorded
+# start, as one accepted before starts were recorded does.
+sg_worktree_run sgh 'test -f src/app.txt'
+expect 'PASS: integrated one' "${T[@]}" integrate sgh
+git -C "$sg" merge -q --ff-only "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"]["sgh"]["integration"]["head"])' "$sg/.agents/.workloop-state.json")"
+printf 'h\n' > "$sg/after-hand-merge.txt"; commit "$sg" 'main moves on after a hand merge'
+python3 - "$sg/.agents/.workloop-state.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for lane in data["runs"]["sgh"]["lanes"].values():
+    lane.pop("accepted_start", None)
+json.dump(data, open(sys.argv[1], "w"))
+PY
+main_before="$(git -C "$sg" rev-parse main)"
+out="$("${T[@]}" land sgh 2>&1)" || fail "land refused a lane main already holds: $out"
+[[ "$(git -C "$sg" rev-parse main)" == "$main_before" ]] || fail "land moved main past a lane it already held"
+expect $'^closed\tlanded' "${T[@]}" status sgh
+ok "a lane the source branch already holds lands as merged, with no start recorded, and land moves nothing"
+
 # rows 5, 16: a one-writer run is exactly init --lane, submit, review, qa, land; land verifies at the accepted tip, merges nothing
 "${T[@]}" init sgo --objective x --acceptance y --repo "$sg" --verify 'test -f src/ok.txt' --lane solo --worker implementer --path src >/dev/null
 printf 'solo\n' >> "$sg/src/app.txt"; commit_paths "$sg" solo src/app.txt
