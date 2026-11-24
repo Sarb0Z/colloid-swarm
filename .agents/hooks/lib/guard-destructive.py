@@ -505,7 +505,9 @@ def rule_cell_stash(command, project=""):
     verb, rest = git_verb(words)
     if verb != "stash":
         return None
-    action = next((word for word in rest if not word.startswith("-")), None)
+    # Past `--` every word is a pathspec of a bare `git stash`, which pushes.
+    options = rest[:rest.index("--")] if "--" in rest else rest
+    action = next((word for word in options if not word.startswith("-")), None)
     if action in STASH_READS:
         return None
     return ("A cell may not run git stash: the stash is shared by every worktree of this repository, so another lane's "

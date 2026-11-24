@@ -604,7 +604,9 @@ with tempfile.TemporaryDirectory() as armed_dir, tempfile.TemporaryDirectory() a
     # Spec acceptance 18: a cell's `git stash` is refused, naming a lane commit
     # and the wip ref; the lead's is not, and a cell may still read the stash.
     for stash in ("git stash", "git stash push -m wip", "git stash save x", "git stash pop", "git stash apply stash@{0}",
-                  "git -C ../lane stash", "cd lane && git stash -u", "git stash drop"):
+                  "git -C ../lane stash", "cd lane && git stash -u", "git stash drop",
+                  # past `--` a word is a pathspec: this pushes the file named list
+                  "git stash -- list", "git stash -u -- show"):
         cell = run({"command": stash, "agent_id": "a1b2"})
         check(f"a cell's `{stash}` is refused", cell.returncode == 2
               and "lane branch" in cell.stderr and "refs/workloop/<run>/<lane>/wip" in cell.stderr, cell.stderr)
