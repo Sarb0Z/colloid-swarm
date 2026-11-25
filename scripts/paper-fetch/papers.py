@@ -14,7 +14,9 @@ This file wires the real clock, network and commands into the package.
 from __future__ import annotations
 
 import os
+import random
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,6 +27,7 @@ sys.path.insert(0, str(HERE))
 
 from paperfetch.cli import main  # noqa: E402
 from paperfetch.effects import Effects  # noqa: E402
+from paperfetch.transport import urllib_transport  # noqa: E402
 
 
 def real_effects() -> Effects:
@@ -33,6 +36,10 @@ def real_effects() -> Effects:
         err=lambda text: print(text, file=sys.stderr),
         environ=dict(os.environ),
         stamp=lambda: datetime.now(UTC).isoformat(timespec="seconds"),
+        clock=time.monotonic,
+        sleep=time.sleep,
+        rng=random.random,
+        transport=urllib_transport,
     )
 
 

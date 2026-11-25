@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from .model import Transport
+
 
 @dataclass(frozen=True)
 class Effects:
@@ -12,3 +14,7 @@ class Effects:
     err: Callable[[str], None]
     environ: Mapping[str, str]
     stamp: Callable[[], str]
+    clock: Callable[[], float]  # monotonic seconds
+    sleep: Callable[[float], None]
+    rng: Callable[[], float]  # a float in [0, 1)
+    transport: Transport

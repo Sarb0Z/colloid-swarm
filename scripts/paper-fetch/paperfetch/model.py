@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 KINDS = ("pdf", "xml", "html")
@@ -37,3 +37,22 @@ class NoText(Exception):
 
 class WrongPaper(Exception):
     """The file is not the paper the manifest names. The message says why."""
+
+
+@dataclass(frozen=True)
+class RawResponse:
+    status: int
+    headers: dict[str, str]  # names in lower case
+    body: bytes
+
+
+class TransportError(Exception):
+    """The connection failed: refused, reset, timed out, or cut off mid-body."""
+
+
+class TooLarge(TransportError):
+    """The body is larger than the cap."""
+
+
+# method, url, headers, body, timeout seconds, body-size cap -> a raw response.
+Transport = Callable[[str, str, Mapping[str, str], bytes | None, float, int], RawResponse]
