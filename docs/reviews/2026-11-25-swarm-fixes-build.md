@@ -130,3 +130,26 @@ checkout and for a clean feature branch; a written, committed, reset or
 ignored-file snapshot is put to the operator; a plain detached worktree is
 still flagged; no ref is made. The snapshot suite and `test-session-end.sh`
 pass on `c6a2916`.
+
+`land` then refused: these lanes, accepted by the older controller, record no
+`accepted_start`, and `main` held them after the fast-forward, so each was
+measured from its own tip ("not ahead of its start"). Both conditions were
+needed; `31b34fc`'s message names them as alternatives. The fix takes a lane
+its source branch holds as merged, still at its accepted tip with nothing
+uncommitted; its row fails with the fix undone. `reviewer4` (opus, critical):
+`CONFORMANCE: yes`, 3 `P2`; the skipped path check was already empty for a
+held lane, so nothing it caught gets through.
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| L-1 | P2 | No row holds a held lane to its accepted tip or a clean worktree | Adopted after `land`, as a test-only commit, so the verified tip does not move |
+| L-2 | P2 | `31b34fc`'s message gives two causes where only both together refused | Recorded here; the commit is verified by `land` and stays |
+| L-3 | P2 | A lane hand-merged onto the source escapes the superseded-sibling check once that sibling is re-accepted | Breadcrumb |
+
+`land` with the fix composed cleanly; its verify first stopped at the
+controller's 30-minute limit (breadcrumb), then, at 90 minutes, failed
+`test-keychain-notice.sh` (a hung notifier read 31 s) and `test-mods.sh`. The
+Mac was asleep, waking for 5-8 s about every 30 s (`pmset -g log`), and both
+failures ended in a wake window; awake, the keychain test passed 11 of 11
+runs, 8 of them in parallel, and `test-mods.sh` passed alone. The keychain
+row's wall-clock timing is a breadcrumb.
