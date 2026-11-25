@@ -3,8 +3,9 @@
 The folder a Research workflow works in: a git repository of its own, beside
 the repository that carries the harness. Run the session from the harness
 checkout, which holds the router, the hooks and the reviewer's files; a session
-opened inside the project folder loads none of them. The tools take paths as
-arguments and create nothing.
+opened inside the project folder loads none of them. The checking tools read
+the paths they are given and write nothing; `save-reply` writes the one file it
+is told to.
 
 | Path | Holds |
 |---|---|
@@ -13,13 +14,14 @@ arguments and create nothing.
 | `deviations.md` | One dated entry per change to the plan after its commit, with the reason |
 | `looks.csv` | `at,commit,hypothesis,test,looks_so_far,result,reported_as`: one row per look at the data, with the commit of the code that made it |
 | `claims.csv` | `key,source,values,quote`: one row per outside statement or number the report takes from a source; `values` are the numerals, separated by `|`, that the quote must hold |
-| `data/curated/papers_needed.csv` | `key,doi,reference,needed_for,save_as`: one row per paper the operator must supply, read by the operator's fetch script and by the paper-fetch tool; `key` matches `^[a-z0-9][a-z0-9-]*$`; `save_as` is `data/external/paper-<key>/fulltext.md` |
+| `data/curated/papers_needed.csv` | `key,doi,reference,needed_for,save_as`: one row per paper the operator must supply, read by the operator's fetch script and, in the colloid-swarm checkout, by `scripts/paper-fetch/papers.py`; `key` matches `^[a-z0-9][a-z0-9-]*$`; `save_as` is the inbox where the file is saved, `data/raw/papers/<key>.pdf` (a `.md` or `.txt` there is copied to the paper's `fulltext.md`) |
+| `cells/` | The reply of each research cell, saved word for word by `save-reply --to cells/<cell>.txt`, so the report cites a file that stays with the project |
 | `data/raw/` | The operator's files, untouched |
 | `data/extracted/`, `data/curated/`, `data/analysis/` | The verbatim copy of the source data, the reading of each cell with the words it came from, the analysis tables |
 | `data/external/<source>/` | One folder per saved source, holding exactly one text file: `fulltext.md`, `fulltext.xml`, `article.xml`, `page.html`, `record.json` or `study.json` |
 | `results/` | Every table the report prints, as CSV |
 | `report/` | The report source, its bibliography and the rendered files |
-| `justfile` | `just reproduce` rebuilds everything from `data/raw/` in a clean environment |
+| `Makefile` | `make reproduce` rebuilds everything from `data/raw/` in a clean environment |
 
 Default stack: the field's maintained R or Python packages, `renv.lock` or
 `uv.lock`, a schema check on every input table (`pandera`, `pointblank`), and
@@ -36,7 +38,8 @@ In a repository that carries the scaffold, list `results/**`, `report/**`,
 ## Charter
 
 `RESEARCH.md` opens with this front matter. A key left out takes the value
-shown; the router sets the stakes, and nothing in the file lowers them.
+shown where one is shown; a key in angle brackets has no default and is
+required. The router sets the stakes, and nothing in the file lowers them.
 
 ```
 ---

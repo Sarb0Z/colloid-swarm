@@ -21,7 +21,7 @@ Every task has a **workflow**, its kind, which selects the steps, and **stakes**
 | Standard | Kept in a repository and shipped; a mistake is cheap and reversible. |
 | Critical | Touches production, money, authentication, data that can be lost, a guard or gate hook, or a contract (this file, `.agents/AGENTS.md`, the playbooks, `.agents/lenses.md`, the hostile-review contract). |
 
-Stakes follow the effect of the change — the paths it touches and what it does — never the destination of its output. An outward mutation or a write to a live system is never disposable, so Ship and Operate have no disposable level; Answer has no stakes. When unsure, take the higher level; never downgrade.
+Stakes follow the effect of the change — the paths it touches and what it does — never the destination of its output, except where a workflow row sets its own, as Research does. An outward mutation or a write to a live system is never disposable, so Ship and Operate have no disposable level; Answer has no stakes. When unsure, take the higher level; never downgrade.
 
 | Workflow | Covers | Steps |
 |---|---|---|
