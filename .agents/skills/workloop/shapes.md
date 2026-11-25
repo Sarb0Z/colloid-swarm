@@ -98,11 +98,14 @@ run. The lead keeps the synthesis.
 cite a report, or a later reader must check it, run
 `.agents/workloop.py save-reply queue pricing` first: it copies the cell's final
 report out of its agent's transcript, byte for byte, to
-`.agents/worktrees/queue/.workloop/replies/pricing.txt`, which the closed run
-keeps, and then `returned queue pricing --result <that file>` records it. It
-accepts a cell in any state, changes no state, takes `--to <file>` (required for
-a closed run), and replaces a file holding other content only with `--force`.
-Retyping a report into a file paraphrases it without a trace.
+`.agents/worktrees/queue/.workloop/replies/pricing-<agent id>.txt`, which the
+closed run keeps, and then `returned queue pricing --result <that file>` records
+it. Name a file in the work itself with `--to <file>` when the report belongs
+there, as a research project's evidence does; `--to` is required for a closed
+run. The command accepts a cell in any state, changes no state, and replaces a
+file holding other content only with `--force`; a cell dispatched again keeps
+its first report. It refuses a cell that ended its turn to wait on a command of
+its own. Retyping a report into a file paraphrases it without a trace.
 
 ## Parallel slices
 

@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
 
 from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES, scratch_line
@@ -137,7 +138,11 @@ def cmd_save_reply(args: argparse.Namespace) -> None:
     elif closed:
         fail(f"run {args.run!r} is closed and its folder has moved; name the file with --to")
     else:
-        destination = Path(run["repo"]) / WORKTREES / args.run / BRIEF_FOLDER / REPLIES / f"{args.name}.txt"
+        checkout = Path(run["repo"])
+        if not checkout.is_dir():
+            fail(f"run {args.run!r} names the checkout {checkout}, which does not exist; name the file with --to")
+        # The agent's id is in the name, so a cell dispatched again keeps its first report.
+        destination = checkout / WORKTREES / args.run / BRIEF_FOLDER / REPLIES / f"{args.name}-{agent_id}.txt"
     content = report.encode("utf-8")
     digest = hashlib.sha256(content).hexdigest()
     how = f"{handbacks} hand-back{'s' if handbacks != 1 else ''}" + ("; saved the last" if handbacks > 1 else "") if kind == "hand-back" else "no hand-back; saved the final answer"
@@ -148,9 +153,14 @@ def cmd_save_reply(args: argparse.Namespace) -> None:
         if not args.force:
             fail(f"{destination} holds other content; --force replaces it")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_name(destination.name + ".partial")
-    partial.write_bytes(content)
-    os.replace(partial, destination)
+    handle, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(content)
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     print(f"saved {len(report)} characters of {args.name}'s report to {destination} (sha256 {digest}; {how})")
 
 

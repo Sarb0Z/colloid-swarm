@@ -237,35 +237,64 @@ def find_transcript(stores: list[Path], agent_id: str) -> Path | None:
 
 def _handbacks(path: Path) -> list[str]:
     """The message of every SubagentHandback call in the transcript, in the order the agent made them.
-    A last line with no newline is a record Claude Code is still writing and is skipped."""
-    messages = []
+    A last line with no newline is a record Claude Code is still writing and is skipped. A call
+    with no message is a rejected attempt and is skipped too, unless every call is one."""
+    messages, empty = [], []
     with open(path, "rb") as stream:
         for number, line in enumerate(stream, start=1):
             if HANDBACK_CALL not in line or not line.endswith(b"\n"):
                 continue
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except ValueError as error:
+                raise RecordError(f"{path} line {number} is not JSON: {error}") from error
             for block in _blocks(record) if record.get("type") == "assistant" else []:
                 if block.get("type") == "tool_use" and block.get("name") == "SubagentHandback":
-                    where = f"{path} line {number}'s SubagentHandback call"
-                    message = need(block.get("input") or {}, "message", where)
-                    if not isinstance(message, str):
-                        raise RecordError(f"{where} has a message that is not text")
-                    messages.append(message)
+                    message = (block.get("input") or {}).get("message")
+                    if message in (None, ""):
+                        empty.append(number)
+                    elif isinstance(message, str):
+                        messages.append(message)
+                    else:
+                        raise RecordError(f"{path} line {number}'s SubagentHandback call has a message that is not text")
+    if empty and not messages:
+        raise RecordError(f"{path} line {empty[0]}'s SubagentHandback call has no message")
     return messages
+
+
+def _answer_text(path: Path) -> str:
+    """The text of the plain answer that ended the agent's run, or "". Claude Code writes one record
+    per content block of a message, all with the message's id, so the answer is the text blocks of
+    every record of the newest message, and of no earlier one."""
+    records = _newest_messages(path)
+    newest = next(records, None)
+    if newest is None or newest["type"] != "assistant" or (newest.get("message") or {}).get("stop_reason") != "end_turn":
+        return ""
+    message_id = (newest.get("message") or {}).get("id")
+    group = [newest]
+    if message_id:
+        for record in records:
+            if record["type"] != "assistant" or (record.get("message") or {}).get("id") != message_id:
+                break
+            group.append(record)
+    blocks = [block for record in reversed(group) for block in _blocks(record)]
+    if any(block.get("type") == "tool_use" for block in blocks):
+        return ""
+    return "\n".join(block["text"] for block in blocks if block.get("type") == "text" and block.get("text"))
 
 
 def final_report(path: Path) -> tuple[str, int, str]:
     """(the agent's report, how many hand-backs it made, kind): its last hand-back, or, when it made
-    none, the text of the plain answer that ended its run. RecordError when it has done neither."""
+    none, the text of the plain answer that ended its run. RecordError when it has done neither, or
+    when its last turn ended to wait on a command it started in the background."""
     messages = _handbacks(path)
     if messages:
         return messages[-1], len(messages), "hand-back"
-    newest = next(_newest_messages(path), None)
-    if newest is not None and newest["type"] == "assistant" and (newest.get("message") or {}).get("stop_reason") == "end_turn":
-        blocks = _blocks(newest)
-        text = "\n".join(block["text"] for block in blocks if block.get("type") == "text" and block.get("text"))
-        if text and not any(block.get("type") == "tool_use" for block in blocks):
-            return text, 0, "answer"
+    text = _answer_text(path)
+    if text:
+        if _waiting(path):
+            raise RecordError(f"{path} ended its last turn to wait on a command it started in the background: the agent has not finished")
+        return text, 0, "answer"
     raise RecordError(f"{path} has no SubagentHandback call and does not end in a plain answer: the agent has not finished")
 
 

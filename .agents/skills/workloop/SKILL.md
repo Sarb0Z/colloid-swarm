@@ -146,7 +146,7 @@ worktree, branch or install:
 ```sh
 .agents/workloop.py add-cell export trace --role research --model haiku
 # dispatch the printed prompt; when it comes back, save its report word for word, then record that file:
-.agents/workloop.py save-reply export trace && .agents/workloop.py returned export trace --result .agents/worktrees/export/.workloop/replies/trace.txt
+.agents/workloop.py save-reply export trace --to notes/trace.txt && .agents/workloop.py returned export trace --result notes/trace.txt
 ```
 
 `add-cell <run> <name> --role research|review|qa --model <model>` records the
