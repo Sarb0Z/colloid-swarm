@@ -16,12 +16,9 @@ research.
 
 ## Not in this handoff
 
-A source for a site that serves paywalled papers without the publisher's
-permission, such as `sci-hub.su`. The lead declined to write one on 2026-11-25
-(`docs/notes/2026-11-25-paper-fetch-plan.md`, "Declined instruction"). The tool does not
-depend on any one source, so the operator may add one separately. The papers that
-no listed source finds end as `awaiting-inbox` and name the file to save by hand
-(`data/raw/papers/<key>.pdf`).
+Any source beyond the four below. The tool does not depend on any one source: another
+source is one more file in `plugins/sources/`. The papers that no source finds end as
+`awaiting-inbox` and name the file to save by hand (`data/raw/papers/<key>.pdf`).
 
 ## Current state
 
@@ -163,11 +160,9 @@ with the same DOI is reused; a Zotero listing read back matches the counts the t
 - The project has no publish guard. A session that runs `push --apply` writes to the operator's
   Zotero library. Get the operator's approval for each such run, in that session.
 - Do not drive a browser. Call the APIs.
-- A plugin must not write in a paper folder. The tool records a sink that does as failed.
+- A plugin must not write in a paper folder. The tool warns when a sink changes one.
 - Read secrets from the environment. Never write one into a file or a message.
 - `fetch` makes at most 25 requests per host per run. Rerun to continue.
-- Do not add a source that fetches content the operator holds no access to without telling
-  the operator in plain words first.
 
 ## Exact next action
 
