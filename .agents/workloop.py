@@ -16,7 +16,7 @@ import functools
 import re
 import time
 
-from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned
+from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned, cmd_save_reply
 from workloop_finish import (
     cmd_abandon,
     cmd_check,
@@ -129,6 +129,7 @@ def parser() -> argparse.ArgumentParser:
     abandon = sub.add_parser("abandon"); abandon.add_argument("run"); abandon.add_argument("--discard-branches", action="store_true", help="also delete lane branches whose commits HEAD does not contain"); abandon.add_argument("--checkout-gone", action="store_true", help="the run's checkout was deleted: reap its containers, name the folders it leaves, and drop the run without git"); abandon.set_defaults(func=cmd_abandon)
     add_cell = sub.add_parser("add-cell", help="record a read-only cell: no worktree, branch or install; prints its dispatch"); add_cell.add_argument("run"); add_cell.add_argument("name"); add_cell.add_argument("--role", choices=("research", "review", "qa"), required=True); add_cell.add_argument("--model", required=True); add_cell.set_defaults(func=cmd_add_cell)
     returned = sub.add_parser("returned", help="a cell came back, or did not"); returned.add_argument("run"); returned.add_argument("name"); outcome = returned.add_mutually_exclusive_group(required=True); outcome.add_argument("--result", help="where its result went: a file the lead wrote, or the word reply"); outcome.add_argument("--failed", help="why it died or was stopped without returning"); returned.set_defaults(func=cmd_returned)
+    save_reply = sub.add_parser("save-reply", help="save a cell's final report word for word from its agent's transcript, then record the file with returned --result"); save_reply.add_argument("run"); save_reply.add_argument("name"); save_reply.add_argument("--to", help="the file to write; a closed run needs it (default: .agents/worktrees/<run>/.workloop/replies/<cell>.txt)"); save_reply.add_argument("--force", action="store_true", help="replace a file that holds other content"); save_reply.set_defaults(func=cmd_save_reply)
     brief = sub.add_parser("brief"); brief.add_argument("run"); brief.add_argument("lane", help="a lane or a cell"); brief.add_argument("--role", choices=("worker", "reviewer", "qa"), help="a lane's brief: worker (default), reviewer or qa; a cell's role is set at add-cell"); brief.add_argument("--again", action="store_true", help="send a returned or failed cell out again, tracked until it returns"); brief.set_defaults(func=cmd_brief)
     status = sub.add_parser("status"); status.add_argument("run"); status.set_defaults(func=cmd_status)
     send = sub.add_parser("send"); send.add_argument("run"); send.add_argument("--from-lane", required=True); send.add_argument("--to-lane", required=True); send.add_argument("--agent", required=True); send.add_argument("--kind", choices=("finding", "blocked", "evidence-ready", "status"), required=True); send.add_argument("--message", required=True); send.add_argument("--reference", default=""); send.add_argument("--requires-ack", action="store_true"); send.set_defaults(func=cmd_send)

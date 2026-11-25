@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import NoReturn
 
 import workloop_git as wg
 
@@ -35,7 +36,7 @@ DEFAULT_STATE = ROOT / ".agents/.workloop-state.json"
 NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     raise SystemExit(f"workloop: {message}")
 
 

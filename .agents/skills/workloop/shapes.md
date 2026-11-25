@@ -94,6 +94,16 @@ cell; append each question above below its printed prompt:
 Once all three are back, `check queue` passes and `teardown queue` closes the
 run. The lead keeps the synthesis.
 
+`--result reply` records the word and keeps no text. When the lead will quote or
+cite a report, or a later reader must check it, run
+`.agents/workloop.py save-reply queue pricing` first: it copies the cell's final
+report out of its agent's transcript, byte for byte, to
+`.agents/worktrees/queue/.workloop/replies/pricing.txt`, which the closed run
+keeps, and then `returned queue pricing --result <that file>` records it. It
+accepts a cell in any state, changes no state, takes `--to <file>` (required for
+a closed run), and replaces a file holding other content only with `--force`.
+Retyping a report into a file paraphrases it without a trace.
+
 ## Parallel slices
 
 *Add audit logging to billing and to accounts.* Two disjoint folders that merge

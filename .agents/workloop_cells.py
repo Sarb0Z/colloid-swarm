@@ -13,10 +13,16 @@ every cell is back (ruling 35).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 from pathlib import Path
 
 from workloop_paths import BRIEF_FOLDER, WORKING_PRACTICE, WORKTREES, scratch_line
-from workloop_state import Store, activity_columns, fail, now, record, refresh_readout, replayed, run_of, state_path, valid_name
+from workloop_state import ReadStore, Store, activity_columns, closed_record, fail, now, record, refresh_readout, replayed, run_of, state_path, valid_name
+
+# workloop_state puts the hooks' library on the path: the controller and the hooks read agent transcripts alike.
+import agent_records as ar  # noqa: E402
 
 ROLES = {
     "research": "find and ground the facts the objective needs; a claim about this repository or its systems goes in a findings table (.agents/playbooks/plan-research.md), each with its path:line or command output and its status, observed, inferred or not read, under the commit you read at; an external claim keeps its source and date",
@@ -28,6 +34,8 @@ READ_ONLY = "READ-ONLY — this cell reads the checkout and writes nothing; its 
 OPEN_GATES = "Open gates: finish the work no gate holds, then end your final message with one line per open gate or open ruling, `needs_confirmation: <gate> — <what waits> — <how to resume>`; never skip one."
 # The cells' briefs, under the run's .workloop folder.
 CELL_BRIEFS = "cells"
+# The cells' saved reports, beside the briefs; the closed run's record keeps both.
+REPLIES = "replies"
 
 
 def cells_of(run: dict) -> dict:
@@ -104,6 +112,48 @@ def cmd_returned(args: argparse.Namespace) -> None:
     print(f"cell {args.name!r} {cell['state']}" + (f"; still out: {', '.join(sorted(n for n, c in cells_of(run).items() if c['state'] == 'out'))}" if cell_problems(run) else ""))
 
 
+def cmd_save_reply(args: argparse.Namespace) -> None:
+    """Save a cell's final report word for word from its agent's transcript, so the lead never retypes it.
+    It reads the run and changes no state: `returned --result <file>` records the file afterwards."""
+    state = state_path(args.state)
+    with ReadStore(state) as data:
+        closed = closed_record(state, args.run) if args.run not in data["runs"] else None
+        run = json.loads((closed / "state.json").read_text()) if closed else run_of(data, args.run)
+    cell = cell_of(run, args.name)
+    agent_id = cell.get("agent_id")
+    if not agent_id:
+        fail(f"cell {args.name!r} has no agent id recorded; the inbox hook stamps it when the agent starts, so a cell dispatched outside Claude Code has none")
+    stores = ar.real_folders(folder / "projects" for folder in ar.config_dirs(Path.home(), os.environ.get("CLAUDE_CONFIG_DIR", "")))
+    transcript = ar.find_transcript(stores, agent_id)
+    if transcript is None:
+        searched = ", ".join(str(store) for store in stores) or "no Claude Code config folder"
+        fail(f"no transcript of agent {agent_id} under {searched}")
+    try:
+        report, handbacks, kind = ar.final_report(transcript)
+    except ar.RecordError as error:
+        fail(str(error))
+    if args.to:
+        destination = Path(args.to).expanduser().resolve()
+    elif closed:
+        fail(f"run {args.run!r} is closed and its folder has moved; name the file with --to")
+    else:
+        destination = Path(run["repo"]) / WORKTREES / args.run / BRIEF_FOLDER / REPLIES / f"{args.name}.txt"
+    content = report.encode("utf-8")
+    digest = hashlib.sha256(content).hexdigest()
+    how = f"{handbacks} hand-back{'s' if handbacks != 1 else ''}" + ("; saved the last" if handbacks > 1 else "") if kind == "hand-back" else "no hand-back; saved the final answer"
+    if destination.exists():
+        if destination.read_bytes() == content:
+            print(f"unchanged: {destination} already holds {len(report)} characters of {args.name}'s report (sha256 {digest}; {how})")
+            return
+        if not args.force:
+            fail(f"{destination} holds other content; --force replaces it")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + ".partial")
+    partial.write_bytes(content)
+    os.replace(partial, destination)
+    print(f"saved {len(report)} characters of {args.name}'s report to {destination} (sha256 {digest}; {how})")
+
+
 def cell_brief(args: argparse.Namespace, run: dict) -> None:
     """`brief` for a cell: reprint the prompt of a cell out, or with `--again` send a returned or failed one out again."""
     if args.role:
@@ -150,7 +200,7 @@ def cell_prompt(state: Path, run_name: str, run: dict, name: str) -> str:
         f"Model: {cell['model']}",
         "Question: the lead wrote it below the three lines of your dispatch prompt.",
         f"Workspace: the checkout {run['repo']}, read only — no worktree, no branch, no claim; another cell may be writing in it, so read committed state where it matters.",
-        f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish.",
+        f"Return: your whole result is your reply to the lead — findings, evidence, open questions — and you write no file. The lead records where it went with: {command} returned {run_name} {name} --result <path|reply>, or --failed '<why>' when you could not finish. {command} save-reply {run_name} {name} saves your final report word for word first.",
         # A review cell closes with its contract's AMBIGUITY and HANDOFF lines.
         *([OPEN_GATES] if cell["role"] != "review" else []),
         *([scratch_line(run, run_name, name), WORKING_PRACTICE.read_text().strip()] if cell["role"] == "qa" else []),

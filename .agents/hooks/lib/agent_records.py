@@ -27,6 +27,8 @@ WINDOW_SECONDS = 7 * 86400
 CHUNK = 1 << 14
 # How far back from an agent's newest record its SubagentHandback call is looked for.
 HANDBACK_REACH = 16
+# The bytes that mark a line as possibly carrying a hand-back call, so a transcript is not decoded line by line.
+HANDBACK_CALL = b'"name":"SubagentHandback"'
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 EDIT_CALLS = tuple(b'"name":"%s"' % name.encode() for name in EDIT_TOOLS)
 # Session transcript lines that may carry a verdict: a notification, or an Agent call's result.
@@ -221,6 +223,46 @@ def how_it_ends(path: Path) -> dict:
                 found["end"] = "handback"
                 break
     return found
+
+
+def find_transcript(stores: list[Path], agent_id: str) -> Path | None:
+    """The transcript of agent `agent_id` in the first session folder that holds one, or None."""
+    name = f"agent-{agent_id}.jsonl"
+    for folder, _ in _session_folders(stores):
+        path = folder / "subagents" / name
+        if path.is_file():
+            return path
+    return None
+
+
+def _handbacks(path: Path) -> list[str]:
+    """The message of every SubagentHandback call in the transcript, in the order the agent made them.
+    A last line with no newline is a record Claude Code is still writing and is skipped."""
+    messages = []
+    with open(path, "rb") as stream:
+        for number, line in enumerate(stream, start=1):
+            if HANDBACK_CALL not in line or not line.endswith(b"\n"):
+                continue
+            record = json.loads(line)
+            for block in _blocks(record) if record.get("type") == "assistant" else []:
+                if block.get("type") == "tool_use" and block.get("name") == "SubagentHandback":
+                    messages.append(need(block.get("input") or {}, "message", f"{path} line {number}'s SubagentHandback call"))
+    return messages
+
+
+def final_report(path: Path) -> tuple[str, int, str]:
+    """(the agent's report, how many hand-backs it made, kind): its last hand-back, or, when it made
+    none, the text of the plain answer that ended its run. RecordError when it has done neither."""
+    messages = _handbacks(path)
+    if messages:
+        return messages[-1], len(messages), "hand-back"
+    newest = next(_newest_messages(path), None)
+    if newest is not None and newest["type"] == "assistant" and (newest.get("message") or {}).get("stop_reason") == "end_turn":
+        blocks = _blocks(newest)
+        text = "\n".join(block["text"] for block in blocks if block.get("type") == "text" and block.get("text"))
+        if text and not any(block.get("type") == "tool_use" for block in blocks):
+            return text, 0, "answer"
+    raise RecordError(f"{path} has no SubagentHandback call and does not end in a plain answer: the agent has not finished")
 
 
 def _lines_from(path: Path, offset: int, markers: tuple[bytes, ...]) -> tuple[list[bytes], int]:

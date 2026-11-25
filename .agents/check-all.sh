@@ -47,6 +47,7 @@ python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 .agents/test-workloop-authority.sh
 python3 .agents/test-wait-gate.py
+python3 .agents/test-save-reply.py
 .agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
