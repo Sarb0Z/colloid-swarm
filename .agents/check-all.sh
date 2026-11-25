@@ -72,6 +72,7 @@ python3 .agents/test-proxy-names.py
 python3 .agents/lint-contract.py
 python3 .agents/lint-suite.py
 python3 .agents/eval/test-cell-time.py
+python3 scripts/paper-fetch/test-papers.py
 .agents/test-export.sh
 .agents/test-export-servers.sh
 .agents/test-stack-packs.sh

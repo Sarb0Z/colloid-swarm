@@ -6,9 +6,9 @@ The suite script is the list a session runs (`suite.sh` runs it as
 `owed.suite`); CI is the list that gates a merge. A check in one and not the
 other means a session reads a green suite that CI rejects, or the reverse.
 
-A check is a command line naming a script under `.agents/` or `demo/`, with
-its arguments, read from the script's list and from the `run:` lines of the
-workflow. Two named lists hold the differences that are meant:
+A check is a command line naming a script under `.agents/`, `demo/` or
+`scripts/`, with its arguments, read from the script's list and from the `run:`
+lines of the workflow. Two named lists hold the differences that are meant:
 
   CI_ONLY    steps that are not suite checks: the step that gives the job
              the checks' environment and the clean-tree check. A step that
@@ -54,7 +54,7 @@ NOT_ON_CI = {}
 UNLISTED_TESTS = {}
 ENVIRONMENT_STEP = ".agents/check-env.sh"
 
-CHECK = re.compile(r"^(?:python3\s+)?((?:\.agents|demo)/\S+(?:\s+[A-Za-z][\w-]*)?)\s*(?:$|\|)")
+CHECK = re.compile(r"^(?:python3\s+)?((?:\.agents|demo|scripts)/\S+(?:\s+[A-Za-z][\w-]*)?)\s*(?:$|\|)")
 
 
 def normalize(line):

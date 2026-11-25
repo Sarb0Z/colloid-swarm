@@ -253,6 +253,9 @@ jobs:
       - name: Cell-time eval
         run: python3 .agents/eval/test-cell-time.py
 
+      - name: Paper-fetch tool
+        run: python3 scripts/paper-fetch/test-papers.py
+
       - name: Export kit
         run: .agents/test-export.sh
 
