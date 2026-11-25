@@ -72,15 +72,21 @@ def check_claims(rows: list[dict[str, str]], first_line: int, sources: Path) -> 
 
 
 def read_ledger(path: Path) -> tuple[list[dict[str, str]], list[str]]:
-    with path.open(newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        missing = [name for name in COLUMNS if name not in (reader.fieldnames or [])]
-        if missing:
-            return [], [f"{path.name}: missing column(s) {', '.join(missing)}; a ledger row is key,source,values,quote"]
-        return [{name: (row.get(name) or "") for name in COLUMNS} for row in reader], []
+    try:
+        with path.open(newline="", encoding="utf-8-sig") as handle:
+            reader = csv.DictReader(handle)
+            missing = [name for name in COLUMNS if name not in (reader.fieldnames or [])]
+            if missing:
+                return [], [f"{path.name}: missing column(s) {', '.join(missing)}; a ledger row is key,source,values,quote"]
+            return [{name: (row.get(name) or "") for name in COLUMNS} for row in reader], []
+    except (OSError, UnicodeDecodeError, csv.Error) as error:
+        return [], [f"cannot be read: {error}"]
 
 
 def run_check(args: argparse.Namespace) -> int:
+    if not args.sources.is_dir():
+        print(f"{args.sources} is not a folder; --sources names the folder of saved sources", file=sys.stderr)
+        return 1
     rows, problems = read_ledger(args.ledger)
     if not problems:
         problems, used = check_claims(rows, 2, args.sources)
@@ -149,9 +155,14 @@ def prose_findings(path: Path) -> list[tuple[int, str]]:
 
 
 def run_prose(args: argparse.Namespace) -> int:
-    total = 0
+    total = unreadable = 0
     for path in args.files:
-        findings = prose_findings(path)
+        try:
+            findings = prose_findings(path)
+        except (OSError, UnicodeDecodeError) as error:
+            print(f"{path}: cannot be read: {error}")
+            unreadable += 1
+            continue
         for number, finding in findings:
             print(f"{path}:{number}: {finding}")
         if findings:
@@ -160,8 +171,7 @@ def run_prose(args: argparse.Namespace) -> int:
             print(f"{path}: no typed-in decimals or percentages in prose")
     if total:
         print(f"{total} finding(s): compute each number from a results file with inline code, or allow its line with <!-- literal: <reason> -->")
-        return 1
-    return 0
+    return 1 if total or unreadable else 0
 
 
 def main(argv: list[str]) -> int:

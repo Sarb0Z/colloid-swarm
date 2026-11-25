@@ -32,7 +32,9 @@ tacsi_major_bleeding,abstract-tacsi-2025,2.50|1.52|4.11,"Major bleeding occurred
   compare as plain ones; everything else must match, case included.
 - `values` are the numerals the report prints from that quote, separated by `|`.
   Each must be in the quote as a whole number: `1.0` is not in `11.0`, and `5`
-  is not in `5%`; write `5%` when the percentage is the claim.
+  is not in `5%`; write `5%` when the percentage is the claim. A hyphen next to
+  a number counts as a boundary (it separates ranges), so write a negative
+  value with its sign: `1.0` also matches the `1.0` of `-1.0`.
 - A PDF is not a source. Convert it to text and save the text beside it.
   Registry records and other formats the tool cannot flatten into the quoted
   sentences: render them to a text file in the project and name that.

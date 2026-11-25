@@ -109,6 +109,8 @@ def source_file(directory: Path, source: str) -> Path:
         raise SourceProblem(f"source {source!r} holds two text files, {' and '.join(path.name for path in found)}; keep one")
     if not found:
         raise SourceProblem(f"source {source!r} holds none of {', '.join(SOURCE_FILES)}; convert a PDF to text first")
+    if not found[0].resolve().is_relative_to(root):
+        raise SourceProblem(f"source {source!r}: {found[0].name} points outside the sources folder")
     return found[0]
 
 

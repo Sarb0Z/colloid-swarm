@@ -111,6 +111,36 @@ with tempfile.TemporaryDirectory() as scratch_name:
     check(shortened.returncode == 1 and "values" in shortened.stdout and "quote" in shortened.stdout,
           f"a ledger without the values and quote columns names them: {shortened.stdout.strip()}")
 
+    # A source folder's own text file that is a symlink to a file outside the sources folder.
+    secret = scratch / "secret.md"
+    secret.write_text("A sentence from outside the sources folder.", encoding="utf-8")
+    (sources / "linked").mkdir()
+    (sources / "linked/fulltext.md").symlink_to(secret)
+    linked = ledger(scratch / "linked.csv", [("leak", "linked", "", "A sentence from outside the sources folder.")])
+    leaked = run("check", str(linked), "--sources", str(sources), cwd=scratch)
+    check(leaked.returncode == 1 and "outside the sources folder" in leaked.stdout and "1 statements found" not in leaked.stdout,
+          f"a text file inside a source folder that points out of the sources folder is refused: {leaked.stdout.strip()}")
+
+    nothing = run("check", str(scratch / "no-such-ledger.csv"), "--sources", str(sources), cwd=scratch)
+    check(nothing.returncode == 1 and "no-such-ledger.csv" in nothing.stdout and "Traceback" not in nothing.stderr,
+          f"a ledger that does not exist is named, with no traceback: {nothing.stdout.strip()} {nothing.stderr.strip()}")
+    header_only = ledger(scratch / "header-only.csv", [])
+    no_folder = run("check", str(header_only), "--sources", str(scratch / "no-such-folder"), cwd=scratch)
+    check(no_folder.returncode == 1 and "no-such-folder" in no_folder.stderr and "Traceback" not in no_folder.stderr,
+          f"a sources folder that does not exist is named, even for an empty ledger: {no_folder.stderr.strip()}")
+    binary = scratch / "binary.csv"
+    binary.write_bytes(b"\xff\xfekey,source\n")
+    unreadable = run("check", str(binary), "--sources", str(sources), cwd=scratch)
+    check(unreadable.returncode == 1 and "binary.csv" in unreadable.stdout and "Traceback" not in unreadable.stderr,
+          f"a ledger that is not UTF-8 text is named, with no traceback: {unreadable.stdout.strip()} {unreadable.stderr.strip()}")
+    absent_report = run("prose", str(scratch / "no-such-report.Rmd"), cwd=scratch)
+    check(absent_report.returncode == 1 and "no-such-report.Rmd" in absent_report.stdout and "Traceback" not in absent_report.stderr,
+          f"a report that does not exist is named, with no traceback: {absent_report.stdout.strip()} {absent_report.stderr.strip()}")
+    (scratch / "binary.Rmd").write_bytes(b"\xff\xfe 5.5")
+    binary_report = run("prose", str(scratch / "binary.Rmd"), cwd=scratch)
+    check(binary_report.returncode == 1 and "binary.Rmd" in binary_report.stdout and "Traceback" not in binary_report.stderr,
+          f"a report that is not UTF-8 text is named, with no traceback: {binary_report.stdout.strip()} {binary_report.stderr.strip()}")
+
     elsewhere = scratch / "elsewhere"
     elsewhere.mkdir()
     isolated = run("check", str(good), "--sources", str(sources), cwd=elsewhere, isolated=True)
