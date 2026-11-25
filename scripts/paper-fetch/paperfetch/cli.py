@@ -16,6 +16,7 @@ from .manifest import ManifestError, read_manifest
 from .model import Paper
 from .plugins import Plugin, PluginError, Plugins, load_plugins
 from .polite import Http, Policy, RunStopped
+from .push import PushOptions, PushReport, run_push
 from .scrub import scrub
 
 OK = 0
@@ -26,6 +27,11 @@ LOCKED = 4
 FETCH_DELAY_MS = 1500
 FETCH_JITTER_MS = 1200
 FETCH_HOST_CAP = 25
+# A push calls the operator's own catalogue, not a publisher's pages, and one
+# paper takes several requests. A sink may declare its own cap.
+PUSH_DELAY_MS = 500
+PUSH_JITTER_MS = 300
+PUSH_HOST_CAP = 1000
 
 FETCH_STATES = ("pending", "fetched", "converted", "needs-text", "awaiting-inbox", "blocked", "failed")
 SUMMARY_ORDER = ("converted", "hand", "fetched", "needs-text", "awaiting-inbox", "blocked", "failed", "skipped")
@@ -63,6 +69,14 @@ def build_parser(default_plugins: Path) -> argparse.ArgumentParser:
     fetch.add_argument("--jitter-ms", type=int, default=FETCH_JITTER_MS, help="random extra pause, up to N ms")
     fetch.add_argument("--force", action="store_true", help="run a full attempt even for a finished paper")
     fetch.add_argument("--dry-run", action="store_true", help="ask the sources and print; write nothing")
+
+    push = commands.add_parser("push", parents=[project, plugins], help="send fetched papers to a sink")
+    push.add_argument("--sink", required=True, help="the name of the sink plugin")
+    push.add_argument("--only", help="comma-separated keys; the others are left alone")
+    push.add_argument("--delay-ms", type=int, default=PUSH_DELAY_MS, help="base pause between requests to a host")
+    push.add_argument("--jitter-ms", type=int, default=PUSH_JITTER_MS, help="random extra pause, up to N ms")
+    push.add_argument("--force", action="store_true", help="push a paper again even if it was pushed")
+    push.add_argument("--apply", action="store_true", help="write to the sink; without it, print the plan only")
     return parser
 
 
@@ -77,7 +91,9 @@ def main(argv: list[str], fx: Effects, default_plugins: Path) -> int:
             return command_status(args, say)
         if args.command == "sources":
             return command_sources(args, say)
-        return command_fetch(args, fx, say)
+        if args.command == "fetch":
+            return command_fetch(args, fx, say)
+        return command_push(args, fx, say)
     except LedgerLocked as error:
         fx.err(scrub(f"error: {error}", fx.environ))
         return LOCKED
@@ -154,6 +170,39 @@ def command_fetch(args: argparse.Namespace, fx: Effects, say: Say) -> int:
         report = run_fetch(papers, Context(ledger=ledger, **shared), options)
     say(summarize(report))
     return HOST_CAP if report.stopped else OK
+
+
+def command_push(args: argparse.Namespace, fx: Effects, say: Say) -> int:
+    papers, layout = _open_project(args)
+    sinks = load_plugins(args.plugins).of("sinks")
+    if args.sink not in sinks:
+        raise PluginError(f"--sink names no loaded sink: {args.sink} (loaded: {', '.join(sorted(sinks)) or 'none'})")
+    sink = sinks[args.sink]
+    policy = Policy(
+        delay_ms=args.delay_ms,
+        jitter_ms=args.jitter_ms,
+        max_per_host=getattr(sink.module, "MAX_REQUESTS_PER_HOST", PUSH_HOST_CAP),
+        host_intervals_ms=host_intervals([sink]),
+        read_only=not args.apply,
+    )
+    options = PushOptions(only=choose_keys(papers, args.only), force=args.force, apply=args.apply)
+    shared = {
+        "layout": layout, "http": Http(fx, policy, say), "run": fx.run, "say": say,
+        "sources": [], "converters": [],
+    }
+    if not args.apply:
+        report = run_push(papers, sink, Context(ledger=None, **shared), options)
+        say(summarize_push(report) + "; nothing was written, add --apply to write")
+        return HOST_CAP if report.stopped else OK
+    with Ledger.locked(layout.ledger, fx.stamp, fx.environ) as ledger:
+        report = run_push(papers, sink, Context(ledger=ledger, **shared), options)
+    say(summarize_push(report))
+    return HOST_CAP if report.stopped else OK
+
+
+def summarize_push(report: PushReport) -> str:
+    parts = [f"{name} {report.counts[name]}" for name in ("pushed", "planned", "failed", "skipped") if report.counts[name]]
+    return "done: " + (", ".join(parts) if parts else "nothing to do")
 
 
 def choose_keys(papers: list[Paper], text: str | None) -> frozenset[str] | None:
