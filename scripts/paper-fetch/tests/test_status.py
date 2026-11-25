@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import TOOL, make_stamp, run_cli, tree, write_manifest, write_plugin
+from helpers import PDF, TOOL, FakeServer, make_stamp, run_cli, serve, tree, write_manifest, write_plugin
 
 from paperfetch.layout import Layout
-from paperfetch.ledger import FETCH, PUSH, Ledger
+from paperfetch.ledger import FETCH, PUSH, Ledger, latest, read_rows
 
 ROWS = [
     {"key": "sun-2010", "doi": "10.1016/j.ahj.2010.07.035"},
@@ -100,6 +100,49 @@ class EntryPointTests(unittest.TestCase):
                 capture_output=True, text=True, cwd=base, check=False,
             )
             self.assertEqual(sources.returncode, 0, sources.stderr)
+
+    def test_isolated_python_runs_a_fetch_and_a_push_with_the_real_transport_and_runner(self) -> None:
+        source = (
+            "from paperfetch.model import Candidate\nNAME = 'one'\n"
+            "def locate(paper, http):\n"
+            "    return [Candidate(url=URL, kind='pdf', source=NAME)]\n"
+        )
+        converter = (
+            "import sys\nNAME = 'cmd'\nACCEPTS = ('pdf',)\n"
+            "def convert(path, run):\n"
+            "    return run([sys.executable, '-c', \"print('text from a real command')\"])\n"
+        )
+        sink = (
+            "NAME = 'ids'\n"
+            "def plan(paper, folder, http):\n    return []\n"
+            "def push(paper, folder, http):\n    return {'item': 'I-' + paper.key}\n"
+        )
+        with tempfile.TemporaryDirectory() as scratch, FakeServer({"/a.pdf": serve(200, PDF)}) as server:
+            base = Path(scratch)
+            project, plugins = base / "project", base / "plugins"
+            project.mkdir()
+            manifest = write_manifest(base, ROWS[:1])
+            write_plugin(plugins, "sources", "one.py", f"URL = {server.base + '/a.pdf'!r}\n" + source)
+            write_plugin(plugins, "converters", "cmd.py", converter)
+            write_plugin(plugins, "sinks", "ids.py", sink)
+            common = ["--manifest", str(manifest), "--root", str(project), "--plugins", str(plugins)]
+            fetch = subprocess.run(
+                [sys.executable, "-I", str(TOOL / "papers.py"), "fetch", *common, "--delay-ms", "0", "--jitter-ms", "0"],
+                capture_output=True, text=True, cwd=base, check=False,
+            )
+            self.assertEqual(fetch.returncode, 0, fetch.stderr)
+            self.assertEqual(
+                (project / "data/external/paper-sun-2010/fulltext.md").read_text().strip(),
+                "text from a real command",
+            )
+            push = subprocess.run(
+                [sys.executable, "-I", str(TOOL / "papers.py"), "push", *common, "--sink", "ids", "--apply"],
+                capture_output=True, text=True, cwd=base, check=False,
+            )
+            self.assertEqual(push.returncode, 0, push.stderr)
+            rows = latest(read_rows(project / "data/external/papers_ledger.csv"))
+            self.assertEqual(rows[("sun-2010", FETCH)].state, "converted")
+            self.assertEqual(rows[("sun-2010", PUSH)].state, "pushed")
 
     def test_usage_error_exits_2(self) -> None:
         run = subprocess.run(
