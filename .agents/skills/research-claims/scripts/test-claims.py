@@ -87,6 +87,31 @@ with tempfile.TemporaryDirectory() as scratch_name:
           and all(key in joined for key in ("'inner'", "'percent'", "'absent'")) and "'whole'" not in joined and "'percent-ok'" not in joined,
           f"a value that is part of a longer number, or of a percentage, is not in the quote: {problem_lines}")
 
+    (sources / "thousands.md").write_text(
+        "The trial enrolled 5,000 patients; a European table prints 1,5 for one and a half; HR 0.77 [0.68,0.89].", encoding="utf-8")
+    separated = ledger(scratch / "separated.csv", [
+        ("whole-thousands", "thousands.md", "5,000", "The trial enrolled 5,000 patients"),
+        ("compact-interval", "thousands.md", "0.77|0.68|0.89", "HR 0.77 [0.68,0.89]"),
+        ("five", "thousands.md", "5", "The trial enrolled 5,000 patients"),
+        ("zeros", "thousands.md", "000", "The trial enrolled 5,000 patients"),
+        ("comma", "thousands.md", "1", "prints 1,5 for one and a half"),
+    ])
+    grouped = run("check", str(separated), "--sources", str(sources), cwd=scratch)
+    grouped_problems = [line for line in grouped.stdout.splitlines() if "not in the quote" in line]
+    check(grouped.returncode == 1 and len(grouped_problems) == 3
+          and not any("whole-thousands" in line or "compact-interval" in line for line in grouped_problems),
+          f"a digit group or a decimal comma is not a whole number, and a comma between two decimals is: {grouped_problems}")
+
+    (scratch / "multiline.csv").write_text(
+        'key,source,values,quote\nfirst,md1,,"Dose 11.0\nmg."\nsecond,md1,,"Dose 99.0 mg."\n', encoding="utf-8")
+    multiline = run("check", str(scratch / "multiline.csv"), "--sources", str(sources), cwd=scratch)
+    check(multiline.returncode == 1 and "line 4, key 'second'" in multiline.stdout,
+          f"a quote that spans lines does not shift the line numbers after it: {multiline.stdout.strip()}")
+
+    invisible = {chr(0x200B), chr(0xFEFF), chr(0x00AD)}
+    check(not invisible & set((CLAIMS.parent / "source_text.py").read_text(encoding="utf-8")),
+          "source_text.py holds no invisible character, which an editor could strip")
+
     structure = ledger(scratch / "structure.csv", [
         ("twin", "md1", "", "Dose 11.0 mg."),
         ("twin", "md1", "", "Dose 11.0 mg."),
@@ -158,7 +183,7 @@ with tempfile.TemporaryDirectory() as scratch_name:
         "x <- 3.14\n"
         "```\n"
         "The RR was `r round(rr, 2)` over `r k` trials; 2024 and 15 trials are not flagged. See Figure 2.3, which plots `r pct`%.\n"
-        "Published value 0.85 <!-- literal: from the trial report -->\n"
+        "Published value 0.85 <!-- literal: 0.85 from the trial report -->\n"
         "Bare 0.85 <!-- literal -->\n"
         "Total 1,234 events, see [the table](https://example.org/2.5/page) and [@smith2020].\n"
         "$$ p = 0.05 $$\n",
@@ -173,6 +198,20 @@ with tempfile.TemporaryDirectory() as scratch_name:
           f"line 5 yields 1.17, 0.57, 2.37 and 12%: {findings}")
     check([text for number, text in findings if number == 13] == ["1,234"], "line 13 yields 1,234 and not the link's 2.5 or the citation key")
     check("literal needs a reason" in linted.stdout, "an allowance with no reason is itself a finding")
+
+    narrow = scratch / "narrow.Rmd"
+    narrow.write_text(
+        "Quoted 0.85 and typed 1.23 <!-- literal: 0.85 from the trial report -->\n"
+        "No number named 4.56 <!-- literal: from the trial report -->\n"
+        "The fee was $5.50 and the cap $3.20, where $p = 0.05$ is the level.\n"
+        "A 2.5x increase and a 3.2mg dose.\n"
+        "Then p < .05 and r = .43.\n",
+        encoding="utf-8")
+    narrowed = run("prose", str(narrow), cwd=scratch)
+    narrow_findings = [(int(m.group(1)), m.group(2)) for m in (re.match(r"^.*narrow\.Rmd:(\d+): (.*)$", line) for line in narrowed.stdout.splitlines()) if m]
+    check(sorted(narrow_findings) == [(1, "1.23"), (2, "4.56"), (2, "literal names no number"), (3, "3.20"), (3, "5.50"),
+                                      (4, "2.5"), (4, "3.2"), (5, ".05"), (5, ".43")],
+          f"a literal comment allows only the numbers it names; dollar amounts, unit suffixes and bare decimals are read: {sorted(narrow_findings)}")
 
     clean = scratch / "clean.Rmd"
     clean.write_text("The RR was `r round(rr, 2)` (95% CI `r lo` to `r hi`; a 90% credible interval is `r cred`), `r pct`% lower.\n", encoding="utf-8")

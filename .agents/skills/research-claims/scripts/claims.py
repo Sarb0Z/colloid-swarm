@@ -15,8 +15,9 @@ code is 1 when there is one.
 percentage and thousands-separated number left in the prose, that is, outside
 code, inline code, math, links and citation keys. Integers are not read: a count
 is for a reviewer to trace, and so is a percentage that names an interval's level
-("95% CI"). A comment `<!-- literal: <reason> -->` on a line allows the numbers
-on it; a comment with no reason is itself a finding.
+("95% CI"). A comment `<!-- literal: 0.85 is the published value -->` on a line
+allows the numbers it names, here 0.85, and no others on that line; a comment
+that gives no reason or names no number is itself a finding.
 """
 
 from __future__ import annotations
@@ -34,16 +35,19 @@ COLUMNS = ("key", "source", "values", "quote")
 
 
 def numeral(text: str) -> re.Pattern[str]:
-    """`text` as a whole numeral: not inside a longer number, and not the number of a percentage."""
-    return re.compile(rf"(?<!\d)(?<!\d\.){re.escape(text)}(?!\d|\.\d|\s*%)")
+    """`text` as a whole numeral: not inside a longer number, not the number of a percentage, not
+    one part of a number written with a digit group (`5` and `000` in `5,000`) or a decimal comma
+    (`1` in `1,5`). A comma before a decimal, as in `[0.68,0.89]`, separates two numbers."""
+    group = r"(?<!\d,)" if text.isdigit() else ""
+    return re.compile(rf"(?<!\d)(?<!\d\.){group}{re.escape(text)}(?!\d|\.\d|\s*%|,\d+(?![\d.]))")
 
 
-def check_claims(rows: list[dict[str, str]], first_line: int, sources: Path) -> tuple[list[str], int]:
-    """(problems, number of distinct sources read) for the ledger's rows, the first on `first_line`."""
+def check_claims(rows: list[tuple[int, dict[str, str]]], sources: Path) -> tuple[list[str], int]:
+    """(problems, number of distinct sources read) for the ledger's rows, each with its first line."""
     problems: list[str] = []
     texts: dict[str, str | None] = {}
     seen: dict[str, int] = {}
-    for line, row in enumerate(rows, start=first_line):
+    for line, row in rows:
         key, source = row["key"].strip(), row["source"].strip()
         where = f"line {line}, key {key!r}"
         if key in seen:
@@ -71,14 +75,22 @@ def check_claims(rows: list[dict[str, str]], first_line: int, sources: Path) -> 
     return problems, sum(1 for text in texts.values() if text is not None)
 
 
-def read_ledger(path: Path) -> tuple[list[dict[str, str]], list[str]]:
+def read_ledger(path: Path) -> tuple[list[tuple[int, dict[str, str]]], list[str]]:
+    """(each row with the line it starts on, problems). A quoted field may hold a line break, so
+    a row starts where its last line, less the breaks inside its fields, leaves it."""
     try:
         with path.open(newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle)
-            missing = [name for name in COLUMNS if name not in (reader.fieldnames or [])]
+            reader = csv.reader(handle)
+            header = next(reader, [])
+            missing = [name for name in COLUMNS if name not in header]
             if missing:
                 return [], [f"{path.name}: missing column(s) {', '.join(missing)}; a ledger row is key,source,values,quote"]
-            return [{name: (row.get(name) or "") for name in COLUMNS} for row in reader], []
+            rows = []
+            for fields in reader:
+                if fields:
+                    cells = dict(zip(header, fields))
+                    rows.append((reader.line_num - sum(field.count("\n") for field in fields), {name: cells.get(name, "") for name in COLUMNS}))
+            return rows, []
     except (OSError, UnicodeDecodeError, csv.Error) as error:
         return [], [f"cannot be read: {error}"]
 
@@ -89,7 +101,7 @@ def run_check(args: argparse.Namespace) -> int:
         return 1
     rows, problems = read_ledger(args.ledger)
     if not problems:
-        problems, used = check_claims(rows, 2, args.sources)
+        problems, used = check_claims(rows, args.sources)
     else:
         used = 0
     for problem in problems:
@@ -103,13 +115,15 @@ def run_check(args: argparse.Namespace) -> int:
 
 # Text that is not prose: inline code, math, links' targets and citation keys.
 INLINE_CODE = re.compile(r"(`+)[^`]*?\1")
-MATH = re.compile(r"\$\$.*?\$\$|\$[^$\n]+\$")
+# Pandoc's rule for inline math: no space inside the dollar signs, and no digit after the closing one,
+# so "$5.50 and $3.20" is two prices and not math.
+MATH = re.compile(r"\$\$.*?\$\$|\$(?=\S)[^$\n]*?(?<=\S)\$(?!\d)")
 LINK_TARGET = re.compile(r"\]\([^)]*\)")
 CITATION = re.compile(r"\[@[^\]]*\]|@[\w:.-]+")
 URL = re.compile(r"https?://\S+")
 COMMENT = re.compile(r"<!--.*?-->")
 LITERAL = re.compile(r"<!--\s*literal\s*(?::\s*(.*?))?\s*-->")
-NUMBER = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d+(?:\.\d+)?%)(?!\w)")
+NUMBER = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\.\d+|\d+(?:\.\d+)?%)(?!\d)")
 REFERENCE_WORD = re.compile(r"(?:Figure|Fig\.|Table|Section|Sec\.|Appendix|Equation|Eq\.|§)\s*$")
 # A percentage that names an interval's level ("95% CI") is a method setting, not a result.
 LEVEL_WORD = re.compile(r"\s*(?:CI\b|confidence|credible|prediction|interval)")
@@ -139,16 +153,20 @@ def prose_findings(path: Path) -> list[tuple[int, str]]:
             continue
         if in_math_block:
             continue
+        allowed: set[str] = set()
         literal = LITERAL.search(line)
         if literal:
-            if not (literal.group(1) or "").strip():
+            reason = (literal.group(1) or "").strip()
+            allowed = {match.group(1) for match in NUMBER.finditer(reason)}
+            if not NUMBER.sub(" ", reason).strip(" ,;:.-—"):
                 findings.append((number, "literal needs a reason"))
-            continue
+            elif not allowed:
+                findings.append((number, "literal names no number"))
         text = COMMENT.sub(" ", line)
         for pattern in (INLINE_CODE, MATH, URL, LINK_TARGET, CITATION):
             text = pattern.sub(" ", text)
         for match in NUMBER.finditer(text):
-            if REFERENCE_WORD.search(text[:match.start()]) or LEVEL_WORD.match(text, match.end()):
+            if match.group(1) in allowed or REFERENCE_WORD.search(text[:match.start()]) or LEVEL_WORD.match(text, match.end()):
                 continue
             findings.append((number, match.group(1)))
     return findings
@@ -170,7 +188,7 @@ def run_prose(args: argparse.Namespace) -> int:
         else:
             print(f"{path}: no typed-in decimals or percentages in prose")
     if total:
-        print(f"{total} finding(s): compute each number from a results file with inline code, or allow its line with <!-- literal: <reason> -->")
+        print(f"{total} finding(s): compute each number from a results file with inline code, or allow it with <!-- literal: <the number> <reason> --> on its line")
     return 1 if total or unreadable else 0
 
 

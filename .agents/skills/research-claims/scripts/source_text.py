@@ -29,12 +29,16 @@ from pathlib import Path
 
 SOURCE_FILES = ("fulltext.md", "fulltext.xml", "article.xml", "page.html", "record.json", "study.json")
 SKIPPED_ELEMENTS = {"script", "style", "noscript", "template"}
-# NFKC folds ligatures, non-breaking and thin spaces and full-width forms; these are what it leaves.
-PLAIN_CHARACTERS = str.maketrans({
-    "​": "", "﻿": "", "­": "",
-    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "−": "-",
-    "‘": "'", "’": "'", "“": '"', "”": '"',
-})
+# NFKC folds ligatures, non-breaking and thin spaces and full-width forms. What it leaves, by code
+# point so that no invisible character sits in this file: the zero-width space, the byte-order mark
+# and the soft hyphen are dropped; the hyphen, non-breaking hyphen, figure dash, en dash, em dash
+# and minus sign become a plain hyphen; the curly quotation marks become plain ones.
+PLAIN_CHARACTERS = {
+    **dict.fromkeys((0x200B, 0xFEFF, 0x00AD), ""),
+    **dict.fromkeys((0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2212), "-"),
+    **dict.fromkeys((0x2018, 0x2019), "'"),
+    **dict.fromkeys((0x201C, 0x201D), '"'),
+}
 
 
 class SourceProblem(Exception):

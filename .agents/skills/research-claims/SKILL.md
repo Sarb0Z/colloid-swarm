@@ -22,17 +22,19 @@ One row per outside statement or number the report takes from a source:
 
 ```
 key,source,values,quote
-tacsi_major_bleeding,abstract-tacsi-2025,2.50|1.52|4.11,"Major bleeding occurred in 4.9% ... (hazard ratio, 2.50; 95% CI, 1.52 to 4.11)"
+tacsi_major_bleeding,abstract-tacsi-2025,2.50|1.52|4.11,"(hazard ratio, 2.50; 95% CI, 1.52 to 4.11)"
 ```
 
 - `source` names a file under `--sources`, or a folder there that holds exactly
   one of `fulltext.md`, `fulltext.xml`, `article.xml`, `page.html`,
   `record.json`, `study.json`. A folder with two of them is a problem: keep one.
-- `quote` is copied from the source's text. Spaces, dashes and curly quotes
-  compare as plain ones; everything else must match, case included.
+- `quote` is one unbroken stretch of the source's text, copied; an ellipsis
+  joining two pieces never matches. Spaces, dashes and curly quotes compare as
+  plain ones; everything else must match, case included.
 - `values` are the numerals the report prints from that quote, separated by `|`.
-  Each must be in the quote as a whole number: `1.0` is not in `11.0`, and `5`
-  is not in `5%`; write `5%` when the percentage is the claim. A hyphen next to
+  Each must be in the quote as a whole number: `1.0` is not in `11.0`, `5` and
+  `000` are not in `5,000`, and `5` is not in `5%`; write `5,000` or `5%` when
+  that is the claim. A hyphen next to
   a number counts as a boundary (it separates ranges), so write a negative
   value with its sign: `1.0` also matches the `1.0` of `-1.0`.
 - A PDF is not a source. Convert it to text and save the text beside it.
@@ -50,10 +52,11 @@ say. A source that cannot be read is a gap the report lists, not a pass.
 left in the prose outside code, inline code, math, links and citation keys. Make
 the sentence use inline code that reads a results file (`` `r round(rr, 2)` `` in
 R Markdown, `` `{python} rr` `` in Quarto). A number that must be typed, such as
-one quoted from a paper, takes `<!-- literal: <reason> -->` on its line; a
-comment with no reason is a finding. Integers and the percentage of an interval's
-level ("95% CI") are not read. Counts such as "12 trials" stay for the reviewer
-to trace to a results file.
+one quoted from a paper, takes `<!-- literal: 0.85 is the published value -->`
+on its line, which allows the numbers the comment names and no others there; a
+comment with no reason or no number is a finding. Integers and the percentage of
+an interval's level ("95% CI") are not read, and `$5.50` is a price, not math.
+Counts such as "12 trials" stay for the reviewer to trace to a results file.
 
 ## Where it sits
 
