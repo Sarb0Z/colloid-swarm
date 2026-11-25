@@ -4,6 +4,11 @@ Without `--apply` it runs each sink's `plan` through a read-only client, so a dr
 run cannot write. With `--apply` it calls `push` and records the ids the sink
 returns. A push outcome is its own stage in the ledger: a failure here never
 changes a paper's fetch state, so it never causes a second download.
+
+Once a sink's `push` returns, the remote write has happened. The tool then
+records `pushed` even when the sink broke a rule (it wrote in the paper folder or
+returned an id that is not a string), with a warning, because recording `failed`
+would send the next run to write the same thing again.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ from pathlib import Path
 
 from .context import Context
 from .ledger import FETCH, PUSH, Row, latest, read_rows
+from .manifest import select
 from .model import Paper
 from .plugins import Plugin
 from .polite import RunStopped
@@ -47,9 +53,7 @@ def skip_reason(fetch: Row | None, push: Row | None, force: bool) -> str | None:
 def run_push(papers: list[Paper], sink: Plugin, ctx: Context, options: PushOptions) -> PushReport:
     report = PushReport()
     states = latest(read_rows(ctx.layout.ledger))
-    for paper in papers:
-        if options.only is not None and paper.key not in options.only:
-            continue
+    for paper in select(papers, options.only):
         reason = skip_reason(states.get((paper.key, FETCH)), states.get((paper.key, PUSH)), options.force)
         if reason is not None:
             ctx.say(f"= skip    {paper.key} ({reason})")
@@ -61,6 +65,8 @@ def run_push(papers: list[Paper], sink: Plugin, ctx: Context, options: PushOptio
             report.stopped = str(error)
             ctx.say(f"! stopped: {error}")
             break
+        except Exception as error:  # one paper's unexpected failure is reported; the next paper still runs
+            outcome = _unexpected(paper, sink, ctx, error, options.apply)
         report.counts[outcome] += 1
     return report
 
@@ -68,7 +74,7 @@ def run_push(papers: list[Paper], sink: Plugin, ctx: Context, options: PushOptio
 def _plan(paper: Paper, sink: Plugin, ctx: Context) -> str:
     folder = ctx.layout.paper_dir(paper.key)
     try:
-        lines = sink.module.plan(paper, folder, ctx.http)
+        lines = list(sink.module.plan(paper, folder, ctx.http))
     except RunStopped:
         raise
     except Exception as error:  # a plugin boundary: reported here, and the next paper is planned
@@ -82,24 +88,39 @@ def _plan(paper: Paper, sink: Plugin, ctx: Context) -> str:
 def _apply(paper: Paper, sink: Plugin, ctx: Context) -> str:
     assert ctx.ledger is not None
     folder = ctx.layout.paper_dir(paper.key)
-    before = _listing(folder)
+    before = _snapshot(folder)
     try:
         ids = sink.module.push(paper, folder, ctx.http)
     except RunStopped:
         raise
     except Exception as error:  # a plugin boundary: recorded, and the next paper is pushed
         return _fail(paper, sink, ctx, f"sink {sink.name} raised {error!r}")
-    changed = sorted(set(_listing(folder)) ^ set(before))
+    if not isinstance(ids, dict):
+        return _fail(paper, sink, ctx, f"sink {sink.name} returned {ids!r}, not a dict of ids")
+    warnings = []
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in ids.items()):
+        warnings.append("ids were not all strings and were stored as text")
+    after = _snapshot(folder)
+    changed = sorted(name for name in set(after) | set(before) if after.get(name) != before.get(name))
     if changed:
-        return _fail(paper, sink, ctx, f"sink {sink.name} wrote in the paper folder: {', '.join(changed)}")
-    if not isinstance(ids, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in ids.items()):
-        return _fail(paper, sink, ctx, f"sink {sink.name} returned {ids!r}, not a dict of strings")
+        warnings.append(f"sink wrote in the paper folder: {', '.join(changed)}")
+    stored = {str(key): str(value) for key, value in ids.items()}
     ctx.ledger.append(
         key=paper.key, doi=paper.doi, stage=PUSH, state="pushed", source=sink.name,
-        external_ids=json.dumps(ids, sort_keys=True),
+        external_ids=json.dumps(stored, sort_keys=True), detail="WARNING: " + "; ".join(warnings) if warnings else "",
     )
-    ctx.say(f"+ pushed   {paper.key}  ({sink.name}: {json.dumps(ids, sort_keys=True)})")
+    ctx.say(f"+ pushed   {paper.key}  ({sink.name}: {json.dumps(stored, sort_keys=True)})")
+    for warning in warnings:
+        ctx.say(f"! warning  {paper.key}: {warning}")
     return "pushed"
+
+
+def _unexpected(paper: Paper, sink: Plugin, ctx: Context, error: Exception, apply: bool) -> str:
+    detail = f"unexpected {type(error).__name__}: {error}"
+    if apply:
+        return _fail(paper, sink, ctx, detail)
+    ctx.say(f"! plan failed for {paper.key}: {detail}")
+    return "failed"
 
 
 def _fail(paper: Paper, sink: Plugin, ctx: Context, detail: str) -> str:
@@ -109,5 +130,8 @@ def _fail(paper: Paper, sink: Plugin, ctx: Context, detail: str) -> str:
     return "failed"
 
 
-def _listing(folder: Path) -> list[str]:
-    return sorted(path.name for path in folder.iterdir()) if folder.is_dir() else []
+def _snapshot(folder: Path) -> dict[str, tuple[int, int]]:
+    """Each file's name with its size and modification time, so a rewrite shows."""
+    if not folder.is_dir():
+        return {}
+    return {path.name: (path.stat().st_size, path.stat().st_mtime_ns) for path in folder.iterdir()}

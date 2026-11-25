@@ -13,11 +13,14 @@ from pathlib import Path
 
 TOOL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TOOL))
+# A test rewrites a plugin file within one second and at the same size, which
+# lets Python reuse stale bytecode keyed by whole-second modification time.
+sys.dont_write_bytecode = True
 
-from paperfetch.cli import main  # noqa: E402
-from paperfetch.effects import Effects  # noqa: E402
-from paperfetch.model import RawResponse  # noqa: E402
-from paperfetch.polite import Http, Policy  # noqa: E402
+from paperfetch.cli import main
+from paperfetch.effects import Effects
+from paperfetch.model import RawResponse
+from paperfetch.polite import Http, Policy
 
 
 @dataclass
@@ -180,7 +183,7 @@ class FakeServer:
 
             do_GET = do_HEAD = do_POST = handle_any
 
-            def log_message(self, format: str, *args) -> None:  # noqa: A002, ANN002
+            def log_message(self, format: str, *args) -> None:
                 pass
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -188,7 +191,7 @@ class FakeServer:
         self._thread.start()
         return self
 
-    def __exit__(self, *exc) -> None:  # noqa: ANN002
+    def __exit__(self, *exc) -> None:
         self._httpd.shutdown()
         self._httpd.server_close()
         self._thread.join(timeout=5)

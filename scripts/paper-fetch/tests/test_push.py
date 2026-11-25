@@ -91,6 +91,15 @@ class DryRunTests(PushCase):
             self.assertEqual(server.requests, [("GET", "/lookup")])
         self.assertTrue(any("plan failed for alpha-1" in line and "read-only" in line for line in run.out))
 
+    def test_a_plan_that_returns_nothing_is_reported_and_the_run_goes_on(self) -> None:
+        write_plugin(
+            self.plugins, "sinks", "fake.py",
+            sink_text(self.log, "http://unused", push_body=OK_PUSH, plan_body="return None"),
+        )
+        run = self.push()
+        self.assertEqual(run.code, 0, run.err)
+        self.assertEqual(sum(line.startswith("! plan failed for") for line in run.out), 2)
+
     def test_a_dry_run_takes_no_lock(self) -> None:
         write_plugin(self.plugins, "sinks", "fake.py", sink_text(self.log, "http://unused", push_body=OK_PUSH))
         with Ledger.locked(self.layout.ledger, make_stamp(), {}):
@@ -145,15 +154,33 @@ class ApplyTests(PushCase):
         self.assertEqual(run.code, 0, run.err)
         self.assertIn("= skip    alpha-1 (converted)", run.out)
 
-    def test_a_sink_that_writes_in_the_paper_folder_is_recorded_as_failed(self) -> None:
+    def test_a_sink_that_wrote_remotely_and_also_wrote_in_the_paper_folder_is_pushed_with_a_warning(self) -> None:
+        # The remote write happened. Recording `failed` would make the next run write it again.
         body = f'(folder / "fulltext.md").write_text("injected")\nreturn {{"item": "x"}}'
         write_plugin(self.plugins, "sinks", "fake.py", sink_text(self.log, "http://unused", push_body=body))
         run = self.push("--apply", "--only", "alpha-1")
-        self.assertEqual(self.stage_states(PUSH), {"alpha-1": "failed"})
-        self.assertTrue(any("wrote in the paper folder: fulltext.md" in line for line in run.out))
+        self.assertEqual(self.stage_states(PUSH), {"alpha-1": "pushed"})
+        row = latest(read_rows(self.layout.ledger))[("alpha-1", PUSH)]
+        self.assertIn("WARNING", row.detail)
+        self.assertIn("wrote in the paper folder: fulltext.md", row.detail)
+        self.assertTrue(any(line.startswith("! warning  alpha-1") for line in run.out))
 
-    def test_a_sink_that_returns_something_other_than_a_dict_of_strings_fails(self) -> None:
-        write_plugin(self.plugins, "sinks", "fake.py", sink_text(self.log, "http://unused", push_body='return {"n": 5}'))
+    def test_a_sink_that_rewrites_a_file_in_the_paper_folder_is_caught_by_size_and_time(self) -> None:
+        body = f'(folder / "original.pdf").write_bytes(b"%PDF-1.4 rewritten by the sink")\nreturn {{"item": "x"}}'
+        write_plugin(self.plugins, "sinks", "fake.py", sink_text(self.log, "http://unused", push_body=body))
+        self.push("--apply", "--only", "alpha-1")
+        row = latest(read_rows(self.layout.ledger))[("alpha-1", PUSH)]
+        self.assertIn("wrote in the paper folder: original.pdf", row.detail)
+
+    def test_ids_that_are_not_strings_are_stored_as_text_with_a_warning(self) -> None:
+        write_plugin(self.plugins, "sinks", "fake.py", sink_text(self.log, "http://unused", push_body='return {"version": 5}'))
+        self.push("--apply", "--only", "alpha-1")
+        row = latest(read_rows(self.layout.ledger))[("alpha-1", PUSH)]
+        self.assertEqual((row.state, json.loads(row.external_ids)), ("pushed", {"version": "5"}))
+        self.assertIn("not all strings", row.detail)
+
+    def test_a_sink_that_returns_no_dict_of_ids_fails(self) -> None:
+        write_plugin(self.plugins, "sinks", "fake.py", sink_text(self.log, "http://unused", push_body='return ["x"]'))
         self.push("--apply", "--only", "alpha-1")
         self.assertEqual(self.stage_states(PUSH), {"alpha-1": "failed"})
 
@@ -187,6 +214,7 @@ class CapAndSecretTests(PushCase):
         self.assertEqual(run.code, 3)
         self.assertTrue(any("5" in line and "cap" in line for line in run.out))
         self.assertEqual(self.stage_states(PUSH), {})
+        self.assertTrue(run.out[-1].startswith("stopped early: "))
 
     def test_a_secret_in_a_sink_error_never_reaches_the_ledger_or_the_console(self) -> None:
         body = f'raise RuntimeError("Zotero rejected {SECRET}")'

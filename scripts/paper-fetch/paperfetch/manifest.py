@@ -17,6 +17,11 @@ class ManifestError(ValueError):
     """The manifest cannot be read or holds a row the tool cannot act on."""
 
 
+def select(papers: list[Paper], only: frozenset[str] | None) -> list[Paper]:
+    """The papers `--only` names, or all of them."""
+    return [paper for paper in papers if only is None or paper.key in only]
+
+
 def read_manifest(path: Path) -> list[Paper]:
     if not path.is_file():
         raise ManifestError(f"{path}: no such file")

@@ -50,7 +50,11 @@ class TransportError(Exception):
     """The connection failed: refused, reset, timed out, or cut off mid-body."""
 
 
-class TooLarge(TransportError):
+class PermanentTransportError(TransportError):
+    """A failure that will recur on every try, so the client does not retry it."""
+
+
+class TooLarge(PermanentTransportError):
     """The body is larger than the cap."""
 
 

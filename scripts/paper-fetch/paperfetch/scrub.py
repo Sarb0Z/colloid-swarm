@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET", re.IGNORECASE)
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|AUTH|CREDENTIAL", re.IGNORECASE)
 # A value shorter than this is as likely to be a flag or a number as a secret,
 # and replacing it would corrupt unrelated text.
 MIN_SECRET_LENGTH = 8

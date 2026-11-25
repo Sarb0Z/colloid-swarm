@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from .model import Candidate, TooLarge
+from .model import Candidate
 from .polite import Http, PoliteError, Response, RunStopped
 
 BLOCK_STATUSES = (401, 403, 429)
@@ -99,7 +99,7 @@ def download_first_good(
             response = http.get(candidate.url)
         except RunStopped:
             raise
-        except (PoliteError, TooLarge) as error:
+        except PoliteError as error:
             problems.append(f"{candidate.source} {host}: {error}")
             say(f"  ! {candidate.source}: {error}")
             continue

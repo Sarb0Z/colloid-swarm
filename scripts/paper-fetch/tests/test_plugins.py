@@ -9,7 +9,7 @@ from helpers import write_plugin
 from paperfetch.plugins import PluginError, load_plugins
 
 SOURCE = "NAME = 'fake'\n\ndef locate(paper, http):\n    return []\n"
-CONVERTER = "NAME = 'fake-pdf'\nACCEPTS = ('pdf',)\n\ndef convert(path, run):\n    return 'text'\n"
+CONVERTER = "NAME = 'fake-pdf'\nACCEPTS = ('pdf',)\n\ndef convert(paper, path, run):\n    return 'text'\n"
 SINK = "NAME = 'fake-sink'\n\ndef plan(paper, folder, http):\n    return []\n\ndef push(paper, folder, http):\n    return {}\n"
 
 
@@ -59,7 +59,7 @@ class PluginTests(unittest.TestCase):
         self.assertIn(str(second), str(caught.exception))
 
     def test_converter_accepts_must_come_from_the_known_kinds(self) -> None:
-        write_plugin(self.folder, "converters", "bad.py", "NAME = 'bad'\nACCEPTS = ('docx',)\n\ndef convert(path, run):\n    return ''\n")
+        write_plugin(self.folder, "converters", "bad.py", "NAME = 'bad'\nACCEPTS = ('docx',)\n\ndef convert(paper, path, run):\n    return ''\n")
         with self.assertRaises(PluginError) as caught:
             load_plugins(self.folder)
         self.assertIn("ACCEPTS", str(caught.exception))
@@ -80,6 +80,14 @@ class PluginTests(unittest.TestCase):
         write_plugin(self.folder, "sources", "ok.py", SOURCE + "MAX_REQUESTS_PER_HOST = 0\n")
         with self.assertRaises(PluginError):
             load_plugins(self.folder)
+
+    def test_the_names_the_ledger_reads_as_a_person_or_the_inbox_are_reserved(self) -> None:
+        for name in ("hand", "inbox"):
+            with self.subTest(name=name):
+                write_plugin(self.folder, "sources", "r.py", f"NAME = {name!r}\n\ndef locate(paper, http):\n    return []\n")
+                with self.assertRaises(PluginError) as caught:
+                    load_plugins(self.folder)
+                self.assertIn("reserved", str(caught.exception))
 
     def test_missing_plugin_folder_is_an_error(self) -> None:
         with self.assertRaises(PluginError):

@@ -108,7 +108,12 @@ def main(argv: list[str], fx: Effects, default_plugins: Path) -> int:
 def _open_project(args: argparse.Namespace) -> tuple[list[Paper], Layout]:
     if not args.root.is_dir():
         raise ManifestError(f"{args.root}: no such project folder")
-    return read_manifest(args.manifest), Layout(args.root)
+    # Resolved once, so a relative `--root .` and a symlinked folder compare
+    # equal to the absolute paths the tool builds from it.
+    papers, layout = read_manifest(args.manifest), Layout(args.root.resolve())
+    for paper in papers:
+        layout.inbox_paths(paper)  # a save_as that leaves the project is a manifest error, found now
+    return papers, layout
 
 
 def command_status(args: argparse.Namespace, say: Say) -> int:
@@ -202,7 +207,7 @@ def command_push(args: argparse.Namespace, fx: Effects, say: Say) -> int:
 
 def summarize_push(report: PushReport) -> str:
     parts = [f"{name} {report.counts[name]}" for name in ("pushed", "planned", "failed", "skipped") if report.counts[name]]
-    return "done: " + (", ".join(parts) if parts else "nothing to do")
+    return ("stopped early: " if report.stopped else "done: ") + (", ".join(parts) if parts else "nothing to do")
 
 
 def choose_keys(papers: list[Paper], text: str | None) -> frozenset[str] | None:
@@ -238,4 +243,4 @@ def host_intervals(plugins: list[Plugin]) -> dict[str, int]:
 
 def summarize(report: Report) -> str:
     parts = [f"{name} {report.counts[name]}" for name in SUMMARY_ORDER if report.counts[name]]
-    return "done: " + (", ".join(parts) if parts else "nothing to do")
+    return ("stopped early: " if report.stopped else "done: ") + (", ".join(parts) if parts else "nothing to do")

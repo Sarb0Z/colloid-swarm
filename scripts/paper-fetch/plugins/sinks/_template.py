@@ -6,11 +6,14 @@ Rules:
 - `plan` says what `push` would do. It gets a read-only client: any method but
   GET or HEAD raises, so a dry run cannot write. Return one line per action.
 - `push` does the work with a client that may write. Return a dict of the ids the
-  other system assigned; the ledger stores them. Make `push` safe to repeat: look
-  the paper up before creating it. A write that must not repeat on a network error
-  needs `idempotent=True` on that request and a token the server accepts once.
+  other system assigned (strings); the ledger stores them. Make `push` safe to
+  repeat: look the paper up before creating it. The client does not retry a write
+  after a network error, because the write may have reached the server. Pass
+  `idempotent=True` on a request only when the server accepts it twice, for
+  example when it carries a one-time token.
 - Read the folder, never write in it. The project's quote checker takes exactly
-  one text file per paper folder.
+  one text file per paper folder. When `push` returns, the ledger records `pushed`
+  because the remote write has happened, and warns if the folder changed.
 - Read secrets from the environment. The tool redacts values of variables whose
   names contain KEY, TOKEN or SECRET.
 - Declare `MAX_REQUESTS_PER_HOST` when a run needs more than the push default of

@@ -27,14 +27,18 @@ def convert_saved(paper: Paper, original: Path, kind: str, ctx: Context) -> str:
         ctx.say(f"  . no converter accepts {kind}; {paper.key} stays fetched")
         return "fetched"
     try:
-        text = converter.module.convert(original, ctx.run)
+        text = converter.module.convert(paper, original, ctx.run)
     except NoText as error:
         return _record(paper, ctx, "needs-text", converter.name, str(error) or "no text layer")
     except WrongPaper as error:
         original.unlink(missing_ok=True)  # the copy this run saved; an inbox file is untouched
         return _record(paper, ctx, "failed", converter.name, f"identity: {error}")
     except Exception as error:  # a plugin boundary: reported here, and the run goes on
-        return _record(paper, ctx, "failed", converter.name, f"converter {converter.name} raised {error!r}")
+        # The saved file is good, so the paper stays `fetched` and the next run
+        # converts it again without downloading it again.
+        return _record(
+            paper, ctx, "fetched", converter.name, f"converter {converter.name} raised {error!r}"
+        )
     if not isinstance(text, str) or not text.strip():
         return _record(paper, ctx, "needs-text", converter.name, "the converter returned no text")
     data = text.encode("utf-8")

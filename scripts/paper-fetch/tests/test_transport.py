@@ -7,7 +7,7 @@ import unittest
 
 from helpers import PDF, FakeClock, FakeServer, answer, drop_midway, make_effects, serve
 
-from paperfetch.model import TooLarge, TransportError
+from paperfetch.model import PermanentTransportError, TooLarge, TransportError
 from paperfetch.polite import Http, NetworkError, Policy
 from paperfetch.transport import urllib_transport
 
@@ -59,6 +59,17 @@ class TransportTests(unittest.TestCase):
         with FakeServer({"/br": serve(200, b"zzz", Content_Encoding="br")}) as server:
             with self.assertRaises(TransportError):
                 self.fetch(server, "/br")
+
+    def test_a_non_ascii_address_is_a_permanent_error_not_a_crash(self) -> None:
+        with FakeServer({}) as server, self.assertRaises(PermanentTransportError):
+            urllib_transport("GET", server.base + "/café.pdf", {}, None, SECOND, 1000)
+
+    def test_an_unsupported_encoding_and_a_broken_gzip_are_permanent(self) -> None:
+        routes = {"/br": serve(200, b"zzz", Content_Encoding="br"), "/gz": serve(200, b"not gzip", Content_Encoding="gzip")}
+        with FakeServer(routes) as server:
+            for path in ("/br", "/gz"):
+                with self.subTest(path=path), self.assertRaises(PermanentTransportError):
+                    self.fetch(server, path)
 
     def test_a_refused_connection_is_a_transport_error(self) -> None:
         with self.assertRaises(TransportError):

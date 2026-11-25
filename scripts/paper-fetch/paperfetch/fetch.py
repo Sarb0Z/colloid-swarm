@@ -3,7 +3,9 @@
 For each paper: use a file saved by hand, else the inbox, else ask each source for
 addresses and download the first good one; save it atomically; convert it. Every
 outcome is one ledger row. A run that must stop (a host cap, a long server pause)
-leaves the papers it did not reach exactly as they were.
+leaves the papers it did not reach exactly as they were. Papers never tried come
+before papers that failed earlier, so a known failure cannot use up the request
+budget that an untried paper needs.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from .context import Context
 from .convert import convert_saved
 from .layout import CHECKER_NAMES, write_atomic
 from .ledger import FETCH, Row, latest, read_rows, tool_hashes
+from .manifest import select
 from .model import KINDS, Candidate, Paper
 from .polite import Response, RunStopped
 
@@ -48,19 +51,23 @@ def decide(current: Row | None, force: bool) -> str:
     return FULL if force else SKIP  # converted, needs-text
 
 
+def _untried_first(papers: list[Paper], states: dict[tuple[str, str], Row]) -> list[Paper]:
+    return sorted(papers, key=lambda paper: (paper.key, FETCH) in states)  # stable: False first
+
+
 def run_fetch(papers: list[Paper], ctx: Context, options: FetchOptions) -> Report:
     report = Report()
     rows = read_rows(ctx.layout.ledger)
     states = latest(rows)
-    for paper in papers:
-        if options.only is not None and paper.key not in options.only:
-            continue
+    for paper in _untried_first(select(papers, options.only), states):
         try:
             outcome = _handle(paper, ctx, rows, states.get((paper.key, FETCH)), options, report)
         except RunStopped as error:
             report.stopped = str(error)
             ctx.say(f"! stopped: {error}")
             break
+        except Exception as error:  # one paper's unexpected failure is recorded; the next paper still runs
+            outcome = _fail(paper, ctx, "failed", f"unexpected {type(error).__name__}: {error}")
         if outcome == "over-limit":
             ctx.say(f"  limit of {options.limit} reached; run again for the rest")
             break
@@ -79,11 +86,8 @@ def _handle(
         ctx.say(f"= skip    {paper.key} ({current.state if current else 'pending'})")
         return "skipped"
     if action == CONVERT:
-        return _convert_existing(paper, ctx)
-    if options.limit and report.attempted >= options.limit:
-        return "over-limit"
-    report.attempted += 1
-    return _full_attempt(paper, ctx)
+        return _convert_existing(paper, ctx, options, report)
+    return _full_attempt(paper, ctx, options, report)
 
 
 def find_hand(key: str, ctx: Context, rows: list[Row]) -> Path | None:
@@ -117,10 +121,13 @@ def _record_hand(paper: Paper, path: Path, current: Row | None, ctx: Context) ->
     return "hand"
 
 
-def _full_attempt(paper: Paper, ctx: Context) -> str:
+def _full_attempt(paper: Paper, ctx: Context, options: FetchOptions, report: Report) -> str:
     for inbox in ctx.layout.inbox_paths(paper):
         if inbox.is_file():
             return _from_inbox(paper, inbox, ctx)
+    if options.limit and report.attempted >= options.limit:
+        return "over-limit"
+    report.attempted += 1
     candidates, notes = locate(paper, ctx)
     if not candidates:
         if notes:
@@ -209,10 +216,10 @@ def _save_original(
     return path
 
 
-def _convert_existing(paper: Paper, ctx: Context) -> str:
+def _convert_existing(paper: Paper, ctx: Context, options: FetchOptions, report: Report) -> str:
     originals = ctx.layout.originals(paper.key)
     if not originals:  # the ledger says fetched but the file is gone
-        return _full_attempt(paper, ctx)
+        return _full_attempt(paper, ctx, options, report)
     return convert_saved(paper, originals[0], originals[0].suffix.lstrip("."), ctx)
 
 
@@ -224,19 +231,32 @@ def _fail(paper: Paper, ctx: Context, state: str, detail: str) -> str:
 
 
 def preview(papers: list[Paper], ctx: Context, options: FetchOptions) -> None:
-    """A dry run: ask each source, print what it offers, write nothing."""
-    states = latest(read_rows(ctx.layout.ledger))
-    for paper in papers:
-        if options.only is not None and paper.key not in options.only:
+    """A dry run: ask each source, print what it offers, write nothing.
+
+    It takes no lock, so it can read while a real run writes, and it sends real
+    requests, each paper that reaches a source counting toward `--limit`.
+    """
+    rows = read_rows(ctx.layout.ledger)
+    states = latest(rows)
+    reached = 0
+    for paper in _untried_first(select(papers, options.only), states):
+        hand = find_hand(paper.key, ctx, rows)
+        if hand is not None:
+            ctx.say(f"{paper.key}: {hand.name} was saved by hand and is left as it is")
             continue
         current = states.get((paper.key, FETCH))
         action = decide(current, options.force)
         ctx.say(f"{paper.key}: {current.state if current else 'pending'} -> {action}")
         if action != FULL:
             continue
-        for inbox in ctx.layout.inbox_paths(paper):
-            if inbox.is_file():
-                ctx.say(f"  inbox file present: {inbox}")
+        present = [path for path in ctx.layout.inbox_paths(paper) if path.is_file()]
+        if present:
+            ctx.say(f"  inbox file present: {present[0]}")
+            continue
+        if options.limit and reached >= options.limit:
+            ctx.say(f"  limit of {options.limit} reached; run again for the rest")
+            break
+        reached += 1
         candidates, notes = locate(paper, ctx)
         for candidate in candidates:
             ctx.say(f"  candidate {candidate.kind:<4} {candidate.source}: {candidate.url}")

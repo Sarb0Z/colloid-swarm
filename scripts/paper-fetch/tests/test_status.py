@@ -109,7 +109,7 @@ class EntryPointTests(unittest.TestCase):
         )
         converter = (
             "import sys\nNAME = 'cmd'\nACCEPTS = ('pdf',)\n"
-            "def convert(path, run):\n"
+            "def convert(paper, path, run):\n"
             "    return run([sys.executable, '-c', \"print('text from a real command')\"])\n"
         )
         sink = (

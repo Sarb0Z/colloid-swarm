@@ -117,6 +117,14 @@ class ScrubTests(unittest.TestCase):
         text = "count 1 token short home /Users/someone/long-home-path"
         self.assertEqual(scrub(text, environ), text)
 
+    def test_password_auth_and_credential_variables_are_covered_too(self) -> None:
+        environ = {"DB_PASSWORD": "hunter2hunter2", "SSH_AUTH_SOCK": "/tmp/agent.socket.12345", "AWS_CREDENTIALS": "AKIA0123456789AB"}
+        text = "hunter2hunter2 /tmp/agent.socket.12345 AKIA0123456789AB"
+        self.assertEqual(
+            scrub(text, environ),
+            "[redacted:DB_PASSWORD] [redacted:SSH_AUTH_SOCK] [redacted:AWS_CREDENTIALS]",
+        )
+
     def test_value_of_a_secret_named_variable_is_replaced_everywhere(self) -> None:
         environ = {"SERVICE_SECRET": SECRET}
         self.assertEqual(

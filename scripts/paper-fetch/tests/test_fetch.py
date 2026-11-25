@@ -1,79 +1,11 @@
 from __future__ import annotations
 
-import tempfile
-import textwrap
 import unittest
-from pathlib import Path
 
-from helpers import (
-    PDF,
-    FakeServer,
-    drop_midway,
-    run_cli,
-    serve,
-    tree,
-    write_manifest,
-    write_plugin,
-)
+from fetchcase import CHALLENGE, KEYS, OK_CONVERTER, FetchCase, converter_text, source_text
+from helpers import PDF, FakeServer, drop_midway, serve, write_plugin
 
-from paperfetch.layout import CHECKER_NAMES, Layout
-from paperfetch.ledger import FETCH, Ledger, latest, read_rows
-from paperfetch.transport import urllib_transport
-
-CHALLENGE = b"<html><head><title>Just a moment...</title></head><body>cf-ray</body></html>"
-KEYS = ("alpha-1", "beta-2", "gamma-3")
-
-
-def source_text(name: str, urls: dict[str, str], kind: str = "pdf") -> str:
-    return textwrap.dedent(f"""
-        from paperfetch.model import Candidate
-        NAME = {name!r}
-        URLS = {urls!r}
-        def locate(paper, http):
-            url = URLS.get(paper.key)
-            return [Candidate(url=url, kind={kind!r}, source=NAME)] if url else []
-    """)
-
-
-def converter_text(name: str, body: str, accepts: tuple[str, ...] = ("pdf",)) -> str:
-    indented = textwrap.indent(textwrap.dedent(body).strip(), "    ")
-    return (
-        "from paperfetch.model import NoText, WrongPaper\n"
-        f"NAME = {name!r}\nACCEPTS = {accepts!r}\n"
-        f"def convert(path, run):\n{indented}\n"
-    )
-
-
-OK_CONVERTER = 'return "TEXT of " + path.name + " " + path.read_bytes()[:8].decode()'
-
-
-class FetchCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self._scratch = tempfile.TemporaryDirectory()
-        self.addCleanup(self._scratch.cleanup)
-        self.base = Path(self._scratch.name)
-        self.root = self.base / "project"
-        self.root.mkdir()
-        self.plugins = self.base / "plugins"
-        self.plugins.mkdir()
-        self.layout = Layout(self.root)
-        self.manifest = write_manifest(self.base, [{"key": key, "doi": f"10.1/{key}"} for key in KEYS])
-
-    def fetch(self, *extra: str, manifest: Path | None = None, run=None):
-        argv = [
-            "fetch", "--manifest", str(manifest or self.manifest), "--root", str(self.root),
-            "--plugins", str(self.plugins), "--delay-ms", "0", "--jitter-ms", "0", *extra,
-        ]
-        kwargs = {"run": run} if run else {}
-        return run_cli(argv, self.plugins, transport=urllib_transport, **kwargs)
-
-    def states(self) -> dict[str, str]:
-        rows = latest(read_rows(self.layout.ledger))
-        return {key: row.state for (key, stage), row in rows.items() if stage == FETCH}
-
-    def checker_files(self, key: str) -> list[str]:
-        folder = self.layout.paper_dir(key)
-        return [name for name in CHECKER_NAMES if (folder / name).exists()]
+from paperfetch.ledger import FETCH, latest, read_rows
 
 
 class FetchFlowTests(FetchCase):
@@ -90,6 +22,14 @@ class FetchFlowTests(FetchCase):
         self.assertEqual(run.out[-1], "done: converted 1, awaiting-inbox 2")
         awaiting = [line for line in run.out if line.startswith("! awaiting-inbox beta-2")][0]
         self.assertIn("data/raw/papers/beta-2.pdf", awaiting)
+
+    def test_a_converter_receives_the_paper_so_it_can_check_the_identity(self) -> None:
+        body = 'return paper.key + " " + paper.doi'
+        with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
+            write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": server.base + "/a.pdf"}))
+            write_plugin(self.plugins, "converters", "text.py", converter_text("text", body))
+            self.fetch("--only", "alpha-1")
+        self.assertEqual(self.layout.fulltext("alpha-1").read_text(), "alpha-1 10.1/alpha-1")
 
     def test_without_a_converter_the_paper_stays_fetched_and_says_why(self) -> None:
         with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
@@ -176,6 +116,45 @@ class FetchFlowTests(FetchCase):
         self.assertTrue(any("not a Candidate" in line for line in run.out))
 
 
+class UnexpectedFailureTests(FetchCase):
+    def test_one_papers_unexpected_error_is_recorded_and_the_next_paper_still_runs(self) -> None:
+        body = (
+            "from paperfetch.model import Candidate\nNAME = 'odd'\n"
+            "def locate(paper, http):\n"
+            "    if paper.key == 'alpha-1':\n        return 5\n"
+            f"    return [Candidate(url=URL, kind='pdf', source=NAME)]\n"
+        )
+        with FakeServer({"/b.pdf": serve(200, PDF)}) as server:
+            write_plugin(self.plugins, "sources", "odd.py", f"URL = {server.base + '/b.pdf'!r}\n" + body)
+            run = self.fetch("--only", "alpha-1,beta-2")
+        self.assertEqual(run.code, 0, run.err)
+        self.assertEqual(self.states(), {"alpha-1": "failed", "beta-2": "fetched"})
+        detail = latest(read_rows(self.layout.ledger))[("alpha-1", FETCH)].detail
+        self.assertIn("unexpected TypeError", detail)
+
+    def test_a_non_ascii_address_fails_that_paper_and_not_the_run_and_is_not_retried(self) -> None:
+        with FakeServer({"/b.pdf": serve(200, PDF)}) as server:
+            urls = {"alpha-1": f"{server.base}/café.pdf", "beta-2": server.base + "/b.pdf"}
+            write_plugin(self.plugins, "sources", "one.py", source_text("one", urls))
+            run = self.fetch("--only", "alpha-1,beta-2")
+            self.assertEqual(server.requests, [("GET", "/b.pdf")])
+        self.assertEqual(run.code, 0, run.err)
+        self.assertEqual(self.states(), {"alpha-1": "failed", "beta-2": "fetched"})
+
+    def test_untried_papers_come_before_papers_that_failed_before(self) -> None:
+        routes = {f"/{key}.pdf": serve(200, PDF) for key in KEYS}
+        with FakeServer(routes) as server:
+            urls = {key: f"{server.base}/{key}.pdf" for key in KEYS}
+            write_plugin(self.plugins, "sources", "one.py", source_text("one", {"beta-2": urls["beta-2"]}))
+            self.fetch("--only", "alpha-1")  # alpha-1 is first in the manifest, is tried and finds nothing
+            self.assertEqual(self.states(), {"alpha-1": "awaiting-inbox"})
+            write_plugin(self.plugins, "sources", "one.py", source_text("one", urls))
+            self.fetch("--limit", "1")
+        # Manifest order would give the one slot to alpha-1; an untried paper goes first.
+        self.assertEqual(self.states()["beta-2"], "fetched")
+        self.assertEqual(self.states()["alpha-1"], "awaiting-inbox")
+
+
 class ConverterOutcomeTests(FetchCase):
     def run_with(self, body: str) -> None:
         with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
@@ -195,15 +174,25 @@ class ConverterOutcomeTests(FetchCase):
         row = latest(read_rows(self.layout.ledger))[("alpha-1", FETCH)]
         self.assertIn("identity: the DOI is not in the text", row.detail)
 
-    def test_a_converter_that_crashes_is_reported_and_the_file_stays(self) -> None:
-        self.run_with('raise ValueError("bad pdf")')
-        self.assertEqual(self.states(), {"alpha-1": "failed"})
-        self.assertTrue(self.layout.original("alpha-1", "pdf").exists())
-
     def test_empty_text_is_needs_text_not_a_blank_fulltext(self) -> None:
         self.run_with('return "   \\n"')
         self.assertEqual(self.states(), {"alpha-1": "needs-text"})
         self.assertFalse(self.layout.fulltext("alpha-1").exists())
+
+    def test_a_converter_that_crashes_leaves_the_paper_fetched_so_the_next_run_does_not_download_again(self) -> None:
+        with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
+            write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": server.base + "/a.pdf"}))
+            write_plugin(self.plugins, "converters", "c.py", converter_text("conv", 'raise ValueError("pdftotext missing")'))
+            self.fetch("--only", "alpha-1")
+            self.assertEqual(self.states(), {"alpha-1": "fetched"})
+            self.assertTrue(self.layout.original("alpha-1", "pdf").exists())
+            requests = len(server.requests)
+            write_plugin(self.plugins, "converters", "c.py", converter_text("conv", OK_CONVERTER))
+            self.fetch("--only", "alpha-1")
+            self.assertEqual(len(server.requests), requests)
+        self.assertEqual(self.states(), {"alpha-1": "converted"})
+        crash = [row for row in read_rows(self.layout.ledger) if "pdftotext missing" in row.detail]
+        self.assertEqual(len(crash), 1)
 
 
 class TransitionTests(FetchCase):
@@ -240,157 +229,16 @@ class TransitionTests(FetchCase):
             self.fetch("--only", "alpha-1", "--force")
             self.assertEqual(len(server.requests), 2)
 
-
-class HandSuppliedTests(FetchCase):
-    def hand_save(self, key: str, name: str, text: str) -> Path:
-        path = self.layout.paper_dir(key) / name
-        path.parent.mkdir(parents=True)
-        path.write_text(text, encoding="utf-8")
-        return path
-
-    def test_a_fulltext_saved_by_hand_is_recorded_and_never_overwritten_even_with_force(self) -> None:
-        hand = self.hand_save("alpha-1", "fulltext.md", "Curated by a person. 14 events.")
+    def test_a_forced_attempt_that_fails_is_recorded_as_failed(self) -> None:
         with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
             write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": server.base + "/a.pdf"}))
             write_plugin(self.plugins, "converters", "text.py", converter_text("text", OK_CONVERTER))
             self.fetch("--only", "alpha-1")
-            self.fetch("--only", "alpha-1", "--force")
-            self.assertEqual(server.requests, [])
-        self.assertEqual(hand.read_text(), "Curated by a person. 14 events.")
-        row = latest(read_rows(self.layout.ledger))[("alpha-1", FETCH)]
-        self.assertEqual((row.state, row.source), ("converted", "hand"))
-
-    def test_another_checker_file_saved_by_hand_blocks_the_tool_from_adding_a_second(self) -> None:
-        self.hand_save("alpha-1", "page.html", "<html>the paper</html>")
-        with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
+        with FakeServer({"/a.pdf": serve(403, b"no")}) as server:
             write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": server.base + "/a.pdf"}))
-            write_plugin(self.plugins, "converters", "text.py", converter_text("text", OK_CONVERTER))
             self.fetch("--only", "alpha-1", "--force")
-        self.assertEqual(self.checker_files("alpha-1"), ["page.html"])
-
-    def test_a_tool_written_file_that_a_person_then_edits_becomes_theirs(self) -> None:
-        with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
-            write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": server.base + "/a.pdf"}))
-            write_plugin(self.plugins, "converters", "text.py", converter_text("text", OK_CONVERTER))
-            self.fetch("--only", "alpha-1")
-            self.layout.fulltext("alpha-1").write_text("Corrected by hand.", encoding="utf-8")
-            self.fetch("--only", "alpha-1", "--force")
-        self.assertEqual(self.layout.fulltext("alpha-1").read_text(), "Corrected by hand.")
-
-
-class InboxTests(FetchCase):
-    def test_a_pdf_in_the_inbox_is_used_without_any_source_request(self) -> None:
-        inbox = self.layout.inbox("alpha-1")
-        inbox.parent.mkdir(parents=True)
-        inbox.write_bytes(PDF)
-        write_plugin(self.plugins, "converters", "text.py", converter_text("text", OK_CONVERTER))
-        run = self.fetch("--only", "alpha-1")
-        self.assertEqual(run.code, 0, run.err)
-        self.assertEqual(self.states(), {"alpha-1": "converted"})
-        row = [r for r in read_rows(self.layout.ledger) if r.state == "fetched"][0]
-        self.assertEqual(row.source, "inbox")
-        self.assertEqual(inbox.read_bytes(), PDF)  # the inbox file is only read
-
-    def test_the_manifests_save_as_path_is_an_inbox_and_text_there_becomes_fulltext(self) -> None:
-        manifest = write_manifest(
-            self.base, [{"key": "alpha-1", "doi": "10.1/a", "save_as": "data/raw/papers/alpha-1.md"}]
-        )
-        saved = self.root / "data/raw/papers/alpha-1.md"
-        saved.parent.mkdir(parents=True)
-        saved.write_text("Table 3. Events 14 of 100.", encoding="utf-8")
-        run = self.fetch(manifest=manifest)
-        self.assertEqual(run.code, 0, run.err)
-        self.assertEqual(self.layout.fulltext("alpha-1").read_text(), "Table 3. Events 14 of 100.")
-        row = latest(read_rows(self.layout.ledger))[("alpha-1", FETCH)]
-        self.assertEqual((row.state, row.source), ("converted", "inbox"))
-        self.assertEqual(self.checker_files("alpha-1"), ["fulltext.md"])
-
-    def test_a_save_as_path_that_leaves_the_project_is_a_usage_error(self) -> None:
-        manifest = write_manifest(self.base, [{"key": "alpha-1", "doi": "10.1/a", "save_as": "../../etc/passwd"}])
-        run = self.fetch(manifest=manifest)
-        self.assertEqual(run.code, 2)
-        self.assertIn("leaves the project", run.err[0])
-
-    def test_an_inbox_file_that_is_not_a_pdf_is_left_in_place_and_named(self) -> None:
-        inbox = self.layout.inbox("alpha-1")
-        inbox.parent.mkdir(parents=True)
-        inbox.write_text("this is a web page, not a PDF " * 100)
-        run = self.fetch("--only", "alpha-1")
-        self.assertEqual(self.states(), {"alpha-1": "failed"})
-        self.assertTrue(inbox.exists())
-        self.assertTrue(any(str(inbox) in line for line in run.out))
-
-    def test_with_no_source_and_no_inbox_the_paper_awaits_the_inbox_file(self) -> None:
-        run = self.fetch("--only", "alpha-1")
-        self.assertEqual(self.states(), {"alpha-1": "awaiting-inbox"})
-        self.assertTrue(any("data/raw/papers/alpha-1.pdf" in line for line in run.out))
-
-
-class DryRunTests(FetchCase):
-    def test_a_dry_run_prints_what_the_sources_offer_and_writes_nothing(self) -> None:
-        with FakeServer({"/a.pdf": serve(200, PDF)}) as server:
-            write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": server.base + "/a.pdf"}))
-            before = tree(self.root)
-            run = self.fetch("--dry-run")
-            self.assertEqual(server.requests, [])  # the source returned addresses; nothing was downloaded
-        self.assertEqual(tree(self.root), before)
-        self.assertTrue(any(line.startswith("  candidate pdf") and "/a.pdf" in line for line in run.out))
-        self.assertEqual(run.code, 0)
-
-    def test_a_dry_run_cannot_write_through_its_client(self) -> None:
-        body = textwrap.dedent("""
-            NAME = 'writer'
-            def locate(paper, http):
-                http.request('POST', 'http://127.0.0.1:9/x', body=b'{}')
-                return []
-        """)
-        write_plugin(self.plugins, "sources", "w.py", body)
-        run = self.fetch("--dry-run", "--only", "alpha-1")
-        self.assertTrue(any("read-only" in line for line in run.out))
-
-
-class RunLimitTests(FetchCase):
-    def test_the_host_cap_stops_the_run_and_leaves_later_papers_untouched(self) -> None:
-        keys = [f"p-{n:02d}" for n in range(30)]
-        manifest = write_manifest(self.base, [{"key": key, "doi": f"10.1/{key}"} for key in keys])
-        routes = {f"/{key}.pdf": serve(200, PDF) for key in keys}
-        with FakeServer(routes) as server:
-            urls = {key: f"{server.base}/{key}.pdf" for key in keys}
-            write_plugin(self.plugins, "sources", "one.py", source_text("one", urls))
-            run = self.fetch(manifest=manifest)
-            self.assertEqual(len(server.requests), 25)
-        self.assertEqual(run.code, 3)
-        self.assertTrue(any("25" in line and "cap" in line for line in run.out))
-        states = self.states()
-        self.assertEqual(len(states), 25)
-        self.assertNotIn("p-25", states)
-        self.assertEqual(run.out[-2:][0].startswith("! stopped"), True)
-
-    def test_limit_stops_after_that_many_papers_reach_a_source(self) -> None:
-        routes = {f"/{key}.pdf": serve(200, PDF) for key in KEYS}
-        with FakeServer(routes) as server:
-            urls = {key: f"{server.base}/{key}.pdf" for key in KEYS}
-            write_plugin(self.plugins, "sources", "one.py", source_text("one", urls))
-            run = self.fetch("--limit", "2")
-        self.assertEqual(sorted(self.states()), ["alpha-1", "beta-2"])
-        self.assertTrue(any("limit of 2 reached" in line for line in run.out))
-
-    def test_a_second_run_is_refused_while_the_first_holds_the_ledger(self) -> None:
-        with Ledger.locked(self.layout.ledger, lambda: "t", {}):
-            run = self.fetch()
-        self.assertEqual(run.code, 4)
-        self.assertIn("papers_ledger.csv", run.err[0])
-
-
-class SecretTests(FetchCase):
-    def test_a_credential_in_a_candidate_address_never_reaches_output_or_the_ledger(self) -> None:
-        with FakeServer({"/a.pdf": serve(404, b"gone")}) as server:
-            url = f"{server.base}/a.pdf?api_key=SUPERSECRET123&page=2"
-            write_plugin(self.plugins, "sources", "one.py", source_text("one", {"alpha-1": url}))
-            run = self.fetch("--only", "alpha-1")
-        everything = "\n".join(run.out + run.err) + self.layout.ledger.read_text()
-        self.assertNotIn("SUPERSECRET123", everything)
-        self.assertIn("page=2", everything)
+        self.assertEqual(self.states(), {"alpha-1": "blocked"})
+        self.assertTrue(self.layout.fulltext("alpha-1").exists())  # a failed redo removes nothing it did not replace
 
 
 if __name__ == "__main__":

@@ -25,10 +25,12 @@ HERE = Path(__file__).resolve().parent
 # `python3 -I` puts neither this folder nor the working directory on the path, so
 # the package folder is named here by the file's own location.
 sys.path.insert(0, str(HERE))
+# Loading a plugin must not write a `__pycache__` folder into the plugin folder.
+sys.dont_write_bytecode = True
 
-from paperfetch.cli import main  # noqa: E402
-from paperfetch.effects import Effects  # noqa: E402
-from paperfetch.transport import urllib_transport  # noqa: E402
+from paperfetch.cli import main
+from paperfetch.effects import Effects
+from paperfetch.transport import urllib_transport
 
 
 COMMAND_TIMEOUT_S = 120

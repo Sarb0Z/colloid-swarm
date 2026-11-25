@@ -16,11 +16,11 @@ from email.message import Message
 from typing import IO
 from urllib.parse import urlsplit
 
-from .model import RawResponse, TooLarge, TransportError
+from .model import PermanentTransportError, RawResponse, TooLarge, TransportError
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
@@ -36,17 +36,23 @@ def urllib_transport(
     max_bytes: int,
 ) -> RawResponse:
     if urlsplit(url).scheme not in ("http", "https"):
-        raise TransportError(f"{url}: only http and https addresses are allowed")
-    request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
+        raise PermanentTransportError(f"{url}: only http and https addresses are allowed")
     has_body = method != "HEAD"
     try:
+        request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
         try:
             with _OPENER.open(request, timeout=timeout) as response:
                 return _read(response.status, response.headers, response, max_bytes, has_body)
         except urllib.error.HTTPError as error:
             with error:  # an HTTP error status is still an answer
                 return _read(error.code, error.headers, error, max_bytes, has_body)
-    except (urllib.error.URLError, http.client.HTTPException, OSError, zlib.error) as error:
+    except TransportError:
+        raise
+    except (ValueError, http.client.InvalidURL, zlib.error) as error:
+        # A malformed or non-ASCII address and an undecodable body fail the same
+        # way on every try.
+        raise PermanentTransportError(str(error)) from error
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
         raise TransportError(str(error)) from error
 
 
@@ -62,7 +68,7 @@ def _read(
     if encoding == "gzip":
         data = _gunzip(data, max_bytes)
     elif encoding not in ("", "identity"):
-        raise TransportError(f"content encoding {encoding!r} is not supported")
+        raise PermanentTransportError(f"content encoding {encoding!r} is not supported")
     return RawResponse(status, lowered, data)
 
 

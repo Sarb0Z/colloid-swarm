@@ -1,10 +1,11 @@
 """The polite HTTP client every plugin shares.
 
-A plugin never opens a connection. It asks this client, which paces requests to
-each host, counts them against a per-host cap, honours `Retry-After` and
-`Backoff`, follows redirects one hop at a time and prints every address it
-reads. A run that must stop raises `RunStopped`; the runner turns that into exit
-code 3.
+A plugin should make every request through this client. The client paces
+requests to each host, counts them against a per-host cap, honours `Retry-After`
+and `Backoff`, follows redirects one hop at a time and prints every address it
+reads. The tool cannot stop a plugin that opens its own connection: these rules
+are the plugin's obligation. A run that must stop raises `RunStopped`; the runner
+turns that into exit code 3.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
 from .effects import Effects
-from .model import RawResponse, TooLarge, TransportError
+from .model import PermanentTransportError, RawResponse, TransportError
 
 SAFE_METHODS = ("GET", "HEAD")
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
@@ -139,8 +140,8 @@ class Http:
                 raw = self._fx.transport(
                     method, url, headers, body, self._policy.timeout_s, self._policy.max_bytes
                 )
-            except TooLarge:
-                raise
+            except PermanentTransportError as error:
+                raise NetworkError(f"{method} {url}: {error}") from error
             except TransportError as error:
                 if retry_errors and attempt < self._policy.retries:
                     self._fx.sleep(self._backoff(host, attempt, None))
@@ -162,17 +163,21 @@ class Http:
 
     def _admit(self, url: str) -> str:
         """Check the address, then wait until this host may be asked again."""
-        parts = urlsplit(url)
-        if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname:
+        try:
+            parts = urlsplit(url)
+            host = (parts.hostname or "").lower()
+        except ValueError as error:
+            raise RefusedAddress(f"{url}: not a valid address ({error})") from error
+        if parts.scheme not in ALLOWED_SCHEMES or not host:
             raise RefusedAddress(f"{url}: only http and https addresses are allowed")
-        host = parts.hostname.lower()
         cap = self._policy.max_per_host
         if self._counts[host] >= cap:
             raise HostCapReached(
                 f"{host}: {cap} requests made this run, the per-host cap; rerun to continue"
             )
-        ready = max(self._next_ok.get(host, 0.0), self._paused_until.get(host, 0.0))
         now = self._fx.clock()
+        self._check_pause(host, self._paused_until.get(host, 0.0) - now)
+        ready = max(self._next_ok.get(host, 0.0), self._paused_until.get(host, 0.0))
         if ready > now:
             self._fx.sleep(ready - now)
         self._counts[host] += 1
@@ -182,23 +187,25 @@ class Http:
         return host
 
     def _note_pause(self, host: str, raw: RawResponse) -> None:
+        """Remember a `Backoff` header. The response still reaches its caller:
+        the pause governs the next request, and `_admit` stops the run if it is
+        longer than this tool waits."""
         seconds = _seconds(raw.headers.get("backoff"))
         if seconds:
-            self._check_wait(host, seconds)
             self._paused_until[host] = self._fx.clock() + seconds
 
     def _backoff(self, host: str, attempt: int, retry_after: str | None) -> float:
         seconds = _seconds(retry_after)
         if seconds is not None:
-            self._check_wait(host, seconds)
+            self._check_pause(host, seconds)
             return float(seconds)
         base = self._policy.backoff_base_s
         return min(self._policy.max_wait_s, base * 2**attempt + self._fx.rng() * base)
 
-    def _check_wait(self, host: str, seconds: int) -> None:
+    def _check_pause(self, host: str, seconds: float) -> None:
         if seconds > self._policy.max_wait_s:
             raise HostPaused(
-                f"{host}: asked for a {seconds} s pause, longer than the "
+                f"{host}: asked for a {seconds:.0f} s pause, longer than the "
                 f"{self._policy.max_wait_s:.0f} s this tool waits; rerun later"
             )
 

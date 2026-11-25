@@ -25,6 +25,10 @@ REQUIRED_FUNCTIONS = {
     "sinks": ("plan", "push"),
 }
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+# The ledger's `source` column says who wrote a file. These two mean a person did
+# or the inbox did, and the tool's ownership check reads them, so no plugin may
+# take either name.
+RESERVED_NAMES = ("hand", "inbox")
 
 
 class PluginError(Exception):
@@ -87,6 +91,8 @@ def _check_shape(kind: str, path: Path, module: ModuleType) -> None:
     name = getattr(module, "NAME", None)
     if not isinstance(name, str) or not NAME.fullmatch(name):
         raise PluginError(f"{path}: NAME must be a string matching [a-z0-9][a-z0-9-]*")
+    if name in RESERVED_NAMES:
+        raise PluginError(f"{path}: the name {name!r} is reserved for the ledger; pick another")
     for function in REQUIRED_FUNCTIONS[kind]:
         if not callable(getattr(module, function, None)):
             raise PluginError(f"{path}: a {kind[:-1]} needs a function {function}")

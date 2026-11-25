@@ -4,7 +4,7 @@ import unittest
 
 from helpers import FakeClock, ScriptedTransport, make_http, reply
 
-from paperfetch.model import TransportError
+from paperfetch.model import PermanentTransportError, TransportError
 from paperfetch.polite import (
     DryRunWrite,
     HostCapReached,
@@ -101,6 +101,22 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(HostPaused) as caught:
             http.get(A)
         self.assertIn("7200", str(caught.exception))
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_a_long_backoff_on_a_good_response_still_delivers_it_and_stops_the_next_request(self) -> None:
+        http, transport, _ = self.http([reply(200, b"stored", backoff="7200"), reply(200)])
+        response = http.get(A)  # a response already received reaches its caller
+        self.assertEqual((response.status, response.body), (200, b"stored"))
+        with self.assertRaises(HostPaused) as caught:
+            http.get(A)
+        self.assertIn("7200", str(caught.exception))
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_a_failure_that_will_recur_is_not_retried(self) -> None:
+        http, transport, _ = self.http([PermanentTransportError("content encoding 'br' is not supported"), reply(200)])
+        with self.assertRaises(NetworkError) as caught:
+            http.get(A)
+        self.assertIn("'br'", str(caught.exception))
         self.assertEqual(len(transport.calls), 1)
 
     def test_a_503_is_retried_with_growing_waits_and_then_returned(self) -> None:
@@ -206,7 +222,7 @@ class RefusalTests(unittest.TestCase):
     def test_only_http_and_https_addresses_are_allowed(self) -> None:
         transport = ScriptedTransport(self.clock, [])
         http, _ = make_http(self.clock, transport)
-        for address in ("file:///etc/hosts", "ftp://x.example.org/a", "gopher://x/a", "no-scheme"):
+        for address in ("file:///etc/hosts", "ftp://x.example.org/a", "gopher://x/a", "no-scheme", "http://[bad"):
             with self.subTest(address=address), self.assertRaises(RefusedAddress):
                 http.get(address)
         self.assertEqual(transport.calls, [])
