@@ -60,6 +60,7 @@ MANIFEST = {
     # skills (SKILL.md only)
     "scalability-audit":                  ".agents/skills/scalability-audit/SKILL.md",
     "search-and-cite":                    ".agents/skills/search-and-cite/SKILL.md",
+    "research-claims":                    ".agents/skills/research-claims/SKILL.md",
     "security-audit":                     ".agents/skills/security-audit/SKILL.md",
     "thermo-nuclear-code-quality-review": ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
     "seo-geo-growth-audit":               ".agents/skills/seo-geo-growth-audit/SKILL.md",

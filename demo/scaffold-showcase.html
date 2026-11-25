@@ -285,7 +285,7 @@
     <div class="eyebrow">Portable · engine-agnostic · production-bound</div>
     <h1>An operating system for <em>coding agents</em>.</h1>
     <p class="lede">
-      A hostile-review workflow, thirty enforcement hooks, twenty-one skills, and an evidence trail —
+      A hostile-review workflow, thirty enforcement hooks, twenty-two skills, and an evidence trail —
       wrapped around every model turn, enforced on Claude Code, Codex and Kimi, and read as instructions on OpenCode and GitHub Copilot.
     </p>
 
@@ -293,7 +293,7 @@
       <a href="#contract"><span class="m-name">operating contract</span><span class="m-desc">[Contract menu line — one line]</span><span class="m-n">AGENTS.md</span></a>
       <a href="#hooks"><span class="m-name">enforcement hooks</span><span class="m-desc">15 gates · 7 context injectors · 4 evidence trails · 4 checkpoints, on the session lifecycle.</span><span class="m-n">30 policies</span></a>
       <a href="#model"><span class="m-name">hooks × model</span><span class="m-desc">Hooks stay dumb regex; judgment routes to the model. Six deliberate designs.</span><span class="m-n">6 designs</span></a>
-      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">21 skills</span></a>
+      <a href="#skills"><span class="m-name">skills</span><span class="m-desc">Parallel workloops, citations, market research, security and performance gates, code quality, SEO, web and native UI.</span><span class="m-n">22 skills</span></a>
       <a href="#prompts"><span class="m-name">prompts &amp; cells</span><span class="m-desc">Cell contracts, wrap checklists, the hostile-review dispatch and the axes it works.</span><span class="m-n">27 files</span></a>
       <a href="#tracking"><span class="m-name">tracking</span><span class="m-desc">No tombstone comments — deferred work and standing tradeoffs get typed ledgers.</span><span class="m-n">3 ledgers</span></a>
       <a href="#config"><span class="m-name">config</span><span class="m-desc">Every hook, threshold, and behavior is a switch: committed defaults, a tracked policy, one ignored override.</span><span class="m-n">config.json</span></a>
@@ -369,7 +369,7 @@
           <div class="kicker">The whole contract</div>
           <h3>AGENTS.md</h3>
           <p>The full operating contract; each panel above quotes it word for word, shortened. <code>CLAUDE.md</code> symlinks to it, so one file governs every engine. What only some sessions need is not here: it loads on demand, below.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 137 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 138 lines</span></summary><div class="srcpath">AGENTS.md</div><pre><code># Agent Instructions
 
 Every change kept in a repository ships to production. It carries no placeholder types, mock fallbacks, suppression comments, MVP shortcuts, or temporary hacks, and it meets that bar on the first pass rather than after review. Work that is neither kept nor shipped — a probe, a one-off analysis — is legitimately disposable.
 
@@ -402,7 +402,8 @@ Stakes follow the effect of the change — the paths it touches and what it does
 | Build | Feature work | Below |
 | Fix | Debugging, incidents, a UI defect from a screenshot | Below |
 | Write | Documents, reports, assets | `.agents/playbooks/workflow-write.md` |
-| Spec | Specifications, plans, research, meeting intake | `.agents/playbooks/workflow-spec.md` |
+| Research | Analyses, experiments, replications and literature syntheses; Critical when the result is meant for publication or for a clinical, financial or safety decision | `.agents/playbooks/workflow-research.md` |
+| Spec | Specifications, plans, prior-art and market research, meeting intake | `.agents/playbooks/workflow-spec.md` |
 | Scaffold | Scaffold edits and transplants | `.agents/playbooks/workflow-scaffold.md` |
 | Verify | QA of a deployed or built artifact | `.agents/playbooks/workflow-verify.md` |
 | Merge | Triage, test-merge, and review of a pull request | `.agents/playbooks/workflow-merge.md` |
@@ -9317,6 +9318,75 @@ an explicit coverage gap; the rule against stating the unverified does not
 depend on the ledger.
 </code></pre></details>
             </article>
+        <article class="card"><div class="kicker">Research</div><h3>research-claims</h3><p>Check a report's evidence chain by command: every quote must be in the saved text of its source, and every decimal or percentage in the prose must come from code.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 66 lines</span></summary><div class="srcpath">.agents/skills/research-claims/SKILL.md</div><pre><code>---
+name: research-claims
+description: Check a research report&#x27;s evidence chain by command. Every outside statement or number is a row of a claims ledger whose quote must be in the saved text of its source, and every decimal or percentage in the report&#x27;s prose must come from code, not from typing. Use when a report, manuscript or analysis states numbers or cites papers and accuracy matters, before calling any of it verified, and when reviewing one.
+---
+
+# Research claims
+
+Two commands, both standard library Python, run under `python3 -I` because saved
+sources are untrusted downloads. They check that a statement is in its source
+and that a number was computed. They do not judge that a quote supports the
+claim it sits under, or that a computed number is the right one; a reviewer
+does, against `review-axes-results.md`.
+
+```sh
+python3 -I .agents/skills/research-claims/scripts/claims.py check claims.csv --sources data/external
+python3 -I .agents/skills/research-claims/scripts/claims.py prose report/manuscript.Rmd
+```
+
+## The ledger
+
+One row per outside statement or number the report takes from a source:
+
+```
+key,source,values,quote
+tacsi_major_bleeding,abstract-tacsi-2025,2.50|1.52|4.11,&quot;(hazard ratio, 2.50; 95% CI, 1.52 to 4.11)&quot;
+```
+
+- `source` names a file under `--sources`, or a folder there that holds exactly
+  one of `fulltext.md`, `fulltext.xml`, `article.xml`, `page.html`,
+  `record.json`, `study.json`. A folder with two of them is a problem: keep one.
+- `quote` is one unbroken stretch of the source&#x27;s text, copied; an ellipsis
+  joining two pieces never matches. Spaces, dashes and curly quotes compare as
+  plain ones; everything else must match, case included.
+- `values` are the numerals the report prints from that quote, separated by `|`.
+  Each must be in the quote as a whole number: `1.0` is not in `11.0`, `5` and
+  `000` are not in `5,000`, and `5` is not in `5%`; write `5,000` or `5%` when
+  that is the claim. A hyphen next to
+  a number counts as a boundary (it separates ranges), so write a negative
+  value with its sign: `1.0` also matches the `1.0` of `-1.0`.
+- A PDF is not a source. Convert it to text and save the text beside it.
+  Registry records and other formats the tool cannot flatten into the quoted
+  sentences: render them to a text file in the project and name that.
+
+## Reading the output
+
+`check` prints each problem with its line and key, then a count, and exits 1.
+Fix the claim or the saved source, never the quote to fit the source: a quote
+that is not in its source means the report states something the source does not
+say. A source that cannot be read is a gap the report lists, not a pass.
+
+`prose` reports each decimal number, percentage and thousands-separated number
+left in the prose outside code, inline code, math, links and citation keys. Make
+the sentence use inline code that reads a results file (`` `r round(rr, 2)` `` in
+R Markdown, `` `{python} rr` `` in Quarto). A number that must be typed, such as
+one quoted from a paper, takes `&lt;!-- literal: 0.85 is the published value --&gt;`
+on its line, which allows the numbers the comment names and no others there; a
+comment with no reason or no number is a finding. Integers and the percentage of
+an interval&#x27;s level (&quot;95% CI&quot;) are not read, and `$5.50` is a price, not math.
+Counts such as &quot;12 trials&quot; stay for the reviewer to trace to a results file.
+
+## Where it sits
+
+The Research workflow&#x27;s confirm and write steps name both commands. Run `check`
+after saving a source and before writing the sentence that uses it, and `prose`
+on every draft. The ledger rows are the unit a reviewer samples: a reviewer opens
+the saved source, finds the quote, and judges whether it supports the claim.
+</code></pre></details>
+            </article>
         <article class="card"><div class="kicker">Assurance</div><h3>security-audit</h3><p>Adversarial full-stack review: authn and authz, rate-limiting, input validation, session handling, RBAC.</p>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 282 lines</span></summary><div class="srcpath">.agents/skills/security-audit/SKILL.md</div><pre><code>---
 name: security-audit
@@ -10305,8 +10375,8 @@ worktree, branch or install:
 
 ```sh
 .agents/workloop.py add-cell export trace --role research --model haiku
-# dispatch the printed prompt; when it comes back:
-.agents/workloop.py returned export trace --result reply
+# dispatch the printed prompt; when it comes back, save its report word for word, then record that file:
+.agents/workloop.py save-reply export trace --to notes/trace.txt &amp;&amp; .agents/workloop.py returned export trace --result notes/trace.txt
 ```
 
 `add-cell &lt;run&gt; &lt;name&gt; --role research|review|qa --model &lt;model&gt;` records the
@@ -12477,7 +12547,7 @@ Source provenance is in [UPSTREAM.json](UPSTREAM.json).
       </div>
       <div class="grid">
         <article class="card"><div class="kicker">Mechanical</div><h3>workloop.py</h3><p>The controller behind the workloop skill: one command line over durable run state. <code>init</code> a run, <code>add-lane</code> for each writer, then <code>claim</code>, <code>submit</code>, <code>review</code>, <code>qa</code>, <code>check</code>, <code>integrate</code> and <code>teardown</code>. QA is recorded against the lane tips it ran on; a lane&#x27;s tip moves only on <code>submit</code>, so a later commit and resubmit makes <code>check</code> report <code>qa:stale</code>. For a one-writer run <code>check</code> runs the composed test; for parallel lanes <code>integrate</code> does.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 148 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 149 lines</span></summary><div class="srcpath">.agents/workloop.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Durable, provider-neutral coordination for bounded parallel agent work.
 
 This file is the command line: the argument parser that routes each command to
@@ -12495,7 +12565,7 @@ import functools
 import re
 import time
 
-from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned
+from workloop_cells import cell_brief, cells_of, cmd_add_cell, cmd_returned, cmd_save_reply
 from workloop_finish import (
     cmd_abandon,
     cmd_check,
@@ -12608,6 +12678,7 @@ def parser() -&gt; argparse.ArgumentParser:
     abandon = sub.add_parser(&quot;abandon&quot;); abandon.add_argument(&quot;run&quot;); abandon.add_argument(&quot;--discard-branches&quot;, action=&quot;store_true&quot;, help=&quot;also delete lane branches whose commits HEAD does not contain&quot;); abandon.add_argument(&quot;--checkout-gone&quot;, action=&quot;store_true&quot;, help=&quot;the run&#x27;s checkout was deleted: reap its containers, name the folders it leaves, and drop the run without git&quot;); abandon.set_defaults(func=cmd_abandon)
     add_cell = sub.add_parser(&quot;add-cell&quot;, help=&quot;record a read-only cell: no worktree, branch or install; prints its dispatch&quot;); add_cell.add_argument(&quot;run&quot;); add_cell.add_argument(&quot;name&quot;); add_cell.add_argument(&quot;--role&quot;, choices=(&quot;research&quot;, &quot;review&quot;, &quot;qa&quot;), required=True); add_cell.add_argument(&quot;--model&quot;, required=True); add_cell.set_defaults(func=cmd_add_cell)
     returned = sub.add_parser(&quot;returned&quot;, help=&quot;a cell came back, or did not&quot;); returned.add_argument(&quot;run&quot;); returned.add_argument(&quot;name&quot;); outcome = returned.add_mutually_exclusive_group(required=True); outcome.add_argument(&quot;--result&quot;, help=&quot;where its result went: a file the lead wrote, or the word reply&quot;); outcome.add_argument(&quot;--failed&quot;, help=&quot;why it died or was stopped without returning&quot;); returned.set_defaults(func=cmd_returned)
+    save_reply = sub.add_parser(&quot;save-reply&quot;, help=&quot;save a cell&#x27;s final report word for word from its agent&#x27;s transcript, then record the file with returned --result&quot;); save_reply.add_argument(&quot;run&quot;); save_reply.add_argument(&quot;name&quot;); save_reply.add_argument(&quot;--to&quot;, help=&quot;the file to write; a closed run needs it (default: .agents/worktrees/&lt;run&gt;/.workloop/replies/&lt;cell&gt;.txt)&quot;); save_reply.add_argument(&quot;--force&quot;, action=&quot;store_true&quot;, help=&quot;replace a file that holds other content&quot;); save_reply.set_defaults(func=cmd_save_reply)
     brief = sub.add_parser(&quot;brief&quot;); brief.add_argument(&quot;run&quot;); brief.add_argument(&quot;lane&quot;, help=&quot;a lane or a cell&quot;); brief.add_argument(&quot;--role&quot;, choices=(&quot;worker&quot;, &quot;reviewer&quot;, &quot;qa&quot;), help=&quot;a lane&#x27;s brief: worker (default), reviewer or qa; a cell&#x27;s role is set at add-cell&quot;); brief.add_argument(&quot;--again&quot;, action=&quot;store_true&quot;, help=&quot;send a returned or failed cell out again, tracked until it returns&quot;); brief.set_defaults(func=cmd_brief)
     status = sub.add_parser(&quot;status&quot;); status.add_argument(&quot;run&quot;); status.set_defaults(func=cmd_status)
     send = sub.add_parser(&quot;send&quot;); send.add_argument(&quot;run&quot;); send.add_argument(&quot;--from-lane&quot;, required=True); send.add_argument(&quot;--to-lane&quot;, required=True); send.add_argument(&quot;--agent&quot;, required=True); send.add_argument(&quot;--kind&quot;, choices=(&quot;finding&quot;, &quot;blocked&quot;, &quot;evidence-ready&quot;, &quot;status&quot;), required=True); send.add_argument(&quot;--message&quot;, required=True); send.add_argument(&quot;--reference&quot;, default=&quot;&quot;); send.add_argument(&quot;--requires-ack&quot;, action=&quot;store_true&quot;); send.set_defaults(func=cmd_send)
@@ -13109,7 +13180,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 113 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 116 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -13158,6 +13229,8 @@ python3 .agents/test-sources-matcher.py
 python3 .agents/test-guard-destructive.py
 .agents/test-workloop-authority.sh
 python3 .agents/test-wait-gate.py
+python3 .agents/test-save-reply.py
+python3 .agents/skills/research-claims/scripts/test-claims.py
 .agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh
 python3 .agents/test-guard-publish.py
@@ -13183,6 +13256,7 @@ python3 .agents/test-proxy-names.py
 python3 .agents/lint-contract.py
 python3 .agents/lint-suite.py
 python3 .agents/eval/test-cell-time.py
+python3 scripts/paper-fetch/test-papers.py
 .agents/test-export.sh
 .agents/test-export-servers.sh
 .agents/test-stack-packs.sh
