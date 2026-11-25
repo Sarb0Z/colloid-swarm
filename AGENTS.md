@@ -31,7 +31,8 @@ Stakes follow the effect of the change — the paths it touches and what it does
 | Build | Feature work | Below |
 | Fix | Debugging, incidents, a UI defect from a screenshot | Below |
 | Write | Documents, reports, assets | `.agents/playbooks/workflow-write.md` |
-| Spec | Specifications, plans, research, meeting intake | `.agents/playbooks/workflow-spec.md` |
+| Research | Analyses, experiments, replications and literature syntheses; Critical when the result is meant for publication or for a clinical, financial or safety decision | `.agents/playbooks/workflow-research.md` |
+| Spec | Specifications, plans, prior-art and market research, meeting intake | `.agents/playbooks/workflow-spec.md` |
 | Scaffold | Scaffold edits and transplants | `.agents/playbooks/workflow-scaffold.md` |
 | Verify | QA of a deployed or built artifact | `.agents/playbooks/workflow-verify.md` |
 | Merge | Triage, test-merge, and review of a pull request | `.agents/playbooks/workflow-merge.md` |
