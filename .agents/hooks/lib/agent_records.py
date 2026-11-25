@@ -246,7 +246,11 @@ def _handbacks(path: Path) -> list[str]:
             record = json.loads(line)
             for block in _blocks(record) if record.get("type") == "assistant" else []:
                 if block.get("type") == "tool_use" and block.get("name") == "SubagentHandback":
-                    messages.append(need(block.get("input") or {}, "message", f"{path} line {number}'s SubagentHandback call"))
+                    where = f"{path} line {number}'s SubagentHandback call"
+                    message = need(block.get("input") or {}, "message", where)
+                    if not isinstance(message, str):
+                        raise RecordError(f"{where} has a message that is not text")
+                    messages.append(message)
     return messages
 
 

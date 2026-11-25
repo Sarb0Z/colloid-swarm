@@ -80,17 +80,22 @@ with tempfile.TemporaryDirectory() as scratch_name:
     write_agent(store, "a4", [ask, record("assistant", [{"type": "tool_use", "id": "x", "name": "Bash", "input": {}}], "tool_use")])
     # A hand-back call the agent is still writing: the last line has no newline and is cut off.
     write_agent(store, "a6", [ask, handback("cut")[:-9]], finish=False)
+    # A hand-back whose message is not text: Claude Code never writes one, so the format has changed.
+    numeric = {"type": "tool_use", "id": "n", "name": "SubagentHandback", "input": {"message": 5}}
+    write_agent(store, "a8", [ask, handback("good"), record("assistant", [numeric], "tool_use")])
+    # A second config folder: a missing transcript names every folder searched.
+    (home / ".claude-second" / "projects").mkdir(parents=True)
     env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
     env["HOME"] = str(home)
     base = ["--state", str(state)]
 
     created = run(env, *base, "init", "rr", "--objective", "o", "--acceptance", "a", "--repo", str(work))
     check(created.returncode == 0, f"init makes a fan-out run: {created.stderr.strip()}")
-    for name in ("c1", "c2", "c3", "c4", "c5", "c6", "c7"):
+    for name in ("c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"):
         run(env, *base, "add-cell", "rr", name, "--role", "research", "--model", "sonnet")
     data = json.loads(state.read_text())
     cells = data["runs"]["rr"]["cells"]
-    for name, agent in (("c1", "a1"), ("c2", "a2"), ("c3", "a3"), ("c4", "a4"), ("c6", "a6"), ("c7", "gone")):
+    for name, agent in (("c1", "a1"), ("c2", "a2"), ("c3", "a3"), ("c4", "a4"), ("c6", "a6"), ("c7", "gone"), ("c8", "a8")):
         cells[name]["agent_id"] = agent
     state.write_text(json.dumps(data))
     replies = work / ".agents/worktrees/rr/.workloop/replies"
@@ -120,8 +125,12 @@ with tempfile.TemporaryDirectory() as scratch_name:
     check(noid.returncode != 0 and "no agent id" in noid.stderr and not (replies / "c5.txt").exists(),
           f"a cell with no agent id is named and writes nothing: {noid.stderr.strip()}")
     missing = run(env, *base, "save-reply", "rr", "c7")
-    check(missing.returncode != 0 and str(home / ".claude" / "projects") in missing.stderr and not (replies / "c7.txt").exists(),
-          f"an agent with no transcript names the folders searched: {missing.stderr.strip()}")
+    check(missing.returncode != 0 and not (replies / "c7.txt").exists()
+          and all(str(home / name / "projects") in missing.stderr for name in (".claude", ".claude-second")),
+          f"an agent with no transcript names every folder searched: {missing.stderr.strip()}")
+    odd = run(env, *base, "save-reply", "rr", "c8")
+    check(odd.returncode != 0 and "message that is not text" in odd.stderr and "Traceback" not in odd.stderr and not (replies / "c8.txt").exists(),
+          f"a hand-back whose message is not text is a named error, and writes nothing: {odd.stderr.strip()}")
 
     again = run(env, *base, "save-reply", "rr", "c1")
     check(again.returncode == 0 and "unchanged" in again.stdout, f"the same content again is unchanged: {again.stdout.strip()}")
