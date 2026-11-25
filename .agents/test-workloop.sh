@@ -2219,6 +2219,27 @@ out="$("${T[@]}" land sgh 2>&1)" || fail "land refused a lane main already holds
 expect $'^closed\tlanded' "${T[@]}" status sgh
 ok "a lane the source branch already holds lands as merged, with no start recorded, and land moves nothing"
 
+# A held lane is still held to its accepted tip and a clean worktree: one reset
+# to an ancestor main also holds, and one with an uncommitted edit, both refuse.
+sg_held() {  # <run>: a worktree run whose lane main already holds
+  sg_worktree_run "$1" 'test -f src/app.txt'
+  expect "PASS: integrated one" "${T[@]}" integrate "$1"
+  git -C "$sg" merge -q --ff-only "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runs"][sys.argv[2]]["integration"]["head"])' "$sg/.agents/.workloop-state.json" "$1")"
+}
+sg_held sgr
+git -C "$sg/.agents/worktrees/sgr/one" reset -q --hard HEAD~1
+main_before="$(git -C "$sg" rev-parse main)"
+expect "lane 'one' moved after its accepted review" "${T[@]}" land sgr
+[[ "$(git -C "$sg" rev-parse main)" == "$main_before" && "$(sg_live sgr)" == True ]] || fail "a refused land moved main or closed the run"
+"${T[@]}" abandon sgr --discard-branches >/dev/null
+sg_held sgu
+printf 'unsaved\n' >> "$sg/.agents/worktrees/sgu/one/src/app.txt"
+main_before="$(git -C "$sg" rev-parse main)"
+expect "lane 'one' has uncommitted work in its worktree" "${T[@]}" land sgu
+[[ "$(git -C "$sg" rev-parse main)" == "$main_before" && "$(sg_live sgu)" == True ]] || fail "a refused land moved main or closed the run"
+"${T[@]}" abandon sgu --discard-branches >/dev/null
+ok "a held lane reset to an ancestor, or with an uncommitted edit, refuses land and leaves main and the run as they were"
+
 # rows 5, 16: a one-writer run is exactly init --lane, submit, review, qa, land; land verifies at the accepted tip, merges nothing
 "${T[@]}" init sgo --objective x --acceptance y --repo "$sg" --verify 'test -f src/ok.txt' --lane solo --worker implementer --path src >/dev/null
 printf 'solo\n' >> "$sg/src/app.txt"; commit_paths "$sg" solo src/app.txt

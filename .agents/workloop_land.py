@@ -24,7 +24,7 @@ from pathlib import Path
 
 import workloop_git as wg
 import workloop_main as wm
-from workloop_finish import close, compose, run_lock
+from workloop_finish import close, compose, integrable_branches, run_lock
 from workloop_paths import source_branch, source_tip
 from workloop_state import Store, closed_root, fail, now, record, run_of, shared_of, state_path
 
@@ -114,6 +114,10 @@ def land_worktrees(args: argparse.Namespace, state: Path, run: dict, repo: Path,
             if integration["result"] != "pass":
                 print(integration["tail"], file=sys.stderr)
                 fail(f"verify failed over the composed tree on {source}'s tip in {integration['workspace']}; {source} is unchanged and the run stays open")
+        else:
+            # The recorded composition still stands, so compose's own lane checks
+            # did not run: hold every lane to its accepted tip and a clean worktree.
+            integrable_branches(run, sorted(run["lanes"]))
         head, tip = integration["head"], wg.branch_tip(repo, source)
         if not wg.is_ancestor(repo, tip, head):
             fail(f"{source} moved to {tip[:12]} while land ran; rerun land, which composes on the new tip")
