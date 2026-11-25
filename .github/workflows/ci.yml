@@ -169,6 +169,12 @@ jobs:
       - name: Wait gate
         run: python3 .agents/test-wait-gate.py
 
+      - name: Saved cell reports
+        run: python3 .agents/test-save-reply.py
+
+      - name: Research claims ledger
+        run: python3 .agents/skills/research-claims/scripts/test-claims.py
+
       - name: Keychain notice
         run: .agents/test-keychain-notice.sh
 
