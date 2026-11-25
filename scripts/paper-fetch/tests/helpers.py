@@ -68,6 +68,10 @@ def unexpected_transport(method, url, headers, body, timeout, max_bytes) -> RawR
     raise AssertionError(f"unexpected network call: {method} {url}")
 
 
+def unexpected_runner(argv: list[str]) -> str:
+    raise AssertionError(f"unexpected command: {argv}")
+
+
 def make_stamp() -> Callable[[], str]:
     counter = itertools.count(1)
     return lambda: f"2026-11-25T00:00:{next(counter):02d}+00:00"
@@ -79,6 +83,7 @@ def make_effects(
     environ: dict[str, str] | None = None,
     clock: FakeClock | None = None,
     transport=unexpected_transport,
+    run=unexpected_runner,
 ) -> Effects:
     clock = clock or FakeClock()
     return Effects(
@@ -90,6 +95,7 @@ def make_effects(
         sleep=clock.sleep,
         rng=lambda: 0.5,
         transport=transport,
+        run=run,
     )
 
 
@@ -115,11 +121,17 @@ def make_http(
     return Http(fx, policy, said.append), said
 
 
-def run_cli(argv: list[str], plugins: Path, environ: dict[str, str] | None = None) -> Run:
+def run_cli(
+    argv: list[str],
+    plugins: Path,
+    environ: dict[str, str] | None = None,
+    transport=unexpected_transport,
+    run=unexpected_runner,
+) -> Run:
     out: list[str] = []
     err: list[str] = []
-    code = main(argv, make_effects(out, err, environ), plugins)
-    return Run(code, out, err)
+    fx = make_effects(out, err, environ, transport=transport, run=run)
+    return Run(main(argv, fx, plugins), out, err)
 
 
 def write_manifest(folder: Path, rows: list[dict[str, str]]) -> Path:

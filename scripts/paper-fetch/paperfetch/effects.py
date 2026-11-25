@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from .model import Transport
+from .model import Runner, Transport
 
 
 @dataclass(frozen=True)
@@ -18,3 +18,4 @@ class Effects:
     sleep: Callable[[float], None]
     rng: Callable[[], float]  # a float in [0, 1)
     transport: Transport
+    run: Runner

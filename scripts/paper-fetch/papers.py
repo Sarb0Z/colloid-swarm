@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import random
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -30,6 +31,19 @@ from paperfetch.effects import Effects  # noqa: E402
 from paperfetch.transport import urllib_transport  # noqa: E402
 
 
+COMMAND_TIMEOUT_S = 120
+
+
+def run_command(argv: list[str]) -> str:
+    """Run a command for a converter and return its standard output."""
+    done = subprocess.run(
+        argv, capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_S
+    )
+    if done.returncode != 0:
+        raise RuntimeError(f"{argv[0]} exited {done.returncode}: {done.stderr.strip()[:300]}")
+    return done.stdout
+
+
 def real_effects() -> Effects:
     return Effects(
         out=print,
@@ -40,6 +54,7 @@ def real_effects() -> Effects:
         sleep=time.sleep,
         rng=random.random,
         transport=urllib_transport,
+        run=run_command,
     )
 
 

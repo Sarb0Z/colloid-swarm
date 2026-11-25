@@ -13,9 +13,9 @@ from paperfetch.ledger import (
     Ledger,
     LedgerError,
     LedgerLocked,
-    known_hashes,
     latest,
     read_rows,
+    tool_hashes,
 )
 from paperfetch.scrub import scrub
 
@@ -102,12 +102,13 @@ class LedgerTests(unittest.TestCase):
         self.assertIn("[redacted:ZOTERO_API_KEY]", stored)
         self.assertIn("page=2", stored)
 
-    def test_known_hashes_collects_every_hash_for_one_key(self) -> None:
+    def test_tool_hashes_are_the_tools_own_files_for_one_key_and_never_a_hand_file(self) -> None:
         with self.open() as ledger:
             ledger.append(key="a-1", doi="d", stage=FETCH, state="fetched", sha256="h1")
             ledger.append(key="a-1", doi="d", stage=FETCH, state="converted", sha256="h2")
+            ledger.append(key="a-1", doi="d", stage=FETCH, state="converted", source="hand", sha256="h4")
             ledger.append(key="b-1", doi="d", stage=FETCH, state="fetched", sha256="h3")
-        self.assertEqual(known_hashes(read_rows(self.path), "a-1"), {"h1", "h2"})
+        self.assertEqual(tool_hashes(read_rows(self.path), "a-1"), {"h1", "h2"})
 
 
 class ScrubTests(unittest.TestCase):

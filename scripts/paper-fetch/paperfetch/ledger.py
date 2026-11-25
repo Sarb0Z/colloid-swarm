@@ -81,9 +81,13 @@ def latest(rows: list[Row]) -> dict[tuple[str, str], Row]:
     return {(row.key, row.stage): row for row in rows}
 
 
-def known_hashes(rows: list[Row], key: str) -> set[str]:
-    """Every SHA-256 the tool has recorded for one key."""
-    return {row.sha256 for row in rows if row.key == key and row.sha256}
+def tool_hashes(rows: list[Row], key: str) -> set[str]:
+    """The SHA-256 of every file this tool wrote for one key.
+
+    A row from a hand-supplied file records that file's hash too, and it is not
+    the tool's: counting it would let the next run overwrite what a person saved.
+    """
+    return {row.sha256 for row in rows if row.key == key and row.sha256 and row.source != "hand"}
 
 
 def _clean(text: str) -> str:
