@@ -87,3 +87,21 @@ __pycache__/
 # that one prefix: a broad `*.png` rule would also swallow an image a document
 # here means to carry, and this repository's own images are none.
 /favours-app-*.png
+
+# Operator records. They name the operator's clients and machines, so each is
+# local; where a tracked `.example` sits beside one, copy it to start the record.
+.agents/decisions.md
+.agents/breadcrumbs.md
+.agents/debt-log.private.md
+.agents/knowledge/index.md
+.agents/knowledge/research/*
+!.agents/knowledge/research/example-entry.md
+.agents/knowledge/transcripts/
+.agents/fixtures/
+.agents/eval/review-harness/fixtures-extra/
+.agents/eval/review-harness/intents/
+.agents/eval/review-harness/ref/
+.agents/eval/review-harness/results/
+.agents/eval/review-harness/judgements.tsv
+.agents/eval/review-harness/sources.tsv
+docs/notes/
