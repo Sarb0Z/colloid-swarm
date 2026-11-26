@@ -112,13 +112,13 @@ class Handles(Listed):
 
     def test_a_session_with_no_registry_name_takes_its_project_folders_name(self):
         listing = self.listing()
-        absent = self.run_claude(hook_session("h1", 401, project="food-app App"))
-        self.assertEqual(listing.register(absent)["handle"], "food-app-core")
-        other = self.run_claude(hook_session("h2", 402, project="tax-appeals-app"))
+        absent = self.run_claude(hook_session("h1", 401, project="Order Desk"))
+        self.assertEqual(listing.register(absent)["handle"], "order-desk")
+        other = self.run_claude(hook_session("h2", 402, project="ledger"))
         self.registry[("/c/.claude", 402)] = {"sessionId": "another-session", "name": "Not mine"}
-        self.assertEqual(listing.register(other)["handle"], "tax-appeals-app")
-        blank = self.run_claude(hook_session("h3", 403, project="ticketing-app"), "   ")
-        self.assertEqual(listing.register(blank)["handle"], "ticketing-app")
+        self.assertEqual(listing.register(other)["handle"], "ledger")
+        blank = self.run_claude(hook_session("h3", 403, project="atlas"), "   ")
+        self.assertEqual(listing.register(blank)["handle"], "atlas")
 
     def test_the_registry_of_the_sessions_own_account_is_read(self):
         listing = self.listing()

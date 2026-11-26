@@ -18,6 +18,8 @@ import tempfile
 
 here = pathlib.Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("wait_gate", here / "hooks" / "lib" / "wait-gate.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("test-wait-gate: cannot load hooks/lib/wait-gate.py")
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
@@ -81,7 +83,7 @@ ALLOW = [
     "",
 ]
 
-tax-appeals-app = "for i in $(seq 1 115); do [ -f /tmp/x/final-done.txt ] && break; sleep 5; done"
+POLL_LOOP = "for i in $(seq 1 115); do [ -f /tmp/x/final-done.txt ] && break; sleep 5; done"
 
 for command in BLOCK:
     reason = gate.verdict(command, None)
@@ -92,10 +94,10 @@ for command in ALLOW:
 
 # (command, Bash's timeout in ms, refused?)
 TIMED = [
-    (tax-appeals-app, 600000, True),
-    (tax-appeals-app, None, False),
-    (tax-appeals-app, 120000, False),
-    (tax-appeals-app, "abc", False),
+    (POLL_LOOP, 600000, True),
+    (POLL_LOOP, None, False),
+    (POLL_LOOP, 120000, False),
+    (POLL_LOOP, "abc", False),
     ("until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done", 600000, True),
     ("for i in $(seq 1 40); do curl -sf localhost:3000 && break; sleep 2; done; bun run visual > /tmp/v.log",
      600000, True),
@@ -204,8 +206,8 @@ check("a command the host runs in the background passes", background.returncode 
 garbage = subprocess.run(["bash", str(policy)], input="not json", capture_output=True, text=True)
 check("an unreadable payload passes", garbage.returncode == 0)
 
-timed = run(here.parent, {"command": tax-appeals-app, "timeout": 600000})
-untimed = run(here.parent, {"command": tax-appeals-app})
+timed = run(here.parent, {"command": POLL_LOOP, "timeout": 600000})
+untimed = run(here.parent, {"command": POLL_LOOP})
 check("the policy refuses the polling loop under a raised timeout", timed.returncode == 2, timed.stderr)
 check("the policy passes the polling loop without a timeout", untimed.returncode == 0, untimed.stderr)
 with_agent = run(here.parent, {"command": "sleep 300", "agent_id": "a1"})
@@ -238,10 +240,10 @@ def through_hook(extra):
                           text=True, env=env, cwd=here.parent)
 
 
-loop = {"command": tax-appeals-app, "timeout": 600000}
+loop = {"command": POLL_LOOP, "timeout": 600000}
 hook_lead = through_hook({"tool_input": loop})
 hook_cell = through_hook({"tool_input": loop, "agent_id": "a1b2", "agent_type": "implementer"})
-hook_plain = through_hook({"tool_input": {"command": tax-appeals-app}})
+hook_plain = through_hook({"tool_input": {"command": POLL_LOOP}})
 check("through the hook, the lead's polling loop under a raised timeout is refused",
       hook_lead.returncode == 2, hook_lead.stderr)
 check("through the hook, a cell's is refused too", hook_cell.returncode == 2, hook_cell.stderr)
