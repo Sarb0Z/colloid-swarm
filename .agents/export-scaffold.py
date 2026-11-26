@@ -30,13 +30,10 @@ DROPPED_PATHS = (
     ".agents/export-scaffold.py",
     ".agents/test-export.sh",
     ".agents/test-export-servers.sh",
-    ".agents/port-public.py",
-    ".agents/test-port-public.sh",
     ".agents/leak_gate.py",
     ".agents/test-leak-gate.sh",
     ".githooks/pre-commit",
     ".githooks/pre-push",
-    ".agents/public",
     ".agents/test-stack-packs.sh",
     ".agents/test-showcase.sh",
     ".agents/lint-contract.py",
@@ -122,22 +119,21 @@ def write_base_stamp(target, commit):
 def strip_markers(text, path):
     """Remove every marked region. An unbalanced marker is a source defect."""
     lines = text.splitlines(keepends=True)
-    out, depth, opener = [], 0, None
+    out, opener = [], None
     for number, line in enumerate(lines, 1):
-        if depth == 0:
+        if opener is None:
             for start, end in MARKERS:
                 if start.match(line):
-                    depth, opener = 1, (start, end, number)
+                    opener = (start, end, number)
                     break
             else:
                 out.append(line)
-                continue
             continue
         if opener[1].match(line):
-            depth, opener = 0, None
+            opener = None
         elif opener[0].match(line):
             raise SystemExit(f"export: nested colloid-only marker at {path}:{number}")
-    if depth:
+    if opener is not None:
         raise SystemExit(f"export: unclosed colloid-only marker at {path}:{opener[2]}")
     return "".join(out).rstrip() + "\n"
 

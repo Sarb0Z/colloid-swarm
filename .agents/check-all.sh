@@ -78,8 +78,6 @@ python3 scripts/paper-fetch/test-papers.py
 .agents/test-export.sh
 .agents/test-export-servers.sh
 .agents/test-stack-packs.sh
-python3 .agents/port-public.py check
-.agents/test-port-public.sh
 .agents/test-leak-gate.sh
 python3 demo/check-inventory.py
 .agents/test-showcase.sh

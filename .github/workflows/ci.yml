@@ -271,11 +271,8 @@ jobs:
       - name: Stack packs
         run: .agents/test-stack-packs.sh
 
-      - name: Public port
-        run: |
-          pip install git-filter-repo==2.47.0
-          python3 .agents/port-public.py check
-          .agents/test-port-public.sh
+      - name: Leak gate
+        run: .agents/test-leak-gate.sh
 
       - name: Showcase inventory
         run: python3 demo/check-inventory.py

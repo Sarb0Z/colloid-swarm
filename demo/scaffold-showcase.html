@@ -13180,7 +13180,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 116 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 115 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -13260,8 +13260,7 @@ python3 scripts/paper-fetch/test-papers.py
 .agents/test-export.sh
 .agents/test-export-servers.sh
 .agents/test-stack-packs.sh
-python3 .agents/port-public.py check
-.agents/test-port-public.sh
+.agents/test-leak-gate.sh
 python3 demo/check-inventory.py
 .agents/test-showcase.sh
 .agents/iterm/tests/run.sh
@@ -16135,7 +16134,7 @@ task in `breadcrumbs.md`.
           <div class="kicker">Transplant</div>
           <h3>export-scaffold.py</h3>
           <p>Builds a kit of the scaffold for another repository: it subtracts the Colloid-only paths, hook entries, JSON keys and marked regions. It reads the committed Git tree, never the working tree, and refuses a non-empty destination.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 350 lines</span></summary><div class="srcpath">.agents/export-scaffold.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 351 lines</span></summary><div class="srcpath">.agents/export-scaffold.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Export the committed scaffold without Colloid-only subsystems.
 
 Usage: export-scaffold.py &lt;empty-target-dir&gt;. The export subtracts whole paths,
@@ -16167,9 +16166,10 @@ DROPPED_PATHS = (
     &quot;.agents/export-scaffold.py&quot;,
     &quot;.agents/test-export.sh&quot;,
     &quot;.agents/test-export-servers.sh&quot;,
-    &quot;.agents/port-public.py&quot;,
-    &quot;.agents/test-port-public.sh&quot;,
-    &quot;.agents/public&quot;,
+    &quot;.agents/leak_gate.py&quot;,
+    &quot;.agents/test-leak-gate.sh&quot;,
+    &quot;.githooks/pre-commit&quot;,
+    &quot;.githooks/pre-push&quot;,
     &quot;.agents/test-stack-packs.sh&quot;,
     &quot;.agents/test-showcase.sh&quot;,
     &quot;.agents/lint-contract.py&quot;,
