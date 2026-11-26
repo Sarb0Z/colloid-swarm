@@ -1,0 +1,4 @@
+#!/bin/bash
+# pre-commit: refuse a commit whose added lines, paths, or author carry a
+# private name. The name list lives outside the repository; see leak_gate.py.
+exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../.agents/leak_gate.py" staged

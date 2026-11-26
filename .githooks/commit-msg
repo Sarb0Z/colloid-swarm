@@ -21,6 +21,14 @@
 
 msg_file="$1"
 
+# colloid-only
+# The one call that does not fail open: a message carrying a private name
+# blocks the commit. An EXIT trap runs on every path below, after the trailer
+# is written, so it reads the final text and a fixup!/squash! message too.
+leak_gate="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../.agents/leak_gate.py"
+trap 'python3 "$leak_gate" message "$msg_file" || exit 1' EXIT
+# /colloid-only
+
 # fixup!/squash! messages must stay byte-identical for --autosquash matching
 case "$(head -n1 "$msg_file")" in
   fixup!*|squash!*) exit 0 ;;
