@@ -16134,7 +16134,7 @@ task in `breadcrumbs.md`.
           <div class="kicker">Transplant</div>
           <h3>export-scaffold.py</h3>
           <p>Builds a kit of the scaffold for another repository: it subtracts the Colloid-only paths, hook entries, JSON keys and marked regions. It reads the committed Git tree, never the working tree, and refuses a non-empty destination.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 351 lines</span></summary><div class="srcpath">.agents/export-scaffold.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 350 lines</span></summary><div class="srcpath">.agents/export-scaffold.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Export the committed scaffold without Colloid-only subsystems.
 
 Usage: export-scaffold.py &lt;empty-target-dir&gt;. The export subtracts whole paths,
@@ -16255,22 +16255,21 @@ def write_base_stamp(target, commit):
 def strip_markers(text, path):
     &quot;&quot;&quot;Remove every marked region. An unbalanced marker is a source defect.&quot;&quot;&quot;
     lines = text.splitlines(keepends=True)
-    out, depth, opener = [], 0, None
+    out, opener = [], None
     for number, line in enumerate(lines, 1):
-        if depth == 0:
+        if opener is None:
             for start, end in MARKERS:
                 if start.match(line):
-                    depth, opener = 1, (start, end, number)
+                    opener = (start, end, number)
                     break
             else:
                 out.append(line)
-                continue
             continue
         if opener[1].match(line):
-            depth, opener = 0, None
+            opener = None
         elif opener[0].match(line):
             raise SystemExit(f&quot;export: nested colloid-only marker at {path}:{number}&quot;)
-    if depth:
+    if opener is not None:
         raise SystemExit(f&quot;export: unclosed colloid-only marker at {path}:{opener[2]}&quot;)
     return &quot;&quot;.join(out).rstrip() + &quot;\n&quot;
 
