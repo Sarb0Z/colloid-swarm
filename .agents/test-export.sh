@@ -66,6 +66,7 @@ for path in \
   .agents/decisions.md \
   .agents/export .agents/export-scaffold.py .agents/test-export.sh \
   .agents/port-public.py .agents/test-port-public.sh .agents/public \
+  .agents/leak_gate.py .agents/test-leak-gate.sh .githooks/pre-commit .githooks/pre-push \
   .agents/test-stack-packs.sh .agents/test-showcase.sh; do
   [[ ! -e "$kit/$path" ]] || fail "export retained $path"
 done
