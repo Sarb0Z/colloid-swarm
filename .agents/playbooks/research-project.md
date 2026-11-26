@@ -14,7 +14,7 @@ is told to.
 | `deviations.md` | One dated entry per change to the plan after its commit, with the reason |
 | `looks.csv` | `at,commit,hypothesis,test,looks_so_far,result,reported_as`: one row per look at the data, with the commit of the code that made it |
 | `claims.csv` | `key,source,values,quote`: one row per outside statement or number the report takes from a source; `values` are the numerals, separated by `|`, that the quote must hold |
-| `data/curated/papers_needed.csv` | `key,doi,reference,needed_for,save_as`: one row per paper the operator must supply, read by the operator's fetch script and, in the colloid-swarm checkout, by `scripts/paper-fetch/papers.py`; `key` matches `^[a-z0-9][a-z0-9-]*$`; `save_as` is the inbox where the file is saved, `data/raw/papers/<key>.pdf` (a `.md` or `.txt` there is copied to the paper's `fulltext.md`) |
+| `data/curated/papers_needed.csv` | `key,doi,reference,needed_for,save_as`: one row per paper the operator must supply, read by the operator's fetch script and, where the repository holds a `scripts/paper-fetch/` folder, by its `papers.py`; `key` matches `^[a-z0-9][a-z0-9-]*$`; `save_as` is the inbox where the file is saved, `data/raw/papers/<key>.pdf` (a `.md` or `.txt` there is copied to the paper's `fulltext.md`) |
 | `cells/` | The reply of each research cell, saved word for word by `save-reply --to cells/<cell>.txt`, so the report cites a file that stays with the project |
 | `data/raw/` | The operator's files, untouched |
 | `data/extracted/`, `data/curated/`, `data/analysis/` | The verbatim copy of the source data, the reading of each cell with the words it came from, the analysis tables |
