@@ -39,9 +39,12 @@ DROPPED_PATHS = (
     ".agents/lint-suite.py",
     ".agents/policy.json",
     ".agents/breadcrumbs.md",
+    ".agents/breadcrumbs.md.example",
     ".agents/debt-log.md",
     ".agents/decisions.md",
+    ".agents/decisions.md.example",
     ".agents/knowledge/index.md",
+    ".agents/knowledge/index.md.example",
     ".agents/knowledge/research",
     ".agents/knowledge/transcripts",
 )

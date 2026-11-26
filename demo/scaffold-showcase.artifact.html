@@ -15763,7 +15763,7 @@ This playbook is a repository adaptation. See
           <div class="kicker">Queue · auto-surfaced</div>
           <h3>breadcrumbs.md</h3>
           <p>Deferred <b>work</b>. One line each, 40 words at most. The SessionStart hook surfaces every open decision and the ten newest entries at the start of every session — act on the line, or delete it. Nothing rots silently.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 20 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md</div><pre><code># Breadcrumbs
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 20 lines</span></summary><div class="srcpath">.agents/breadcrumbs.md.example</div><pre><code># Breadcrumbs
 
 Deferred non-blocking work. Act on an entry, or delete the line.
 Surfaced at session start by `session-start.sh`: every open decision, and the
@@ -15953,7 +15953,7 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
           <div class="kicker">Ledger · headings at session start</div>
           <h3>decisions.md</h3>
           <p>Settled decisions and what would reopen them: one entry per decision with what holds, why, and the observation that would justify revisiting. SessionStart shows the headings only, so a declined idea is not re-proposed before its entry is opened.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/decisions.md</div><pre><code># Decisions
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 14 lines</span></summary><div class="srcpath">.agents/decisions.md.example</div><pre><code># Decisions
 
 Settled decisions and what would reopen them. Surfaced at session start by
 `session-start.sh` as headings only; open the entry for the why before
@@ -16127,7 +16127,7 @@ task in `breadcrumbs.md`.
           <div class="kicker">Transplant</div>
           <h3>export-scaffold.py</h3>
           <p>Builds a kit of the scaffold for another repository: it subtracts the Colloid-only paths, hook entries, JSON keys and marked regions. It reads the committed Git tree, never the working tree, and refuses a non-empty destination.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 347 lines</span></summary><div class="srcpath">.agents/export-scaffold.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 350 lines</span></summary><div class="srcpath">.agents/export-scaffold.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;Export the committed scaffold without Colloid-only subsystems.
 
 Usage: export-scaffold.py &lt;empty-target-dir&gt;. The export subtracts whole paths,
@@ -16168,9 +16168,12 @@ DROPPED_PATHS = (
     &quot;.agents/lint-suite.py&quot;,
     &quot;.agents/policy.json&quot;,
     &quot;.agents/breadcrumbs.md&quot;,
+    &quot;.agents/breadcrumbs.md.example&quot;,
     &quot;.agents/debt-log.md&quot;,
     &quot;.agents/decisions.md&quot;,
+    &quot;.agents/decisions.md.example&quot;,
     &quot;.agents/knowledge/index.md&quot;,
+    &quot;.agents/knowledge/index.md.example&quot;,
     &quot;.agents/knowledge/research&quot;,
     &quot;.agents/knowledge/transcripts&quot;,
 )

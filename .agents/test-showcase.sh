@@ -38,9 +38,9 @@ ok "check-inventory passes a showcase rebuilt from its sources"
 
 cp "$fx/demo/scaffold-showcase.html" "$scratch/page.before"
 cp "$fx/demo/scaffold-showcase.artifact.html" "$scratch/artifact.before"
-printf -- '- **A line added after the last rebuild.**\n' >> "$fx/.agents/breadcrumbs.md"
+printf -- '- **A line added after the last rebuild.**\n' >> "$fx/.agents/breadcrumbs.md.example"
 out="$(check)" && fail "a panel older than its file must fail: $out"
-[[ "$out" == *'panels: stale against `.agents/breadcrumbs.md`'* ]] || fail "the failure must name the changed file: $out"
+[[ "$out" == *'panels: stale against `.agents/breadcrumbs.md.example`'* ]] || fail "the failure must name the changed file: $out"
 [[ "$out" == *'python3 demo/embed-src.py'* ]] || fail "the failure must name the command that fixes it: $out"
 [[ "$out" != *"publish variant"* ]] || fail "a stale page must not also blame the publish variant built from it: $out"
 cmp -s "$scratch/page.before" "$fx/demo/scaffold-showcase.html" \

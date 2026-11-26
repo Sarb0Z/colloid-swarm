@@ -101,7 +101,16 @@ python3 - "$work/source/.gitignore" "$kit/export/gitignore-fragment" <<'PY'
 import sys
 
 # Paths the export drops along with the state they leave behind.
-COLLOID_ONLY = {".agents/.genome-ledger", ".agents/.mutagen-ledger", ".agents/eval/*/runs.tsv"}
+COLLOID_ONLY = {
+    ".agents/.genome-ledger", ".agents/.mutagen-ledger", ".agents/eval/*/runs.tsv",
+    # This repository's own records: a target keeps its records tracked.
+    ".agents/decisions.md", ".agents/breadcrumbs.md", ".agents/debt-log.private.md",
+    ".agents/knowledge/index.md", ".agents/knowledge/research/*", ".agents/knowledge/transcripts/",
+    ".agents/fixtures/", ".agents/eval/review-harness/fixtures-extra/",
+    ".agents/eval/review-harness/intents/", ".agents/eval/review-harness/ref/",
+    ".agents/eval/review-harness/results/", ".agents/eval/review-harness/judgements.tsv",
+    ".agents/eval/review-harness/sources.tsv",
+}
 # Host configuration `mcp.py` generates at the root, with absolute paths in it.
 GENERATED_HOST_CONFIG = ("/.mcp.json", "/.codex/", "/.kimi-code/", "/.opencode/")
 
