@@ -99,6 +99,10 @@ wait_for() { # seconds command...: true once the command holds
     sleep 0.1
   done
 }
+# wait_for runs its command again on every poll, so a value that changes goes
+# through a function here: "$(...)" written in wait_for's arguments is read once.
+listed_twice() { [[ "$(grep -c listAccounts "$T/requests.jsonl")" -ge 2 ]]; }
+state_is() { [[ "$(state_of "$1")" == "$2" ]]; }
 sends() { python3 - "$T/requests.jsonl" <<'PY'
 import json, sys
 for line in open(sys.argv[1]):
@@ -208,7 +212,7 @@ id_5=$(last_id)
 kill -KILL "$(cat "$T/o5/claude-pid")"
 { wait "$job"; } 2>/dev/null  # reaped here, so the shell's own "Killed" line for the stand-in goes nowhere
 if wait_for 5 gone "$(cat "$T/o5/pid")"; then ok "session end: no hook process is left"; else bad "session end: the hook still runs"; fi
-wait_for 5 test "$(state_of "$id_5")" = "closed | the session's process ended" || true
+wait_for 5 state_is "$id_5" "closed | the session's process ended" || true
 eq "session end: the event" "closed | the session's process ended" "$(state_of "$id_5")"
 
 # 6. Acceptance 9 and 14: the service stops while a hook waits, and stays stopped.
@@ -246,7 +250,7 @@ python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) < 1.0 else 1)' "$(cat "
 
 start_service || bad "phone-link did not start again: $(cat "$T/service.err")"
 eq "restart: the event of the hook that waited" "closed | phone-link restarted" "$(state_of "$id_6")"
-wait_for 10 test "$(grep -c listAccounts "$T/requests.jsonl")" -ge 2 || bad "phone-link did not reach signal-cli again"
+wait_for 10 listed_twice || bad "phone-link did not reach signal-cli again"
 phone_says "yes $id_6"
 wait_for 5 has_sent 10 || bad "restart: no reply to the late yes"
 eq "restart: a later yes" "[$id_6] refused: closed" "$(last_sent)"
