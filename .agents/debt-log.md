@@ -13,6 +13,12 @@ reasoning. One `### <id>` heading per entry (a kebab slug, e.g.
 - **Trigger** — the observation that would justify paying it off.
 - **Rework** — what the fix costs.
 
+### iterm-tab-liveness-copies
+
+- **Condition** — "this pid still runs `claude` with the recorded start, read under `LC_ALL=C TZ=UTC`" exists three times: `~/.local/bin/claude-tab-state` (`ps`, `is_running`), `.agents/iterm/bin/pane-run`, and `.agents/hooks/lib/process_start.py` with `worktree_records.stamp_state`. `pane-run` also copies the tab-id pattern and the config-folder split from `claude-tab-state`. Acceptable: `claude-tab-state` lives outside the repository (`~/.config/docs/TERMINAL-SPEC.md`, Unit 3), so `pane-run` cannot import it, and each copy is a few lines (review `2026-11-16-prompt-pane`, finding 10).
+- **Trigger** — `claude-tab-state` changes its record format, its `ps` environment or its liveness rule; or a fourth copy appears.
+- **Rework** — move `claude-tab-state` into `.agents/iterm/bin/` with `install.sh` linking it, and have `pane-run` import one shared reader; about 60 lines moved and the TERMINAL-SPEC Unit 3 paths updated.
+
 ### colloid-guard-destructive-honest-mistake-only
 
 - **Condition** — `guard-destructive.sh` matches regexes against a raw command string, so it cannot stop shell indirection: `eval $(base64 -d <<<…)`, `R=$(echo rm); $R -rf /`, and `echo / | xargs rm -rf` all pass, verified. A regex over a Turing-complete shell cannot win that fight. Acceptable: the guard's threat model is the model's own honest mistake, not an adversary with shell access — an adversary who can run `Bash` has already won. The header does not say this, which invites the guard being read as a security boundary it is not.

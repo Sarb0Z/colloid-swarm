@@ -384,7 +384,7 @@ Every task has a **workflow**, its kind, which selects the steps, and **stakes**
 | Standard | Kept in a repository and shipped; a mistake is cheap and reversible. |
 | Critical | Touches production, money, authentication, data that can be lost, a guard or gate hook, or a contract (this file, `.agents/AGENTS.md`, the playbooks, `.agents/lenses.md`, the hostile-review contract). |
 
-Stakes follow the effect of the change — the paths it touches and what it does — never the destination of its output. An outward mutation or a write to a live system is never disposable, so Ship and Operate have no disposable level; Answer has no stakes. When unsure, take the higher level; never downgrade.
+Stakes follow the effect of the change — the paths it touches and what it does — never the destination of its output, except where a workflow row sets its own, as Research does. An outward mutation or a write to a live system is never disposable, so Ship and Operate have no disposable level; Answer has no stakes. When unsure, take the higher level; never downgrade.
 
 | Workflow | Covers | Steps |
 |---|---|---|
@@ -15789,7 +15789,7 @@ Draining the queue is its own unit of work — `playbooks/breadcrumb-burndown.md
           <div class="kicker">Ledger · pulled on demand</div>
           <h3>debt-log.md</h3>
           <p>Standing <b>tradeoffs</b>: each entry records the condition, the trigger that would justify paying it off, and the rework cost. Code carries only the pointer — <code>debt: &lt;id&gt;</code> — never the reasoning.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 152 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 158 lines</span></summary><div class="srcpath">.agents/debt-log.md</div><pre><code># Debt log
 
 Standing tradeoffs and deferred *decisions* — the &quot;naive O(n³) here, fine until
 N&gt;10k, rework needs a spatial index&quot; record. Committed, and pulled on demand when
@@ -15803,6 +15803,12 @@ reasoning. One `### &lt;id&gt;` heading per entry (a kebab slug, e.g.
 - **Condition** — what the code does now, and why it&#x27;s acceptable today.
 - **Trigger** — the observation that would justify paying it off.
 - **Rework** — what the fix costs.
+
+### iterm-tab-liveness-copies
+
+- **Condition** — &quot;this pid still runs `claude` with the recorded start, read under `LC_ALL=C TZ=UTC`&quot; exists three times: `~/.local/bin/claude-tab-state` (`ps`, `is_running`), `.agents/iterm/bin/pane-run`, and `.agents/hooks/lib/process_start.py` with `worktree_records.stamp_state`. `pane-run` also copies the tab-id pattern and the config-folder split from `claude-tab-state`. Acceptable: `claude-tab-state` lives outside the repository (`~/.config/docs/TERMINAL-SPEC.md`, Unit 3), so `pane-run` cannot import it, and each copy is a few lines (review `2026-11-16-prompt-pane`, finding 10).
+- **Trigger** — `claude-tab-state` changes its record format, its `ps` environment or its liveness rule; or a fourth copy appears.
+- **Rework** — move `claude-tab-state` into `.agents/iterm/bin/` with `install.sh` linking it, and have `pane-run` import one shared reader; about 60 lines moved and the TERMINAL-SPEC Unit 3 paths updated.
 
 ### colloid-guard-destructive-honest-mistake-only
 
