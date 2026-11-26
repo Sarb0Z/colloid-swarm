@@ -879,6 +879,123 @@ else
   echo "skip apply end to end (macOS tar flags; apply runs on the Mac)"
 fi
 
+# --- push-product, with real rsync and git and ssh replaced by a local shell ----
+# A product folder on a pretend Mac goes to a pretend server home ($SRV). The
+# stand-ins above are left off PATH: this script runs git and rsync for real.
+PM=$T/pmac
+SRV=$T/psrv
+mkdir -p "$PM/Projects/Acme/app" "$PM/Projects/Acme/infra/.terraform/providers" "$SRV/Projects" "$T/pbin"
+app=$PM/Projects/Acme/app
+"$REAL_GIT" -C "$app" init -q -b main
+echo one >"$app/README.md"
+printf '.env\nnode_modules/\n' >"$app/.gitignore"
+"$REAL_GIT" -C "$app" add README.md .gitignore
+"$REAL_GIT" -C "$app" -c user.name=t -c user.email=t@t commit -qm one
+"$REAL_GIT" -C "$app" branch feature
+echo SECRET=1 >"$app/.env"
+chmod 644 "$app/.env"
+echo wip >"$app/draft.md"
+echo 'export class SingletonService {}' >"$app/SingletonService.ts"
+"$REAL_GIT" -C "$app" config core.ignorecase true
+# A linked worktree parked on a commit that no branch holds.
+"$REAL_GIT" -C "$app" worktree add -q --detach .agents/worktrees/lane
+echo lane >"$app/.agents/worktrees/lane/lane.md"
+"$REAL_GIT" -C "$app/.agents/worktrees/lane" add lane.md
+"$REAL_GIT" -C "$app/.agents/worktrees/lane" -c user.name=t -c user.email=t@t commit -qm lane
+lane_sha=$("$REAL_GIT" -C "$app/.agents/worktrees/lane" rev-parse HEAD)
+mkdir -p "$app/node_modules/dep" "$app/sub/.venv" "$app/sub/.mypy_cache"
+touch "$app/node_modules/dep/index.js" "$app/sub/.venv/pyvenv.cfg" "$app/sub/.mypy_cache/x"
+touch "$PM/Projects/Acme/notes.md" "$PM/Projects/Acme/.DS_Store" "$PM/Projects/Acme/infra/.terraform/providers/p" "$PM/Projects/Acme/infra/main.tf"
+ln -s /var/folders/x/SingletonSocket "$PM/Projects/Acme/SingletonSocket"
+"$REAL_GIT" init -q "$PM/Projects/Solo"
+# The server's check reads stdin; with $STATE/tamper a branch appears in the
+# staging copy first, as a write on the Mac part way through the copy would leave.
+printf '#!/usr/bin/env bash\n%s\n' '[[ $1 == contabo-dev ]] || { echo "ssh stand-in: unexpected $*" >&2; exit 3; }
+[[ -e $STATE/ssh-down ]] && exit 255
+shift; echo "ssh ${1%% *}" >>"$CALLS"
+if [[ $1 == "bash -c"* && -e $STATE/tamper ]]; then "$REAL_GIT" -C "$SRV/Projects/.Acme.incoming/app" branch -q stray; fi
+cd "$SRV" && eval "$*"' >"$T/pbin/ssh"
+chmod +x "$T/pbin/ssh"
+push() { env HOME="$PM" SRV="$SRV" PATH="$T/pbin:${PATH#"$T/bin:"}" "$HERE/push-product" "$@" 2>&1; }
+dst=$SRV/Projects/Acme
+branches() { "$REAL_GIT" -C "$1" for-each-ref --format='%(refname)' | tr '\n' ' ' | sed 's/ $//'; }
+
+out=$(push --check Acme); rc=$?
+eq "push-product --check exits 0" 0 "$rc"
+has "push-product --check counts the repositories and the commit to pin" "check: 1 repositories; 1 worktree commits to pin" "$out"
+has "push-product --check says nothing changed" "check: the figures above are what a run would copy" "$out"
+eq "push-product --check writes nothing on the server" "" "$(ls -A "$SRV/Projects")"
+
+mac_before=$(tree "$PM")
+: >"$CALLS"
+out=$(push Acme); rc=$?
+eq "push-product exits 0" 0 "$rc"
+has "push-product names where the product landed" "done:  ~/Projects/Acme is on contabo-dev, 1 repositories matching the Mac's" "$out"
+eq "a run logs in three times" 3 "$(grep -c '^ssh ' "$CALLS")"
+[[ -f $dst/app/.env && -f $dst/app/draft.md && -f $dst/notes.md && -f $dst/infra/main.tf && -f $dst/app/SingletonService.ts ]] &&
+  ok "the product arrives with its secret files, uncommitted work, notes and a source file named Singleton*" || bad "push-product left files behind: $(cd "$dst" 2>/dev/null && find . | sort | tr '\n' ' ')"
+eq "the repository arrives with its branches, and the parked worktree's commit pinned" \
+  "refs/heads/feature refs/heads/main refs/worktree-heads/lane" "$(branches "$dst/app")"
+eq "the pin holds the worktree's commit" "$lane_sha" "$("$REAL_GIT" -C "$dst/app" rev-parse refs/worktree-heads/lane)"
+eq "the repository arrives with its uncommitted files" "?? SingletonService.ts ?? draft.md" "$("$REAL_GIT" -C "$dst/app" status --short | tr '\n' ' ' | sed 's/ $//')"
+eq "a secret file arrives readable by its owner alone" "-rw-------" "$(mode "$dst/app/.env")"
+eq "the Mac's case-insensitive git setting is dropped on the server" "" "$("$REAL_GIT" -C "$dst/app" config --local --get core.ignorecase)"
+left=$(cd "$dst" && find . \( -name node_modules -o -name .venv -o -name .mypy_cache -o -name .terraform -o -name .DS_Store -o -name SingletonSocket -o -path '*/.agents/worktrees' -o -path '*/.git/worktrees' \) | sort | tr '\n' ' ')
+eq "dependencies, caches, providers, worktrees and lock links stay behind" "" "$left"
+eq "no staging folder is left once the copy is renamed" "Acme" "$(ls -A "$SRV/Projects")"
+eq "the Mac's copy is untouched" "$mac_before" "$(tree "$PM")"
+
+echo changed-on-server >"$dst/notes.md"
+out=$(push Acme); rc=$?
+[[ $rc -eq 1 && $out == *"already on contabo-dev"* ]] && ok "a product already on the server is refused" || bad "second push (rc=$rc): $out"
+eq "and work done there is kept" "changed-on-server" "$(<"$dst/notes.md")"
+
+# A copy that stopped part way, after which the Mac deleted a branch and packed
+# its refs: the resumed copy holds the Mac's refs, not the union of both states.
+mv "$dst" "$SRV/Projects/.Acme.incoming"
+rm "$SRV/Projects/.Acme.incoming/notes.md"
+"$REAL_GIT" -C "$app" branch -q -D feature
+"$REAL_GIT" -C "$app" pack-refs --all --prune
+out=$(push Acme); rc=$?
+eq "a copy that stopped part way resumes" 0 "$rc"
+has "and says it resumed" "resume: an earlier copy stopped part way" "$out"
+[[ -f $dst/notes.md && ! -e $SRV/Projects/.Acme.incoming ]] && ok "the resumed copy is completed and renamed" || bad "resume left: $(ls -A "$SRV/Projects")"
+eq "a branch the Mac deleted does not come back" "refs/heads/main refs/worktree-heads/lane" "$(branches "$dst/app")"
+
+# A write on the Mac during the copy: the copy stays in staging, and a rerun
+# once it is quiet completes it.
+mv "$dst" "$SRV/Projects/.Acme.incoming"
+touch "$STATE/tamper"
+out=$(push Acme); rc=$?
+[[ $rc -eq 1 && $out == *"MISMATCH: app has other refs"* && $out == *"stop the sessions writing in"* ]] &&
+  ok "refs that differ from the Mac's stop the rename" || bad "tampered copy (rc=$rc): $out"
+[[ -d $SRV/Projects/.Acme.incoming && ! -e $dst ]] && ok "and the copy stays in staging" || bad "tampered copy left: $(ls -A "$SRV/Projects")"
+rm "$STATE/tamper"
+out=$(push Acme); rc=$?
+eq "a rerun once the Mac is quiet completes the copy" 0 "$rc"
+eq "without the stray branch" "refs/heads/main refs/worktree-heads/lane" "$(branches "$dst/app")"
+
+# A worktree with uncommitted changes stops the run before anything is sent.
+"$REAL_GIT" -C "$app" worktree add -q -b wip .agents/worktrees/dirty
+echo edit >>"$app/.agents/worktrees/dirty/README.md"
+: >"$CALLS"
+out=$(push Acme); rc=$?
+[[ $rc -eq 1 && $out == *"hold uncommitted changes"* && $out == *"Acme/app/.agents/worktrees/dirty"* ]] &&
+  ok "a worktree with uncommitted changes stops the run and is named" || bad "dirty worktree (rc=$rc): $out"
+eq "and nothing reaches the server" "" "$(cat "$CALLS")"
+
+out=$(push Solo); rc=$?
+[[ $rc -eq 1 && $out == *"is a repository, not a product folder"* ]] && ok "a repository is refused as a product" || bad "repository as product (rc=$rc): $out"
+out=$(push ../etc); rc=$?
+eq "a name with a path in it is refused" 2 "$rc"
+out=$(push Nope); rc=$?
+[[ $rc -eq 1 && $out == *"no folder"* ]] && ok "a missing product folder is named" || bad "missing folder (rc=$rc): $out"
+touch "$STATE/ssh-down"
+mkdir -p "$PM/Projects/Other"
+out=$(push Other); rc=$?
+[[ $rc -eq 1 && $out == *"could not log in to contabo-dev"* ]] && ok "a server it cannot reach is named" || bad "ssh down (rc=$rc): $out"
+rm "$STATE/ssh-down"
+
 ((fails == 0)) && echo "server tests passed" || {
   echo "$fails failed" >&2
   exit 1

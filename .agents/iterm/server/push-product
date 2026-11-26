@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# Move one product folder from the Mac's ~/Projects to openclawops' ~/Projects on
+# the development server (contabo-dev), once. The folder goes whole: every
+# repository with its branches, stashes, uncommitted work and gitignored secret
+# files, and the notes, backups and data beside them. Left out is what the server
+# rebuilds for itself (dependencies, Python and build caches, Terraform's
+# downloaded providers) and what only works on the Mac (linked worktrees, whose
+# .git files name Mac paths; Chrome's lock links). A worktree with uncommitted
+# changes stops the run; one parked on a commit no ref holds gets a ref on the
+# server, refs/worktree-heads/<name>, so the commit is kept.
+#
+# The copy lands in ~/Projects/.<product>.incoming and becomes ~/Projects/<product>
+# only once each repository there has the Mac's refs and HEAD and passes
+# `git fsck --connectivity-only`. Sessions writing on the Mac during the copy
+# fail that check; stop them and run again, which resumes the copy. A product
+# already on the server is never written to. The Mac's copy is not touched.
+# Files arrive readable by openclawops alone.
+#
+# Usage: push-product [--check] <product>
+#   --check  print what a run would copy; change nothing
+set -euo pipefail
+
+usage() {
+  echo "usage: push-product [--check] <product folder under ~/Projects>" >&2
+  exit 2
+}
+check=0
+if [[ ${1:-} == --check ]]; then
+  check=1
+  shift
+fi
+(($# == 1)) || usage
+product=${1%/}
+[[ $product =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+  echo "push-product: '$product' is not a folder name under ~/Projects" >&2
+  exit 2
+}
+src=$HOME/Projects/$product
+[[ -d $src ]] || {
+  echo "push-product: no folder $src" >&2
+  exit 1
+}
+if top=$(git -C "$src" rev-parse --show-toplevel 2>/dev/null) && [[ $top == "$(cd "$src" && pwd -P)" ]]; then
+  echo "push-product: $src is a repository, not a product folder; clone it on the server instead" >&2
+  exit 1
+fi
+
+# The product's repositories, as paths under it; the worktrees left behind are not.
+repos=()
+while IFS= read -r gitdir; do
+  repos+=("${gitdir%/.git}")
+done < <(cd "$src" && find . \( -name node_modules -o -path '*/.agents/worktrees' -o -path '*/.claude/worktrees' \) -prune \
+  -o -type d -name .git -print -prune | sed 's#^\./##' | LC_ALL=C sort)
+
+# Linked worktrees: uncommitted work stops the run; a detached HEAD no ref
+# contains is pinned on the server. git lists the main worktree first, under its
+# resolved path, so it is told apart by position.
+dirty=()
+pins=()
+for repo in ${repos[@]+"${repos[@]}"}; do
+  path='' entry=0
+  while IFS= read -r line; do
+    case $line in
+      "worktree "*) path=${line#worktree } head='' entry=$((entry + 1)) ;;
+      "HEAD "*) head=${line#HEAD } ;;
+      detached)
+        if ((entry > 1)) && [[ -z $(git -C "$src/$repo" for-each-ref --contains "$head" --count=1) ]]; then
+          pins+=("$repo"$'\t'"$(basename "$path")"$'\t'"$head")
+        fi
+        ;;
+      "")
+        if ((entry > 1)) && [[ -n $path && -d $path && -n $(git -C "$path" status --porcelain) ]]; then
+          dirty+=("$path")
+        fi
+        path=
+        ;;
+    esac
+  done < <(git -C "$src/$repo" worktree list --porcelain; echo)
+done
+if ((${#dirty[@]})); then
+  echo "push-product: these worktrees hold uncommitted changes, which stay on the Mac; commit or park them, then run again:" >&2
+  printf '  %s\n' ${dirty[@]+"${dirty[@]}"} >&2
+  exit 1
+fi
+
+host=${PUSH_PRODUCT_HOST:-contabo-dev}
+dest=Projects/$product
+incoming=Projects/.$product.incoming
+
+# Three logins a run (port 22 refuses a sixth within 30 s): this look, rsync,
+# and the check that ends in the rename.
+state=$(ssh "$host" "if test -e $dest; then echo present; elif test -d $incoming; then echo partial; else echo absent; fi") || {
+  echo "push-product: could not log in to $host (ssh exit $?)" >&2
+  exit 1
+}
+case $state in
+  present)
+    echo "push-product: ~/$dest is already on $host; nothing is copied over work done there" >&2
+    exit 1
+    ;;
+  partial) echo "resume: an earlier copy stopped part way; ~/$incoming continues it" ;;
+  absent) ;;
+  *)
+    echo "push-product: $host answered '$state' when asked for ~/$dest" >&2
+    exit 1
+    ;;
+esac
+
+excludes=(
+  --exclude=node_modules/ --exclude=.venv/ --exclude=.next/ --exclude=.turbo/
+  --exclude=.terraform/ --exclude=__pycache__/ --exclude=.mypy_cache/
+  --exclude=.pytest_cache/ --exclude=.ruff_cache/ --exclude=.DS_Store
+  --exclude=.agents/worktrees/ --exclude=.claude/worktrees/ --exclude=.git/worktrees/
+  --exclude=SingletonLock --exclude=SingletonSocket --exclude=SingletonCookie
+)
+dry=()
+((check)) && dry=(--dry-run)
+# --delete removes only what the staging folder holds and the Mac no longer
+# does, so a resumed copy is one Mac state, not two.
+rsync -a --delete --partial --chmod=go-rwx --stats --human-readable ${dry[@]+"${dry[@]}"} "${excludes[@]}" \
+  "$src/" "$host:$incoming/"
+
+if ((check)); then
+  echo "check: ${#repos[@]} repositories; ${#pins[@]} worktree commits to pin"
+  echo "check: the figures above are what a run would copy to ~/$dest on $host; nothing was changed"
+  exit 0
+fi
+
+# What each repository must show on the server: its refs and HEAD, hashed.
+fingerprint() {
+  { git -C "$1" for-each-ref --format='%(objectname) %(refname)'; git -C "$1" symbolic-ref -q HEAD || git -C "$1" rev-parse HEAD; } |
+    git hash-object --stdin
+}
+expect=
+for repo in ${repos[@]+"${repos[@]}"}; do
+  expect+="repo"$'\t'"$repo"$'\t'"$(fingerprint "$src/$repo")"$'\n'
+done
+for pin in ${pins[@]+"${pins[@]}"}; do
+  expect+="pin"$'\t'"$pin"$'\n'
+done
+
+# Runs on the server: compare and fsck each repository, then pin, drop the
+# Mac's case-insensitive git setting, and rename. Any mismatch leaves the copy
+# in staging.
+# shellcheck disable=SC2016 # expanded on the server
+verify='set -u
+inc=$1 dest=$2 bad=0
+fingerprint() {
+  { git -C "$1" for-each-ref --format="%(objectname) %(refname)"; git -C "$1" symbolic-ref -q HEAD || git -C "$1" rev-parse HEAD; } |
+    git hash-object --stdin
+}
+lines=$(cat)
+while IFS=$'"'"'\t'"'"' read -r kind repo want; do
+  [ "$kind" = repo ] || continue
+  r=$inc/$repo
+  if [ "$(fingerprint "$r")" != "$want" ]; then
+    echo "MISMATCH: $repo has other refs or another HEAD than the Mac" >&2; bad=1
+  elif ! git -C "$r" fsck --connectivity-only --no-dangling >/dev/null 2>&1; then
+    echo "MISMATCH: $repo fails git fsck --connectivity-only" >&2; bad=1
+  fi
+done <<<"$lines"
+[ $bad = 0 ] || { echo "the copy stays in ~/$inc" >&2; exit 4; }
+while IFS=$'"'"'\t'"'"' read -r kind repo name sha; do
+  [ "$kind" = pin ] || continue
+  git -C "$inc/$repo" update-ref "refs/worktree-heads/$name" "$sha" || exit 5
+  echo "pinned: $repo worktree $name at $sha as refs/worktree-heads/$name"
+done <<<"$lines"
+while IFS=$'"'"'\t'"'"' read -r kind repo want; do
+  [ "$kind" = repo ] || continue
+  if git -C "$inc/$repo" config --local --get core.ignorecase >/dev/null; then
+    git -C "$inc/$repo" config --local --unset core.ignorecase || exit 5
+  fi
+done <<<"$lines"
+test -e "$dest" && { echo "~/$dest appeared during the copy; the copy stays in ~/$inc" >&2; exit 3; }
+mv "$inc" "$dest"'
+rc=0
+ssh "$host" "bash -c $(printf %q "$verify") verify $incoming $dest" <<<"$expect" || rc=$?
+if ((rc)); then
+  echo "push-product: the copy did not match the Mac (exit $rc); stop the sessions writing in $src, then run again" >&2
+  exit 1
+fi
+echo "done:  ~/$dest is on $host, ${#repos[@]} repositories matching the Mac's; the Mac's $src is unchanged"
