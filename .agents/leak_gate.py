@@ -4,7 +4,8 @@
 Usage:
   leak_gate.py staged               added lines, paths, and author of the staged commit
   leak_gate.py message <file>       a commit message file
-  leak_gate.py push <remote> [url]  every new commit a push sends (git's pre-push stdin)
+  leak_gate.py push <remote> [url]  every new commit a push sends (git's pre-push stdin),
+                                    then the names on this machine that no list classifies
   leak_gate.py history <repo>       every commit of a repository, for audits
   leak_gate.py classify             machine names that no list classifies
 
@@ -34,8 +35,9 @@ VARIANT_SAFE = re.compile(r"^[A-Za-z0-9 _.-]+$")
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)")
 IDENT_STAMP = re.compile(r" \d+ [+-]\d{4}$")
 ALL_ZEROS = re.compile(r"^0+$")
-# Plain-text diffs with fixed prefixes, whatever the user's diff configuration says.
-DIFF_FLAGS = ("-U0", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/")
+# Plain-text diffs with fixed prefixes, whatever the user's diff configuration says;
+# --text reads a file with a NUL byte as text too, so one byte cannot hide a name.
+DIFF_FLAGS = ("--text", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/")
 
 
 def fail(message: str) -> NoReturn:
@@ -281,6 +283,7 @@ def main(argv, env, home, stdin, git):
         leaks = scan_message(matcher, git, args.file)
     elif args.mode == "push":
         leaks = [leak for sha in push_commits(git, stdin, args.remote) for leak in scan_commit(matcher, git, ".", sha)]
+        leaks += unclassified(config, git)
     elif args.mode == "history":
         leaks = [leak for sha in git(args.repo, "rev-list", "--all").split()
                  for leak in scan_commit(matcher, git, args.repo, sha)]

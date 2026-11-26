@@ -1,7 +1,5 @@
 #!/bin/bash
-# pre-push: refuse a push when a name on this machine is in no list, or when
-# any commit it sends carries a private name. git passes the remote name and
-# URL as arguments and the refs on stdin, which `push` reads.
-gate="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../.agents/leak_gate.py"
-python3 "$gate" classify || exit 1
-exec python3 "$gate" push "$@"
+# pre-push: refuse a push when any commit it sends carries a private name, or
+# when a name on this machine is in no list. git passes the remote name and URL
+# as arguments and the refs on stdin, which `push` reads.
+exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../.agents/leak_gate.py" push "$@"

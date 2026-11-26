@@ -85,6 +85,11 @@ git -C "$r" rm -q --cached notes.md
 printf 'x\n' > "$r/acme-billing-notes.txt"
 git -C "$r" add acme-billing-notes.txt
 refuses "pre-commit private path" 'path acme-billing-notes.txt:1: `acme-billing`' git -C "$r" commit -q -m "docs: notes"
+# A NUL byte does not hide a file: git calls it binary, and its bytes are scanned like text.
+r=$(fixture binary)
+printf 'billed through acme-billing\0tail\n' > "$r/blob.dat"
+git -C "$r" add blob.dat
+refuses "pre-commit private name in a file with a NUL byte" 'blob.dat:1: `acme-billing`' git -C "$r" commit -q -m "chore: data"
 
 # 2. A separator variant is refused until its reviewed id is listed.
 r=$(fixture variant)
@@ -167,6 +172,11 @@ git -C "$r" add n.txt
 absent="$(cd "$work" && pwd)/no-such-folder"   # Path() collapses the `//` a trailing-slash TMPDIR leaves in $work
 note=$(cd "$r" && COLLOID_LEAK_DIR="$absent" python3 "$gate" staged 2>&1 >/dev/null)
 [[ "$note" == "leak-gate: no leak list was found at $absent; nothing was checked" ]] || fail "absent-folder note was: $note"
+# The pre-push hook says it once, not once for each check it runs.
+push_note=$(cd "$r" && printf 'refs/heads/x %s refs/heads/x %s\n' "$(git rev-parse HEAD)" 0000000000000000000000000000000000000000 \
+  | COLLOID_LEAK_DIR="$absent" "$hooks/pre-push" origin url 2>&1 >/dev/null)
+[[ "$push_note" == "$note" ]] || fail "the pre-push hook's note was: $push_note"
+pass=$((pass + 1)); echo "ok    pre-push with no leak list says so once"
 allows "commit with no leak list" env COLLOID_LEAK_DIR="$absent" git -C "$r" commit -q -m "docs: n"
 git -C "$r" remote add origin "$bare"
 allows "push with no leak list" env COLLOID_LEAK_DIR="$absent" git -C "$r" push -q origin HEAD:refs/heads/absent
