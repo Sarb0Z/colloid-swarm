@@ -12,9 +12,10 @@ import type { Task } from './task'
 // The two meet at ${TMPDIR:-/tmp}/colloid-status-$USER/: the band writes
 // <session>.on, and while it stands the relay writes <session>.json and prints
 // nothing; without it the person's own status line draws. The marker is
-// written first, at session.start and at a draw that sees a new id (/clear goes
-// on under one with no session.start), before any process runs, so the relay's
-// first run is already silent. A new id starts the task over.
+// written at session.start and at a draw that sees a new id (/clear goes on
+// under one with no session.start), once the switch says on and the folder is
+// this user's own and no link, before git and the readouts; the relay's first
+// run waits for it over that gap. A new id starts the task over.
 //
 // Opening a session (the switch, git, the readouts) runs outside the render
 // hook: a draw never waits on a process, and draws nothing of its own until
@@ -117,52 +118,95 @@ async function relayFolder($: EngineInterface): Promise<string | undefined> {
 /** A cancellation the engine made (an interrupted or superseded dispatch), not a fault. */
 const isAbort = (error: unknown) => /\baborted\b/.test(String(error))
 
-/** The marker, written with no process, so the relay goes silent at once. */
-async function writeMarker($: EngineInterface, id: string): Promise<void> {
-  const folder = await relayFolder($)
-  if (folder === undefined || !ID.test(id)) return
-  const marker = `${folder}/${id}.on`
-  if (await $.fs.exists(marker)) return
-  await $.fs.write(marker, `${id}\n`)
+/** What decides whether the band runs for a session, read before any marker. */
+type Gate = {
+  readonly checkout: string
+  readonly repo: string
+  readonly on: boolean
+  readonly folder: string | undefined
+  /** The folder is a link or another user's: the band writes nothing there. */
+  readonly folderRefused: boolean
+}
+
+/** The switch, then the folder's link and owner checks: two quick processes. */
+async function gate($: EngineInterface): Promise<Gate> {
+  const own = (await $.fs.stat($.plugin.root, { resolve: true })).realPath
+  if (own === undefined) throw new Error('cannot resolve the mod folder')
+  const checkout = own.split(/[\\/]/).slice(0, -4).join('/')
+  const repo = await sessionRepository($, await $.session.root())
+  const [on, folder] = await Promise.all([switchIsOn($, checkout, repo), relayFolder($)])
+  const folderRefused = on && folder !== undefined ? !(await ownFolder($, folder)) : false
+  return { checkout, repo, on, folder, folderRefused }
 }
 
 /**
- * The band for a session id, opened once: the marker first, then the opening
- * without waiting on it. An opening the engine aborted is tried again at the
- * next event; one that failed stays failed for its id, reported once, so a
- * broken switch is not read again on every draw.
+ * Makes the relay folder, or finds it, this user's own and no link: a shared
+ * /tmp may hold another user's folder or link under the name. `$.fs.write`
+ * makes missing parents 0700 and files 0600 on its own.
+ */
+async function ownFolder($: EngineInterface, folder: string): Promise<boolean> {
+  const made = await run($, ['/bin/sh', '-c', '[ ! -L "$1" ] && mkdir -p -m 700 "$1" && [ -O "$1" ]', 'sh', folder])
+  if (made.exitCode !== 0) report($, `${folder} is a link or not this user's own folder; the person's own status line stays`)
+  return made.exitCode === 0
+}
+
+/** The marker, once the switch is on and the folder passed its checks. */
+async function writeMarker($: EngineInterface, opened: Gate, id: string): Promise<void> {
+  if (!opened.on || opened.folderRefused || opened.folder === undefined || !ID.test(id)) return
+  const marker = `${opened.folder}/${id}.on`
+  if (!(await $.fs.exists(marker))) await $.fs.write(marker, `${id}\n`)
+}
+
+const ATTEMPTS = 3
+const RETRY_MS = 250
+
+/**
+ * The band for a session id, opened once and never waited on by a draw: the
+ * switch and the folder checks, then the marker, then git and the readouts.
+ * The relay's first run waits for the marker over that gap. An opening the
+ * engine aborted is tried again on a timer with backoff, three attempts in
+ * all; one that failed, or the last attempt, gives the line back, reported
+ * once, so a broken switch is not read again on every draw.
  */
 function begin($: EngineInterface, id: string): Opened {
   current?.session?.timer?.cancel()
-  const marked = writeMarker($, id).catch((error: unknown) => {
-    if (!isAbort(error)) report($, `the marker for ${id} was not written: ${String(error)}`)
+  let markedDone = () => {}
+  const marked = new Promise<void>(resolve => {
+    markedDone = resolve
   })
   const opened: Opened = { id, marked, session: undefined }
   current = opened
-  marked
-    .then(() => open($, id))
-    .then(
-      session => {
+  const attempt = (n: number): void => {
+    gate($)
+      .then(async decided => {
+        // Ended or replaced meanwhile: no marker for it.
+        if (current !== opened) return markedDone()
+        await writeMarker($, decided, id)
+        markedDone()
+        const session = await open($, id, decided)
         if (current !== opened) {
           session.timer?.cancel()
           return
         }
         opened.session = session
         $.ui.invalidate('ui.render')
-      },
-      (error: unknown) => {
-        if (isAbort(error)) {
-          if (current === opened) current = undefined
-          $.ui.log(`${$.plugin.name}: opening session ${id} was cut short: ${String(error)}`, { to: 'debug' })
+      })
+      .catch((error: unknown) => {
+        if (current !== opened) return markedDone()
+        if (isAbort(error) && n < ATTEMPTS) {
+          $.ui.log(`${$.plugin.name}: opening session ${id} was cut short, attempt ${n}: ${String(error)}`, { to: 'debug' })
+          $.clock.after(RETRY_MS * 2 ** (n - 1), () => attempt(n + 1))
           return
         }
-        report($, `off for session ${id}: ${String(error)}`)
+        markedDone()
+        report($, isAbort(error) ? `opening session ${id} was cut short ${ATTEMPTS} times; the person's own status line stays` : `off for session ${id}: ${String(error)}`)
         // The person's own status line comes back.
         relayFolder($)
           .then(folder => removeRelayFiles($, folder, id))
           .catch((cleanup: unknown) => report($, `the marker for ${id} was not removed: ${String(cleanup)}`))
-      },
-    )
+      })
+  }
+  attempt(1)
   return opened
 }
 
@@ -172,26 +216,22 @@ async function seen($: EngineInterface): Promise<Opened> {
   return current?.id === id ? current : begin($, id)
 }
 
-async function open($: EngineInterface, id: string): Promise<Session> {
-  const own = (await $.fs.stat($.plugin.root, { resolve: true })).realPath
-  if (own === undefined) throw new Error('cannot resolve the mod folder')
-  const checkout = own.split(/[\\/]/).slice(0, -4).join('/')
-  const repo = await sessionRepository($, await $.session.root())
-  const [home, profile, configDir, folder, usage, now] = await Promise.all([
+/** The rest of the opening, after the gate: the relay file, git and the readouts. */
+async function open($: EngineInterface, id: string, decided: Gate): Promise<Session> {
+  const [home, profile, configDir, usage, now] = await Promise.all([
     $.env.get('HOME'),
     $.env.get('CLAUDE_PROFILE'),
     $.env.get('CLAUDE_CONFIG_DIR'),
-    relayFolder($),
     $.session.usage(),
     $.clock.now(),
   ])
   const session: Session = {
     id,
-    repo,
-    checkout,
-    on: await switchIsOn($, checkout, repo),
+    repo: decided.repo,
+    checkout: decided.checkout,
+    on: decided.on,
     profile: { HOME: home, CLAUDE_PROFILE: profile, CLAUDE_CONFIG_DIR: configDir },
-    folder,
+    folder: decided.folder,
     relay: undefined,
     fallback: undefined,
     git: null,
@@ -203,13 +243,13 @@ async function open($: EngineInterface, id: string): Promise<Session> {
     refreshing: false,
     refreshAgain: false,
     timer: undefined,
-    folderRefused: false,
+    folderRefused: decided.folderRefused,
   }
   if (!session.on) {
-    await removeRelayFiles($, folder, id)
+    // A marker left from a run with the switch on.
+    if (!decided.folderRefused) await removeRelayFiles($, decided.folder, id)
     return session
   }
-  await ownFolder($, session)
   await readRelay($, session)
   await refresh($, session)
   session.fallback = session.relay === undefined ? await fallbackStatus($, session) : undefined
@@ -219,19 +259,6 @@ async function open($: EngineInterface, id: string): Promise<Session> {
   return session
 }
 
-/**
- * Makes the relay folder this user's alone. The marker's write may have made
- * it with the default mode; a shared /tmp may hold another user's folder or
- * link under the name, which the relay then refuses to write through.
- */
-async function ownFolder($: EngineInterface, session: Session): Promise<void> {
-  if (session.folder === undefined) return
-  const made = await run($, ['/bin/sh', '-c', '[ ! -L "$1" ] && mkdir -p "$1" && [ -O "$1" ] && chmod 700 "$1"', 'sh', session.folder])
-  if (made.exitCode !== 0) {
-    session.folderRefused = true
-    report($, `${session.folder} is not this user's own folder; the person's own status line stays`)
-  }
-}
 
 const relayFile = (session: Session, ext: 'on' | 'json') =>
   session.folder !== undefined && ID.test(session.id) ? `${session.folder}/${session.id}.${ext}` : undefined
@@ -317,6 +344,7 @@ async function readGit($: EngineInterface, cwd: string): Promise<Git | null> {
   // A folder git cannot start in (one since removed) shows no git segments, as
   // a folder outside a work tree does.
   const status = await run($, ['git', 'status', '--porcelain=v2', '--branch'], { cwd, env }).catch((error: unknown) => {
+    if (isAbort(error)) throw error
     $.ui.log(`${$.plugin.name}: git did not start in ${cwd}: ${String(error)}`, { to: 'debug' })
     return undefined
   })
@@ -339,6 +367,7 @@ async function readReadouts($: EngineInterface, session: Session): Promise<strin
     session.repo,
     typeof sessionId === 'string' ? sessionId : session.id,
   ]).catch((error: unknown) => {
+    if (isAbort(error)) throw error
     report($, `readout.py did not start: ${String(error)}`)
     return undefined
   })
@@ -449,20 +478,35 @@ async function afterward($: EngineInterface, what: string, work: (session: Sessi
 
 /**
  * The git top level of the session's own folder, so a worktree session reads
- * its own files and HEAD; the folder itself outside git.
+ * its own files and HEAD; undefined, reported, when git cannot name one.
  */
-async function ownTopLevel($: EngineInterface, session: Session): Promise<string> {
+async function ownTopLevel($: EngineInterface, session: Session): Promise<string | undefined> {
   const folder = statusCwd(session) ?? (await $.session.cwd())
-  const top = await run($, ['git', '-C', folder, 'rev-parse', '--show-toplevel'])
-  return top.exitCode === 0 ? top.stdout.trim() : folder
+  const top = await run($, ['git', '-C', folder, 'rev-parse', '--show-toplevel']).catch((error: unknown) => {
+    if (isAbort(error)) throw error
+    report($, `git did not start in ${folder}: ${String(error)}`)
+    return undefined
+  })
+  if (top === undefined) return undefined
+  if (top.exitCode !== 0) {
+    report($, `git names no top level for ${folder}: ${top.stderr.trim()}`)
+    return undefined
+  }
+  return top.stdout.trim()
 }
 
 /** Callers open: removed-callers.py over the task's edited Python files. */
 async function checkCallers($: EngineInterface, session: Session): Promise<void> {
   const project = await ownTopLevel($, session)
+  if (project === undefined) {
+    session.task = { ...session.task, callers: { kind: 'failed' } }
+    $.ui.invalidate('ui.render')
+    return
+  }
   const answer = await run($, ['python3', `${session.checkout}/.agents/hooks/lib/removed-callers.py`, '--json', project], {
     stdin: `${session.task.editedPy.join('\n')}\n`,
   }).catch((error: unknown) => {
+    if (isAbort(error)) throw error
     report($, `removed-callers.py did not run: ${String(error)}`)
     return undefined
   })
@@ -567,9 +611,12 @@ export const register: Register = on => {
 
   // Only the ending id's files go: the process may go on under a new id.
   on('session.end', async ($, e, next) => {
-    if (current?.id === e.sessionId) {
-      current.session?.timer?.cancel()
+    // A marker still being written for the ending id lands before the removal.
+    const ending = current?.id === e.sessionId ? current : undefined
+    if (ending !== undefined) {
       current = undefined
+      await ending.marked
+      ending.session?.timer?.cancel()
     }
     await relayFolder($)
       .then(folder => removeRelayFiles($, folder, e.sessionId))

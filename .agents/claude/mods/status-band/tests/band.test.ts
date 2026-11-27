@@ -36,6 +36,14 @@ type World = {
   switchHeld?: Promise<void>
   /** How many git runs the engine aborts before answering. */
   gitAborts?: number
+  /** How many readout.py runs the engine aborts before answering. */
+  readoutAborts?: number
+  /** git cannot start to name the session folder's top level. */
+  topLevelFails?: boolean
+  /** A file write lands only once this settles. */
+  writeHeld?: Promise<void>
+  /** Called as a held write begins. */
+  onWrite?: () => void
 }
 
 function world(on: On, w: World) {
@@ -81,7 +89,11 @@ function world(on: On, w: World) {
     const text = files.get(e.path)
     return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text }
   })
-  on('fs.write', (_, e) => {
+  on('fs.write', async (_, e) => {
+    if (w.writeHeld !== undefined) {
+      w.onWrite?.()
+      await w.writeHeld
+    }
     events.push(`write ${e.path}`)
     written.push({ path: e.path, text: e.text })
     put(e.path, e.text)
@@ -92,8 +104,15 @@ function world(on: On, w: World) {
       w.gitAborts = (w.gitAborts ?? 0) - 1
       return { deny: '$.process.run(git) aborted' }
     }
+    if (e.argv[1]?.endsWith('/readout.py') === true && (w.readoutAborts ?? 0) > 0) {
+      w.readoutAborts = (w.readoutAborts ?? 0) - 1
+      return { deny: '$.process.run(python3) aborted' }
+    }
+    if (w.topLevelFails === true && e.argv.includes('--show-toplevel') && !e.argv.includes('--git-common-dir')) {
+      return { deny: 'spawn git ENOMEM' }
+    }
     if (e.argv[1]?.endsWith('/config.py') === true && w.switchHeld !== undefined) await w.switchHeld
-    events.push(`run ${e.argv[0] ?? ''}`)
+    events.push(`run ${e.argv.join(' ')}`)
     ran.push(e.argv)
     stdins.push(e.init?.stdin)
     const answer = (a: Answer) => ({ value: { stderr: '', ...a, isStdoutTruncated: false, isStderrTruncated: false } })
@@ -228,25 +247,45 @@ function engine(on: On, result: { isError: boolean; text: string }) {
 }
 const turn = (durationMs: number) => ({ answer: 'done', durationMs, isAborted: false, turnId: 't', reason: 'answer' }) as const
 
-const MARKER_FIRST = (id: string) => `write ${FOLDER}/${id}.on`
+const FOLDER_CHECK = `run /bin/sh -c [ ! -L "$1" ] && mkdir -p -m 700 "$1" && [ -O "$1" ] sh ${FOLDER}`
 
-test('session.start writes the marker before any process runs, then makes the folder this user\'s alone', async ($, on) => {
-  const { ran, written, events } = world(on, { id: 'start-1', status: STATUS, git: TRUNK })
+/** The marker comes after the switch and the folder check, and before git status and the reader. */
+function expectMarkerOrder(events: readonly string[], id: string) {
+  const marker = events.indexOf(`write ${FOLDER}/${id}.on`)
+  const sw = events.findIndex(event => event.includes('/config.py'))
+  const folder = events.indexOf(FOLDER_CHECK)
+  const status = events.findIndex(event => event.startsWith('run git status'))
+  expect(sw).toBeGreaterThanOrEqual(0)
+  expect(folder).toBeGreaterThan(sw)
+  expect(marker).toBeGreaterThan(folder)
+  if (status >= 0) expect(status).toBeGreaterThan(marker)
+}
+
+test('session.start writes the marker once the switch is on and the folder is this user\'s, before git and the readouts', async ($, on) => {
+  const { written, events } = world(on, { id: 'start-1', status: STATUS, git: TRUNK })
   await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
-  expect(events[0]).toBe(MARKER_FIRST('start-1'))
   expect(written).toEqual([{ path: `${FOLDER}/start-1.on`, text: 'start-1\n' }])
+  expectMarkerOrder(events, 'start-1')
   const ui = await $.ui.mount(BAND())
-  expect(ran).toContainEqual(['/bin/sh', '-c', '[ ! -L "$1" ] && mkdir -p "$1" && [ -O "$1" ] && chmod 700 "$1"', 'sh', FOLDER])
   expect(await textOf(ui)).toContain('Fable 5.1')
   // The engine's own row stays beneath the band.
   expect(await textOf(ui)).toContain('beneath')
   await ui.unmount()
 })
 
-test('a draw that sees a new id writes its marker before any other work', async ($, on) => {
+test('a draw that sees a new id writes its marker in the same order', async ($, on) => {
   const { events } = world(on, { id: 'marker-1', status: STATUS, git: TRUNK })
   const ui = await $.ui.mount(BAND())
-  expect(events[0]).toBe(MARKER_FIRST('marker-1'))
+  expectMarkerOrder(events, 'marker-1')
+  await ui.unmount()
+})
+
+test('switched off, no marker is ever written', async ($, on) => {
+  const { written } = world(on, { id: 'off-2', status: STATUS, git: TRUNK, switchWord: 'no' })
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(BAND())
+  expect(await textOf(ui)).toBe('beneath')
+  expect(written).toEqual([])
   await ui.unmount()
 })
 
@@ -265,29 +304,56 @@ test('no draw waits on a process: until the opening finished, the band draws not
   await later.unmount()
 })
 
-test('an opening the engine aborted is not reported, and the next draw opens again', async ($, on) => {
-  const { logged, ran } = world(on, { id: 'abort-1', status: STATUS, git: TRUNK, gitAborts: 1 })
-  const first = await $.ui.mount(BAND())
-  expect(await textOf(first)).toBe('beneath')
-  await first.unmount()
+test('an opening the engine aborted is retried on a timer, not reported, and draws once it succeeds', async ($, on) => {
+  const { logged, ran, clock } = world(on, { id: 'abort-1', status: STATUS, git: TRUNK, gitAborts: 1 })
+  const ui = await $.ui.mount(BAND())
+  expect(await textOf(ui)).toBe('beneath')
+  await clock.advance(250)
+  expect(await textOf(ui)).toContain('Fable 5.1')
   expect(logged.filter(line => !line.includes('cut short'))).toEqual([])
-  const second = await $.ui.mount(BAND())
-  expect(await textOf(second)).toContain('Fable 5.1')
   expect(ran.filter(argv => argv[1]?.endsWith('/config.py') === true).length).toBe(1)
-  await second.unmount()
+  await ui.unmount()
 })
 
-test('a folder that is not this user\'s own keeps no marker of the band\'s, and the band still draws', async ($, on) => {
-  const { written, files } = world(on, { id: 'marker-2', status: STATUS, git: TRUNK, folderExit: 1 })
+test('after three aborted openings the band reports once and leaves no marker', async ($, on) => {
+  const { logged, written, files, clock } = world(on, { id: 'abort-2', status: STATUS, git: TRUNK, gitAborts: 9 })
   const ui = await $.ui.mount(BAND())
-  // Only the first, process-free write: the band never puts it back there.
-  expect(written.map(entry => entry.path)).toEqual([`${FOLDER}/marker-2.on`])
-  files.delete(`${FOLDER}/marker-2.on`)
+  await clock.advance(250)
+  await clock.advance(500)
+  await clock.advance(5000)
+  expect(await textOf(ui)).toBe('beneath')
+  expect(logged.filter(line => !line.includes('attempt'))).toEqual([
+    "status-band: opening session abort-2 was cut short 3 times; the person's own status line stays",
+  ])
+  expect(written).toEqual([])
+  expect(files.has(`${FOLDER}/abort-2.on`)).toBe(false)
   await ui.unmount()
-  const again = await $.ui.mount(BAND())
-  expect(written.length).toBe(1)
-  expect(await textOf(again)).toContain('Fable 5.1')
-  await again.unmount()
+})
+
+test('a folder that is a link or another user\'s gets no marker, and the band still draws', async ($, on) => {
+  const { written } = world(on, { id: 'marker-2', status: STATUS, git: TRUNK, folderExit: 1 })
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(BAND())
+  expect(written).toEqual([])
+  expect(await textOf(ui)).toContain('Fable 5.1')
+  await ui.unmount()
+})
+
+test('an aborted reader is retried, never shown as a failed reader', async ($, on) => {
+  const { logged, clock } = world(on, {
+    id: 'reader-abort',
+    status: STATUS,
+    git: TRUNK,
+    readouts: { exitCode: 0, stdout: '2 replies owed\n' },
+    readoutAborts: 1,
+  })
+  const ui = await $.ui.mount(BAND())
+  await clock.advance(250)
+  const text = await textOf(ui)
+  expect(text).toContain('2 replies owed')
+  expect(text).not.toContain('reader failed')
+  expect(logged.filter(line => line.includes('did not start'))).toEqual([])
+  await ui.unmount()
 })
 
 test('an id that is no file name gets no marker', async ($, on) => {
@@ -323,6 +389,33 @@ test('session.end removes only the ending id\'s files', async ($, on) => {
   const ui = await $.ui.mount(BAND())
   await $.session.end({ reason: 'clear', sessionId: 'end-1', resume: { sessionId: 'end-1' } })
   expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/end-1.on`, `${FOLDER}/end-1.json`, `${FOLDER}/end-1.nomod`])
+  await ui.unmount()
+})
+
+test('session.end waits for a marker still being written, so none is left behind', async ($, on) => {
+  let land = () => {}
+  let writing = () => {}
+  const started = new Promise<void>(resolve => {
+    writing = resolve
+  })
+  const w: World = {
+    id: 'end-2',
+    status: STATUS,
+    git: TRUNK,
+    writeHeld: new Promise<void>(resolve => {
+      land = resolve
+    }),
+    onWrite: () => writing(),
+  }
+  const { files, clock } = world(on, w)
+  const ui = await $.ui.mount(BAND())
+  await started
+  const ended = $.session.end({ reason: 'clear', sessionId: 'end-2', resume: { sessionId: 'end-2' } })
+  // session.end runs as far as it can before the write lands.
+  await clock.settle()
+  land()
+  await ended
+  expect(files.has(`${FOLDER}/end-2.on`)).toBe(false)
   await ui.unmount()
 })
 
@@ -457,6 +550,17 @@ test('in a worktree session the callers check reads the worktree\'s own files', 
     tree,
   ])
   expect(await textOf(ui)).toContain('1 callers open')
+  await ui.unmount()
+})
+
+test('when git cannot name the session folder\'s top level, callers ?', async ($, on) => {
+  const { ran } = world(on, { id: 'callers-4', status: STATUS, git: TRUNK, topLevelFails: true })
+  engine(on, { isError: false, text: '' })
+  const ui = await $.ui.mount(BAND())
+  await $.tool.call({ tool: 'Edit', file_path: '/work/app/lib.py', old_string: 'a', new_string: 'b' })
+  await $.turn.complete(turn(2000))
+  expect(await textOf(ui)).toContain('callers ?')
+  expect(ran.some(argv => argv[1]?.endsWith('/removed-callers.py') === true)).toBe(false)
   await ui.unmount()
 })
 
