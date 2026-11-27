@@ -86,7 +86,8 @@ function two(n: number): string {
  * The badge: CLAUDE_PROFILE, else the name of a non-default config folder
  * (~/.claude-<name>) read from the transcript path, or from CLAUDE_CONFIG_DIR
  * when there is none. Magenta for a named folder, yellow otherwise. A name is
- * cut at an `@`, so the badge never names an email.
+ * cut at an `@`, so the badge never names an email; a profile name the cut
+ * empties gives way to the folder name.
  */
 export function badge(transcript: string, env: Profile): Run | undefined {
   const home = env.HOME ?? ''
@@ -97,7 +98,8 @@ export function badge(transcript: string, env: Profile): Run | undefined {
   } else if (transcript === '' && (env.CLAUDE_CONFIG_DIR ?? '').startsWith(named)) {
     folder = (env.CLAUDE_CONFIG_DIR ?? '').slice(named.length)
   }
-  const label = ((env.CLAUDE_PROFILE ?? '') || folder).split('@')[0] ?? ''
+  const cut = (name: string) => name.split('@')[0] ?? ''
+  const label = cut(env.CLAUDE_PROFILE ?? '') || cut(folder)
   if (label === '') return undefined
   return { text: `● ${label.replace(/[a-z]+/g, low => low.toUpperCase())}`, color: folder === '' ? YEL : MAG, bold: true }
 }

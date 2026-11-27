@@ -42,7 +42,15 @@ test('a badge name holding an @ is cut there, and keeps its colour', async () =>
   expect(folder).toBe('● A')
 })
 
-test('a profile name that starts with an @ draws no badge', async () => {
+test('a profile name the @ cut empties gives way to the folder name, and to no badge without one', async () => {
+  const named = stripRows(
+    { transcript_path: '/h/.claude-guest/projects/p/s.jsonl', workspace: { current_dir: '/w/app' } },
+    { HOME: '/h', CLAUDE_PROFILE: '@corp' },
+    null,
+    0,
+    null,
+  )[0]?.[0]
+  expect(named).toEqual({ text: '● GUEST', color: '#bb9af7', bold: true })
   const [first] = stripRows({ workspace: { current_dir: '/w/app' } }, { HOME: '/h', CLAUDE_PROFILE: '@corp' }, null, 0, null)[0] ?? []
   expect(first?.text).toBe(' app')
 })
