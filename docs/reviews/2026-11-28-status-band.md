@@ -85,3 +85,32 @@ cell with the reviewer contract. Verdict: `CONFORMANCE: no`, 1 `P1` and 8
 AMBIGUITY (acceptance 5 "the person's own status line shows": from launch, or
 from the first run after the switch is read): settled by the lead as from
 launch, through finding 2 and the relay's wait.
+
+Live QA at `99e36e9`, same method, on a named branch with a readout folder.
+All scenarios passed. Launch, captured every 0.5 s for 6 s before any prompt:
+the band above the prompt, no person's line below it, no `threw`, `aborted` or
+`error` in the scrollback; the relay folder mode 700 and the `.json` mode 600.
+`/clear`: clean, only the new id's files. Row 4: `tests pass` after
+`bash .agents/test-statusline.sh`; unchanged after `bash -c 'exit 1' # it's a
+test`; `tests fail` after a failing `.agents/test-*.sh`; `3 callers open` after
+renaming the definition of `real_folders` in `agent_records.py`. Idle 60 s: no
+git, `python3` or `readout.py`. Switched off: no band, the person's line below
+the prompt about 1.5 s after the banner. Not covered: a freshly created relay
+folder, since another session's file was in it. A rename whose callers all use
+`module.name(` shows no callers segment, as `removed-callers.py` documents. The
+lead's own launch capture at `99e36e9` showed the same frame.
+
+Round 4, code review of `971afcf..99e36e9`, by an Opus `reviewer` cell with the
+reviewer contract. Verdict: `CONFORMANCE: no`, 8 `P2`, no `P0` or `P1`.
+Result: accept; the P2 fixes trail in a follow-up lane.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | P2 | A dangling-link relay folder or a failed `mkdir` makes the relay wait about 1.6 s on every refresh, since no `.nomod` can be written | adopted, trails: create the folder before the wait, and wait only when it is ours |
+| 2 | P2 | `umask 077` covers the person's own status line command, so files it creates change mode | adopted, trails: 077 only around the relay's own writes |
+| 3 | P2 | `refreshInBackground` and `poll` report an engine abort visibly | adopted, trails: aborts skip the report |
+| 4 | P2 | The switched-off path deletes the relay's `.nomod`, so a slow opening causes a second wait | adopted, trails: it removes only `.on` and `.json` |
+| 5 | P2 | The abort retry timer cannot be cancelled when the session ends or clears | adopted, trails: the handle is kept and cancelled |
+| 6 | P2 | A backslash-newline continuation hides a runner | adopted, trails |
+| 7 | P2 | `npm run testdata:seed` counts as a test runner | adopted, trails: a test script name is `test` or `test` followed by `:`, `.` or `-` |
+| 8 | P2 | `register.tsx` 628 lines, `pieces` 65 | deferred with round 3 finding 9 |
