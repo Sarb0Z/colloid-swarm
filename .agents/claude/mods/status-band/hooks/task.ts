@@ -33,7 +33,7 @@ export const NEW_TASK: Task = {
 
 // A runner, as the words that start a simple command once its launchers are gone.
 const RUNNER =
-  /^(?:pytest|jest|vitest|rspec|phpunit|(?:npm|pnpm)(?: run)? test[\w:.-]*|yarn test[\w:.-]*|bun test|go test|cargo test|mvn test|gradle test|dotnet test|node --test|deno test|make test|claude plugin test|(?:bash |sh )?(?:\S*\/)?\.agents\/(?:suite|check-all|test-[\w.-]+)\.sh|python3? (?:\S*\/)?\.agents\/test-[\w.-]+\.py)(?: |$)/
+  /^(?:pytest|jest|vitest|rspec|phpunit|(?:npm|pnpm)(?: run)? test(?:[:.-][\w:.-]*)?|yarn test(?:[:.-][\w:.-]*)?|bun test|go test|cargo test|mvn test|gradle test|dotnet test|node --test|deno test|make test|claude plugin test|(?:bash |sh )?(?:\S*\/)?\.agents\/(?:suite|check-all|test-[\w.-]+)\.sh|python3? (?:\S*\/)?\.agents\/test-[\w.-]+\.py)(?: |$)/
 
 // uv run options that take the next word as their value.
 const UV_VALUE = new Set(['--with', '--with-requirements', '--with-editable', '--python', '-p', '--project', '--directory', '--extra', '--group', '--package', '--env-file', '--index', '--default-index', '--script'])
@@ -108,6 +108,11 @@ function pieces(command: string): { cut: Piece[]; isOpen: boolean } {
       continue
     }
     if (char === '\\') {
+      // A backslash before a newline continues the line: neither is a character.
+      if (command[i + 1] === '\n') {
+        i += 1
+        continue
+      }
       word = (word ?? '') + (command[i + 1] ?? '')
       i += 1
       continue

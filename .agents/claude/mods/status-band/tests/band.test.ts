@@ -330,6 +330,49 @@ test('after three aborted openings the band reports once and leaves no marker', 
   await ui.unmount()
 })
 
+test('an opening retry still waiting when the id ends is cancelled and never runs', async ($, on) => {
+  const w: World = { id: 'retry-end', status: STATUS, git: TRUNK, gitAborts: 9 }
+  const { clock } = world(on, w)
+  const ui = await $.ui.mount(BAND())
+  expect(w.gitAborts).toBe(8)
+  await $.session.end({ reason: 'clear', sessionId: 'retry-end', resume: { sessionId: 'retry-end' } })
+  await clock.advance(5000)
+  expect(w.gitAborts).toBe(8)
+  await ui.unmount()
+})
+
+test('an opening retry of an id the session moved off is cancelled; the new id opens alone', async ($, on) => {
+  const w: World = { id: 'retry-a', status: STATUS, git: TRUNK, gitAborts: 1 }
+  const { clock, ran, written, put } = world(on, w)
+  const first = await $.ui.mount(BAND())
+  expect(w.gitAborts).toBe(0)
+  w.id = 'retry-b'
+  put(`${FOLDER}/retry-b.json`, JSON.stringify(STATUS))
+  await first.unmount()
+  const second = await $.ui.mount(BAND())
+  await clock.advance(5000)
+  expect(ran.filter(argv => argv[1]?.endsWith('/config.py') === true).length).toBe(1)
+  expect(written.map(entry => entry.path)).toEqual([`${FOLDER}/retry-b.on`])
+  await second.unmount()
+})
+
+test('an engine abort during a tool call refresh or a relay poll is not reported', async ($, on) => {
+  const w: World = { id: 'refresh-abort', status: STATUS, git: TRUNK }
+  const { logged, clock, put } = world(on, w)
+  engine(on, { isError: false, text: 'ok' })
+  const ui = await $.ui.mount(BAND())
+  w.gitAborts = 1
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await clock.settle()
+  expect(w.gitAborts).toBe(0)
+  w.gitAborts = 1
+  put(`${FOLDER}/refresh-abort.json`, JSON.stringify({ ...STATUS, workspace: { current_dir: '/work/other' } }))
+  await clock.advance(2000)
+  expect(w.gitAborts).toBe(0)
+  expect(logged).toEqual([])
+  await ui.unmount()
+})
+
 test('a folder that is a link or another user\'s gets no marker, and the band still draws', async ($, on) => {
   const { written } = world(on, { id: 'marker-2', status: STATUS, git: TRUNK, folderExit: 1 })
   await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
@@ -419,13 +462,15 @@ test('session.end waits for a marker still being written, so none is left behind
   await ui.unmount()
 })
 
-test('switched off, the band draws nothing of its own and takes its marker back', async ($, on) => {
-  const { ran, files } = world(on, { id: 'off-1', status: STATUS, git: TRUNK, switchWord: 'no', markerExists: true })
+test('switched off, the band draws nothing of its own and takes its marker back, keeping the relay\'s .nomod', async ($, on) => {
+  const { ran, files, put } = world(on, { id: 'off-1', status: STATUS, git: TRUNK, switchWord: 'no', markerExists: true })
+  put(`${FOLDER}/off-1.nomod`, '')
   const ui = await $.ui.mount(BAND())
   const text = await textOf(ui)
   expect(text).toBe('beneath')
-  expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/off-1.on`, `${FOLDER}/off-1.json`, `${FOLDER}/off-1.nomod`])
+  expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/off-1.on`, `${FOLDER}/off-1.json`])
   expect(files.has(`${FOLDER}/off-1.on`)).toBe(false)
+  expect(files.has(`${FOLDER}/off-1.nomod`)).toBe(true)
   // Off, nothing but the switch and the removal runs: no git, no reader.
   expect(ran.filter(argv => argv[0] === 'git' && argv[1] !== '-C')).toEqual([])
   await ui.unmount()

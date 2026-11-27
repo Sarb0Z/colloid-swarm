@@ -38,6 +38,10 @@ test('a runner in command position counts, through a launcher or after &&', asyn
     'uv run --frozen --python 3.14 pytest -q',
     'npm run test:unit',
     'pnpm test -- --watch=false',
+    'npm run test.unit',
+    'yarn test-ci',
+    'cd app && \\\n  pytest -q',
+    'uv run \\\npytest',
   ]) {
     expect(isTestRun(command), command).toBe(true)
   }
@@ -79,6 +83,8 @@ test('a runner word anywhere but command position does not count', async () => {
     'git commit -m "run pytest | tail"',
     'cat .agents/test-owed.sh',
     'command -v pytest',
+    'npm run testdata:seed',
+    'yarn testing',
     'ls',
   ]) {
     expect(isTestRun(command), command).toBe(false)

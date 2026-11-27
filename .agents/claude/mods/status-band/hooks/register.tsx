@@ -70,6 +70,18 @@ type Opened = {
   /** Settles once the marker write was tried. */
   readonly marked: Promise<void>
   session: Session | undefined
+  /** The timer of the retry waiting on an aborted opening, while one waits. */
+  retry: { cancel: () => void } | undefined
+  /** Settles `marked` without a marker write. */
+  readonly settle: () => void
+}
+
+/** Ends a waiting retry: no marker will come for this id, so `marked` settles. */
+function cancelRetry(opened: Opened): void {
+  if (opened.retry === undefined) return
+  opened.retry.cancel()
+  opened.retry = undefined
+  opened.settle()
 }
 
 let current: Opened | undefined
@@ -169,14 +181,18 @@ const RETRY_MS = 250
  * once, so a broken switch is not read again on every draw.
  */
 function begin($: EngineInterface, id: string): Opened {
-  current?.session?.timer?.cancel()
+  if (current !== undefined) {
+    cancelRetry(current)
+    current.session?.timer?.cancel()
+  }
   let markedDone = () => {}
   const marked = new Promise<void>(resolve => {
     markedDone = resolve
   })
-  const opened: Opened = { id, marked, session: undefined }
+  const opened: Opened = { id, marked, session: undefined, retry: undefined, settle: () => markedDone() }
   current = opened
   const attempt = (n: number): void => {
+    opened.retry = undefined
     gate($)
       .then(async decided => {
         // Ended or replaced meanwhile: no marker for it.
@@ -195,14 +211,14 @@ function begin($: EngineInterface, id: string): Opened {
         if (current !== opened) return markedDone()
         if (isAbort(error) && n < ATTEMPTS) {
           $.ui.log(`${$.plugin.name}: opening session ${id} was cut short, attempt ${n}: ${String(error)}`, { to: 'debug' })
-          $.clock.after(RETRY_MS * 2 ** (n - 1), () => attempt(n + 1))
+          opened.retry = $.clock.after(RETRY_MS * 2 ** (n - 1), () => attempt(n + 1))
           return
         }
         markedDone()
         report($, isAbort(error) ? `opening session ${id} was cut short ${ATTEMPTS} times; the person's own status line stays` : `off for session ${id}: ${String(error)}`)
         // The person's own status line comes back.
         relayFolder($)
-          .then(folder => removeRelayFiles($, folder, id))
+          .then(folder => removeRelayFiles($, folder, id, ALL_RELAY_FILES))
           .catch((cleanup: unknown) => report($, `the marker for ${id} was not removed: ${String(cleanup)}`))
       })
   }
@@ -247,14 +263,16 @@ async function open($: EngineInterface, id: string, decided: Gate): Promise<Sess
   }
   if (!session.on) {
     // A marker left from a run with the switch on.
-    if (!decided.folderRefused) await removeRelayFiles($, decided.folder, id)
+    if (!decided.folderRefused) await removeRelayFiles($, decided.folder, id, ['on', 'json'])
     return session
   }
   await readRelay($, session)
   await refresh($, session)
   session.fallback = session.relay === undefined ? await fallbackStatus($, session) : undefined
   session.timer = $.clock.every(POLL_MS, () => {
-    poll($, session).catch((error: unknown) => report($, `the relay file was not read: ${String(error)}`))
+    poll($, session).catch((error: unknown) => {
+      if (!isAbort(error)) report($, `the relay file was not read: ${String(error)}`)
+    })
   })
   return session
 }
@@ -334,7 +352,9 @@ async function refresh($: EngineInterface, session: Session): Promise<void> {
 function refreshInBackground($: EngineInterface, session: Session): void {
   refresh($, session)
     .then(() => $.ui.invalidate('ui.render'))
-    .catch((error: unknown) => report($, `git and the readouts were not refreshed: ${String(error)}`))
+    .catch((error: unknown) => {
+      if (!isAbort(error)) report($, `git and the readouts were not refreshed: ${String(error)}`)
+    })
 }
 
 // GIT_OPTIONAL_LOCKS=0: the band refreshes while agents run git in the same
@@ -382,9 +402,20 @@ async function keepMarker($: EngineInterface, session: Session): Promise<void> {
   if (!(await $.fs.exists(marker))) await $.fs.write(marker, `${session.id}\n`)
 }
 
-async function removeRelayFiles($: EngineInterface, folder: string | undefined, id: string): Promise<void> {
+const ALL_RELAY_FILES = ['on', 'json', 'nomod'] as const
+
+/**
+ * The id's relay files of these kinds. A band that is switched off keeps
+ * <id>.nomod: it says no band came for the id, so the relay stops waiting.
+ */
+async function removeRelayFiles(
+  $: EngineInterface,
+  folder: string | undefined,
+  id: string,
+  kinds: readonly (typeof ALL_RELAY_FILES)[number][],
+): Promise<void> {
   if (folder === undefined || !ID.test(id)) return
-  const files = [`${folder}/${id}.on`, `${folder}/${id}.json`, `${folder}/${id}.nomod`]
+  const files = kinds.map(kind => `${folder}/${id}.${kind}`)
   const present = await Promise.all(files.map(file => $.fs.exists(file)))
   if (!present.some(Boolean)) return
   const removed = await run($, ['rm', '-f', ...files])
@@ -615,11 +646,12 @@ export const register: Register = on => {
     const ending = current?.id === e.sessionId ? current : undefined
     if (ending !== undefined) {
       current = undefined
+      cancelRetry(ending)
       await ending.marked
       ending.session?.timer?.cancel()
     }
     await relayFolder($)
-      .then(folder => removeRelayFiles($, folder, e.sessionId))
+      .then(folder => removeRelayFiles($, folder, e.sessionId, ALL_RELAY_FILES))
       .catch((error: unknown) => {
         if (!isAbort(error)) report($, `the relay files of ${e.sessionId} were not removed: ${String(error)}`)
       })
