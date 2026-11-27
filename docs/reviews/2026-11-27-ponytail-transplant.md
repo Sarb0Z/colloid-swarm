@@ -27,7 +27,33 @@ verbatim. Artifact: `docs/notes/2026-11-27-ponytail-transplant-plan.md` at
 | 17 | P2 | A save to the output style goes live machine-wide at once | adopted: drafts only in fixtures, one change after acceptance, revert by `git checkout`; the bullet sits after the approval bullets |
 | 18 | P2 | `post-edit-check.sh` and its test are over 300 lines | accepted: the rule's logic lives in its own Python module |
 
-The reviewer's two `AMBIGUITY:` lines go to the operator: the landing rule
+## Unit A code review
+
+Covers: f321b9c..9b16058
+
+Round 1, code review of the `callers-advisory` lane, by an Opus `reviewer`
+cell through the workloop reviewer brief. `CONFORMANCE: unknown`, 6 `P2`, no
+`P0` or `P1`, so no disprove pass. QA (independent cell) passed the seven
+acceptance lines, with a negative control on the pre-change hook.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| A1 | P2 | A function moved with a re-export left behind (`from util import total_price` in `lib.py`) still counts as removed, so working importers are reported as broken | adopted: a name the working tree still binds at column 0 is not removed; a case added |
+| A2 | P2 | A name removed from `pkg/__init__.py` never matches `from pkg import name` | adopted: an `__init__.py` file's module is its folder; a case added |
+| A3 | P2 | With the project below the repository root, `git show HEAD:<rel>` fails silently and the advisory is off | adopted: `HEAD:./<rel>`, and any failure other than a missing file is printed on stderr |
+| A4 | P2 | Cases 2, 4, 5 and 6 pass on a hook that prints nothing | adopted: each negative case carries a positive control in the same run |
+| A5 | P2 | Names past the cap of 8 go unsearched with no notice when the first 8 have no hits | adopted: the dropped-names line prints whenever names were dropped (the reviewer's AMBIGUITY 2, reading a) |
+| A6 | P2 | `git grep` output split on `:` and decoded strictly; a `:` or non-ASCII path, or non-UTF-8 source, raises and loses the whole advisory | adopted: `git grep -z` and decoding with replacement |
+
+The reviewer's AMBIGUITY 1 (whether an untracked file's definition cancels a
+call hit) is settled by acceptance line 3, which moves the function into a new
+untracked `util.py`: untracked definitions count. The controller does not
+reopen a lane for a `P2`, so the lane is accepted at `9b16058` and the six
+fixes trail it in one commit that names it.
+
+## Plan review ambiguities
+
+The plan reviewer's two `AMBIGUITY:` lines went to the operator: the landing rule
 (Decision 2) and Unit A's stakes, which the lead settled at Critical as the
 higher level. Its `HANDOFF: qa-verifier` is the fresh-session acceptance,
 which runs after the operator's OK on the plan.
