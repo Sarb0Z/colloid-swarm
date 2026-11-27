@@ -66,7 +66,7 @@ else
   cp "$here/output-style.md" "$style"
   echo "wrote $style"
 fi
-echo "Select it with \"outputStyle\": \"colloid\" in ~/.claude/settings.json."
+echo "Leave it unselected while this policy is installed: the policy appends the same text, and selecting it as well puts it in the prompt twice."
 echo
 
 echo "Installing to $target — sudo will prompt."
