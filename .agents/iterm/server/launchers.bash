@@ -3,10 +3,22 @@
 # each run; edit the copy in colloid-swarm, not this one. Each account keeps its
 # own login in its own folder, as on the Mac. ~/.claude stays with the login that
 # was already there.
-claudew() { CLAUDE_PROFILE=work CLAUDE_CONFIG_DIR="$HOME/.claude-work" command claude "$@"; }
-claudep() { CLAUDE_PROFILE=personal CLAUDE_CONFIG_DIR="$HOME/.claude-personal" command claude "$@"; }
-claudef() { CLAUDE_PROFILE=family CLAUDE_CONFIG_DIR="$HOME/.claude-family" command claude "$@"; }
-claudeg() { CLAUDE_PROFILE=guest CLAUDE_CONFIG_DIR="$HOME/.claude-guest" command claude "$@"; }
+# Every session replaces Claude Code's own system prompt with the colloid-swarm
+# clone's curated copy (.agents/claude/system-prompt.md); a missing file falls
+# back to the default and says so.
+_colloid_prompt() {
+  colloid_prompt=()
+  local f="$HOME/Projects/colloid-swarm/.agents/claude/system-prompt.md"
+  if [[ -f $f ]]; then
+    colloid_prompt=(--system-prompt-file "$f")
+  else
+    echo "claude: $f is missing; this session gets Claude Code's default prompt" >&2
+  fi
+}
+claudew() { _colloid_prompt; CLAUDE_PROFILE=work CLAUDE_CONFIG_DIR="$HOME/.claude-work" command claude "${colloid_prompt[@]}" "$@"; }
+claudep() { _colloid_prompt; CLAUDE_PROFILE=personal CLAUDE_CONFIG_DIR="$HOME/.claude-personal" command claude "${colloid_prompt[@]}" "$@"; }
+claudef() { _colloid_prompt; CLAUDE_PROFILE=family CLAUDE_CONFIG_DIR="$HOME/.claude-family" command claude "${colloid_prompt[@]}" "$@"; }
+claudeg() { _colloid_prompt; CLAUDE_PROFILE=guest CLAUDE_CONFIG_DIR="$HOME/.claude-guest" command claude "${colloid_prompt[@]}" "$@"; }
 alias claude-work=claudew claude-personal=claudep claude-family=claudef claude-guest=claudeg
 
 # A bare `claude` must never quietly bill whichever login happens to be default.

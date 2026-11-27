@@ -296,6 +296,17 @@ eq "run makes the empty ~/.bash_profile the update left load ~/.profile" \
 has "run reports it" "do:    make openclawops's ~/.bash_profile load ~/.profile" "$out"
 eq "a login shell then has the launchers" "claudef" \
   "$(env -i HOME="$H" PATH=/usr/bin:/bin bash --login -i -c 'type -t claudef >/dev/null && echo claudef' 2>/dev/null </dev/null)"
+# A launcher passes the clone's curated system prompt, and says so when the
+# clone lacks it rather than failing to start.
+mkdir -p "$T/fake-claude"
+printf '#!/bin/sh\nprintf "%%s " "$@"\n' >"$T/fake-claude/claude"
+chmod +x "$T/fake-claude/claude"
+launch() { env -i HOME="$H" PATH="$T/fake-claude:/usr/bin:/bin" bash -c "source '$HERE/launchers.bash'; claudew -c" 2>&1; }
+has "a launcher without the clone's prompt file says so" "this session gets Claude Code's default prompt" "$(launch)"
+mkdir -p "$H/Projects/colloid-swarm/.agents/claude" && : >"$H/Projects/colloid-swarm/.agents/claude/system-prompt.md"
+eq "a launcher passes the clone's prompt file" \
+  "--system-prompt-file $H/Projects/colloid-swarm/.agents/claude/system-prompt.md -c " "$(launch)"
+rm -rf "$H/Projects/colloid-swarm/.agents"
 has "run installs the tools with needrestart suspended" \
   "apt-get install -y ripgrep fd-find neovim policy-rc.d=none NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive" "$calls"
 [[ -f $bk/apt-get-install-tools.log ]] && ok "the tools' apt output is kept in the backup folder" || bad "tools apt log missing"
