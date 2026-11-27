@@ -13767,7 +13767,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>statusline.sh</h3><p>The status line relay for the <code>status-band</code> mod, which draws the status above the prompt: the account, repository, branch and diff on one row, the model, context use and usage limits on the next, a third row only while a unit has written a readout, the owed flags among them, and this task&#x27;s cost, agent time, tests and callers open. While the band runs, the relay hands it Claude Code&#x27;s status JSON and prints nothing; otherwise, or with <code>hooks.status_band.enabled</code> off, the line goes back to the user&#x27;s own.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 52 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 88 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
 # Claude Code status line: a silent relay for the status band.
 #
 # The band (.agents/claude/mods/status-band) draws the status above the prompt.
@@ -13775,16 +13775,31 @@ if __name__ == &quot;__main__&quot;:
 # live vim state, lines added and removed), so this script hands the JSON on.
 # The two meet in one per-user folder keyed by session id:
 #
-#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.on    the band&#x27;s marker
-#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.json  this script&#x27;s copy
+#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.on     the band&#x27;s marker
+#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.json   this script&#x27;s copy
+#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.nomod  no band came for it
 #
-# With the marker present, the JSON goes to &lt;session&gt;.json and nothing prints;
-# that path starts no process but mv, since it runs on every refresh. Without
-# it (the band switched off, not loaded, or a Claude Code without mods), the
-# person&#x27;s own user statusLine runs instead, because the project setting would
-# otherwise leave them with nothing.
+# With the marker present, the JSON goes to &lt;session&gt;.json and nothing prints.
+# That path runs on every refresh, so it starts no process but mv, plus one
+# chmod 700 of the folder before the session&#x27;s first copy, so the copy never
+# lands in a folder others can read. Without the marker (the band switched
+# off, not loaded, or a Claude Code without mods), the person&#x27;s own user
+# statusLine runs instead, because the project setting would otherwise leave
+# them with nothing.
+#
+# Claude Code runs this before the band&#x27;s session.start writes the marker, and
+# that first line stands until the next refresh. So where the band is
+# installed (.claude/skills/colloid-status-band resolves in this checkout) and
+# no &lt;session&gt;.nomod says it never came, the first run waits for the marker,
+# polling every 0.1 s. Worst case: about 1.6 s added once per session id (15
+# polls of `sleep 0.1`), after which &lt;session&gt;.nomod makes every later run for
+# that id hand over at once; a marker that appears later still wins.
 #
 # Wired as the project statusLine in .agents/claude/settings.json.
+
+# A user status line that runs this script again would loop; the marker stops
+# the second pass before it waits or writes anything.
+[ -n &quot;${COLLOID_STATUS_DELEGATED:-}&quot; ] &amp;&amp; exit 0
 
 IFS= read -r -d &#x27;&#x27; input || true
 
@@ -13793,17 +13808,38 @@ id_field=&#x27;&quot;session_id&quot;[[:space:]]*:[[:space:]]*&quot;([^&quot;]*)
 [[ $input =~ $id_field ]] &amp;&amp; session=${BASH_REMATCH[1]}
 folder=&quot;${TMPDIR:-/tmp}&quot;
 folder=&quot;${folder%/}/colloid-status-${USER:-}&quot;
+checkout=&quot;${BASH_SOURCE[0]%/*}/../..&quot;
 
-# The id names files, so only readout.py&#x27;s id alphabet passes; the folder must
-# be this user&#x27;s own, not a link another user planted in a shared /tmp.
-if [[ -n ${USER:-} &amp;&amp; $session =~ ^[A-Za-z0-9_-]+$ &amp;&amp; -f &quot;$folder/$session.on&quot; &amp;&amp; -O &quot;$folder&quot; &amp;&amp; ! -L &quot;$folder&quot; ]]; then
+# The folder must be this user&#x27;s own, not a link another user planted in a
+# shared /tmp.
+ours() { [[ -d $folder &amp;&amp; -O $folder &amp;&amp; ! -L $folder ]]; }
+
+relay() {
+  if [[ ! -e &quot;$folder/$session.json&quot; ]]; then chmod 700 &quot;$folder&quot; || return 1; fi
   printf &#x27;%s&#x27; &quot;$input&quot; &gt; &quot;$folder/.$session.$$.tmp&quot; &amp;&amp; mv -f &quot;$folder/.$session.$$.tmp&quot; &quot;$folder/$session.json&quot;
-  exit 0
+}
+
+marked() { [[ -f &quot;$folder/$session.on&quot; ]] &amp;&amp; ours; }
+
+# The id names files, so only readout.py&#x27;s id alphabet passes.
+if [[ -n ${USER:-} &amp;&amp; $session =~ ^[A-Za-z0-9_-]+$ ]]; then
+  if marked; then
+    relay
+    exit 0
+  fi
+  if [[ -e &quot;$checkout/.claude/skills/colloid-status-band&quot; &amp;&amp; ! -e &quot;$folder/$session.nomod&quot; ]] &amp;&amp; { ours || [[ ! -e $folder ]]; }; then
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+      sleep 0.1
+      if marked; then
+        relay
+        exit 0
+      fi
+    done
+    [[ -e $folder ]] || mkdir -m 700 &quot;$folder&quot;
+    ours &amp;&amp; : &gt; &quot;$folder/$session.nomod&quot;
+  fi
 fi
 
-# A user status line that runs this script again would loop; the marker stops
-# the second pass.
-[ -n &quot;${COLLOID_STATUS_DELEGATED:-}&quot; ] &amp;&amp; exit 0
 # Read with python3, not jq: the person is owed their own status line even on a
 # machine without jq.
 settings=&quot;${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json&quot;
