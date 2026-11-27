@@ -57,3 +57,26 @@ The plan reviewer's two `AMBIGUITY:` lines went to the operator: the landing rul
 (Decision 2) and Unit A's stakes, which the lead settled at Critical as the
 higher level. Its `HANDOFF: qa-verifier` is the fresh-session acceptance,
 which runs after the operator's OK on the plan.
+
+## Unit B code review
+
+Covers: f321b9c..ca3d3db
+
+Round 1, code review of the landed contract text (`AGENTS.md` Fix and
+Communication lines, the output-style bullet), by an Opus `reviewer` cell with
+the reviewer contract verbatim. `CONFORMANCE: no`, 2 `P1` and 5 `P2`. Both
+`P1` rest on inspection of the contract text itself, which the lead re-read, so
+the disprove pass has nothing to run.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| B1 | P1 | The restored "before changing code" contradicts `.agents/AGENTS.md`'s "enforce a statement's timing with a hook, or drop the timing", the rule that removed it on 11-10 | adopted: that rule now names the exception and its evidence, worded without the carrier-only decision name because the kit leaves `decisions.md` out |
+| B2 | P1 | The Fix paragraph as landed, and the regression case, were never run whole; the closing line ran in draft form | adopted: a QA rerun on the landed text (B1 on Opus and Sonnet, the regression on Opus, B3 with and without the output style) |
+| B3 | P2 | The fix clause sits before "the most recent change is the first hypothesis" | declined on evidence: this order is the one the third wording was tested in (shared fix 4 of 4 against 1 of 8, red command first held on Opus); the rerun's regression case checks that no edit lands on a theory under this order |
+| B4 | P2 | The trimmed Communication sentence dropped "and no risk stands" and "a contract or brief", so it reads differently from the output-style bullet | adopted: both phrases restored |
+| B5 | P2 | "After the red command and before the first edit" has no exit when no red command exists or the fix is not to a function | declined: the sentence before it routes a defect with no red command to the `diagnosing-bugs` loop, and "before the first edit" without "after the red command" dropped red-first to 0 of 4 in the second wording's runs |
+| B6 | P2 | The plan's status line and B1 section describe drafts, not the landed text | adopted |
+| B7 | P2 | B1 is 284 bytes against its 120-byte allowance | accepted: the file is 23,694 bytes, under the plan's 23,900 and the 24,000 budget, because B2 and B4 did not land |
+
+The reviewer's AMBIGUITY (whether B3 must also meet "2 of 2") follows the
+operator's ruling 2, beating the control, which it does.
