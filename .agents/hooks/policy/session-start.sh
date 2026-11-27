@@ -199,10 +199,7 @@ fi
 # Memory files Claude Code loads in full into every session, over the size cap.
 memory_big=""
 if [[ "$session_start_enabled" == "yes" ]]; then
-  memory_root="$proj"
-  memory_common="$(git -C "$proj" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-  [[ "$memory_common" == */.git ]] && memory_root="${memory_common%/.git}"
-  memory_big="$(python3 "$lib/memory_size.py" "$memory_root" "$HOME")" \
+  memory_big="$(python3 "$lib/memory_size.py" "$proj" "$HOME")" \
     || { echo "session-start: the memory-file size check failed; no size notice this session" >&2; memory_big=""; }
 fi
 
@@ -444,7 +441,7 @@ EOF
     section
     echo "Memory files over 8 KB, which Claude Code loads into every session before any work:"
     printf '%s\n' "$memory_big" | awk -F'\t' '{printf "  - %s — %s KB\n", $1, $2}'
-    echo "Tell the operator once. Such a file should hold only what every session needs: a dated record (a deploy, a data write, its undo) belongs in a ledger file and a how-to in a runbook file, both read on demand and listed with the moment to read them in the product folder's CLAUDE.md. Restructure one only when the operator asks and no other session is working in that repository, copying the original aside first: these files have no history."
+    echo "Tell the operator once. Such a file should hold only what every session needs: a dated record (a deploy, a data write, its undo) belongs in a ledger file and a how-to in a runbook file, both read on demand and listed by plain path with the moment to read them in the product folder's CLAUDE.md (an @ import would load them into every session again). Restructure one only when the operator asks and no other session is working in that repository, copying the original aside first: these files have no history."
   fi
 
   if [[ -n "$lsp_missing" ]]; then

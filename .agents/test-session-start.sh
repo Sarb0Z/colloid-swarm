@@ -312,12 +312,21 @@ head -c 20000 /dev/zero | tr '\0' 'x' > "$HOME/CLAUDE.md"
 nested_context="$(context_of "$(run_policy "$nested")")"
 assert_contains "$nested_context" '  - ~/product/CLAUDE.md — 20 KB'
 assert_not_contains "$nested_context" '  - ~/CLAUDE.md'
-assert_not_contains "$nested_context" "$nested/CLAUDE.local.md"
 rm "$HOME/product/CLAUDE.md" "$HOME/CLAUDE.md"
+# A repository nested in another checkout does not count that checkout's
+# tracked CLAUDE.md: lint-contract.py owns a contract's size.
+outer="$(make_fixture home/outer)"
+head -c 20000 /dev/zero | tr '\0' 'x' > "$outer/CLAUDE.md"
+git -C "$outer" add CLAUDE.md
+inner="$(make_fixture home/outer/inner)"
+write_config "$inner" true true
+assert_not_contains "$(context_of "$(run_policy "$inner")")" 'Memory files over 8 KB'
+head -c 20000 /dev/zero | tr '\0' 'x' > "$outer/CLAUDE.local.md"
+assert_contains "$(context_of "$(run_policy "$inner")")" '  - ~/outer/CLAUDE.local.md — 20 KB'
 # A session in a worktree nested in the checkout does not count the checkout's
-# own tracked CLAUDE.md (lint-contract.py owns its size), and names the main
-# checkout's CLAUDE.local.md, the file .worktreeinclude copies into it.
-wt="$(make_fixture memory-worktree)"
+# own tracked CLAUDE.md, and names both the main checkout's CLAUDE.local.md,
+# which it loads as a folder above, and its own .worktreeinclude copy.
+wt="$(make_fixture home/memory-worktree)"
 write_config "$wt" true true
 head -c 20000 /dev/zero | tr '\0' 'x' > "$wt/CLAUDE.md"
 git -C "$wt" add CLAUDE.md
@@ -329,7 +338,21 @@ run_in_worktree() {
 }
 assert_not_contains "$(context_of "$(run_in_worktree)")" 'Memory files over 8 KB'
 head -c 9000 /dev/zero | tr '\0' 'x' > "$wt/CLAUDE.local.md"
-assert_contains "$(context_of "$(run_in_worktree)")" "  - $(cd "$wt" && pwd -P)/CLAUDE.local.md — 9 KB"
+assert_contains "$(context_of "$(run_in_worktree)")" '  - ~/memory-worktree/CLAUDE.local.md — 9 KB'
+head -c 20000 /dev/zero | tr '\0' 'x' > "$wt/.claude/worktrees/lane/CLAUDE.local.md"
+assert_contains "$(context_of "$(run_in_worktree)")" '  - ~/memory-worktree/.claude/worktrees/lane/CLAUDE.local.md — 20 KB'
+# A worktree outside the checkout names the files it loads, not the main
+# checkout's CLAUDE.local.md.
+git -C "$wt" worktree add -q "$scratch/memory-outside" -b outside
+run_outside() {
+  printf '{"project_dir":"%s","source":"startup","session_id":"fixture-session","transcript_path":""}\n' \
+    "$scratch/memory-outside" | bash "$wt/.agents/hooks/policy/session-start.sh"
+}
+assert_not_contains "$(context_of "$(run_outside)")" 'Memory files over 8 KB'
+head -c 9000 /dev/zero | tr '\0' 'x' > "$scratch/memory-outside/CLAUDE.local.md"
+outside_context="$(context_of "$(run_outside)")"
+assert_contains "$outside_context" "  - $(cd "$scratch/memory-outside" && pwd -P)/CLAUDE.local.md — 9 KB"
+assert_not_contains "$outside_context" '~/memory-worktree/CLAUDE.local.md'
 # The notice shows on its own, with every other section empty.
 alone="$(make_fixture memory-alone)"
 write_config "$alone" true false
