@@ -23,6 +23,9 @@
 #   - On Claude Code only: each language with a tracked file whose
 #     code-intelligence server cannot start, with its install command
 #     (hooks/lib/lsp-missing.py).
+#   - Each memory file Claude Code loads into every session that is over 8 KB:
+#     the repository's CLAUDE.local.md and the CLAUDE.md files of the folders
+#     above it, below the home folder (hooks/lib/memory_size.py).
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (AGENTS.md carries only a one-line copy) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
@@ -191,6 +194,13 @@ lsp_missing=""
 if [[ "$session_start_enabled" == "yes" && "$host" == "claude" ]]; then
   lsp_missing="$(python3 "$lib/lsp-missing.py" "$proj")" \
     || { echo "session-start: the code-intelligence check failed; no language-server notice this session" >&2; lsp_missing=""; }
+fi
+
+# Memory files Claude Code loads in full into every session, over the size cap.
+memory_big=""
+if [[ "$session_start_enabled" == "yes" ]]; then
+  memory_big="$(python3 "$lib/memory_size.py" "$proj" "$HOME")" \
+    || { echo "session-start: the memory-file size check failed; no size notice this session" >&2; memory_big=""; }
 fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as
@@ -425,6 +435,13 @@ EOF
     echo "Registry MCP servers switched off (not connected; the description says why):"
     printf '%s\n' "$mcp_off"
     echo 'If the task needs one: run `python3 .agents/mcp.py enable <name>`, then restart the session. Turn it off with `python3 .agents/mcp.py disable <name>`.'
+  fi
+
+  if [[ -n "$memory_big" ]]; then
+    section
+    echo "Memory files over 8 KB, which Claude Code loads into every session before any work:"
+    printf '%s\n' "$memory_big" | awk -F'\t' '{printf "  - %s — %s KB\n", $1, $2}'
+    echo "Keep in them only what every session needs. Move a dated record (a deploy, a data write, its undo) to a ledger file and a how-to to a runbook file, both read on demand, and list each such file with the moment to read it in the product folder's CLAUDE.md. Copy the original aside first: these files have no history."
   fi
 
   if [[ -n "$lsp_missing" ]]; then

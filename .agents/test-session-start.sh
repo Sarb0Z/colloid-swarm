@@ -46,7 +46,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/worktree_records.py" "$repo/.agents/hooks/lib/worktree_removal.py" \
      "$repo/.agents/hooks/lib/worktree_sweep.py" "$repo/.agents/hooks/lib/worktree_runs.py" \
      "$repo/.agents/hooks/lib/worktree_heal.py" "$repo/.agents/hooks/lib/readout.py" \
-     "$repo/.agents/hooks/lib/process_start.py" \
+     "$repo/.agents/hooks/lib/process_start.py" "$repo/.agents/hooks/lib/memory_size.py" \
      "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals,waits}.py "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
   cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
@@ -291,6 +291,33 @@ lsp_broken="$(run_claude_adapter "$lsp" 2>"$scratch/lsp-stderr")"
 assert_contains "$(context_of "$lsp_broken")" 'fixture-decision'
 assert_contains "$(cat "$scratch/lsp-stderr")" 'the code-intelligence check failed'
 printf 'ok: session start names a language whose server cannot start in Claude Code only, drops it once the server is on PATH, and survives the check crashing\n'
+
+# A memory file Claude Code loads into every session is named once it passes
+# 8 KB: the repository's CLAUDE.local.md, and a CLAUDE.md in a folder between
+# the repository and the home folder (a product folder). At the cap, nothing.
+mem="$(make_fixture memory-big)"
+write_config "$mem" true true
+head -c 9000 /dev/zero | tr '\0' 'x' > "$mem/CLAUDE.local.md"
+mem_context="$(context_of "$(run_policy "$mem")")"
+assert_contains "$mem_context" 'Memory files over 8 KB, which Claude Code loads into every session before any work:'
+assert_contains "$mem_context" "  - $mem/CLAUDE.local.md — 9 KB"
+assert_contains "$mem_context" 'a dated record (a deploy, a data write, its undo) to a ledger file'
+head -c 8192 /dev/zero | tr '\0' 'x' > "$mem/CLAUDE.local.md"
+assert_not_contains "$(context_of "$(run_policy "$mem")")" 'Memory files over 8 KB'
+nested="$(make_fixture home/product/web)"
+write_config "$nested" true true
+head -c 20000 /dev/zero | tr '\0' 'x' > "$HOME/product/CLAUDE.md"
+head -c 20000 /dev/zero | tr '\0' 'x' > "$HOME/CLAUDE.md"
+nested_context="$(context_of "$(run_policy "$nested")")"
+assert_contains "$nested_context" '  - ~/product/CLAUDE.md — 20 KB'
+assert_not_contains "$nested_context" '  - ~/CLAUDE.md'
+assert_not_contains "$nested_context" "$nested/CLAUDE.local.md"
+rm "$HOME/product/CLAUDE.md" "$HOME/CLAUDE.md"
+rm "$mem/.agents/hooks/lib/memory_size.py"
+mem_broken="$(run_policy "$mem" 2>"$scratch/mem-stderr")"
+assert_contains "$(context_of "$mem_broken")" 'fixture-decision'
+assert_contains "$(cat "$scratch/mem-stderr")" 'the memory-file size check failed'
+printf 'ok: session start names a memory file over 8 KB in the repository or a folder above it below the home folder, stays quiet at the cap, and survives the check failing\n'
 
 # At the cap exactly, every item shows and no truncation notice appears.
 exact="$(make_fixture breadcrumb-exact)"

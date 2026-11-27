@@ -598,7 +598,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, what the worktree sweep removed or kept, and workloop runs with no recorded lead. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 441 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 458 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -623,6 +623,9 @@ detect:
 #   - On Claude Code only: each language with a tracked file whose
 #     code-intelligence server cannot start, with its install command
 #     (hooks/lib/lsp-missing.py).
+#   - Each memory file Claude Code loads into every session that is over 8 KB:
+#     the repository&#x27;s CLAUDE.local.md and the CLAUDE.md files of the folders
+#     above it, below the home folder (hooks/lib/memory_size.py).
 #   - Compaction (source=compact): the full Discovered Subprojects policy
 #     (AGENTS.md carries only a one-line copy) + a checkpoint nudge tailored to the
 #     trigger word pre-compact.sh left in .agents/.compaction-pending. The
@@ -791,6 +794,13 @@ lsp_missing=&quot;&quot;
 if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; &quot;$host&quot; == &quot;claude&quot; ]]; then
   lsp_missing=&quot;$(python3 &quot;$lib/lsp-missing.py&quot; &quot;$proj&quot;)&quot; \
     || { echo &quot;session-start: the code-intelligence check failed; no language-server notice this session&quot; &gt;&amp;2; lsp_missing=&quot;&quot;; }
+fi
+
+# Memory files Claude Code loads in full into every session, over the size cap.
+memory_big=&quot;&quot;
+if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; ]]; then
+  memory_big=&quot;$(python3 &quot;$lib/memory_size.py&quot; &quot;$proj&quot; &quot;$HOME&quot;)&quot; \
+    || { echo &quot;session-start: the memory-file size check failed; no size notice this session&quot; &gt;&amp;2; memory_big=&quot;&quot;; }
 fi
 
 # source=compact is the trigger. Always consume the PreCompact marker as
@@ -1025,6 +1035,13 @@ EOF
     echo &quot;Registry MCP servers switched off (not connected; the description says why):&quot;
     printf &#x27;%s\n&#x27; &quot;$mcp_off&quot;
     echo &#x27;If the task needs one: run `python3 .agents/mcp.py enable &lt;name&gt;`, then restart the session. Turn it off with `python3 .agents/mcp.py disable &lt;name&gt;`.&#x27;
+  fi
+
+  if [[ -n &quot;$memory_big&quot; ]]; then
+    section
+    echo &quot;Memory files over 8 KB, which Claude Code loads into every session before any work:&quot;
+    printf &#x27;%s\n&#x27; &quot;$memory_big&quot; | awk -F&#x27;\t&#x27; &#x27;{printf &quot;  - %s — %s KB\n&quot;, $1, $2}&#x27;
+    echo &quot;Keep in them only what every session needs. Move a dated record (a deploy, a data write, its undo) to a ledger file and a how-to to a runbook file, both read on demand, and list each such file with the moment to read it in the product folder&#x27;s CLAUDE.md. Copy the original aside first: these files have no history.&quot;
   fi
 
   if [[ -n &quot;$lsp_missing&quot; ]]; then
