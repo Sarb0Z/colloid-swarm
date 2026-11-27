@@ -13775,7 +13775,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>statusline.sh</h3><p>The status line relay for the <code>status-band</code> mod, which draws the status above the prompt: the account, repository, branch and diff on one row, the model, context use and usage limits on the next, a third row only while a unit has written a readout, the owed flags among them, and this task&#x27;s cost, agent time, tests and callers open. While the band runs, the relay hands it Claude Code&#x27;s status JSON and prints nothing; otherwise, or with <code>hooks.status_band.enabled</code> off, the line goes back to the user&#x27;s own.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 88 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 87 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
 # Claude Code status line: a silent relay for the status band.
 #
 # The band (.agents/claude/mods/status-band) draws the status above the prompt.
@@ -13788,12 +13788,11 @@ if __name__ == &quot;__main__&quot;:
 #   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.nomod  no band came for it
 #
 # With the marker present, the JSON goes to &lt;session&gt;.json and nothing prints.
-# That path runs on every refresh, so it starts no process but mv, plus one
-# chmod 700 of the folder before the session&#x27;s first copy, so the copy never
-# lands in a folder others can read. Without the marker (the band switched
-# off, not loaded, or a Claude Code without mods), the person&#x27;s own user
-# statusLine runs instead, because the project setting would otherwise leave
-# them with nothing.
+# That path runs on every refresh, so it starts no process but mv. The band
+# makes the folder 0700; this script writes under umask 077. Without the
+# marker (the band switched off, not loaded, or a Claude Code without mods),
+# the person&#x27;s own user statusLine runs instead, because the project setting
+# would otherwise leave them with nothing.
 #
 # Claude Code runs this before the band&#x27;s session.start writes the marker, and
 # that first line stands until the next refresh. So where the band is
@@ -13809,6 +13808,7 @@ if __name__ == &quot;__main__&quot;:
 # the second pass before it waits or writes anything.
 [ -n &quot;${COLLOID_STATUS_DELEGATED:-}&quot; ] &amp;&amp; exit 0
 
+umask 077
 IFS= read -r -d &#x27;&#x27; input || true
 
 session=&quot;&quot;
@@ -13823,7 +13823,6 @@ checkout=&quot;${BASH_SOURCE[0]%/*}/../..&quot;
 ours() { [[ -d $folder &amp;&amp; -O $folder &amp;&amp; ! -L $folder ]]; }
 
 relay() {
-  if [[ ! -e &quot;$folder/$session.json&quot; ]]; then chmod 700 &quot;$folder&quot; || return 1; fi
   printf &#x27;%s&#x27; &quot;$input&quot; &gt; &quot;$folder/.$session.$$.tmp&quot; &amp;&amp; mv -f &quot;$folder/.$session.$$.tmp&quot; &quot;$folder/$session.json&quot;
 }
 
@@ -13843,7 +13842,7 @@ if [[ -n ${USER:-} &amp;&amp; $session =~ ^[A-Za-z0-9_-]+$ ]]; then
         exit 0
       fi
     done
-    [[ -e $folder ]] || mkdir -m 700 &quot;$folder&quot;
+    [[ -e $folder ]] || mkdir &quot;$folder&quot;
     ours &amp;&amp; : &gt; &quot;$folder/$session.nomod&quot;
   fi
 fi
