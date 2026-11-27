@@ -31,11 +31,80 @@ export const NEW_TASK: Task = {
   callers: { kind: 'none' },
 }
 
-const TEST_COMMAND =
-  /\b(npm (run )?test|pnpm (run )?test|yarn test|bun test|npx (jest|vitest)|jest|vitest|pytest|python3? -m pytest|go test|cargo test|mvn test|gradle test|rspec|phpunit|dotnet test|node --test|deno test|make test)\b/
+// A runner, as the words that start a simple command after its launcher.
+const RUNNER =
+  /^(?:pytest|jest|vitest|rspec|phpunit|(?:npm|pnpm)(?: run)? test|yarn test|bun test|go test|cargo test|mvn test|gradle test|dotnet test|node --test|deno test|make test|(?:command )?claude plugin test|(?:bash |sh )?(?:\S*\/)?\.agents\/(?:suite|check-all|test-[\w.-]+)\.sh|python3? (?:\S*\/)?\.agents\/test-[\w.-]+\.py)(?:\s|$)/
+// What may stand before a runner in its simple command.
+const LAUNCHER = /^(?:\w+=\S*\s+)*(?:(?:uv run|npx|pnpm exec|python3? -m)\s+)?/
 
-/** Whether a Bash command runs a test runner. */
-export const isTestCommand = (command: string) => TEST_COMMAND.test(command)
+/** Whether one simple command starts a runner. */
+const startsRunner = (simple: string) => RUNNER.test(simple.trim().replace(LAUNCHER, ''))
+
+type Piece = { text: string; after: string }
+
+/** The command cut at its operators outside quotes: each piece and the operator after it. */
+function pieces(command: string): Piece[] {
+  const out: Piece[] = []
+  let text = ''
+  let quote = ''
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i] ?? ''
+    if (quote !== '') {
+      if (char === quote) {
+        quote = ''
+      } else if (char === '\\' && quote === '"') {
+        text += command[i + 1] ?? ''
+        i += 1
+      } else {
+        text += char
+      }
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (char === '\\') {
+      text += command[i + 1] ?? ''
+      i += 1
+      continue
+    }
+    // `2>&1`, `&>file` and `>|file` are redirections, not operators.
+    const before = command[i - 1] ?? ''
+    const redirect = (char === '&' && (before === '>' || before === '<' || command[i + 1] === '>')) || (char === '|' && before === '>')
+    const two = command.slice(i, i + 2)
+    const op = redirect
+      ? ''
+      : two === '&&' || two === '||' || two === '|&'
+        ? two
+        : char === ';' || char === '|' || char === '&' || char === '\n'
+          ? char
+          : ''
+    if (op === '') {
+      text += char
+      continue
+    }
+    out.push({ text, after: op })
+    text = ''
+    i += op.length - 1
+  }
+  out.push({ text, after: '' })
+  return out.filter(piece => piece.text.trim() !== '' || piece.after !== '')
+}
+
+/**
+ * Whether the command's exit status is a test runner's: a runner in command
+ * position whose status reaches the end, through `&&` alone. A runner piped
+ * into another command (`pytest | tail`), sent to the background (`&`), or
+ * followed by `;`, `||` or a newline leaves the status to something else, and
+ * so does a runner word anywhere else (`uv pip install pytest`, `rg jest`).
+ */
+export function isTestRun(command: string): boolean {
+  const cut = pieces(command)
+  const at = cut.findLastIndex(piece => startsRunner(piece.text))
+  if (at < 0) return false
+  return cut.slice(at).every(piece => piece.after === '&&' || piece.after === '')
+}
 
 const CODE = /\.(py|[cm]?[jt]sx?|go|rs|rb)$/
 
@@ -44,7 +113,7 @@ export const isCode = (file: string) => CODE.test(file)
 
 /** A Bash command resolved: a test run sets the state, anything else keeps it. */
 export function afterBash(task: Task, command: string, isError: boolean): Task {
-  return isTestCommand(command) ? { ...task, tests: isError ? 'fail' : 'pass' } : task
+  return isTestRun(command) ? { ...task, tests: isError ? 'fail' : 'pass' } : task
 }
 
 /** An Edit or Write landed: code after a test run makes it stale. */
