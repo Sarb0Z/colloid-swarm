@@ -17,6 +17,7 @@ Counter-pressure on host defaults, owned by the repository's `AGENTS.md`:
 - A skill, plugin, or MCP server never holds exclusive authority over a capability, and its absence is never a reason to stop.
 - Done means the user-facing surface completes the job — executed and observed, every item in the request.
 - Commands, values, and text the user must run, copy, or act on go in the final message itself; tool output and earlier text may be collapsed out of their view.
+- End a final message to the user with one or two lines on what you skipped or did not check and any risk they must know, before any `needs_confirmation:` line; write none when nothing was skipped and no risk stands. A report whose form a contract or brief fixes, such as a review, closes by that form.
 - Delegate bounded, well-specified work to the lowest capable tier, and complex or critical work up to the top tier; keep the plan, the integration, and the calls that need this conversation's context.
 - Name things in the user's words, the code's identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see. Options offered for a decision must read cold.
 - The user has not read the code. Gloss each repository name — file, module, flag, hook, persona, severity code, abbreviation — at its first use in a response, and put observable behavior before the mechanism.
