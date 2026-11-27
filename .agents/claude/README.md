@@ -275,10 +275,16 @@ vim state and the lines changed. `claude/statusline.sh` is therefore a silent
 relay: while the band's marker `<session>.on` stands in
 `${TMPDIR:-/tmp}/colloid-status-$USER/`, it copies the status JSON to
 `<session>.json` there and prints nothing; otherwise the person's own user
-`statusLine` runs. Idle, the band stats that file every 2 s and starts no
-process; git (with `GIT_OPTIONAL_LOCKS=0`) and the readout reader run at
-session start, at a prompt, after a Bash, Edit or Write, and when the relay
-names another folder, and the reader only while `.agents/.readout/` exists.
+`statusLine` runs. The band writes the marker at session start and at the
+first draw under a new id (`/clear`), before it starts any process, so the
+relay is silent from its first run; no draw waits on a process. Idle, the band
+stats that file every 2 s and starts no process; git (with
+`GIT_OPTIONAL_LOCKS=0`) and the readout reader run when the band opens, at a
+prompt, after a Bash, Edit or Write, and when the relay file changes, at most
+once per 5 s unless it names another folder, and the reader only while
+`.agents/.readout/` exists. The tests state counts a runner only in command
+position whose exit status ends the command: `pytest | tail` and a background
+run leave it as it was.
 The toggle is `hooks.status_band.enabled`, default on; switched off, or where
 the band does not load (`claude -p`, an untrusted folder, a Claude Code without
 mods), the person's own status line shows, and nothing shows for a person who

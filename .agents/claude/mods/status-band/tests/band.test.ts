@@ -28,12 +28,23 @@ type World = {
   folderExit?: number
   usage?: Record<string, unknown>
   configRows?: Record<string, unknown>[]
+  /** The session's own folder; /work/app when not given. */
+  cwd?: string
+  /** What config.py says on stderr: a file it could not parse. */
+  switchStderr?: string
+  /** config.py answers only once this settles: a slow switch. */
+  switchHeld?: Promise<void>
+  /** How many git runs the engine aborts before answering. */
+  gitAborts?: number
 }
 
 function world(on: On, w: World) {
   const ran: (readonly string[])[] = []
   const stdins: (string | undefined)[] = []
   const written: { path: string; text: string }[] = []
+  /** Every write and process start, in order: `write <path>` or `run <argv0>`. */
+  const events: string[] = []
+  const logged: string[] = []
   const files = new Map<string, string>()
   const mtimes = new Map<string, number>()
   const put = (path: string, text: string) => {
@@ -47,7 +58,12 @@ function world(on: On, w: World) {
 
   on('session.id', () => ({ value: w.id }))
   on('session.root', () => ({ value: '/work/app' }))
-  on('session.cwd', () => ({ value: '/work/app' }))
+  on('session.cwd', () => ({ value: w.cwd ?? '/work/app' }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.log', (_, e) => {
+    logged.push(e.text)
+    return { value: undefined }
+  })
   on('session.model', () => ({ value: 'Fable 5.1' }))
   on('session.usage', () => ({ value: w.usage ?? { startedAt: 0, context: { window: 200000 }, rateLimits: [], cost: { usd: 1 } } }))
   on('config.list', () => ({ value: w.configRows ?? [] }))
@@ -66,21 +82,37 @@ function world(on: On, w: World) {
     return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text }
   })
   on('fs.write', (_, e) => {
+    events.push(`write ${e.path}`)
     written.push({ path: e.path, text: e.text })
     put(e.path, e.text)
     return { value: undefined }
   })
-  on('process.run', (_, e) => {
+  on('process.run', async (_, e) => {
+    if (e.argv[0] === 'git' && (w.gitAborts ?? 0) > 0) {
+      w.gitAborts = (w.gitAborts ?? 0) - 1
+      return { deny: '$.process.run(git) aborted' }
+    }
+    if (e.argv[1]?.endsWith('/config.py') === true && w.switchHeld !== undefined) await w.switchHeld
+    events.push(`run ${e.argv[0] ?? ''}`)
     ran.push(e.argv)
     stdins.push(e.init?.stdin)
     const answer = (a: Answer) => ({ value: { stderr: '', ...a, isStdoutTruncated: false, isStderrTruncated: false } })
     const [cmd, ...args] = e.argv
-    if (cmd === 'git' && args[0] === '-C') return answer({ exitCode: 0, stdout: '/work/app/.git\n/work/app\n' })
+    // The session repository: /work/app, the main checkout of every folder here.
+    if (cmd === 'git' && args[0] === '-C' && args.includes('--git-common-dir')) return answer({ exitCode: 0, stdout: '/work/app/.git\n/work/app\n' })
+    // A folder's own top level: a worktree's is its own.
+    if (cmd === 'git' && args[0] === '-C' && args.includes('--show-toplevel')) {
+      const folder = args[1] ?? ''
+      const worktree = /^\/work\/app\/\.claude\/worktrees\/[^/]+/.exec(folder)?.[0]
+      return answer({ exitCode: 0, stdout: `${worktree ?? '/work/app'}\n` })
+    }
     if (cmd === 'git') {
       const found = w.git?.[e.argv.join(' ')]
       return answer(found ?? { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository (or any of the parent directories): .git\n' })
     }
-    if (cmd === 'python3' && args[0]?.endsWith('/config.py')) return answer({ exitCode: 0, stdout: `${w.switchWord ?? 'yes'}\n` })
+    if (cmd === 'python3' && args[0]?.endsWith('/config.py')) {
+      return answer({ exitCode: 0, stdout: `${w.switchWord ?? 'yes'}\n`, stderr: w.switchStderr ?? '' })
+    }
     if (cmd === 'python3' && args[0]?.endsWith('/readout.py')) return answer(w.readouts ?? { exitCode: 2, stdout: '' })
     if (cmd === 'python3' && args[0]?.endsWith('/removed-callers.py')) return answer(w.callers ?? { exitCode: 0, stdout: '{"names": [], "sites": 0}\n' })
     if (cmd === '/bin/sh') return answer({ exitCode: w.folderExit ?? 0, stdout: '' })
@@ -97,7 +129,7 @@ function world(on: On, w: World) {
     if (row === null || row === undefined || typeof row === 'string') throw new Error('h drew no element')
     return row
   })
-  return { ran, stdins, written, files, clock, put }
+  return { ran, stdins, written, files, clock, put, events, logged }
 }
 
 const BAND = (bodyColumns = 200) =>
@@ -196,30 +228,72 @@ function engine(on: On, result: { isError: boolean; text: string }) {
 }
 const turn = (durationMs: number) => ({ answer: 'done', durationMs, isAborted: false, turnId: 't', reason: 'answer' }) as const
 
-test('the first draw writes the marker in a folder made for this user alone', async ($, on) => {
-  const { ran, written } = world(on, { id: 'marker-1', status: STATUS, git: TRUNK })
-  const ui = await $.ui.mount(BAND())
+const MARKER_FIRST = (id: string) => `write ${FOLDER}/${id}.on`
 
-  expect(ran).toContainEqual(['/bin/sh', '-c', 'mkdir -p -m 700 "$1" && [ -O "$1" ] && [ ! -L "$1" ]', 'sh', FOLDER])
-  expect(written).toEqual([{ path: `${FOLDER}/marker-1.on`, text: 'marker-1\n' }])
+test('session.start writes the marker before any process runs, then makes the folder this user\'s alone', async ($, on) => {
+  const { ran, written, events } = world(on, { id: 'start-1', status: STATUS, git: TRUNK })
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  expect(events[0]).toBe(MARKER_FIRST('start-1'))
+  expect(written).toEqual([{ path: `${FOLDER}/start-1.on`, text: 'start-1\n' }])
+  const ui = await $.ui.mount(BAND())
+  expect(ran).toContainEqual(['/bin/sh', '-c', '[ ! -L "$1" ] && mkdir -p "$1" && [ -O "$1" ] && chmod 700 "$1"', 'sh', FOLDER])
+  expect(await textOf(ui)).toContain('Fable 5.1')
   // The engine's own row stays beneath the band.
   expect(await textOf(ui)).toContain('beneath')
   await ui.unmount()
 })
 
-test('a folder that is not this user\'s own gets no marker, and the band still draws', async ($, on) => {
-  const { written } = world(on, { id: 'marker-2', status: STATUS, git: TRUNK, folderExit: 1 })
+test('a draw that sees a new id writes its marker before any other work', async ($, on) => {
+  const { events } = world(on, { id: 'marker-1', status: STATUS, git: TRUNK })
   const ui = await $.ui.mount(BAND())
-  expect(written).toEqual([])
-  expect(await textOf(ui)).toContain('Fable 5.1')
+  expect(events[0]).toBe(MARKER_FIRST('marker-1'))
   await ui.unmount()
 })
 
+test('no draw waits on a process: until the opening finished, the band draws nothing of its own', async ($, on) => {
+  let release = () => {}
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  world(on, { id: 'slow-1', status: STATUS, git: TRUNK, switchHeld: held })
+  const ui = await $.ui.mount(BAND())
+  expect(await textOf(ui)).toBe('beneath')
+  release()
+  await ui.unmount()
+  const later = await $.ui.mount(BAND())
+  expect(await textOf(later)).toContain('Fable 5.1')
+  await later.unmount()
+})
+
+test('an opening the engine aborted is not reported, and the next draw opens again', async ($, on) => {
+  const { logged, ran } = world(on, { id: 'abort-1', status: STATUS, git: TRUNK, gitAborts: 1 })
+  const first = await $.ui.mount(BAND())
+  expect(await textOf(first)).toBe('beneath')
+  await first.unmount()
+  expect(logged.filter(line => !line.includes('cut short'))).toEqual([])
+  const second = await $.ui.mount(BAND())
+  expect(await textOf(second)).toContain('Fable 5.1')
+  expect(ran.filter(argv => argv[1]?.endsWith('/config.py') === true).length).toBe(1)
+  await second.unmount()
+})
+
+test('a folder that is not this user\'s own keeps no marker of the band\'s, and the band still draws', async ($, on) => {
+  const { written, files } = world(on, { id: 'marker-2', status: STATUS, git: TRUNK, folderExit: 1 })
+  const ui = await $.ui.mount(BAND())
+  // Only the first, process-free write: the band never puts it back there.
+  expect(written.map(entry => entry.path)).toEqual([`${FOLDER}/marker-2.on`])
+  files.delete(`${FOLDER}/marker-2.on`)
+  await ui.unmount()
+  const again = await $.ui.mount(BAND())
+  expect(written.length).toBe(1)
+  expect(await textOf(again)).toContain('Fable 5.1')
+  await again.unmount()
+})
+
 test('an id that is no file name gets no marker', async ($, on) => {
-  const { written, ran } = world(on, { id: '../x', git: TRUNK })
+  const { written } = world(on, { id: '../x', git: TRUNK })
   const ui = await $.ui.mount(BAND())
   expect(written).toEqual([])
-  expect(ran.some(argv => argv[0] === '/bin/sh')).toBe(false)
   await ui.unmount()
 })
 
@@ -253,26 +327,36 @@ test('session.end removes only the ending id\'s files', async ($, on) => {
 })
 
 test('switched off, the band draws nothing of its own and takes its marker back', async ($, on) => {
-  const { ran, written } = world(on, { id: 'off-1', status: STATUS, git: TRUNK, switchWord: 'no', markerExists: true })
+  const { ran, files } = world(on, { id: 'off-1', status: STATUS, git: TRUNK, switchWord: 'no', markerExists: true })
   const ui = await $.ui.mount(BAND())
   const text = await textOf(ui)
   expect(text).toBe('beneath')
-  expect(written).toEqual([])
   expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/off-1.on`, `${FOLDER}/off-1.json`])
+  expect(files.has(`${FOLDER}/off-1.on`)).toBe(false)
   // Off, nothing but the switch and the removal runs: no git, no reader.
   expect(ran.filter(argv => argv[0] === 'git' && argv[1] !== '-C')).toEqual([])
   await ui.unmount()
 })
 
-test('a switch config.py cannot answer leaves the person\'s own line, read once for the id', async ($, on) => {
-  const { ran, written } = world(on, { id: 'broken-1', status: STATUS, git: TRUNK, switchWord: 'maybe' })
+test('a config file config.py cannot parse is reported once, and its answer stands', async ($, on) => {
+  const stderr = 'config.py: /work/app/.agents/config.json is unreadable (Expecting value); every key in it falls back to its default\n'
+  const { logged } = world(on, { id: 'parse-1', status: STATUS, git: TRUNK, switchWord: 'yes', switchStderr: stderr })
+  const ui = await $.ui.mount(BAND())
+  expect(await textOf(ui)).toContain('Fable 5.1')
+  expect(logged).toEqual([`status-band: in /work/app: ${stderr.trim()}`])
+  await ui.unmount()
+})
+
+test('a switch config.py cannot answer gives the line back, and is read once for the id', async ($, on) => {
+  const { ran, files } = world(on, { id: 'broken-1', status: STATUS, git: TRUNK, switchWord: 'maybe' })
   const first = await $.ui.mount(BAND())
   expect(await textOf(first)).toBe('beneath')
   await first.unmount()
   const second = await $.ui.mount(BAND())
   expect(await textOf(second)).toBe('beneath')
   expect(ran.filter(argv => argv[1]?.endsWith('/config.py') === true).length).toBe(1)
-  expect(written).toEqual([])
+  // The marker the band wrote first is gone, so the person's own line draws.
+  expect(files.has(`${FOLDER}/broken-1.on`)).toBe(false)
   await second.unmount()
 })
 
@@ -307,6 +391,39 @@ test('a failing test run shows tests fail; a Bash command that runs no tests cha
   await ui.unmount()
 })
 
+test('a failing pytest piped into tail leaves the tests state as it was', async ($, on) => {
+  world(on, { id: 'tests-3', status: STATUS, git: TRUNK })
+  // tail exits 0 whatever pytest said: the call resolves with no error.
+  engine(on, { isError: false, text: '1 failed, 4 passed' })
+  const ui = await $.ui.mount(BAND())
+  await $.tool.call({ tool: 'Bash', command: 'pytest -q 2>&1 | tail -20' })
+  expect(await textOf(ui)).not.toContain('tests')
+  await ui.unmount()
+})
+
+test('a test run sent to the background leaves the tests state as it was', async ($, on) => {
+  world(on, { id: 'tests-4', status: STATUS, git: TRUNK })
+  engine(on, { isError: false, text: 'Command running in background' })
+  const ui = await $.ui.mount(BAND())
+  await $.tool.call({ tool: 'Bash', command: 'pytest -q', run_in_background: true })
+  expect(await textOf(ui)).not.toContain('tests')
+  await ui.unmount()
+})
+
+test('this repository\'s own test scripts set the tests state, pass and fail', async ($, on) => {
+  let failing = false
+  world(on, { id: 'tests-5', status: STATUS, git: TRUNK })
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, text: '', isError: failing }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  const ui = await $.ui.mount(BAND())
+  await $.tool.call({ tool: 'Bash', command: 'bash .agents/test-owed.sh' })
+  expect(await textOf(ui)).toContain('tests pass')
+  failing = true
+  await $.tool.call({ tool: 'Bash', command: 'bash .agents/test-owed.sh' })
+  expect(await textOf(ui)).toContain('tests fail')
+  await ui.unmount()
+})
+
 test('after a turn that renamed a function called in two other files, 2 callers open', async ($, on) => {
   const { ran, stdins } = world(on, { id: 'callers-1', status: STATUS, git: TRUNK, callers: { exitCode: 0, stdout: '{"names": ["total_price"], "sites": 2}\n' } })
   engine(on, { isError: false, text: '' })
@@ -318,6 +435,28 @@ test('after a turn that renamed a function called in two other files, 2 callers 
   expect(ran[index]).toEqual(['python3', '/scaffold/.agents/hooks/lib/removed-callers.py', '--json', '/work/app'])
   expect(stdins[index]).toBe('/work/app/lib.py\n')
   expect(await textOf(ui)).toContain('2 callers open')
+  await ui.unmount()
+})
+
+test('in a worktree session the callers check reads the worktree\'s own files', async ($, on) => {
+  const tree = '/work/app/.claude/worktrees/lane'
+  const { ran } = world(on, {
+    id: 'callers-3',
+    status: { ...STATUS, workspace: { current_dir: `${tree}/src` } },
+    git: TRUNK,
+    callers: { exitCode: 0, stdout: '{"names": ["total_price"], "sites": 1}\n' },
+  })
+  engine(on, { isError: false, text: '' })
+  const ui = await $.ui.mount(BAND())
+  await $.tool.call({ tool: 'Edit', file_path: `${tree}/lib.py`, old_string: 'a', new_string: 'b' })
+  await $.turn.complete(turn(2000))
+  expect(ran.find(argv => argv[1]?.endsWith('/removed-callers.py') === true)).toEqual([
+    'python3',
+    '/scaffold/.agents/hooks/lib/removed-callers.py',
+    '--json',
+    tree,
+  ])
+  expect(await textOf(ui)).toContain('1 callers open')
   await ui.unmount()
 })
 
@@ -347,22 +486,32 @@ test('a turn with no Python edit runs no callers check, and adds its cost and ti
   await ui.unmount()
 })
 
-test('idle, the band starts no process; a relay write naming another folder runs git once', async ($, on) => {
+test('idle, the band starts no process; a relay write runs git at most once per 5 s unless it names another folder', async ($, on) => {
   const { ran, clock, put } = world(on, { id: 'idle-1', status: STATUS, git: TRUNK })
   const ui = await $.ui.mount(BAND())
   const before = ran.length
+  const gitRuns = () => ran.slice(before).filter(argv => argv[0] === 'git').length
+  // Idle: the relay file does not change, and nothing starts.
   await clock.advance(60000)
   expect(ran.slice(before)).toEqual([])
 
-  // The same folder, a later duration: redrawn in-process, no process.
+  // A relay write in the same folder, past 5 s since git last ran: git once,
+  // so a commit made in another terminal shows.
   put(`${FOLDER}/idle-1.json`, JSON.stringify({ ...STATUS, cost: { total_cost_usd: 3.5, total_duration_ms: 720000 } }))
   await clock.advance(2000)
-  expect(ran.slice(before)).toEqual([])
+  expect(ran.slice(before)).toEqual([['git', 'status', '--porcelain=v2', '--branch']])
   expect(await textOf(ui)).toContain('󰔛 12m')
 
+  // Within 5 s of that run, a write in the same folder redraws with no process.
+  put(`${FOLDER}/idle-1.json`, JSON.stringify({ ...STATUS, cost: { total_cost_usd: 3.5, total_duration_ms: 780000 } }))
+  await clock.advance(2000)
+  expect(gitRuns()).toBe(1)
+  expect(await textOf(ui)).toContain('󰔛 13m')
+
+  // A write naming another folder runs git at once.
   put(`${FOLDER}/idle-1.json`, JSON.stringify({ ...STATUS, workspace: { current_dir: '/work/other' } }))
   await clock.advance(2000)
-  expect(ran.slice(before).filter(argv => argv[0] === 'git')).toEqual([['git', 'status', '--porcelain=v2', '--branch']])
+  expect(gitRuns()).toBe(2)
   expect(await textOf(ui)).toContain(' other')
   await ui.unmount()
 })
