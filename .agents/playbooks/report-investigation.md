@@ -20,7 +20,7 @@ Then, for either:
 3. **Ruled out** — dead ends and why, so the next investigator skips them.
 4. **Open questions, risks, and the recommended next step.**
 
-Last, after writing the report, clear the status strip's `report` flag. On
+Last, after writing the report, clear the status band's `report` flag. On
 Claude Code, run
 `python3 .agents/hooks/lib/owed.py clear report --session "$CLAUDE_CODE_SESSION_ID"`;
 other hosts raise no flag.

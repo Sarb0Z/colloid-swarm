@@ -511,7 +511,7 @@ from a second ledger of ours. It shows one `AGENT DIED:` line per such agent
 at every session start and lead prompt, with the cause, the uncommitted edits
 and the remedy, until the agent is resumed, has left nothing, or
 `workloop.py dismiss <agent id> --reason '<why>'` dismisses that death. The
-status strip reads the reader's cache at each refresh and names a lane whose
+status band reads the reader's cache at each refresh and names a lane whose
 claimant, or a cell whose agent, died (`<run>/<lane> died <cause>`) or is
 parked; it runs no reader. See decision `agent-death-reader`.
 

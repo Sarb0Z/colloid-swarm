@@ -630,7 +630,7 @@ if ! record_state "$next_fired" "$next_investigated" "$next_implemented"; then
   sections=""
 fi
 
-# Claude Code: no question. The owed flags go to the status strip, and one
+# Claude Code: no question. The owed flags go to the status band, and one
 # systemMessage line shows when the set of flags differs from the last stop of
 # this session. A host that cannot render a systemMessage keeps the question.
 if [[ "$host" == "claude" ]]; then

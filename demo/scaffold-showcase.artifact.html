@@ -7593,7 +7593,7 @@ if ! record_state &quot;$next_fired&quot; &quot;$next_investigated&quot; &quot;$
   sections=&quot;&quot;
 fi
 
-# Claude Code: no question. The owed flags go to the status strip, and one
+# Claude Code: no question. The owed flags go to the status band, and one
 # systemMessage line shows when the set of flags differs from the last stop of
 # this session. A host that cannot render a systemMessage keeps the question.
 if [[ &quot;$host&quot; == &quot;claude&quot; ]]; then
@@ -13863,8 +13863,8 @@ printf &#x27;%s&#x27; &quot;$input&quot; | COLLOID_STATUS_DELEGATED=1 bash -c &q
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>readout.py</h3><p>One reader for unit readouts, small JSON files in <code>.agents/.readout/</code> with a strip line and a note. The status line, the session-start note and a person all read the same files; a readout past its freshness window shows its age, and an unreadable file is named rather than skipped.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 325 lines</span></summary><div class="srcpath">.agents/hooks/lib/readout.py</div><pre><code>#!/usr/bin/env python3
-&quot;&quot;&quot;One reader for unit readouts: the status strip, the session-start note and
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 326 lines</span></summary><div class="srcpath">.agents/hooks/lib/readout.py</div><pre><code>#!/usr/bin/env python3
+&quot;&quot;&quot;One reader for unit readouts: the status band, the session-start note and
 a person all read the same files.
 
 A readout is one JSON file directly in `.agents/.readout/`:
@@ -13924,8 +13924,9 @@ PRUNE_SESSION_AFTER = timedelta(days=7)
 PRUNE_FILE_AFTER = timedelta(days=7)
 PRUNE_TEMP_AFTER = timedelta(hours=1)
 SEPARATOR = &quot;  ·  &quot;
-# Readouts that lead the strip: the host cuts the row at the terminal width,
-# so what must stay visible comes first. Others follow in file-name order.
+# Readouts that lead the band&#x27;s readout row: the host cuts the row at the
+# terminal width, so what must stay visible comes first. Others follow in
+# file-name order.
 STRIP_FIRST = (&quot;owed&quot;,)
 DEFAULT_REPO = str(Path(__file__).resolve().parents[3])
 
@@ -15432,7 +15433,7 @@ behavior the reader can observe, then the code that produces it.
 
 Then draft a commit message for the session&#x27;s work in conventional style.
 
-Last, after writing the report, clear the status strip&#x27;s `report` flag. On
+Last, after writing the report, clear the status band&#x27;s `report` flag. On
 Claude Code, run
 `python3 .agents/hooks/lib/owed.py clear report --session &quot;$CLAUDE_CODE_SESSION_ID&quot;`;
 other hosts raise no flag.
@@ -15461,7 +15462,7 @@ Then, for either:
 3. **Ruled out** — dead ends and why, so the next investigator skips them.
 4. **Open questions, risks, and the recommended next step.**
 
-Last, after writing the report, clear the status strip&#x27;s `report` flag. On
+Last, after writing the report, clear the status band&#x27;s `report` flag. On
 Claude Code, run
 `python3 .agents/hooks/lib/owed.py clear report --session &quot;$CLAUDE_CODE_SESSION_ID&quot;`;
 other hosts raise no flag.
@@ -15506,7 +15507,7 @@ Task(subagent_type=&#x27;learning-reporter&#x27;,
      prompt=&lt;the decision-brief&gt; + &lt;the changed-file list&gt;)
 ```
 
-Last, after giving the report, clear the status strip&#x27;s `learning` flag. On
+Last, after giving the report, clear the status band&#x27;s `learning` flag. On
 Claude Code, run
 `python3 .agents/hooks/lib/owed.py clear learning --session &quot;$CLAUDE_CODE_SESSION_ID&quot;`;
 other hosts raise no flag.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One reader for unit readouts: the status strip, the session-start note and
+"""One reader for unit readouts: the status band, the session-start note and
 a person all read the same files.
 
 A readout is one JSON file directly in `.agents/.readout/`:
@@ -59,8 +59,9 @@ PRUNE_SESSION_AFTER = timedelta(days=7)
 PRUNE_FILE_AFTER = timedelta(days=7)
 PRUNE_TEMP_AFTER = timedelta(hours=1)
 SEPARATOR = "  ·  "
-# Readouts that lead the strip: the host cuts the row at the terminal width,
-# so what must stay visible comes first. Others follow in file-name order.
+# Readouts that lead the band's readout row: the host cuts the row at the
+# terminal width, so what must stay visible comes first. Others follow in
+# file-name order.
 STRIP_FIRST = ("owed",)
 DEFAULT_REPO = str(Path(__file__).resolve().parents[3])
 

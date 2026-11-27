@@ -18,7 +18,7 @@ behavior the reader can observe, then the code that produces it.
 
 Then draft a commit message for the session's work in conventional style.
 
-Last, after writing the report, clear the status strip's `report` flag. On
+Last, after writing the report, clear the status band's `report` flag. On
 Claude Code, run
 `python3 .agents/hooks/lib/owed.py clear report --session "$CLAUDE_CODE_SESSION_ID"`;
 other hosts raise no flag.

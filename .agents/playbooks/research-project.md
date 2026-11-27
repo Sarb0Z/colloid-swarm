@@ -33,7 +33,7 @@ Python that reads them with `-I`.
 
 In a repository that carries the scaffold, list `results/**`, `report/**`,
 `claims.csv` and `analysis-plan.md` under `owed.critical_paths` in
-`.agents/policy.json`, so the status strip says a review is owed.
+`.agents/policy.json`, so the status band says a review is owed.
 
 ## Charter
 
