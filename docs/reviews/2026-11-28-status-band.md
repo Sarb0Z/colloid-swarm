@@ -52,3 +52,36 @@ the prompt until the first turn (finding 4), and one
 line printed at launch before the band drew, adopted as a fix: no draw waits
 on a process, so the opening runs outside the render hook. Not exercised: row 4
 live and a named branch.
+
+Live QA at `971afcf`, same method, on a named branch. Passed: no error line at
+launch, after `/clear` or in the whole scrollback; `qa-branch` in row 1;
+`/clear` clean with only the new id's files; tests `pass` after
+`bash .agents/test-statusline.sh`, unchanged after the same run piped into
+`tail`, `stale` after a `.py` edit; idle 60 s with no git, `python3` or
+`readout.py`; both buttons. Failed: the person's own line still drew below the
+prompt from launch to the first turn, in four captures over 8 s. Claude Code's
+first statusLine run precedes `session.start`, and its output stands until the
+next run. Adopted: the relay waits up to 1.5 s for the band's marker when the
+band is installed, and records `<id>.nomod` when none comes, so later runs for
+that id hand over at once. Callers showed nothing on the band after a blank-line
+edit, which removes no name: correct by acceptance 7.
+
+Round 3, code review of the fixes `380b9fa..971afcf`, by an Opus `reviewer`
+cell with the reviewer contract. Verdict: `CONFORMANCE: no`, 1 `P1` and 8
+`P2`, no `P0`. Result: reopen.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | P1 | `pytest -q  # confirm it's green` then `git status` reads as a pass: `pieces` in `task.ts` ignores `#` comments, so the apostrophe opens a quote that swallows the rest | adopted: a `#` starting a word outside quotes ends at the newline; an unclosed quote is no test run |
+| 2 | P2 | The early marker lands before the switch is read, so a switched-off repository shows no line at launch | adopted: the marker follows the switch and the folder checks; the relay's wait then records `.nomod`, and the person's line shows from launch |
+| 3 | P2 | An aborted opening has no bounded retry: neither band nor line shows while openings keep aborting, with a process start per draw | adopted: three attempts on a timer, 250 ms then 500 ms; after the last, the marker is removed and the failure reported once |
+| 4 | P2 | `readGit`, `readReadouts` and `checkCallers` report an engine abort as a fault | adopted: they rethrow aborts |
+| 5 | P2 | The early marker writes through a symlinked folder before the ownership check | adopted with finding 2: `! -L`, `mkdir -p -m 700` and `-O` pass before any write. The writer's residual that the folder could be created world-readable is false: `$.fs.write` makes parents 0700 and files 0600 on 2.1.325; the relay adds `umask 077` |
+| 6 | P2 | A failure of the git that names the session's top level leaves an old callers count | adopted: `callers ?` |
+| 7 | P2 | `time pytest`, `env X=1 pytest`, `(cd app && pytest)`, `pytest;` and `npm run test:unit` leave the state unchanged | adopted: launchers, one enclosing pair of parentheses, a trailing `;` or newline and package-script tests count |
+| 8 | P2 | `session.end` can remove before the early marker's write lands, leaving a stray `.on` | adopted: it awaits the ending id's marker write |
+| 9 | P2 | `pieces` 48 lines, `open` 46, `register.tsx` 581 | deferred with round 2 finding 8 |
+
+AMBIGUITY (acceptance 5 "the person's own status line shows": from launch, or
+from the first run after the switch is read): settled by the lead as from
+launch, through finding 2 and the relay's wait.
