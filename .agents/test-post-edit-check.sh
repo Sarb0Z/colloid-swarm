@@ -828,4 +828,21 @@ callers_out '["lib.py"]'
 [[ "$out" == *"total_price"* ]] || fail "callers_check true must restore the advisory, got: $out"
 ok "callers_check false silences the callers advisory, and true restores it"
 
+# --json, as the status band reads it: names and sites, and a failure is no count.
+callersfix 12
+rename_total
+out="$(printf '%s/lib.py\n' "$fxproj" | python3 "$fx/.agents/hooks/lib/removed-callers.py" --json "$fxproj")"
+[[ "$out" == '{"names": ["total_price"], "sites": 2}' ]] \
+  || fail "--json must name the renamed function and its caller and importer as 2 sites, got: $out"
+out="$(printf '%s/other.py\n' "$fxproj" | python3 "$fx/.agents/hooks/lib/removed-callers.py" --json "$fxproj")"
+[[ "$out" == '{"names": [], "sites": 0}' ]] || fail "--json with nothing removed must say 0 sites, got: $out"
+rm -rf "$fx/.git"
+set +e
+out="$(printf '%s/lib.py\n' "$fxproj" | python3 "$fx/.agents/hooks/lib/removed-callers.py" --json "$fxproj" 2>"$scratch/callers-err")"
+rc=$?
+set -e
+[[ $rc -ne 0 && -z "$out" ]] || fail "--json must exit non-zero and print nothing when git fails, got rc=$rc: $out"
+grep -q 'removed-callers: failed' "$scratch/callers-err" || fail "--json must say why on stderr, got: $(cat "$scratch/callers-err")"
+ok "--json counts call and import sites, and a git failure exits non-zero instead of reading as none"
+
 printf '\nALL PASS\n'

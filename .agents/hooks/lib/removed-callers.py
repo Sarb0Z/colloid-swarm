@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """List the removed Python definitions that other files still call or import.
 
-Usage: removed-callers.py <project-dir>    # absolute .py paths on stdin, one per line
+Usage: removed-callers.py [--json] <project-dir>    # absolute .py paths on stdin, one per line
+
+With --json it prints one line, `{"names": [...], "sites": n}`: every removed
+name still in use and the number of call and import sites naming them, with no
+cap. A failed git call then exits 1 with the reason on stderr, so a reader
+never takes a failure for no callers.
 
 For each edited, tracked file this compares the top-level `def`, `async def`
 and `class` names at column 0 in the working tree with HEAD. A name the working
@@ -27,9 +32,11 @@ outside the project folder are not searched. Deleted and moved files never reach
 the hook, and the base is HEAD, so a removal that is already committed is not
 shown. debt: colloid-shell-writes-skip-post-edit
 
-A failed or timed-out git call prints the reason on stderr and prints nothing.
+Without --json, a failed or timed-out git call prints the reason on stderr and
+prints nothing.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -139,9 +146,13 @@ def places(project, sources):
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("removed-callers.py: usage: removed-callers.py <project-dir>")
-    project = sys.argv[1]
+    args = sys.argv[1:]
+    as_json = args[:1] == ["--json"]
+    if as_json:
+        args = args[1:]
+    if len(args) != 1:
+        raise SystemExit("removed-callers.py: usage: removed-callers.py [--json] <project-dir>")
+    project = args[0]
     files = [p for p in sys.stdin.read().splitlines()
              if p.strip().endswith(".py") and os.path.isfile(p)]
     try:
@@ -151,7 +162,13 @@ def main():
                 sources.setdefault(name, path)
         result = places(project, sources)
     except (OSError, subprocess.SubprocessError) as error:
+        if as_json:
+            print(f"removed-callers: failed, {error}", file=sys.stderr)
+            return 1
         print(f"removed-callers: skipped, {error}", file=sys.stderr)
+        return 0
+    if as_json:
+        print(json.dumps({"names": list(result), "sites": sum(len(found) for found in result.values())}))
         return 0
     shown = list(result)[:MAX_NAMES]
     for name in shown:
