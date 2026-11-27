@@ -276,8 +276,12 @@ relay: while the band's marker `<session>.on` stands in
 `${TMPDIR:-/tmp}/colloid-status-$USER/`, it copies the status JSON to
 `<session>.json` there and prints nothing; otherwise the person's own user
 `statusLine` runs. The band writes the marker at session start and at the
-first draw under a new id (`/clear`), before it starts any process, so the
-relay is silent from its first run; no draw waits on a process. Idle, the band
+first draw under a new id (`/clear`), before it starts any process; no draw
+waits on a process. Claude Code runs the status line before session start, so
+where the band is installed the relay's first run for a session waits up to
+about 1.6 s for the marker. With none by then it writes `<session>.nomod`, and
+later runs for that session hand over at once unless the marker appears. The
+relay makes the folder mode 700 before the session's first copy. Idle, the band
 stats that file every 2 s and starts no process; git (with
 `GIT_OPTIONAL_LOCKS=0`) and the readout reader run when the band opens, at a
 prompt, after a Bash, Edit or Write, and when the relay file changes, at most

@@ -355,7 +355,7 @@ async function keepMarker($: EngineInterface, session: Session): Promise<void> {
 
 async function removeRelayFiles($: EngineInterface, folder: string | undefined, id: string): Promise<void> {
   if (folder === undefined || !ID.test(id)) return
-  const files = [`${folder}/${id}.on`, `${folder}/${id}.json`]
+  const files = [`${folder}/${id}.on`, `${folder}/${id}.json`, `${folder}/${id}.nomod`]
   const present = await Promise.all(files.map(file => $.fs.exists(file)))
   if (!present.some(Boolean)) return
   const removed = await run($, ['rm', '-f', ...files])

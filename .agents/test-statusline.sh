@@ -34,8 +34,17 @@ relay_run() {  # [VAR=value ...] -> runs the relay on $payload; sets out, err
 }
 printf '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own >> %s; echo own-line"}}\n' "$calls" > "$own/settings.json"
 
-# With the marker: the exact bytes, nothing printed, and only mv on PATH.
+mode_of() { python3 -c 'import os, stat, sys; print(oct(stat.S_IMODE(os.stat(sys.argv[1]).st_mode)))' "$1"; }
+
+# The session's first copy: the folder goes to 700 before the JSON lands in it.
 touch "$folder/sess-1.on"
+chmod 755 "$folder"
+relay_run
+[[ -z "$out" && -z "$err" && "$(mode_of "$folder")" == 0o700 && -f "$folder/sess-1.json" ]] \
+  || fail "the first copy did not make the folder 700 first: mode=$(mode_of "$folder") out=$out err=$err"
+ok "the session's first copy makes a group- or world-readable folder 700 before writing"
+
+# Every later refresh: the exact bytes, nothing printed, and only mv on PATH.
 bin="$scratch/bin"
 mkdir -p "$bin"
 ln -s "$(command -v mv)" "$bin/mv"
@@ -44,7 +53,7 @@ relay_run PATH="$bin"
 cmp -s <(printf '%s' "$payload") "$folder/sess-1.json" || fail "the copy differs from stdin: $(od -c "$folder/sess-1.json" | head -5)"
 [[ ! -e "$calls" ]] || fail "with the marker the person's own line still ran"
 [[ -z "$(find "$folder" -name '*.tmp')" ]] || fail "the relay left a temporary file: $(ls -A "$folder")"
-ok "with the marker the relay writes stdin byte for byte, prints nothing, and starts no process but mv"
+ok "with the marker a refresh writes stdin byte for byte, prints nothing, and starts no process but mv"
 
 # Without the marker: the person's own line, once.
 rm "$folder/sess-1.on" "$folder/sess-1.json"
@@ -117,3 +126,55 @@ out="$(printf '%s' '{"session_id":"sess-1","wired":true}' \
   | env -u CLAUDE_PROFILE HOME="$scratch" USER=tester TMPDIR="$tmp" CLAUDE_CONFIG_DIR="$own" CLAUDE_PROJECT_DIR="$fixture" bash -c "$wired")"
 [[ -z "$out" && "$(cat "$folder/sess-1.json")" == *'"wired":true'* ]] || fail "the statusLine command in settings.json did not relay: $out"
 ok "the statusLine command committed in settings.json relays the status"
+
+# --- the first run of a session waits for the band's marker -----------------
+# A checkout with the band installed: its skills link resolves.
+banded="$scratch/banded"
+mkdir -p "$banded/.agents/claude" "$banded/.agents/claude/mods/status-band/.claude-plugin" "$banded/.claude/skills"
+cp "$repo/.agents/claude/statusline.sh" "$banded/.agents/claude/"
+ln -s ../../.agents/claude/mods/status-band "$banded/.claude/skills/colloid-status-band"
+waited=0
+banded_run() {  # <session> -> sets out, waited (seconds, to the tenth)
+  local start="$EPOCHREALTIME"
+  out="$(printf '{"session_id":"%s"}' "$1" | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$scratch" USER=tester \
+    TMPDIR="$tmp" CLAUDE_CONFIG_DIR="$own" bash "$banded/.agents/claude/statusline.sh")"
+  waited="$(python3 -c 'import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 1))' "$start" "$EPOCHREALTIME")"
+}
+slower() { python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$1" "$2"; }
+
+( sleep 0.4; touch "$folder/late.on" ) &
+banded_run late
+wait
+[[ -z "$out" && -f "$folder/late.json" ]] || fail "a marker that appeared mid-wait did not take the line: out=$out"
+slower "$waited" 0.3 && ! slower "$waited" 1.4 || fail "the run did not end soon after the marker appeared: ${waited}s"
+ok "a marker that appears while the first run waits takes the line: nothing printed, the JSON written"
+
+banded_run absent
+[[ "$out" == "own-line" && -f "$folder/absent.nomod" && ! -e "$folder/absent.json" ]] \
+  || fail "with no marker the wait did not end in the person's line and a .nomod: out=$out $(ls -A "$folder")"
+slower "$waited" 1.4 || fail "the person's line came before the wait ran out: ${waited}s"
+ok "with no marker the first run waits about 1.5 s, writes <id>.nomod and draws the person's line"
+
+banded_run absent
+[[ "$out" == "own-line" ]] || fail "a run after .nomod did not draw the person's line: $out"
+! slower "$waited" 0.5 || fail "a run after .nomod waited again: ${waited}s"
+ok "a later run for that id sees <id>.nomod and hands over with no wait"
+
+touch "$folder/absent.on"
+banded_run absent
+[[ -z "$out" && -f "$folder/absent.json" ]] || fail "a marker beside .nomod did not win: out=$out"
+ok "a marker that appears after <id>.nomod still wins"
+
+rm "$banded/.claude/skills/colloid-status-band"
+banded_run nolink
+[[ "$out" == "own-line" && ! -e "$folder/nolink.nomod" ]] || fail "with no band link the relay did not hand over at once: out=$out"
+! slower "$waited" 0.5 || fail "with no band link the relay waited: ${waited}s"
+ok "a checkout without the band hands over with no wait"
+
+# The person's line running this script again stops before any wait.
+ln -s ../../.agents/claude/mods/status-band "$banded/.claude/skills/colloid-status-band"
+start="$EPOCHREALTIME"
+out="$(printf '{"session_id":"loop"}' | env HOME="$scratch" USER=tester TMPDIR="$tmp" COLLOID_STATUS_DELEGATED=1 bash "$banded/.agents/claude/statusline.sh")"
+waited="$(python3 -c 'import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 1))' "$start" "$EPOCHREALTIME")"
+[[ -z "$out" ]] && ! slower "$waited" 0.5 || fail "the second pass waited or drew: ${waited}s $out"
+ok "the second pass of a looping status line stops before any wait"

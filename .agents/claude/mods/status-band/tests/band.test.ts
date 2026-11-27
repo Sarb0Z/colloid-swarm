@@ -322,7 +322,7 @@ test('session.end removes only the ending id\'s files', async ($, on) => {
   const { ran } = world(on, { id: 'end-1', status: STATUS, git: TRUNK })
   const ui = await $.ui.mount(BAND())
   await $.session.end({ reason: 'clear', sessionId: 'end-1', resume: { sessionId: 'end-1' } })
-  expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/end-1.on`, `${FOLDER}/end-1.json`])
+  expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/end-1.on`, `${FOLDER}/end-1.json`, `${FOLDER}/end-1.nomod`])
   await ui.unmount()
 })
 
@@ -331,7 +331,7 @@ test('switched off, the band draws nothing of its own and takes its marker back'
   const ui = await $.ui.mount(BAND())
   const text = await textOf(ui)
   expect(text).toBe('beneath')
-  expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/off-1.on`, `${FOLDER}/off-1.json`])
+  expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/off-1.on`, `${FOLDER}/off-1.json`, `${FOLDER}/off-1.nomod`])
   expect(files.has(`${FOLDER}/off-1.on`)).toBe(false)
   // Off, nothing but the switch and the removal runs: no git, no reader.
   expect(ran.filter(argv => argv[0] === 'git' && argv[1] !== '-C')).toEqual([])
