@@ -730,10 +730,67 @@ callers_out '["lib.py"]'
 ok "a renamed top-level function is reported with its caller and importer"
 
 printf 'from lib import Cart, order_total\n\ncart = [1]\nprint(order_total(cart))\n' > "$fx/shop.py"
-printf 'from lib import order_total\n' > "$fx/app.py"
 callers_out '["lib.py"]'
-[[ "$out" != *"total_price"* ]] || fail "callers already updated must not be reported, got: $out"
-ok "a caller updated to the new name is not reported"
+[[ "$out" == *"app.py:1"* ]] || fail "the importer not yet updated must still be reported, got: $out"
+[[ "$out" != *"shop.py"* ]] || fail "a caller updated to the new name must not be reported, got: $out"
+ok "a caller updated to the new name is not reported, beside one that is not yet"
+
+callersfix 7
+printf 'from util import total_price\n' > "$fx/lib.py"
+printf 'def total_price(items):\n    return sum(items)\n' > "$fx/util.py"
+callers_out '["lib.py"]'
+[[ "$out" == *"Cart (removed from lib.py)"* && "$out" == *"shop.py:1"* ]] \
+  || fail "a class removed with no re-export must name its importer, got: $out"
+[[ "$out" != *"total_price"* ]] || fail "a name the edited file re-exports must not be reported, got: $out"
+ok "a re-exported name is not reported, beside a removed class that is"
+
+callersfix 8
+mkdir -p "$fx/pkg"
+printf 'def make_slug(text):\n    return text\n' > "$fx/pkg/__init__.py"
+printf 'from pkg import make_slug\n' > "$fx/user.py"
+git -C "$fx" add -A && git -C "$fx" -c user.name=t -c user.email=t@t commit -qm pkg
+printf '' > "$fx/pkg/__init__.py"
+callers_out '["pkg/__init__.py"]'
+[[ "$out" == *"make_slug"* && "$out" == *"user.py:1"* ]] \
+  || fail "a name removed from a package's __init__.py must name its importer, got: $out"
+ok "a name removed from a package's __init__.py reports the package's importer"
+
+callersfix 9
+mkdir -p "$fx/sub"
+git -C "$fx" mv lib.py shop.py app.py sub/
+git -C "$fx" -c user.name=t -c user.email=t@t commit -qm sub
+sed -i.bak 's/total_price/order_total/' "$fx/sub/lib.py"; rm -f "$fx/sub/lib.py.bak"
+top="$fxproj"; fxproj="$top/sub"
+callers_out '["lib.py"]'
+fxproj="$top"
+[[ "$out" == *"total_price"* && "$out" == *"shop.py:4"* ]] \
+  || fail "a project folder below the repository root must still be searched, got: $out"
+ok "a project folder below the repository root reports its callers"
+
+callersfix 10
+names=(fn_a fn_b fn_c fn_d fn_e fn_f fn_g fn_h fn_i)
+: > "$fx/many.py"; : > "$fx/uses.py"
+for n in "${names[@]}"; do
+  printf 'def %s():\n    return 1\n\n\n' "$n" >> "$fx/many.py"
+  printf 'from many import %s\n' "$n" >> "$fx/uses.py"
+done
+git -C "$fx" add -A && git -C "$fx" -c user.name=t -c user.email=t@t commit -qm many
+: > "$fx/many.py"
+callers_out '["many.py"]'
+[[ "$out" == *"fn_h (removed from many.py)"* && "$out" != *"fn_i (removed"* \
+   && "$out" == *"1 more removed names still in use: fn_i"* ]] \
+  || fail "past 8 names the rest must be named on one line, got: $out"
+ok "past 8 removed names the rest are named on one line"
+
+callersfix 11
+printf 'print(total_price([2]))\n' > "$fx/odd:name.py"
+printf 'x = 1\nprint(total_price([3]), "caf\xe9")\n' > "$fx/latin.py"
+git -C "$fx" add -A && git -C "$fx" -c user.name=t -c user.email=t@t commit -qm odd
+rename_total
+callers_out '["lib.py"]'
+[[ "$out" == *"odd:name.py:1"* && "$out" == *"latin.py:2"* && "$out" == *"shop.py:4"* ]] \
+  || fail "a ':' in a path and non-UTF-8 text must not lose the advisory, got: $out"
+ok "a ':' in a path and a non-UTF-8 file keep the whole advisory"
 
 callersfix 3
 printf 'class Cart:\n    def is_file(self):\n        return True\n' > "$fx/lib.py"
@@ -746,22 +803,29 @@ ok "a moved function reports its importer and not the call that still resolves"
 callersfix 4
 printf 'from lib import Cart\n\nx = Cart()\nprint(x.is_file())\n' > "$fx/shop.py"
 git -C "$fx" -c user.name=t -c user.email=t@t commit -qam method
-printf 'def total_price(items):\n    return sum(items)\n\n\nclass Cart:\n    pass\n' > "$fx/lib.py"
+printf 'def order_total(items):\n    return sum(items)\n\n\nclass Cart:\n    pass\n' > "$fx/lib.py"
 callers_out '["lib.py"]'
+[[ "$out" == *"total_price"* ]] || fail "the renamed function beside the removed method must be reported, got: $out"
 [[ "$out" != *"is_file"* ]] || fail "a removed method must not be reported, got: $out"
-ok "a removed method is not reported"
+ok "a removed method is not reported, beside a renamed function that is"
 
 callersfix 5
 printf 'import lib\n\nvalue = lib.total_price([1])\n' > "$fx/fresh.py"
-callers_out '["fresh.py"]'
-[[ $rc -eq 0 && "$out" != *"Advisory — you removed or renamed"* ]] || fail "a new untracked file must give no callers advisory, got: $out"
-ok "a new untracked file gives no callers advisory"
+rename_total
+callers_out '["fresh.py","lib.py"]'
+[[ $rc -eq 0 && "$out" == *"total_price (removed from lib.py)"* ]] \
+  || fail "the tracked file edited beside a new one must be reported, got: $out"
+[[ "$out" != *"removed from fresh.py"* ]] || fail "a new untracked file must lose no names, got: $out"
+ok "a new untracked file loses no names, beside a tracked file that does"
 
 callersfix 6
 printf '{"hooks":{"post_edit_check":{"enabled":true,"callers_check":false}}}\n' > "$fx/.agents/config.json"
 rename_total
 callers_out '["lib.py"]'
 [[ "$out" != *"total_price"* ]] || fail "callers_check false must silence the advisory, got: $out"
-ok "callers_check false silences the callers advisory"
+printf '{"hooks":{"post_edit_check":{"enabled":true,"callers_check":true}}}\n' > "$fx/.agents/config.json"
+callers_out '["lib.py"]'
+[[ "$out" == *"total_price"* ]] || fail "callers_check true must restore the advisory, got: $out"
+ok "callers_check false silences the callers advisory, and true restores it"
 
 printf '\nALL PASS\n'
