@@ -4,12 +4,16 @@
     "pr": "",
     "sessionUrl": false
   },
+  "autoMemoryEnabled": false,
   "cleanupPeriodDays": 36500,
   "disableClaudeAiConnectors": true,
   "effortLevel": "high",
   "enableArtifact": false,
   "env": {
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1",
     "CLAUDE_CODE_DISABLE_ARTIFACT": "1",
+    "CLAUDE_CODE_DISABLE_CFC_PROMPT": "1",
     "CLAUDE_CODE_DISABLE_FEATURE_FLAGS": "1",
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -57,6 +61,9 @@
     ]
   },
   "idleCompaction": false,
+  "permissions": {
+    "deny": ["RemoteTrigger", "Workflow", "EnterWorktree", "ExitWorktree", "NotebookEdit"]
+  },
   "model": "fable",
   "modelSettings": {
     "claude-fable-5": {"effortLevel": "low"},
