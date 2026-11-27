@@ -7,7 +7,7 @@ mutation and needs the operator's approval in the session.
 |---|---|---|
 | Read the pull request, its linked issue, and its CI result | Yes | Yes |
 | Test-merge locally onto the current base, never onto a shared branch | Yes | Yes |
-| Run the full suite on the merged tree, the engine suite included where the repository has one | Yes | Yes |
+| Run the full suite once on the merged tree, the engine suite included where the repository has one; when the lead pushes that same tree, this is its run before the push, and the suite runs again when the base moves or the review changes the tree before the merge | Yes | Yes |
 | Review the code yourself before merging; a reviewer cell adds an independent read | One reviewer | One reviewer reading the change whole and its seams with the rest of the system; several reviewers, one axis each, as one round, only for a change designed from first principles |
 | Report the findings and a merge recommendation; merge only on the operator's approval | Yes | Yes |
 | After the merge, verify the result where it runs | Yes | Yes |

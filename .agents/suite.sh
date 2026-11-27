@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Run the repository's suite (`owed.suite` in .agents/policy.json) and, when it
 # passes, record the tree it passed on, so `owed.py` stops reporting the suite
-# as owed until the next edit.
+# as owed until the next edit. Owed means owed before the next push: the suite
+# runs once on the tree about to be pushed, not after each edit
+# (.agents/playbooks/commits.md).
 #
 # The checks run in a copy of the checkout built from that tree, under a
 # temporary HOME, so a check that writes relative to its own script or under

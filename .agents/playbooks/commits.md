@@ -52,10 +52,9 @@ git commit --fixup=<sha>
 GIT_SEQUENCE_EDITOR=true git rebase --autosquash -x '<checks>' <upstream>
 ```
 
-`<checks>` are the covering checks of the commits replayed; the full suite runs
-on the folded tip before it is pushed. Fold only while the target commit is on no
-remote branch, has not been integrated by a workloop run, and sits in a tree no
-other session writes. A `-x` step that runs git or a test suite inherits
+`<checks>` are the covering checks of the commits replayed. Fold only while the
+target commit is on no remote branch, has not been integrated by a workloop
+run, and sits in a tree no other session writes. A `-x` step that runs git or a test suite inherits
 `GIT_DIR` from the rebase; unset `GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 GIT_PREFIX` inside it, or the step acts on the repository under rebase. When any condition fails, or the fold
 conflicts (`git rebase --abort`), land the fix as a trailing commit whose

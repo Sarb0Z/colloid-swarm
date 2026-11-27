@@ -61,7 +61,7 @@ Reproduce first: build one command that goes red on this defect — a failing te
 | Workflow | Standard | Critical adds |
 |---|---|---|
 | Answer | Answer from observed state and cite the command or file. | — |
-| Ship | Fetch before asserting remote state; dry-run where the tool offers one; one approval per outward action; verify the result where it runs; commits follow `.agents/playbooks/commits.md`. | A rollback plan before the action. |
+| Ship | Fetch before asserting remote state; dry-run where the tool offers one; one approval per outward action; verify the result where it runs; before a push, run the full suite once on the tree about to be pushed, with `.agents/suite.sh`, and report its result, or say the repository declares none; commits follow `.agents/playbooks/commits.md`. | A rollback plan before the action. |
 | Operate | Back up first; production stays read-only until approved; a runbook for every step the operator runs; the change lands in the repository by `.agents/playbooks/infrastructure.md`. | The operator reviews the runbook. |
 
 ### Human gates

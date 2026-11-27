@@ -424,7 +424,7 @@ Reproduce first: build one command that goes red on this defect — a failing te
 | Workflow | Standard | Critical adds |
 |---|---|---|
 | Answer | Answer from observed state and cite the command or file. | — |
-| Ship | Fetch before asserting remote state; dry-run where the tool offers one; one approval per outward action; verify the result where it runs; commits follow `.agents/playbooks/commits.md`. | A rollback plan before the action. |
+| Ship | Fetch before asserting remote state; dry-run where the tool offers one; one approval per outward action; verify the result where it runs; before a push, run the full suite once on the tree about to be pushed, with `.agents/suite.sh`, and report its result, or say the repository declares none; commits follow `.agents/playbooks/commits.md`. | A rollback plan before the action. |
 | Operate | Back up first; production stays read-only until approved; a runbook for every step the operator runs; the change lands in the repository by `.agents/playbooks/infrastructure.md`. | The operator reviews the runbook. |
 
 ### Human gates
@@ -13289,7 +13289,7 @@ printf &#x27;all checks passed\n&#x27;
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>owed.py</h3><p>What a session still owes, computed from its own records: <code>review</code> for a critical-path file committed with no review record covering its content, <code>suite</code> for edits since the last passing run, <code>report</code>, <code>worklog</code> and <code>cleanup</code>, and <code>learning</code> when pairing reports are on. A review record covers a file through its <code>Covers: &lt;base&gt;..&lt;tip&gt;</code> line. A flag informs and never blocks.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 473 lines</span></summary><div class="srcpath">.agents/hooks/lib/owed.py</div><pre><code>#!/usr/bin/env python3
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 475 lines</span></summary><div class="srcpath">.agents/hooks/lib/owed.py</div><pre><code>#!/usr/bin/env python3
 &quot;&quot;&quot;What a session still owes: five flags computed from its own records.
 
 A flag informs and never blocks. Each is true only while something is owed,
@@ -13309,7 +13309,8 @@ sessions&#x27; commits never raise one.
             resolve covers nothing and is named.
   suite     a path the session wrote differs between the working tree and the
             tree of the last passing run of `owed.suite` (`suite.sh` records
-            that tree), or no pass is recorded.
+            that tree), or no pass is recorded. It is owed before the next
+            push, not after each edit.
   report    raised with `raise report`, cleared by `clear report --session ID`.
   worklog   the work log is on and today&#x27;s file is older than the session&#x27;s
             newest commit.
@@ -13657,6 +13658,7 @@ def compute(repo, session, key):
     stale, recorded = suite_flag(repo, written)
     if stale:
         why = &quot;no passing run recorded&quot; if not recorded else &quot;changed since the last passing run&quot;
+        why += &quot;; run it once before the next push&quot;
         flags[&quot;suite&quot;] = (None, [f&quot;{policy(repo)[&#x27;suite&#x27;]}: {why}&quot;] + stale)
 
     marker = marker_for(repo, &quot;report&quot;, key)

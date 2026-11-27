@@ -18,7 +18,8 @@ sessions' commits never raise one.
             resolve covers nothing and is named.
   suite     a path the session wrote differs between the working tree and the
             tree of the last passing run of `owed.suite` (`suite.sh` records
-            that tree), or no pass is recorded.
+            that tree), or no pass is recorded. It is owed before the next
+            push, not after each edit.
   report    raised with `raise report`, cleared by `clear report --session ID`.
   worklog   the work log is on and today's file is older than the session's
             newest commit.
@@ -366,6 +367,7 @@ def compute(repo, session, key):
     stale, recorded = suite_flag(repo, written)
     if stale:
         why = "no passing run recorded" if not recorded else "changed since the last passing run"
+        why += "; run it once before the next push"
         flags["suite"] = (None, [f"{policy(repo)['suite']}: {why}"] + stale)
 
     marker = marker_for(repo, "report", key)
