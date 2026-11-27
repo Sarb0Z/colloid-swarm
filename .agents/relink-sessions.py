@@ -15,7 +15,10 @@ dangle, they resolve somewhere wrong, so the rewrite is the point and the copy
 is the easy half.
 
 Usage:
-    .agents/relink-sessions.py <old-project-path> <new-project-path> [--apply]
+    .agents/relink-sessions.py <old-project-path> <new-project-path> [--apply] [--remote]
+
+`--remote` relinks for another machine: the new path is taken as written, and
+the folder it makes is copied into that machine's store afterwards.
 
 Dry run by default; `--apply` writes. The source folder is left in place, so a
 bad rewrite costs nothing -- delete it once `/resume` in the new location looks
@@ -91,15 +94,29 @@ def main():
     parser.add_argument("new_path", help="where it lives now")
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     parser.add_argument("--prune", action="store_true", help="delete the source folder afterwards")
+    parser.add_argument("--remote", action="store_true",
+                        help="new_path is on another machine: an absolute path taken as written, "
+                             "for a store copied there afterwards")
     args = parser.parse_args()
 
+    if args.remote:
+        # This machine's symlinks say nothing about the other host's (macOS
+        # links /home elsewhere), so resolving here would misname the folder
+        # and every cwd in it.
+        new = os.path.normpath(args.new_path)
+        if not new.startswith("/"):
+            raise SystemExit(f"relink: --remote needs an absolute path on the other machine, not {args.new_path}")
+        target_slug = SLUG_CHARS.sub("-", new)
+    else:
+        new = str(pathlib.Path(args.new_path).expanduser().resolve(strict=False))
+        target_slug = slug(args.new_path)
+
     source = source_folder(args.old_path)
-    target = projects_root() / slug(args.new_path)
+    target = projects_root() / target_slug
     if source == target:
         raise SystemExit("relink: both paths encode to the same folder, nothing to do")
 
     old = str(pathlib.Path(args.old_path).expanduser().resolve(strict=False))
-    new = str(pathlib.Path(args.new_path).expanduser().resolve(strict=False))
     if old.lower() == new.lower():
         # Same directory under a case-insensitive filesystem. The slugs still
         # differ, so the history is genuinely orphaned and worth moving, but
