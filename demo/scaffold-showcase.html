@@ -13178,7 +13178,7 @@ exit 0
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>check-all.sh</h3><p>The whole check list, one command per line; every check runs even after one fails, so one run names every failure. <code>suite.sh</code> runs it as the repository&#x27;s suite and records the tree it passed on, and <code>lint-suite.py</code> fails when this list and CI run different checks or a test file is reached by neither.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 115 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 116 lines</span></summary><div class="srcpath">.agents/check-all.sh</div><pre><code>#!/usr/bin/env bash
 # The scaffold&#x27;s whole check list, run from the repository root. `suite.sh`
 # runs this as the repository&#x27;s `owed.suite`. To run one surface, copy its line
 # out of the list.
@@ -13228,6 +13228,7 @@ python3 .agents/test-guard-destructive.py
 .agents/test-workloop-authority.sh
 python3 .agents/test-wait-gate.py
 python3 .agents/test-save-reply.py
+python3 .agents/test-relink-sessions.py
 python3 .agents/skills/research-claims/scripts/test-claims.py
 .agents/test-keychain-notice.sh
 .agents/test-session-wrap.sh
@@ -13771,189 +13772,59 @@ if __name__ == &quot;__main__&quot;:
     sys.exit(main(sys.argv[1:]))
 </code></pre></details>
             </article>
-        <article class="card"><div class="kicker">Mechanical</div><h3>statusline.sh</h3><p>The status line: the account, repository, branch and diff on one row, the model, context use and usage limits on the next, and a third row only while a unit has written a readout, the owed flags among them. <code>hooks.status_strip.enabled</code> off hands the line back to the user&#x27;s own.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 182 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
-# Claude Code status line — two rows (a third when a unit has a readout), TokyoNight colours, Nerd Font icons.
+        <article class="card"><div class="kicker">Mechanical</div><h3>statusline.sh</h3><p>The status line relay for the <code>status-band</code> mod, which draws the status above the prompt: the account, repository, branch and diff on one row, the model, context use and usage limits on the next, a third row only while a unit has written a readout, the owed flags among them, and this task&#x27;s cost, agent time, tests and callers open. While the band runs, the relay hands it Claude Code&#x27;s status JSON and prints nothing; otherwise, or with <code>hooks.status_band.enabled</code> off, the line goes back to the user&#x27;s own.</p>
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 52 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
+# Claude Code status line: a silent relay for the status band.
 #
-#   ● PERSONAL   claims-app   mvp/roadmap ●3 ↑2   +156 −23   #41 ✓   session name  󰔛 1h12m
-#   Fable 5.1 ⚡ high 󰧑  ━━━━┄┄┄┄┄┄ 367K/1M  5h 42% ↻2h10m  7d 18%  style:colloid
+# The band (.agents/claude/mods/status-band) draws the status above the prompt.
+# A mod cannot read four values only this JSON carries (effort, fast mode, the
+# live vim state, lines added and removed), so this script hands the JSON on.
+# The two meet in one per-user folder keyed by session id:
 #
-# A third row appears only while a unit has written a readout
-# (.agents/hooks/lib/readout.py).
+#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.on    the band&#x27;s marker
+#   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.json  this script&#x27;s copy
 #
-# Wired as the project statusLine in .agents/claude/settings.json, so it
-# replaces each person&#x27;s own status line in every scaffold repository. The
-# toggle is hooks.status_strip.enabled; switched off, the person&#x27;s own user
-# status line runs instead, because the project setting would otherwise leave
-# them with nothing. The account badge never names an email.
+# With the marker present, the JSON goes to &lt;session&gt;.json and nothing prints;
+# that path starts no process but mv, since it runs on every refresh. Without
+# it (the band switched off, not loaded, or a Claude Code without mods), the
+# person&#x27;s own user statusLine runs instead, because the project setting would
+# otherwise leave them with nothing.
+#
+# Wired as the project statusLine in .agents/claude/settings.json.
 
-repo=&quot;$(cd &quot;$(dirname &quot;${BASH_SOURCE[0]}&quot;)/../..&quot; &amp;&amp; pwd)&quot;
-input=$(cat)
+IFS= read -r -d &#x27;&#x27; input || true
 
-if [ &quot;$(python3 &quot;$repo/.agents/hooks/lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.status_strip.enabled=true)&quot; = no ]; then
-  # A user status line that runs this script again would loop; the marker
-  # stops the second pass.
-  [ -n &quot;${COLLOID_STATUS_DELEGATED:-}&quot; ] &amp;&amp; exit 0
-  # Read with python3, not jq: switched off, the strip owes the person their own
-  # status line even on a machine without jq.
-  settings=&quot;${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json&quot;
-  if ! own=$(python3 - &quot;$settings&quot; &lt;&lt;&#x27;PY&#x27;
+session=&quot;&quot;
+id_field=&#x27;&quot;session_id&quot;[[:space:]]*:[[:space:]]*&quot;([^&quot;]*)&quot;&#x27;
+[[ $input =~ $id_field ]] &amp;&amp; session=${BASH_REMATCH[1]}
+folder=&quot;${TMPDIR:-/tmp}&quot;
+folder=&quot;${folder%/}/colloid-status-${USER:-}&quot;
+
+# The id names files, so only readout.py&#x27;s id alphabet passes; the folder must
+# be this user&#x27;s own, not a link another user planted in a shared /tmp.
+if [[ -n ${USER:-} &amp;&amp; $session =~ ^[A-Za-z0-9_-]+$ &amp;&amp; -f &quot;$folder/$session.on&quot; &amp;&amp; -O &quot;$folder&quot; &amp;&amp; ! -L &quot;$folder&quot; ]]; then
+  printf &#x27;%s&#x27; &quot;$input&quot; &gt; &quot;$folder/.$session.$$.tmp&quot; &amp;&amp; mv -f &quot;$folder/.$session.$$.tmp&quot; &quot;$folder/$session.json&quot;
+  exit 0
+fi
+
+# A user status line that runs this script again would loop; the marker stops
+# the second pass.
+[ -n &quot;${COLLOID_STATUS_DELEGATED:-}&quot; ] &amp;&amp; exit 0
+# Read with python3, not jq: the person is owed their own status line even on a
+# machine without jq.
+settings=&quot;${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json&quot;
+if ! own=$(python3 - &quot;$settings&quot; &lt;&lt;&#x27;PY&#x27;
 import json, os, sys
 if os.path.exists(sys.argv[1]):
     with open(sys.argv[1], encoding=&quot;utf-8&quot;) as source:
         print((json.load(source).get(&quot;statusLine&quot;) or {}).get(&quot;command&quot;, &quot;&quot;))
 PY
-  ); then
-    printf &#x27;status strip: switched off, and %s is unreadable\n&#x27; &quot;$settings&quot;
-    exit 0
-  fi
-  [ -n &quot;$own&quot; ] || exit 0
-  printf &#x27;%s&#x27; &quot;$input&quot; | COLLOID_STATUS_DELEGATED=1 bash -c &quot;$own&quot;
-  exit
-fi
-
-if ! command -v jq &gt;/dev/null; then
-  printf &#x27;status strip: install jq to draw it\n&#x27;
+); then
+  printf &#x27;status line: %s is unreadable\n&#x27; &quot;$settings&quot;
   exit 0
 fi
-
-# ── one jq pass for everything ─────────────────────────────────────────────
-eval &quot;$(echo &quot;$input&quot; | jq -r &#x27;
-  def s(v): (v // &quot;&quot; | tostring);
-  &quot;session=\(s(.session_id)|@sh)&quot;,
-  &quot;transcript=\(s(.transcript_path)|@sh)&quot;,
-  &quot;cwd=\(s(.workspace.current_dir)|@sh)&quot;,
-  &quot;model=\(s(.model.display_name)|@sh)&quot;,
-  &quot;effort=\(s(.effort.level)|@sh)&quot;,
-  &quot;thinking=\(s(.thinking.enabled)|@sh)&quot;,
-  &quot;fast=\(s(.fast_mode)|@sh)&quot;,
-  &quot;pct=\(s(.context_window.used_percentage)|@sh)&quot;,
-  &quot;ctx_size=\(s(.context_window.context_window_size)|@sh)&quot;,
-  &quot;ctx_used=\(((.context_window.current_usage // {}) | ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)))|tostring|@sh)&quot;,
-  &quot;h5=\(s(.rate_limits.five_hour.used_percentage)|@sh)&quot;,
-  &quot;h5_reset=\(s(.rate_limits.five_hour.resets_at)|@sh)&quot;,
-  &quot;d7=\(s(.rate_limits.seven_day.used_percentage)|@sh)&quot;,
-  &quot;cost=\(s(.cost.total_cost_usd)|@sh)&quot;,
-  &quot;dur=\(s(.cost.total_duration_ms)|@sh)&quot;,
-  &quot;added=\(s(.cost.total_lines_added)|@sh)&quot;,
-  &quot;removed=\(s(.cost.total_lines_removed)|@sh)&quot;,
-  &quot;pr_num=\(s(.pr.number)|@sh)&quot;,
-  &quot;pr_state=\(s(.pr.review_state)|@sh)&quot;,
-  &quot;wt=\(s(.workspace.git_worktree // .worktree.name)|@sh)&quot;,
-  &quot;sname=\(s(.session_name)|@sh)&quot;,
-  &quot;style=\(s(.output_style.name)|@sh)&quot;,
-  &quot;vim=\(s(.vim.mode)|@sh)&quot;
-&#x27;)&quot;
-
-# ── colours (TokyoNight Night) ─────────────────────────────────────────────
-R=&#x27;\033[0m&#x27;; B=&#x27;\033[1m&#x27;
-c() { printf &#x27;\033[38;2;%sm&#x27; &quot;$1&quot;; }
-FG=$(c &#x27;192;202;245&#x27;); DIM=$(c &#x27;86;95;137&#x27;); BLUE=$(c &#x27;122;162;247&#x27;); CYAN=$(c &#x27;125;207;255&#x27;)
-MAG=$(c &#x27;187;154;247&#x27;); GREEN=$(c &#x27;158;206;106&#x27;); YEL=$(c &#x27;224;175;104&#x27;); ORANGE=$(c &#x27;255;158;100&#x27;); RED=$(c &#x27;247;118;142&#x27;)
-SEP=&quot;${DIM}  ${R}&quot;
-
-# ── profile ────────────────────────────────────────────────────────────────
-# The badge is CLAUDE_PROFILE when the launcher exports it, else the name of a
-# non-default config folder (~/.claude-&lt;name&gt;). The transcript always sits
-# under the active config folder. A named folder and the default one keep
-# distinct colours.
-folder=&quot;&quot;
-case &quot;$transcript&quot; in
-  &quot;$HOME&quot;/.claude-*/*) folder=${transcript#&quot;$HOME/.claude-&quot;}; folder=${folder%%/*} ;;
-  &quot;&quot;) case &quot;${CLAUDE_CONFIG_DIR:-}&quot; in &quot;$HOME&quot;/.claude-*) folder=${CLAUDE_CONFIG_DIR#&quot;$HOME/.claude-&quot;} ;; esac ;;
-esac
-label=${CLAUDE_PROFILE:-$folder}
-if [ -n &quot;$folder&quot; ]; then acct=&quot;$MAG&quot;; else acct=&quot;$YEL&quot;; fi
-
-# ── row 1: profile · project · git · PR · worktree · session ───────────────
-lead=&quot;&quot;
-if [ -n &quot;$label&quot; ]; then
-  printf &quot;${acct}${B}● %s${R}&quot; &quot;$(echo &quot;$label&quot; | tr &#x27;[:lower:]&#x27; &#x27;[:upper:]&#x27;)&quot;
-  lead=&quot;$SEP&quot;
-fi
-
-if [ -n &quot;$cwd&quot; ]; then
-  cd &quot;$cwd&quot; 2&gt;/dev/null || true
-  printf &quot;${lead}${GREEN} %s${R}&quot; &quot;$(basename &quot;$cwd&quot;)&quot;
-  if git rev-parse --is-inside-work-tree &gt;/dev/null 2&gt;&amp;1; then
-    branch=$(git symbolic-ref --short HEAD 2&gt;/dev/null || git rev-parse --short HEAD 2&gt;/dev/null)
-    # The strip refreshes while agents run git in the same tree; without this,
-    # status refreshes the index and can hold index.lock against their commits.
-    dirty=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain 2&gt;/dev/null | wc -l | tr -d &#x27; &#x27;)
-    read -r behind ahead &lt; &lt;(git rev-list --left-right --count &#x27;@{upstream}...HEAD&#x27; 2&gt;/dev/null || echo &quot;0 0&quot;)
-    printf &quot; ${MAG} %s${R}&quot; &quot;$branch&quot;
-    [ &quot;$dirty&quot; != 0 ]  &amp;&amp; printf &quot; ${YEL}●%s${R}&quot; &quot;$dirty&quot;
-    [ &quot;${ahead:-0}&quot; != 0 ]  &amp;&amp; printf &quot; ${CYAN}↑%s${R}&quot; &quot;$ahead&quot;
-    [ &quot;${behind:-0}&quot; != 0 ] &amp;&amp; printf &quot; ${ORANGE}↓%s${R}&quot; &quot;$behind&quot;
-  fi
-fi
-if [ &quot;${added:-0}&quot; != 0 ] || [ &quot;${removed:-0}&quot; != 0 ]; then
-  printf &quot;  ${DIM}${R} ${GREEN}+%s${R} ${RED}−%s${R}&quot; &quot;${added:-0}&quot; &quot;${removed:-0}&quot;
-fi
-if [ -n &quot;$pr_num&quot; ]; then
-  case &quot;$pr_state&quot; in
-    approved)          pr_c=&quot;$GREEN&quot;; pr_i=&quot;✓&quot; ;;
-    changes_requested) pr_c=&quot;$RED&quot;;   pr_i=&quot;✗&quot; ;;
-    draft)             pr_c=&quot;$DIM&quot;;   pr_i=&quot;◌&quot; ;;
-    *)                 pr_c=&quot;$BLUE&quot;;  pr_i=&quot;○&quot; ;;
-  esac
-  printf &quot;${SEP}${pr_c} #%s %s${R}&quot; &quot;$pr_num&quot; &quot;$pr_i&quot;
-fi
-[ -n &quot;$wt&quot; ]    &amp;&amp; printf &quot;${SEP}${CYAN} %s${R}&quot; &quot;$wt&quot;
-[ -n &quot;$sname&quot; ] &amp;&amp; printf &quot;${SEP}${DIM}%s${R}&quot; &quot;$sname&quot;
-if [ -n &quot;$dur&quot; ] &amp;&amp; [ &quot;${dur%.*}&quot; -gt 0 ]; then
-  m=$(( ${dur%.*} / 60000 ))
-  if [ $m -ge 60 ]; then printf &quot;${SEP}${DIM}󰔛 %dh%02dm${R}&quot; $((m/60)) $((m%60)); else printf &quot;${SEP}${DIM}󰔛 %dm${R}&quot; $m; fi
-fi
-[ -n &quot;$vim&quot; ]   &amp;&amp; printf &quot;${SEP}${BLUE}${B}%s${R}&quot; &quot;$vim&quot;
-printf &#x27;\n&#x27;
-
-# ── row 2: model · effort · context · limits · cost · time · lines ─────────
-printf &quot;${FG}${B}%s${R}&quot; &quot;${model:-?}&quot;
-[ -n &quot;$effort&quot; ]         &amp;&amp; printf &quot; ${DIM}⚡${R} ${FG}%s${R}&quot; &quot;$effort&quot;
-[ &quot;$thinking&quot; = true ]   &amp;&amp; printf &quot; ${MAG}󰧑${R}&quot;
-[ &quot;$fast&quot; = true ]       &amp;&amp; printf &quot; ${ORANGE}󱐋fast${R}&quot;
-
-# context bar, coloured by fullness
-if [ -n &quot;$pct&quot; ]; then
-  p=${pct%.*}; width=10; filled=$(( p * width / 100 )); [ $filled -gt $width ] &amp;&amp; filled=$width
-  if   [ $p -ge 85 ]; then bc=&quot;$RED&quot;; elif [ $p -ge 60 ]; then bc=&quot;$ORANGE&quot;; else bc=&quot;$GREEN&quot;; fi
-  bar=&quot;&quot;; for ((i=0;i&lt;width;i++)); do if [ $i -lt $filled ]; then bar+=&quot;━&quot;; else bar+=&quot;┄&quot;; fi; done
-  k() { local n=${1%.*}; if [ &quot;$n&quot; -ge 1000000 ]; then awk -v n=&quot;$n&quot; &#x27;BEGIN { printf &quot;%.1fM&quot;, n / 1000000 }&#x27;; else printf &#x27;%dK&#x27; $(( n / 1000 )); fi; }
-  printf &quot;${SEP}${bc}%s${R} ${bc}%s${R}${DIM}/%s${R}&quot; &quot;$bar&quot; &quot;$(k &quot;${ctx_used:-0}&quot;)&quot; &quot;$(k &quot;${ctx_size:-200000}&quot;)&quot;
-fi
-
-# rate limits (Max plans): small bars; the number appears only once it matters
-lim() { # $1 label  $2 pct  $3 reset-in
-  local n=${2%.*} col
-  if [ $n -ge 90 ]; then col=&quot;$RED&quot;; elif [ $n -ge 70 ]; then col=&quot;$ORANGE&quot;; else col=&quot;$FG&quot;; fi
-  printf &quot;${SEP}${DIM}%s${R} ${col}%s%%${R}&quot; &quot;$1&quot; &quot;$n&quot;
-  [ -n &quot;$3&quot; ] &amp;&amp; printf &quot; ${DIM}↻%s${R}&quot; &quot;$3&quot;
-}
-if [ -n &quot;$h5&quot; ]; then
-  left=&quot;&quot;
-  if [ -n &quot;$h5_reset&quot; ]; then
-    secs=$(( ${h5_reset%.*} - $(date +%s) )); [ $secs -lt 0 ] &amp;&amp; secs=0
-    left=$(printf &#x27;%dh%02dm&#x27; $((secs/3600)) $(((secs%3600)/60)))
-  fi
-  lim &quot;5h&quot; &quot;$h5&quot; &quot;$left&quot;
-fi
-[ -n &quot;$d7&quot; ] &amp;&amp; lim &quot;7d&quot; &quot;$d7&quot; &quot;&quot;
-
-[ -n &quot;$style&quot; ] &amp;&amp; [ &quot;$style&quot; != default ] &amp;&amp; printf &quot;${SEP}${DIM}style:%s${R}&quot; &quot;$style&quot;
-printf &#x27;\n&#x27;
-
-# ── row 3: unit readouts (hooks/lib/readout.py); drawn only when one speaks ──
-# The reader starts only when the readout folder exists, so a repository no
-# unit writes to pays nothing per refresh. $SEP holds a literal \033 sequence,
-# so the row goes through %b, with the readouts&#x27; own backslashes doubled first.
-if [ -d &quot;$repo/.agents/.readout&quot; ]; then
-  readouts=$(python3 &quot;$repo/.agents/hooks/lib/readout.py&quot; strip &quot;$repo&quot; &quot;$session&quot;) || readouts=&quot;readouts: reader failed&quot;
-  if [ -n &quot;$readouts&quot; ]; then
-    readouts=${readouts//\\/\\\\}
-    printf &quot;${FG}%b${R}\n&quot; &quot;${readouts//  ·  /${SEP}}&quot;
-  fi
-fi
+[ -n &quot;$own&quot; ] || exit 0
+printf &#x27;%s&#x27; &quot;$input&quot; | COLLOID_STATUS_DELEGATED=1 bash -c &quot;$own&quot;
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>readout.py</h3><p>One reader for unit readouts, small JSON files in <code>.agents/.readout/</code> with a strip line and a note. The status line, the session-start note and a person all read the same files; a readout past its freshness window shows its age, and an unreadable file is named rather than skipped.</p>
@@ -16899,7 +16770,7 @@ if __name__ == &quot;__main__&quot;:
     &quot;pre_compact&quot;: {
       &quot;enabled&quot;: true
     },
-    &quot;status_strip&quot;: {
+    &quot;status_band&quot;: {
       &quot;enabled&quot;: true
     },
     &quot;publish_approval&quot;: {

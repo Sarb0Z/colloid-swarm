@@ -255,6 +255,34 @@ mod. Both run with no login. CI runs them against the Claude Code version that
 | --- | --- |
 | `publish-approval` | A dialog before a push, deploy or publish, in every permission mode (see Gating outward mutations) |
 | `inline-thinking` | Claude's thinking summaries in the collapsed transcript, dim and marked `∴`, between the rows they came between; opt-in (below) |
+| `status-band` | The session status above the prompt in place of a status line: the status strip's rows, this task's cost, agent time, tests and callers open, and buttons to fold it to one line and copy the task (below) |
+
+`status-band` draws, above the prompt, what the status strip drew: the account
+badge, project, branch, dirty count, ahead and behind, lines changed, PR,
+worktree, session name, duration and vim state; model, effort, thinking, fast
+mode, the context fill, the 5-hour and 7-day limits and the output style; and
+the unit readouts row from `readout.py strip`. A fourth row is this task's own:
+its cost and the last turn's, turns, agent time, `tests pass`, `fail` or
+`stale` (after a later code edit) from the last Bash command that ran a test
+runner, and `N callers open`, the call and import sites
+`removed-callers.py --json` finds for the definitions the task's Python edits
+removed (`callers ?` when that check fails). `One line` folds the band to one
+row and `Copy` puts the task on the clipboard as Markdown. A task starts over
+at session start and at `/clear`.
+
+Four values reach only the `statusLine` command: effort, fast mode, the live
+vim state and the lines changed. `claude/statusline.sh` is therefore a silent
+relay: while the band's marker `<session>.on` stands in
+`${TMPDIR:-/tmp}/colloid-status-$USER/`, it copies the status JSON to
+`<session>.json` there and prints nothing; otherwise the person's own user
+`statusLine` runs. Idle, the band stats that file every 2 s and starts no
+process; git (with `GIT_OPTIONAL_LOCKS=0`) and the readout reader run at
+session start, at a prompt, after a Bash, Edit or Write, and when the relay
+names another folder, and the reader only while `.agents/.readout/` exists.
+The toggle is `hooks.status_band.enabled`, default on; switched off, or where
+the band does not load (`claude -p`, an untrusted folder, a Claude Code without
+mods), the person's own status line shows, and nothing shows for a person who
+has none. Its icons need a Nerd Font.
 
 `inline-thinking` draws what Claude Code shows only in the expanded view
 (`Ctrl+O`, `--verbose`), which also expands every tool call. Each summary goes

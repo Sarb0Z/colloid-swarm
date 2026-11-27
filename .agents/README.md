@@ -586,16 +586,16 @@ at startup and resume, and deleting a cell's line from the live file is the
 manual reset for a cell known to have died that the gate still lists. The
 toggle is `hooks.parallel_writers.enabled`.
 
-`claude/statusline.sh` is the status strip, wired as Claude's project
-`statusLine`, so it replaces each person's own status line in every scaffold
-repository. It draws two rows: the account badge, project, branch and dirty
-count, lines changed, PR and session; then model, effort, the context fill,
-the rate-limit windows and the output style. The badge comes from
-`CLAUDE_PROFILE` when the launcher exports it, else from a `~/.claude-<name>`
-config folder. It needs `jq`, and says so on the strip when `jq` is missing;
-its icons need a Nerd Font. The toggle is `hooks.status_strip.enabled`.
-Switched off in `policy.json` or `config.json`, it runs the person's own user
-`statusLine` instead. See decision `status-strip-as-statusline-command`.
+The session status draws above the prompt as the `status-band` mod (see Mods
+in `claude/README.md`): the account badge, project, git state, lines changed,
+PR and session; model, effort, the context fill, the rate-limit windows and
+the output style; the unit readouts; and this task's cost, agent time, tests
+and callers open. The badge comes from `CLAUDE_PROFILE` when the launcher
+exports it, else from a `~/.claude-<name>` config folder, and never names an
+email. `claude/statusline.sh`, wired as Claude's project `statusLine`, is the
+band's silent relay: it hands the status JSON to the band and prints nothing
+while the band runs, and runs the person's own user `statusLine` otherwise.
+The toggle is `hooks.status_band.enabled`. See decision `status-band-as-mod`.
 
 Codex hashes hook declarations. After changing `.agents/codex/hooks.json` or a
 Codex hook command, inspect it and run:

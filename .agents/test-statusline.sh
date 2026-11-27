@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Firing tests for the status strip: rendering, the account badge, the toggle's
-# hand-over to the person's own status line, a missing jq, and the third row
-# of unit readouts: drawn, with its separator, from a reader that failed, with
-# no folder or an empty one, and for the payload's own session.
+# Firing tests for the status line relay: with the band's marker it copies the
+# status JSON to the band's file and prints nothing, starting no process but
+# mv; without it, the person's own status line runs once, never loops, and a
+# missing jq, an unreadable settings.json or an id that is no file name changes
+# nothing about that.
 set -euo pipefail
-# A caller such as `git rebase -x` exports these; the git calls below must
-# reach only their own temporary repositories.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
@@ -15,139 +13,107 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 ok() { printf 'ok    %s\n' "$*"; }
 
 fixture="$scratch/repo"
-mkdir -p "$fixture/.agents/claude" "$fixture/.agents/hooks/lib"
+mkdir -p "$fixture/.agents/claude"
 cp "$repo/.agents/claude/statusline.sh" "$fixture/.agents/claude/"
-cp "$repo/.agents/hooks/lib/config.py" "$repo/.agents/hooks/lib/readout.py" "$fixture/.agents/hooks/lib/"
-strip="$fixture/.agents/claude/statusline.sh"
-home="$scratch/home"
-plain="$scratch/plain"
-mkdir -p "$home/.claude/projects" "$home/.claude-personal/projects" "$plain"
-
-payload() {  # <transcript_path> <current_dir> -> stdin JSON
-  printf '{"transcript_path":"%s","workspace":{"current_dir":"%s"},"model":{"display_name":"Fable 5.1"},"context_window":{"used_percentage":42,"context_window_size":1000000,"current_usage":{"input_tokens":420000}}}' "$1" "$2"
-}
-run() {  # <transcript_path> <current_dir> [VAR=value ...] -> the strip, colours stripped
-  local transcript="$1" dir="$2"
-  shift 2
-  payload "$transcript" "$dir" | env -u CLAUDE_PROFILE -u CLAUDE_CONFIG_DIR -u COLLOID_STATUS_DELEGATED HOME="$home" "$@" bash "$strip" \
-    | sed -E $'s/\x1b\\[[0-9;]*m//g'
-}
-
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-[[ "$out" == *"Fable 5.1"* && "$out" == *"420K/1.0M"* ]] || fail "model or context missing: $out"
-ok "draws the model and the context fill"
-
-out="$(run "$home/.claude/projects/s.jsonl" "$plain" CLAUDE_PROFILE=work)"
-[[ "$out" == *"● WORK"* ]] || fail "CLAUDE_PROFILE did not label the badge: $out"
-ok "the launcher's CLAUDE_PROFILE labels the badge"
-
-out="$(run "$home/.claude-personal/projects/s.jsonl" "$plain")"
-[[ "$out" == *"● PERSONAL"* ]] || fail "a named config folder did not label the badge: $out"
-ok "a ~/.claude-<name> folder labels the badge"
-
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-[[ "$out" != *"● "* ]] || fail "the default folder got a badge with no label: $out"
-ok "the default folder with no CLAUDE_PROFILE shows no badge"
-
-git -C "$scratch" init -q -b trunk tree
-printf 'x\n' > "$scratch/tree/new.txt"
-out="$(run "$home/.claude/projects/s.jsonl" "$scratch/tree")"
-[[ "$out" == *"trunk"* && "$out" == *"●1"* ]] || fail "branch or dirty count missing: $out"
-ok "draws the branch and the dirty count"
-
-# A readout file draws a third row; no folder, or an empty one, leaves two. A
-# session-scoped readout shows only for its own session.
-[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 ]] || fail "no readout, yet the strip is not two rows: $out"
-mkdir -p "$fixture/.agents/.readout"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 ]] || fail "an empty readout folder drew a third row: $out"
-python3 "$fixture/.agents/hooks/lib/readout.py" write owed --repo "$fixture" --strip "2 replies owed"
-python3 "$fixture/.agents/hooks/lib/readout.py" write other --repo "$fixture" --session elsewhere --strip "hidden"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 3 && "$(printf '%s\n' "$out" | sed -n 3p)" == "2 replies owed" ]] \
-  || fail "a readout did not draw the third row: $out"
-[[ "$out" != *hidden* ]] || fail "another session's readout drew: $out"
-ok "a readout file draws a third row, and an empty folder leaves two"
-
-# A payload carrying session_id draws that session's own readout.
-python3 "$fixture/.agents/hooks/lib/readout.py" write mine --repo "$fixture" --session sess-1 --strip "my own readout"
-out="$(payload "$home/.claude/projects/s.jsonl" "$plain" | sed 's/^{/{"session_id":"sess-1",/' \
-  | env -u CLAUDE_PROFILE -u CLAUDE_CONFIG_DIR -u COLLOID_STATUS_DELEGATED HOME="$home" bash "$strip" | sed -E $'s/\x1b\\[[0-9;]*m//g')"
-[[ "$(printf '%s\n' "$out" | sed -n 3p)" == *"my own readout"* ]] || fail "the session's own readout did not draw: $out"
-[[ "$(run "$home/.claude/projects/s.jsonl" "$plain")" != *"my own readout"* ]] || fail "a session readout drew for a payload with no session"
-rm "$fixture/.agents/.readout/mine--sess-1.json"
-ok "a payload's session_id draws that session's own readout"
-
-# Two readouts: the separator is drawn, never printed as escape text.
-python3 "$fixture/.agents/hooks/lib/readout.py" write second --repo "$fixture" --strip 'back\slash'
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-row3="$(printf '%s\n' "$out" | sed -n 3p)"
-[[ "$row3" != *033* ]] || fail "the separator printed as literal text: $row3"
-[[ "$row3" == "2 replies owed"*'back\slash' ]] || fail "two readouts did not draw, or a backslash was altered: $row3"
-rm "$fixture/.agents/.readout/second.json"
-ok "two readouts draw with the real separator and keep their own backslashes"
-
-# The reader failing is said on the row; with no folder it is never started.
-cp "$fixture/.agents/hooks/lib/readout.py" "$scratch/readout.py.real"
-printf 'import sys\nsys.exit(3)\n' > "$fixture/.agents/hooks/lib/readout.py"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-[[ "$(printf '%s\n' "$out" | sed -n 3p)" == "readouts: reader failed" ]] || fail "a failing reader was not reported: $out"
-rm -r "$fixture/.agents/.readout"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain")"
-[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" == 2 && "$out" != *"reader failed"* ]] || fail "no readout folder, yet the reader ran or a row drew: $out"
-cp "$scratch/readout.py.real" "$fixture/.agents/hooks/lib/readout.py"
-ok "a failing reader is named on the third row, and no folder means two rows and no reader run"
-
-# Switched off, the person's own status line draws instead.
-printf '%s\n' '{"hooks": {"status_strip": {"enabled": false}}}' > "$fixture/.agents/policy.json"
+relay="$fixture/.agents/claude/statusline.sh"
+tmp="$scratch/tmp"
+folder="$tmp/colloid-status-tester"
+mkdir -p "$folder"
+chmod 700 "$folder"
 own="$scratch/own"
 mkdir -p "$own"
-printf '%s\n' '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own-strip"}}' > "$own/settings.json"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain" CLAUDE_CONFIG_DIR="$own")"
-[[ "$out" == "own-strip" ]] || fail "switched off, the person's own status line did not run: $out"
-ok "switched off in policy.json, the person's own status line draws"
+calls="$scratch/calls"
+
+# A trailing newline and a backslash: the copy must keep every byte.
+payload='{"session_id":"sess-1","model":{"display_name":"Fable 5.1"},"note":"a\\b"}
+'
+relay_run() {  # [VAR=value ...] -> runs the relay on $payload; sets out, err
+  out="$(printf '%s' "$payload" | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$scratch" USER=tester \
+    TMPDIR="$tmp/" CLAUDE_CONFIG_DIR="$own" "$@" "$(command -v bash)" "$relay" 2>"$scratch/err")"
+  err="$(cat "$scratch/err")"
+}
+printf '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own >> %s; echo own-line"}}\n' "$calls" > "$own/settings.json"
+
+# With the marker: the exact bytes, nothing printed, and only mv on PATH.
+touch "$folder/sess-1.on"
+bin="$scratch/bin"
+mkdir -p "$bin"
+ln -s "$(command -v mv)" "$bin/mv"
+relay_run PATH="$bin"
+[[ -z "$out" && -z "$err" ]] || fail "with the marker the relay printed or failed: out=$out err=$err"
+cmp -s <(printf '%s' "$payload") "$folder/sess-1.json" || fail "the copy differs from stdin: $(od -c "$folder/sess-1.json" | head -5)"
+[[ ! -e "$calls" ]] || fail "with the marker the person's own line still ran"
+[[ -z "$(find "$folder" -name '*.tmp')" ]] || fail "the relay left a temporary file: $(ls -A "$folder")"
+ok "with the marker the relay writes stdin byte for byte, prints nothing, and starts no process but mv"
+
+# Without the marker: the person's own line, once.
+rm "$folder/sess-1.on" "$folder/sess-1.json"
+relay_run
+[[ "$out" == "own-line" && "$(grep -c own "$calls")" == 1 ]] || fail "without the marker the person's own line did not run once: $out"
+[[ ! -e "$folder/sess-1.json" ]] || fail "without the marker the relay wrote the band's file"
+ok "without the marker the person's own status line runs once and nothing is written"
+
+# An id that is not a file name: nothing written, even beside a marker it names.
+rm -f "$calls"
+mkdir -p "$folder/a"
+touch "$tmp/x.on" "$folder/a/b.on" "$folder/...on"
+for id in '../x' 'a/b' '..'; do
+  payload="{\"session_id\":\"$id\"}"
+  relay_run
+  [[ "$out" == "own-line" ]] || fail "session_id $id did not hand over to the person's own line: $out"
+done
+[[ -z "$(find "$tmp" -name '*.json')" ]] || fail "an id holding / or .. wrote a file: $(find "$tmp" -name '*.json')"
+rm -r "$tmp/x.on" "$folder/a" "$folder/...on"
+payload='{"session_id":"sess-1"}'
+ok "a session_id holding / or .. writes nothing and hands over to the person's own line"
+
+# A folder that is a link, or not this user's, is never written through.
+mv "$folder" "$tmp/real"
+ln -s "$tmp/real" "$folder"
+touch "$tmp/real/sess-1.on"
+relay_run
+[[ "$out" == "own-line" && ! -e "$tmp/real/sess-1.json" ]] || fail "the relay wrote through a linked folder: $out"
+rm "$folder"
+mv "$tmp/real" "$folder"
+rm "$folder/sess-1.on"
+ok "a linked runtime folder is not written through"
 
 printf '%s\n' '{}' > "$own/settings.json"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain" CLAUDE_CONFIG_DIR="$own")"
-[[ -z "$out" ]] || fail "switched off with no status line of the person's, it drew: $out"
-ok "switched off with no status line of the person's, it draws nothing"
+relay_run
+[[ -z "$out" ]] || fail "with no status line of the person's, it drew: $out"
+ok "with no status line of the person's, it draws nothing"
 
 # A person's status line that is this script must not recurse; the alarm turns
 # a loop into a failure instead of a hung test.
-printf '{"statusLine": {"type": "command", "command": "bash %s"}}\n' "$strip" > "$own/settings.json"
-out="$(payload "$home/.claude/projects/s.jsonl" "$plain" \
-  | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$home" CLAUDE_CONFIG_DIR="$own" perl -e 'alarm 10; exec @ARGV' bash "$strip")" \
+printf '{"statusLine": {"type": "command", "command": "bash %s"}}\n' "$relay" > "$own/settings.json"
+out="$(printf '%s' "$payload" \
+  | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$scratch" USER=tester TMPDIR="$tmp" CLAUDE_CONFIG_DIR="$own" \
+    perl -e 'alarm 10; exec @ARGV' bash "$relay")" \
   || fail "a status line that runs this script looped or failed"
 [[ -z "$out" ]] || fail "a status line that runs this script drew: $out"
 ok "a status line that runs this script stops on the second pass"
 
-# A machine with no jq: everything the script needs except jq.
-bin="$scratch/bin"
-mkdir -p "$bin"
-for tool in bash cat dirname python3; do ln -s "$(command -v "$tool")" "$bin/$tool"; done
-
-printf '%s\n' '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own-strip"}}' > "$own/settings.json"
-out="$(payload "$home/.claude/projects/s.jsonl" "$plain" | env -i HOME="$home" PATH="$bin" CLAUDE_CONFIG_DIR="$own" "$bin/bash" "$strip")"
-[[ "$out" == "own-strip" ]] || fail "switched off without jq, the person's own status line did not run: $out"
-ok "switched off on a machine without jq, the person's own status line still draws"
+# A machine with no jq: everything the relay needs except jq.
+nojq="$scratch/nojq"
+mkdir -p "$nojq"
+for tool in bash cat python3 mv; do ln -s "$(command -v "$tool")" "$nojq/$tool"; done
+printf '%s\n' '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own-line"}}' > "$own/settings.json"
+out="$(printf '%s' "$payload" | env -i HOME="$scratch" USER=tester TMPDIR="$tmp" PATH="$nojq" CLAUDE_CONFIG_DIR="$own" "$nojq/bash" "$relay")"
+[[ "$out" == "own-line" ]] || fail "without jq the person's own status line did not run: $out"
+ok "on a machine without jq the person's own status line still draws"
 
 printf '%s\n' '{"statusLine": ' > "$own/settings.json"
-out="$(run "$home/.claude/projects/s.jsonl" "$plain" CLAUDE_CONFIG_DIR="$own" 2>"$scratch/err")"
-[[ "$out" == "status strip: switched off, and $own/settings.json is unreadable" ]] \
-  || fail "a malformed user settings.json was not reported: $out"
-grep -q JSONDecodeError "$scratch/err" || fail "the parse error did not reach stderr: $(cat "$scratch/err")"
-ok "switched off with a malformed user settings.json, the strip says so"
-rm "$fixture/.agents/policy.json"
+relay_run
+[[ "$out" == "status line: $own/settings.json is unreadable" ]] || fail "a malformed user settings.json was not reported: $out"
+[[ "$err" == *JSONDecodeError* ]] || fail "the parse error did not reach stderr: $err"
+ok "a malformed user settings.json is named on the line"
 
 # The committed wiring, not just the script: the command string from settings.json
 # resolves the script through the launch folder (CLAUDE_PROJECT_DIR) first.
+printf '%s\n' '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own-line"}}' > "$own/settings.json"
+touch "$folder/sess-1.on"
 wired="$(jq -r '.statusLine.command' "$repo/.agents/claude/settings.json")"
-out="$(payload "$home/.claude/projects/s.jsonl" "$plain" \
-  | env -u CLAUDE_PROFILE HOME="$home" CLAUDE_PROJECT_DIR="$fixture" bash -c "$wired" | sed -E $'s/\x1b\\[[0-9;]*m//g')"
-[[ "$out" == *"Fable 5.1"* ]] || fail "the statusLine command in settings.json did not draw: $out"
-ok "the statusLine command committed in settings.json draws the strip"
-
-# Without jq the strip says so instead of drawing a row of blanks.
-out="$(payload "$home/.claude/projects/s.jsonl" "$plain" | env -i HOME="$home" PATH="$bin" "$bin/bash" "$strip")"
-[[ "$out" == "status strip: install jq to draw it" ]] || fail "missing jq was not reported: $out"
-ok "a missing jq is reported on the strip"
+out="$(printf '%s' '{"session_id":"sess-1","wired":true}' \
+  | env -u CLAUDE_PROFILE HOME="$scratch" USER=tester TMPDIR="$tmp" CLAUDE_CONFIG_DIR="$own" CLAUDE_PROJECT_DIR="$fixture" bash -c "$wired")"
+[[ -z "$out" && "$(cat "$folder/sess-1.json")" == *'"wired":true'* ]] || fail "the statusLine command in settings.json did not relay: $out"
+ok "the statusLine command committed in settings.json relays the status"

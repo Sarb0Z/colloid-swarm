@@ -1,0 +1,5 @@
+{
+  "name": "status-band",
+  "version": "0.1.0",
+  "description": "Draws the session status above the prompt: the status strip's rows from the statusLine relay, plus this task's cost, agent time, tests and callers open, with buttons to fold it to one line and copy the task as Markdown"
+}

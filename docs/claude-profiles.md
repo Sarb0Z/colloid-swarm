@@ -38,7 +38,7 @@ selects the profile, labels it, and applies the device policy to it.
 | Policy builder | `.agents/claude/device/build.py` | Builds the shared payload and one payload for each limited sign-in. |
 | Policy helper | `.agents/claude/device/policy-helper.sh` | Chooses the payload for the sign-in of the starting profile. |
 | Policy installer | `.agents/claude/install-device-policy.sh` | Builds, checks, and copies the policy to the machine-level folder. It needs `sudo`. |
-| Generic status line | `.agents/claude/statusline.sh` | Takes the label from `CLAUDE_PROFILE`, or from the name of the profile folder. |
+| Status band | `.agents/claude/mods/status-band` | Shows the status above the prompt in a scaffold repository. Takes the label from `CLAUDE_PROFILE`, or from the name of the profile folder. |
 | Phone-link installer | `.agents/iterm/phone/install.py` | Adds one `PermissionRequest` hook to the user settings of each profile folder that exists. |
 | Server launchers | `.agents/iterm/server/launchers.bash` | The launcher block for the Linux server. |
 | Server setup | `.agents/iterm/server/setup-server.sh` | Writes the launcher block into the server user's `~/.bashrc`. Creates each profile folder with its own files. |
@@ -228,6 +228,6 @@ file when you add or remove a profile.
 
 ## Limits
 
-- The installed status line, `~/.local/bin/claude-statusline.sh`, is a separate copy of `.agents/claude/statusline.sh`. The two files differ. The installed copy lists profile labels in a `case`. The repository copy reads the label from `CLAUDE_PROFILE`.
+- The installed status line, `~/.local/bin/claude-statusline.sh`, and the status band are separate programs. The installed status line lists profile labels in a `case`. The band reads the label from `CLAUDE_PROFILE`. In a scaffold repository the band shows and the installed status line does not. Outside one, or where the band does not load, the installed status line shows.
 - A shared `settings.json` means that one bad hook breaks every profile.
 - An account limit does not stop a person who can edit a state file.
