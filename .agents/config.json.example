@@ -131,9 +131,6 @@
     "product_folder": {
       "enabled": false
     },
-    "learning_output_style": {
-      "enabled": true
-    },
     "session_start": {
       "enabled": true
     },

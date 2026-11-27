@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Engine-agnostic policy: inject the learning output style, surface deferred
-# work, and re-state the Discovered Subprojects policy after compaction.
+# Engine-agnostic policy: surface deferred work, and re-state the Discovered
+# Subprojects policy after compaction.
 #
 # Input  (stdin JSON): {"project_dir": "...", "source": "...", "session_id": "..."}
 # Output (STDOUT): a single JSON object carrying
@@ -10,9 +10,8 @@
 #   one. Silent (exit 0, no output) when there is nothing to surface. A
 #   context policy, never a gate (no exit 2).
 #
-#   - Learning output style instructions on each session start.
 #   - .agents/breadcrumbs.md: every bullet under "## Open decisions" (each
-#     waits on the user), then the other bullets capped at the 10 most recent.
+#     waits on the user), then the other bullets capped at the 5 most recent.
 #   - Settled decisions: the `### <id>` headings of .agents/decisions.md, so a
 #     declined idea is not re-proposed without opening the entry.
 #   - The knowledge index, reduced to `date · kind · subject` per line; the
@@ -59,15 +58,14 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 lib="$repo/.agents/hooks/lib"
 
 switches="$(python3 "$lib/config.py" "$repo/.agents/config.json" \
-  hooks.session_start.enabled=true hooks.learning_output_style.enabled=true hooks.teardown_gate.enabled=true)"
+  hooks.session_start.enabled=true hooks.teardown_gate.enabled=true)"
 session_start_enabled="$(printf '%s\n' "$switches" | sed -n '1p')"
-learning_enabled="$(printf '%s\n' "$switches" | sed -n '2p')"
-teardown_enabled="$(printf '%s\n' "$switches" | sed -n '3p')"
+teardown_enabled="$(printf '%s\n' "$switches" | sed -n '2p')"
 worklog="$(python3 "$lib/worklog.py" "$repo")" || { echo "session-start: the work-log folder could not be resolved; no work-log context this session" >&2; worklog="off"; }
 worklog_status="$(printf '%s\n' "$worklog" | sed -n '1p')"
 worklog_detail="$(printf '%s\n' "$worklog" | sed -n '2p')"
 worklog_grant="$(printf '%s\n' "$worklog" | sed -n '3p')"
-[[ "$session_start_enabled" == "no" && "$learning_enabled" == "no" && "$worklog_status" == "off" ]] && exit 0
+[[ "$session_start_enabled" == "no" && "$worklog_status" == "off" ]] && exit 0
 
 parsed="$(python3 "$lib/payload.py" project_dir source session_id transcript_path host)"
 proj="$(printf '%s\n' "$parsed" | sed -n '1p')"
@@ -218,14 +216,6 @@ if [[ "$session_start_enabled" == "yes" && -f "$marker" ]]; then
   [[ "$m" =~ ^(auto|manual)$ ]] && trigger="$m"
 fi
 
-# Load the teaching contract from one canonical file. A missing playbook must
-# not block session startup.
-learning_body=""
-learning_playbook="$repo/.agents/playbooks/learning-output-style.md"
-if [[ "$learning_enabled" == "yes" && -f "$learning_playbook" ]]; then
-  learning_body="$(cat "$learning_playbook")"
-fi
-
 # A run mid-flight, and an agent that died mid-work, are the first things a
 # resumed lead needs to know about; the digest is the same one workloop-inbox.sh
 # gives at each prompt. The start source, after the agent id, tells it whether
@@ -277,7 +267,7 @@ if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" && -d "$proj/.ag
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" && -z "$peer_notice" && -z "$memory_big" ]] && exit 0
+[[ -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" && -z "$peer_notice" && -z "$memory_big" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -286,11 +276,6 @@ body="$(
     if [[ "$printed" == true ]]; then echo; fi
     printed=true
   }
-
-  if [[ -n "$learning_body" ]]; then
-    section
-    printf '%s\n' "$learning_body"
-  fi
 
   if [[ "$is_compact" == "true" ]]; then
     section
@@ -397,15 +382,15 @@ EOF
     section
     count="$(printf '%s\n' "$items" | wc -l | tr -d ' ')"
     echo "Unaddressed breadcrumbs in .agents/breadcrumbs.md (deferred non-blocking work — act on each, or delete the line):"
-    if (( count > 10 )); then
+    if (( count > 5 )); then
       # The newest, not the oldest. Items are appended, so the tail is what
       # recent sessions found and deferred, and it is the most likely to
       # intersect the work in hand. An item that has sat unhandled through many
       # sessions is evidence of low value, not of neglect — those wait for a
       # maintenance pass, which reads the file directly rather than through
       # this cap.
-      echo "  (10 most recent of $count — prune the file)"
-      printf '%s\n' "$items" | tail -n 10
+      echo "  (5 most recent of $count — prune the file)"
+      printf '%s\n' "$items" | tail -n 5
     else
       printf '%s\n' "$items"
     fi

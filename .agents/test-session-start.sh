@@ -49,7 +49,7 @@ make_fixture() {
      "$repo/.agents/hooks/lib/process_start.py" "$repo/.agents/hooks/lib/memory_size.py" \
      "$repo"/.agents/hooks/lib/agent_{deaths,effects,records,sessions,verdicts,leftovers,dismissals,waits}.py "$dir/.agents/hooks/lib/"
   cp "$repo/.agents/workloop_docker.py" "$dir/.agents/"
-  cp "$repo/.agents/playbooks/learning-output-style.md" "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
+  cp "$repo/.agents/playbooks/worklog.md" "$dir/.agents/playbooks/"
   cp "$repo/.agents/claude/adapter.sh" "$repo/.agents/claude/normalize-hook.py" "$dir/.agents/claude/"
   cp "$repo/.agents/codex/normalize-hook.py" "$dir/.agents/codex/"
   cp "$repo/.codex/hooks/adapter.sh" "$dir/.codex/hooks/"
@@ -74,9 +74,8 @@ make_fixture() {
 write_config() {
   local dir="$1"
   local session_start="$2"
-  local learning="$3"
-  printf '{"hooks":{"session_start":{"enabled":%s},"learning_output_style":{"enabled":%s}}}\n' \
-    "$session_start" "$learning" > "$dir/.agents/config.json"
+  printf '{"hooks":{"session_start":{"enabled":%s}}}\n' \
+    "$session_start" > "$dir/.agents/config.json"
 }
 
 run_policy() {
@@ -136,17 +135,6 @@ assert_not_contains() {
   [[ "$value" != *"$rejected"* ]] || fail "unexpected text: $rejected"
 }
 
-assert_marker_once() {
-  local value="$1"
-  local count
-  count="$(VALUE="$value" python3 <<'PY'
-import os
-print(os.environ["VALUE"].count("[learning-output-style:v1]"))
-PY
-)"
-  [[ "$count" == "1" ]] || fail "learning marker count is $count, expected 1"
-}
-
 assert_no_wrap_state() {
   local dir="$1"
   local state
@@ -161,12 +149,13 @@ assert_wrap_state() {
   [[ -n "$state" ]] || fail "session_start=true did not seed wrap state"
 }
 
-# Both behaviors on: inject teaching and operational context.
+# Default config: inject operational context. The retired learning output
+# style must not come back.
 tt="$(make_fixture both-on)"
-write_config "$tt" true true
+write_config "$tt" true
 tt_output="$(run_policy "$tt")"
 tt_context="$(context_of "$tt_output")"
-assert_marker_once "$tt_context"
+assert_not_contains "$tt_context" '[learning-output-style:v1]'
 assert_contains "$tt_context" 'fixture breadcrumb'
 assert_not_contains "$tt_context" 'TODO'
 # Decisions surface as headings only; the knowledge index as date · kind ·
@@ -221,19 +210,19 @@ write_crumbs() {
 # is what recent sessions found and deferred; older items wait for a maintenance
 # pass that reads the file directly.
 cap="$(make_fixture breadcrumb-cap)"
-write_config "$cap" true true
+write_config "$cap" true
 write_crumbs "$cap" 12
 cap_context="$(context_of "$(run_policy "$cap")")"
-assert_contains "$cap_context" '(10 most recent of 12 — prune the file)'
+assert_contains "$cap_context" '(5 most recent of 12 — prune the file)'
 assert_contains "$cap_context" '- crumb-12'
-assert_contains "$cap_context" '- crumb-03'
+assert_contains "$cap_context" '- crumb-08'
+assert_not_contains "$cap_context" '- crumb-07'
 assert_not_contains "$cap_context" '- crumb-01'
-assert_not_contains "$cap_context" '- crumb-02'
 
 # A sectioned file: every bullet under "## Open decisions" surfaces regardless
 # of the cap, and only the other bullets are counted and capped.
 sectioned="$(make_fixture breadcrumb-sections)"
-write_config "$sectioned" true true
+write_config "$sectioned" true
 {
   printf '%s\n' '# Breadcrumbs' '' '## Open decisions' ''
   for i in 1 2 3; do printf -- '- open-%s\n' "$i"; done
@@ -244,13 +233,15 @@ sectioned_context="$(context_of "$(run_policy "$sectioned")")"
 assert_contains "$sectioned_context" 'Open decisions in .agents/breadcrumbs.md'
 assert_contains "$sectioned_context" '- open-1'
 assert_contains "$sectioned_context" '- open-3'
-assert_contains "$sectioned_context" '(10 most recent of 12 — prune the file)'
+assert_contains "$sectioned_context" '(5 most recent of 12 — prune the file)'
 assert_contains "$sectioned_context" '- crumb-12'
+assert_contains "$sectioned_context" '- crumb-08'
+assert_not_contains "$sectioned_context" '- crumb-07'
 assert_not_contains "$sectioned_context" '- crumb-01'
 
 # The knowledge index caps at the twelve newest lines, newest last.
 kcap="$(make_fixture knowledge-cap)"
-write_config "$kcap" true true
+write_config "$kcap" true
 {
   printf '%s\n' '# Knowledge index' ''
   for i in $(seq -w 1 14); do printf -- '- 2026-01-%s · research · Subject %s — summary %s\n' "$i" "$i" "$i"; done
@@ -267,7 +258,7 @@ assert_not_contains "$kcap_context" 'summary 14'
 # section is gone. A Codex session is never told, and a check that crashes
 # leaves the other sections in place.
 lsp="$(make_fixture lsp-missing)"
-write_config "$lsp" true true
+write_config "$lsp" true
 mkdir -p "$lsp/.agents/claude/plugins/code-intelligence/.claude-plugin" "$scratch/lsp-bin"
 python3 - "$repo/.agents/claude/plugins/code-intelligence/.claude-plugin/plugin.json" \
   "$lsp/.agents/claude/plugins/code-intelligence/.claude-plugin/plugin.json" <<'PY'
@@ -296,7 +287,7 @@ printf 'ok: session start names a language whose server cannot start in Claude C
 # 8 KB: the repository's CLAUDE.local.md, and a CLAUDE.md in a folder between
 # the repository and the home folder (a product folder). At the cap, nothing.
 mem="$(make_fixture memory-big)"
-write_config "$mem" true true
+write_config "$mem" true
 head -c 9000 /dev/zero | tr '\0' 'x' > "$mem/CLAUDE.local.md"
 mem_context="$(context_of "$(run_policy "$mem")")"
 assert_contains "$mem_context" 'Memory files over 8 KB, which Claude Code loads into every session before any work:'
@@ -306,7 +297,7 @@ assert_contains "$mem_context" 'Tell the operator'
 head -c 8192 /dev/zero | tr '\0' 'x' > "$mem/CLAUDE.local.md"
 assert_not_contains "$(context_of "$(run_policy "$mem")")" 'Memory files over 8 KB'
 nested="$(make_fixture home/product/web)"
-write_config "$nested" true true
+write_config "$nested" true
 head -c 20000 /dev/zero | tr '\0' 'x' > "$HOME/product/CLAUDE.md"
 head -c 20000 /dev/zero | tr '\0' 'x' > "$HOME/CLAUDE.md"
 nested_context="$(context_of "$(run_policy "$nested")")"
@@ -319,7 +310,7 @@ outer="$(make_fixture home/outer)"
 head -c 20000 /dev/zero | tr '\0' 'x' > "$outer/CLAUDE.md"
 git -C "$outer" add CLAUDE.md
 inner="$(make_fixture home/outer/inner)"
-write_config "$inner" true true
+write_config "$inner" true
 assert_not_contains "$(context_of "$(run_policy "$inner")")" 'Memory files over 8 KB'
 head -c 20000 /dev/zero | tr '\0' 'x' > "$outer/CLAUDE.local.md"
 assert_contains "$(context_of "$(run_policy "$inner")")" '  - ~/outer/CLAUDE.local.md — 20 KB'
@@ -327,7 +318,7 @@ assert_contains "$(context_of "$(run_policy "$inner")")" '  - ~/outer/CLAUDE.loc
 # own tracked CLAUDE.md, and names both the main checkout's CLAUDE.local.md,
 # which it loads as a folder above, and its own .worktreeinclude copy.
 wt="$(make_fixture home/memory-worktree)"
-write_config "$wt" true true
+write_config "$wt" true
 head -c 20000 /dev/zero | tr '\0' 'x' > "$wt/CLAUDE.md"
 git -C "$wt" add CLAUDE.md
 git -C "$wt" -c user.name=t -c user.email=t@example.com commit -q -m contract
@@ -355,7 +346,7 @@ assert_contains "$outside_context" "  - $(cd "$scratch/memory-outside" && pwd -P
 assert_not_contains "$outside_context" '~/memory-worktree/CLAUDE.local.md'
 # The notice shows on its own, with every other section empty.
 alone="$(make_fixture memory-alone)"
-write_config "$alone" true false
+write_config "$alone" true
 rm "$alone/.agents/breadcrumbs.md" "$alone/.agents/decisions.md" "$alone/.agents/knowledge/index.md"
 head -c 9000 /dev/zero | tr '\0' 'x' > "$alone/CLAUDE.local.md"
 assert_contains "$(context_of "$(run_policy "$alone")")" 'Memory files over 8 KB'
@@ -367,38 +358,24 @@ printf 'ok: session start names a memory file over 8 KB in the repository or a f
 
 # At the cap exactly, every item shows and no truncation notice appears.
 exact="$(make_fixture breadcrumb-exact)"
-write_config "$exact" true true
-write_crumbs "$exact" 10
+write_config "$exact" true
+write_crumbs "$exact" 5
 exact_context="$(context_of "$(run_policy "$exact")")"
-assert_contains "$exact_context" '- crumb-01'
-assert_contains "$exact_context" '- crumb-10'
+assert_contains "$exact_context" '- crumb-1'
+assert_contains "$exact_context" '- crumb-5'
 assert_not_contains "$exact_context" 'prune the file'
 
-# Learning off: preserve operational context and side effects.
-tf="$(make_fixture learning-off)"
-write_config "$tf" true false
-tf_output="$(run_policy "$tf")"
-tf_context="$(context_of "$tf_output")"
-assert_not_contains "$tf_context" '[learning-output-style:v1]'
-assert_contains "$tf_context" 'fixture breadcrumb'
-assert_wrap_state "$tf"
+# One past the cap truncates.
+over="$(make_fixture breadcrumb-over)"
+write_config "$over" true
+write_crumbs "$over" 6
+over_context="$(context_of "$(run_policy "$over")")"
+assert_contains "$over_context" '(5 most recent of 6 — prune the file)'
+assert_contains "$over_context" '- crumb-6'
+assert_not_contains "$over_context" '- crumb-1'
 
-# Operational context off: inject teaching without operational state changes.
-ft="$(make_fixture session-start-off)"
-write_config "$ft" false true
-printf '%s\n' manual > "$ft/.agents/.compaction-pending"
-ft_output="$(run_policy "$ft")"
-ft_context="$(context_of "$ft_output")"
-assert_marker_once "$ft_context"
-assert_not_contains "$ft_context" 'fixture breadcrumb'
-assert_not_contains "$ft_context" 'fixture-decision'
-assert_not_contains "$ft_context" 'Fixture subject'
-[[ -f "$ft/.agents/.compaction-pending" ]] || fail 'session_start=false consumed compaction marker'
-assert_no_wrap_state "$ft"
-ft_compact_context="$(context_of "$(run_policy "$ft" compact)")"
-assert_marker_once "$ft_compact_context"
-assert_not_contains "$ft_compact_context" 'Context was just compacted'
-[[ -f "$ft/.agents/.compaction-pending" ]] || fail 'disabled compact context consumed marker'
+# Session start enabled seeds wrap state.
+assert_wrap_state "$tt"
 
 # The restated policy defers commit timing to the repository and sizes the
 # trivial exception without a clock, because it ships to every satellite.
@@ -408,27 +385,27 @@ assert_contains "$tt_compact_context" "the repository's commit rule decides when
 assert_not_contains "$tt_compact_context" 'only when the user asks'
 assert_not_contains "$tt_compact_context" 'minutes'
 
-# Both behaviors off: emit nothing and do not change operational state.
+# Session start off: emit nothing and do not change operational state.
 ff="$(make_fixture both-off)"
-write_config "$ff" false false
+write_config "$ff" false
 printf '%s\n' manual > "$ff/.agents/.compaction-pending"
 ff_output="$(run_policy "$ff")"
 [[ -z "$ff_output" ]] || fail 'both disabled emitted context'
 [[ -f "$ff/.agents/.compaction-pending" ]] || fail 'both disabled consumed compaction marker'
 assert_no_wrap_state "$ff"
+[[ -z "$(run_policy "$ff" compact)" ]] || fail 'disabled compact start emitted context'
+[[ -f "$ff/.agents/.compaction-pending" ]] || fail 'disabled compact start consumed marker'
 
 # Missing and malformed config use the default-on behavior.
 missing="$(make_fixture missing-config)"
 missing_output="$(run_policy "$missing")"
 missing_context="$(context_of "$missing_output")"
-assert_marker_once "$missing_context"
 assert_contains "$missing_context" 'fixture breadcrumb'
 
 malformed="$(make_fixture malformed-config)"
 printf '%s\n' '{not-json' > "$malformed/.agents/config.json"
 malformed_output="$(run_policy "$malformed")"
 malformed_context="$(context_of "$malformed_output")"
-assert_marker_once "$malformed_context"
 assert_contains "$malformed_context" 'fixture breadcrumb'
 
 # A broken file drops the exceptions it states, so the reader reports it; an
@@ -452,7 +429,6 @@ for root_value in 'null' '[]' '"text"' '42'; do
   non_object="$(make_fixture "non-object-$index")"
   printf '%s\n' "$root_value" > "$non_object/.agents/config.json"
   non_object_context="$(context_of "$(run_policy "$non_object")")"
-  assert_marker_once "$non_object_context"
   assert_contains "$non_object_context" 'fixture breadcrumb'
 done
 
@@ -460,7 +436,7 @@ done
 # A fresh start or a resume clears the parallel-writers gate's live record for
 # the session; a compaction continues the process and leaves it alone.
 writers="$(make_fixture writers)"
-write_config "$writers" true false
+write_config "$writers" true
 printf 'dead-cell\timplementer\n' > "$writers/.agents/.writers-live-fixture-session"
 printf 'p\t1' > "$writers/.agents/.writers-turn-fixture-session"
 printf 'p\t implementer' > "$writers/.agents/.writers-kinds-fixture-session"
@@ -507,7 +483,7 @@ printf 'ok: startup and resume clear the live-writers record; compact keeps it\n
 # transcript and edit-record.sh's commit ledger stood in by files; it catches a
 # missed or misnamed peer, and misses edit-record.sh writing that ledger.
 peers="$(make_fixture peers)"
-write_config "$peers" true false
+write_config "$peers" true
 cp "$repo/.agents/hooks/lib/cell_markers.py" "$repo/.agents/hooks/lib/product_folder.py" "$peers/.agents/hooks/lib/"
 tx="$scratch/peers-transcripts"; mkdir -p "$tx"
 : > "$tx/fixture-session.jsonl"; : > "$tx/peer-1.jsonl"; : > "$tx/quiet-peer.jsonl"
@@ -529,7 +505,7 @@ printf 'ok: a start names another session that committed here in the last 10 min
 
 # A run in flight is surfaced at session start; a torn-down one is not.
 inflight="$(make_fixture inflight)"
-write_config "$inflight" true false
+write_config "$inflight" true
 printf '{"version":1,"runs":{"r1":{"objective":"o","lanes":{"api":{"state":"review","claimed_by":"a","attention":null}},"messages":[],"integration":null},"old":{"objective":"o","torn_down":{"at":"x"},"lanes":{"z":{"state":"review"}},"messages":[]}}}' > "$inflight/.agents/.workloop-state.json"
 inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
 [[ "$inflight_context" == *"Workloop runs in flight"* && "$inflight_context" == *"WORKLOOP r1: api awaits review"* ]] || fail "session start did not surface the run in flight"
@@ -537,7 +513,7 @@ inflight_context="$(context_of "$(run_policy "$inflight" startup)")"
 printf 'ok: a run in flight is surfaced at session start\n'
 # An inbox that cannot run still lets the session start, and says why on stderr.
 broken_inbox="$(make_fixture broken-inbox)"
-write_config "$broken_inbox" true false
+write_config "$broken_inbox" true
 cp "$inflight/.agents/.workloop-state.json" "$broken_inbox/.agents/"
 rm "$broken_inbox/.agents/hooks/lib/agent_silence.py"
 broken_out="$(run_policy "$broken_inbox" startup 2>"$scratch/broken-inbox.err")" || fail "a failing inbox must not fail session start"
@@ -565,7 +541,7 @@ printf 'ok: the session start gives the dead-cell remedy at a startup and the pr
 # A Claude Code start in a checkout with no run names a dead agent of the
 # checkout from Claude Code's own records; a start on another host reads none.
 deaths="$(make_fixture deaths)"
-write_config "$deaths" true false
+write_config "$deaths" true
 python3 - "$HOME" "$deaths" <<'PY'
 import json, os, sys, time
 home, repo = sys.argv[1:3]; now = time.time()
@@ -610,41 +586,30 @@ other_context="$(context_of "$(run_policy "$deaths" startup)")"
 assert_not_contains "$other_context" "AGENT DIED"
 printf 'ok: a Claude Code start names a dead agent of the checkout, run or no run; a start on another host reads none\n'
 
-# Startup, resume, and compact starts each inject one teaching contract.
+# Resume and compact starts inject operational context.
 resume="$(make_fixture resume)"
-write_config "$resume" true true
+write_config "$resume" true
 resume_context="$(context_of "$(run_policy "$resume" resume)")"
-assert_marker_once "$resume_context"
+assert_contains "$resume_context" 'fixture breadcrumb'
 
 compact="$(make_fixture compact)"
-write_config "$compact" true true
+write_config "$compact" true
 printf '%s\n' manual > "$compact/.agents/.compaction-pending"
 compact_context="$(context_of "$(run_policy "$compact" compact)")"
-assert_marker_once "$compact_context"
 assert_contains "$compact_context" 'Context was just compacted (trigger: manual).'
 [[ ! -e "$compact/.agents/.compaction-pending" ]] || fail 'compact start did not consume marker'
 
-# Each engine adapter must preserve one canonical marker on startup and compact.
+# Each engine adapter must carry the operational context on startup and compact.
 adapters="$(make_fixture adapters)"
-write_config "$adapters" true true
+write_config "$adapters" true
 for engine in claude codex; do
   adapter="run_${engine}_adapter"
-  assert_marker_once "$(context_of "$("$adapter" "$adapters")")"
-  assert_marker_once "$(context_of "$("$adapter" "$adapters" compact)")"
+  assert_contains "$(context_of "$("$adapter" "$adapters")")" 'fixture breadcrumb'
+  assert_contains "$(context_of "$("$adapter" "$adapters" compact)")" 'fixture breadcrumb'
 done
 if [[ -f "$adapters/.kimi/hooks/adapter.sh" ]]; then
-  assert_marker_once "$(run_kimi_adapter "$adapters")"
-  assert_marker_once "$(run_kimi_adapter "$adapters" compact)"
-fi
-
-# Disabled learning must remain absent through each real adapter path.
-write_config "$adapters" true false
-for engine in claude codex; do
-  adapter="run_${engine}_adapter"
-  assert_not_contains "$(context_of "$("$adapter" "$adapters")")" '[learning-output-style:v1]'
-done
-if [[ -f "$adapters/.kimi/hooks/adapter.sh" ]]; then
-  assert_not_contains "$(run_kimi_adapter "$adapters")" '[learning-output-style:v1]'
+  assert_contains "$(run_kimi_adapter "$adapters")" 'fixture breadcrumb'
+  assert_contains "$(run_kimi_adapter "$adapters" compact)" 'fixture breadcrumb'
 fi
 
 # The --agent gate keys on agent_id, the one field a spawned subagent carries
@@ -657,7 +622,6 @@ gate() {
     "$dir" "$tags" |
     CLAUDE_PROJECT_DIR="$dir" bash "$dir/.agents/claude/adapter.sh" --agent main session-start.sh
 }
-write_config "$adapters" true true
 [[ -n "$(gate "$adapters" '')" ]] || fail 'the main agent must run a --agent main policy'
 [[ -n "$(gate "$adapters" ',"agent_type":"code-reviewer"')" ]] ||
   fail 'a --agent launch is still the main agent, so the policy must run'
@@ -740,7 +704,7 @@ assert_not_contains "$wl_tree" 'additionalDirectories'
 printf 'ok: an empty folder setting keeps the log in .agents/worklog/\n'
 
 # Both other contexts off still leaves the work log on its own toggle.
-printf '{"hooks":{"session_start":{"enabled":false},"learning_output_style":{"enabled":false},"worklog":{"enabled":true,"dir":""}}}\n' \
+printf '{"hooks":{"session_start":{"enabled":false},"worklog":{"enabled":true,"dir":""}}}\n' \
   > "$wl/.agents/config.json"
 assert_contains "$(context_of "$(run_policy "$wl")")" "Today's work log:"
 

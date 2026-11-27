@@ -25,15 +25,16 @@ Verified source hashes:
 
 Repository adaptation:
 
-- The policy uses the shared SessionStart hook.
-- The policy uses a repository config switch.
-- The policy offers non-blocking contributions only for meaningful decisions.
-- The policy continues with the recommended implementation when the user does
-  not accept the contribution.
-- The policy does not leave an unfinished code placeholder.
+- The adapted text is two sentences of the root `AGENTS.md`'s Communication
+  section, loaded in every session with no switch and no hook.
+- It asks for one `★ Insight` block after a non-obvious change, none after
+  routine work, and after the answer rather than before it.
+- It offers a contribution only at a meaningful decision, with the recommended
+  default, and finishes that default when the user declines or does not
+  answer.
 
 The source distribution does not identify a revision. Do not infer one from
 the marketplace cache path.
 
 The Apache License 2.0 applies to the source work. See
-`../licenses/learning-output-style-APACHE-2.0.txt`.
+`learning-output-style-APACHE-2.0.txt`.

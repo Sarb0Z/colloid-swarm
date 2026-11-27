@@ -118,7 +118,6 @@ MANIFEST = {
     "learning-report.md":       ".agents/playbooks/learning-report.md",
     "review-axes.md":           ".agents/playbooks/review-axes.md",
     "breadcrumb-burndown.md":   ".agents/playbooks/breadcrumb-burndown.md",
-    "learning-output-style.md": ".agents/playbooks/learning-output-style.md",
 }
 
 ARTICLE = re.compile(r'(<article class="(?:hook|card)"[^>]*>)(.*?)(</article>)', re.S)

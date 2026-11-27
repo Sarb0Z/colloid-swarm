@@ -25,8 +25,8 @@ Keep it scannable, and lead each section with its decision in bold. A decision
 you cannot tie to real code goes under a short "Open for discussion" trailer;
 never fabricate an excerpt to fill the template.
 
-For live teaching, follow `.agents/playbooks/learning-output-style.md`, and keep
-it separate from this post-hoc report.
+Live teaching follows the Insight and contribution sentences of the root
+`AGENTS.md`'s Communication section; keep it separate from this post-hoc report.
 
 Do not write a file. When the user asks to persist the report to
 `docs/learning/` instead, delegate it:

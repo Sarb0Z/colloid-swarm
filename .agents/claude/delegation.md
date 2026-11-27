@@ -59,9 +59,8 @@ in `.codex/agents/*.toml` and `.agents/codex/README.md`.
   writer that works in a separate directory, no copy of this repository, says
   so with one prompt line `WORKSPACE: <absolute path>` and may then write
   anywhere but this checkout.
-- Plan mode blocks edits until the operator approves the plan, but only an
-  attended terminal session offers that approval: unattended runs (`claude -p`,
-  background cells) expose no plan-approval tool, and auto mode has none
-  (probed 2026-10-04 on 2.1.289). The root's human gates hold the gated unit
-  and do not depend on plan mode; do not enter plan mode while independent
-  units remain, since it blocks every edit.
+- Plan mode blocks every edit until the operator approves the plan, and only
+  an attended terminal session offers that approval: unattended runs
+  (`claude -p`, background cells) and auto mode have none (probed 2026-10-04
+  on 2.1.289), so they hold the gated unit and report it in a
+  `needs_confirmation:` line.
