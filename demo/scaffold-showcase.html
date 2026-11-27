@@ -6967,7 +6967,7 @@ exit 0
             </article>
             <article class="hook" data-t="gate">
               <div class="top"><span class="id">session-wrap</span><span class="badge gate">gate</span></div>
-              <p class="what">Measures the session's work at each stop (none → trivial → diff → large). On Claude it asks nothing: it writes the owed flags the status strip leads with &mdash; review, suite, report, learning, worklog, cleanup &mdash; each true only while the work is owed. Under Codex and Kimi it offers a clean-up + report wrap and asks the user, full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
+              <p class="what">Measures the session's work at each stop (none → trivial → diff → large). On Claude it asks nothing: it writes the owed flags the status band's readout row leads with &mdash; review, suite, report, learning, worklog, cleanup &mdash; each true only while the work is owed. Under Codex and Kimi it offers a clean-up + report wrap and asks the user, full wrap or skip. Fires once per tier crossed; a commit re-arms the ladder.</p>
               <div class="io"><b>in</b> {transcript, host} &nbsp;→&nbsp; <b>out</b> systemMessage "owed: …" (Claude) | exit 2 question (Codex, Kimi) | exit 0</div>
               <details class="src" data-gen="1"><summary>View source <span class="lines">· 673 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-wrap.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: end-of-session wrap-up, gated by magnitude ESCALATION.
@@ -9106,7 +9106,7 @@ exit 0
         </article>
         <article class="card idea">
           <h3>Triggers, not checklists</h3>
-          <p>On Codex and Kimi the wrap gate asks <b>one question naming the checklist files</b>; the model reads them only if the user opts in. A skipped wrap costs nothing — an inline checklist would cost the full wall of text every turn, used or not. On Claude there is no question: the gate sends the owed flags to the status strip and one message line, only when the flags changed.</p>
+          <p>On Codex and Kimi the wrap gate asks <b>one question naming the checklist files</b>; the model reads them only if the user opts in. A skipped wrap costs nothing — an inline checklist would cost the full wall of text every turn, used or not. On Claude there is no question: the gate sends the owed flags to the status band above the prompt and one message line, only when the flags changed.</p>
           <div class="which">session-wrap → diff-wrap.md · report-*.md</div>
         </article>
         <article class="card idea">
@@ -15957,7 +15957,7 @@ task in `breadcrumbs.md`.
             <tr><td>stop_investigate.ratchet_check</td><td>catch silent punts</td><td>true</td></tr>
             <tr><td>learning_report.enabled</td><td>pairing-mode inline reports</td><td>false</td></tr>
             <tr><td>worktree_provision.allow_scripts</td><td>run lifecycle scripts when a cell&#x27;s worktree installs its dependencies</td><td>false</td></tr>
-            <tr><td>status_strip.enabled</td><td>the status strip; off hands the line back to the user&#x27;s own</td><td>true</td></tr>
+            <tr><td>status_band.enabled</td><td>the status band above the prompt; off hands the status line back to the user&#x27;s own</td><td>true</td></tr>
             <tr><td>stack_packs.carrier</td><td>marks the repo that holds every pack</td><td>true (source only)</td></tr>
           </tbody>
         </table>
