@@ -114,3 +114,24 @@ Result: accept; the P2 fixes trail in a follow-up lane.
 | 6 | P2 | A backslash-newline continuation hides a runner | adopted, trails |
 | 7 | P2 | `npm run testdata:seed` counts as a test runner | adopted, trails: a test script name is `test` or `test` followed by `:`, `.` or `-` |
 | 8 | P2 | `register.tsx` 628 lines, `pieces` 65 | deferred with round 3 finding 9 |
+
+Live QA of the `band-trail` lane at `4fea3a8`, same method. All scenarios
+passed: the launch frame with nothing below the prompt, `/clear`, idle 60 s
+over the whole process tree with no git, `python3` or `readout.py`, and the
+person's line about 1.5 s after launch with the band switched off.
+
+Round 5, code review of the `band-trail` lane `2b7f606..4fea3a8`, by an Opus
+`reviewer` cell with the reviewer contract. Verdict: `CONFORMANCE: no`, 4 `P2`,
+no `P0` or `P1`; round 4 findings 1 to 7 closed. Result: accept; findings 1, 3
+and 4 trail as one commit by the lead.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | P2 | A failed opening still removes `<id>.nomod`, so the relay waits a second time for that id | adopted, trails: the failure path removes only `.on` and `.json` |
+| 2 | P2 | `claude plugin validate` reports type errors as warnings and passes, and `test-mods.sh` discards them, so a type error in any mod passes the gate | confirmed by a probe: an injected `TS2322` passes plain validate; `--strict` also fails on the icon warning, so it is no fix as it stands. The band's own test file already carries 7 type errors the gate never showed. Goes to the operator: a gate change |
+| 3 | P2 | No relay test starts with the folder absent, so dropping the `umask 077` around `mkdir` would pass | adopted, trails: a case with no folder asserts mode 0700 and a written `.nomod` |
+| 4 | P2 | The relay's `mkdir` without `-p` refuses a not-yet-created `TMPDIR`, where the band's `mkdir -p` succeeds | adopted, trails: `mkdir -p` |
+
+The writer edited `register.tsx` with a script instead of the edit tool; the
+reviewer found the formatting consistent and no post-edit check that would have
+run on the file.
