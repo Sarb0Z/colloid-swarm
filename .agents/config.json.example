@@ -102,7 +102,8 @@
     "post_edit_check": {
       "enabled": true,
       "tombstone_check": true,
-      "nullsafety_check": true
+      "nullsafety_check": true,
+      "callers_check": true
     },
     "session_wrap": {
       "enabled": true,

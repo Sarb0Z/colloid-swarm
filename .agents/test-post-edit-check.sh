@@ -701,4 +701,67 @@ ls "$fx/.agents/.readout/" | grep -q '^checks-seen--sess-abc--' \
   || fail "the session id must travel from a Claude payload through the normalizer into the hook, got: $(ls "$fx/.agents/.readout/" 2>&1)"
 ok "a Claude-shaped payload carries its session id through the normalizer into the hook"
 
+# --- removed definitions that unedited files still call or import -----------
+callersfix() {  # sets fx, fxproj: a committed lib.py, shop.py and app.py; callers_check on
+  newfix "callers$1"
+  git -C "$fx" init -q
+  printf 'def total_price(items):\n    return sum(items)\n\n\nclass Cart:\n    def is_file(self):\n        return True\n' > "$fx/lib.py"
+  printf 'from lib import Cart\n\ncart = [1]\nprint(total_price(cart))\n' > "$fx/shop.py"
+  printf 'from lib import total_price\n' > "$fx/app.py"
+  printf 'import os\n\nx = os.getcwd()\n' > "$fx/other.py"
+  git -C "$fx" add -A
+  git -C "$fx" -c user.name=t -c user.email=t@t commit -q -m base
+}
+callers_out() {  # <json files array> -> sets rc, out: write mode stdout
+  set +e
+  out="$(printf '{"project_dir":"%s","session_id":"c","files":%s}' "$fxproj" "$1" \
+    | PATH="$tools:/usr/bin:/bin" POST_EDIT_MODE=write /bin/bash "$fx/.agents/hooks/policy/post-edit-check.sh" 2>/dev/null)"
+  rc=$?
+  set -e
+}
+rename_total() { sed -i.bak 's/total_price/order_total/' "$fx/lib.py"; rm -f "$fx/lib.py.bak"; }
+
+callersfix 1
+rename_total
+callers_out '["lib.py"]'
+[[ $rc -eq 0 ]] || fail "removed-callers must exit 0, got $rc"
+[[ "$out" == *"total_price"* && "$out" == *"shop.py:4"* && "$out" == *"app.py:1"* ]] \
+  || fail "a renamed definition must name its caller and importer, got: $out"
+ok "a renamed top-level function is reported with its caller and importer"
+
+printf 'from lib import Cart, order_total\n\ncart = [1]\nprint(order_total(cart))\n' > "$fx/shop.py"
+printf 'from lib import order_total\n' > "$fx/app.py"
+callers_out '["lib.py"]'
+[[ "$out" != *"total_price"* ]] || fail "callers already updated must not be reported, got: $out"
+ok "a caller updated to the new name is not reported"
+
+callersfix 3
+printf 'class Cart:\n    def is_file(self):\n        return True\n' > "$fx/lib.py"
+printf 'def total_price(items):\n    return sum(items)\n' > "$fx/util.py"
+callers_out '["lib.py"]'
+[[ "$out" == *"app.py:1"* ]] || fail "an import from the module it left must be reported, got: $out"
+[[ "$out" != *"shop.py"* ]] || fail "a call to a name defined elsewhere must not be reported, got: $out"
+ok "a moved function reports its importer and not the call that still resolves"
+
+callersfix 4
+printf 'from lib import Cart\n\nx = Cart()\nprint(x.is_file())\n' > "$fx/shop.py"
+git -C "$fx" -c user.name=t -c user.email=t@t commit -qam method
+printf 'def total_price(items):\n    return sum(items)\n\n\nclass Cart:\n    pass\n' > "$fx/lib.py"
+callers_out '["lib.py"]'
+[[ "$out" != *"is_file"* ]] || fail "a removed method must not be reported, got: $out"
+ok "a removed method is not reported"
+
+callersfix 5
+printf 'import lib\n\nvalue = lib.total_price([1])\n' > "$fx/fresh.py"
+callers_out '["fresh.py"]'
+[[ $rc -eq 0 && "$out" != *"Advisory — you removed or renamed"* ]] || fail "a new untracked file must give no callers advisory, got: $out"
+ok "a new untracked file gives no callers advisory"
+
+callersfix 6
+printf '{"hooks":{"post_edit_check":{"enabled":true,"callers_check":false}}}\n' > "$fx/.agents/config.json"
+rename_total
+callers_out '["lib.py"]'
+[[ "$out" != *"total_price"* ]] || fail "callers_check false must silence the advisory, got: $out"
+ok "callers_check false silences the callers advisory"
+
 printf '\nALL PASS\n'

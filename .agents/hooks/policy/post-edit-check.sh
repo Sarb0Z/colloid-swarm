@@ -656,6 +656,25 @@ $reformatted
 "
 fi
 
+# Write mode only: a Python edit that drops a definition other files still use
+# is reported by no per-file checker.
+callers=""
+if [[ -n "$py_edited" ]]; then
+  callers_check="$(python3 "$lib/config.py" "$repo/.agents/config.json" hooks.post_edit_check.callers_check=true)"
+  if [[ "$callers_check" == "yes" ]]; then
+    callers="$(printf '%s' "$py_edited" | python3 "$lib/removed-callers.py" "$proj" || true)"
+  fi
+fi
+if [[ -n "$callers" ]]; then
+  advisories+="
+Advisory — you removed or renamed these Python definitions, and other files
+still call or import them; pyright here checks only the files you edit. Update
+each place, or restore the name. If you are editing them next, or a listed
+place uses a different function of the same name, leave it and continue.
+$callers
+"
+fi
+
 [[ -z "$advisories" ]] && exit 0
 printf '%s' "$advisories" | python3 "$lib/emit-context.py" PostToolUse
 exit 0
