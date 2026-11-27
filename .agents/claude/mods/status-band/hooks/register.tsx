@@ -54,7 +54,9 @@ type Session = {
   folderRefused: boolean
 }
 
-let current: Promise<Session> | undefined
+type Opened = { readonly id: string; readonly session: Promise<Session> }
+
+let current: Opened | undefined
 let reported = false
 
 function report($: EngineInterface, line: string): void {
@@ -132,21 +134,39 @@ async function open($: EngineInterface, id: string): Promise<Session> {
   return session
 }
 
-/** The session for the id the engine answers now; a new id opens a new one. */
-async function sessionFor($: EngineInterface): Promise<Session> {
+/**
+ * The session for the id the engine answers now; a new id opens a new one. An
+ * id whose opening failed stays failed, reported once, so a broken switch is
+ * not read again on every draw; the person's own status line then shows.
+ */
+async function sessionFor($: EngineInterface): Promise<Session | undefined> {
   const id = await $.session.id()
-  const known = current === undefined ? undefined : await current.catch(() => undefined)
-  if (known?.id === id && current !== undefined) return current
-  known?.timer?.cancel()
-  current = open($, id)
-  return current
+  if (current?.id !== id) {
+    const previous = current
+    current = { id, session: open($, id) }
+    current.session.catch((error: unknown) => report($, `off for session ${id}: ${String(error)}`))
+    if (previous !== undefined) cancelTimer(previous)
+  }
+  return current.session.catch(() => undefined)
+}
+
+function cancelTimer(opened: Opened): void {
+  opened.session.then(
+    session => session.timer?.cancel(),
+    // Its failure was reported when it opened.
+    () => undefined,
+  )
 }
 
 const relayFile = (session: Session, ext: 'on' | 'json') =>
   session.folder !== undefined && ID.test(session.id) ? `${session.folder}/${session.id}.${ext}` : undefined
 
+/** The stat of a path, or undefined when it does not exist; other failures throw. */
 async function statOrMissing($: EngineInterface, path: string) {
-  return $.fs.stat(path).catch(() => undefined)
+  return $.fs.stat(path).catch((error: unknown) => {
+    if (String(error).includes('ENOENT')) return undefined
+    throw error
+  })
 }
 
 /** Reads the relay file when its mtime moved; true when the status changed. */
@@ -215,7 +235,12 @@ function refreshInBackground($: EngineInterface, session: Session): void {
 // tree, and status would otherwise take index.lock against their commits.
 async function readGit($: EngineInterface, cwd: string): Promise<Git | null> {
   const env = { GIT_OPTIONAL_LOCKS: '0' }
-  const status = await run($, ['git', 'status', '--porcelain=v2', '--branch'], { cwd, env }).catch(() => undefined)
+  // A folder git cannot start in (one since removed) shows no git segments, as
+  // a folder outside a work tree does.
+  const status = await run($, ['git', 'status', '--porcelain=v2', '--branch'], { cwd, env }).catch((error: unknown) => {
+    $.ui.log(`${$.plugin.name}: git did not start in ${cwd}: ${String(error)}`, { to: 'debug' })
+    return undefined
+  })
   if (status === undefined || status.exitCode !== 0) return null
   const detached = status.stdout.includes('# branch.head (detached)\n')
   const short = detached ? await run($, ['git', 'rev-parse', '--short', 'HEAD'], { cwd, env }) : undefined
@@ -234,7 +259,10 @@ async function readReadouts($: EngineInterface, session: Session): Promise<strin
     'strip',
     session.repo,
     typeof sessionId === 'string' ? sessionId : session.id,
-  ]).catch(() => undefined)
+  ]).catch((error: unknown) => {
+    report($, `readout.py did not start: ${String(error)}`)
+    return undefined
+  })
   if (answer === undefined || answer.exitCode !== 0) return READER_FAILED
   return answer.stdout.replace(/\n+$/, '')
 }
@@ -334,10 +362,37 @@ function line($: EngineInterface, e: ResolveInput, runs: readonly Run[], key: st
   )
 }
 
+/**
+ * The band's own work after an engine event it passed on: never in the way of
+ * that event's result, its failure reported instead.
+ */
+async function afterward($: EngineInterface, what: string, work: (session: Session) => void | Promise<void>): Promise<void> {
+  try {
+    const session = await sessionFor($)
+    if (session?.on === true) await work(session)
+  } catch (error) {
+    report($, `the band missed ${what}: ${String(error)}`)
+  }
+}
+
+/** Callers open: removed-callers.py over the task's edited Python files. */
+async function checkCallers($: EngineInterface, session: Session): Promise<void> {
+  const answer = await run($, ['python3', `${session.checkout}/.agents/hooks/lib/removed-callers.py`, '--json', session.repo], {
+    stdin: `${session.task.editedPy.join('\n')}\n`,
+  }).catch((error: unknown) => {
+    report($, `removed-callers.py did not run: ${String(error)}`)
+    return undefined
+  })
+  if (answer !== undefined && answer.exitCode !== 0) report($, `removed-callers.py failed: ${answer.stderr.trim()}`)
+  session.task = { ...session.task, callers: answer === undefined ? { kind: 'failed' } : parseCallers(answer.exitCode, answer.stdout) }
+  $.ui.invalidate('ui.render')
+}
+
 export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.plugin !== $.plugin.name || e.props.hasSurvey) return next(e)
     const session = await sessionFor($)
+    if (session === undefined) return next(e)
     if (!session.on) {
       await removeRelayFiles($, session, session.id)
       return next(e)
@@ -393,47 +448,37 @@ export const register: Register = on => {
     if (e.tool !== 'Bash' && e.tool !== 'Edit' && e.tool !== 'Write') return next(e)
     const ran = await next(e)
     if (ran.deny !== undefined) return ran
-    const session = await sessionFor($)
-    if (!session.on) return ran
-    if (e.tool === 'Bash') session.task = afterBash(session.task, e.command, ran.isError === true)
-    else if (ran.isError !== true) session.task = afterEdit(session.task, e.file_path)
-    refreshInBackground($, session)
+    await afterward($, 'a tool call', session => {
+      if (e.tool === 'Bash') session.task = afterBash(session.task, e.command, ran.isError === true)
+      else if (ran.isError !== true) session.task = afterEdit(session.task, e.file_path)
+      refreshInBackground($, session)
+    })
     return ran
   })
 
   on('prompt.submit', async ($, e, next) => {
     const submitted = await next(e)
-    const session = await sessionFor($)
-    if (session.on) refreshInBackground($, session)
+    await afterward($, 'a prompt', session => refreshInBackground($, session))
     return submitted
   })
 
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId !== undefined) return completed
-    const session = await sessionFor($)
-    if (!session.on) return completed
-    session.task = afterTurn(session.task, (await $.session.usage()).cost?.usd, e.durationMs)
-    $.ui.invalidate('ui.render')
-    if (session.task.editedPy.length > 0) {
-      const answer = await run($, ['python3', `${session.checkout}/.agents/hooks/lib/removed-callers.py`, '--json', session.repo], {
-        stdin: `${session.task.editedPy.join('\n')}\n`,
-      }).catch((error: unknown) => {
-        report($, `removed-callers.py did not run: ${String(error)}`)
-        return undefined
-      })
-      if (answer !== undefined && answer.exitCode !== 0) report($, `removed-callers.py failed: ${answer.stderr.trim()}`)
-      session.task = { ...session.task, callers: answer === undefined ? { kind: 'failed' } : parseCallers(answer.exitCode, answer.stdout) }
+    await afterward($, 'a turn', async session => {
+      session.task = afterTurn(session.task, (await $.session.usage()).cost?.usd, e.durationMs)
       $.ui.invalidate('ui.render')
-    }
+      if (session.task.editedPy.length > 0) await checkCallers($, session)
+    })
     return completed
   })
 
   // Only the ending id's files go: the process may go on under a new id.
   on('session.end', async ($, e, next) => {
-    const session = current === undefined ? undefined : await current.catch(() => undefined)
+    const ending = current
+    const session = ending === undefined ? undefined : await ending.session.catch(() => undefined)
     if (session !== undefined) {
-      await removeRelayFiles($, session, e.sessionId)
+      await removeRelayFiles($, session, e.sessionId).catch((error: unknown) => report($, String(error)))
       if (session.id === e.sessionId) {
         session.timer?.cancel()
         current = undefined

@@ -264,6 +264,18 @@ test('switched off, the band draws nothing of its own and takes its marker back'
   await ui.unmount()
 })
 
+test('a switch config.py cannot answer leaves the person\'s own line, read once for the id', async ($, on) => {
+  const { ran, written } = world(on, { id: 'broken-1', status: STATUS, git: TRUNK, switchWord: 'maybe' })
+  const first = await $.ui.mount(BAND())
+  expect(await textOf(first)).toBe('beneath')
+  await first.unmount()
+  const second = await $.ui.mount(BAND())
+  expect(await textOf(second)).toBe('beneath')
+  expect(ran.filter(argv => argv[1]?.endsWith('/config.py') === true).length).toBe(1)
+  expect(written).toEqual([])
+  await second.unmount()
+})
+
 test('the reader gets the relay\'s own session id, and its empty answer draws no row 3', async ($, on) => {
   const { ran } = world(on, { id: 'reader-1', status: { ...STATUS, session_id: 'sess-9' }, git: TRUNK, readouts: { exitCode: 0, stdout: '\n' } })
   const ui = await $.ui.mount(BAND())
