@@ -199,7 +199,10 @@ fi
 # Memory files Claude Code loads in full into every session, over the size cap.
 memory_big=""
 if [[ "$session_start_enabled" == "yes" ]]; then
-  memory_big="$(python3 "$lib/memory_size.py" "$proj" "$HOME")" \
+  memory_root="$proj"
+  memory_common="$(git -C "$proj" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [[ "$memory_common" == */.git ]] && memory_root="${memory_common%/.git}"
+  memory_big="$(python3 "$lib/memory_size.py" "$memory_root" "$HOME")" \
     || { echo "session-start: the memory-file size check failed; no size notice this session" >&2; memory_big=""; }
 fi
 
@@ -277,7 +280,7 @@ if [[ "$session_start_enabled" == "yes" && -f "$lib/readout.py" && -d "$proj/.ag
 fi
 
 # Nothing to surface.
-[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" && -z "$peer_notice" ]] && exit 0
+[[ -z "$learning_body" && -z "$open" && -z "$items" && -z "$decisions" && -z "$knowledge" && "$is_compact" != "true" && -z "$mcp_off" && -z "$lsp_missing" && -z "$workloop_digest" && -z "$workloop_failure" && "$worklog_status" == "off" && -z "$style_drift" && -z "$worktree_digest" && -z "$readout_note" && -z "$peer_notice" && -z "$memory_big" ]] && exit 0
 
 body="$(
   # One blank line between sections, none before the first.
@@ -441,7 +444,7 @@ EOF
     section
     echo "Memory files over 8 KB, which Claude Code loads into every session before any work:"
     printf '%s\n' "$memory_big" | awk -F'\t' '{printf "  - %s — %s KB\n", $1, $2}'
-    echo "Keep in them only what every session needs. Move a dated record (a deploy, a data write, its undo) to a ledger file and a how-to to a runbook file, both read on demand, and list each such file with the moment to read it in the product folder's CLAUDE.md. Copy the original aside first: these files have no history."
+    echo "Tell the operator once. Such a file should hold only what every session needs: a dated record (a deploy, a data write, its undo) belongs in a ledger file and a how-to in a runbook file, both read on demand and listed with the moment to read them in the product folder's CLAUDE.md. Restructure one only when the operator asks and no other session is working in that repository, copying the original aside first: these files have no history."
   fi
 
   if [[ -n "$lsp_missing" ]]; then

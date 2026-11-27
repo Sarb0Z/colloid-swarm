@@ -8,7 +8,11 @@ work. The repository's tracked `CLAUDE.md` has its own size check
 the home folder are not checked: a file there is the operator's machine-wide
 memory, not a product's.
 
-Usage: memory_size.py <repository> <home>
+The repository is the main checkout's root: a session in a worktree nested in
+it loads the checkout's own tracked CLAUDE.md as a folder above, which is a
+contract, not a note.
+
+Usage: memory_size.py <main checkout root> <home>
 Prints one `<shown path>\t<KB, rounded up>` line per file over the cap, nearest first.
 """
 
@@ -40,8 +44,8 @@ def file_size(path: Path):
 
 
 def main(argv) -> int:
-    # Absolute, not resolved: the notice names a file the way the session's folder names it.
-    repo, home = Path(argv[0]).absolute(), Path(argv[1]).absolute()
+    # Both resolved, so a symlinked home or temporary folder still compares as an ancestor.
+    repo, home = Path(argv[0]).resolve(), Path(argv[1]).resolve()
     for path, size in oversized(repo, home, file_size):
         print(f"{shown(path, home)}\t{math.ceil(size / 1024)}")
     return 0

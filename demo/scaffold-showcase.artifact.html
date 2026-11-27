@@ -598,7 +598,7 @@ detect:
               <div class="top"><span class="id">session-start</span><span class="badge context">context</span></div>
               <p class="what">Hands the session what it would otherwise have to go and find: every open decision and the ten newest breadcrumbs, the headings of settled decisions, the knowledge index, MCP servers switched off and language servers that cannot start, unit readouts, the work log, what the worktree sweep removed or kept, and workloop runs with no recorded lead. It also seeds the wrap's baseline with the commit the session starts from. On a compaction resume it re-states the Discovered-Subprojects policy with a checkpoint nudge tailored to the trigger.</p>
               <div class="io"><b>in</b> {source} &nbsp;→&nbsp; <b>out</b> additionalContext JSON &nbsp;·&nbsp; exit 0</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 458 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 461 lines</span></summary><div class="srcpath">.agents/hooks/policy/session-start.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: inject the learning output style, surface deferred
 # work, and re-state the Discovered Subprojects policy after compaction.
 #
@@ -799,7 +799,10 @@ fi
 # Memory files Claude Code loads in full into every session, over the size cap.
 memory_big=&quot;&quot;
 if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; ]]; then
-  memory_big=&quot;$(python3 &quot;$lib/memory_size.py&quot; &quot;$proj&quot; &quot;$HOME&quot;)&quot; \
+  memory_root=&quot;$proj&quot;
+  memory_common=&quot;$(git -C &quot;$proj&quot; rev-parse --path-format=absolute --git-common-dir 2&gt;/dev/null || true)&quot;
+  [[ &quot;$memory_common&quot; == */.git ]] &amp;&amp; memory_root=&quot;${memory_common%/.git}&quot;
+  memory_big=&quot;$(python3 &quot;$lib/memory_size.py&quot; &quot;$memory_root&quot; &quot;$HOME&quot;)&quot; \
     || { echo &quot;session-start: the memory-file size check failed; no size notice this session&quot; &gt;&amp;2; memory_big=&quot;&quot;; }
 fi
 
@@ -877,7 +880,7 @@ if [[ &quot;$session_start_enabled&quot; == &quot;yes&quot; &amp;&amp; -f &quot;
 fi
 
 # Nothing to surface.
-[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; -z &quot;$workloop_failure&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; &amp;&amp; -z &quot;$readout_note&quot; &amp;&amp; -z &quot;$peer_notice&quot; ]] &amp;&amp; exit 0
+[[ -z &quot;$learning_body&quot; &amp;&amp; -z &quot;$open&quot; &amp;&amp; -z &quot;$items&quot; &amp;&amp; -z &quot;$decisions&quot; &amp;&amp; -z &quot;$knowledge&quot; &amp;&amp; &quot;$is_compact&quot; != &quot;true&quot; &amp;&amp; -z &quot;$mcp_off&quot; &amp;&amp; -z &quot;$lsp_missing&quot; &amp;&amp; -z &quot;$workloop_digest&quot; &amp;&amp; -z &quot;$workloop_failure&quot; &amp;&amp; &quot;$worklog_status&quot; == &quot;off&quot; &amp;&amp; -z &quot;$style_drift&quot; &amp;&amp; -z &quot;$worktree_digest&quot; &amp;&amp; -z &quot;$readout_note&quot; &amp;&amp; -z &quot;$peer_notice&quot; &amp;&amp; -z &quot;$memory_big&quot; ]] &amp;&amp; exit 0
 
 body=&quot;$(
   # One blank line between sections, none before the first.
@@ -1041,7 +1044,7 @@ EOF
     section
     echo &quot;Memory files over 8 KB, which Claude Code loads into every session before any work:&quot;
     printf &#x27;%s\n&#x27; &quot;$memory_big&quot; | awk -F&#x27;\t&#x27; &#x27;{printf &quot;  - %s — %s KB\n&quot;, $1, $2}&#x27;
-    echo &quot;Keep in them only what every session needs. Move a dated record (a deploy, a data write, its undo) to a ledger file and a how-to to a runbook file, both read on demand, and list each such file with the moment to read it in the product folder&#x27;s CLAUDE.md. Copy the original aside first: these files have no history.&quot;
+    echo &quot;Tell the operator once. Such a file should hold only what every session needs: a dated record (a deploy, a data write, its undo) belongs in a ledger file and a how-to in a runbook file, both read on demand and listed with the moment to read them in the product folder&#x27;s CLAUDE.md. Restructure one only when the operator asks and no other session is working in that repository, copying the original aside first: these files have no history.&quot;
   fi
 
   if [[ -n &quot;$lsp_missing&quot; ]]; then

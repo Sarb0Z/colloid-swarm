@@ -300,8 +300,9 @@ write_config "$mem" true true
 head -c 9000 /dev/zero | tr '\0' 'x' > "$mem/CLAUDE.local.md"
 mem_context="$(context_of "$(run_policy "$mem")")"
 assert_contains "$mem_context" 'Memory files over 8 KB, which Claude Code loads into every session before any work:'
-assert_contains "$mem_context" "  - $mem/CLAUDE.local.md — 9 KB"
-assert_contains "$mem_context" 'a dated record (a deploy, a data write, its undo) to a ledger file'
+assert_contains "$mem_context" "  - $(cd "$mem" && pwd -P)/CLAUDE.local.md — 9 KB"
+assert_contains "$mem_context" 'a dated record (a deploy, a data write, its undo) belongs in a ledger file'
+assert_contains "$mem_context" 'Tell the operator'
 head -c 8192 /dev/zero | tr '\0' 'x' > "$mem/CLAUDE.local.md"
 assert_not_contains "$(context_of "$(run_policy "$mem")")" 'Memory files over 8 KB'
 nested="$(make_fixture home/product/web)"
@@ -313,6 +314,28 @@ assert_contains "$nested_context" '  - ~/product/CLAUDE.md — 20 KB'
 assert_not_contains "$nested_context" '  - ~/CLAUDE.md'
 assert_not_contains "$nested_context" "$nested/CLAUDE.local.md"
 rm "$HOME/product/CLAUDE.md" "$HOME/CLAUDE.md"
+# A session in a worktree nested in the checkout does not count the checkout's
+# own tracked CLAUDE.md (lint-contract.py owns its size), and names the main
+# checkout's CLAUDE.local.md, the file .worktreeinclude copies into it.
+wt="$(make_fixture memory-worktree)"
+write_config "$wt" true true
+head -c 20000 /dev/zero | tr '\0' 'x' > "$wt/CLAUDE.md"
+git -C "$wt" add CLAUDE.md
+git -C "$wt" -c user.name=t -c user.email=t@example.com commit -q -m contract
+git -C "$wt" worktree add -q "$wt/.claude/worktrees/lane"
+run_in_worktree() {
+  printf '{"project_dir":"%s","source":"startup","session_id":"fixture-session","transcript_path":""}\n' \
+    "$wt/.claude/worktrees/lane" | bash "$wt/.agents/hooks/policy/session-start.sh"
+}
+assert_not_contains "$(context_of "$(run_in_worktree)")" 'Memory files over 8 KB'
+head -c 9000 /dev/zero | tr '\0' 'x' > "$wt/CLAUDE.local.md"
+assert_contains "$(context_of "$(run_in_worktree)")" "  - $(cd "$wt" && pwd -P)/CLAUDE.local.md — 9 KB"
+# The notice shows on its own, with every other section empty.
+alone="$(make_fixture memory-alone)"
+write_config "$alone" true false
+rm "$alone/.agents/breadcrumbs.md" "$alone/.agents/decisions.md" "$alone/.agents/knowledge/index.md"
+head -c 9000 /dev/zero | tr '\0' 'x' > "$alone/CLAUDE.local.md"
+assert_contains "$(context_of "$(run_policy "$alone")")" 'Memory files over 8 KB'
 rm "$mem/.agents/hooks/lib/memory_size.py"
 mem_broken="$(run_policy "$mem" 2>"$scratch/mem-stderr")"
 assert_contains "$(context_of "$mem_broken")" 'fixture-decision'
