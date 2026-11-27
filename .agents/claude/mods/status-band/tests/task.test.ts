@@ -20,6 +20,24 @@ test('a runner in command position counts, through a launcher or after &&', asyn
     'go test ./...',
     'cd app && pytest',
     'pytest && echo ok',
+    'time pytest',
+    'time -p pytest',
+    'env CI=1 FOO=bar pytest',
+    'timeout 600 pytest',
+    'timeout -s KILL 10m pytest',
+    'nice pytest',
+    'nice -n 10 pytest',
+    'command pytest',
+    '(cd app && pytest)',
+    'pytest;',
+    'pytest\n',
+    'pytest -q  # all of it',
+    'FOO="a b" pytest',
+    "FOO='a b' pytest",
+    'uv run --with x pytest',
+    'uv run --frozen --python 3.14 pytest -q',
+    'npm run test:unit',
+    'pnpm test -- --watch=false',
   ]) {
     expect(isTestRun(command), command).toBe(true)
   }
@@ -60,8 +78,21 @@ test('a runner word anywhere but command position does not count', async () => {
     'echo "pytest"',
     'git commit -m "run pytest | tail"',
     'cat .agents/test-owed.sh',
+    'command -v pytest',
     'ls',
   ]) {
     expect(isTestRun(command), command).toBe(false)
   }
+})
+
+test('a comment ends at its newline, so the command after it decides', async () => {
+  expect(isTestRun("pytest -q  # confirm it's green\ngit status")).toBe(false)
+  expect(isTestRun('git status  # then pytest')).toBe(false)
+  expect(isTestRun('# pytest\nls')).toBe(false)
+  expect(isTestRun("cd app  # don't skip\npytest")).toBe(true)
+})
+
+test('a quote still open at the end is no test run', async () => {
+  expect(isTestRun("pytest -q -k 'login")).toBe(false)
+  expect(isTestRun('pytest -m "slow')).toBe(false)
 })

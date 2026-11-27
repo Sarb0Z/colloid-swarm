@@ -31,42 +31,93 @@ export const NEW_TASK: Task = {
   callers: { kind: 'none' },
 }
 
-// A runner, as the words that start a simple command after its launcher.
+// A runner, as the words that start a simple command once its launchers are gone.
 const RUNNER =
-  /^(?:pytest|jest|vitest|rspec|phpunit|(?:npm|pnpm)(?: run)? test|yarn test|bun test|go test|cargo test|mvn test|gradle test|dotnet test|node --test|deno test|make test|(?:command )?claude plugin test|(?:bash |sh )?(?:\S*\/)?\.agents\/(?:suite|check-all|test-[\w.-]+)\.sh|python3? (?:\S*\/)?\.agents\/test-[\w.-]+\.py)(?:\s|$)/
-// What may stand before a runner in its simple command.
-const LAUNCHER = /^(?:\w+=\S*\s+)*(?:(?:uv run|npx|pnpm exec|python3? -m)\s+)?/
+  /^(?:pytest|jest|vitest|rspec|phpunit|(?:npm|pnpm)(?: run)? test[\w:.-]*|yarn test[\w:.-]*|bun test|go test|cargo test|mvn test|gradle test|dotnet test|node --test|deno test|make test|claude plugin test|(?:bash |sh )?(?:\S*\/)?\.agents\/(?:suite|check-all|test-[\w.-]+)\.sh|python3? (?:\S*\/)?\.agents\/test-[\w.-]+\.py)(?: |$)/
+
+// uv run options that take the next word as their value.
+const UV_VALUE = new Set(['--with', '--with-requirements', '--with-editable', '--python', '-p', '--project', '--directory', '--extra', '--group', '--package', '--env-file', '--index', '--default-index', '--script'])
+
+/**
+ * The simple command's words with what runs it dropped: assignments, `time`,
+ * `nice`, `command`, `env`, `timeout <n>`, `uv run [options]`, `npx`,
+ * `pnpm exec` and `python -m`. `command -v` and its kin run nothing: no words.
+ */
+function launched(words: readonly string[]): readonly string[] {
+  let w = words
+  for (;;) {
+    const [first = '', second = ''] = w
+    if (/^[A-Za-z_]\w*=/.test(first)) w = w.slice(1)
+    else if (first === 'time') w = w.slice(second === '-p' ? 2 : 1)
+    else if (first === 'nice') w = w.slice(second === '-n' ? 3 : /^-\d+$/.test(second) ? 2 : 1)
+    else if (first === 'command') {
+      if (second.startsWith('-') && second !== '-p') return []
+      w = w.slice(second === '-p' ? 2 : 1)
+    } else if (first === 'env') {
+      w = w.slice(1)
+      while (w[0]?.startsWith('-') === true) w = w.slice(w[0] === '-u' ? 2 : 1)
+    } else if (first === 'timeout') {
+      w = w.slice(1)
+      while (w[0]?.startsWith('-') === true) w = w.slice(w[0] === '-s' || w[0] === '-k' ? 2 : 1)
+      w = w.slice(1)
+    } else if (first === 'uv' && second === 'run') {
+      w = w.slice(2)
+      while (w[0]?.startsWith('-') === true) w = w.slice(!w[0].includes('=') && UV_VALUE.has(w[0]) ? 2 : 1)
+    } else if (first === 'npx') {
+      w = w.slice(1)
+      while (w[0]?.startsWith('-') === true) w = w.slice(w[0] === '-p' || w[0] === '--package' ? 2 : 1)
+    } else if (first === 'pnpm' && second === 'exec') w = w.slice(2)
+    else if ((first === 'python' || first === 'python3') && second === '-m') w = w.slice(2)
+    else return w
+  }
+}
 
 /** Whether one simple command starts a runner. */
-const startsRunner = (simple: string) => RUNNER.test(simple.trim().replace(LAUNCHER, ''))
+const startsRunner = (words: readonly string[]) => RUNNER.test(launched(words).join(' '))
 
-type Piece = { text: string; after: string }
+type Piece = { words: string[]; after: string }
 
-/** The command cut at its operators outside quotes: each piece and the operator after it. */
-function pieces(command: string): Piece[] {
-  const out: Piece[] = []
-  let text = ''
+/**
+ * The command cut into simple commands at its operators outside quotes, each
+ * as its words (quotes removed) and the operator after it; a `#` that starts
+ * a word outside quotes comments out the rest of its line. `isOpen` is true
+ * when a quote is still open at the end.
+ */
+function pieces(command: string): { cut: Piece[]; isOpen: boolean } {
+  const cut: Piece[] = []
+  let words: string[] = []
+  let word: string | undefined
   let quote = ''
+  const endWord = () => {
+    if (word !== undefined) words.push(word)
+    word = undefined
+  }
   for (let i = 0; i < command.length; i += 1) {
     const char = command[i] ?? ''
     if (quote !== '') {
-      if (char === quote) {
-        quote = ''
-      } else if (char === '\\' && quote === '"') {
-        text += command[i + 1] ?? ''
+      if (char === quote) quote = ''
+      else if (char === '\\' && quote === '"') {
+        word = (word ?? '') + (command[i + 1] ?? '')
         i += 1
-      } else {
-        text += char
-      }
+      } else word = (word ?? '') + char
       continue
     }
     if (char === '"' || char === "'") {
       quote = char
+      word = word ?? ''
       continue
     }
     if (char === '\\') {
-      text += command[i + 1] ?? ''
+      word = (word ?? '') + (command[i + 1] ?? '')
       i += 1
+      continue
+    }
+    if (char === '#' && word === undefined) {
+      while (i + 1 < command.length && command[i + 1] !== '\n') i += 1
+      continue
+    }
+    if (char === ' ' || char === '\t') {
+      endWord()
       continue
     }
     // `2>&1`, `&>file` and `>|file` are redirections, not operators.
@@ -81,27 +132,41 @@ function pieces(command: string): Piece[] {
           ? char
           : ''
     if (op === '') {
-      text += char
+      word = (word ?? '') + char
       continue
     }
-    out.push({ text, after: op })
-    text = ''
+    endWord()
+    cut.push({ words, after: op })
+    words = []
     i += op.length - 1
   }
-  out.push({ text, after: '' })
-  return out.filter(piece => piece.text.trim() !== '' || piece.after !== '')
+  endWord()
+  cut.push({ words, after: '' })
+  // A trailing `;` or newline ends the command; it hands the status to nothing.
+  while (cut.length > 1 && cut[cut.length - 1]?.words.length === 0) cut.pop()
+  const last = cut[cut.length - 1]
+  if (last !== undefined && (last.after === ';' || last.after === '\n')) last.after = ''
+  return { cut, isOpen: quote !== '' }
+}
+
+/** The command inside one `( … )` that encloses it whole. */
+function unwrapped(command: string): string {
+  const trimmed = command.trim().replace(/[;\n\s]+$/, '')
+  return trimmed.startsWith('(') && trimmed.endsWith(')') ? trimmed.slice(1, -1) : trimmed
 }
 
 /**
  * Whether the command's exit status is a test runner's: a runner in command
  * position whose status reaches the end, through `&&` alone. A runner piped
  * into another command (`pytest | tail`), sent to the background (`&`), or
- * followed by `;`, `||` or a newline leaves the status to something else, and
- * so does a runner word anywhere else (`uv pip install pytest`, `rg jest`).
+ * followed by more after `;`, `||` or a newline leaves the status to something
+ * else, and so does a runner word anywhere else (`uv pip install pytest`,
+ * `rg jest`), in a comment, or a command whose quote never closes.
  */
 export function isTestRun(command: string): boolean {
-  const cut = pieces(command)
-  const at = cut.findLastIndex(piece => startsRunner(piece.text))
+  const { cut, isOpen } = pieces(unwrapped(command))
+  if (isOpen) return false
+  const at = cut.findLastIndex(piece => startsRunner(piece.words))
   if (at < 0) return false
   return cut.slice(at).every(piece => piece.after === '&&' || piece.after === '')
 }
