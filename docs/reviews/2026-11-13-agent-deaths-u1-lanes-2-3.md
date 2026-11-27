@@ -12,8 +12,8 @@ read both lanes whole and their seams with the landed reader, under the
 verbatim contract; Critical stakes, since the lanes add a hook and change a
 contract the lead follows.
 
-Covers: 49eb623..84d718e
-Covers: 49eb623..67c8ee6
+Covers: 0c59f194d519..3ef82881dbfb
+Covers: 0c59f194d519..f20c9c9e99c8
 
 ## Findings
 

@@ -4,11 +4,11 @@ Run `swarm-fixes`, three worktree lanes from `4cc9cbc`, built to
 `docs/notes/2026-11-24-swarm-coordination-fixes-spec.md`. Critical stakes. One
 reviewer (`fable`) read the delivered scope whole and its seams.
 
-Covers: 4cc9cbc..66bbdc2
-Covers: 4cc9cbc..1aa6dff
-Covers: e374d2e..fd73850
-Covers: 762099d..d31404e
-Covers: bb217bf..c6a2916
+Covers: 39a403e69fe8..da3dbcf203d2
+Covers: 39a403e69fe8..8d66a95369c7
+Covers: 4a84a431626c..68be4cfd5fdb
+Covers: f87f4927c807..4449ad846799
+Covers: 0e640f302909..f18b9ec47a3d
 
 ## Round 1 (controller `0da6bc0`, gates `e374d2e`, sweep `ceaca5e`)
 

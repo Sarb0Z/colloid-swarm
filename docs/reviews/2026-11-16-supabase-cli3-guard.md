@@ -6,7 +6,7 @@ Supabase CLI 3 beside 2.x, before the product-37-mobile port and the CLI upgrade
 
 ## Lane `guard` (critical)
 
-Covers: 8d23587..8ea2305
+Covers: 761afe10a557..e3ca5d73a6d0
 
 A fable writer built steps 1-4 (68850a0, 0178c83, 661090f, c09c875). Step 5's
 seven hosted-only verbs need seven `permissions.ask` rules in

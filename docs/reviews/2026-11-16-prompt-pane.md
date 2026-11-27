@@ -8,7 +8,7 @@ them with the operator's authority (R19).
 
 ## Lane `pane`
 
-Covers: 692df7e..8fe1ad3
+Covers: f5e2def300c6..16c4b6323808
 
 A fable writer built `pane-run`, `review-snapshot`, `prompt-catalog` and
 `catalog.json` in three commits (b835c8b, 1142bf5, 8705fef), all under

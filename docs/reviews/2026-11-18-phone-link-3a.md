@@ -1,6 +1,6 @@
 # Review: unit 3a of the phone link (permission prompts answered from the phone)
 
-Covers: 736d1d5..cbd5f9e
+Covers: 4c3e7c27a171..419d10ade09f
 
 Scope: every file under `.agents/iterm/phone`, `.agents/iterm/install.sh`,
 `.agents/iterm/tests` (the phone install test and `run.sh`),

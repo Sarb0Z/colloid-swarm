@@ -1,6 +1,6 @@
 # Review: phone messages answered in the operator's own words
 
-Covers: 97ae800..9c4296c
+Covers: 6a195572a653..5f2e5559809d
 
 Scope: commits `8927ae7` and `2f5c704` under `.agents/iterm/phone` and
 `.agents/test-phone-hooks.sh`: one adapter per alert kind (`adapters.py`), and

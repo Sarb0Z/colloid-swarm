@@ -11,7 +11,7 @@ seams with the death reader, the inbox hook, `config.py`, the workloop guide
 and `decisions.md`, under the verbatim contract; Critical stakes, since the
 unit changes a contract every cell follows and a hook.
 
-Covers: 906ab72..aab37e9
+Covers: 951e7dfd164d..a00a5214a2dc
 
 ## Findings
 

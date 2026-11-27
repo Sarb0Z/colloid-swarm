@@ -3,7 +3,7 @@
 Code review and QA of the delivered scope, Standard stakes. Plan and its own review:
 `docs/notes/2026-11-25-paper-fetch-plan.md`, `docs/reviews/2026-11-25-paper-fetch-plan.md`.
 
-Covers: 8cedea2..d04bee8
+Covers: b69cf49b9296..754fba452eb4
 
 Artifact reviewed: commits `8cedea2..95137cc` (the tool under `scripts/paper-fetch/`, the one-line
 change to `.agents/lint-suite.py`, one CI step, one `check-all.sh` line), plus `20dc2a2` in the

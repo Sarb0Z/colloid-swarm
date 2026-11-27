@@ -7,7 +7,7 @@ start and lead prompts, with `workloop.py dismiss`. One reviewer (opus) read
 the scope whole and its seams, under the verbatim contract; Critical stakes,
 since the lane changes the session-start and inbox hooks.
 
-Covers: b7f8ca1..984b48b
+Covers: 605ec3f9271f..c93ba84ccec0
 
 ## Findings
 

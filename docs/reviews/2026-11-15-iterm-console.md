@@ -6,7 +6,7 @@ sidebar lane is critical and adds the disprove pass.
 
 ## Lane `diff` (unit 1, standard)
 
-Covers: f108fb9..c8230be
+Covers: ff89aafa2f47..773e7e3662a4
 
 One reviewer (sonnet) read the lane's diff; QA (sonnet) ran Acceptance 1-5
 and probe P4 in headless Neovim with diffview-plus v0.39 over fixture
@@ -43,7 +43,7 @@ run through an `install.sh` link in a temporary HOME all passed, and
 
 ## Lane `attention` (unit 2, critical)
 
-Covers: f108fb9..5207150
+Covers: ff89aafa2f47..ff89aafa2f47
 
 One reviewer (opus) read the lane whole and its seams with iTerm2's own hook,
 the death reader and the owed reader. QA (opus) ran Acceptance 6-13 and

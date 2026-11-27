@@ -8,7 +8,7 @@ to `last-message.py`, the one other reader with the same defect.
 
 ## Lane `fix` (critical)
 
-Covers: e589388..f8b6b76
+Covers: 7c5e8863aa4e..f988a41ffd32
 
 The writer reproduced the defect first: on a real transcript cut, the reader
 before the fix gave turn id `start` and 427 characters of turn text, so

@@ -4,7 +4,7 @@ Plan review, code review, disprove pass and QA of the Research workflow and its 
 stakes (the router row, the playbooks and `.agents/hooks/lib/agent_records.py` are contract and hook
 files). Plan and its dispositions: `docs/notes/2026-11-25-research-workflow-plan.md`.
 
-Covers: 38595b7..607b23d
+Covers: 0e048b4b45f2..7df5f066e8da
 
 Artifact reviewed: the Research row and playbooks (`AGENTS.md`, `.agents/playbooks/workflow-research.md`,
 `research-project.md`, `review-axes-results.md`), `workloop.py save-reply` (`.agents/workloop_cells.py`,

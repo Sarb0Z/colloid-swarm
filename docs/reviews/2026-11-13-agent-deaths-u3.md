@@ -10,7 +10,7 @@ reader's self-check path and the tests' host assumptions, under the verbatim
 contract; Critical stakes, as part of a plan that changes guard hooks and
 contracts.
 
-Covers: 03fc3d9..b0b9a6c
+Covers: 62291ca604ba..27942ac8a463
 
 ## Findings
 
@@ -73,7 +73,7 @@ above, and one defect the lead found live during the run (below). One
 reviewer (opus) read the scope whole and its seams under the verbatim
 contract; one QA cell (sonnet) ran eight scenarios beside it.
 
-Covers: 51add4e..2f9629b
+Covers: 775ca53292e8..582f7d408d18
 
 ## The defect found live
 

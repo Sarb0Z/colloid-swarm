@@ -1,6 +1,6 @@
 # Review: phone replies bound by the quoted message
 
-Covers: 94499792..de2d0e8
+Covers: 10c4a1c34e01..d6e74082c3bf
 
 Scope: commits `1cff78f` and `651e812` under `.agents/iterm/phone` and
 `.agents/test-phone-hooks.sh`, which let a Signal reply to a phone-link message

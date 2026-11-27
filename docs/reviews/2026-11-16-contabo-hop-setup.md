@@ -8,8 +8,8 @@ Docker, and it is the jump host for `mail-via-hop`. So steps 1-5 are one
 committed, rerunnable script. The operator runs it from the Mac with `apply`,
 because the agent's ssh is read-only by guard.
 
-Covers: 692df7e..b8fb647
-Covers: 10ff853..bb31be3
+Covers: f5e2def300c6..c935e1deee8f
+Covers: 03c362e8e96a..0b2cda151de5
 
 The first range holds the script (366b7e7) and the archive fix (b8fb647). It
 also carries the other session's 390b8c1 (prompt-pane docs), which this review

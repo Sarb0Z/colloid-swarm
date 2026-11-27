@@ -11,7 +11,7 @@ teardown gate, the export and the public tree, under the verbatim contract;
 Critical stakes, since a session read as ended has its idle worktrees removed
 and the unit touches a gate hook.
 
-Covers: d4a53e9..b8ddf84
+Covers: 07e0b96a868b..6d0b751e3e64
 
 ## Findings
 

@@ -1,6 +1,6 @@
 # Review: the Signal TLS proxy module and its Mac side
 
-Covers: 3c9e773..c2251ab
+Covers: cad9c7159996..03614597c085
 
 Scope: commits `fb1fdd6`, `0c7ddbb`, `7c314e2` and `78ecbc5`. They cover:
 - `.agents/iterm/server/signal-proxy/` (compose, terminate config, vendored

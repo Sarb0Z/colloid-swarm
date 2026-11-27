@@ -25,5 +25,5 @@ reviewer (sonnet) read it: no `P0` or `P1`.
 Each new row was shown failing: the broken-inbox row with stderr discarded
 again, and the context assertion with the section's line removed.
 
-Covers: 43e1e54..9473d01
-Covers: 33f6b4f..5df36dd
+Covers: f1cba3828ded..9e96863dcc58
+Covers: 600667e54e64..74da178517b6

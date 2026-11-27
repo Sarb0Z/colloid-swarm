@@ -1,6 +1,6 @@
 # Review: ponytail transplant plan
 
-Covers: 2e6c1df..8ad8af1
+Covers: 32f224082293..8c9114919314
 
 Round 1, plan review, by a Fable `reviewer` cell with the reviewer contract
 verbatim. Artifact: `docs/notes/2026-11-27-ponytail-transplant-plan.md` at
@@ -29,7 +29,7 @@ verbatim. Artifact: `docs/notes/2026-11-27-ponytail-transplant-plan.md` at
 
 ## Unit A code review
 
-Covers: f321b9c..9b16058
+Covers: d8e22522663e..5ff4c0d2924e
 
 Round 1, code review of the `callers-advisory` lane, by an Opus `reviewer`
 cell through the workloop reviewer brief. `CONFORMANCE: unknown`, 6 `P2`, no
@@ -60,7 +60,7 @@ which runs after the operator's OK on the plan.
 
 ## Unit B code review
 
-Covers: f321b9c..ca3d3db
+Covers: d8e22522663e..ad8699d8d72f
 
 Round 1, code review of the landed contract text (`AGENTS.md` Fix and
 Communication lines, the output-style bullet), by an Opus `reviewer` cell with

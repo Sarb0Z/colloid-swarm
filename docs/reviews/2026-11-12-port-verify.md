@@ -26,6 +26,6 @@ and against a mutant killing only the leader. One reviewer (sonnet) read both.
 | 7 | P3 | A second signal between `Popen` and `try`, or during the cleanup, can skip it | theoretical | Accepted: a window of microseconds |
 | 8 | P3 | The new row's late-write assertion could not fire; the child-alive assertion carries it | reproduced | Fixed (`367f59e`): the assertion goes |
 
-Covers: 76975e6..88efc6c
-Covers: 1f5e14f..0417271
-Covers: f51d3a2..367f59e
+Covers: 9d5aba23acfd..aa73048b57c8
+Covers: ad2859d09ec8..55885202fa27
+Covers: bf1648db1a2a..ce87c1980a5b
