@@ -36,15 +36,9 @@ printf '{"statusLine": {"type": "command", "command": "cat >/dev/null; echo own 
 
 mode_of() { python3 -c 'import os, stat, sys; print(oct(stat.S_IMODE(os.stat(sys.argv[1]).st_mode)))' "$1"; }
 
-# The session's first copy: the folder goes to 700 before the JSON lands in it.
+# With the marker: the exact bytes, nothing printed, only mv on PATH, and a
+# copy only its owner reads.
 touch "$folder/sess-1.on"
-chmod 755 "$folder"
-relay_run
-[[ -z "$out" && -z "$err" && "$(mode_of "$folder")" == 0o700 && -f "$folder/sess-1.json" ]] \
-  || fail "the first copy did not make the folder 700 first: mode=$(mode_of "$folder") out=$out err=$err"
-ok "the session's first copy makes a group- or world-readable folder 700 before writing"
-
-# Every later refresh: the exact bytes, nothing printed, and only mv on PATH.
 bin="$scratch/bin"
 mkdir -p "$bin"
 ln -s "$(command -v mv)" "$bin/mv"
@@ -53,7 +47,8 @@ relay_run PATH="$bin"
 cmp -s <(printf '%s' "$payload") "$folder/sess-1.json" || fail "the copy differs from stdin: $(od -c "$folder/sess-1.json" | head -5)"
 [[ ! -e "$calls" ]] || fail "with the marker the person's own line still ran"
 [[ -z "$(find "$folder" -name '*.tmp')" ]] || fail "the relay left a temporary file: $(ls -A "$folder")"
-ok "with the marker a refresh writes stdin byte for byte, prints nothing, and starts no process but mv"
+[[ "$(mode_of "$folder/sess-1.json")" == 0o600 ]] || fail "the copy is readable beyond its owner: $(mode_of "$folder/sess-1.json")"
+ok "with the marker the relay writes stdin byte for byte as 0600, prints nothing, and starts no process but mv"
 
 # Without the marker: the person's own line, once.
 rm "$folder/sess-1.on" "$folder/sess-1.json"

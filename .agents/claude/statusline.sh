@@ -11,12 +11,11 @@
 #   ${TMPDIR:-/tmp}/colloid-status-$USER/<session>.nomod  no band came for it
 #
 # With the marker present, the JSON goes to <session>.json and nothing prints.
-# That path runs on every refresh, so it starts no process but mv, plus one
-# chmod 700 of the folder before the session's first copy, so the copy never
-# lands in a folder others can read. Without the marker (the band switched
-# off, not loaded, or a Claude Code without mods), the person's own user
-# statusLine runs instead, because the project setting would otherwise leave
-# them with nothing.
+# That path runs on every refresh, so it starts no process but mv. The band
+# makes the folder 0700; this script writes under umask 077. Without the
+# marker (the band switched off, not loaded, or a Claude Code without mods),
+# the person's own user statusLine runs instead, because the project setting
+# would otherwise leave them with nothing.
 #
 # Claude Code runs this before the band's session.start writes the marker, and
 # that first line stands until the next refresh. So where the band is
@@ -32,6 +31,7 @@
 # the second pass before it waits or writes anything.
 [ -n "${COLLOID_STATUS_DELEGATED:-}" ] && exit 0
 
+umask 077
 IFS= read -r -d '' input || true
 
 session=""
@@ -46,7 +46,6 @@ checkout="${BASH_SOURCE[0]%/*}/../.."
 ours() { [[ -d $folder && -O $folder && ! -L $folder ]]; }
 
 relay() {
-  if [[ ! -e "$folder/$session.json" ]]; then chmod 700 "$folder" || return 1; fi
   printf '%s' "$input" > "$folder/.$session.$$.tmp" && mv -f "$folder/.$session.$$.tmp" "$folder/$session.json"
 }
 
@@ -66,7 +65,7 @@ if [[ -n ${USER:-} && $session =~ ^[A-Za-z0-9_-]+$ ]]; then
         exit 0
       fi
     done
-    [[ -e $folder ]] || mkdir -m 700 "$folder"
+    [[ -e $folder ]] || mkdir "$folder"
     ours && : > "$folder/$session.nomod"
   fi
 fi
