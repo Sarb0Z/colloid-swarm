@@ -357,7 +357,7 @@ eq "the account payload keeps its denied models" '["fable"]' "$(jq -c '.managedS
 eq "the policy keeps the system prompt text" "shared text" "$(jq -r .appendSystemPrompt "$CC/policy.json")"
 for a in work personal family guest; do
   s=$H/.claude-$a/settings.json
-  eq "settings for $a: model, effort, style, theme" "fable high colloid dark" "$(jq -r '"\(.model) \(.effortLevel) \(.outputStyle) \(.theme)"' "$s")"
+  eq "settings for $a: model, effort, no output style (the device policy appends it), theme" "fable high null dark" "$(jq -r '"\(.model) \(.effortLevel) \(.outputStyle) \(.theme)"' "$s")"
   eq "settings for $a: fable 5.1 effort" xhigh "$(jq -r '.modelSettings["claude-fable-5-1"].effortLevel' "$s")"
   eq "settings for $a: ten hook events, each the iTerm2 hook with a 5 s timeout" "10 5" \
     "$(jq -r '"\(.hooks | length) \([.hooks[][0].hooks[0].timeout] | unique | join(","))"' "$s")"
@@ -431,7 +431,7 @@ eq "second run calls nothing that changes state" "" "$(cat "$CALLS")"
 eq "second run leaves the server unchanged" "$after" "$(tree "$R")"
 
 # --- settings Claude Code wrote since keep their keys ------------------------------
-printf '{"model": "opus", "env": {"FOO": "1", "DISABLE_TELEMETRY": "0"}}\n' >"$H/.claude-work/settings.json"
+printf '{"model": "opus", "outputStyle": "colloid", "env": {"FOO": "1", "DISABLE_TELEMETRY": "0"}}\n' >"$H/.claude-work/settings.json"
 out=$(run "$B/mac.pub" 2>&1); rc=$?
 eq "merge run exits 0" 0 "$rc"
 has "merge is reported" "merge the Mac's settings into ~/.claude-work/settings.json" "$out"
@@ -440,7 +440,8 @@ eq "merge sets the privacy keys" "1 1" "$(jq -r '"\(.env.DISABLE_TELEMETRY) \(.e
 out=$(run "$B/mac.pub" 2>&1)
 has "a merged file is left alone next time" "nothing to change" "$out"
 eq "merge keeps the model Claude Code wrote" opus "$(jq -r .model "$H/.claude-work/settings.json")"
-eq "merge adds the keys the file lacked" "high colloid" "$(jq -r '"\(.effortLevel) \(.outputStyle)"' "$H/.claude-work/settings.json")"
+eq "merge adds the keys the file lacked" "high dark" "$(jq -r '"\(.effortLevel) \(.theme)"' "$H/.claude-work/settings.json")"
+eq "merge drops the output style the device policy already appends" null "$(jq -r .outputStyle "$H/.claude-work/settings.json")"
 
 # --- the shipped hook replaces its own entries and keeps the others ---------------------
 OLDHOOK='"$HOME/.iterm2/bin/it2" handle-agent-hook'

@@ -395,10 +395,11 @@ fi
 # stays. Within each event, the hook that carries the shipped command, or one of
 # its older spellings, is replaced in place by the shipped hook; its entry's matcher
 # and other hooks stay. The shipped entry is added when no such hook exists, so a
-# rerun adds no second copy.
+# rerun adds no second copy. `outputStyle` is removed: the device policy appends
+# the colloid style, and selecting it as well puts it in the prompt twice.
 merge_settings='. as $cur | $ship[0] as $s
   | ["\"$HOME/.iterm2/bin/it2\" handle-agent-hook", "~/.iterm2/bin/it2 handle-agent-hook"] as $legacy
-  | (($s | del(.env, .hooks)) * $cur)
+  | (($s | del(.env, .hooks)) * $cur) | del(.outputStyle)
   | .env = (($cur.env // {}) + $s.env)
   | .hooks = reduce ($s.hooks | keys[]) as $ev (($cur.hooks // {});
       (($s.hooks[$ev] | map(.hooks[].command)) + $legacy) as $own

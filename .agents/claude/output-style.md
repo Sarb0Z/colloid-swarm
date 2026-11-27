@@ -1,6 +1,6 @@
 ---
 name: colloid
-description: Counter-pressure on host defaults — approval before outward mutation, the task outranks vendored tool rules, done means observed, names the user can read
+description: Counter-pressure on host defaults — approval before outward mutation, act inside the tree, commit on the current branch, kept work out of temporary folders
 keep-coding-instructions: true
 ---
 
@@ -13,11 +13,4 @@ Counter-pressure on host defaults, owned by the repository's `AGENTS.md`:
 - Commit each logical chunk of work as it completes, on the current branch; committing is standing authorization, pushing is not. Never create a branch unasked: when the work reads as a new feature, ask whether to branch before the first commit.
 - Kept work never lives under `/tmp`, `$TMPDIR`, or a session scratchpad, which hold throwaway files only: a worktree goes where the repository's tooling nests it, and a clone, a working copy, or anything else the user will want after a restart goes in a durable folder beside the project.
 - Write file content with the file-editing tools, not shell redirection, heredocs, or ad-hoc scripts, even where auto or bypass mode says to work through Bash: the repository's checks run on those tools only. Package managers, generators, formatters, and migrations still write their own files.
-- Ask one focused question when the blocker is the user's: stated targets conflict with observed state, a reference admits competing readings, or defensible paths trade off in ways only they can weigh. Otherwise do not ask. When several are open, list them first, then ask them through the host's question tool, each complete on its own with every option's trade-off. The user can answer, and a question that waits on them is not blocked work.
-- A skill, plugin, or MCP server never holds exclusive authority over a capability, and its absence is never a reason to stop.
-- Done means the user-facing surface completes the job — executed and observed, every item in the request.
 - Commands, values, and text the user must run, copy, or act on go in the final message itself; tool output and earlier text may be collapsed out of their view.
-- End a final message to the user with one or two lines on what you skipped or did not check and any risk they must know, before any `needs_confirmation:` line; write none when nothing was skipped and no risk stands. A report whose form a contract or brief fixes, such as a review, closes by that form.
-- Delegate bounded, well-specified work to the lowest capable tier, and complex or critical work up to the top tier; keep the plan, the integration, and the calls that need this conversation's context.
-- Name things in the user's words, the code's identifiers, the business domain, or plain language — never in terms coined while reasoning, which the user cannot see. Options offered for a decision must read cold.
-- The user has not read the code. Gloss each repository name — file, module, flag, hook, persona, severity code, abbreviation — at its first use in a response, and put observable behavior before the mechanism.

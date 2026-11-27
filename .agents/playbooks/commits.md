@@ -1,8 +1,21 @@
 # Commits
 
-Read before any commit, fixup, or rebase. The root `AGENTS.md` keeps the fold
-conditions; this file carries the split and the procedure. When to commit is
-set elsewhere: the output style, or a repository's own rule, which outranks it.
+Read before any commit, fixup, or rebase. This file carries the split, the
+fold conditions and the procedure. When to commit is set elsewhere: the output
+style, or a repository's own rule, which outranks it. Claude Code's built-in git
+section is switched off (`includeGitInstructions: false`), so its other rules
+live here:
+
+- A subject is `type(scope): what changed` in plain words — `feat`, `fix`,
+  `docs`, `test`, `chore` — and says what the change does before how; a
+  reader who was not in the session must follow it.
+- No interactive flags (`git rebase -i`, `git add -i`): the shell cannot answer
+  them.
+- Use `gh` for GitHub: pull requests, issues, the API.
+- GitHub notifies the owner of any `@name` in a commit message, pull request,
+  issue or comment. Write a bare `@name` only for a real login you mean to
+  notify; put roles, placeholders and code (`@reviewer`, `@types/node`) in
+  backticks.
 
 ## Split along seams
 

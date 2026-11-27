@@ -7,7 +7,9 @@ from what the repository tests. The prose is the body of
 the Codex developer instructions carry, so every tier says one thing.
 `permissions.ask` comes from `.agents/claude/settings.json`, which
 `test-guard-publish.py` already holds to the guard's plain forms in both
-directions.
+directions, and so does `includeGitInstructions`: the style sets when to
+commit, so the host's own git section, which says otherwise, is off in every
+repository the appended style reaches.
 
 An optional account-limits file adds managed settings for named signed-in
 accounts, such as `{"guest@example.com": {"deniedModels": ["fable"]}}`. It is
@@ -48,13 +50,16 @@ def payload():
     import output_style
     prose = output_style.body(STYLE)
     with open(SETTINGS, encoding="utf-8") as handle:
-        ask = json.load(handle)["permissions"]["ask"]
+        settings = json.load(handle)
+    ask = settings["permissions"]["ask"]
     if not prose:
         raise SystemExit("build: output-style.md has no body")
     if "Artifact" not in ask:
         raise SystemExit("build: settings.json permissions.ask does not gate Artifact")
+    if settings.get("includeGitInstructions") is not False:
+        raise SystemExit("build: settings.json must set includeGitInstructions to false")
     return {"appendSystemPrompt": prose,
-            "managedSettings": {"permissions": {"ask": ask}}}
+            "managedSettings": {"permissions": {"ask": ask}, "includeGitInstructions": False}}
 
 
 def account_limits(path):

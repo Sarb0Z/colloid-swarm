@@ -3,7 +3,7 @@
     "ENABLE_TOOL_SEARCH": "auto:5",
     "CLAUDE_CODE_THRIFTY_SONIC": "0"
   },
-  "outputStyle": "colloid",
+  "includeGitInstructions": false,
   "autoMemoryEnabled": false,
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": false,
