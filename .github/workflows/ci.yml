@@ -172,6 +172,9 @@ jobs:
       - name: Saved cell reports
         run: python3 .agents/test-save-reply.py
 
+      - name: Session relink
+        run: python3 .agents/test-relink-sessions.py
+
       - name: Research claims ledger
         run: python3 .agents/skills/research-claims/scripts/test-claims.py
 
