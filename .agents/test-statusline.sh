@@ -132,7 +132,7 @@ waited=0
 banded_run() {  # <session> -> sets out, waited (seconds, to the tenth)
   local start="$EPOCHREALTIME"
   out="$(printf '{"session_id":"%s"}' "$1" | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$scratch" USER=tester \
-    TMPDIR="$tmp" CLAUDE_CONFIG_DIR="$own" bash "$banded/.agents/claude/statusline.sh")"
+    TMPDIR="${band_tmp:-$tmp}" CLAUDE_CONFIG_DIR="$own" bash "$banded/.agents/claude/statusline.sh")"
   waited="$(python3 -c 'import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 1))' "$start" "$EPOCHREALTIME")"
 }
 slower() { python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$1" "$2"; }
@@ -166,8 +166,39 @@ banded_run nolink
 ! slower "$waited" 0.5 || fail "with no band link the relay waited: ${waited}s"
 ok "a checkout without the band hands over with no wait"
 
-# The person's line running this script again stops before any wait.
+# A folder that is a dangling link, or a TMPDIR that cannot be written, never
+# gets a .nomod, so the relay must not wait at all.
 ln -s ../../.agents/claude/mods/status-band "$banded/.claude/skills/colloid-status-band"
+band_tmp="$scratch/tmp-dangling"
+mkdir -p "$band_tmp"
+ln -s "$scratch/nowhere" "$band_tmp/colloid-status-tester"
+banded_run dangling
+[[ "$out" == "own-line" ]] || fail "a dangling-link folder did not hand over to the person's line: $out"
+! slower "$waited" 0.5 || fail "a dangling-link folder made the relay wait: ${waited}s"
+banded_run dangling
+! slower "$waited" 0.5 || fail "a dangling-link folder made the second run wait: ${waited}s"
+ok "a dangling-link relay folder hands over with no wait"
+
+band_tmp="$scratch/tmp-readonly"
+mkdir -p "$band_tmp"
+chmod 500 "$band_tmp"
+banded_run readonly
+[[ "$out" == "own-line" ]] || fail "a read-only TMPDIR did not hand over to the person's line: $out"
+! slower "$waited" 0.5 || fail "a read-only TMPDIR made the relay wait: ${waited}s"
+banded_run readonly
+! slower "$waited" 0.5 || fail "a read-only TMPDIR made the second run wait: ${waited}s"
+chmod 700 "$band_tmp"
+band_tmp=""
+ok "a read-only TMPDIR hands over with no wait"
+
+# The relay's umask 077 stays its own: the person's command inherits the caller's.
+printf '%s\n' '{"statusLine": {"type": "command", "command": "cat >/dev/null; umask"}}' > "$own/settings.json"
+out="$(umask 022; printf '%s' '{"session_id":"umask-1"}' | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$scratch" USER=tester \
+  TMPDIR="$tmp" CLAUDE_CONFIG_DIR="$own" bash "$relay")"
+[[ "$out" == "0022" ]] || fail "the person's own command did not run under the inherited umask: $out"
+ok "the person's own status line command runs under the umask it inherited"
+
+# The person's line running this script again stops before any wait.
 start="$EPOCHREALTIME"
 out="$(printf '{"session_id":"loop"}' | env HOME="$scratch" USER=tester TMPDIR="$tmp" COLLOID_STATUS_DELEGATED=1 bash "$banded/.agents/claude/statusline.sh")"
 waited="$(python3 -c 'import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 1))' "$start" "$EPOCHREALTIME")"

@@ -12,7 +12,8 @@
 #
 # With the marker present, the JSON goes to <session>.json and nothing prints.
 # That path runs on every refresh, so it starts no process but mv. The band
-# makes the folder 0700; this script writes under umask 077. Without the
+# makes the folder 0700; this script writes its own files under umask 077 and
+# leaves the person's command the umask it inherited. Without the
 # marker (the band switched off, not loaded, or a Claude Code without mods),
 # the person's own user statusLine runs instead, because the project setting
 # would otherwise leave them with nothing.
@@ -31,7 +32,6 @@
 # the second pass before it waits or writes anything.
 [ -n "${COLLOID_STATUS_DELEGATED:-}" ] && exit 0
 
-umask 077
 IFS= read -r -d '' input || true
 
 session=""
@@ -54,19 +54,25 @@ marked() { [[ -f "$folder/$session.on" ]] && ours; }
 # The id names files, so only readout.py's id alphabet passes.
 if [[ -n ${USER:-} && $session =~ ^[A-Za-z0-9_-]+$ ]]; then
   if marked; then
+    umask 077
     relay
     exit 0
   fi
-  if [[ -e "$checkout/.claude/skills/colloid-status-band" && ! -e "$folder/$session.nomod" ]] && { ours || [[ ! -e $folder ]]; }; then
-    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-      sleep 0.1
-      if marked; then
-        relay
-        exit 0
-      fi
-    done
-    [[ -e $folder ]] || mkdir "$folder"
-    ours && : > "$folder/$session.nomod"
+  if [[ -e "$checkout/.claude/skills/colloid-status-band" && ! -e "$folder/$session.nomod" ]]; then
+    # A folder that cannot be made or is not ours (a dangling link, a read-only
+    # TMPDIR) gets no wait: no .nomod could end it, so every refresh would wait.
+    [[ -e $folder || -L $folder ]] || (umask 077; mkdir "$folder") 2>/dev/null
+    if ours; then
+      for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        sleep 0.1
+        if marked; then
+          umask 077
+          relay
+          exit 0
+        fi
+      done
+      (umask 077; : > "$folder/$session.nomod")
+    fi
   fi
 fi
 
