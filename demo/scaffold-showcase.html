@@ -436,7 +436,7 @@ Read a playbook workflow&#x27;s file before its first step.
 
 ### Fix
 
-Reproduce first: build one command that goes red on this defect — a failing test, a script, a request — and report both the root and the proximate cause. When no such command can be built, that run does not make the cause plain, or a fix has failed, work the `diagnosing-bugs` skill&#x27;s loop. When something that worked stops working, the most recent change is the first hypothesis: find it before offering a workaround, after any critical containment. A defect that returns every release is a missing invariant: encode it (Gates over prose). Then run Build from &quot;Implement and test&quot; onward at the same stakes. **Delegate** reproduction and instrumentation to a cell when the defect spans systems, and independent review to a reviewer cell. Critical adds containment before diagnosis, the operator&#x27;s OK before the fix, and the critical Build reviews.
+Reproduce first: build one command that goes red on this defect — a failing test, a script, a request — and report both the root and the proximate cause before changing code. When no such command can be built, that run does not make the cause plain, or a fix has failed, work the `diagnosing-bugs` skill&#x27;s loop. After the red command and before the first edit, grep every caller of the function you will change, then fix the root cause once in the code they share, since one fix there is a smaller diff than one per caller, or fix the one caller that must differ and say so. When something that worked stops working, the most recent change is the first hypothesis: find it before offering a workaround, after any critical containment. A defect that returns every release is a missing invariant: encode it (Gates over prose). Then run Build from &quot;Implement and test&quot; onward at the same stakes. **Delegate** reproduction and instrumentation to a cell when the defect spans systems, and independent review to a reviewer cell. Critical adds containment before diagnosis, the operator&#x27;s OK before the fix, and the critical Build reviews.
 
 ### Answer, Ship, Operate
 
@@ -502,7 +502,7 @@ Before any commit, fixup, or rebase, follow `.agents/playbooks/commits.md`: comm
 
 ## Communication
 
-Lead with the answer. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Name things in the user&#x27;s words, the code&#x27;s identifiers, the business domain, or plain language — never in terms coined while reasoning; a question that asks the user to decide reads cold, saying what each option concretely changes. Expand only for security warnings, destructive confirmations, multi-step sequences, or competing readings of the request.
+Lead with the answer. End a final message to the operator with one or two lines on what you skipped or did not check and any risk, before any `needs_confirmation:` line, or none when nothing was skipped and no risk stands; a report whose form a contract or brief fixes closes by that form. Preserve decisions, evidence, risks, failures, and next actions; cut repetition and padding. Cite requested research. Report counts only from a command. Name things in the user&#x27;s words, the code&#x27;s identifiers, the business domain, or plain language — never in terms coined while reasoning; a question that asks the user to decide reads cold, saying what each option concretely changes. Expand only for security warnings, destructive confirmations, multi-step sequences, or competing readings of the request.
 
 The user directs the work and knows the product but not the implementation, so a bare repository name carries nothing. The first time a response uses a file, module, function, flag, hook, persona, severity code, or abbreviation, say in the same sentence what it does or governs, and state a consequence as observable behavior before its mechanism. A name the user supplied needs no gloss.
 
@@ -5812,7 +5812,7 @@ if __name__ == &quot;__main__&quot;:
               <div class="top"><span class="id">post-edit-check</span><span class="badge gate">gate</span></div>
               <p class="what">Runs on only the files just edited — scoped strictly to the tool's file list, never a repo-wide sweep — as two entries. <code>write</code> runs the fixers and formatters, then the advisory scans, including tombstone comments (see <a href="#tracking">Tracking</a>), and exits 0 with context. <code>check</code> runs the linters and typecheckers in the background and exits 2 with findings. A configured tool that is missing is reported once per session.</p>
               <div class="io"><b>in</b> {files[]} &nbsp;→&nbsp; <b>out</b> additionalContext (write) | exit 2 + findings (check)</div>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 661 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 680 lines</span></summary><div class="srcpath">.agents/hooks/policy/post-edit-check.sh</div><pre><code>#!/usr/bin/env bash
 # Engine-agnostic policy: lint / format / typecheck edited files.
 #
 # Input  (stdin JSON): {&quot;project_dir&quot;: &quot;...&quot;, &quot;files&quot;: [&quot;...&quot;, ...]}
@@ -6467,6 +6467,25 @@ these files after your edit, so an Edit whose old_string predates the rewrite
 fails. Re-read the file before your next edit, read the diff before you
 describe it, and say so if the reformatting outweighs your own change.
 $reformatted
+&quot;
+fi
+
+# Write mode only: a Python edit that drops a definition other files still use
+# is reported by no per-file checker.
+callers=&quot;&quot;
+if [[ -n &quot;$py_edited&quot; ]]; then
+  callers_check=&quot;$(python3 &quot;$lib/config.py&quot; &quot;$repo/.agents/config.json&quot; hooks.post_edit_check.callers_check=true)&quot;
+  if [[ &quot;$callers_check&quot; == &quot;yes&quot; ]]; then
+    callers=&quot;$(printf &#x27;%s&#x27; &quot;$py_edited&quot; | python3 &quot;$lib/removed-callers.py&quot; &quot;$proj&quot; || true)&quot;
+  fi
+fi
+if [[ -n &quot;$callers&quot; ]]; then
+  advisories+=&quot;
+Advisory — you removed or renamed these Python definitions, and other files
+still call or import them; pyright here checks only the files you edit. Update
+each place, or restore the name. If you are editing them next, or a listed
+place uses a different function of the same name, leave it and continue.
+$callers
 &quot;
 fi
 
@@ -16797,7 +16816,7 @@ if __name__ == &quot;__main__&quot;:
           <div class="kicker">The whole switchboard</div>
           <h3>config.json</h3>
           <p>The committed defaults for every toggle and threshold above. <code>policy.json</code> is the tracked per-repository policy, and an ignored <code>config.json</code> overrides both for one operator. Only the <code>session_wrap</code> thresholds also read <code>WRAP_*</code> environment variables.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 152 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 153 lines</span></summary><div class="srcpath">.agents/config.json.example</div><pre><code>{
   &quot;swarm&quot;: {
     &quot;genome_stamping&quot;: true,
     &quot;default_register&quot;: &quot;panspermia&quot;,
@@ -16901,7 +16920,8 @@ if __name__ == &quot;__main__&quot;:
     &quot;post_edit_check&quot;: {
       &quot;enabled&quot;: true,
       &quot;tombstone_check&quot;: true,
-      &quot;nullsafety_check&quot;: true
+      &quot;nullsafety_check&quot;: true,
+      &quot;callers_check&quot;: true
     },
     &quot;session_wrap&quot;: {
       &quot;enabled&quot;: true,
