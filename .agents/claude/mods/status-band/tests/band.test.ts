@@ -1,4 +1,4 @@
-import type { On } from 'claude-code'
+import type { ConfigRow, On, SessionUsage } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { merge } from '../hooks/strip'
@@ -26,8 +26,8 @@ type World = {
   callers?: Answer
   /** The exit of making the relay folder this user's own. */
   folderExit?: number
-  usage?: Record<string, unknown>
-  configRows?: Record<string, unknown>[]
+  usage?: SessionUsage
+  configRows?: ConfigRow[]
   /** The session's own folder; /work/app when not given. */
   cwd?: string
   /** What config.py says on stderr: a file it could not parse. */
@@ -242,7 +242,10 @@ const TRUNK = { 'git status --porcelain=v2 --branch': { exitCode: 0, stdout: '# 
 const textOf = async (ui: { drawn: () => Promise<unknown> }) => plainText(await ui.drawn())
 // The test's own engine beneath the band's hooks.
 function engine(on: On, result: { isError: boolean; text: string }) {
-  on('tool.call', () => ({ result: { stdout: result.text, stderr: '', interrupted: false }, text: result.text, isError: result.isError }))
+  on('tool.call', () => {
+    const output = { stdout: result.text, stderr: '', interrupted: false }
+    return result.isError ? { result: output, text: result.text, isError: true as const } : { result: output, text: result.text }
+  })
   on('turn.complete', (_, e) => ({ text: e.answer }))
 }
 const turn = (durationMs: number) => ({ answer: 'done', durationMs, isAborted: false, turnId: 't', reason: 'answer' }) as const
@@ -337,7 +340,7 @@ test('an opening retry still waiting when the id ends is cancelled and never run
   const { clock } = world(on, w)
   const ui = await $.ui.mount(BAND())
   expect(w.gitAborts).toBe(8)
-  await $.session.end({ reason: 'clear', sessionId: 'retry-end', resume: { sessionId: 'retry-end' } })
+  await $.session.end({ reason: 'clear', sessionId: 'retry-end', resume: { id: 'retry-end' } })
   await clock.advance(5000)
   expect(w.gitAborts).toBe(8)
   await ui.unmount()
@@ -432,7 +435,7 @@ test('a new session id (/clear) writes its own marker and starts the task over',
 test('session.end removes only the ending id\'s files', async ($, on) => {
   const { ran } = world(on, { id: 'end-1', status: STATUS, git: TRUNK })
   const ui = await $.ui.mount(BAND())
-  await $.session.end({ reason: 'clear', sessionId: 'end-1', resume: { sessionId: 'end-1' } })
+  await $.session.end({ reason: 'clear', sessionId: 'end-1', resume: { id: 'end-1' } })
   expect(ran).toContainEqual(['rm', '-f', `${FOLDER}/end-1.on`, `${FOLDER}/end-1.json`, `${FOLDER}/end-1.nomod`])
   await ui.unmount()
 })
@@ -455,7 +458,7 @@ test('session.end waits for a marker still being written, so none is left behind
   const { files, clock } = world(on, w)
   const ui = await $.ui.mount(BAND())
   await started
-  const ended = $.session.end({ reason: 'clear', sessionId: 'end-2', resume: { sessionId: 'end-2' } })
+  const ended = $.session.end({ reason: 'clear', sessionId: 'end-2', resume: { id: 'end-2' } })
   // session.end runs as far as it can before the write lands.
   await clock.settle()
   land()
@@ -553,7 +556,10 @@ test('a test run sent to the background leaves the tests state as it was', async
 test('this repository\'s own test scripts set the tests state, pass and fail', async ($, on) => {
   let failing = false
   world(on, { id: 'tests-5', status: STATUS, git: TRUNK })
-  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, text: '', isError: failing }))
+  on('tool.call', () => {
+    const output = { stdout: '', stderr: '', interrupted: false }
+    return failing ? { result: output, text: '', isError: true as const } : { result: output, text: '' }
+  })
   on('turn.complete', (_, e) => ({ text: e.answer }))
   const ui = await $.ui.mount(BAND())
   await $.tool.call({ tool: 'Bash', command: 'bash .agents/test-owed.sh' })
@@ -703,8 +709,8 @@ test('before the first relay write, the band draws what the engine gives', async
     git: TRUNK,
     usage: { startedAt: 0, context: { window: 1000000, percent: 42, tokens: 420000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 18 }], cost: { usd: 0 } },
     configRows: [
-      { key: 'thinking', label: 'Thinking', kind: 'boolean', value: true, provider: { kind: 'engine' }, isLocked: false },
-      { key: 'outputStyle', label: 'Output style', kind: 'enum', value: 'colloid', provider: { kind: 'engine' }, isLocked: false },
+      { key: 'thinking', label: 'Thinking', kind: 'boolean', value: true, provider: { plugin: 'engine', tier: 'core' }, isLocked: false },
+      { key: 'outputStyle', label: 'Output style', kind: 'choice', value: 'colloid', provider: { plugin: 'engine', tier: 'core' }, isLocked: false },
     ],
   })
   const ui = await $.ui.mount(BAND())
