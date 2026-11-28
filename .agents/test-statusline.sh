@@ -191,6 +191,18 @@ chmod 700 "$band_tmp"
 band_tmp=""
 ok "a read-only TMPDIR hands over with no wait"
 
+# No relay folder yet, under a TMPDIR not yet created: the relay makes both, the
+# folder 0700 whatever the caller's umask, waits, and records .nomod.
+band_tmp="$scratch/tmp-fresh/not-yet"
+banded_run fresh
+[[ "$out" == "own-line" && -f "$band_tmp/colloid-status-tester/fresh.nomod" ]] \
+  || fail "with no folder the relay did not make it and record .nomod: out=$out"
+[[ "$(mode_of "$band_tmp/colloid-status-tester")" == 0o700 ]] \
+  || fail "the folder the relay made is readable beyond its owner: $(mode_of "$band_tmp/colloid-status-tester")"
+slower "$waited" 1.4 || fail "with no folder the relay did not wait for the band: ${waited}s"
+band_tmp=""
+ok "with no relay folder the relay makes it 0700, waits, and records .nomod"
+
 # The relay's umask 077 stays its own: the person's command inherits the caller's.
 printf '%s\n' '{"statusLine": {"type": "command", "command": "cat >/dev/null; umask"}}' > "$own/settings.json"
 out="$(umask 022; printf '%s' '{"session_id":"umask-1"}' | env -u CLAUDE_PROFILE -u COLLOID_STATUS_DELEGATED HOME="$scratch" USER=tester \

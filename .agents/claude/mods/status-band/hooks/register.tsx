@@ -216,9 +216,9 @@ function begin($: EngineInterface, id: string): Opened {
         }
         markedDone()
         report($, isAbort(error) ? `opening session ${id} was cut short ${ATTEMPTS} times; the person's own status line stays` : `off for session ${id}: ${String(error)}`)
-        // The person's own status line comes back.
+        // The person's own status line comes back; the relay's .nomod stays, so it does not wait again.
         relayFolder($)
-          .then(folder => removeRelayFiles($, folder, id, ALL_RELAY_FILES))
+          .then(folder => removeRelayFiles($, folder, id, ['on', 'json']))
           .catch((cleanup: unknown) => report($, `the marker for ${id} was not removed: ${String(cleanup)}`))
       })
   }

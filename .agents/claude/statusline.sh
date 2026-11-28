@@ -11,8 +11,9 @@
 #   ${TMPDIR:-/tmp}/colloid-status-$USER/<session>.nomod  no band came for it
 #
 # With the marker present, the JSON goes to <session>.json and nothing prints.
-# That path runs on every refresh, so it starts no process but mv. The band
-# makes the folder 0700; this script writes its own files under umask 077 and
+# That path runs on every refresh, so it starts no process but mv. Whichever of
+# the band and this script makes the folder makes it 0700; this script writes
+# its own files under umask 077 and
 # leaves the person's command the umask it inherited. Without the
 # marker (the band switched off, not loaded, or a Claude Code without mods),
 # the person's own user statusLine runs instead, because the project setting
@@ -61,7 +62,7 @@ if [[ -n ${USER:-} && $session =~ ^[A-Za-z0-9_-]+$ ]]; then
   if [[ -e "$checkout/.claude/skills/colloid-status-band" && ! -e "$folder/$session.nomod" ]]; then
     # A folder that cannot be made or is not ours (a dangling link, a read-only
     # TMPDIR) gets no wait: no .nomod could end it, so every refresh would wait.
-    [[ -e $folder || -L $folder ]] || (umask 077; mkdir "$folder") 2>/dev/null
+    [[ -e $folder || -L $folder ]] || (umask 077; mkdir -p "$folder") 2>/dev/null
     if ours; then
       for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
         sleep 0.1

@@ -13767,7 +13767,7 @@ if __name__ == &quot;__main__&quot;:
 </code></pre></details>
             </article>
         <article class="card"><div class="kicker">Mechanical</div><h3>statusline.sh</h3><p>The status line relay for the <code>status-band</code> mod, which draws the status above the prompt: the account, repository, branch and diff on one row, the model, context use and usage limits on the next, a third row only while a unit has written a readout, the owed flags among them, and this task&#x27;s cost, agent time, tests and callers open. While the band runs, the relay hands it Claude Code&#x27;s status JSON and prints nothing; otherwise, or with <code>hooks.status_band.enabled</code> off, the line goes back to the user&#x27;s own.</p>
-              <details class="src" data-gen="1"><summary>View source <span class="lines">· 93 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
+              <details class="src" data-gen="1"><summary>View source <span class="lines">· 94 lines</span></summary><div class="srcpath">.agents/claude/statusline.sh</div><pre><code>#!/bin/bash
 # Claude Code status line: a silent relay for the status band.
 #
 # The band (.agents/claude/mods/status-band) draws the status above the prompt.
@@ -13780,8 +13780,9 @@ if __name__ == &quot;__main__&quot;:
 #   ${TMPDIR:-/tmp}/colloid-status-$USER/&lt;session&gt;.nomod  no band came for it
 #
 # With the marker present, the JSON goes to &lt;session&gt;.json and nothing prints.
-# That path runs on every refresh, so it starts no process but mv. The band
-# makes the folder 0700; this script writes its own files under umask 077 and
+# That path runs on every refresh, so it starts no process but mv. Whichever of
+# the band and this script makes the folder makes it 0700; this script writes
+# its own files under umask 077 and
 # leaves the person&#x27;s command the umask it inherited. Without the
 # marker (the band switched off, not loaded, or a Claude Code without mods),
 # the person&#x27;s own user statusLine runs instead, because the project setting
@@ -13830,7 +13831,7 @@ if [[ -n ${USER:-} &amp;&amp; $session =~ ^[A-Za-z0-9_-]+$ ]]; then
   if [[ -e &quot;$checkout/.claude/skills/colloid-status-band&quot; &amp;&amp; ! -e &quot;$folder/$session.nomod&quot; ]]; then
     # A folder that cannot be made or is not ours (a dangling link, a read-only
     # TMPDIR) gets no wait: no .nomod could end it, so every refresh would wait.
-    [[ -e $folder || -L $folder ]] || (umask 077; mkdir &quot;$folder&quot;) 2&gt;/dev/null
+    [[ -e $folder || -L $folder ]] || (umask 077; mkdir -p &quot;$folder&quot;) 2&gt;/dev/null
     if ours; then
       for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
         sleep 0.1

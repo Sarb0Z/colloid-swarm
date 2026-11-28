@@ -316,7 +316,8 @@ test('an opening the engine aborted is retried on a timer, not reported, and dra
 })
 
 test('after three aborted openings the band reports once and leaves no marker', async ($, on) => {
-  const { logged, written, files, clock } = world(on, { id: 'abort-2', status: STATUS, git: TRUNK, gitAborts: 9 })
+  const { logged, written, files, put, clock } = world(on, { id: 'abort-2', status: STATUS, git: TRUNK, gitAborts: 9 })
+  put(`${FOLDER}/abort-2.nomod`, '')
   const ui = await $.ui.mount(BAND())
   await clock.advance(250)
   await clock.advance(500)
@@ -327,6 +328,7 @@ test('after three aborted openings the band reports once and leaves no marker', 
   ])
   expect(written).toEqual([])
   expect(files.has(`${FOLDER}/abort-2.on`)).toBe(false)
+  expect(files.has(`${FOLDER}/abort-2.nomod`)).toBe(true)
   await ui.unmount()
 })
 
