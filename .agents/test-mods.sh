@@ -12,7 +12,23 @@ if ! command -v claude >/dev/null; then
   exit 1
 fi
 
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+
+# claude plugin validate type-checks a mod's module and tests but reports each
+# TypeScript error as a warning and still exits 0, and --strict also fails on
+# warnings no mod can act on, such as a missing icon. So a mod validates only
+# when the command passes and prints no `error TS` line.
+validates() {  # <mod folder>; prints the validator's report when it fails
+  local report
+  if ! report="$(claude plugin validate "$1" 2>&1)" || grep -q 'error TS' <<<"$report"; then
+    printf '%s\n' "$report" >&2
+    return 1
+  fi
+}
+
 count=0
+first=""
 for manifest in "$mods"/*/.claude-plugin/plugin.json; do
   [[ -f "$manifest" ]] || continue
   mod="$(dirname "$(dirname "$manifest")")"
@@ -21,9 +37,10 @@ for manifest in "$mods"/*/.claude-plugin/plugin.json; do
     echo "FAIL: $name has no tests/*.test.ts; every mod ships a firing test" >&2
     exit 1
   fi
-  claude plugin validate "$mod" >/dev/null || { claude plugin validate "$mod" >&2; echo "FAIL: $name does not validate" >&2; exit 1; }
+  validates "$mod" || { echo "FAIL: $name does not validate, or does not type-check" >&2; exit 1; }
   claude plugin test "$mod" || { echo "FAIL: $name's tests failed" >&2; exit 1; }
-  printf 'ok    %s validates and its tests pass\n' "$name"
+  printf 'ok    %s validates, type-checks and its tests pass\n' "$name"
+  first="${first:-$mod}"
   count=$((count + 1))
 done
 
@@ -32,12 +49,21 @@ if [[ "$count" -eq 0 ]]; then
   exit 1
 fi
 
+# A copy of a passing mod with one type error must fail, so a pass means the
+# type check still runs and is still read.
+cp -R "$first" "$scratch/mistyped"
+probe="$(compgen -G "$scratch/mistyped/tests/*.test.ts" | head -n 1)"
+printf '\nexport const colloidTypeProbe: number = "not a number"\n' >> "$probe"
+if validates "$scratch/mistyped" 2>/dev/null; then
+  echo "FAIL: a copy of $(basename "$first") with a type error in $(basename "$probe") still validated; the type check no longer gates the mods" >&2
+  exit 1
+fi
+printf 'ok    a mod with a type error does not validate\n'
+
 # A plugin under .agents/claude/plugins declares components and no module, so
 # validation is its whole gate. The validator rejects an unknown key inside an
 # lspServers entry; the broken copy proves it still does, so a pass means
 # something.
-scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
 for manifest in "$repo"/.agents/claude/plugins/*/.claude-plugin/plugin.json; do
   [[ -f "$manifest" ]] || continue
   plugin="$(dirname "$(dirname "$manifest")")"
