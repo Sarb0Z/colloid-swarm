@@ -49,16 +49,23 @@ if [[ "$count" -eq 0 ]]; then
   exit 1
 fi
 
-# A copy of a passing mod with one type error must fail, so a pass means the
-# type check still runs and is still read.
+# A copy of a passing mod with one type error in its hooks module and one in a
+# test file must report both, so a pass means the type check still runs over
+# the shipped code and the tests, and is still read.
 cp -R "$first" "$scratch/mistyped"
-probe="$(compgen -G "$scratch/mistyped/tests/*.test.ts" | head -n 1)"
-printf '\nexport const colloidTypeProbe: number = "not a number"\n' >> "$probe"
-if validates "$scratch/mistyped" 2>/dev/null; then
-  echo "FAIL: a copy of $(basename "$first") with a type error in $(basename "$probe") still validated; the type check no longer gates the mods" >&2
+module="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["modules"][0])' "$scratch/mistyped/hooks/hooks.json")"
+tests=("$scratch"/mistyped/tests/*.test.ts)
+for target in "$scratch/mistyped/hooks/$module" "${tests[0]}"; do
+  printf '\nexport const colloidTypeProbe: number = "not a number"\n' >> "$target"
+done
+report="$(claude plugin validate "$scratch/mistyped" 2>&1)" || true
+if [[ "$(grep -c 'error TS' <<<"$report" || true)" -lt 2 ]]; then
+  printf '%s\n' "$report" >&2
+  echo "FAIL: a copy of $(basename "$first") with a type error in hooks/$module and in $(basename "${tests[0]}") did not report both; the type check no longer gates the mods" >&2
   exit 1
 fi
-printf 'ok    a mod with a type error does not validate\n'
+validates "$scratch/mistyped" 2>/dev/null && { echo "FAIL: a mod reporting type errors still validated" >&2; exit 1; }
+printf 'ok    a mod with a type error in its module and its tests does not validate\n'
 
 # A plugin under .agents/claude/plugins declares components and no module, so
 # validation is its whole gate. The validator rejects an unknown key inside an

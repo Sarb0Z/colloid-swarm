@@ -237,10 +237,10 @@ Each mod lives in `mods/<name>/`: `.claude-plugin/plugin.json`,
 JSX), and `tests/*.test.ts`.
 `.claude/skills/colloid-<name>` links to it, because Claude Code loads a
 plugin folder it finds under the project's `.claude/skills/`.
-`check-layout.py` derives that link from the folder. Claude Code writes type
-declarations into `.claude-plugin/types/` each time it loads a mod, and a
-`tsconfig.json` extending them when it loads the folder through
-`CLAUDE_CODE_PLUGIN_DIRS`; both are gitignored.
+`check-layout.py` derives that link from the folder. For an editor, Claude Code
+writes type declarations into `.claude-plugin/types/` when it loads a mod, and
+a `tsconfig.json` extending them when it loads the folder through
+`CLAUDE_CODE_PLUGIN_DIRS`; both are gitignored, and validate needs neither.
 
 A mod reads its switch at session start through `hooks/lib/config.py`, so
 `policy.json` and `config.json` switch it like a settings hook:
@@ -248,7 +248,10 @@ A mod reads its switch at session start through `hooks/lib/config.py`, so
 it.
 
 `test-mods.sh` runs `claude plugin validate` and `claude plugin test` on every
-mod. Both run with no login. CI runs them against the Claude Code version that
+mod. Validate type-checks the module and the tests but reports a TypeScript
+error as a warning and still exits 0, so a mod fails when validate prints an
+`error TS` line; a copy of a mod with planted type errors proves the check
+still runs. Both commands run with no login. CI runs them against the Claude Code version that
 `ci.yml` pins. A Claude Code release older than 2.1.287 loads no mods.
 
 | Mod | What the user sees |

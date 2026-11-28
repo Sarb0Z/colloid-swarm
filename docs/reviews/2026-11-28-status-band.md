@@ -135,3 +135,15 @@ and 4 trail as one commit by the lead.
 The writer edited `register.tsx` with a script instead of the edit tool; the
 reviewer found the formatting consistent and no post-edit check that would have
 run on the file.
+
+Round 6, review of the mod type check the operator approved for round 5
+finding 2 (`8984b93`, `b56d736`), by a Sonnet `reviewer` cell with the reviewer
+contract, which ran `test-mods.sh` twice. Verdict: `CONFORMANCE: yes`, 3 `P2`,
+no `P0` or `P1`. The retyped fakes keep both pass and fail paths, and validate
+type-checks a fresh checkout with no `.claude-plugin/types`.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | P2 | `.agents/claude/README.md` does not say validate's `error TS` lines fail a mod, and says the declarations are written "each time it loads a mod" as if the check needed them | adopted: both sentences rewritten |
+| 2 | P2 | The probe accepts any failure as proof and discards the report; `compgen … \| head` can abort silently under `pipefail` | adopted: the probe requires the `error TS` lines, prints the report when they are missing, and takes the file from a glob array |
+| 3 | P2 | The probe plants its error only in a test file, so losing the check on shipped hooks code would pass | adopted: it plants one in the hooks module named by `hooks.json` and one in a test file, and requires both reported |
